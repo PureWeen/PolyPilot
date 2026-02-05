@@ -1,0 +1,1 @@
+/usr/local/share/dotnet/packs/Microsoft.NETCore.App.Runtime.AOT.osx-arm64.Cross.maccatalyst-arm64/10.0.1/Sdk/../tools/mono-aot-cross

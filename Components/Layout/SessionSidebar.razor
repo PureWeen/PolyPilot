@@ -1,0 +1,279 @@
+@using AutoPilot.App.Services
+@using AutoPilot.App.Models
+@inject CopilotService CopilotService
+@inject IJSRuntime JS
+
+<div class="sidebar-content">
+    <div class="sidebar-header">
+        <h3>🤖 AutoPilot</h3>
+        <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")">
+            @(CopilotService.IsInitialized ? "● Connected" : "○ Disconnected")
+        </p>
+        <div class="nav-tabs">
+            <a href="/" class="nav-tab" @onclick='() => CopilotService.SaveUiState("/")'>💬 Chat</a>
+            <a href="/dashboard" class="nav-tab" @onclick='() => CopilotService.SaveUiState("/dashboard")'>🎛️ Dashboard</a>
+        </div>
+    </div>
+
+    <div class="new-session">
+        <input type="text" id="sessionNameInput"
+               placeholder="Session name..." />
+        <select @bind="selectedModel" class="model-select">
+            @foreach (var model in availableModels)
+            {
+                <option value="@model">@model</option>
+            }
+        </select>
+        <button @onclick="CreateSession" disabled="@isCreating">
+            @(isCreating ? "..." : "+")
+        </button>
+    </div>
+
+    <div class="session-list">
+        <div class="section-header">Active Sessions</div>
+        @if (!sessions.Any())
+        {
+            <p class="no-sessions">No active sessions.<br/>Create one above or resume below.</p>
+        }
+        else
+        {
+            @foreach (var session in sessions)
+            {
+                var cssClass = session.Name == CopilotService.ActiveSessionName ? "active" : 
+                               completedSessions.Contains(session.Name) ? "completed" :
+                               session.IsProcessing ? "busy" : "";
+                <div class="session-item @cssClass"
+                     @onclick="() => SelectSession(session.Name)">
+                    <div class="session-info">
+                        <span class="session-name">
+                            @if (completedSessions.Contains(session.Name))
+                            {
+                                <span class="done-badge">✓</span>
+                            }
+                            @session.Name
+                            @if (session.IsResumed)
+                            {
+                                <span class="resumed-badge">resumed</span>
+                            }
+                        </span>
+                        <span class="session-meta">@session.MessageCount msgs • @session.Model</span>
+                    </div>
+                    <div class="session-actions">
+                        @if (session.IsProcessing)
+                        {
+                            <span class="processing">●</span>
+                        }
+                        <button class="close-btn" @onclick:stopPropagation="true" 
+                                @onclick="() => CloseSession(session.Name)">×</button>
+                    </div>
+                </div>
+            }
+        }
+
+        @if (persistedSessions.Any())
+        {
+            <div class="section-header" @onclick="TogglePersistedSessions" style="cursor: pointer;">
+                📁 Saved Sessions (@filteredPersistedSessions.Count())
+                <span class="toggle-icon">@(showPersistedSessions ? "▼" : "▶")</span>
+            </div>
+            
+            @if (showPersistedSessions)
+            {
+                <div class="filter-box">
+                    <input type="text" @bind="sessionFilter" @bind:event="oninput" 
+                           placeholder="🔍 Filter sessions..." class="filter-input" />
+                </div>
+                
+                @foreach (var persisted in filteredPersistedSessions.Take(30))
+                {
+                    <div class="session-item persisted" 
+                         @onclick="() => ResumeSession(persisted)"
+                         title="@GetTooltip(persisted)">
+                        <div class="session-info">
+                            <span class="session-name persisted-name">@(persisted.Title ?? "Untitled")</span>
+                            <span class="session-meta">
+                                @persisted.LastModified.ToString("MMM dd HH:mm")
+                                @if (!string.IsNullOrEmpty(persisted.WorkingDirectory))
+                                {
+                                    <text> • @GetShortPath(persisted.WorkingDirectory)</text>
+                                }
+                            </span>
+                        </div>
+                        <span class="resume-icon">↻ Resume</span>
+                    </div>
+                }
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private string newSessionName = "";
+    private string selectedModel = "claude-opus-4.6";
+    private string sessionFilter = "";
+    private bool isCreating = false;
+    private bool showPersistedSessions = false;
+    private List<AgentSessionInfo> sessions = new();
+    private List<PersistedSessionInfo> persistedSessions = new();
+
+    private readonly string[] availableModels = new[]
+    {
+        "claude-opus-4.6",
+        "claude-sonnet-4.5",
+        "claude-sonnet-4",
+        "claude-haiku-4.5",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-5",
+        "gpt-5-mini",
+        "gemini-3-pro-preview",
+    };
+
+    private IEnumerable<PersistedSessionInfo> filteredPersistedSessions => 
+        string.IsNullOrWhiteSpace(sessionFilter) 
+            ? persistedSessions 
+            : persistedSessions.Where(s => 
+                (s.Title?.Contains(sessionFilter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (s.Preview?.Contains(sessionFilter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (s.WorkingDirectory?.Contains(sessionFilter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                s.SessionId.Contains(sessionFilter, StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnInitialized()
+    {
+        CopilotService.OnStateChanged += RefreshSessions;
+        CopilotService.OnSessionComplete += HandleSessionComplete;
+        RefreshSessions();
+        LoadPersistedSessions();
+    }
+
+    private HashSet<string> completedSessions = new();
+
+    private void HandleSessionComplete(string sessionName, string summary)
+    {
+        completedSessions.Add(sessionName);
+        InvokeAsync(StateHasChanged);
+        // Auto-clear highlight after 10 seconds
+        _ = Task.Delay(10000).ContinueWith(_ =>
+        {
+            completedSessions.Remove(sessionName);
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Set up Enter key handler via JS to avoid Blazor round-trips on every keystroke
+            await JS.InvokeVoidAsync("eval", @"
+                document.getElementById('sessionNameInput')?.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        document.querySelector('.new-session button')?.click();
+                    }
+                });
+            ");
+        }
+    }
+
+    private void RefreshSessions()
+    {
+        sessions = CopilotService.GetAllSessions().ToList();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void LoadPersistedSessions()
+    {
+        persistedSessions = CopilotService.GetPersistedSessions().ToList();
+    }
+
+    private void TogglePersistedSessions()
+    {
+        showPersistedSessions = !showPersistedSessions;
+        if (showPersistedSessions)
+        {
+            LoadPersistedSessions();
+        }
+    }
+
+    private async Task CreateSession()
+    {
+        // Read value from DOM directly to avoid binding lag
+        var name = await JS.InvokeAsync<string>("eval", "document.getElementById('sessionNameInput')?.value || ''");
+        if (string.IsNullOrWhiteSpace(name) || isCreating) return;
+
+        isCreating = true;
+        try
+        {
+            var sessionInfo = await CopilotService.CreateSessionAsync(name.Trim(), selectedModel);
+            CopilotService.SwitchSession(sessionInfo.Name);
+            // Clear the input
+            await JS.InvokeVoidAsync("eval", "document.getElementById('sessionNameInput').value = ''");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error creating session: {ex.Message}");
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private async Task ResumeSession(PersistedSessionInfo persisted)
+    {
+        isCreating = true;
+        try
+        {
+            // Use the session title as the display name
+            var title = persisted.Title ?? "Untitled";
+            // Truncate and make unique
+            var displayName = title.Length > 30 ? title[..27] + "..." : title;
+            var sessionInfo = await CopilotService.ResumeSessionAsync(persisted.SessionId, displayName);
+            CopilotService.SwitchSession(sessionInfo.Name);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error resuming session: {ex.Message}");
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private void SelectSession(string name)
+    {
+        completedSessions.Remove(name);
+        CopilotService.SwitchSession(name);
+        CopilotService.SaveUiState("/", name);
+    }
+
+    private async Task CloseSession(string name)
+    {
+        await CopilotService.CloseSessionAsync(name);
+    }
+
+    private string GetTooltip(PersistedSessionInfo persisted)
+    {
+        var tooltip = $"Session: {persisted.SessionId}\n";
+        if (!string.IsNullOrEmpty(persisted.WorkingDirectory))
+            tooltip += $"Directory: {persisted.WorkingDirectory}\n";
+        if (!string.IsNullOrEmpty(persisted.Preview))
+            tooltip += $"\nFirst message:\n{persisted.Preview}";
+        return tooltip;
+    }
+
+    private string GetShortPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return "";
+        var parts = path.Split('/');
+        return parts.Length > 2 ? "~/" + parts[^1] : path;
+    }
+
+    public void Dispose()
+    {
+        CopilotService.OnStateChanged -= RefreshSessions;
+        CopilotService.OnSessionComplete -= HandleSessionComplete;
+    }
+}

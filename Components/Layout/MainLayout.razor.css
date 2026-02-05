@@ -1,0 +1,45 @@
+.page {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+main {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.content {
+    flex: 1;
+    overflow: hidden;
+    padding: 0;
+}
+
+.sidebar {
+    background: #1a1a2e;
+}
+
+@media (max-width: 640.98px) {
+    .sidebar {
+        height: auto;
+        max-height: 40vh;
+    }
+}
+
+@media (min-width: 641px) {
+    .page {
+        flex-direction: row;
+    }
+
+    .sidebar {
+        width: 280px;
+        height: 100vh;
+        position: sticky;
+        top: 0;
+        flex-shrink: 0;
+    }
+}

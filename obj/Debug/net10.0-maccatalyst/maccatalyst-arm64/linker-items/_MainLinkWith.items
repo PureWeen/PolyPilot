@@ -1,0 +1,6 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <_MainLinkWith Include="/usr/local/share/dotnet/packs/Microsoft.MacCatalyst.Runtime.maccatalyst-arm64.net10.0_26.2/26.2.10191/runtimes/maccatalyst-arm64/native/Microsoft.MacCatalyst.registrar.a" />
+  </ItemGroup>
+</Project>

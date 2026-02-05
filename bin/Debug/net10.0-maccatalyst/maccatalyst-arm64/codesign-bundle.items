@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <_CodesignBundle Include="AutoPilot.App.app">
+      <EnableCodeSigning>true</EnableCodeSigning>
+      <CodesignSigningKey>-</CodesignSigningKey>
+      <CodesignEntitlements>/Users/shneuvil/Projects/AutoPilot.App/obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/Entitlements.xcent</CodesignEntitlements>
+      <CodesignUseSecureTimestamp></CodesignUseSecureTimestamp>
+      <CodesignAllocate>/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/codesign_allocate</CodesignAllocate>
+      <CodesignExtraArgs></CodesignExtraArgs>
+      <CodesignResourceRules></CodesignResourceRules>
+      <CodesignDisableTimestamp>true</CodesignDisableTimestamp>
+      <CodesignKeychain></CodesignKeychain>
+      <CodesignUseHardenedRuntime></CodesignUseHardenedRuntime>
+      <SourceProjectPath>/Users/shneuvil/Projects/AutoPilot.App</SourceProjectPath>
+    </_CodesignBundle>
+  </ItemGroup>
+</Project>

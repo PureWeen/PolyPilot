@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <_BundleResourceWithLogicalName Include="obj/Debug/net10.0-ios/iossimulator-arm64/ibtool/MauiSplash.storyboardc/01J-lp-oVM-view-Ze5-6b-2t3.nib">
+      <Optimize>false</Optimize>
+      <InterfaceDefinition>obj/Debug/net10.0-ios/iossimulator-arm64/resizetizer/sp/MauiSplash.storyboard</InterfaceDefinition>
+      <LogicalName>MauiSplash.storyboardc/01J-lp-oVM-view-Ze5-6b-2t3.nib</LogicalName>
+      <OriginalItemSpec>obj/Debug/net10.0-ios/iossimulator-arm64/ibtool/MauiSplash.storyboardc</OriginalItemSpec>
+    </_BundleResourceWithLogicalName>
+    <_BundleResourceWithLogicalName Include="obj/Debug/net10.0-ios/iossimulator-arm64/ibtool/MauiSplash.storyboardc/UIViewController-01J-lp-oVM.nib">
+      <Optimize>false</Optimize>
+      <InterfaceDefinition>obj/Debug/net10.0-ios/iossimulator-arm64/resizetizer/sp/MauiSplash.storyboard</InterfaceDefinition>
+      <LogicalName>MauiSplash.storyboardc/UIViewController-01J-lp-oVM.nib</LogicalName>
+      <OriginalItemSpec>obj/Debug/net10.0-ios/iossimulator-arm64/ibtool/MauiSplash.storyboardc</OriginalItemSpec>
+    </_BundleResourceWithLogicalName>
+    <_BundleResourceWithLogicalName Include="obj/Debug/net10.0-ios/iossimulator-arm64/ibtool/MauiSplash.storyboardc/Info.plist">
+      <Optimize>false</Optimize>
+      <InterfaceDefinition>obj/Debug/net10.0-ios/iossimulator-arm64/resizetizer/sp/MauiSplash.storyboard</InterfaceDefinition>
+      <LogicalName>MauiSplash.storyboardc/Info.plist</LogicalName>
+      <OriginalItemSpec>obj/Debug/net10.0-ios/iossimulator-arm64/ibtool/MauiSplash.storyboardc</OriginalItemSpec>
+    </_BundleResourceWithLogicalName>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,2 @@
+USB Debugging: 1
+Port: 10000

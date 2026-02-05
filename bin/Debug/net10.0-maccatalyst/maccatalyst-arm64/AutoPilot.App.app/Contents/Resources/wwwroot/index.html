@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>AutoPilot.App</title>
+    <base href="/" />
+    <link rel="stylesheet" href="lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="AutoPilot.App.styles.css" />
+    <link rel="icon" href="data:,">
+</head>
+
+<body>
+
+    <div class="status-bar-safe-area"></div>
+
+    <div id="app">Loading...</div>
+
+    <div id="blazor-error-ui" data-nosnippet>
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+    <script>
+        // Request notification permission on load
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+
+        window.scrollToBottom = function(element) {
+            if (element) {
+                element.scrollTop = element.scrollHeight;
+            }
+        };
+
+        window.showNotification = function(sessionName, summary) {
+            // Play a sound
+            try {
+                const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEA...');
+                // Simple beep instead
+            } catch(e) {}
+
+            // Browser notification
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification('AutoPilot: ' + sessionName, {
+                    body: summary.substring(0, 100) + (summary.length > 100 ? '...' : ''),
+                    icon: '🤖',
+                    tag: 'session-complete-' + sessionName
+                });
+            }
+            
+            // Also show in-app notification
+            const toast = document.createElement('div');
+            toast.className = 'toast-notification';
+            toast.innerHTML = '<strong>' + sessionName + '</strong> finished<br/>' + 
+                summary.substring(0, 80) + (summary.length > 80 ? '...' : '');
+            document.body.appendChild(toast);
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
+        };
+    </script>
+
+</body>
+
+</html>

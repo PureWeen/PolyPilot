@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.actool.compilation-results</key>
+	<dict>
+		<key>output-files</key>
+		<array>
+			<string>/Users/shneuvil/Projects/AutoPilot.App/obj/Debug/net10.0-ios/iossimulator-arm64/actool/bundle/Assets.car</string>
+			<string>/Users/shneuvil/Projects/AutoPilot.App/obj/Debug/net10.0-ios/iossimulator-arm64/actool/bundle/appicon60x60@2x.png</string>
+			<string>/Users/shneuvil/Projects/AutoPilot.App/obj/Debug/net10.0-ios/iossimulator-arm64/actool/bundle/appicon76x76@2x~ipad.png</string>
+			<string>/Users/shneuvil/Projects/AutoPilot.App/obj/Debug/net10.0-ios/iossimulator-arm64/actool/partial-info.plist</string>
+		</array>
+	</dict>
+</dict>
+</plist>

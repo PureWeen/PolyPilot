@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <_AssembliesToAOT Include="obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/linked/System.Private.CoreLib.dll">
+      <Arguments>--aot=mtriple=arm64-apple-ios15.0-macabi data-outfile=obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/nativelibraries/aot-output/arm64/System.Private.CoreLib.aotdata static asmonly direct-icalls interp dwarfdebug no-direct-calls outfile=obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/nativelibraries/aot-output/arm64/System.Private.CoreLib.dll.s</Arguments>
+      <ProcessArguments>--debug</ProcessArguments>
+      <Abi>ARM64</Abi>
+      <Arch>arm64</Arch>
+      <AOTData>obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/nativelibraries/aot-output/arm64/System.Private.CoreLib.aotdata</AOTData>
+      <AOTAssembly>obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/nativelibraries/aot-output/arm64/System.Private.CoreLib.dll.s</AOTAssembly>
+      <LLVMFile></LLVMFile>
+      <ObjectFile>obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/nativelibraries/aot-output/arm64/System.Private.CoreLib.dll.o</ObjectFile>
+    </_AssembliesToAOT>
+  </ItemGroup>
+</Project>

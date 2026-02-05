@@ -1,0 +1,2255 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ReferenceNativeSymbol Include="_SystemNative_Log">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Stat">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_ConvertErrorPlatformToPal">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_ConvertErrorPalToPlatform">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_StrErrorR">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetSid">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_RegisterForSigChld">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetEUid">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetEGid">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetHostName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_ForkAndExecProcess">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetGroupList">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetPwNamR">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetPriority">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetPriority">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_InitializeTerminalAndSignalHandling">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Kill">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetRLimit">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetRLimit">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_WaitIdAnyExitedNoHangNoWait">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_WaitPidExitedNoHang">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Access">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetGroups">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_MkNod">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetDeviceIdentifiers">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetPwUidR">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetGroupName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Link">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_MkFifo">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LStat">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliDecoderDecompress">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliDecoderDestroyInstance">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliEncoderMaxCompressedSize">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliEncoderDestroyInstance">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliEncoderCompress">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliDecoderCreateInstance">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliDecoderDecompressStream">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliDecoderIsFinished">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliEncoderCreateInstance">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliEncoderSetParameter">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliEncoderCompressStream">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_BrotliEncoderHasMoreOutput">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FStat">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_CompressionNative_DeflateInit2_">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_CompressionNative_Deflate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_CompressionNative_DeflateEnd">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_CompressionNative_InflateInit2_">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_CompressionNative_InflateReset2_">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_CompressionNative_Inflate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_CompressionNative_InflateEnd">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_CompressionNative_Crc32">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetAllMountPoints">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetSpaceInfoForMountPoint">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetFileSystemTypeNameForMountPoint">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_RealPath">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Sync">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FcntlSetFD">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_MMap">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_MUnmap">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_MSync">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SysConf">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FTruncate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_MAdvise">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_ShmOpen">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_ShmUnlink">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_MemfdCreate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_IsMemfdSupported">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Unlink">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FcntlCanGetSetPipeSz">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FcntlGetPipeSz">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FcntlSetPipeSz">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetEUid">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Close">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Pipe">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetPeerID">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetNameInfo">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FreeHostEntry">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Socket">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetHostEntryForName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_EnumerateInterfaceAddresses">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_EnumerateGatewayAddressesForInterface">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetDomainName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetTcpGlobalStatistics">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetIPv4GlobalStatistics">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetUdpGlobalStatistics">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetIcmpv4GlobalStatistics">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetIcmpv6GlobalStatistics">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetNumRoutes">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetEstimatedTcpConnectionCount">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetActiveTcpConnectionInfos">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetEstimatedUdpListenerCount">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetActiveUdpListeners">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetNativeIPInterfaceStatistics">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetSocketAddressSizes">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetAddressFamily">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetIPv4Address">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetIPv6Address">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_ReceiveSocketError">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetAddressFamily">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetPort">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetPort">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetIPv4Address">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetIPv6Address">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_InterfaceNameToIndex">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_ReleaseGssBuffer">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_EnsureGssInitialized">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_DisplayMinorStatus">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_DisplayMajorStatus">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_ImportUserName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_ImportPrincipalName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_ReleaseName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_AcquireAcceptorCred">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_InitiateCredSpNego">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_InitiateCredWithPassword">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_ReleaseCred">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_InitSecContext">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_InitSecContextEx">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_AcceptSecContext">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_DeleteSecContext">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_GetUser">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_Wrap">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_Unwrap">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_GetMic">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_VerifyMic">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_NetSecurityNative_IsNtlmInstalled">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SecCopyErrorMessageString">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslCreateContext">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetConnection">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetMinProtocolVersion">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetMaxProtocolVersion">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslCopyCertChain">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslCopyCADistinguishedNames">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetBreakOnServerAuth">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetBreakOnClientAuth">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetBreakOnClientHello">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetBreakOnCertRequested">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetCertificate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetTargetName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SSLSetALPNProtocols">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SSLSetALPNProtocol">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslGetAlpnSelected">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslHandshake">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetAcceptClientCert">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetIoCallbacks">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslWrite">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslRead">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslShutdown">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslGetCipherSuite">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslGetProtocolVersion">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetEnabledCipherSuites">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SslSetCertificateAuthorities">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509ChainGetChainSize">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509ChainGetCertificateAtIndex">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_Init">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_NwConnectionCreate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_NwConnectionStart">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_NwFramerDeliverInput">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_NwConnectionSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_NwConnectionReceive">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_NwConnectionCancel">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_GetConnectionInfo">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FcntlSetIsNonBlocking">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FcntlGetIsNonBlocking">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FcntlGetFD">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_CreateSocketEventPort">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_CloseSocketEventPort">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_CreateSocketEventBuffer">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FreeSocketEventBuffer">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_TryChangeSocketEventRegistration">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_WaitForSocketEvents">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Disconnect">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetDomainSocketSizes">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetMaximumAddressSize">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetSockOpt">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetControlMessageBufferSize">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetLingerOption">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Poll">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_PlatformSupportsDualModeIPv4PacketInfo">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetSockOpt">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Shutdown">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Accept">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Bind">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Connect">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Connectx">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetBytesAvailable">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetAtOutOfBandMark">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetPeerName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetSocketErrorOption">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetSocketType">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetSockName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetRawSockOpt">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_TryGetIPPacketInformation">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetLingerOption">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SendFile">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetSendTimeout">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetReceiveTimeout">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Listen">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetIPv4MulticastOption">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetIPv4MulticastOption">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetIPv6MulticastOption">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetIPv6MulticastOption">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Read">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Receive">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_ReceiveMessage">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Send">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Select">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SendMessage">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetRawSockOpt">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Write">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_DigestFree">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_DigestOneShot">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_HmacFree">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_HmacOneShot">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_Pbkdf2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_GetRandomBytes">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_CryptorFree">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_GetOSStatusForChainStatus">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_ChaCha20Poly1305Encrypt">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_ChaCha20Poly1305Decrypt">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_AesGcmEncrypt">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_AesGcmDecrypt">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_IsAuthenticationFailure">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_DigestCreate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_DigestUpdate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_DigestFinal">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_DigestCurrent">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_DigestReset">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_DigestClone">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_EccGenerateKey">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_EccGetKeySizeInBits">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_HmacCreate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_HmacInit">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_HmacUpdate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_HmacFinal">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_HmacCurrent">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_HmacClone">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_EcdhKeyAgree">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_RsaGenerateKey">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_RsaSignaturePrimitive">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_RsaVerificationPrimitive">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_RsaEncryptionPrimitive">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_RsaEncryptOaep">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_RsaEncryptPkcs">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_RsaDecryptOaep">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_RsaDecryptRaw">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SecKeyGetSimpleKeySizeInBytes">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SecKeyCreateWithData">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SecKeyCopyExternalRepresentation">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SecKeyCopyPublicKey">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SecKeyVerifySignature">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SecKeyCreateSignature">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_CryptorCreate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_CryptorUpdate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_CryptorReset">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509GetRawData">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509GetSubjectSummary">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509GetPublicKey">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509GetContentType">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509CopyCertFromIdentity">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509CopyPrivateKeyFromIdentity">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509DemuxAndRetainHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509ChainCreateDefaultPolicy">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509ChainCreateRevocationPolicy">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509ChainCreate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509ChainEvaluate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509ChainGetTrustResults">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509ChainGetStatusAtIndex">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509ChainSetTrustAnchorCertificates">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SecKeychainEnumerateCerts">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_SecKeychainEnumerateIdentities">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509StoreAddCertificate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509StoreRemoveCertificate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509ImportCertificate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_AppleCryptoNative_X509ImportCollection">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLatestJapaneseEra">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLatestJapaneseEraNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_InitOrdinalCasingPage">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_CloseSortHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_CompareString">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_IndexOf">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_LastIndexOf">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetSortKey">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetSortVersion">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetICUVersion">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_ToAscii">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_ToUnicode">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_IsNormalized">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_NormalizeString">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_IsNormalizedNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_NormalizeStringNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetCalendars">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetCalendarInfo">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetJapaneseEraStartDate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetCalendarsNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetCalendarInfoNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetJapaneseEraStartDateNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_ChangeCase">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_ChangeCaseInvariant">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_ChangeCaseTurkish">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_ChangeCaseNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_ChangeCaseInvariantNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetSortHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_StartsWith">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_EndsWith">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_CompareStringNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_EndsWithNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_IndexOfNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_StartsWithNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetSortKeyNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocaleName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocaleInfoString">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetDefaultLocaleName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_IsPredefinedLocale">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocaleTimeFormat">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocaleInfoInt">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocaleInfoGroupingSizes">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocales">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetDefaultLocaleNameNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocaleInfoStringNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocaleInfoIntNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocaleInfoPrimaryGroupingSizeNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocaleInfoSecondaryGroupingSizeNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocaleNameNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocalesNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetLocaleTimeFormatNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_IsPredefinedLocaleNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetTimeZoneDisplayName">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_GlobalizationNative_GetTimeZoneDisplayNameNative">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetErrNo">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SetErrNo">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetEnviron">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FreeEnviron">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetOSArchitecture">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetNonCryptographicallySecureRandomBytes">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetCryptographicallySecureRandomBytes">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetSystemTimeAsTicks">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetLowResolutionTimestamp">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetTimestamp">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LChflagsCanSetHiddenFlag">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_CanGetHiddenFlag">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LogError">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LowLevelMonitor_Create">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LowLevelMonitor_Destroy">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LowLevelMonitor_Acquire">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LowLevelMonitor_Release">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LowLevelMonitor_Wait">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LowLevelMonitor_Signal_Release">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_AlignedAlloc">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_AlignedFree">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_AlignedRealloc">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Calloc">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Free">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Malloc">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Realloc">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_ReadDir">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SchedGetCpu">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_TryGetUInt32OSThreadId">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetPid">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_CreateAutoreleasePool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_DrainAutoreleasePool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_ChDir">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_ChMod">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FChMod">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_CopyFile">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetDefaultSearchOrderPseudoHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetFileSystemType">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FLock">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FSync">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetCpuUtilization">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetCwd">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetDefaultTimeZone">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetEnv">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_GetProcessPath">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LChflags">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FChflags">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LowLevelMonitor_TimedWait">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_LSeek">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_MkDir">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_MkdTemp">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_MksTemps">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Open">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_PosixFAdvise">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FAllocate">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_PRead">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_PReadV">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_PWrite">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_PWriteV">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_OpenDir">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_CloseDir">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_ReadLink">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_Rename">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_RmDir">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SymLink">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SysLog">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_UTimensat">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_FUTimens">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SearchPath">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_SearchPath_TempDirectory">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_SystemNative_iOSSupportVersion">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_CGPoint__VNNormalizedFaceBoundingBoxPointForLandmarkPoint_Vector2_CGRect_nuint_nuint_string">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_CGPoint__VNImagePointForFaceLandmarkPoint_Vector2_CGRect_nuint_nuint_string">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_OBJC_CLASS_$_XamarinSwiftFunctions">
+      <SymbolType>ObjectiveCClass</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_UIApplicationMain">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_os_log">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_release_managed_ref">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_set_gchandle_with_flags_safe">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_localized_string_format">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_localized_string_format_1">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_localized_string_format_2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_localized_string_format_3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_localized_string_format_4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_localized_string_format_5">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_localized_string_format_6">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_localized_string_format_7">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_localized_string_format_8">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_localized_string_format_9">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_init_nsthread">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_locate_assembly_resource">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_switch_gchandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_mono_object_retain">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_find_protocol_wrapper_type">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_is_user_type">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_log">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_release_block_on_main_thread">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_get_original_working_directory_path">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_get_block_descriptor">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_is_object_valid">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_free">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix3_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix3_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix3_objc_msgSend_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix3_objc_msgSendSuper_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4x3_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4x3_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4x3_objc_msgSend_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4x3_objc_msgSendSuper_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_NativeHandle_objc_msgSend_NativeHandle_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_NativeHandle_objc_msgSendSuper_NativeHandle_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_NativeHandle_objc_msgSend_NativeHandle_NativeHandle_UIntPtr_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_NativeHandle_objc_msgSendSuper_NativeHandle_NativeHandle_UIntPtr_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_NativeHandle_objc_msgSend_NativeHandle_IntPtr_IntPtr_IntPtr_UIntPtr_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_NativeHandle_objc_msgSendSuper_NativeHandle_IntPtr_IntPtr_IntPtr_UIntPtr_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_NativeHandle_objc_msgSend_NativeHandle_UIntPtr_IntPtr_UIntPtr_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_NativeHandle_objc_msgSendSuper_NativeHandle_UIntPtr_IntPtr_UIntPtr_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector2_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector2_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NMatrix3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NMatrix3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector2i_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector2i_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NVector2i_int_int_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NVector2i_int_int_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NVector2i_int_int_bool_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NVector2i_int_int_bool_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSend_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSendSuper_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_float_Vector2_Vector2_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_float_Vector2_Vector2_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_float_Vector2_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_float_Vector2_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__GKTriangle_objc_msgSend_UIntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__GKTriangle_objc_msgSendSuper_UIntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__GKTriangle_objc_msgSend_stret_UIntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__GKTriangle_objc_msgSendSuper_stret_UIntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__float_objc_msgSend_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__float_objc_msgSendSuper_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NVector3d">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NVector3d">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector2d_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector2d_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_NVector2d_NVector2d_NVector2i_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_NVector2d_NVector2d_NVector2i_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__float_objc_msgSend_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__float_objc_msgSendSuper_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_float_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_float_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__GKBox_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__GKBox_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__GKBox_objc_msgSend_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__GKBox_objc_msgSendSuper_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_GKBox_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_GKBox_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_GKBox">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_GKBox">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_GKBox">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_GKBox">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector2_objc_msgSend_UIntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector2_objc_msgSendSuper_UIntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSend_UIntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSendSuper_UIntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_GKQuad_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_GKQuad_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_Vector2_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_Vector2_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_GKQuad">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_GKQuad">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_GKQuad">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_GKQuad">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__GKQuad_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__GKQuad_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NativeHandle_Vector2_Vector2_IntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NativeHandle_Vector2_Vector2_IntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NativeHandle_Vector2_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NativeHandle_Vector2_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_Vector2_Vector2_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_Vector2_Vector2_exception">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSend_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSendSuper_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NMatrix4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NMatrix4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MPSAxisAlignedBoundingBox_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MPSAxisAlignedBoundingBox_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MPSAxisAlignedBoundingBox_objc_msgSend_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MPSAxisAlignedBoundingBox_objc_msgSendSuper_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MPSImageHistogramInfo_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MPSImageHistogramInfo_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MPSImageHistogramInfo_objc_msgSend_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MPSImageHistogramInfo_objc_msgSendSuper_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector4_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector4_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_Vector4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_Vector4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_ref_MPSImageHistogramInfo">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_ref_MPSImageHistogramInfo">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector16b_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector16b_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NMatrix4_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NMatrix4_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NMatrix4d_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NMatrix4d_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSend_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSendSuper_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4d_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4d_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4d_objc_msgSend_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4d_objc_msgSendSuper_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_Quaternion_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_Quaternion_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NQuaterniond_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NQuaterniond_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Quaternion_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Quaternion_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NQuaterniond_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NQuaterniond_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NQuaterniond_objc_msgSend_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NQuaterniond_objc_msgSendSuper_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_Vector2_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_Vector2_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NVector2d_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NVector2d_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector2_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector2_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector2d_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector2d_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NVector3_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NVector3_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NVector3d_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NVector3d_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector3_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector3_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector3d_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector3d_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector3d_objc_msgSend_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector3d_objc_msgSendSuper_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_Vector4_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_Vector4_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NVector4d_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NVector4d_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector4_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector4_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector4d_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector4d_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector4d_objc_msgSend_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector4d_objc_msgSendSuper_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4d_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4d_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4d_objc_msgSend_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4d_objc_msgSendSuper_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NMatrix4d">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NMatrix4d">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSend_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSendSuper_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector3_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector3_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NVector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NVector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSend_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSendSuper_stret_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_MDLAxisAlignedBoundingBox_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_MDLAxisAlignedBoundingBox_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_Vector3_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_Vector3_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSend_NVector2i_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSendSuper_NVector2i_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_bool_NativeHandle_NVector2i_IntPtr_UIntPtr_IntPtr_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_bool_NativeHandle_NVector2i_IntPtr_UIntPtr_IntPtr_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_float_NativeHandle_NVector2i_int_IntPtr_NativeHandle_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_float_NativeHandle_NVector2i_int_IntPtr_NativeHandle_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_float_float_NativeHandle_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_float_float_NativeHandle_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_NativeHandle_NativeHandle_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_NativeHandle_NativeHandle_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_Vector3_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_Vector3_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_UIntPtr_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_UIntPtr_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_UIntPtr_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_UIntPtr_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_UIntPtr_Vector4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_UIntPtr_Vector4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_UIntPtr_NMatrix4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_UIntPtr_NMatrix4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSend_Vector3_NVector3i_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSendSuper_Vector3_NVector3i_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSend_Vector3_NVector2i_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSendSuper_Vector3_NVector2i_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSend_Vector3_NVector2i_bool_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSendSuper_Vector3_NVector2i_bool_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSend_Vector3_NVector2i_bool_bool_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSendSuper_Vector3_NVector2i_bool_bool_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSend_Vector3_NVector2i_int_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSendSuper_Vector3_NVector2i_int_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSend_Vector3_NVector2i_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSendSuper_Vector3_NVector2i_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSend_Vector3_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSendSuper_Vector3_bool_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSend_NativeHandle_int_UInt32_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSendSuper_NativeHandle_int_UInt32_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_Vector3_NVector3i_IntPtr_bool_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_Vector3_NVector3i_IntPtr_bool_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_Vector2_NVector2i_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_Vector2_NVector2i_IntPtr_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_Vector3_UIntPtr_UIntPtr_IntPtr_bool_bool_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_Vector3_UIntPtr_UIntPtr_IntPtr_bool_bool_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_float_Vector2_UIntPtr_UIntPtr_IntPtr_bool_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_float_Vector2_UIntPtr_UIntPtr_IntPtr_bool_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_float_Vector2_UIntPtr_UIntPtr_UIntPtr_IntPtr_bool_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_float_Vector2_UIntPtr_UIntPtr_UIntPtr_IntPtr_bool_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__bool_objc_msgSend_NVector2i_IntPtr_float_NativeHandle_NativeHandle_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__bool_objc_msgSendSuper_NVector2i_IntPtr_float_NativeHandle_NativeHandle_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__bool_objc_msgSend_NVector2i_NativeHandle_NativeHandle_NativeHandle_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__bool_objc_msgSendSuper_NVector2i_NativeHandle_NativeHandle_NativeHandle_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSend_float_NativeHandle_NVector2i_IntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__IntPtr_objc_msgSendSuper_float_NativeHandle_NVector2i_IntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_float_NativeHandle_NVector2i_int_IntPtr_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_float_NativeHandle_NVector2i_int_IntPtr_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_IntPtr_NVector2i_float_float_float_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_IntPtr_NVector2i_float_float_float_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_IntPtr_NVector2i_float_float_float_float_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_IntPtr_NVector2i_float_float_float_float_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_NativeHandle_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_NativeHandle_NVector2i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_NativeHandle_NVector2i_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_NativeHandle_NVector2i_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NMatrix4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NMatrix4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NMatrix4_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NMatrix4_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSend_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSendSuper_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_Vector3_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_Vector3_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSend_NativeHandle_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSendSuper_NativeHandle_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSend_stret_NativeHandle_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSendSuper_stret_NativeHandle_Double">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLVoxelIndexExtent_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLVoxelIndexExtent_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLVoxelIndexExtent_objc_msgSend_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLVoxelIndexExtent_objc_msgSendSuper_stret">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_MDLAxisAlignedBoundingBox_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_MDLAxisAlignedBoundingBox_float">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__bool_objc_msgSend_NVector4i_bool_bool_bool_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__bool_objc_msgSendSuper_NVector4i_bool_bool_bool_bool">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NVector4i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NVector4i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_MDLVoxelIndexExtent">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_MDLVoxelIndexExtent">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector4i_objc_msgSend_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NVector4i_objc_msgSendSuper_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSend_NVector4i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSendSuper_NVector4i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSend_NVector4i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSendSuper_NVector4i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSend_stret_NVector4i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__MDLAxisAlignedBoundingBox_objc_msgSendSuper_stret_NVector4i">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSend_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSendSuper_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSend_stret_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix4_objc_msgSendSuper_stret_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Quaternion_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Quaternion_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_Quaternion_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_Quaternion_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_Quaternion">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_Quaternion">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NVector2d_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NVector2d_NativeHandle">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NVector2d">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NVector2d">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NVector2d_IntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NVector2d_IntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSend_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector3_objc_msgSendSuper_Vector3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_Vector4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_Vector4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_vector_float3__Vector4_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_vector_float3__Vector4_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_vector_float3__void_objc_msgSend_Vector4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_vector_float3__void_objc_msgSendSuper_Vector4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_Quaternion">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_Quaternion">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix2_objc_msgSend">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NMatrix2_objc_msgSendSuper">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSend_NMatrix2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__void_objc_msgSendSuper_NMatrix2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_Vector2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_Vector4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_Vector4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_NMatrix2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_NMatrix2">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_NMatrix3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_NMatrix3">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSend_NativeHandle_NMatrix4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__NativeHandle_objc_msgSendSuper_NativeHandle_NMatrix4">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector2_objc_msgSend_IntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+    <ReferenceNativeSymbol Include="_xamarin_simd__Vector2_objc_msgSendSuper_IntPtr">
+      <SymbolType>Function</SymbolType>
+    </ReferenceNativeSymbol>
+  </ItemGroup>
+</Project>

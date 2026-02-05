@@ -1,0 +1,43 @@
+{
+  "runtimeOptions": {
+    "tfm": "net10.0",
+    "includedFrameworks": [
+      {
+        "name": "Microsoft.NETCore.App",
+        "version": "10.0.1"
+      },
+      {
+        "name": "Microsoft.MacCatalyst",
+        "version": "26.2.10191"
+      },
+      {
+        "name": "Microsoft.MacCatalyst.Runtimes",
+        "version": "26.2.10191"
+      }
+    ],
+    "configProperties": {
+      "Microsoft.Extensions.DependencyInjection.VerifyOpenGenericServiceTrimmability": true,
+      "System.ComponentModel.TypeConverter.EnableUnsafeBinaryFormatterInDesigntimeLicenseContextSerialization": false,
+      "System.ComponentModel.TypeDescriptor.IsComObjectDescriptorSupported": false,
+      "System.Diagnostics.Debugger.IsSupported": true,
+      "System.Globalization.Invariant": false,
+      "System.Globalization.Hybrid": true,
+      "System.Linq.Enumerable.IsSizeOptimized": true,
+      "System.Net.Http.UseNativeHttpHandler": true,
+      "System.Net.SocketsHttpHandler.Http3Support": false,
+      "System.Reflection.NullabilityInfoContext.IsSupported": false,
+      "System.Resources.ResourceManager.AllowCustomResourceTypes": false,
+      "System.Resources.UseSystemResourceKeys": false,
+      "System.Runtime.InteropServices.BuiltInComInterop.IsSupported": false,
+      "System.Runtime.InteropServices.EnableConsumingManagedCodeFromNativeHosting": false,
+      "System.Runtime.InteropServices.EnableCppCLIHostActivation": false,
+      "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization": false,
+      "System.StartupHookProvider.IsSupported": false,
+      "System.Text.Encoding.EnableUnsafeUTF7Encoding": false,
+      "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault": true,
+      "System.Threading.Thread.EnableAutoreleasePool": true,
+      "Microsoft.Maui.RuntimeFeature.IsIVisualAssemblyScanningEnabled": false,
+      "Microsoft.Maui.RuntimeFeature.AreBindingInterceptorsSupported": true
+    }
+  }
+}

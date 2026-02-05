@@ -1,0 +1,322 @@
+@page "/"
+@using AutoPilot.App.Services
+@using AutoPilot.App.Models
+@inject CopilotService CopilotService
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@implements IDisposable
+
+<div class="chat-container">
+    @if (!CopilotService.IsInitialized)
+    {
+        <div class="initializing">
+            <div class="spinner"></div>
+            <p>Connecting to Copilot...</p>
+            @if (!string.IsNullOrEmpty(initError))
+            {
+                <p class="error">@initError</p>
+                <button @onclick="Initialize">Retry</button>
+            }
+        </div>
+    }
+    else if (activeSession == null)
+    {
+        <div class="no-session">
+            <h2>👋 Welcome to AutoPilot</h2>
+            <p>Create a new session from the sidebar to start chatting with Copilot.</p>
+        </div>
+    }
+    else
+    {
+        <div class="chat-header">
+            <h2>@activeSession.Name</h2>
+            <span class="model-badge">@activeSession.Model</span>
+            @if (activeSession.SessionId != null)
+            {
+                <span class="session-id-badge" title="@activeSession.SessionId">📎 @activeSession.SessionId[..8]</span>
+            }
+            @if (activeSession.IsProcessing)
+            {
+                <span class="typing-indicator">Copilot is typing...</span>
+            }
+        </div>
+
+        <div class="messages" @ref="messagesContainer">
+            @if (!activeSession.History.Any())
+            {
+                <div class="empty-chat">
+                    <p>Start a conversation with Copilot!</p>
+                </div>
+            }
+            else
+            {
+                @foreach (var message in activeSession.History)
+                {
+                    <div class="message @(message.IsUser ? "user" : "assistant")">
+                        <div class="message-avatar">
+                            @(message.IsUser ? "👤" : "🤖")
+                        </div>
+                        <div class="message-content">
+                            <div class="message-text">@((MarkupString)FormatMessage(message.Content))</div>
+                            <div class="message-time">@message.Timestamp.ToString("HH:mm")</div>
+                        </div>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(streamingContent))
+                {
+                    <div class="message assistant streaming">
+                        <div class="message-avatar">🤖</div>
+                        <div class="message-content">
+                            <div class="message-text">@((MarkupString)FormatMessage(streamingContent))</div>
+                        </div>
+                    </div>
+                }
+                @if (activeSession.IsProcessing)
+                {
+                    <div class="activity-indicator">
+                        <span class="activity-spinner">●</span>
+                        <span class="activity-text">@(string.IsNullOrEmpty(currentActivity) ? "Working..." : currentActivity)</span>
+                    </div>
+                }
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(lastError))
+        {
+            <div class="error-bar">
+                <span>⚠️ @lastError</span>
+                <button @onclick="() => lastError = null">×</button>
+            </div>
+        }
+
+        <div class="input-area">
+            <textarea @bind="userInput" @bind:event="oninput" 
+                      @onkeydown="HandleKeyDown"
+                      placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
+                      disabled="@activeSession.IsProcessing"
+                      rows="1"></textarea>
+            <button @onclick="SendMessage" 
+                    disabled="@(string.IsNullOrWhiteSpace(userInput) || activeSession.IsProcessing)">
+                @(activeSession.IsProcessing ? "..." : "Send")
+            </button>
+        </div>
+    }
+    
+    @if (!string.IsNullOrEmpty(debugLog))
+    {
+        <div class="debug-panel">
+            <div class="debug-header">Debug Log <button @onclick="() => debugLog = string.Empty">Clear</button></div>
+            <pre>@debugLog</pre>
+        </div>
+    }
+</div>
+
+@code {
+    private AgentSessionInfo? activeSession;
+    private string userInput = "";
+    private string streamingContent = "";
+    private string currentActivity = "";
+    private string? initError;
+    private string? lastError;
+    private string debugLog = "";
+    private ElementReference messagesContainer;
+    private bool _needsRedirect;
+    private string? _redirectTo;
+
+    protected override async Task OnInitializedAsync()
+    {
+        CopilotService.OnStateChanged += RefreshState;
+        CopilotService.OnContentReceived += HandleContentReceived;
+        CopilotService.OnSessionComplete += HandleSessionComplete;
+        CopilotService.OnError += HandleError;
+        CopilotService.OnDebug += HandleDebug;
+        CopilotService.OnActivity += HandleActivity;
+
+        await Initialize();
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (_needsRedirect && _redirectTo != null)
+        {
+            _needsRedirect = false;
+            Nav.NavigateTo(_redirectTo);
+        }
+    }
+
+    private void HandleActivity(string sessionName, string activity)
+    {
+        if (sessionName == CopilotService.ActiveSessionName)
+        {
+            currentActivity = activity;
+            InvokeAsync(async () =>
+            {
+                StateHasChanged();
+                await ScrollToBottom();
+            });
+        }
+    }
+
+    private void HandleDebug(string message)
+    {
+        debugLog = $"{DateTime.Now:HH:mm:ss} {message}\n{debugLog}";
+        if (debugLog.Length > 2000) debugLog = debugLog[..2000];
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Initialize()
+    {
+        initError = null;
+        try
+        {
+            await CopilotService.InitializeAsync();
+            // Restore previously active sessions
+            await CopilotService.RestorePreviousSessionsAsync();
+
+            // Restore UI state (active session and page)
+            var uiState = CopilotService.LoadUiState();
+            if (uiState != null)
+            {
+                if (!string.IsNullOrEmpty(uiState.ActiveSession))
+                    CopilotService.SetActiveSession(uiState.ActiveSession);
+
+                if (uiState.CurrentPage is "/dashboard")
+                {
+                    _needsRedirect = true;
+                    _redirectTo = "/dashboard";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            initError = $"Failed to connect: {ex.Message}";
+        }
+        RefreshState();
+    }
+
+    private void HandleError(string sessionName, string error)
+    {
+        if (sessionName == CopilotService.ActiveSessionName)
+        {
+            lastError = error;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void RefreshState()
+    {
+        activeSession = CopilotService.GetActiveSession();
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await ScrollToBottom();
+        });
+    }
+
+    private void HandleContentReceived(string sessionName, string content)
+    {
+        if (sessionName == CopilotService.ActiveSessionName)
+        {
+            streamingContent += content;
+            InvokeAsync(async () =>
+            {
+                StateHasChanged();
+                await ScrollToBottom();
+            });
+        }
+    }
+
+    private void HandleSessionComplete(string sessionName, string summary)
+    {
+        if (sessionName == CopilotService.ActiveSessionName)
+        {
+            currentActivity = "";
+        }
+        InvokeAsync(async () =>
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("showNotification", sessionName, summary);
+            }
+            catch { /* JS might not be ready */ }
+        });
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(userInput) || activeSession == null || activeSession.IsProcessing)
+            return;
+
+        var prompt = userInput.Trim();
+        userInput = "";
+        streamingContent = "";
+        currentActivity = "";
+        lastError = null;
+
+        try
+        {
+            await CopilotService.SendPromptAsync(activeSession.Name, prompt);
+            streamingContent = "";
+        }
+        catch (Exception ex)
+        {
+            lastError = $"Error: {ex.Message}";
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+    private string FormatMessage(string content)
+    {
+        var escaped = System.Net.WebUtility.HtmlEncode(content);
+        
+        // Code blocks
+        escaped = System.Text.RegularExpressions.Regex.Replace(
+            escaped, 
+            @"```(\w*)\n?([\s\S]*?)```",
+            "<pre><code>$2</code></pre>");
+        
+        // Inline code
+        escaped = System.Text.RegularExpressions.Regex.Replace(
+            escaped,
+            @"`([^`]+)`",
+            "<code>$1</code>");
+        
+        // Bold
+        escaped = System.Text.RegularExpressions.Regex.Replace(
+            escaped,
+            @"\*\*([^*]+)\*\*",
+            "<strong>$1</strong>");
+        
+        // Line breaks
+        escaped = escaped.Replace("\n", "<br/>");
+        
+        return escaped;
+    }
+
+    private async Task ScrollToBottom()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("scrollToBottom", messagesContainer);
+        }
+        catch { /* JS might not be ready */ }
+    }
+
+    public void Dispose()
+    {
+        CopilotService.OnStateChanged -= RefreshState;
+        CopilotService.OnContentReceived -= HandleContentReceived;
+        CopilotService.OnSessionComplete -= HandleSessionComplete;
+        CopilotService.OnError -= HandleError;
+        CopilotService.OnDebug -= HandleDebug;
+        CopilotService.OnActivity -= HandleActivity;
+    }
+}
