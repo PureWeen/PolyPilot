@@ -8,11 +8,19 @@
     <div class="sidebar-header">
         <h3><svg style="vertical-align:middle" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="2" y="8" width="20" height="8" rx="2"/><path d="M6 16v4"/><path d="M18 16v4"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/></svg> AutoPilot</h3>
         <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")">
-            @(CopilotService.IsInitialized ? "● Connected" : "○ Disconnected")
+            @if (CopilotService.IsInitialized)
+            {
+                <text>● @(CopilotService.CurrentMode == ConnectionMode.Persistent ? "Persistent" : "Embedded")</text>
+            }
+            else
+            {
+                <text>○ Disconnected</text>
+            }
         </p>
         <div class="nav-tabs">
             <a href="/" class="nav-tab @(currentPage == "/" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/"); currentPage = "/"; }'><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Chat</a>
             <a href="/dashboard" class="nav-tab @(currentPage == "/dashboard" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/dashboard"); currentPage = "/dashboard"; }'><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> Dashboard</a>
+            <a href="/settings" class="nav-tab @(currentPage == "/settings" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/settings"); currentPage = "/settings"; }'>⚙️</a>
         </div>
     </div>
 

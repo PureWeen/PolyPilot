@@ -36,7 +36,7 @@
 
                     <div class="card-messages">
                         @{
-                            var lastMessages = session.History.TakeLast(6).ToList();
+                            var lastMessages = session.History.ToList().TakeLast(6).ToList();
                         }
                         @if (!lastMessages.Any())
                         {
@@ -206,7 +206,16 @@
 
         try
         {
-            _ = CopilotService.SendPromptAsync(sessionName, prompt.Trim());
+            _ = CopilotService.SendPromptAsync(sessionName, prompt.Trim()).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    InvokeAsync(() =>
+                    {
+                        Console.WriteLine($"Error sending to {sessionName}: {t.Exception?.InnerException?.Message}");
+                    });
+                }
+            });
         }
         catch (Exception ex)
         {
