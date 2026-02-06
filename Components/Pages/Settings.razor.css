@@ -1,0 +1,332 @@
+.settings-page {
+    padding: 1.5rem;
+    color: white;
+    background: #0f0f23;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.settings-header h2 {
+    margin: 0 0 1.5rem 0;
+    font-size: 1.6rem;
+}
+
+.settings-section {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.settings-section h3 {
+    margin: 0 0 1rem 0;
+    font-size: 1.15rem;
+    color: rgba(255,255,255,0.9);
+}
+
+.settings-section.info {
+    background: rgba(59, 130, 246, 0.08);
+    border-color: rgba(59, 130, 246, 0.2);
+}
+
+.settings-section.info p {
+    color: rgba(255,255,255,0.6);
+    margin: 0.5rem 0;
+}
+
+.settings-section.info code {
+    display: block;
+    background: rgba(0,0,0,0.3);
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    font-family: monospace;
+    color: #60a5fa;
+    margin: 0.5rem 0;
+}
+
+.settings-section.info ul {
+    color: rgba(255,255,255,0.6);
+    padding-left: 1.25rem;
+    margin: 0.5rem 0 0;
+}
+
+.settings-section.info li {
+    margin: 0.25rem 0;
+}
+
+.mode-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+.mode-card {
+    border: 2px solid rgba(255,255,255,0.15);
+    border-radius: 10px;
+    padding: 1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+}
+
+.mode-card:hover {
+    border-color: rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.05);
+}
+
+.mode-card.selected {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.mode-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.mode-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+
+.mode-desc {
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.5);
+}
+
+.form-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.form-row label {
+    min-width: 60px;
+    color: rgba(255,255,255,0.7);
+    font-size: 0.95rem;
+}
+
+.form-input {
+    flex: 1;
+    max-width: 250px;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.08);
+    color: white;
+    font-size: 0.95rem;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+.server-status {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0.75rem 0;
+    padding: 0.5rem 0.75rem;
+    background: rgba(0,0,0,0.2);
+    border-radius: 6px;
+}
+
+.status-running {
+    color: #48bb78;
+}
+
+.status-stopped {
+    color: rgba(255,255,255,0.4);
+}
+
+.status-checking {
+    color: #fbbf24;
+}
+
+.check-btn {
+    padding: 0.25rem 0.6rem;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 4px;
+    background: transparent;
+    color: rgba(255,255,255,0.6);
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.check-btn:hover:not(:disabled) {
+    border-color: rgba(255,255,255,0.4);
+    color: white;
+}
+
+.server-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0.75rem 0;
+}
+
+.action-btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.action-btn.start {
+    background: #48bb78;
+    color: white;
+}
+
+.action-btn.start:hover:not(:disabled) {
+    background: #38a169;
+}
+
+.action-btn.start:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.action-btn.stop {
+    background: rgba(239, 68, 68, 0.8);
+    color: white;
+}
+
+.action-btn.stop:hover {
+    background: #ef4444;
+}
+
+.action-hint {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.3);
+    font-family: monospace;
+}
+
+.save-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.save-btn {
+    padding: 0.6rem 1.5rem;
+    border: none;
+    border-radius: 8px;
+    background: #3b82f6;
+    color: white;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.save-btn:hover {
+    background: #2563eb;
+}
+
+.save-status {
+    font-size: 0.9rem;
+    color: rgba(255,255,255,0.6);
+}
+
+.save-status.success {
+    color: #48bb78;
+}
+
+.save-status.error {
+    color: #ef4444;
+}
+
+.server-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.status-dot.alive {
+    background: #48bb78;
+    box-shadow: 0 0 6px #48bb78;
+}
+
+.status-dot.dead {
+    background: rgba(255,255,255,0.3);
+}
+
+.pid-label {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.4);
+    font-family: monospace;
+}
+
+.port-input {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.port-input label {
+    color: rgba(255,255,255,0.7);
+}
+
+.port-input input {
+    width: 100px;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.08);
+    color: white;
+    font-size: 0.95rem;
+}
+
+.port-input input:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+.server-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.start-btn, .stop-btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.start-btn {
+    background: #48bb78;
+    color: white;
+}
+
+.start-btn:hover:not(:disabled) {
+    background: #38a169;
+}
+
+.start-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.stop-btn {
+    background: rgba(239, 68, 68, 0.8);
+    color: white;
+}
+
+.stop-btn:hover {
+    background: #ef4444;
+}

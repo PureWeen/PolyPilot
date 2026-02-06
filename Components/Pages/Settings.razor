@@ -1,0 +1,162 @@
+@page "/settings"
+@using AutoPilot.App.Services
+@using AutoPilot.App.Models
+@inject CopilotService CopilotService
+@inject ServerManager ServerManager
+@inject NavigationManager Nav
+
+<div class="settings-page">
+    <div class="settings-header">
+        <h2>⚙️ Connection Settings</h2>
+    </div>
+
+    <div class="settings-section">
+        <h3>Transport Mode</h3>
+        <div class="mode-cards">
+            <div class="mode-card @(settings.Mode == ConnectionMode.Embedded ? "selected" : "")"
+                 @onclick="() => SetMode(ConnectionMode.Embedded)">
+                <div class="mode-icon">🔌</div>
+                <div class="mode-title">Embedded</div>
+                <div class="mode-desc">Default. Copilot process dies when app closes.</div>
+            </div>
+            <div class="mode-card @(settings.Mode == ConnectionMode.Persistent ? "selected" : "")"
+                 @onclick="() => SetMode(ConnectionMode.Persistent)">
+                <div class="mode-icon">🏗️</div>
+                <div class="mode-title">Persistent</div>
+                <div class="mode-desc">Copilot server survives app restarts. Sessions persist.</div>
+            </div>
+        </div>
+    </div>
+
+    @if (settings.Mode == ConnectionMode.Persistent)
+    {
+        <div class="settings-section">
+            <h3>Persistent Server</h3>
+            <div class="server-controls">
+                <div class="server-status">
+                    <span class="status-dot @(serverAlive ? "alive" : "dead")"></span>
+                    <span>@(serverAlive ? $"Running on port {settings.Port}" : "Not running")</span>
+                    @if (ServerManager.ServerPid != null && serverAlive)
+                    {
+                        <span class="pid-label">PID @ServerManager.ServerPid</span>
+                    }
+                </div>
+                <div class="port-input">
+                    <label>Port:</label>
+                    <input type="number" @bind="settings.Port" min="1024" max="65535" />
+                </div>
+                <div class="server-buttons">
+                    @if (!serverAlive)
+                    {
+                        <button class="start-btn" @onclick="StartServer" disabled="@starting">
+                            @(starting ? "⏳ Starting..." : "▶️ Start Server")
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="stop-btn" @onclick="StopServer">⏹️ Stop Server</button>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="settings-section">
+        <div class="save-row">
+            <button class="save-btn" @onclick="SaveAndApply">
+                💾 Save & Reconnect
+            </button>
+            @if (!string.IsNullOrEmpty(statusMessage))
+            {
+                <span class="save-status @statusClass">@statusMessage</span>
+            }
+        </div>
+    </div>
+
+    <div class="settings-section info">
+        <h3>Current Connection</h3>
+        <p><strong>Mode:</strong> @CopilotService.CurrentMode</p>
+        <p><strong>Status:</strong> @(CopilotService.IsInitialized ? "✅ Connected" : "❌ Disconnected")</p>
+
+        <h3>About Transport Modes</h3>
+        <ul>
+            <li><strong>Embedded</strong> — Simple, default. Copilot process dies when app closes. All sessions are lost.</li>
+            <li><strong>Persistent</strong> — App spawns a detached Copilot server on a port. Survives app restarts — sessions reconnect after relaunching.</li>
+        </ul>
+    </div>
+</div>
+
+@code {
+    private ConnectionSettings settings = new();
+    private string? statusMessage;
+    private string statusClass = "";
+    private bool serverAlive;
+    private bool starting;
+
+    protected override void OnInitialized()
+    {
+        settings = ConnectionSettings.Load();
+        serverAlive = ServerManager.CheckServerRunning("localhost", settings.Port);
+    }
+
+    private void SetMode(ConnectionMode mode)
+    {
+        settings.Mode = mode;
+    }
+
+    private async Task StartServer()
+    {
+        starting = true;
+        StateHasChanged();
+
+        var success = await ServerManager.StartServerAsync(settings.Port);
+        serverAlive = success;
+        starting = false;
+
+        if (success)
+            statusMessage = $"✅ Server started on port {settings.Port}";
+        else
+            statusMessage = "❌ Failed to start server";
+        statusClass = success ? "success" : "error";
+        StateHasChanged();
+    }
+
+    private void StopServer()
+    {
+        ServerManager.StopServer();
+        serverAlive = false;
+        statusMessage = "Server stopped";
+        statusClass = "";
+        StateHasChanged();
+    }
+
+    private async Task SaveAndApply()
+    {
+        // If switching to Persistent mode, ensure server is running
+        if (settings.Mode == ConnectionMode.Persistent && !serverAlive)
+        {
+            statusMessage = "⚠️ Start the persistent server first";
+            statusClass = "error";
+            StateHasChanged();
+            return;
+        }
+
+        settings.Save();
+        statusMessage = "Settings saved. Reconnecting...";
+        statusClass = "";
+        StateHasChanged();
+
+        try
+        {
+            await CopilotService.ReconnectAsync(settings);
+            statusMessage = "✅ Connected!";
+            statusClass = "success";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"❌ Connection failed: {ex.Message}";
+            statusClass = "error";
+        }
+        StateHasChanged();
+    }
+}
