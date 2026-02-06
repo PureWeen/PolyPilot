@@ -1,8 +1,12 @@
 @inherits LayoutComponentBase
 
 <div class="page">
-    <div class="sidebar">
+    <div class="sidebar desktop-only">
         <SessionSidebar />
+    </div>
+
+    <div class="mobile-top-bar mobile-only">
+        <SessionSidebar IsMobileTopBar="true" OnToggleFlyout="ToggleFlyout" />
     </div>
 
     <main>
@@ -10,4 +14,23 @@
             @Body
         </article>
     </main>
+
+    <div class="flyout-backdrop mobile-only @(flyoutOpen ? "open" : "")" @onclick="CloseFlyout"></div>
+    <div class="flyout-panel mobile-only @(flyoutOpen ? "open" : "")">
+        <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" />
+    </div>
 </div>
+
+@code {
+    private bool flyoutOpen;
+
+    private void ToggleFlyout()
+    {
+        flyoutOpen = !flyoutOpen;
+    }
+
+    private void CloseFlyout()
+    {
+        flyoutOpen = false;
+    }
+}

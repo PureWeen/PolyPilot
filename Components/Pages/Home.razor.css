@@ -430,25 +430,25 @@
 .input-area {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.75rem 1.5rem;
+    gap: 0.4rem;
+    padding: 0.5rem 0.75rem;
     background: rgba(255,255,255,0.05);
     border-top: 1px solid rgba(255,255,255,0.1);
 }
 
-.input-row { display: flex; gap: 0.75rem; }
+.input-row { display: flex; gap: 0.5rem; }
 
 .input-area textarea {
     flex: 1;
-    padding: 0.75rem 1rem;
+    padding: 0.45rem 0.6rem;
     border: 1px solid rgba(255,255,255,0.2);
     border-radius: 8px;
     background: rgba(255,255,255,0.1);
     color: white;
-    font-size: 1.1rem;
+    font-size: 0.9rem;
     font-family: inherit;
     resize: none;
-    min-height: 48px;
+    min-height: 36px;
     max-height: 150px;
 }
 
@@ -457,15 +457,18 @@
 .input-area textarea:disabled { opacity: 0.6; }
 
 .input-area .input-row button {
-    padding: 0.75rem 1.5rem;
+    padding: 0.45rem 0.7rem;
     border: none;
     border-radius: 8px;
     background: #3b82f6;
     color: white;
-    font-size: 1.1rem;
+    font-size: 0.9rem;
     font-weight: 500;
     cursor: pointer;
     transition: background 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .input-area .input-row button:hover:not(:disabled) { background: #2563eb; }
@@ -503,34 +506,66 @@
     font-size: 0.85rem;
     color: #fbbf24;
     font-family: monospace;
+    cursor: pointer;
+    transition: background 0.15s ease;
 }
+
+.session-id-badge:hover { background: rgba(251, 191, 36, 0.3); }
+
+.copy-icon { opacity: 0.5; }
+.session-id-badge:hover .copy-icon { opacity: 1; }
 
 /* === Debug panel === */
 .debug-panel {
     position: fixed;
     bottom: 80px;
     right: 10px;
-    width: 400px;
-    max-height: 200px;
-    background: rgba(0,0,0,0.9);
+    width: 450px;
+    max-width: calc(100vw - 20px);
+    max-height: 250px;
+    background: rgba(0,0,0,0.92);
     border: 1px solid #333;
     border-radius: 8px;
     font-size: 0.8rem;
     z-index: 1000;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .debug-header {
-    padding: 0.5rem;
+    padding: 0.4rem 0.6rem;
     background: #222;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    font-weight: 600;
+    font-size: 0.75rem;
+    flex-shrink: 0;
 }
 
-.debug-header button {
-    padding: 0.2rem 0.5rem;
+.debug-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.debug-filter {
+    padding: 0.15rem 0.4rem;
     font-size: 0.7rem;
+    background: #333;
+    border: 1px solid #555;
+    border-radius: 4px;
+    color: white;
+    width: 120px;
+}
+
+.debug-filter::placeholder { color: rgba(255,255,255,0.35); }
+.debug-filter:focus { outline: none; border-color: #60a5fa; }
+
+.debug-header button {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.65rem;
     background: #444;
     border: none;
     color: white;
@@ -538,13 +573,15 @@
     cursor: pointer;
 }
 
+.debug-header button:hover { background: #555; }
+
 .debug-panel pre {
     margin: 0;
     padding: 0.5rem;
-    max-height: 150px;
+    flex: 1;
     overflow-y: auto;
-    font-family: monospace;
-    font-size: 0.75rem;
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    font-size: 0.7rem;
     color: #0f0;
     white-space: pre-wrap;
     word-break: break-all;
@@ -619,4 +656,52 @@
 .queue-remove-btn:hover {
     background: rgba(239, 68, 68, 0.2) !important;
     color: #ef4444 !important;
+}
+
+/* === Mobile responsive === */
+@media (max-width: 640px) {
+    .chat-header {
+        padding: 0.5rem 0.75rem;
+        gap: 0.5rem;
+    }
+    .chat-header h2 { font-size: 1rem; }
+    .model-badge { font-size: 0.7rem; padding: 0.15rem 0.35rem; }
+    .session-id-badge { font-size: 0.65rem; padding: 0.15rem 0.35rem; }
+    .resumed-badge { font-size: 0.55rem; }
+    .typing-indicator { font-size: 0.85rem; }
+
+    .messages {
+        padding: 0.5rem;
+        gap: 0.5rem;
+    }
+    .message { max-width: 95%; gap: 0.4rem; }
+    .message-avatar { width: 28px; height: 28px; font-size: 0.9rem; }
+    .message-text { padding: 0.5rem 0.65rem; font-size: 0.85rem; line-height: 1.5; }
+    .message-time { font-size: 0.65rem; }
+
+    ::deep .markdown-body pre { padding: 0.5rem; font-size: 0.75rem; }
+    ::deep .markdown-body code { font-size: 0.8em; padding: 0.1em 0.25em; }
+
+    .reasoning-block { max-width: 95%; }
+    .reasoning-header { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+    .reasoning-content { padding: 0.4rem 0.6rem; font-size: 0.8rem; }
+
+    .tool-card { max-width: 95%; }
+    .tool-header { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+    .tool-status { font-size: 0.7rem; }
+    .tool-result-content { padding: 0.4rem 0.6rem; font-size: 0.7rem; }
+    .tool-result-toggle { padding: 0.25rem 0.6rem; font-size: 0.65rem; }
+
+    .task-complete-card { font-size: 0.75rem; padding: 0.25rem 0.5rem; max-width: 95%; }
+    .error-card { font-size: 0.8rem; padding: 0.4rem 0.6rem; max-width: 95%; }
+    .intent-pill { font-size: 0.7rem; padding: 0.2rem 0.5rem; }
+
+    .input-area { padding: 0.4rem 0.5rem 0.75rem; gap: 0.3rem; }
+    .input-area textarea { font-size: 0.85rem; min-height: 32px; padding: 0.35rem 0.5rem; }
+    .input-area .input-row button { padding: 0.35rem 0.6rem; }
+    .input-status-bar { font-size: 0.65rem; gap: 0.5rem; padding-bottom: 0.5rem; }
+    .plan-icon-toggle { font-size: 0.65rem; }
+
+    .queue-bar { padding: 0.3rem 0.5rem; font-size: 0.7rem; }
+    .error-bar { font-size: 0.75rem; padding: 0.3rem 0.5rem; }
 }

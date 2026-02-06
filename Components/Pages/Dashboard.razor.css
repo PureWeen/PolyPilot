@@ -304,3 +304,22 @@
 .broadcast-input button:hover {
     background: #6d28d9;
 }
+
+/* === Mobile responsive === */
+@media (max-width: 640px) {
+    .dashboard { padding: 0.75rem; }
+    .dashboard-header { gap: 0.5rem; margin-bottom: 0.75rem; }
+    .dashboard-header h2 { font-size: 1.1rem; }
+    .session-count { font-size: 0.8rem; }
+    .no-sessions-dash { font-size: 0.9rem; }
+    .session-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+    .session-card { padding: 0.75rem; border-radius: 8px; }
+    .card-header h3 { font-size: 0.95rem; }
+    .card-model-badge { font-size: 0.65rem; padding: 0.1rem 0.3rem; }
+    .card-close { font-size: 0.75rem; }
+    .card-messages { max-height: 180px; gap: 0.3rem; font-size: 0.8rem; }
+    .broadcast-section { margin-top: 0.75rem; }
+    .broadcast-input { gap: 0.5rem; }
+    .broadcast-input textarea { font-size: 0.85rem; }
+    .broadcast-input button { font-size: 0.85rem; padding: 0.4rem 0.8rem; }
+}

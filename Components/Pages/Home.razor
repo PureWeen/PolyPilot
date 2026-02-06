@@ -34,7 +34,7 @@
             <span class="model-badge">@activeSession.Model</span>
             @if (activeSession.SessionId != null)
             {
-                <span class="session-id-badge" title="@activeSession.SessionId"><svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> @activeSession.SessionId[..8]</span>
+                <span class="session-id-badge" title="Click to copy: @activeSession.SessionId" @onclick="() => CopySessionId(activeSession.SessionId)"><svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> @activeSession.SessionId[..8] <svg class="icon copy-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
             }
             @if (activeSession.IsProcessing)
             {
@@ -211,14 +211,15 @@
                           placeholder="@GetInputPlaceholder()"
                           rows="1"></textarea>
                 <button @onclick="SendMessage" 
-                        disabled="@(string.IsNullOrWhiteSpace(userInput))">
+                        disabled="@(string.IsNullOrWhiteSpace(userInput))"
+                        title="@(activeSession.IsProcessing ? "Queue message" : "Send message")">
                     @if (activeSession.IsProcessing)
                     {
-                        <text>Queue</text>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
                     }
                     else
                     {
-                        <text>Send</text>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                     }
                 </button>
             </div>
@@ -244,15 +245,27 @@
                 }
                 <span class="status-sep">·</span>
                 <span class="status-msgs">@activeSession.History.Count msgs</span>
+                <span class="status-sep">·</span>
+                <button class="plan-icon-toggle @(showDebugPanel ? "active" : "")" @onclick="() => showDebugPanel = !showDebugPanel" title="Toggle debug log">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.88 1.88"/><path d="M14.12 3.88L16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
+                    <span>Log</span>
+                </button>
             </div>
         </div>
     }
     
-    @if (!string.IsNullOrEmpty(debugLog))
+    @if (showDebugPanel)
     {
         <div class="debug-panel">
-            <div class="debug-header">Debug Log <button @onclick="() => debugLog = string.Empty">Clear</button></div>
-            <pre>@debugLog</pre>
+            <div class="debug-header">
+                <span>Debug Log</span>
+                <div class="debug-actions">
+                    <input type="text" class="debug-filter" placeholder="Filter..." @bind="debugFilter" @bind:event="oninput" />
+                    <button @onclick="() => debugLog = string.Empty" title="Clear log">Clear</button>
+                    <button @onclick="() => showDebugPanel = false" title="Close">✕</button>
+                </div>
+            </div>
+            <pre>@FilteredDebugLog</pre>
         </div>
     }
 </div>
@@ -271,6 +284,8 @@
     private string? initError;
     private string? lastError;
     private string debugLog = "";
+    private string debugFilter = "";
+    private bool showDebugPanel = false;
     private ElementReference messagesContainer;
     private bool _needsRedirect;
     private string? _redirectTo;
@@ -425,9 +440,14 @@
     private void HandleDebug(string message)
     {
         debugLog = $"{DateTime.Now:HH:mm:ss} {message}\n{debugLog}";
-        if (debugLog.Length > 2000) debugLog = debugLog[..2000];
-        InvokeAsync(StateHasChanged);
+        if (debugLog.Length > 10000) debugLog = debugLog[..10000];
+        if (showDebugPanel) InvokeAsync(StateHasChanged);
     }
+
+    private string FilteredDebugLog =>
+        string.IsNullOrWhiteSpace(debugFilter) ? debugLog :
+        string.Join("\n", debugLog.Split('\n')
+            .Where(l => l.Contains(debugFilter, StringComparison.OrdinalIgnoreCase)));
 
     private async Task Initialize()
     {
@@ -558,11 +578,16 @@
         if (activeSession != null) CopilotService.ClearQueue(activeSession.Name);
     }
 
+    private async Task CopySessionId(string sessionId)
+    {
+        await JS.InvokeVoidAsync("eval", $"navigator.clipboard.writeText('{sessionId}')");
+    }
+
     private string GetInputPlaceholder()
     {
         if (isPlanMode) return "Plan mode: describe what you want planned...";
-        if (activeSession?.IsProcessing == true) return "Type to queue next message... (sent when idle)";
-        return "Type a message... (Enter to send, Shift+Enter for new line)";
+        if (activeSession?.IsProcessing == true) return "Type to queue next message...";
+        return "Message... (⏎ send, ⇧⏎ newline)";
     }
 
     private string Truncate(string text, int maxLen)

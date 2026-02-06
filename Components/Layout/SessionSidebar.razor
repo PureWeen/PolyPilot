@@ -4,146 +4,206 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
-<div class="sidebar-content">
-    <div class="sidebar-header">
-        <h3><svg style="vertical-align:middle" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="2" y="8" width="20" height="8" rx="2"/><path d="M6 16v4"/><path d="M18 16v4"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/></svg> AutoPilot</h3>
-        <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")">
-            @(CopilotService.IsInitialized ? "● Connected" : "○ Disconnected")
-        </p>
-        <div class="nav-tabs">
-            <a href="/" class="nav-tab @(currentPage == "/" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/"); currentPage = "/"; }'><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Chat</a>
-            <a href="/dashboard" class="nav-tab @(currentPage == "/dashboard" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/dashboard"); currentPage = "/dashboard"; }'><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> Dashboard</a>
+@if (IsMobileTopBar)
+{
+    <div class="mobile-bar">
+        <button class="hamburger-btn" @onclick="ToggleFlyout">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <span class="mobile-title"><svg style="vertical-align:middle" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="2" y="8" width="20" height="8" rx="2"/><path d="M6 16v4"/><path d="M18 16v4"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/></svg> AutoPilot</span>
+        <div class="mobile-tabs">
+            <a href="/" class="mobile-tab @(currentPage == "/" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/"); currentPage = "/"; }'>Chat</a>
+            <a href="/dashboard" class="mobile-tab @(currentPage == "/dashboard" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/dashboard"); currentPage = "/dashboard"; }'>Dashboard</a>
         </div>
     </div>
-
-    <div class="new-session">
-        <input type="text" id="sessionNameInput"
-               placeholder="Session name..." />
-        <div class="session-options-row">
-            <select @bind="selectedModel" class="model-select">
-                @foreach (var model in availableModels)
-                {
-                    <option value="@model">@model</option>
-                }
-            </select>
-            <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
-            <button @onclick="CreateSession" disabled="@isCreating">
-                @(isCreating ? "..." : "+")
-            </button>
+}
+else if (IsFlyoutPanel)
+{
+    <div class="sidebar-content flyout-content">
+        <div class="flyout-header">
+            <h3>Sessions</h3>
+            <button class="flyout-close-btn" @onclick="ToggleFlyout">✕</button>
         </div>
-        @if (showDirectoryInput)
-        {
-            <div class="dir-input-row">
-                <input type="text" id="sessionDirInput"
-                       placeholder="Working directory (default: AutoPilot.App)" 
-                       class="dir-input" />
-                <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+
+        <div class="new-session">
+            <input type="text" id="flyoutSessionNameInput" placeholder="Session name..." />
+            <div class="session-options-row">
+                <select @bind="selectedModel" class="model-select">
+                    @foreach (var model in availableModels)
+                    {
+                        <option value="@model">@model</option>
+                    }
+                </select>
+                <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
+                <button @onclick="CreateSession" disabled="@isCreating">
+                    @(isCreating ? "..." : "+")
+                </button>
             </div>
-        }
-    </div>
-
-    <div class="sidebar-divider"></div>
-
-    <div class="session-list">
-        <div class="section-header"><span class="section-header-label"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Active Sessions</span></div>
-        @if (!sessions.Any())
-        {
-            <p class="no-sessions">No active sessions.<br/>Create one above or resume below.</p>
-        }
-        else
-        {
-            @foreach (var session in sessions)
+            @if (showDirectoryInput)
             {
-                var cssClass = session.Name == CopilotService.ActiveSessionName ? "active" : 
-                               completedSessions.Contains(session.Name) ? "completed" :
-                               session.IsProcessing ? "busy" : "";
-                <div class="session-item @cssClass"
-                     @onclick="() => SelectSession(session.Name)">
-                    <div class="session-info">
-                        <span class="session-name">
-                            @if (completedSessions.Contains(session.Name))
-                            {
-                                <span class="done-badge"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
-                            }
-                            @if (renamingSession == session.Name)
-                            {
-                                <input type="text" class="rename-input" id="renameInput"
-                                       value="@session.Name"
-                                       @onclick:stopPropagation="true"
-                                       @onblur="CommitRename"
-                                       @onkeydown="HandleRenameKeyDown" />
-                            }
-                            else
-                            {
-                                <span @ondblclick="() => StartRename(session.Name)" @ondblclick:stopPropagation="true">@session.Name</span>
-                            }
-                            @if (session.IsResumed)
-                            {
-                                <span class="resumed-badge">resumed</span>
-                            }
-                        </span>
-                        <span class="session-meta">
-                            @session.MessageCount msgs • @session.Model
-                            @if (!string.IsNullOrEmpty(session.WorkingDirectory))
-                            {
-                                <text> • @GetShortPath(session.WorkingDirectory)</text>
-                            }
-                        </span>
-                    </div>
-                    <div class="session-actions">
-                        @if (session.IsProcessing)
-                        {
-                            <span class="processing">●</span>
-                        }
-                        <button class="rename-btn" @onclick:stopPropagation="true"
-                                @onclick="() => StartRename(session.Name)" title="Rename session"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                        <button class="close-btn" @onclick:stopPropagation="true" 
-                                @onclick="() => CloseSession(session.Name)">×</button>
-                    </div>
+                <div class="dir-input-row">
+                    <input type="text" id="flyoutSessionDirInput"
+                           placeholder="Working directory (default: AutoPilot.App)" 
+                           class="dir-input" />
+                    <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
                 </div>
             }
-        }
+        </div>
 
-        @if (persistedSessions.Any())
-        {
-            <div class="sidebar-divider"></div>
-            <div class="section-header" @onclick="TogglePersistedSessions" style="cursor: pointer;">
-                <span class="section-header-label"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> Saved Sessions (@filteredPersistedSessions.Count())</span>
-                <span class="toggle-icon">@(showPersistedSessions ? "▼" : "▶")</span>
+        <div class="sidebar-divider"></div>
+
+        @RenderSessionList
+    </div>
+}
+else
+{
+    <div class="sidebar-content">
+        <div class="sidebar-header">
+            <h3><svg style="vertical-align:middle" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="2" y="8" width="20" height="8" rx="2"/><path d="M6 16v4"/><path d="M18 16v4"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/></svg> AutoPilot</h3>
+            <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")">
+                @(CopilotService.IsInitialized ? "● Connected" : "○ Disconnected")
+            </p>
+            <div class="nav-tabs">
+                <a href="/" class="nav-tab @(currentPage == "/" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/"); currentPage = "/"; }'><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Chat</a>
+                <a href="/dashboard" class="nav-tab @(currentPage == "/dashboard" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/dashboard"); currentPage = "/dashboard"; }'><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> Dashboard</a>
             </div>
-            
-            @if (showPersistedSessions)
+        </div>
+
+        <div class="new-session">
+            <input type="text" id="sessionNameInput" placeholder="Session name..." />
+            <div class="session-options-row">
+                <select @bind="selectedModel" class="model-select">
+                    @foreach (var model in availableModels)
+                    {
+                        <option value="@model">@model</option>
+                    }
+                </select>
+                <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
+                <button @onclick="CreateSession" disabled="@isCreating">
+                    @(isCreating ? "..." : "+")
+                </button>
+            </div>
+            @if (showDirectoryInput)
             {
-                <div class="filter-box">
-                    <input type="text" @bind="sessionFilter" @bind:event="oninput" 
-                           placeholder="Filter sessions..." class="filter-input" />
+                <div class="dir-input-row">
+                    <input type="text" id="sessionDirInput"
+                           placeholder="Working directory (default: AutoPilot.App)" 
+                           class="dir-input" />
+                    <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
                 </div>
-                
-                @foreach (var persisted in filteredPersistedSessions.Take(30))
+            }
+        </div>
+
+        <div class="sidebar-divider"></div>
+
+        @RenderSessionList
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsMobileTopBar { get; set; }
+    [Parameter] public bool IsFlyoutPanel { get; set; }
+    [Parameter] public EventCallback OnToggleFlyout { get; set; }
+    [Parameter] public EventCallback OnSessionSelected { get; set; }
+
+    private RenderFragment RenderSessionList => __builder =>
+    {
+        <div class="session-list">
+            <div class="section-header"><span class="section-header-label"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Active Sessions</span></div>
+            @if (!sessions.Any())
+            {
+                <p class="no-sessions">No active sessions.<br/>Create one above or resume below.</p>
+            }
+            else
+            {
+                @foreach (var session in sessions)
                 {
-                    <div class="session-item persisted" 
-                         @onclick="() => ResumeSession(persisted)"
-                         title="@GetTooltip(persisted)">
+                    var cssClass = session.Name == CopilotService.ActiveSessionName ? "active" : 
+                                   completedSessions.Contains(session.Name) ? "completed" :
+                                   session.IsProcessing ? "busy" : "";
+                    <div class="session-item @cssClass"
+                         @onclick="() => SelectSession(session.Name)">
                         <div class="session-info">
-                            <span class="session-name persisted-name">@(persisted.Title ?? "Untitled")</span>
-                            <span class="session-meta">
-                                @persisted.LastModified.ToString("MMM dd HH:mm")
-                                @if (!string.IsNullOrEmpty(persisted.WorkingDirectory))
+                            <span class="session-name">
+                                @if (completedSessions.Contains(session.Name))
                                 {
-                                    <text> • @GetShortPath(persisted.WorkingDirectory)</text>
+                                    <span class="done-badge"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+                                }
+                                @if (renamingSession == session.Name)
+                                {
+                                    <input type="text" class="rename-input" id="renameInput"
+                                           value="@session.Name"
+                                           @onclick:stopPropagation="true"
+                                           @onblur="CommitRename"
+                                           @onkeydown="HandleRenameKeyDown" />
+                                }
+                                else
+                                {
+                                    <span @ondblclick="() => StartRename(session.Name)" @ondblclick:stopPropagation="true">@session.Name</span>
+                                }
+                                @if (session.IsResumed)
+                                {
+                                    <span class="resumed-badge">resumed</span>
+                                }
+                            </span>
+                            <span class="session-meta">
+                                @session.MessageCount msgs • @session.Model
+                                @if (!string.IsNullOrEmpty(session.WorkingDirectory))
+                                {
+                                    <text> • @GetShortPath(session.WorkingDirectory)</text>
                                 }
                             </span>
                         </div>
-                        <span class="resume-icon"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Resume</span>
+                        <div class="session-actions">
+                            @if (session.IsProcessing)
+                            {
+                                <span class="processing">●</span>
+                            }
+                            <button class="rename-btn" @onclick:stopPropagation="true"
+                                    @onclick="() => StartRename(session.Name)" title="Rename session"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                            <button class="close-btn" @onclick:stopPropagation="true" 
+                                    @onclick="() => CloseSession(session.Name)">×</button>
+                        </div>
                     </div>
                 }
             }
-        }
-    </div>
-</div>
 
-@code {
-    private string newSessionName = "";
+            @if (persistedSessions.Any())
+            {
+                <div class="sidebar-divider"></div>
+                <div class="section-header" @onclick="TogglePersistedSessions" style="cursor: pointer;">
+                    <span class="section-header-label"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> Saved Sessions (@filteredPersistedSessions.Count())</span>
+                    <span class="toggle-icon">@(showPersistedSessions ? "▼" : "▶")</span>
+                </div>
+                
+                @if (showPersistedSessions)
+                {
+                    <div class="filter-box">
+                        <input type="text" @bind="sessionFilter" @bind:event="oninput" 
+                               placeholder="Filter sessions..." class="filter-input" />
+                    </div>
+                    
+                    @foreach (var persisted in filteredPersistedSessions.Take(30))
+                    {
+                        <div class="session-item persisted" 
+                             @onclick="() => ResumeSession(persisted)"
+                             title="@GetTooltip(persisted)">
+                            <div class="session-info">
+                                <span class="session-name persisted-name">@(persisted.Title ?? "Untitled")</span>
+                                <span class="session-meta-time">@persisted.LastModified.ToString("MMM dd h:mm tt")</span>
+                                @if (!string.IsNullOrEmpty(persisted.WorkingDirectory))
+                                {
+                                    <span class="session-meta-dir">@GetShortPath(persisted.WorkingDirectory)</span>
+                                }
+                            </div>
+                            <span class="resume-icon"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Resume</span>
+                        </div>
+                    }
+                }
+            }
+        </div>
+    };
+
     private string selectedModel = "claude-opus-4.6";
     private string sessionFilter = "";
     private bool isCreating = false;
@@ -153,6 +213,11 @@
     private string currentPage = "/";
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
+
+    private async Task ToggleFlyout()
+    {
+        await OnToggleFlyout.InvokeAsync();
+    }
 
     private readonly string[] availableModels = new[]
     {
@@ -242,15 +307,17 @@
 
     private async Task CreateSession()
     {
-        // Read value from DOM directly to avoid binding lag
-        var name = await JS.InvokeAsync<string>("eval", "document.getElementById('sessionNameInput')?.value || ''");
+        // Try both desktop and flyout input IDs
+        var name = await JS.InvokeAsync<string>("eval", 
+            "document.getElementById('sessionNameInput')?.value || document.getElementById('flyoutSessionNameInput')?.value || ''");
         if (string.IsNullOrWhiteSpace(name) || isCreating) return;
 
         // Read working directory if the input is visible
         string? workingDir = null;
         if (showDirectoryInput)
         {
-            var dirValue = await JS.InvokeAsync<string>("eval", "document.getElementById('sessionDirInput')?.value || ''");
+            var dirValue = await JS.InvokeAsync<string>("eval", 
+                "document.getElementById('sessionDirInput')?.value || document.getElementById('flyoutSessionDirInput')?.value || ''");
             if (!string.IsNullOrWhiteSpace(dirValue))
                 workingDir = dirValue.Trim();
         }
@@ -260,11 +327,18 @@
         {
             var sessionInfo = await CopilotService.CreateSessionAsync(name.Trim(), selectedModel, workingDir);
             CopilotService.SwitchSession(sessionInfo.Name);
-            // Clear the inputs
-            await JS.InvokeVoidAsync("eval", "document.getElementById('sessionNameInput').value = ''");
+            // Clear both input variants
+            await JS.InvokeVoidAsync("eval", @"
+                var el = document.getElementById('sessionNameInput'); if(el) el.value='';
+                var el2 = document.getElementById('flyoutSessionNameInput'); if(el2) el2.value='';
+            ");
             if (showDirectoryInput)
-                await JS.InvokeVoidAsync("eval", "document.getElementById('sessionDirInput').value = ''");
+                await JS.InvokeVoidAsync("eval", @"
+                    var el = document.getElementById('sessionDirInput'); if(el) el.value='';
+                    var el2 = document.getElementById('flyoutSessionDirInput'); if(el2) el2.value='';
+                ");
             showDirectoryInput = false;
+            await OnSessionSelected.InvokeAsync();
         }
         catch (Exception ex)
         {
@@ -354,11 +428,12 @@
         }
     }
 
-    private void SelectSession(string name)
+    private async Task SelectSession(string name)
     {
         completedSessions.Remove(name);
         CopilotService.SwitchSession(name);
         CopilotService.SaveUiState("/", name);
+        await OnSessionSelected.InvokeAsync();
     }
 
     private async Task CloseSession(string name)
