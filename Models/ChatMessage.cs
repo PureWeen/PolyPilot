@@ -6,7 +6,8 @@ public enum ChatMessageType
     Assistant,
     Reasoning,
     ToolCall,
-    Error
+    Error,
+    System
 }
 
 public class ChatMessage
@@ -56,4 +57,7 @@ public class ChatMessage
 
     public static ChatMessage ErrorMessage(string content, string? toolName = null) =>
         new("assistant", content, DateTime.Now, ChatMessageType.Error) { ToolName = toolName, IsComplete = true };
+
+    public static ChatMessage SystemMessage(string content) =>
+        new("system", content, DateTime.Now, ChatMessageType.System) { IsComplete = true };
 }

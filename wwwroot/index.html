@@ -30,6 +30,16 @@
             Notification.requestPermission();
         }
 
+        window.setupTextareaEnterHandler = function(element) {
+            if (!element || element._enterHandlerSet) return;
+            element._enterHandlerSet = true;
+            element.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                }
+            });
+        };
+
         window.scrollToBottom = function(element) {
             if (element) {
                 element.scrollTop = element.scrollHeight;

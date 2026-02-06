@@ -126,6 +126,19 @@
     flex-direction: row-reverse;
 }
 
+.message.system {
+    align-self: center;
+    max-width: 100%;
+    justify-content: center;
+}
+
+.system-text {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.4);
+    text-align: center;
+    padding: 0.25rem 0;
+}
+
 .message-avatar {
     width: 36px;
     height: 36px;
@@ -165,6 +178,7 @@
 .message.assistant .message-text {
     background: rgba(255,255,255,0.1);
     border-bottom-left-radius: 4px;
+    color: white;
 }
 
 .message.streaming .message-text::after {
@@ -183,6 +197,7 @@
 .message.user .message-time { text-align: right; }
 
 /* === Markdown body (::deep for MarkupString inner content) === */
+::deep .markdown-body { color: white; }
 ::deep .markdown-body p { margin: 0 0 0.5rem 0; }
 ::deep .markdown-body p:last-child { margin-bottom: 0; }
 
@@ -322,6 +337,19 @@
 }
 
 .reasoning-block.collapsed .reasoning-content:not(.preview) { display: none; }
+
+/* === Tool summary (grouped completed tools) === */
+.tool-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.4);
+    max-width: 90%;
+}
+
+.tool-summary.has-error { color: rgba(248, 113, 113, 0.6); }
 
 /* === Tool cards === */
 .tool-card {
@@ -536,6 +564,14 @@
 
 .input-area .input-row button:hover:not(:disabled) { background: #2563eb; }
 .input-area .input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.input-area .input-row .stop-btn {
+    padding: 0.75rem;
+    background: #ef4444;
+    border-radius: 8px;
+    min-width: auto;
+}
+.input-area .input-row .stop-btn:hover { background: #dc2626; }
 
 /* === Error bar === */
 .error-bar {

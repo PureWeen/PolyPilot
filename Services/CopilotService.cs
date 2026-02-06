@@ -10,6 +10,7 @@ public class CopilotService : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, SessionState> _sessions = new();
     private readonly ChatDatabase _chatDb;
+    private readonly ServerManager _serverManager;
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
@@ -49,10 +50,12 @@ public class CopilotService : IAsyncDisposable
     public bool IsInitialized { get; private set; }
     public string? ActiveSessionName => _activeSessionName;
     public ChatDatabase ChatDb => _chatDb;
+    public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
 
-    public CopilotService(ChatDatabase chatDb)
+    public CopilotService(ChatDatabase chatDb, ServerManager serverManager)
     {
         _chatDb = chatDb;
+        _serverManager = serverManager;
     }
 
     // Debug info
@@ -81,6 +84,8 @@ public class CopilotService : IAsyncDisposable
         public required AgentSessionInfo Info { get; init; }
         public TaskCompletionSource<string>? ResponseCompletion { get; set; }
         public StringBuilder CurrentResponse { get; } = new();
+        public bool HasReceivedDeltasThisTurn { get; set; }
+        public string? LastMessageId { get; set; }
     }
 
     private void Debug(string message)
@@ -98,10 +103,34 @@ public class CopilotService : IAsyncDisposable
         _syncContext = SynchronizationContext.Current;
         Debug($"SyncContext captured: {_syncContext?.GetType().Name ?? "null"}");
 
-        _client = new CopilotClient();
+        var settings = ConnectionSettings.Load();
+        CurrentMode = settings.Mode;
+
+        // In Persistent mode, auto-start the server if not already running
+        if (settings.Mode == ConnectionMode.Persistent)
+        {
+            if (!_serverManager.CheckServerRunning("localhost", settings.Port))
+            {
+                Debug($"Persistent server not running, auto-starting on port {settings.Port}...");
+                var started = await _serverManager.StartServerAsync(settings.Port);
+                if (!started)
+                {
+                    Debug("Failed to auto-start server, falling back to Embedded mode");
+                    settings.Mode = ConnectionMode.Embedded;
+                    CurrentMode = ConnectionMode.Embedded;
+                }
+            }
+            else
+            {
+                Debug($"Persistent server already running on port {settings.Port}");
+            }
+        }
+
+        _client = CreateClient(settings);
+
         await _client.StartAsync(cancellationToken);
         IsInitialized = true;
-        Debug("Copilot client started");
+        Debug($"Copilot client started in {settings.Mode} mode");
 
         // Load default system instructions from the project's copilot-instructions.md
         var instructionsPath = Path.Combine(ProjectDir, ".github", "copilot-instructions.md");
@@ -112,6 +141,58 @@ public class CopilotService : IAsyncDisposable
         }
 
         OnStateChanged?.Invoke();
+
+        // Restore previous sessions (includes subscribing to untracked server sessions in Persistent mode)
+        await RestorePreviousSessionsAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Disconnect from current client and reconnect with new settings
+    /// </summary>
+    public async Task ReconnectAsync(ConnectionSettings settings, CancellationToken cancellationToken = default)
+    {
+        Debug($"Reconnecting with mode: {settings.Mode}...");
+
+        // Dispose existing sessions and client
+        foreach (var state in _sessions.Values)
+        {
+            try { await state.Session.DisposeAsync(); } catch { }
+        }
+        _sessions.Clear();
+        _activeSessionName = null;
+
+        if (_client != null)
+        {
+            try { await _client.DisposeAsync(); } catch { }
+            _client = null;
+        }
+
+        IsInitialized = false;
+        CurrentMode = settings.Mode;
+        OnStateChanged?.Invoke();
+
+        _client = CreateClient(settings);
+
+        await _client.StartAsync(cancellationToken);
+        IsInitialized = true;
+        Debug($"Reconnected in {settings.Mode} mode");
+        OnStateChanged?.Invoke();
+
+        // Restore previous sessions
+        await RestorePreviousSessionsAsync(cancellationToken);
+    }
+
+    private static CopilotClient CreateClient(ConnectionSettings settings)
+    {
+        return settings.Mode switch
+        {
+            ConnectionMode.Persistent => new CopilotClient(new CopilotClientOptions
+            {
+                CliUrl = settings.CliUrl,
+                UseStdio = false
+            }),
+            _ => new CopilotClient()
+        };
     }
 
     /// <summary>
@@ -382,6 +463,9 @@ public class CopilotService : IAsyncDisposable
         }
         info.MessageCount = info.History.Count;
 
+        // Add reconnection indicator
+        info.History.Add(ChatMessage.SystemMessage("🔄 Session reconnected"));
+
         var state = new SessionState
         {
             Session = copilotSession,
@@ -512,14 +596,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
             case AssistantMessageDeltaEvent delta:
                 var deltaContent = delta.Data.DeltaContent;
+                state.HasReceivedDeltasThisTurn = true;
                 state.CurrentResponse.Append(deltaContent);
                 Invoke(() => OnContentReceived?.Invoke(sessionName, deltaContent ?? ""));
                 break;
 
             case AssistantMessageEvent msg:
                 var msgContent = msg.Data.Content;
-                if (!string.IsNullOrEmpty(msgContent) && state.CurrentResponse.Length == 0)
+                var msgId = msg.Data.MessageId;
+                // Deduplicate: SDK fires this event multiple times for resumed sessions
+                if (!string.IsNullOrEmpty(msgContent) && !state.HasReceivedDeltasThisTurn && msgId != state.LastMessageId)
                 {
+                    state.LastMessageId = msgId;
                     state.CurrentResponse.Append(msgContent);
                     Invoke(() => OnContentReceived?.Invoke(sessionName, msgContent));
                 }
@@ -591,6 +679,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 break;
 
             case AssistantTurnStartEvent:
+                state.HasReceivedDeltasThisTurn = false;
                 Invoke(() =>
                 {
                     OnTurnStart?.Invoke(sessionName);
@@ -749,10 +838,47 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         catch (Exception ex)
         {
             Console.WriteLine($"[DEBUG] SendAsync threw: {ex.Message}");
-            OnError?.Invoke(sessionName, $"SendAsync failed: {ex.Message}");
-            state.Info.IsProcessing = false;
-            OnStateChanged?.Invoke();
-            throw;
+            
+            // Try to reconnect the session and retry once
+            if (state.Info.SessionId != null)
+            {
+                Debug($"Session '{sessionName}' disconnected, attempting reconnect...");
+                OnActivity?.Invoke(sessionName, "🔄 Reconnecting session...");
+                try
+                {
+                    await state.Session.DisposeAsync();
+                    var newSession = await _client!.ResumeSessionAsync(state.Info.SessionId, cancellationToken: cancellationToken);
+                    var newState = new SessionState
+                    {
+                        Session = newSession,
+                        Info = state.Info
+                    };
+                    newSession.On(evt => HandleSessionEvent(newState, evt));
+                    _sessions[sessionName] = newState;
+                    state = newState;
+                    
+                    Debug($"Session '{sessionName}' reconnected, retrying prompt...");
+                    await state.Session.SendAsync(new MessageOptions
+                    {
+                        Prompt = prompt
+                    }, cancellationToken);
+                }
+                catch (Exception retryEx)
+                {
+                    Console.WriteLine($"[DEBUG] Reconnect+retry failed: {retryEx.Message}");
+                    OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {retryEx.Message}");
+                    state.Info.IsProcessing = false;
+                    OnStateChanged?.Invoke();
+                    throw;
+                }
+            }
+            else
+            {
+                OnError?.Invoke(sessionName, $"SendAsync failed: {ex.Message}");
+                state.Info.IsProcessing = false;
+                OnStateChanged?.Invoke();
+                throw;
+            }
         }
 
         Console.WriteLine($"[DEBUG] SendAsync completed, waiting for response...");
@@ -770,6 +896,28 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         });
 
         return await state.ResponseCompletion.Task;
+    }
+
+    public async Task AbortSessionAsync(string sessionName)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state))
+            return;
+
+        if (!state.Info.IsProcessing) return;
+
+        try
+        {
+            await state.Session.AbortAsync();
+            Debug($"Aborted session '{sessionName}'");
+        }
+        catch (Exception ex)
+        {
+            Debug($"Abort failed for '{sessionName}': {ex.Message}");
+        }
+
+        state.Info.IsProcessing = false;
+        state.ResponseCompletion?.TrySetCanceled();
+        OnStateChanged?.Invoke();
     }
 
     public void EnqueueMessage(string sessionName, string prompt)
@@ -923,40 +1071,43 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     /// </summary>
     public async Task RestorePreviousSessionsAsync(CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(ActiveSessionsFile)) return;
-
-        try
+        if (File.Exists(ActiveSessionsFile))
         {
-            var json = await File.ReadAllTextAsync(ActiveSessionsFile, cancellationToken);
-            var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
-            if (entries == null || entries.Count == 0) return;
-
-            Debug($"Restoring {entries.Count} previous sessions...");
-
-            foreach (var entry in entries)
+            try
             {
-                try
+                var json = await File.ReadAllTextAsync(ActiveSessionsFile, cancellationToken);
+                var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
+                if (entries != null && entries.Count > 0)
                 {
-                    // Skip if already active
-                    if (_sessions.ContainsKey(entry.DisplayName)) continue;
-                    
-                    // Check the session still exists on disk
-                    var sessionDir = Path.Combine(SessionStatePath, entry.SessionId);
-                    if (!Directory.Exists(sessionDir)) continue;
+                    Debug($"Restoring {entries.Count} previous sessions...");
 
-                    await ResumeSessionAsync(entry.SessionId, entry.DisplayName, cancellationToken);
-                    Debug($"Restored session: {entry.DisplayName}");
-                }
-                catch (Exception ex)
-                {
-                    Debug($"Failed to restore '{entry.DisplayName}': {ex.Message}");
+                    foreach (var entry in entries)
+                    {
+                        try
+                        {
+                            // Skip if already active
+                            if (_sessions.ContainsKey(entry.DisplayName)) continue;
+                            
+                            // Check the session still exists on disk
+                            var sessionDir = Path.Combine(SessionStatePath, entry.SessionId);
+                            if (!Directory.Exists(sessionDir)) continue;
+
+                            await ResumeSessionAsync(entry.SessionId, entry.DisplayName, cancellationToken);
+                            Debug($"Restored session: {entry.DisplayName}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug($"Failed to restore '{entry.DisplayName}': {ex.Message}");
+                        }
+                    }
                 }
             }
+            catch (Exception ex)
+            {
+                Debug($"Failed to load active sessions file: {ex.Message}");
+            }
         }
-        catch (Exception ex)
-        {
-            Debug($"Failed to load active sessions file: {ex.Message}");
-        }
+
     }
 
     public async ValueTask DisposeAsync()
