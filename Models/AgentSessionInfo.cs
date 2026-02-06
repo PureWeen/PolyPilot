@@ -9,6 +9,8 @@ public class AgentSessionInfo
     public bool IsProcessing { get; set; }
     public List<ChatMessage> History { get; } = new();
     
+    public string? WorkingDirectory { get; set; }
+    
     // For resumed sessions
     public string? SessionId { get; set; }
     public bool IsResumed { get; init; }

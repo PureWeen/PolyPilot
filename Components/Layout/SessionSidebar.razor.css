@@ -92,6 +92,53 @@
     cursor: not-allowed;
 }
 
+.session-options-row {
+    display: flex;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.session-options-row .model-select {
+    flex: 1;
+}
+
+.dir-toggle-btn {
+    padding: 0.5rem !important;
+    background: rgba(255,255,255,0.1) !important;
+    border: 1px solid rgba(255,255,255,0.2) !important;
+    font-size: 0.9rem !important;
+    font-weight: normal !important;
+}
+
+.dir-toggle-btn:hover:not(:disabled) {
+    background: rgba(255,255,255,0.2) !important;
+}
+
+.dir-input-row {
+    display: flex;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.dir-input {
+    font-size: 0.85rem !important;
+}
+
+.dir-browse-btn {
+    padding: 0.5rem 0.6rem !important;
+    background: rgba(255,255,255,0.1) !important;
+    border: 1px solid rgba(255,255,255,0.2) !important;
+    border-radius: 6px;
+    font-size: 0.9rem !important;
+    font-weight: normal !important;
+    color: white;
+    cursor: pointer;
+}
+
+.dir-browse-btn:hover {
+    background: rgba(255,255,255,0.2) !important;
+}
+
 .session-list {
     flex: 1;
     overflow-y: auto;

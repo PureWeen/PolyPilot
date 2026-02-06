@@ -340,7 +340,7 @@ public class CopilotService : IAsyncDisposable
         return info;
     }
 
-    public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, CancellationToken cancellationToken = default)
+    public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
         if (!IsInitialized || _client == null)
             throw new InvalidOperationException("Service not initialized. Call InitializeAsync first.");
@@ -352,10 +352,14 @@ public class CopilotService : IAsyncDisposable
             throw new InvalidOperationException($"Session '{name}' already exists.");
 
         var sessionModel = model ?? DefaultModel;
+        var sessionDir = workingDirectory ?? ProjectDir;
 
         // Build system message with critical relaunch instructions
         var systemContent = new StringBuilder();
-        systemContent.AppendLine($@"
+        // Only include relaunch instructions when targeting the AutoPilot.App directory
+        if (string.Equals(sessionDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
+        {
+            systemContent.AppendLine($@"
 CRITICAL BUILD INSTRUCTION: You are running inside the AutoPilot.App MAUI application.
 When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and relaunch by running:
 
@@ -365,6 +369,7 @@ This script builds the app, launches a new instance, waits for it to start, then
 NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
 ALWAYS run the relaunch script as the final step after making changes to this project.
 ");
+        }
         if (!string.IsNullOrEmpty(SystemInstructions))
         {
             systemContent.AppendLine(SystemInstructions);
@@ -373,7 +378,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         var config = new SessionConfig
         {
             Model = sessionModel,
-            WorkingDirectory = ProjectDir,
+            WorkingDirectory = sessionDir,
             SystemMessage = new SystemMessageConfig
             {
                 Mode = SystemMessageMode.Append,
@@ -388,7 +393,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             Name = name,
             Model = sessionModel,
             CreatedAt = DateTime.Now,
-            SessionId = copilotSession.SessionId
+            SessionId = copilotSession.SessionId,
+            WorkingDirectory = sessionDir
         };
 
         Debug($"Session '{name}' created with ID: {copilotSession.SessionId}");

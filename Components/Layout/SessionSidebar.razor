@@ -18,15 +18,27 @@
     <div class="new-session">
         <input type="text" id="sessionNameInput"
                placeholder="Session name..." />
-        <select @bind="selectedModel" class="model-select">
-            @foreach (var model in availableModels)
-            {
-                <option value="@model">@model</option>
-            }
-        </select>
-        <button @onclick="CreateSession" disabled="@isCreating">
-            @(isCreating ? "..." : "+")
-        </button>
+        <div class="session-options-row">
+            <select @bind="selectedModel" class="model-select">
+                @foreach (var model in availableModels)
+                {
+                    <option value="@model">@model</option>
+                }
+            </select>
+            <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory">📂</button>
+            <button @onclick="CreateSession" disabled="@isCreating">
+                @(isCreating ? "..." : "+")
+            </button>
+        </div>
+        @if (showDirectoryInput)
+        {
+            <div class="dir-input-row">
+                <input type="text" id="sessionDirInput"
+                       placeholder="Working directory (default: AutoPilot.App)" 
+                       class="dir-input" />
+                <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders">📁</button>
+            </div>
+        }
     </div>
 
     <div class="session-list">
@@ -56,7 +68,13 @@
                                 <span class="resumed-badge">resumed</span>
                             }
                         </span>
-                        <span class="session-meta">@session.MessageCount msgs • @session.Model</span>
+                        <span class="session-meta">
+                            @session.MessageCount msgs • @session.Model
+                            @if (!string.IsNullOrEmpty(session.WorkingDirectory))
+                            {
+                                <text> • @GetShortPath(session.WorkingDirectory)</text>
+                            }
+                        </span>
                     </div>
                     <div class="session-actions">
                         @if (session.IsProcessing)
@@ -113,6 +131,7 @@
     private string sessionFilter = "";
     private bool isCreating = false;
     private bool showPersistedSessions = false;
+    private bool showDirectoryInput = false;
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
 
@@ -206,13 +225,25 @@
         var name = await JS.InvokeAsync<string>("eval", "document.getElementById('sessionNameInput')?.value || ''");
         if (string.IsNullOrWhiteSpace(name) || isCreating) return;
 
+        // Read working directory if the input is visible
+        string? workingDir = null;
+        if (showDirectoryInput)
+        {
+            var dirValue = await JS.InvokeAsync<string>("eval", "document.getElementById('sessionDirInput')?.value || ''");
+            if (!string.IsNullOrWhiteSpace(dirValue))
+                workingDir = dirValue.Trim();
+        }
+
         isCreating = true;
         try
         {
-            var sessionInfo = await CopilotService.CreateSessionAsync(name.Trim(), selectedModel);
+            var sessionInfo = await CopilotService.CreateSessionAsync(name.Trim(), selectedModel, workingDir);
             CopilotService.SwitchSession(sessionInfo.Name);
-            // Clear the input
+            // Clear the inputs
             await JS.InvokeVoidAsync("eval", "document.getElementById('sessionNameInput').value = ''");
+            if (showDirectoryInput)
+                await JS.InvokeVoidAsync("eval", "document.getElementById('sessionDirInput').value = ''");
+            showDirectoryInput = false;
         }
         catch (Exception ex)
         {
@@ -221,6 +252,25 @@
         finally
         {
             isCreating = false;
+        }
+    }
+
+    private void ToggleDirectoryInput()
+    {
+        showDirectoryInput = !showDirectoryInput;
+    }
+
+    private async Task BrowseDirectory()
+    {
+        try
+        {
+            var dir = await FolderPickerService.PickFolderAsync();
+            if (!string.IsNullOrEmpty(dir))
+                await JS.InvokeVoidAsync("eval", $"document.getElementById('sessionDirInput').value = '{dir.Replace("'", "\\'")}'");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Folder picker error: {ex.Message}");
         }
     }
 
