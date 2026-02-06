@@ -42,6 +42,7 @@
 }
 
 .session-card {
+    position: relative;
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 12px;
@@ -74,32 +75,27 @@
 
 .card-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 0.25rem;
+    gap: 0.5rem;
 }
 
 .card-close {
     background: none;
-    border: 1px solid rgba(255,255,255,0.15);
+    border: none;
     color: rgba(255,255,255,0.4);
     font-size: 0.85rem;
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
     line-height: 1;
+    flex-shrink: 0;
     transition: all 0.15s ease;
 }
 
+.session-card:hover .card-close { }
+
 .card-close:hover {
     background: rgba(239, 68, 68, 0.2);
-    border-color: rgba(239, 68, 68, 0.5);
     color: #ef4444;
 }
 
@@ -107,6 +103,8 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex: 1;
+    min-width: 0;
 }
 
 .card-title h3 {

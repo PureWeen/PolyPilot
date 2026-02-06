@@ -58,6 +58,16 @@ public class CopilotService : IAsyncDisposable
     public event Action<string, string>? OnActivity; // sessionName, activity description
     public event Action<string>? OnDebug; // debug messages
 
+    // Rich event types
+    public event Action<string, string, string>? OnToolStarted; // sessionName, toolName, callId
+    public event Action<string, string, string, bool>? OnToolCompleted; // sessionName, callId, result, success
+    public event Action<string, string, string>? OnReasoningReceived; // sessionName, reasoningId, deltaContent
+    public event Action<string, string>? OnReasoningComplete; // sessionName, reasoningId
+    public event Action<string, string>? OnIntentChanged; // sessionName, intent
+    public event Action<string, SessionUsageInfo>? OnUsageInfoChanged; // sessionName, usageInfo
+    public event Action<string>? OnTurnStart; // sessionName
+    public event Action<string>? OnTurnEnd; // sessionName
+
     private class SessionState
     {
         public required CopilotSession Session { get; init; }
@@ -326,7 +336,7 @@ public class CopilotService : IAsyncDisposable
             Info = info
         };
 
-        copilotSession.On(evt => HandleSessionEvent(displayName, state, evt));
+        copilotSession.On(evt => HandleSessionEvent(state, evt));
 
         if (!_sessions.TryAdd(displayName, state))
         {
@@ -405,7 +415,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             Info = info
         };
 
-        copilotSession.On(evt => HandleSessionEvent(name, state, evt));
+        copilotSession.On(evt => HandleSessionEvent(state, evt));
 
         if (!_sessions.TryAdd(name, state))
         {
@@ -419,9 +429,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         return info;
     }
 
-    private void HandleSessionEvent(string sessionName, SessionState state, SessionEvent evt)
+    private static readonly HashSet<string> FilteredTools = new() { "report_intent", "skill", "store_memory" };
+
+    private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
-        // Marshal to UI thread if we have a sync context
+        var sessionName = state.Info.Name;
         void Invoke(Action action)
         {
             if (_syncContext != null)
@@ -432,6 +444,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         
         switch (evt)
         {
+            case AssistantReasoningEvent reasoning:
+                Invoke(() =>
+                {
+                    OnReasoningReceived?.Invoke(sessionName, reasoning.Data.ReasoningId ?? "", reasoning.Data.Content ?? "");
+                });
+                break;
+
+            case AssistantReasoningDeltaEvent reasoningDelta:
+                Invoke(() =>
+                {
+                    OnReasoningReceived?.Invoke(sessionName, reasoningDelta.Data.ReasoningId ?? "", reasoningDelta.Data.DeltaContent ?? "");
+                });
+                break;
+
             case AssistantMessageDeltaEvent delta:
                 var deltaContent = delta.Data.DeltaContent;
                 state.CurrentResponse.Append(deltaContent);
@@ -445,39 +471,67 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     state.CurrentResponse.Append(msgContent);
                     Invoke(() => OnContentReceived?.Invoke(sessionName, msgContent));
                 }
-                // Show tool requests as activity
-                var toolReqs = msg.Data.ToolRequests;
-                if (toolReqs != null && toolReqs.Any())
-                {
-                    foreach (var tool in toolReqs!)
-                    {
-                        Invoke(() => OnActivity?.Invoke(sessionName, $"🔧 Calling {tool.Name}..."));
-                    }
-                }
                 break;
 
             case ToolExecutionStartEvent toolStart:
-                Invoke(() => OnActivity?.Invoke(sessionName, $"🔧 Running {toolStart.Data.ToolName}..."));
+                var startToolName = toolStart.Data.ToolName ?? "unknown";
+                var startCallId = toolStart.Data.ToolCallId ?? "";
+                if (!FilteredTools.Contains(startToolName))
+                {
+                    Invoke(() =>
+                    {
+                        OnToolStarted?.Invoke(sessionName, startToolName, startCallId);
+                        OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
+                    });
+                }
                 break;
 
             case ToolExecutionCompleteEvent toolDone:
-                Invoke(() => OnActivity?.Invoke(sessionName, $"✅ Tool completed"));
+                var completeCallId = toolDone.Data.ToolCallId ?? "";
+                var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
+                var resultStr = FormatToolResult(toolDone.Data.Result);
+                var hasError = toolDone.Data.Error != null;
+
+                // Skip filtered tools
+                if (completeToolName != null && FilteredTools.Contains(completeToolName))
+                    break;
+                if (resultStr == "Intent logged")
+                    break;
+
+                Invoke(() =>
+                {
+                    OnToolCompleted?.Invoke(sessionName, completeCallId, resultStr, !hasError);
+                    OnActivity?.Invoke(sessionName, hasError ? "❌ Tool failed" : "✅ Tool completed");
+                });
                 break;
 
-            case ToolExecutionProgressEvent toolProgress:
+            case ToolExecutionProgressEvent:
                 Invoke(() => OnActivity?.Invoke(sessionName, "⚙️ Tool executing..."));
                 break;
 
             case AssistantIntentEvent intent:
-                Invoke(() => OnActivity?.Invoke(sessionName, $"💭 {intent.Data.Intent}"));
+                var intentText = intent.Data.Intent ?? "";
+                Invoke(() =>
+                {
+                    OnIntentChanged?.Invoke(sessionName, intentText);
+                    OnActivity?.Invoke(sessionName, $"💭 {intentText}");
+                });
                 break;
 
             case AssistantTurnStartEvent:
-                Invoke(() => OnActivity?.Invoke(sessionName, "🤔 Thinking..."));
+                Invoke(() =>
+                {
+                    OnTurnStart?.Invoke(sessionName);
+                    OnActivity?.Invoke(sessionName, "🤔 Thinking...");
+                });
                 break;
 
             case AssistantTurnEndEvent:
-                Invoke(() => OnActivity?.Invoke(sessionName, ""));
+                Invoke(() =>
+                {
+                    OnTurnEnd?.Invoke(sessionName);
+                    OnActivity?.Invoke(sessionName, "");
+                });
                 break;
 
             case SessionIdleEvent:
@@ -490,6 +544,27 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 SaveActiveSessionsToDisk();
                 break;
 
+            case SessionUsageInfoEvent usageInfo:
+                var uData = usageInfo.Data;
+                var uModel = uData?.GetType().GetProperty("Model")?.GetValue(uData)?.ToString();
+                var uCurrentTokens = uData?.GetType().GetProperty("CurrentTokens")?.GetValue(uData) as int?;
+                var uTokenLimit = uData?.GetType().GetProperty("TokenLimit")?.GetValue(uData) as int?;
+                var uInputTokens = uData?.GetType().GetProperty("InputTokens")?.GetValue(uData) as int?;
+                var uOutputTokens = uData?.GetType().GetProperty("OutputTokens")?.GetValue(uData) as int?;
+                Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(uModel, uCurrentTokens, uTokenLimit, uInputTokens, uOutputTokens)));
+                break;
+
+            case AssistantUsageEvent assistantUsage:
+                var aData = assistantUsage.Data;
+                var aModel = aData?.GetType().GetProperty("Model")?.GetValue(aData)?.ToString();
+                var aInput = aData?.GetType().GetProperty("InputTokens")?.GetValue(aData) as int?;
+                var aOutput = aData?.GetType().GetProperty("OutputTokens")?.GetValue(aData) as int?;
+                if (aInput.HasValue || aOutput.HasValue)
+                {
+                    Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(aModel, null, null, aInput, aOutput)));
+                }
+                break;
+
             case SessionErrorEvent err:
                 Invoke(() => OnError?.Invoke(sessionName, err.Data.Message));
                 state.ResponseCompletion?.TrySetException(new Exception(err.Data.Message));
@@ -500,6 +575,29 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             default:
                 break;
         }
+    }
+
+    private static string FormatToolResult(object? result)
+    {
+        if (result == null) return "";
+        if (result is string str) return str;
+        try
+        {
+            var resultType = result.GetType();
+            foreach (var propName in new[] { "Content", "content", "Message", "message", "Text", "text", "Value", "value" })
+            {
+                var prop = resultType.GetProperty(propName);
+                if (prop != null)
+                {
+                    var val = prop.GetValue(result)?.ToString();
+                    if (!string.IsNullOrEmpty(val)) return val;
+                }
+            }
+            var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+            if (json != "{}" && json != "null") return json;
+        }
+        catch { }
+        return result.ToString() ?? "";
     }
 
     private void CompleteResponse(SessionState state)
@@ -518,6 +616,27 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Fire completion notification
         var summary = response.Length > 100 ? response[..100] + "..." : response;
         OnSessionComplete?.Invoke(state.Info.Name, summary);
+
+        // Auto-dispatch next queued message
+        if (state.Info.MessageQueue.Count > 0)
+        {
+            var nextPrompt = state.Info.MessageQueue[0];
+            state.Info.MessageQueue.RemoveAt(0);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Small delay to let UI update
+                    await Task.Delay(500);
+                    await SendPromptAsync(state.Info.Name, nextPrompt);
+                }
+                catch (Exception ex)
+                {
+                    Debug($"Failed to send queued message: {ex.Message}");
+                    OnError?.Invoke(state.Info.Name, $"Queued message failed: {ex.Message}");
+                }
+            });
+        }
     }
 
     public async Task<string> SendPromptAsync(string sessionName, string prompt, CancellationToken cancellationToken = default)
@@ -571,6 +690,36 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         return await state.ResponseCompletion.Task;
     }
 
+    public void EnqueueMessage(string sessionName, string prompt)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state))
+            throw new InvalidOperationException($"Session '{sessionName}' not found.");
+        
+        state.Info.MessageQueue.Add(prompt);
+        OnStateChanged?.Invoke();
+    }
+
+    public void RemoveQueuedMessage(string sessionName, int index)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state))
+            return;
+        
+        if (index >= 0 && index < state.Info.MessageQueue.Count)
+        {
+            state.Info.MessageQueue.RemoveAt(index);
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    public void ClearQueue(string sessionName)
+    {
+        if (_sessions.TryGetValue(sessionName, out var state))
+        {
+            state.Info.MessageQueue.Clear();
+            OnStateChanged?.Invoke();
+        }
+    }
+
     public AgentSessionInfo? GetSession(string name)
     {
         return _sessions.TryGetValue(name, out var state) ? state.Info : null;
@@ -587,6 +736,39 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             return false;
 
         _activeSessionName = name;
+        OnStateChanged?.Invoke();
+        return true;
+    }
+
+    public bool RenameSession(string oldName, string newName)
+    {
+        if (string.IsNullOrWhiteSpace(newName))
+            return false;
+
+        newName = newName.Trim();
+        if (oldName == newName)
+            return true;
+
+        if (_sessions.ContainsKey(newName))
+            return false;
+
+        if (!_sessions.TryRemove(oldName, out var state))
+            return false;
+
+        state.Info.Name = newName;
+
+        if (!_sessions.TryAdd(newName, state))
+        {
+            // Rollback
+            state.Info.Name = oldName;
+            _sessions.TryAdd(oldName, state);
+            return false;
+        }
+
+        if (_activeSessionName == oldName)
+            _activeSessionName = newName;
+
+        SaveActiveSessionsToDisk();
         OnStateChanged?.Invoke();
         return true;
     }
@@ -756,7 +938,15 @@ public class PersistedSessionInfo
     public required string SessionId { get; init; }
     public DateTime LastModified { get; init; }
     public string? Path { get; init; }
-    public string? Title { get; init; }  // First user message truncated
-    public string? Preview { get; init; } // Full first user message for tooltip
+    public string? Title { get; init; }
+    public string? Preview { get; init; }
     public string? WorkingDirectory { get; init; }
 }
+
+public record SessionUsageInfo(
+    string? Model,
+    int? CurrentTokens,
+    int? TokenLimit,
+    int? InputTokens,
+    int? OutputTokens
+);

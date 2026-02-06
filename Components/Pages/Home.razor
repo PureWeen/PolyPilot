@@ -1,6 +1,7 @@
 @page "/"
 @using AutoPilot.App.Services
 @using AutoPilot.App.Models
+@using Markdig
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
 @inject NavigationManager Nav
@@ -22,7 +23,7 @@
     else if (activeSession == null)
     {
         <div class="no-session">
-            <h2>👋 Welcome to AutoPilot</h2>
+            <h2>Welcome to AutoPilot</h2>
             <p>Create a new session from the sidebar to start chatting with Copilot.</p>
         </div>
     }
@@ -33,7 +34,7 @@
             <span class="model-badge">@activeSession.Model</span>
             @if (activeSession.SessionId != null)
             {
-                <span class="session-id-badge" title="@activeSession.SessionId">📎 @activeSession.SessionId[..8]</span>
+                <span class="session-id-badge" title="@activeSession.SessionId"><svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> @activeSession.SessionId[..8]</span>
             }
             @if (activeSession.IsProcessing)
             {
@@ -42,7 +43,7 @@
         </div>
 
         <div class="messages" @ref="messagesContainer">
-            @if (!activeSession.History.Any())
+            @if (!activeSession.History.Any() && string.IsNullOrEmpty(streamingContent))
             {
                 <div class="empty-chat">
                     <p>Start a conversation with Copilot!</p>
@@ -50,41 +51,123 @@
             }
             else
             {
-                @foreach (var message in activeSession.History)
+                @foreach (var message in activeSession.History.ToList())
                 {
-                    <div class="message @(message.IsUser ? "user" : "assistant")">
-                        <div class="message-avatar">
-                            @(message.IsUser ? "👤" : "🤖")
-                        </div>
-                        <div class="message-content">
-                            <div class="message-text">@((MarkupString)FormatMessage(message.Content))</div>
-                            <div class="message-time">@message.Timestamp.ToString("HH:mm")</div>
-                        </div>
-                    </div>
+                    @switch (message.MessageType)
+                    {
+                        case ChatMessageType.User:
+                            <div class="message user">
+                                <div class="message-avatar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+                                <div class="message-content">
+                                    <div class="message-text">@((MarkupString)FormatUserMessage(message.Content))</div>
+                                    <div class="message-time">@message.Timestamp.ToString("HH:mm")</div>
+                                </div>
+                            </div>
+                            break;
+
+                        case ChatMessageType.Assistant:
+                            <div class="message assistant">
+                                <div class="message-avatar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="2" y="8" width="20" height="8" rx="2"/><path d="M6 16v4"/><path d="M18 16v4"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/></svg></div>
+                                <div class="message-content">
+                                    <div class="message-text markdown-body">@((MarkupString)RenderMarkdown(message.Content))</div>
+                                    <div class="message-time">@message.Timestamp.ToString("HH:mm")</div>
+                                </div>
+                            </div>
+                            break;
+
+                        case ChatMessageType.Reasoning:
+                            <div class="reasoning-block @(message.IsCollapsed && LineCount(message.Content) > 5 ? "collapsed" : "")">
+                                <button class="reasoning-header" @onclick="() => message.IsCollapsed = !message.IsCollapsed">
+                                    <span class="reasoning-title"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a8 8 0 0 0-8 8c0 3.4 2.1 6.3 5 7.4V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2.6c2.9-1.1 5-4 5-7.4a8 8 0 0 0-8-8z"/><line x1="10" y1="22" x2="14" y2="22"/></svg> @(message.IsComplete ? "Thought" : "Thinking...")</span>
+                                    @if (LineCount(message.Content) > 5)
+                                    {
+                                        <span class="collapse-icon">@(message.IsCollapsed ? "▶" : "▼")</span>
+                                    }
+                                </button>
+                                @if (!message.IsCollapsed || LineCount(message.Content) <= 5)
+                                {
+                                    <div class="reasoning-content">@message.Content</div>
+                                }
+                                else
+                                {
+                                    <div class="reasoning-content preview">@FirstLines(message.Content, 3)</div>
+                                }
+                            </div>
+                            break;
+
+                        case ChatMessageType.ToolCall:
+                            @if (message.ToolName == "task_complete")
+                            {
+                                <div class="task-complete-card">
+                                    <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                    <span class="task-complete-text">@(string.IsNullOrEmpty(message.Content) || IsUnusableResult(message.Content) ? "Task complete" : message.Content)</span>
+                                </div>
+                            }
+                            else
+                            {
+                            <div class="tool-card @(message.IsComplete ? (message.IsSuccess ? "success" : "error") : "running")">
+                                <div class="tool-header">
+                                    <span class="tool-info"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> @FormatToolName(message.ToolName ?? "")</span>
+                                    <span class="tool-status">
+                                        @if (!message.IsComplete)
+                                        {
+                                            <svg class="icon spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg> <text>Running</text>
+                                        }
+                                        else if (message.IsSuccess)
+                                        {
+                                            <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> <text>Done</text>
+                                        }
+                                        else
+                                        {
+                                            <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> <text>Failed</text>
+                                        }
+                                    </span>
+                                </div>
+                                @if (message.IsComplete && !string.IsNullOrEmpty(message.Content) && !IsUnusableResult(message.Content))
+                                {
+                                    @if (LineCount(message.Content) <= 5)
+                                    {
+                                        <div class="tool-result-section">
+                                            <pre class="tool-result-content">@TruncateResult(message.Content)</pre>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="tool-result-section">
+                                            <button class="tool-result-toggle" @onclick="() => message.IsCollapsed = !message.IsCollapsed">
+                                                @(message.IsCollapsed ? "Show Full Result ▶" : "Collapse ▼")
+                                            </button>
+                                            @if (!message.IsCollapsed)
+                                            {
+                                                <pre class="tool-result-content">@TruncateResult(message.Content)</pre>
+                                            }
+                                            else
+                                            {
+                                                <pre class="tool-result-content preview">@FirstLines(message.Content, 3)</pre>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </div>
+                            }
+                            break;
+
+                        case ChatMessageType.Error:
+                            <div class="error-card">
+                                <span class="error-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+                                <span class="error-text">@message.Content</span>
+                            </div>
+                            break;
+                    }
                 }
+
                 @if (!string.IsNullOrEmpty(streamingContent))
                 {
                     <div class="message assistant streaming">
-                        <div class="message-avatar">🤖</div>
+                        <div class="message-avatar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="2" y="8" width="20" height="8" rx="2"/><path d="M6 16v4"/><path d="M18 16v4"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/></svg></div>
                         <div class="message-content">
-                            <div class="message-text">@((MarkupString)FormatMessage(streamingContent))</div>
+                            <div class="message-text markdown-body">@((MarkupString)RenderMarkdown(streamingContent))</div>
                         </div>
-                    </div>
-                }
-                @if (activeSession.IsProcessing)
-                {
-                    <div class="activity-log">
-                        @foreach (var activity in activityLog)
-                        {
-                            <div class="activity-entry">@activity</div>
-                        }
-                        @if (!string.IsNullOrEmpty(currentActivity))
-                        {
-                            <div class="activity-entry current">
-                                <span class="activity-spinner">●</span>
-                                @currentActivity
-                            </div>
-                        }
                     </div>
                 }
             }
@@ -93,21 +176,75 @@
         @if (!string.IsNullOrEmpty(lastError))
         {
             <div class="error-bar">
-                <span>⚠️ @lastError</span>
+                <span><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> @lastError</span>
                 <button @onclick="() => lastError = null">×</button>
             </div>
         }
 
         <div class="input-area">
-            <textarea @bind="userInput" @bind:event="oninput" 
-                      @onkeydown="HandleKeyDown"
-                      placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
-                      disabled="@activeSession.IsProcessing"
-                      rows="1"></textarea>
-            <button @onclick="SendMessage" 
-                    disabled="@(string.IsNullOrWhiteSpace(userInput) || activeSession.IsProcessing)">
-                @(activeSession.IsProcessing ? "..." : "Send")
-            </button>
+            @if (!string.IsNullOrEmpty(currentIntent))
+            {
+                <div class="intent-pill"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg> @currentIntent</div>
+            }
+            @if (activeSession.MessageQueue.Any())
+            {
+                <div class="message-queue">
+                    <div class="queue-header">
+                        <span><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> Queued (@activeSession.MessageQueue.Count)</span>
+                        <button class="queue-clear-btn" @onclick="ClearQueue">Clear</button>
+                    </div>
+                    @for (var i = 0; i < activeSession.MessageQueue.Count; i++)
+                    {
+                        var index = i;
+                        var msg = activeSession.MessageQueue[i];
+                        <div class="queue-item">
+                            <span class="queue-index">@(index + 1)</span>
+                            <span class="queue-text">@Truncate(msg, 80)</span>
+                            <button class="queue-remove-btn" @onclick="() => RemoveQueuedMessage(index)">×</button>
+                        </div>
+                    }
+                </div>
+            }
+            <div class="input-row">
+                <textarea @bind="userInput" @bind:event="oninput" 
+                          @onkeydown="HandleKeyDown" @onkeydown:preventDefault="shouldPreventDefault"
+                          placeholder="@GetInputPlaceholder()"
+                          rows="1"></textarea>
+                <button @onclick="SendMessage" 
+                        disabled="@(string.IsNullOrWhiteSpace(userInput))">
+                    @if (activeSession.IsProcessing)
+                    {
+                        <text>Queue</text>
+                    }
+                    else
+                    {
+                        <text>Send</text>
+                    }
+                </button>
+            </div>
+            <div class="input-status-bar">
+                <button class="plan-icon-toggle @(isPlanMode ? "active" : "")" @onclick="() => isPlanMode = !isPlanMode" title="Toggle planning mode — prefixes messages with [[PLAN]]">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1.5" width="12" height="13" rx="1.5"/><line x1="5" y1="5" x2="5.01" y2="5"/><line x1="7.5" y1="5" x2="11" y2="5"/><line x1="5" y1="8" x2="5.01" y2="8"/><line x1="7.5" y1="8" x2="11" y2="8"/><line x1="5" y1="11" x2="5.01" y2="11"/><line x1="7.5" y1="11" x2="11" y2="11"/></svg>
+                    <span>Planning</span>
+                </button>
+                <span class="status-sep">·</span>
+                <span class="status-model">@(currentUsage?.Model ?? activeSession.Model)</span>
+                @if (currentUsage != null)
+                {
+                    @if (currentUsage.InputTokens.HasValue || currentUsage.OutputTokens.HasValue)
+                    {
+                        <span class="status-sep">·</span>
+                        <span class="status-tokens">↑@FormatTokenCount(currentUsage.InputTokens ?? 0) ↓@FormatTokenCount(currentUsage.OutputTokens ?? 0)</span>
+                    }
+                    @if (currentUsage.CurrentTokens.HasValue && currentUsage.TokenLimit.HasValue)
+                    {
+                        <span class="status-sep">·</span>
+                        <span class="status-ctx" title="@currentUsage.CurrentTokens.Value / @currentUsage.TokenLimit.Value tokens">@FormatTokenCount(currentUsage.CurrentTokens.Value)/@FormatTokenCount(currentUsage.TokenLimit.Value) ctx</span>
+                    }
+                }
+                <span class="status-sep">·</span>
+                <span class="status-msgs">@activeSession.History.Count msgs</span>
+            </div>
         </div>
     }
     
@@ -121,17 +258,24 @@
 </div>
 
 @code {
+    private static readonly MarkdownPipeline MdPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .Build();
+
     private AgentSessionInfo? activeSession;
     private string userInput = "";
+    private bool isPlanMode = false;
     private string streamingContent = "";
-    private string currentActivity = "";
-    private List<string> activityLog = new();
+    private string currentIntent = "";
+    private SessionUsageInfo? currentUsage;
     private string? initError;
     private string? lastError;
     private string debugLog = "";
     private ElementReference messagesContainer;
     private bool _needsRedirect;
     private string? _redirectTo;
+    private bool _needsScroll = true;
+    private bool shouldPreventDefault;
 
     protected override async Task OnInitializedAsync()
     {
@@ -140,35 +284,142 @@
         CopilotService.OnSessionComplete += HandleSessionComplete;
         CopilotService.OnError += HandleError;
         CopilotService.OnDebug += HandleDebug;
-        CopilotService.OnActivity += HandleActivity;
+        CopilotService.OnToolStarted += HandleToolStarted;
+        CopilotService.OnToolCompleted += HandleToolCompleted;
+        CopilotService.OnReasoningReceived += HandleReasoningReceived;
+        CopilotService.OnReasoningComplete += HandleReasoningComplete;
+        CopilotService.OnIntentChanged += HandleIntentChanged;
+        CopilotService.OnUsageInfoChanged += HandleUsageInfoChanged;
+        CopilotService.OnTurnStart += HandleTurnStart;
+        CopilotService.OnTurnEnd += HandleTurnEnd;
 
         await Initialize();
     }
 
-    protected override void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (_needsRedirect && _redirectTo != null)
         {
             _needsRedirect = false;
             Nav.NavigateTo(_redirectTo);
         }
+        if (firstRender || _needsScroll)
+        {
+            _needsScroll = false;
+            await ForceScrollToBottom();
+        }
     }
 
-    private void HandleActivity(string sessionName, string activity)
+    private void HandleToolStarted(string sessionName, string toolName, string callId)
     {
-        if (sessionName == CopilotService.ActiveSessionName)
+        if (sessionName != CopilotService.ActiveSessionName) return;
+        var msg = ChatMessage.ToolCallMessage(toolName, callId);
+        activeSession?.History.Add(msg);
+        InvokeAsync(async () => { StateHasChanged(); await ScrollToBottom(); });
+    }
+
+    private void HandleToolCompleted(string sessionName, string callId, string result, bool success)
+    {
+        if (sessionName != CopilotService.ActiveSessionName || activeSession == null) return;
+        var msg = activeSession.History.LastOrDefault(m =>
+            m.MessageType == ChatMessageType.ToolCall && !m.IsComplete &&
+            (!string.IsNullOrEmpty(callId) ? m.ToolCallId == callId : true));
+        if (msg == null)
+            msg = activeSession.History.LastOrDefault(m => m.MessageType == ChatMessageType.ToolCall && !m.IsComplete);
+        if (msg != null)
         {
-            currentActivity = activity;
-            if (!string.IsNullOrEmpty(activity))
-            {
-                activityLog.Add(activity);
-            }
-            InvokeAsync(async () =>
-            {
-                StateHasChanged();
-                await ScrollToBottom();
-            });
+            msg.IsComplete = true;
+            msg.IsSuccess = success;
+            msg.Content = result;
+            msg.IsCollapsed = true;
         }
+        InvokeAsync(async () => { StateHasChanged(); await ScrollToBottom(); });
+    }
+
+    private void HandleReasoningReceived(string sessionName, string reasoningId, string content)
+    {
+        if (sessionName != CopilotService.ActiveSessionName || activeSession == null) return;
+        var msg = activeSession.History.LastOrDefault(m =>
+            m.MessageType == ChatMessageType.Reasoning && m.ReasoningId == reasoningId);
+        if (msg == null)
+        {
+            msg = activeSession.History.LastOrDefault(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete);
+        }
+        if (msg == null)
+        {
+            msg = ChatMessage.ReasoningMessage(reasoningId);
+            activeSession.History.Add(msg);
+        }
+        msg.Content += content;
+        InvokeAsync(async () => { StateHasChanged(); await ScrollToBottom(); });
+    }
+
+    private void HandleReasoningComplete(string sessionName, string reasoningId)
+    {
+        if (sessionName != CopilotService.ActiveSessionName || activeSession == null) return;
+        var msg = activeSession.History.LastOrDefault(m =>
+            m.MessageType == ChatMessageType.Reasoning &&
+            (m.ReasoningId == reasoningId || !m.IsComplete));
+        if (msg != null)
+        {
+            msg.IsComplete = true;
+            msg.IsCollapsed = true;
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleIntentChanged(string sessionName, string intent)
+    {
+        if (sessionName != CopilotService.ActiveSessionName) return;
+        currentIntent = intent;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleUsageInfoChanged(string sessionName, SessionUsageInfo info)
+    {
+        if (sessionName != CopilotService.ActiveSessionName) return;
+        if (currentUsage == null)
+        {
+            currentUsage = info;
+        }
+        else
+        {
+            currentUsage = new SessionUsageInfo(
+                info.Model ?? currentUsage.Model,
+                info.CurrentTokens ?? currentUsage.CurrentTokens,
+                info.TokenLimit ?? currentUsage.TokenLimit,
+                info.InputTokens ?? currentUsage.InputTokens,
+                info.OutputTokens ?? currentUsage.OutputTokens);
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleTurnStart(string sessionName)
+    {
+        if (sessionName != CopilotService.ActiveSessionName || activeSession == null) return;
+        // Complete any open reasoning blocks from prior turn
+        foreach (var m in activeSession.History.Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete))
+        {
+            m.IsComplete = true;
+            m.IsCollapsed = true;
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleTurnEnd(string sessionName)
+    {
+        if (sessionName != CopilotService.ActiveSessionName) return;
+        currentIntent = "";
+        // Complete any open reasoning blocks
+        if (activeSession != null)
+        {
+            foreach (var m in activeSession.History.Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete))
+            {
+                m.IsComplete = true;
+                m.IsCollapsed = true;
+            }
+        }
+        InvokeAsync(StateHasChanged);
     }
 
     private void HandleDebug(string message)
@@ -184,16 +435,12 @@
         try
         {
             await CopilotService.InitializeAsync();
-            // Restore previously active sessions
             await CopilotService.RestorePreviousSessionsAsync();
-
-            // Restore UI state (active session and page)
             var uiState = CopilotService.LoadUiState();
             if (uiState != null)
             {
                 if (!string.IsNullOrEmpty(uiState.ActiveSession))
                     CopilotService.SetActiveSession(uiState.ActiveSession);
-
                 if (uiState.CurrentPage is "/dashboard")
                 {
                     _needsRedirect = true;
@@ -219,7 +466,10 @@
 
     private void RefreshState()
     {
+        var prev = activeSession?.Name;
         activeSession = CopilotService.GetActiveSession();
+        if (activeSession?.Name != prev)
+            _needsScroll = true;
         InvokeAsync(async () =>
         {
             StateHasChanged();
@@ -244,15 +494,12 @@
     {
         if (sessionName == CopilotService.ActiveSessionName)
         {
-            currentActivity = "";
+            currentIntent = "";
         }
         InvokeAsync(async () =>
         {
-            try
-            {
-                await JS.InvokeVoidAsync("showNotification", sessionName, summary);
-            }
-            catch { /* JS might not be ready */ }
+            try { await JS.InvokeVoidAsync("showNotification", sessionName, summary); }
+            catch { }
         });
     }
 
@@ -260,20 +507,33 @@
     {
         if (e.Key == "Enter" && !e.ShiftKey)
         {
+            shouldPreventDefault = true;
             await SendMessage();
+        }
+        else
+        {
+            shouldPreventDefault = false;
         }
     }
 
     private async Task SendMessage()
     {
-        if (string.IsNullOrWhiteSpace(userInput) || activeSession == null || activeSession.IsProcessing)
+        if (string.IsNullOrWhiteSpace(userInput) || activeSession == null)
             return;
 
         var prompt = userInput.Trim();
+        if (isPlanMode)
+            prompt = $"[[PLAN]] {prompt}";
         userInput = "";
+
+        if (activeSession.IsProcessing)
+        {
+            CopilotService.EnqueueMessage(activeSession.Name, prompt);
+            return;
+        }
+
         streamingContent = "";
-        currentActivity = "";
-        activityLog.Clear();
+        currentIntent = "";
         lastError = null;
 
         try
@@ -284,45 +544,102 @@
         catch (Exception ex)
         {
             lastError = $"Error: {ex.Message}";
-            Console.WriteLine($"Error: {ex.Message}");
         }
+        await ForceScrollToBottom();
     }
 
-    private string FormatMessage(string content)
+    private void RemoveQueuedMessage(int index)
+    {
+        if (activeSession != null) CopilotService.RemoveQueuedMessage(activeSession.Name, index);
+    }
+
+    private void ClearQueue()
+    {
+        if (activeSession != null) CopilotService.ClearQueue(activeSession.Name);
+    }
+
+    private string GetInputPlaceholder()
+    {
+        if (isPlanMode) return "Plan mode: describe what you want planned...";
+        if (activeSession?.IsProcessing == true) return "Type to queue next message... (sent when idle)";
+        return "Type a message... (Enter to send, Shift+Enter for new line)";
+    }
+
+    private string Truncate(string text, int maxLen)
+    {
+        text = text.Replace("\n", " ").Replace("\r", "");
+        return text.Length > maxLen ? text[..maxLen] + "…" : text;
+    }
+
+    private static string RenderMarkdown(string content)
+    {
+        if (string.IsNullOrEmpty(content)) return "";
+        try { return Markdig.Markdown.ToHtml(content, MdPipeline); }
+        catch { return System.Net.WebUtility.HtmlEncode(content).Replace("\n", "<br/>"); }
+    }
+
+    private static string FormatUserMessage(string content)
     {
         var escaped = System.Net.WebUtility.HtmlEncode(content);
-        
-        // Code blocks
-        escaped = System.Text.RegularExpressions.Regex.Replace(
-            escaped, 
-            @"```(\w*)\n?([\s\S]*?)```",
-            "<pre><code>$2</code></pre>");
-        
-        // Inline code
-        escaped = System.Text.RegularExpressions.Regex.Replace(
-            escaped,
-            @"`([^`]+)`",
-            "<code>$1</code>");
-        
-        // Bold
-        escaped = System.Text.RegularExpressions.Regex.Replace(
-            escaped,
-            @"\*\*([^*]+)\*\*",
-            "<strong>$1</strong>");
-        
-        // Line breaks
-        escaped = escaped.Replace("\n", "<br/>");
-        
-        return escaped;
+        return escaped.Replace("\n", "<br/>");
     }
+
+    private static int LineCount(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        var count = 1;
+        foreach (var c in text) { if (c == '\n') count++; }
+        return count;
+    }
+
+    private static string FirstLines(string? text, int lines)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        var idx = 0;
+        for (var i = 0; i < lines && idx < text.Length; i++)
+        {
+            var next = text.IndexOf('\n', idx);
+            if (next < 0) break;
+            idx = next + 1;
+        }
+        if (idx <= 0 || idx >= text.Length) return text;
+        return text[..idx] + "…";
+    }
+
+    private static string FormatToolName(string toolName)
+    {
+        if (string.IsNullOrEmpty(toolName)) return "";
+        return string.Join(" ", toolName.Split('_').Select(w =>
+            w.Length > 0 ? char.ToUpperInvariant(w[0]) + w[1..].ToLowerInvariant() : w));
+    }
+
+    private static string TruncateResult(string result, int maxLength = 1500)
+    {
+        if (string.IsNullOrEmpty(result) || result.Length <= maxLength) return result ?? "";
+        return result[..maxLength] + "\n… (truncated)";
+    }
+
+    private static bool IsUnusableResult(string? content)
+    {
+        if (string.IsNullOrEmpty(content)) return true;
+        if (content.StartsWith("GitHub.Copilot.SDK.")) return true;
+        if (content is "(no result)" or "Intent logged") return true;
+        return false;
+    }
+
+    private static string FormatTokenCount(int count) =>
+        count >= 1000 ? $"{count / 1000}k" : count.ToString();
 
     private async Task ScrollToBottom()
     {
-        try
-        {
-            await JS.InvokeVoidAsync("scrollToBottom", messagesContainer);
-        }
-        catch { /* JS might not be ready */ }
+        try { await JS.InvokeVoidAsync("smartScrollToBottom", messagesContainer); }
+        catch { }
+    }
+
+    private async Task ForceScrollToBottom()
+    {
+        try { await JS.InvokeVoidAsync("scrollToBottom", messagesContainer); }
+        catch { }
     }
 
     public void Dispose()
@@ -332,6 +649,13 @@
         CopilotService.OnSessionComplete -= HandleSessionComplete;
         CopilotService.OnError -= HandleError;
         CopilotService.OnDebug -= HandleDebug;
-        CopilotService.OnActivity -= HandleActivity;
+        CopilotService.OnToolStarted -= HandleToolStarted;
+        CopilotService.OnToolCompleted -= HandleToolCompleted;
+        CopilotService.OnReasoningReceived -= HandleReasoningReceived;
+        CopilotService.OnReasoningComplete -= HandleReasoningComplete;
+        CopilotService.OnIntentChanged -= HandleIntentChanged;
+        CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;
+        CopilotService.OnTurnStart -= HandleTurnStart;
+        CopilotService.OnTurnEnd -= HandleTurnEnd;
     }
 }

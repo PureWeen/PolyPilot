@@ -2,16 +2,17 @@
 @using AutoPilot.App.Models
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <div class="sidebar-content">
     <div class="sidebar-header">
-        <h3>🤖 AutoPilot</h3>
+        <h3><svg style="vertical-align:middle" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="2" y="8" width="20" height="8" rx="2"/><path d="M6 16v4"/><path d="M18 16v4"/><circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="15" cy="12" r="1" fill="currentColor"/></svg> AutoPilot</h3>
         <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")">
             @(CopilotService.IsInitialized ? "● Connected" : "○ Disconnected")
         </p>
         <div class="nav-tabs">
-            <a href="/" class="nav-tab" @onclick='() => CopilotService.SaveUiState("/")'>💬 Chat</a>
-            <a href="/dashboard" class="nav-tab" @onclick='() => CopilotService.SaveUiState("/dashboard")'>🎛️ Dashboard</a>
+            <a href="/" class="nav-tab @(currentPage == "/" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/"); currentPage = "/"; }'><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Chat</a>
+            <a href="/dashboard" class="nav-tab @(currentPage == "/dashboard" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/dashboard"); currentPage = "/dashboard"; }'><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> Dashboard</a>
         </div>
     </div>
 
@@ -25,7 +26,7 @@
                     <option value="@model">@model</option>
                 }
             </select>
-            <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory">📂</button>
+            <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
             <button @onclick="CreateSession" disabled="@isCreating">
                 @(isCreating ? "..." : "+")
             </button>
@@ -36,13 +37,15 @@
                 <input type="text" id="sessionDirInput"
                        placeholder="Working directory (default: AutoPilot.App)" 
                        class="dir-input" />
-                <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders">📁</button>
+                <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
             </div>
         }
     </div>
 
+    <div class="sidebar-divider"></div>
+
     <div class="session-list">
-        <div class="section-header">Active Sessions</div>
+        <div class="section-header"><span class="section-header-label"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Active Sessions</span></div>
         @if (!sessions.Any())
         {
             <p class="no-sessions">No active sessions.<br/>Create one above or resume below.</p>
@@ -60,9 +63,20 @@
                         <span class="session-name">
                             @if (completedSessions.Contains(session.Name))
                             {
-                                <span class="done-badge">✓</span>
+                                <span class="done-badge"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
                             }
-                            @session.Name
+                            @if (renamingSession == session.Name)
+                            {
+                                <input type="text" class="rename-input" id="renameInput"
+                                       value="@session.Name"
+                                       @onclick:stopPropagation="true"
+                                       @onblur="CommitRename"
+                                       @onkeydown="HandleRenameKeyDown" />
+                            }
+                            else
+                            {
+                                <span @ondblclick="() => StartRename(session.Name)" @ondblclick:stopPropagation="true">@session.Name</span>
+                            }
                             @if (session.IsResumed)
                             {
                                 <span class="resumed-badge">resumed</span>
@@ -81,6 +95,8 @@
                         {
                             <span class="processing">●</span>
                         }
+                        <button class="rename-btn" @onclick:stopPropagation="true"
+                                @onclick="() => StartRename(session.Name)" title="Rename session"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
                         <button class="close-btn" @onclick:stopPropagation="true" 
                                 @onclick="() => CloseSession(session.Name)">×</button>
                     </div>
@@ -90,8 +106,9 @@
 
         @if (persistedSessions.Any())
         {
+            <div class="sidebar-divider"></div>
             <div class="section-header" @onclick="TogglePersistedSessions" style="cursor: pointer;">
-                📁 Saved Sessions (@filteredPersistedSessions.Count())
+                <span class="section-header-label"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> Saved Sessions (@filteredPersistedSessions.Count())</span>
                 <span class="toggle-icon">@(showPersistedSessions ? "▼" : "▶")</span>
             </div>
             
@@ -99,7 +116,7 @@
             {
                 <div class="filter-box">
                     <input type="text" @bind="sessionFilter" @bind:event="oninput" 
-                           placeholder="🔍 Filter sessions..." class="filter-input" />
+                           placeholder="Filter sessions..." class="filter-input" />
                 </div>
                 
                 @foreach (var persisted in filteredPersistedSessions.Take(30))
@@ -117,7 +134,7 @@
                                 }
                             </span>
                         </div>
-                        <span class="resume-icon">↻ Resume</span>
+                        <span class="resume-icon"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Resume</span>
                     </div>
                 }
             }
@@ -132,6 +149,8 @@
     private bool isCreating = false;
     private bool showPersistedSessions = false;
     private bool showDirectoryInput = false;
+    private string? renamingSession = null;
+    private string currentPage = "/";
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
 
@@ -159,6 +178,8 @@
 
     protected override void OnInitialized()
     {
+        currentPage = new Uri(Nav.Uri).AbsolutePath;
+        Nav.LocationChanged += (_, e) => { currentPage = new Uri(e.Location).AbsolutePath; InvokeAsync(StateHasChanged); };
         CopilotService.OnStateChanged += RefreshSessions;
         CopilotService.OnSessionComplete += HandleSessionComplete;
         RefreshSessions();
@@ -293,6 +314,43 @@
         finally
         {
             isCreating = false;
+        }
+    }
+
+    private async Task StartRename(string sessionName)
+    {
+        renamingSession = sessionName;
+        StateHasChanged();
+        // Focus the input after render
+        await Task.Yield();
+        await JS.InvokeVoidAsync("eval", @"
+            var el = document.getElementById('renameInput');
+            if (el) { el.focus(); el.select(); }
+        ");
+    }
+
+    private async Task CommitRename()
+    {
+        if (renamingSession == null) return;
+        var oldName = renamingSession;
+        renamingSession = null;
+
+        var newName = await JS.InvokeAsync<string>("eval", "document.getElementById('renameInput')?.value || ''");
+        if (!string.IsNullOrWhiteSpace(newName) && newName.Trim() != oldName)
+        {
+            CopilotService.RenameSession(oldName, newName.Trim());
+        }
+    }
+
+    private async Task HandleRenameKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await CommitRename();
+        }
+        else if (e.Key == "Escape")
+        {
+            renamingSession = null;
         }
     }
 

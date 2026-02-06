@@ -36,6 +36,20 @@
             }
         };
 
+        window.smartScrollToBottom = function(element) {
+            if (!element) return;
+            var threshold = 150;
+            var isAtBottom = (element.scrollHeight - element.scrollTop - element.clientHeight) < threshold;
+            if (isAtBottom) {
+                element.scrollTop = element.scrollHeight;
+            }
+        };
+
+        window.isScrolledToBottom = function(element) {
+            if (!element) return true;
+            return (element.scrollHeight - element.scrollTop - element.clientHeight) < 150;
+        };
+
         window.showNotification = function(sessionName, summary) {
             // Play a sound
             try {
