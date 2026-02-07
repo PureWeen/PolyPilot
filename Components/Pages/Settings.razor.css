@@ -516,3 +516,7 @@
     background: rgba(59, 130, 246, 0.15);
     border-color: #3b82f6;
 }
+
+.icon { vertical-align: middle; }
+.icon.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

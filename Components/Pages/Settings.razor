@@ -10,7 +10,7 @@
 
 <div class="settings-page">
     <div class="settings-header">
-        <h2>⚙️ Connection Settings</h2>
+        <h2><svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Connection Settings</h2>
     </div>
 
     <div class="settings-section">
@@ -49,12 +49,13 @@
                     @if (!serverAlive)
                     {
                         <button class="start-btn" @onclick="StartServer" disabled="@starting">
-                            @(starting ? "⏳ Starting..." : "▶️ Start Server")
+                            @if (starting) {<svg class="icon spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><text> Starting...</text>}
+                            else {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg><text> Start Server</text>}
                         </button>
                     }
                     else
                     {
-                        <button class="stop-btn" @onclick="StopServer">⏹️ Stop Server</button>
+                        <button class="stop-btn" @onclick="StopServer"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg> Stop Server</button>
                     }
                 </div>
             </div>
@@ -63,11 +64,11 @@
         @if (serverAlive && PlatformHelper.IsDesktop)
         {
             <div class="settings-section">
-                <h3>📡 Share via DevTunnel</h3>
+                <h3><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m4.93 19.07 1.41-1.41"/><path d="m17.66 6.34 1.41-1.41"/></svg> Share via DevTunnel</h3>
                 @if (!devTunnelAvailable)
                 {
                     <div class="tunnel-warning">
-                        <p>⚠️ <code>devtunnel</code> CLI not found. Install it to share your server remotely.</p>
+                        <p><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> <code>devtunnel</code> CLI not found. Install it to share your server remotely.</p>
                         <p class="hint">Run: <code>winget install Microsoft.devtunnel</code> (Windows) or <code>brew install --cask devtunnel</code> (macOS)</p>
                     </div>
                 }
@@ -84,13 +85,15 @@
                             @if (!tunnelLoggedIn)
                             {
                                 <button class="start-btn" @onclick="TunnelLogin" disabled="@tunnelBusy">
-                                    @(tunnelBusy ? "⏳ Authenticating..." : "🔑 Login with GitHub")
+                                    @if (tunnelBusy) {<svg class="icon spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><text> Authenticating...</text>}
+                                    else {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg><text> Login with GitHub</text>}
                                 </button>
                             }
                             else
                             {
                                 <button class="start-btn" @onclick="StartTunnel" disabled="@tunnelBusy">
-                                    @(tunnelBusy ? "⏳ Starting tunnel..." : "🚀 Start Tunnel")
+                                    @if (tunnelBusy) {<svg class="icon spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><text> Starting tunnel...</text>}
+                                    else {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 15 22 11 13 2 9z"/></svg><text> Start Tunnel</text>}
                                 </button>
                             }
 
@@ -104,7 +107,7 @@
                             <div class="tunnel-url-section">
                                 <div class="tunnel-url">
                                     <code>@DevTunnelService.TunnelUrl</code>
-                                    <button class="copy-btn" @onclick="CopyTunnelUrl" title="Copy URL">📋</button>
+                                    <button class="copy-btn" @onclick="CopyTunnelUrl" title="Copy URL"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
                                 </div>
 
                                 @if (!string.IsNullOrEmpty(DevTunnelService.AccessToken))
@@ -112,8 +115,8 @@
                                     <div class="tunnel-token">
                                         <label>Token:</label>
                                         <code class="token-value @(showToken ? "" : "blurred")">@DevTunnelService.AccessToken</code>
-                                        <button class="copy-btn" @onclick="() => showToken = !showToken" title="@(showToken ? "Hide" : "Reveal")">@(showToken ? "🙈" : "👁️")</button>
-                                        <button class="copy-btn" @onclick="CopyTunnelToken" title="Copy Token">📋</button>
+                                        <button class="copy-btn" @onclick="() => showToken = !showToken" title="@(showToken ? "Hide" : "Reveal")">@if (showToken) {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>} else {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}</button>
+                                        <button class="copy-btn" @onclick="CopyTunnelToken" title="Copy Token"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
                                     </div>
                                 }
 
@@ -126,7 +129,7 @@
                                 }
                             </div>
 
-                            <button class="stop-btn" @onclick="StopTunnel">⏹️ Stop Tunnel</button>
+                            <button class="stop-btn" @onclick="StopTunnel"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg> Stop Tunnel</button>
                         }
                         else
                         {
@@ -141,14 +144,14 @@
     @if (settings.Mode == ConnectionMode.Remote)
     {
         <div class="settings-section">
-            <h3>🌐 Remote Server</h3>
+            <h3><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> Remote Server</h3>
             <div class="remote-controls">
                 <p class="mode-hint">Connect to a Copilot server running on another machine (via DevTunnel URL).</p>
 
                 @if (PlatformHelper.IsMobile)
                 {
                     <button class="scan-btn" @onclick="ScanQrCode">
-                        📷 Scan QR Code
+                        <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Scan QR Code
                     </button>
                 }
 
@@ -167,7 +170,7 @@
     <div class="settings-section">
         <div class="save-row">
             <button class="save-btn" @onclick="SaveAndApply">
-                💾 Save & Reconnect
+                <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save &amp; Reconnect
             </button>
             @if (!string.IsNullOrEmpty(statusMessage))
             {
@@ -179,7 +182,7 @@
     <div class="settings-section info">
         <h3>Current Connection</h3>
         <p><strong>Mode:</strong> @CopilotService.CurrentMode</p>
-        <p><strong>Status:</strong> @(CopilotService.IsInitialized ? "✅ Connected" : "❌ Disconnected")</p>
+        <p><strong>Status:</strong> @if (CopilotService.IsInitialized) {<span style="color:#4ade80">Connected</span>} else {<span style="color:#f87171">Disconnected</span>}</p>
 
         <h3>About Transport Modes</h3>
         <ul>
@@ -259,12 +262,12 @@
         }
     }
 
-    private string GetModeIcon(ConnectionMode mode) => mode switch
+    private MarkupString GetModeIcon(ConnectionMode mode) => mode switch
     {
-        ConnectionMode.Embedded => "🔌",
-        ConnectionMode.Persistent => "🏗️",
-        ConnectionMode.Remote => "🌐",
-        _ => "❓"
+        ConnectionMode.Embedded => new("<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2\" ry=\"2\"/><rect x=\"9\" y=\"9\" width=\"6\" height=\"6\"/><line x1=\"9\" y1=\"1\" x2=\"9\" y2=\"4\"/><line x1=\"15\" y1=\"1\" x2=\"15\" y2=\"4\"/><line x1=\"9\" y1=\"20\" x2=\"9\" y2=\"23\"/><line x1=\"15\" y1=\"20\" x2=\"15\" y2=\"23\"/><line x1=\"20\" y1=\"9\" x2=\"23\" y2=\"9\"/><line x1=\"20\" y1=\"14\" x2=\"23\" y2=\"14\"/><line x1=\"1\" y1=\"9\" x2=\"4\" y2=\"9\"/><line x1=\"1\" y1=\"14\" x2=\"4\" y2=\"14\"/></svg>"),
+        ConnectionMode.Persistent => new("<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"2\" width=\"20\" height=\"8\" rx=\"2\" ry=\"2\"/><rect x=\"2\" y=\"14\" width=\"20\" height=\"8\" rx=\"2\" ry=\"2\"/><line x1=\"6\" y1=\"6\" x2=\"6.01\" y2=\"6\"/><line x1=\"6\" y1=\"18\" x2=\"6.01\" y2=\"18\"/></svg>"),
+        ConnectionMode.Remote => new("<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"2\" y1=\"12\" x2=\"22\" y2=\"12\"/><path d=\"M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z\"/></svg>"),
+        _ => new("<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3\"/><line x1=\"12\" y1=\"17\" x2=\"12.01\" y2=\"17\"/></svg>")
     };
 
     private string GetModeDescription(ConnectionMode mode) => mode switch
@@ -314,7 +317,7 @@
         if (!string.IsNullOrEmpty(url))
             settings.RemoteUrl = url;
 
-        statusMessage = "✅ QR code scanned!";
+        statusMessage = "QR code scanned!";
         statusClass = "success";
         StateHasChanged();
     }
@@ -351,7 +354,7 @@
         if (DevTunnelService.TunnelUrl != null)
         {
             await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(DevTunnelService.TunnelUrl);
-            statusMessage = "📋 URL copied!";
+            statusMessage = "URL copied!";
             statusClass = "success";
             StateHasChanged();
         }
@@ -362,7 +365,7 @@
         if (DevTunnelService.AccessToken != null)
         {
             await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(DevTunnelService.AccessToken);
-            statusMessage = "📋 Token copied!";
+            statusMessage = "Token copied!";
             statusClass = "success";
             StateHasChanged();
         }
@@ -378,9 +381,9 @@
         starting = false;
 
         if (success)
-            statusMessage = $"✅ Server started on port {settings.Port}";
+            statusMessage = $"Server started on port {settings.Port}";
         else
-            statusMessage = "❌ Failed to start server";
+            statusMessage = "Failed to start server";
         statusClass = success ? "success" : "error";
         StateHasChanged();
     }
@@ -400,7 +403,7 @@
     {
         if (settings.Mode == ConnectionMode.Persistent && !serverAlive)
         {
-            statusMessage = "⚠️ Start the persistent server first";
+            statusMessage = "Start the persistent server first";
             statusClass = "error";
             StateHasChanged();
             return;
@@ -408,7 +411,7 @@
 
         if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl))
         {
-            statusMessage = "⚠️ Enter a remote server URL";
+            statusMessage = "Enter a remote server URL";
             statusClass = "error";
             StateHasChanged();
             return;
@@ -422,12 +425,12 @@
         try
         {
             await CopilotService.ReconnectAsync(settings);
-            statusMessage = "✅ Connected!";
+            statusMessage = "Connected!";
             statusClass = "success";
         }
         catch (Exception ex)
         {
-            statusMessage = $"❌ Connection failed: {ex.Message}";
+            statusMessage = $"Connection failed: {ex.Message}";
             statusClass = "error";
         }
         StateHasChanged();
