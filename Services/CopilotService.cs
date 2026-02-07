@@ -510,6 +510,78 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
+    /// Check if a session was still processing when the app last closed
+    /// </summary>
+    private bool IsSessionStillProcessing(string sessionId)
+    {
+        var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        if (!File.Exists(eventsFile)) return false;
+
+        try
+        {
+            string? lastLine = null;
+            foreach (var line in File.ReadLines(eventsFile))
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                    lastLine = line;
+            }
+            if (lastLine == null) return false;
+
+            using var doc = JsonDocument.Parse(lastLine);
+            var type = doc.RootElement.GetProperty("type").GetString();
+            
+            var activeEvents = new[] { 
+                "assistant.turn_start", "tool.execution_start", 
+                "tool.execution_progress", "assistant.message_delta",
+                "assistant.reasoning", "assistant.reasoning_delta",
+                "assistant.intent"
+            };
+            return activeEvents.Contains(type);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Get the last tool name and assistant message from events.jsonl for status display
+    /// </summary>
+    private (string? lastTool, string? lastContent) GetLastSessionActivity(string sessionId)
+    {
+        var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        if (!File.Exists(eventsFile)) return (null, null);
+
+        try
+        {
+            string? lastTool = null;
+            string? lastContent = null;
+
+            foreach (var line in File.ReadLines(eventsFile))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                var type = root.GetProperty("type").GetString();
+
+                if (type == "tool.execution_start" && root.TryGetProperty("data", out var toolData))
+                {
+                    if (toolData.TryGetProperty("toolName", out var tn))
+                        lastTool = tn.GetString();
+                }
+                else if (type == "assistant.message" && root.TryGetProperty("data", out var msgData))
+                {
+                    if (msgData.TryGetProperty("content", out var content))
+                    {
+                        var c = content.GetString();
+                        if (!string.IsNullOrEmpty(c))
+                            lastContent = c;
+                    }
+                }
+            }
+            return (lastTool, lastContent);
+        }
+        catch { return (null, null); }
+    }
+
+    /// <summary>
     /// Load conversation history from events.jsonl
     /// </summary>
     private List<ChatMessage> LoadHistoryFromDisk(string sessionId)
@@ -656,20 +728,12 @@ public class CopilotService : IAsyncDisposable
         if (_sessions.ContainsKey(displayName))
             throw new InvalidOperationException($"Session '{displayName}' already exists.");
 
-        // Load history: try DB first, fall back to parsing events.jsonl
-        List<ChatMessage> history;
-        if (await _chatDb.HasMessagesAsync(sessionId))
+        // Load history: always parse events.jsonl as source of truth, then sync to DB
+        List<ChatMessage> history = LoadHistoryFromDisk(sessionId);
+        if (history.Count > 0)
         {
-            history = await _chatDb.GetAllMessagesAsync(sessionId);
-        }
-        else
-        {
-            history = LoadHistoryFromDisk(sessionId);
-            if (history.Count > 0)
-            {
-                // Persist to DB for future fast loading
-                await _chatDb.BulkInsertAsync(sessionId, history);
-            }
+            // Replace DB contents with fresh parse (events.jsonl may have grown since last DB sync)
+            await _chatDb.BulkInsertAsync(sessionId, history);
         }
 
         // Resume the session using the SDK
@@ -691,14 +755,34 @@ public class CopilotService : IAsyncDisposable
         }
         info.MessageCount = info.History.Count;
 
-        // Add reconnection indicator
-        info.History.Add(ChatMessage.SystemMessage("🔄 Session reconnected"));
+        // Add reconnection indicator with status context
+        var reconnectMsg = "🔄 Session reconnected";
+        var isStillProcessing = IsSessionStillProcessing(sessionId);
+        if (isStillProcessing)
+        {
+            var (lastTool, lastContent) = GetLastSessionActivity(sessionId);
+            if (!string.IsNullOrEmpty(lastTool))
+                reconnectMsg += $" — running {lastTool}";
+            if (!string.IsNullOrEmpty(lastContent))
+                reconnectMsg += $"\n💬 Last: {(lastContent.Length > 100 ? lastContent[..100] + "…" : lastContent)}";
+        }
+        info.History.Add(ChatMessage.SystemMessage(reconnectMsg));
+
+        // Set processing state if session was mid-turn when app died
+        info.IsProcessing = isStillProcessing;
 
         var state = new SessionState
         {
             Session = copilotSession,
             Info = info
         };
+
+        // If still processing, set up ResponseCompletion so events flow properly
+        if (isStillProcessing)
+        {
+            state.ResponseCompletion = new TaskCompletionSource<string>();
+            Debug($"Session '{displayName}' is still processing (was mid-turn when app restarted)");
+        }
 
         copilotSession.On(evt => HandleSessionEvent(state, evt));
 
@@ -845,11 +929,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 {
                     state.LastMessageId = msgId;
                     state.CurrentResponse.Append(msgContent);
+                    state.Info.LastUpdatedAt = DateTime.Now;
                     Invoke(() => OnContentReceived?.Invoke(sessionName, msgContent));
                 }
                 break;
 
             case ToolExecutionStartEvent toolStart:
+                if (toolStart.Data == null) break;
                 var startToolName = toolStart.Data.ToolName ?? "unknown";
                 var startCallId = toolStart.Data.ToolCallId ?? "";
                 if (!FilteredTools.Contains(startToolName))
@@ -863,6 +949,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 break;
 
             case ToolExecutionCompleteEvent toolDone:
+                if (toolDone.Data == null) break;
                 var completeCallId = toolDone.Data.ToolCallId ?? "";
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
                 var resultStr = FormatToolResult(toolDone.Data.Result);
@@ -1014,6 +1101,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.ResponseCompletion?.TrySetResult(response);
         state.CurrentResponse.Clear();
         state.Info.IsProcessing = false;
+        state.Info.LastUpdatedAt = DateTime.Now;
         OnStateChanged?.Invoke();
         
         // Fire completion notification

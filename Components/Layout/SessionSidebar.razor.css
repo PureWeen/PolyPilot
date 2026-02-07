@@ -253,6 +253,21 @@
     color: #fbbf24;
 }
 
+.shortcut-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.2em;
+    height: 1.2em;
+    font-size: 0.7rem;
+    font-weight: 600;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 3px;
+    color: rgba(255,255,255,0.5);
+    flex-shrink: 0;
+}
+
 .session-meta {
     font-size: 0.95rem;
     color: rgba(255,255,255,0.5);

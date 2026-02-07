@@ -58,6 +58,22 @@
 
 .chat-header h2 { margin: 0; font-size: 1.6rem; }
 
+.session-nav-btn {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    color: rgba(255,255,255,0.6);
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 0.25rem 0.5rem;
+    transition: all 0.15s;
+}
+.session-nav-btn:hover {
+    background: rgba(59,130,246,0.3);
+    color: white;
+    border-color: rgba(59,130,246,0.5);
+}
+
 .model-badge {
     padding: 0.25rem 0.5rem;
     background: rgba(59, 130, 246, 0.2);

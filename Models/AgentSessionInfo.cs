@@ -15,4 +15,7 @@ public class AgentSessionInfo
     // For resumed sessions
     public string? SessionId { get; set; }
     public bool IsResumed { get; init; }
+    
+    // Timestamp of last state change (message received, turn end, etc.)
+    public DateTime LastUpdatedAt { get; set; } = DateTime.Now;
 }

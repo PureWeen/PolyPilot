@@ -30,12 +30,30 @@
             Notification.requestPermission();
         }
 
+        // Global keyboard listener — registered immediately on load
+        document.addEventListener('keydown', function(e) {
+            // Ctrl+] for next session, Ctrl+[ for previous
+            if (e.ctrlKey && e.code === 'BracketRight' && window._tabDotNetRef) {
+                e.preventDefault();
+                window._tabDotNetRef.invokeMethodAsync('CycleSession', false);
+            } else if (e.ctrlKey && e.code === 'BracketLeft' && window._tabDotNetRef) {
+                e.preventDefault();
+                window._tabDotNetRef.invokeMethodAsync('CycleSession', true);
+            }
+        }, true);
+
         window.setupTextareaEnterHandler = function(element) {
             if (!element || element._enterHandlerSet) return;
             element._enterHandlerSet = true;
             element.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
+                }
+                // Tab / Shift+Tab to cycle sessions
+                if (e.key === 'Tab' && window._tabDotNetRef) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window._tabDotNetRef.invokeMethodAsync('CycleSession', !e.shiftKey);
                 }
             });
         };
@@ -82,6 +100,10 @@
                 });
             }
             return result;
+        };
+
+        window.setupTabNavigation = function(dotnetRef) {
+            window._tabDotNetRef = dotnetRef;
         };
 
         window.showNotification = function(sessionName, summary) {
