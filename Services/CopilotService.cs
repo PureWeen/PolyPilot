@@ -11,51 +11,68 @@ public class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, SessionState> _sessions = new();
     private readonly ChatDatabase _chatDb;
     private readonly ServerManager _serverManager;
+    private readonly WsBridgeClient _bridgeClient;
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
     
-    private static readonly string SessionStatePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".copilot", "session-state");
+    private static readonly string AppDataDir = GetAppDataDir();
 
-    private static readonly string ActiveSessionsFile = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".copilot", "autopilot-active-sessions.json");
+    private static string GetAppDataDir()
+    {
+        // On mobile, UserProfile may be empty — use LocalApplicationData instead
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(home))
+            home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(home, ".copilot");
+    }
 
-    private static readonly string UiStateFile = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".copilot", "autopilot-ui-state.json");
+    private static readonly string SessionStatePath = Path.Combine(AppDataDir, "session-state");
+
+    private static readonly string ActiveSessionsFile = Path.Combine(AppDataDir, "autopilot-active-sessions.json");
+
+    private static readonly string UiStateFile = Path.Combine(AppDataDir, "autopilot-ui-state.json");
 
     private static readonly string ProjectDir = FindProjectDir();
 
     private static string FindProjectDir()
     {
-        // Walk up from the base directory to find the .csproj (works from bin/Debug/... at runtime)
-        var dir = AppDomain.CurrentDomain.BaseDirectory;
-        for (int i = 0; i < 10; i++)
+        try
         {
-            if (Directory.GetFiles(dir, "*.csproj").Length > 0)
-                return dir;
-            var parent = Directory.GetParent(dir);
-            if (parent == null) break;
-            dir = parent.FullName;
+            // Walk up from the base directory to find the .csproj (works from bin/Debug/... at runtime)
+            var dir = AppDomain.CurrentDomain.BaseDirectory;
+            for (int i = 0; i < 10; i++)
+            {
+                if (string.IsNullOrEmpty(dir)) break;
+                if (Directory.Exists(dir) && Directory.GetFiles(dir, "*.csproj").Length > 0)
+                    return dir;
+                var parent = Directory.GetParent(dir);
+                if (parent == null) break;
+                dir = parent.FullName;
+            }
         }
-        // Fallback to user home
-        return Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        catch { }
+        // Fallback
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return string.IsNullOrEmpty(home)
+            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+            : home;
     }
 
     public string DefaultModel { get; set; } = "claude-opus-4.6";
     public string? SystemInstructions { get; set; }
     public bool IsInitialized { get; private set; }
+    public bool NeedsConfiguration { get; private set; }
+    public bool IsRemoteMode { get; private set; }
     public string? ActiveSessionName => _activeSessionName;
     public ChatDatabase ChatDb => _chatDb;
     public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
 
-    public CopilotService(ChatDatabase chatDb, ServerManager serverManager)
+    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient)
     {
         _chatDb = chatDb;
         _serverManager = serverManager;
+        _bridgeClient = bridgeClient;
     }
 
     // Debug info
@@ -95,6 +112,14 @@ public class CopilotService : IAsyncDisposable
         OnDebug?.Invoke(message);
     }
 
+    private void InvokeOnUI(Action action)
+    {
+        if (_syncContext != null)
+            _syncContext.Post(_ => action(), null);
+        else
+            action();
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         if (IsInitialized) return;
@@ -105,6 +130,22 @@ public class CopilotService : IAsyncDisposable
 
         var settings = ConnectionSettings.Load();
         CurrentMode = settings.Mode;
+
+        // On mobile with Remote mode and no URL configured, skip initialization
+        if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl))
+        {
+            Debug("Remote mode with no URL configured — waiting for settings");
+            NeedsConfiguration = true;
+            OnStateChanged?.Invoke();
+            return;
+        }
+
+        // Remote mode: connect via WsBridgeClient (state-sync, not CopilotClient)
+        if (settings.Mode == ConnectionMode.Remote && !string.IsNullOrWhiteSpace(settings.RemoteUrl))
+        {
+            await InitializeRemoteAsync(settings, cancellationToken);
+            return;
+        }
 
         // In Persistent mode, auto-start the server if not already running
         if (settings.Mode == ConnectionMode.Persistent)
@@ -130,6 +171,7 @@ public class CopilotService : IAsyncDisposable
 
         await _client.StartAsync(cancellationToken);
         IsInitialized = true;
+        NeedsConfiguration = false;
         Debug($"Copilot client started in {settings.Mode} mode");
 
         // Load default system instructions from the project's copilot-instructions.md
@@ -147,6 +189,160 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
+    /// Initialize in Remote mode: connect WsBridgeClient for state-sync with server.
+    /// </summary>
+    private async Task InitializeRemoteAsync(ConnectionSettings settings, CancellationToken ct)
+    {
+        var wsUrl = settings.RemoteUrl!.TrimEnd('/');
+        if (wsUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            wsUrl = "wss://" + wsUrl[8..];
+        else if (wsUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            wsUrl = "ws://" + wsUrl[7..];
+        else
+            wsUrl = "wss://" + wsUrl;
+
+        Debug($"Remote mode: connecting to {wsUrl}");
+
+        // Wire WsBridgeClient events to our events
+        _bridgeClient.OnStateChanged += () =>
+        {
+            SyncRemoteSessions();
+            InvokeOnUI(() => OnStateChanged?.Invoke());
+        };
+        _bridgeClient.OnContentReceived += (s, c) =>
+        {
+            // Update local session history from remote events
+            var session = GetRemoteSession(s);
+            if (session != null)
+            {
+                var existing = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
+                if (existing != null)
+                    existing.Content += c;
+                else
+                    session.History.Add(new ChatMessage("assistant", c, DateTime.Now, ChatMessageType.Assistant) { IsComplete = false });
+            }
+            InvokeOnUI(() => OnContentReceived?.Invoke(s, c));
+        };
+        _bridgeClient.OnToolStarted += (s, tool, id) =>
+        {
+            var session = GetRemoteSession(s);
+            session?.History.Add(ChatMessage.ToolCallMessage(tool, id));
+            InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id));
+        };
+        _bridgeClient.OnToolCompleted += (s, id, result, success) =>
+        {
+            var session = GetRemoteSession(s);
+            var toolMsg = session?.History.LastOrDefault(m => m.ToolCallId == id);
+            if (toolMsg != null)
+            {
+                toolMsg.IsComplete = true;
+                toolMsg.IsSuccess = success;
+                toolMsg.Content = result;
+            }
+            InvokeOnUI(() => OnToolCompleted?.Invoke(s, id, result, success));
+        };
+        _bridgeClient.OnReasoningReceived += (s, rid, c) => InvokeOnUI(() => OnReasoningReceived?.Invoke(s, rid, c));
+        _bridgeClient.OnReasoningComplete += (s, rid) => InvokeOnUI(() => OnReasoningComplete?.Invoke(s, rid));
+        _bridgeClient.OnIntentChanged += (s, i) => InvokeOnUI(() => OnIntentChanged?.Invoke(s, i));
+        _bridgeClient.OnUsageInfoChanged += (s, u) => InvokeOnUI(() => OnUsageInfoChanged?.Invoke(s, u));
+        _bridgeClient.OnTurnStart += (s) =>
+        {
+            var session = GetRemoteSession(s);
+            if (session != null) session.IsProcessing = true;
+            InvokeOnUI(() => OnTurnStart?.Invoke(s));
+        };
+        _bridgeClient.OnTurnEnd += (s) =>
+        {
+            var session = GetRemoteSession(s);
+            if (session != null)
+            {
+                session.IsProcessing = false;
+                // Mark last assistant message as complete
+                var lastAssistant = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
+                if (lastAssistant != null) lastAssistant.IsComplete = true;
+            }
+            InvokeOnUI(() => OnTurnEnd?.Invoke(s));
+        };
+        _bridgeClient.OnSessionComplete += (s, sum) => InvokeOnUI(() => OnSessionComplete?.Invoke(s, sum));
+        _bridgeClient.OnError += (s, e) => InvokeOnUI(() => OnError?.Invoke(s, e));
+
+        await _bridgeClient.ConnectAsync(wsUrl, settings.RemoteToken, ct);
+
+        IsInitialized = true;
+        IsRemoteMode = true;
+        NeedsConfiguration = false;
+        Debug("Connected to remote server via WebSocket bridge");
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Sync remote session list from WsBridgeClient into our local _sessions dictionary.
+    /// </summary>
+    private void SyncRemoteSessions()
+    {
+        var remoteSessions = _bridgeClient.Sessions;
+        var remoteActive = _bridgeClient.ActiveSessionName;
+
+        Debug($"SyncRemoteSessions: {remoteSessions.Count} remote sessions, active={remoteActive}");
+
+        // Add/update sessions from remote
+        foreach (var rs in remoteSessions)
+        {
+            if (!_sessions.ContainsKey(rs.Name))
+            {
+                Debug($"SyncRemoteSessions: Adding session '{rs.Name}'");
+                var info = new AgentSessionInfo
+                {
+                    Name = rs.Name,
+                    Model = rs.Model,
+                    CreatedAt = rs.CreatedAt,
+                    SessionId = rs.SessionId,
+                    WorkingDirectory = rs.WorkingDirectory,
+                };
+                _sessions[rs.Name] = new SessionState
+                {
+                    Session = null!,  // No local CopilotSession in remote mode
+                    Info = info
+                };
+            }
+            // Update processing state
+            if (_sessions.TryGetValue(rs.Name, out var state))
+            {
+                state.Info.IsProcessing = rs.IsProcessing;
+                state.Info.MessageCount = rs.MessageCount;
+            }
+        }
+
+        // Remove sessions that no longer exist on server
+        var remoteNames = remoteSessions.Select(s => s.Name).ToHashSet();
+        foreach (var name in _sessions.Keys.ToList())
+        {
+            if (!remoteNames.Contains(name))
+                _sessions.TryRemove(name, out _);
+        }
+
+        // Sync history from WsBridgeClient cache
+        foreach (var (name, messages) in _bridgeClient.SessionHistories)
+        {
+            if (_sessions.TryGetValue(name, out var s))
+            {
+                Debug($"SyncRemoteSessions: Syncing {messages.Count} messages for '{name}'");
+                s.Info.History.Clear();
+                s.Info.History.AddRange(messages);
+            }
+        }
+
+        // Sync active session
+        if (remoteActive != null && _sessions.ContainsKey(remoteActive))
+            _activeSessionName = remoteActive;
+
+        Debug($"SyncRemoteSessions: Done. _sessions has {_sessions.Count} entries, active={_activeSessionName}");
+    }
+
+    private AgentSessionInfo? GetRemoteSession(string name) =>
+        _sessions.TryGetValue(name, out var state) ? state.Info : null;
+
+    /// <summary>
     /// Disconnect from current client and reconnect with new settings
     /// </summary>
     public async Task ReconnectAsync(ConnectionSettings settings, CancellationToken cancellationToken = default)
@@ -156,7 +352,7 @@ public class CopilotService : IAsyncDisposable
         // Dispose existing sessions and client
         foreach (var state in _sessions.Values)
         {
-            try { await state.Session.DisposeAsync(); } catch { }
+            try { if (state.Session != null) await state.Session.DisposeAsync(); } catch { }
         }
         _sessions.Clear();
         _activeSessionName = null;
@@ -166,15 +362,25 @@ public class CopilotService : IAsyncDisposable
             try { await _client.DisposeAsync(); } catch { }
             _client = null;
         }
+        _bridgeClient.Stop();
 
         IsInitialized = false;
+        IsRemoteMode = false;
         CurrentMode = settings.Mode;
         OnStateChanged?.Invoke();
+
+        // Remote mode uses WsBridgeClient state-sync
+        if (settings.Mode == ConnectionMode.Remote && !string.IsNullOrWhiteSpace(settings.RemoteUrl))
+        {
+            await InitializeRemoteAsync(settings, cancellationToken);
+            return;
+        }
 
         _client = CreateClient(settings);
 
         await _client.StartAsync(cancellationToken);
         IsInitialized = true;
+        NeedsConfiguration = false;
         Debug($"Reconnected in {settings.Mode} mode");
         OnStateChanged?.Invoke();
 
@@ -182,8 +388,9 @@ public class CopilotService : IAsyncDisposable
         await RestorePreviousSessionsAsync(cancellationToken);
     }
 
-    private static CopilotClient CreateClient(ConnectionSettings settings)
+    private CopilotClient CreateClient(ConnectionSettings settings)
     {
+        // Remote mode is handled by InitializeRemoteAsync, not here
         return settings.Mode switch
         {
             ConnectionMode.Persistent => new CopilotClient(new CopilotClientOptions
@@ -200,6 +407,20 @@ public class CopilotService : IAsyncDisposable
     /// </summary>
     public IEnumerable<PersistedSessionInfo> GetPersistedSessions()
     {
+        // In remote mode, return persisted sessions from the bridge
+        if (IsRemoteMode)
+        {
+            return _bridgeClient.PersistedSessions
+                .Select(p => new PersistedSessionInfo
+                {
+                    SessionId = p.SessionId,
+                    Title = p.Title,
+                    Preview = p.Preview,
+                    WorkingDirectory = p.WorkingDirectory,
+                    LastModified = p.LastModified,
+                });
+        }
+
         if (!Directory.Exists(SessionStatePath))
             return Enumerable.Empty<PersistedSessionInfo>();
 
@@ -419,6 +640,13 @@ public class CopilotService : IAsyncDisposable
     /// </summary>
     public async Task<AgentSessionInfo> ResumeSessionAsync(string sessionId, string displayName, CancellationToken cancellationToken = default)
     {
+        // In remote mode, delegate to WsBridgeClient
+        if (IsRemoteMode)
+        {
+            await _bridgeClient.ResumeSessionAsync(sessionId, displayName, cancellationToken);
+            return new AgentSessionInfo { Name = displayName, SessionId = sessionId, Model = "resumed" };
+        }
+
         if (!IsInitialized || _client == null)
             throw new InvalidOperationException("Service not initialized. Call InitializeAsync first.");
 
@@ -488,6 +716,14 @@ public class CopilotService : IAsyncDisposable
 
     public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
+        // In remote mode, delegate to WsBridgeClient
+        if (IsRemoteMode)
+        {
+            await _bridgeClient.CreateSessionAsync(name, model, workingDirectory, cancellationToken);
+            // Session will appear via sessions_list push from server
+            return new AgentSessionInfo { Name = name, Model = model ?? "claude-sonnet-4-20250514" };
+        }
+
         if (!IsInitialized || _client == null)
             throw new InvalidOperationException("Service not initialized. Call InitializeAsync first.");
 
@@ -808,6 +1044,21 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public async Task<string> SendPromptAsync(string sessionName, string prompt, CancellationToken cancellationToken = default)
     {
+        // In remote mode, delegate to WsBridgeClient
+        if (IsRemoteMode)
+        {
+            // Add user message locally for immediate UI feedback
+            var session = GetRemoteSession(sessionName);
+            if (session != null)
+            {
+                session.History.Add(ChatMessage.UserMessage(prompt));
+                session.IsProcessing = true;
+                OnStateChanged?.Invoke();
+            }
+            await _bridgeClient.SendMessageAsync(sessionName, prompt, cancellationToken);
+            return ""; // Response comes via events
+        }
+
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
 
@@ -1006,7 +1257,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     public void SetActiveSession(string? name)
     {
         if (name != null && _sessions.ContainsKey(name))
+        {
             _activeSessionName = name;
+            if (IsRemoteMode)
+                _ = _bridgeClient.SwitchSessionAsync(name);
+        }
     }
 
     public async Task<bool> CloseSessionAsync(string name)
@@ -1098,6 +1353,29 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         catch (Exception ex)
                         {
                             Debug($"Failed to restore '{entry.DisplayName}': {ex.Message}");
+
+                            // If the connection broke, recreate the client
+                            if (ex is System.IO.IOException or System.Net.Sockets.SocketException
+                                or ObjectDisposedException
+                                || ex.InnerException is System.IO.IOException or System.Net.Sockets.SocketException
+                                || ex.Message.Contains("Connection", StringComparison.OrdinalIgnoreCase)
+                                || ex.Message.Contains("transport", StringComparison.OrdinalIgnoreCase))
+                            {
+                                Debug("Connection lost during restore, recreating client...");
+                                try
+                                {
+                                    if (_client != null) await _client.DisposeAsync();
+                                    var settings = ConnectionSettings.Load();
+                                    _client = CreateClient(settings);
+                                    await _client.StartAsync(cancellationToken);
+                                    Debug("Client recreated successfully");
+                                }
+                                catch (Exception clientEx)
+                                {
+                                    Debug($"Failed to recreate client: {clientEx.Message}");
+                                    break; // Stop trying to restore sessions
+                                }
+                            }
                         }
                     }
                 }

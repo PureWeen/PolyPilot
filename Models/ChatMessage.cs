@@ -12,6 +12,9 @@ public enum ChatMessageType
 
 public class ChatMessage
 {
+    // Parameterless constructor for JSON deserialization
+    public ChatMessage() : this("assistant", "", DateTime.Now) { }
+
     public ChatMessage(string role, string content, DateTime timestamp, ChatMessageType messageType = ChatMessageType.User)
     {
         Role = role;

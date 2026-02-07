@@ -5,6 +5,7 @@
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject DevTunnelService DevTunnelService
 @implements IDisposable
 
 <div class="chat-container">
@@ -484,6 +485,15 @@
         try
         {
             await CopilotService.InitializeAsync();
+
+            // If no remote URL configured, redirect straight to Settings
+            if (CopilotService.NeedsConfiguration)
+            {
+                _needsRedirect = true;
+                _redirectTo = "/settings";
+                return;
+            }
+
             // RestorePreviousSessionsAsync is already called inside InitializeAsync
             var uiState = CopilotService.LoadUiState();
             if (uiState != null)
@@ -495,6 +505,17 @@
                     _needsRedirect = true;
                     _redirectTo = uiState.CurrentPage;
                 }
+            }
+
+            // Auto-start tunnel if previously configured
+            var connSettings = ConnectionSettings.Load();
+            if (connSettings.AutoStartTunnel && DevTunnelService.State == TunnelState.NotStarted)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try { await DevTunnelService.HostAsync(connSettings.Port); }
+                    catch (Exception ex) { Console.WriteLine($"[AutoStart] Tunnel failed: {ex.Message}"); }
+                });
             }
         }
         catch (Exception ex)

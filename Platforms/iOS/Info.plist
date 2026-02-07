@@ -28,5 +28,7 @@
     </array>
     <key>XSAppIconAssets</key>
     <string>Assets.xcassets/appicon.appiconset</string>
+    <key>NSCameraUsageDescription</key>
+    <string>AutoPilot uses the camera to scan QR codes for connecting to remote servers.</string>
 </dict>
 </plist>

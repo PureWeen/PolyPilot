@@ -7,8 +7,15 @@ namespace AutoPilot.App.Services;
 public class ServerManager
 {
     private static readonly string PidFilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".copilot", "autopilot-server.pid");
+        GetCopilotDir(), "autopilot-server.pid");
+
+    private static string GetCopilotDir()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(home))
+            home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(home, ".copilot");
+    }
 
     public bool IsServerRunning => CheckServerRunning();
     public int? ServerPid => ReadPidFile();

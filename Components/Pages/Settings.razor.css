@@ -57,7 +57,7 @@
 
 .mode-cards {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 0.75rem;
 }
 
@@ -329,4 +329,190 @@
 
 .stop-btn:hover {
     background: #ef4444;
+}
+
+.tunnel-warning {
+    padding: 0.75rem;
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    border-radius: 8px;
+}
+
+.tunnel-warning p {
+    margin: 0.25rem 0;
+    color: rgba(255,255,255,0.7);
+    font-size: 0.9rem;
+}
+
+.tunnel-warning code {
+    background: rgba(0,0,0,0.3);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-family: monospace;
+    color: #fbbf24;
+}
+
+.tunnel-warning .hint {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.4);
+}
+
+.tunnel-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.tunnel-error {
+    color: #ef4444;
+    font-size: 0.85rem;
+    margin: 0;
+}
+
+.tunnel-url-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.tunnel-url {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+}
+
+.tunnel-url code {
+    flex: 1;
+    font-family: monospace;
+    color: #60a5fa;
+    word-break: break-all;
+}
+
+.tunnel-token {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+}
+
+.tunnel-token label {
+    color: rgba(255,255,255,0.6);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.token-value {
+    flex: 1;
+    font-family: monospace;
+    color: rgba(255,255,255,0.4);
+    font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: break-all;
+    transition: filter 0.2s ease;
+}
+
+.token-value.blurred {
+    filter: blur(5px);
+    user-select: none;
+}
+
+.token-value.blurred:hover {
+    filter: blur(2px);
+}
+
+.copy-btn {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 4px;
+    padding: 0.2rem 0.5rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: rgba(255,255,255,0.6);
+}
+
+.copy-btn:hover {
+    border-color: rgba(255,255,255,0.4);
+}
+
+.qr-code {
+    text-align: center;
+    padding: 1rem;
+    background: rgba(255,255,255,0.03);
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+.qr-code img {
+    width: 200px;
+    height: 200px;
+    border-radius: 8px;
+}
+
+.qr-hint {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.4);
+    margin: 0.5rem 0 0;
+}
+
+.status-dot.error {
+    background: #ef4444;
+    box-shadow: 0 0 6px #ef4444;
+}
+
+.remote-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.mode-hint {
+    color: rgba(255,255,255,0.5);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+.url-input {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.url-input label {
+    color: rgba(255,255,255,0.7);
+    white-space: nowrap;
+}
+
+.form-input.wide {
+    flex: 1;
+    max-width: none;
+}
+
+.tunnel-status-text {
+    color: rgba(255,255,255,0.5);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+.scan-btn {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px dashed rgba(59, 130, 246, 0.5);
+    border-radius: 10px;
+    background: rgba(59, 130, 246, 0.08);
+    color: #60a5fa;
+    font-size: 1.1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.scan-btn:hover {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: #3b82f6;
 }

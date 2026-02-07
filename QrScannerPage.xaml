@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:zxing="clr-namespace:ZXing.Net.Maui.Controls;assembly=ZXing.Net.MAUI.Controls"
+             x:Class="AutoPilot.App.QrScannerPage"
+             Title="Scan QR Code"
+             BackgroundColor="#0f0f23">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <Label Grid.Row="0"
+               Text="Point camera at the QR code"
+               TextColor="White"
+               FontSize="18"
+               HorizontalOptions="Center"
+               Padding="0,20,0,10" />
+
+        <zxing:CameraBarcodeReaderView
+            Grid.Row="1"
+            x:Name="barcodeReader"
+            IsDetecting="True"
+            CameraLocation="Rear"
+            BarcodesDetected="OnBarcodesDetected" />
+
+        <Button Grid.Row="2"
+                Text="Cancel"
+                TextColor="White"
+                BackgroundColor="#3b82f6"
+                CornerRadius="8"
+                Margin="20"
+                HeightRequest="50"
+                Clicked="OnCancelClicked" />
+    </Grid>
+
+</ContentPage>

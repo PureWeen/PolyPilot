@@ -3,7 +3,10 @@
 @using AutoPilot.App.Models
 @inject CopilotService CopilotService
 @inject ServerManager ServerManager
+@inject DevTunnelService DevTunnelService
+@inject QrScannerService QrScanner
 @inject NavigationManager Nav
+@implements IDisposable
 
 <div class="settings-page">
     <div class="settings-header">
@@ -13,18 +16,15 @@
     <div class="settings-section">
         <h3>Transport Mode</h3>
         <div class="mode-cards">
-            <div class="mode-card @(settings.Mode == ConnectionMode.Embedded ? "selected" : "")"
-                 @onclick="() => SetMode(ConnectionMode.Embedded)">
-                <div class="mode-icon">🔌</div>
-                <div class="mode-title">Embedded</div>
-                <div class="mode-desc">Default. Copilot process dies when app closes.</div>
-            </div>
-            <div class="mode-card @(settings.Mode == ConnectionMode.Persistent ? "selected" : "")"
-                 @onclick="() => SetMode(ConnectionMode.Persistent)">
-                <div class="mode-icon">🏗️</div>
-                <div class="mode-title">Persistent</div>
-                <div class="mode-desc">Copilot server survives app restarts. Sessions persist.</div>
-            </div>
+            @foreach (var mode in PlatformHelper.AvailableModes)
+            {
+                <div class="mode-card @(settings.Mode == mode ? "selected" : "")"
+                     @onclick="() => SetMode(mode)">
+                    <div class="mode-icon">@GetModeIcon(mode)</div>
+                    <div class="mode-title">@mode</div>
+                    <div class="mode-desc">@GetModeDescription(mode)</div>
+                </div>
+            }
         </div>
     </div>
 
@@ -59,6 +59,109 @@
                 </div>
             </div>
         </div>
+
+        @if (serverAlive && PlatformHelper.IsDesktop)
+        {
+            <div class="settings-section">
+                <h3>📡 Share via DevTunnel</h3>
+                @if (!devTunnelAvailable)
+                {
+                    <div class="tunnel-warning">
+                        <p>⚠️ <code>devtunnel</code> CLI not found. Install it to share your server remotely.</p>
+                        <p class="hint">Run: <code>winget install Microsoft.devtunnel</code> (Windows) or <code>brew install --cask devtunnel</code> (macOS)</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="tunnel-controls">
+                        <div class="server-status">
+                            <span class="status-dot @(DevTunnelService.State == TunnelState.Running ? "alive" : DevTunnelService.State == TunnelState.Error ? "error" : "dead")"></span>
+                            <span>@GetTunnelStatusText()</span>
+                        </div>
+
+                        @if (DevTunnelService.State == TunnelState.NotStarted || DevTunnelService.State == TunnelState.Error)
+                        {
+                            @if (!tunnelLoggedIn)
+                            {
+                                <button class="start-btn" @onclick="TunnelLogin" disabled="@tunnelBusy">
+                                    @(tunnelBusy ? "⏳ Authenticating..." : "🔑 Login with GitHub")
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="start-btn" @onclick="StartTunnel" disabled="@tunnelBusy">
+                                    @(tunnelBusy ? "⏳ Starting tunnel..." : "🚀 Start Tunnel")
+                                </button>
+                            }
+
+                            @if (DevTunnelService.State == TunnelState.Error)
+                            {
+                                <p class="tunnel-error">@DevTunnelService.ErrorMessage</p>
+                            }
+                        }
+                        else if (DevTunnelService.State == TunnelState.Running)
+                        {
+                            <div class="tunnel-url-section">
+                                <div class="tunnel-url">
+                                    <code>@DevTunnelService.TunnelUrl</code>
+                                    <button class="copy-btn" @onclick="CopyTunnelUrl" title="Copy URL">📋</button>
+                                </div>
+
+                                @if (!string.IsNullOrEmpty(DevTunnelService.AccessToken))
+                                {
+                                    <div class="tunnel-token">
+                                        <label>Token:</label>
+                                        <code class="token-value @(showToken ? "" : "blurred")">@DevTunnelService.AccessToken</code>
+                                        <button class="copy-btn" @onclick="() => showToken = !showToken" title="@(showToken ? "Hide" : "Reveal")">@(showToken ? "🙈" : "👁️")</button>
+                                        <button class="copy-btn" @onclick="CopyTunnelToken" title="Copy Token">📋</button>
+                                    </div>
+                                }
+
+                                @if (!string.IsNullOrEmpty(qrCodeDataUri))
+                                {
+                                    <div class="qr-code">
+                                        <img src="@qrCodeDataUri" alt="QR Code" />
+                                        <p class="qr-hint">Scan with AutoPilot on iOS/Android to connect</p>
+                                    </div>
+                                }
+                            </div>
+
+                            <button class="stop-btn" @onclick="StopTunnel">⏹️ Stop Tunnel</button>
+                        }
+                        else
+                        {
+                            <p class="tunnel-status-text">@GetTunnelStatusText()</p>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    @if (settings.Mode == ConnectionMode.Remote)
+    {
+        <div class="settings-section">
+            <h3>🌐 Remote Server</h3>
+            <div class="remote-controls">
+                <p class="mode-hint">Connect to a Copilot server running on another machine (via DevTunnel URL).</p>
+
+                @if (PlatformHelper.IsMobile)
+                {
+                    <button class="scan-btn" @onclick="ScanQrCode">
+                        📷 Scan QR Code
+                    </button>
+                }
+
+                <div class="url-input">
+                    <label>Server URL:</label>
+                    <input type="text" @bind="settings.RemoteUrl" placeholder="https://xxx.devtunnels.ms" class="form-input wide" />
+                </div>
+                <div class="url-input">
+                    <label>Token:</label>
+                    <input type="password" @bind="settings.RemoteToken" placeholder="Tunnel access token" class="form-input wide" />
+                </div>
+            </div>
+        </div>
     }
 
     <div class="settings-section">
@@ -80,8 +183,12 @@
 
         <h3>About Transport Modes</h3>
         <ul>
-            <li><strong>Embedded</strong> — Simple, default. Copilot process dies when app closes. All sessions are lost.</li>
-            <li><strong>Persistent</strong> — App spawns a detached Copilot server on a port. Survives app restarts — sessions reconnect after relaunching.</li>
+            @if (PlatformHelper.IsDesktop)
+            {
+                <li><strong>Embedded</strong> — Simple, default. Copilot process dies when app closes. All sessions are lost.</li>
+                <li><strong>Persistent</strong> — App spawns a detached Copilot server on a port. Survives app restarts — sessions reconnect after relaunching.</li>
+            }
+            <li><strong>Remote</strong> — Connect to a Copilot server on another machine via a DevTunnel URL. Use this from iOS/Android.</li>
         </ul>
     </div>
 </div>
@@ -92,16 +199,173 @@
     private string statusClass = "";
     private bool serverAlive;
     private bool starting;
+    private bool devTunnelAvailable;
+    private bool tunnelLoggedIn;
+    private bool tunnelBusy;
+    private bool showToken;
+    private string? qrCodeDataUri;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         settings = ConnectionSettings.Load();
         serverAlive = ServerManager.CheckServerRunning("localhost", settings.Port);
+        devTunnelAvailable = DevTunnelService.IsCliAvailable();
+        if (devTunnelAvailable)
+            tunnelLoggedIn = await DevTunnelService.IsLoggedInAsync();
+
+        DevTunnelService.OnStateChanged += OnTunnelStateChanged;
+
+        if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
+            GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
     }
+
+    public void Dispose()
+    {
+        DevTunnelService.OnStateChanged -= OnTunnelStateChanged;
+    }
+
+    private void OnTunnelStateChanged()
+    {
+        InvokeAsync(() =>
+        {
+            if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
+                GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
+            else
+                qrCodeDataUri = null;
+            StateHasChanged();
+        });
+    }
+
+    private void GenerateQrCode(string url, string? token)
+    {
+        try
+        {
+            // Encode URL and token as JSON so the client gets everything from the QR code
+            var payload = string.IsNullOrEmpty(token)
+                ? url
+                : System.Text.Json.JsonSerializer.Serialize(new { url, token });
+
+            Console.WriteLine($"[QR] Generating QR code: url={url}, hasToken={!string.IsNullOrEmpty(token)}, payloadLen={payload.Length}");
+
+            using var qrGenerator = new QRCoder.QRCodeGenerator();
+            using var qrCodeData = qrGenerator.CreateQrCode(payload, QRCoder.QRCodeGenerator.ECCLevel.L);
+            using var qrCode = new QRCoder.PngByteQRCode(qrCodeData);
+            var pngBytes = qrCode.GetGraphic(4, new byte[] { 0, 0, 0 }, new byte[] { 255, 255, 255 });
+            qrCodeDataUri = $"data:image/png;base64,{Convert.ToBase64String(pngBytes)}";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[QR] Error generating QR code: {ex.Message}");
+        }
+    }
+
+    private string GetModeIcon(ConnectionMode mode) => mode switch
+    {
+        ConnectionMode.Embedded => "🔌",
+        ConnectionMode.Persistent => "🏗️",
+        ConnectionMode.Remote => "🌐",
+        _ => "❓"
+    };
+
+    private string GetModeDescription(ConnectionMode mode) => mode switch
+    {
+        ConnectionMode.Embedded => "Default. Copilot process dies when app closes.",
+        ConnectionMode.Persistent => "Copilot server survives app restarts. Sessions persist.",
+        ConnectionMode.Remote => "Connect to a remote server via DevTunnel URL.",
+        _ => ""
+    };
+
+    private string GetTunnelStatusText() => DevTunnelService.State switch
+    {
+        TunnelState.NotStarted => "Tunnel not started",
+        TunnelState.Authenticating => "Authenticating with GitHub...",
+        TunnelState.Starting => "Starting tunnel...",
+        TunnelState.Running => $"Tunnel active: {DevTunnelService.TunnelUrl}",
+        TunnelState.Stopping => "Stopping tunnel...",
+        TunnelState.Error => $"Error: {DevTunnelService.ErrorMessage}",
+        _ => "Unknown"
+    };
 
     private void SetMode(ConnectionMode mode)
     {
         settings.Mode = mode;
+    }
+
+    private async Task ScanQrCode()
+    {
+        var result = await QrScanner.ScanAsync();
+        if (string.IsNullOrEmpty(result)) return;
+
+        // QR code contains JSON { url, token } or a plain URL string
+        string? url = null;
+        try
+        {
+            var doc = System.Text.Json.JsonDocument.Parse(result);
+            if (doc.RootElement.TryGetProperty("url", out var urlProp))
+                url = urlProp.GetString();
+            if (doc.RootElement.TryGetProperty("token", out var tokenProp))
+                settings.RemoteToken = tokenProp.GetString();
+        }
+        catch
+        {
+            url = result;
+        }
+
+        if (!string.IsNullOrEmpty(url))
+            settings.RemoteUrl = url;
+
+        statusMessage = "✅ QR code scanned!";
+        statusClass = "success";
+        StateHasChanged();
+    }
+
+    private async Task TunnelLogin()
+    {
+        tunnelBusy = true;
+        StateHasChanged();
+        tunnelLoggedIn = await DevTunnelService.LoginAsync();
+        tunnelBusy = false;
+        StateHasChanged();
+    }
+
+    private async Task StartTunnel()
+    {
+        tunnelBusy = true;
+        StateHasChanged();
+        await DevTunnelService.HostAsync(settings.Port);
+        tunnelBusy = false;
+        StateHasChanged();
+    }
+
+    private void StopTunnel()
+    {
+        DevTunnelService.Stop();
+        settings.AutoStartTunnel = false;
+        settings.Save();
+        qrCodeDataUri = null;
+        StateHasChanged();
+    }
+
+    private async Task CopyTunnelUrl()
+    {
+        if (DevTunnelService.TunnelUrl != null)
+        {
+            await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(DevTunnelService.TunnelUrl);
+            statusMessage = "📋 URL copied!";
+            statusClass = "success";
+            StateHasChanged();
+        }
+    }
+
+    private async Task CopyTunnelToken()
+    {
+        if (DevTunnelService.AccessToken != null)
+        {
+            await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(DevTunnelService.AccessToken);
+            statusMessage = "📋 Token copied!";
+            statusClass = "success";
+            StateHasChanged();
+        }
     }
 
     private async Task StartServer()
@@ -123,6 +387,8 @@
 
     private void StopServer()
     {
+        if (DevTunnelService.State == TunnelState.Running)
+            DevTunnelService.Stop();
         ServerManager.StopServer();
         serverAlive = false;
         statusMessage = "Server stopped";
@@ -132,10 +398,17 @@
 
     private async Task SaveAndApply()
     {
-        // If switching to Persistent mode, ensure server is running
         if (settings.Mode == ConnectionMode.Persistent && !serverAlive)
         {
             statusMessage = "⚠️ Start the persistent server first";
+            statusClass = "error";
+            StateHasChanged();
+            return;
+        }
+
+        if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl))
+        {
+            statusMessage = "⚠️ Enter a remote server URL";
             statusClass = "error";
             StateHasChanged();
             return;
