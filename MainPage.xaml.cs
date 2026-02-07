@@ -70,6 +70,9 @@ public partial class MainPage : ContentPage
 			return;
 		}
 
+		// Add visual buffer so content comfortably clears the gesture bar
+		bottomInset += 14;
+
 		_insetsInjected = true;
 		Console.WriteLine($"[Insets] Injecting: top={topInset:F0}px bottom={bottomInset:F0}px");
 

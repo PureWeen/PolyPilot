@@ -524,7 +524,7 @@
     flex-direction: column;
     gap: 0.4rem;
     padding: 0.5rem 0.75rem;
-    padding-bottom: calc(0.5rem + var(--nav-bar-height, 0px) + 14px);
+    padding-bottom: calc(0.5rem + var(--nav-bar-height, 0px));
     background: rgba(255,255,255,0.05);
     border-top: 1px solid rgba(255,255,255,0.1);
 }
@@ -795,7 +795,7 @@
     .error-card { font-size: 0.8rem; padding: 0.4rem 0.6rem; }
     .intent-pill { font-size: 0.7rem; padding: 0.2rem 0.5rem; }
 
-    .input-area { padding: 0.4rem 0.5rem; padding-bottom: calc(0.5rem + var(--nav-bar-height, 0px) + 14px); gap: 0.3rem; }
+    .input-area { padding: 0.4rem 0.5rem; padding-bottom: calc(0.5rem + var(--nav-bar-height, 0px)); gap: 0.3rem; }
     .input-area textarea { font-size: 0.85rem; min-height: 32px; padding: 0.35rem 0.5rem; }
     .input-area .input-row button { padding: 0.35rem 0.6rem; }
     .input-status-bar { font-size: 0.65rem; gap: 0.5rem; }
