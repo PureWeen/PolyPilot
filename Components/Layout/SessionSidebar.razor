@@ -125,8 +125,11 @@ else
             }
             else
             {
+                var sessionIndex = 0;
                 @foreach (var session in sessions)
                 {
+                    sessionIndex++;
+                    var idx = sessionIndex;
                     var cssClass = session.Name == CopilotService.ActiveSessionName ? "active" : 
                                    completedSessions.Contains(session.Name) ? "completed" :
                                    session.IsProcessing ? "busy" : "";
@@ -134,6 +137,10 @@ else
                          @onclick="() => SelectSession(session.Name)">
                         <div class="session-info">
                             <span class="session-name">
+                                @if (idx <= 9)
+                                {
+                                    <span class="shortcut-badge" title="⌘@idx">@idx</span>
+                                }
                                 @if (completedSessions.Contains(session.Name))
                                 {
                                     <span class="done-badge"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>

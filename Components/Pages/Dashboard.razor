@@ -3,6 +3,7 @@
 @using AutoPilot.App.Models
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @implements IDisposable
 
 <div class="dashboard">
@@ -26,7 +27,7 @@
                 var cardClass = session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
                 <div class="session-card @cardClass">
                     <div class="card-header">
-                        <div class="card-title">
+                        <div class="card-title" @onclick="() => GoToSession(session.Name)" style="cursor:pointer">
                             <span class="card-status-dot @cardClass"></span>
                             <h3>@session.Name</h3>
                         </div>
@@ -34,67 +35,18 @@
                         <button class="card-close" @onclick="() => CloseSession(session.Name)" title="Close session">✕</button>
                     </div>
 
+
                     <div class="card-messages">
                         @{
-                            var lastMessages = session.History.ToList().TakeLast(6).ToList();
+                            List<ChatMessage> lastMessages;
+                            try { lastMessages = session.History.TakeLast(6).ToList(); }
+                            catch { lastMessages = new(); }
                         }
-                        @if (!lastMessages.Any())
-                        {
-                            <p class="card-empty">No messages yet</p>
-                        }
-                        else
-                        {
-                            @foreach (var msg in lastMessages)
-                            {
-                                @switch (msg.MessageType)
-                                {
-                                    case ChatMessageType.User:
-                                        <div class="card-msg user">
-                                            <span class="card-msg-role">You</span>
-                                            <span class="card-msg-text">@Truncate(msg.Content, 120)</span>
-                                        </div>
-                                        break;
-                                    case ChatMessageType.Assistant:
-                                        <div class="card-msg assistant">
-                                            <span class="card-msg-role">AI</span>
-                                            <span class="card-msg-text">@Truncate(msg.Content, 120)</span>
-                                        </div>
-                                        break;
-                                    case ChatMessageType.ToolCall:
-                                        <div class="card-msg tool">
-                                            <span class="card-msg-role"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
-                                            <span class="card-msg-text">@(msg.ToolName ?? "tool") @(msg.IsComplete ? (msg.IsSuccess ? "✓" : "✗") : "…")</span>
-                                        </div>
-                                        break;
-                                    case ChatMessageType.Reasoning:
-                                        <div class="card-msg reasoning">
-                                            <span class="card-msg-role"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a8 8 0 0 0-8 8c0 3.4 2.1 6.3 5 7.4V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2.6c2.9-1.1 5-4 5-7.4a8 8 0 0 0-8-8z"/><line x1="10" y1="22" x2="14" y2="22"/></svg></span>
-                                            <span class="card-msg-text">@(msg.IsComplete ? "Thought" : "Thinking...")</span>
-                                        </div>
-                                        break;
-                                    case ChatMessageType.Error:
-                                        <div class="card-msg error">
-                                            <span class="card-msg-role"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
-                                            <span class="card-msg-text">@Truncate(msg.Content, 80)</span>
-                                        </div>
-                                        break;
-                                }
-                            }
-                        }
-                        @if (session.IsProcessing)
-                        {
-                            @if (streamingBySession.TryGetValue(session.Name, out var streaming) && !string.IsNullOrEmpty(streaming))
-                            {
-                                <div class="card-msg assistant">
-                                    <span class="card-msg-role">AI</span>
-                                    <span class="card-msg-text">@streaming</span>
-                                </div>
-                            }
-                            <div class="card-msg assistant">
-                                <span class="card-msg-role">AI</span>
-                                <span class="card-msg-text thinking">@(activityBySession.TryGetValue(session.Name, out var act) && !string.IsNullOrEmpty(act) ? act : "Thinking...")</span>
-                            </div>
-                        }
+                        <ChatMessageList Messages="lastMessages"
+                                         StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s) ? s : "")"
+                                         ActivityText="@(activityBySession.TryGetValue(session.Name, out var a) ? a : "")"
+                                         IsProcessing="session.IsProcessing"
+                                         Compact="true" />
                     </div>
 
                     <div class="card-input">
@@ -140,16 +92,29 @@
     {
         if (firstRender)
         {
-            // Set up Enter key handlers for all card inputs
+            // Set up Enter and Tab key handlers for card inputs
             await JS.InvokeVoidAsync("eval", @"
                 document.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter' && e.target.closest('.card-input input')) {
+                    var isCardInput = e.target.matches && e.target.matches('.card-input input');
+                    var isBroadcast = e.target.id === 'broadcastInput';
+                    if (e.key === 'Enter' && isCardInput) {
                         e.preventDefault();
                         e.target.closest('.card-input').querySelector('button')?.click();
                     }
-                    if (e.key === 'Enter' && e.target.id === 'broadcastInput') {
+                    if (e.key === 'Enter' && isBroadcast) {
                         e.preventDefault();
                         document.querySelector('.broadcast-input button')?.click();
+                    }
+                    // Tab / Shift+Tab to cycle between card inputs only when focused on one
+                    if (e.key === 'Tab' && (isCardInput || isBroadcast)) {
+                        e.preventDefault();
+                        e.stopImmediatePropagation();
+                        var inputs = Array.from(document.querySelectorAll('.card-input input:not(:disabled), #broadcastInput'));
+                        if (inputs.length < 2) return;
+                        var idx = inputs.indexOf(e.target);
+                        if (idx < 0) idx = 0;
+                        idx = e.shiftKey ? (idx - 1 + inputs.length) % inputs.length : (idx + 1) % inputs.length;
+                        inputs[idx].focus();
                     }
                 });
             ");
@@ -248,11 +213,11 @@
         await CopilotService.CloseSessionAsync(sessionName);
     }
 
-    private string Truncate(string text, int maxLength)
+    private void GoToSession(string sessionName)
     {
-        if (string.IsNullOrEmpty(text)) return "";
-        text = text.Replace("\n", " ").Replace("\r", "");
-        return text.Length > maxLength ? text[..maxLength] + "..." : text;
+        CopilotService.SwitchSession(sessionName);
+        CopilotService.SaveUiState("/", sessionName);
+        Nav.NavigateTo("/");
     }
 
     public void Dispose()

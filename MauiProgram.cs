@@ -37,6 +37,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<CopilotService>();
 		builder.Services.AddSingleton<ChatDatabase>();
 		builder.Services.AddSingleton<ServerManager>();
+		builder.Services.AddSingleton<KeyCommandService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
