@@ -247,6 +247,74 @@
     border-radius: 6px;
 }
 
+/* === Tool Activity Feed (live running tools) === */
+::deep .tool-activity-feed {
+    flex-shrink: 0;
+    margin: 0.3rem 1rem;
+    border-radius: 10px;
+    padding: 0.5rem 0.65rem;
+    background: rgba(78,168,209,0.04);
+    border: 1px solid rgba(78,168,209,0.12);
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+::deep .tool-activity-item {
+    display: flex;
+    flex-direction: column;
+    padding: 0.3rem 0.5rem;
+    border-radius: 6px;
+    transition: background 0.2s;
+}
+
+::deep .tool-activity-item.running {
+    background: rgba(251, 191, 36, 0.06);
+}
+
+::deep .tool-activity-item.done {
+    opacity: 0.6;
+}
+
+::deep .tool-activity-item.error {
+    background: rgba(248, 113, 113, 0.06);
+}
+
+::deep .tool-activity-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+}
+
+::deep .tool-activity-icon {
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+
+::deep .tool-activity-name {
+    color: #c8d8f0;
+    font-weight: 500;
+}
+
+::deep .tool-activity-time {
+    margin-left: auto;
+    color: rgba(200,216,240,0.35);
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+}
+
+::deep .tool-activity-input {
+    font-size: 0.72rem;
+    color: rgba(200,216,240,0.45);
+    margin-top: 0.15rem;
+    padding-left: 1.3rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+}
+
 ::deep .task-complete-card {
     flex-shrink: 0;
     display: flex;

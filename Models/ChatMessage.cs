@@ -34,6 +34,7 @@ public class ChatMessage
     // Tool call fields
     public string? ToolName { get; set; }
     public string? ToolCallId { get; set; }
+    public string? ToolInput { get; set; }
     public bool IsComplete { get; set; } = true;
     public bool IsCollapsed { get; set; }
     public bool IsSuccess { get; set; }
@@ -55,12 +56,34 @@ public class ChatMessage
     public static ChatMessage ReasoningMessage(string reasoningId) =>
         new("assistant", "", DateTime.Now, ChatMessageType.Reasoning) { ReasoningId = reasoningId, IsComplete = false, IsCollapsed = false };
 
-    public static ChatMessage ToolCallMessage(string toolName, string? toolCallId = null) =>
-        new("assistant", "", DateTime.Now, ChatMessageType.ToolCall) { ToolName = toolName, ToolCallId = toolCallId, IsComplete = false };
+    public static ChatMessage ToolCallMessage(string toolName, string? toolCallId = null, string? toolInput = null) =>
+        new("assistant", "", DateTime.Now, ChatMessageType.ToolCall) { ToolName = toolName, ToolCallId = toolCallId, ToolInput = toolInput, IsComplete = false };
 
     public static ChatMessage ErrorMessage(string content, string? toolName = null) =>
         new("assistant", content, DateTime.Now, ChatMessageType.Error) { ToolName = toolName, IsComplete = true };
 
     public static ChatMessage SystemMessage(string content) =>
         new("system", content, DateTime.Now, ChatMessageType.System) { IsComplete = true };
+}
+
+public class ToolActivity
+{
+    public string Name { get; set; } = "";
+    public string CallId { get; set; } = "";
+    public string? Input { get; set; }
+    public DateTime StartedAt { get; set; }
+    public bool IsComplete { get; set; }
+    public bool IsSuccess { get; set; }
+    public string? Result { get; set; }
+    public DateTime? CompletedAt { get; set; }
+
+    public string ElapsedDisplay
+    {
+        get
+        {
+            var end = CompletedAt ?? DateTime.Now;
+            var elapsed = end - StartedAt;
+            return elapsed.TotalSeconds < 1 ? "<1s" : $"{elapsed.TotalSeconds:F0}s";
+        }
+    }
 }

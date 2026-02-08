@@ -106,7 +106,7 @@ public class CopilotService : IAsyncDisposable
     public event Action<string>? OnDebug; // debug messages
 
     // Rich event types
-    public event Action<string, string, string>? OnToolStarted; // sessionName, toolName, callId
+    public event Action<string, string, string, string?>? OnToolStarted; // sessionName, toolName, callId, inputSummary
     public event Action<string, string, string, bool>? OnToolCompleted; // sessionName, callId, result, success
     public event Action<string, string, string>? OnReasoningReceived; // sessionName, reasoningId, deltaContent
     public event Action<string, string>? OnReasoningComplete; // sessionName, reasoningId
@@ -257,7 +257,7 @@ public class CopilotService : IAsyncDisposable
         {
             var session = GetRemoteSession(s);
             session?.History.Add(ChatMessage.ToolCallMessage(tool, id));
-            InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id));
+            InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id, null));
         };
         _bridgeClient.OnToolCompleted += (s, id, result, success) =>
         {
@@ -711,7 +711,14 @@ public class CopilotService : IAsyncDisposable
                         // Skip report_intent — it's noise in history
                         if (toolName == "report_intent") break;
 
-                        var msg = ChatMessage.ToolCallMessage(toolName, toolCallId);
+                        // Extract tool input if available
+                        string? inputStr = null;
+                        if (data.TryGetProperty("input", out var inputEl))
+                            inputStr = inputEl.ToString();
+                        else if (data.TryGetProperty("arguments", out var argsEl))
+                            inputStr = argsEl.ToString();
+
+                        var msg = ChatMessage.ToolCallMessage(toolName, toolCallId, inputStr);
                         msg.Timestamp = timestamp;
                         history.Add(msg);
                         if (toolCallId != null)
@@ -996,11 +1003,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 if (toolStart.Data == null) break;
                 var startToolName = toolStart.Data.ToolName ?? "unknown";
                 var startCallId = toolStart.Data.ToolCallId ?? "";
+                var toolInput = ExtractToolInput(toolStart.Data);
                 if (!FilteredTools.Contains(startToolName))
                 {
+                    // Add to session history
+                    var toolMsg = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
+                    state.Info.History.Add(toolMsg);
+                    
                     Invoke(() =>
                     {
-                        OnToolStarted?.Invoke(sessionName, startToolName, startCallId);
+                        OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
                         OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
                     });
                 }
@@ -1013,31 +1025,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 var resultStr = FormatToolResult(toolDone.Data.Result);
                 var hasError = toolDone.Data.Error != null;
 
-                // Log raw result type for debugging
-                var rawResult = toolDone.Data.Result;
-                if (rawResult != null)
-                {
-                    var resultType = rawResult.GetType();
-                    Invoke(() => OnDebug?.Invoke($"[ToolResult] {completeToolName} callId={completeCallId} type={resultType.FullName}"));
-                    // Log all properties
-                    foreach (var prop in resultType.GetProperties())
-                    {
-                        try
-                        {
-                            var val = prop.GetValue(rawResult);
-                            var valStr = val?.ToString() ?? "null";
-                            if (valStr.Length > 200) valStr = valStr[..200] + "...";
-                            Invoke(() => OnDebug?.Invoke($"  .{prop.Name} = {valStr}"));
-                        }
-                        catch { }
-                    }
-                }
-
                 // Skip filtered tools
                 if (completeToolName != null && FilteredTools.Contains(completeToolName))
                     break;
                 if (resultStr == "Intent logged")
                     break;
+
+                // Update the matching tool message in history
+                var histToolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == completeCallId);
+                if (histToolMsg != null)
+                {
+                    histToolMsg.IsComplete = true;
+                    histToolMsg.IsSuccess = !hasError;
+                    histToolMsg.Content = resultStr;
+                }
 
                 Invoke(() =>
                 {
@@ -1145,6 +1146,32 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
         catch { }
         return result.ToString() ?? "";
+    }
+
+    private static string? ExtractToolInput(object? data)
+    {
+        if (data == null) return null;
+        try
+        {
+            var type = data.GetType();
+            // Try common property names for tool input/arguments
+            foreach (var propName in new[] { "Input", "Arguments", "Args", "Parameters", "input", "arguments" })
+            {
+                var prop = type.GetProperty(propName);
+                if (prop == null) continue;
+                var val = prop.GetValue(data);
+                if (val == null) continue;
+                if (val is string s && !string.IsNullOrEmpty(s)) return s;
+                try
+                {
+                    var json = JsonSerializer.Serialize(val, new JsonSerializerOptions { WriteIndented = false });
+                    if (json != "{}" && json != "null" && json != "\"\"") return json;
+                }
+                catch { return val.ToString(); }
+            }
+        }
+        catch { }
+        return null;
     }
 
     private void CompleteResponse(SessionState state)

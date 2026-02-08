@@ -81,7 +81,7 @@ public class WsBridgeServer : IDisposable
         _copilot.OnContentReceived += (session, content) =>
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ContentDelta,
                 new ContentDeltaPayload { SessionName = session, Content = content }));
-        _copilot.OnToolStarted += (session, tool, callId) =>
+        _copilot.OnToolStarted += (session, tool, callId, input) =>
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ToolStarted,
                 new ToolStartedPayload { SessionName = session, ToolName = tool, CallId = callId }));
         _copilot.OnToolCompleted += (session, callId, result, success) =>

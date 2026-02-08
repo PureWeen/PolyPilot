@@ -58,6 +58,7 @@
                              StreamingContent="@streamingContent"
                              CurrentToolName="@currentToolName"
                              ToolCount="currentTurnToolCount"
+                             ToolActivities="turnToolActivities"
                              IsProcessing="activeSession.IsProcessing"
                              Compact="false" />
         </div>
@@ -333,19 +334,34 @@
 
     private string currentToolName = "";
     private int currentTurnToolCount;
+    private List<ToolActivity> turnToolActivities = new();
 
-    private void HandleToolStarted(string sessionName, string toolName, string callId)
+    private void HandleToolStarted(string sessionName, string toolName, string callId, string? inputSummary)
     {
         if (sessionName != CopilotService.ActiveSessionName) return;
         currentToolName = toolName;
         currentTurnToolCount++;
+        turnToolActivities.Add(new ToolActivity
+        {
+            Name = toolName,
+            CallId = callId,
+            Input = inputSummary,
+            StartedAt = DateTime.Now
+        });
         InvokeAsync(StateHasChanged);
     }
 
     private void HandleToolCompleted(string sessionName, string callId, string result, bool success)
     {
         if (sessionName != CopilotService.ActiveSessionName || activeSession == null) return;
-        // Don't add to history — just clear current tool indicator
+        var activity = turnToolActivities.LastOrDefault(a => a.CallId == callId);
+        if (activity != null)
+        {
+            activity.IsComplete = true;
+            activity.IsSuccess = success;
+            activity.Result = result;
+            activity.CompletedAt = DateTime.Now;
+        }
         currentToolName = "";
         InvokeAsync(StateHasChanged);
     }
@@ -390,12 +406,9 @@
     private void HandleTurnStart(string sessionName)
     {
         if (sessionName != CopilotService.ActiveSessionName || activeSession == null) return;
-        // Don't clear streamingContent — let it accumulate across turns
-        // so messages don't vanish between tool-call-driven turns.
-        // CompleteResponse will add the full response to History and 
-        // SendPromptAsync clears streamingContent when done.
         currentTurnToolCount = 0;
         currentToolName = "";
+        turnToolActivities.Clear();
         InvokeAsync(StateHasChanged);
     }
 
@@ -493,6 +506,13 @@
         {
             _needsScroll = true;
             visibleMessageCount = 50; // Reset window when switching sessions
+            // Clear per-session UI state so previous session's state doesn't bleed
+            streamingContent = "";
+            currentIntent = "";
+            currentToolName = "";
+            currentTurnToolCount = 0;
+            currentUsage = null;
+            turnToolActivities.Clear();
         }
         InvokeAsync(async () =>
         {
