@@ -3,7 +3,7 @@
     cursor: pointer;
     width: 3.5rem;
     height: 2.5rem;
-    color: white;
+    color: #a0b4cc;
     position: absolute;
     top: 0.5rem;
     right: 1rem;
@@ -73,12 +73,12 @@
 
 .nav-item ::deep a.active {
     background-color: rgba(255,255,255,0.37);
-    color: white;
+    color: #a0b4cc;
 }
 
 .nav-item ::deep .nav-link:hover {
     background-color: rgba(255,255,255,0.1);
-    color: white;
+    color: #a0b4cc;
 }
 
 .nav-scrollable {

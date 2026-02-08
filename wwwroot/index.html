@@ -48,6 +48,8 @@
             element.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
+                    // Reset height after send
+                    setTimeout(function() { element.style.height = 'auto'; }, 50);
                 }
                 // Tab / Shift+Tab to cycle sessions
                 if (e.key === 'Tab' && window._tabDotNetRef) {
@@ -56,7 +58,13 @@
                     window._tabDotNetRef.invokeMethodAsync('CycleSession', !e.shiftKey);
                 }
             });
+            element.addEventListener('input', function() {
+                element.style.height = 'auto';
+                element.style.height = Math.min(element.scrollHeight, 200) + 'px';
+            });
         };
+
+        // Auto-scroll overflowed text on hover
 
         window.scrollToBottom = function(element) {
             if (element) {
@@ -69,7 +77,9 @@
             var threshold = 150;
             var isAtBottom = (element.scrollHeight - element.scrollTop - element.clientHeight) < threshold;
             if (isAtBottom) {
-                element.scrollTop = element.scrollHeight;
+                requestAnimationFrame(function() {
+                    element.scrollTop = element.scrollHeight;
+                });
             }
         };
 

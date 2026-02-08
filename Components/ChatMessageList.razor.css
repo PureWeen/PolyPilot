@@ -59,7 +59,7 @@
 /* === Full mode (chat page) === */
 .chat-message-list.full .chat-msg {
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     flex-shrink: 0;
     max-width: 100%;
     padding: 0.75rem 1rem;
@@ -87,8 +87,8 @@
 }
 
 .chat-message-list.full .chat-msg-avatar {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -99,11 +99,15 @@
 .chat-message-list.full .chat-msg.user .chat-msg-avatar {
     order: 1;
     background: rgba(78, 168, 209, 0.3);
+    width: 30px;
+    height: 30px;
 }
 
 .chat-message-list.full .chat-msg.assistant .chat-msg-avatar {
     background: transparent;
     overflow: hidden;
+    width: 44px;
+    height: 44px;
 }
 
 .chat-message-list.full .chat-msg.assistant .chat-msg-avatar img {
@@ -114,7 +118,7 @@
 }
 
 .chat-message-list.full .chat-msg-text {
-    color: white;
+    color: #a0b4cc;
     word-break: break-word;
     line-height: 1.6;
 }
@@ -272,13 +276,13 @@
 }
 
 ::deep .markdown-body {
-    color: white;
+    color: #a0b4cc;
 }
 
 ::deep .markdown-body h1, ::deep .markdown-body h2, ::deep .markdown-body h3 {
     margin: 0.5em 0 0.25em;
     border: none;
-    color: white;
+    color: #a0b4cc;
 }
 
 ::deep .markdown-body code {

@@ -51,8 +51,9 @@ public class CopilotService : IAsyncDisposable
     private static string? _activeSessionsFile;
     private static string ActiveSessionsFile => _activeSessionsFile ??= Path.Combine(CopilotBaseDir, "autopilot-active-sessions.json");
 
-    private static string? _uiStateFile;
-    private static string UiStateFile => _uiStateFile ??= Path.Combine(CopilotBaseDir, "autopilot-ui-state.json");
+    private static readonly string SessionAliasesFile = Path.Combine(AppDataDir, "autopilot-session-aliases.json");
+
+    private static readonly string UiStateFile = Path.Combine(AppDataDir, "autopilot-ui-state.json");
 
     private static string? _projectDir;
     private static string ProjectDir => _projectDir ??= FindProjectDir();
@@ -527,12 +528,25 @@ public class CopilotService : IAsyncDisposable
         var eventsFileInfo = new FileInfo(eventsFile);
         var lastUsed = eventsFileInfo.Exists ? eventsFileInfo.LastWriteTime : di.LastWriteTime;
 
+        // Priority: alias > active session name > first message > "Untitled session"
+        var alias = GetSessionAlias(di.Name);
+        string resolvedTitle;
+        if (!string.IsNullOrEmpty(alias))
+            resolvedTitle = alias;
+        else if (title != null)
+            resolvedTitle = title;
+        else
+        {
+            var activeMatch = _sessions.Values.FirstOrDefault(s => s.Info.SessionId == di.Name);
+            resolvedTitle = activeMatch?.Info.Name ?? "Untitled session";
+        }
+
         return new PersistedSessionInfo
         {
             SessionId = di.Name,
             LastModified = lastUsed,
             Path = di.FullName,
-            Title = title ?? "Untitled session",
+            Title = resolvedTitle,
             Preview = preview ?? "No preview available",
             WorkingDirectory = workingDir
         };
@@ -784,8 +798,19 @@ public class CopilotService : IAsyncDisposable
         }
         info.MessageCount = info.History.Count;
 
+        // Mark any stale incomplete tool calls as complete (from prior session)
+        foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.ToolCall && !m.IsComplete))
+        {
+            msg.IsComplete = true;
+        }
+        // Also mark incomplete reasoning as complete
+        foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete))
+        {
+            msg.IsComplete = true;
+        }
+
         // Add reconnection indicator with status context
-        var reconnectMsg = "🔄 Session reconnected";
+        var reconnectMsg = $"🔄 Session reconnected at {DateTime.Now:h:mm tt}";
         var isStillProcessing = IsSessionStillProcessing(sessionId);
         if (isStillProcessing)
         {
@@ -893,6 +918,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         };
 
         Debug($"Session '{name}' created with ID: {copilotSession.SessionId}");
+
+        // Save alias so saved sessions show the custom name
+        if (!string.IsNullOrEmpty(copilotSession.SessionId))
+            SetSessionAlias(copilotSession.SessionId, name);
 
         var state = new SessionState
         {
@@ -1064,6 +1093,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 var uTokenLimit = uData?.GetType().GetProperty("TokenLimit")?.GetValue(uData) as int?;
                 var uInputTokens = uData?.GetType().GetProperty("InputTokens")?.GetValue(uData) as int?;
                 var uOutputTokens = uData?.GetType().GetProperty("OutputTokens")?.GetValue(uData) as int?;
+                if (!string.IsNullOrEmpty(uModel) && state.Info.Model == "resumed")
+                    state.Info.Model = uModel;
                 Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(uModel, uCurrentTokens, uTokenLimit, uInputTokens, uOutputTokens)));
                 break;
 
@@ -1072,6 +1103,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 var aModel = aData?.GetType().GetProperty("Model")?.GetValue(aData)?.ToString();
                 var aInput = aData?.GetType().GetProperty("InputTokens")?.GetValue(aData) as int?;
                 var aOutput = aData?.GetType().GetProperty("OutputTokens")?.GetValue(aData) as int?;
+                if (!string.IsNullOrEmpty(aModel) && state.Info.Model == "resumed")
+                    state.Info.Model = aModel;
                 if (aInput.HasValue || aOutput.HasValue)
                 {
                     Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(aModel, null, null, aInput, aOutput)));
@@ -1366,6 +1399,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (_activeSessionName == oldName)
             _activeSessionName = newName;
 
+        // Persist alias so saved sessions also show the custom name
+        if (state.Info.SessionId != null)
+            SetSessionAlias(state.Info.SessionId, newName);
+
         SaveActiveSessionsToDisk();
         OnStateChanged?.Invoke();
         return true;
@@ -1530,7 +1567,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 CurrentPage = currentPage,
                 ActiveSession = activeSession ?? _activeSessionName,
-                FontSize = fontSize ?? existing?.FontSize ?? 16
+                FontSize = fontSize ?? existing?.FontSize ?? 20
             };
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);
@@ -1548,13 +1585,55 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
         catch { return null; }
     }
+    // --- Session Aliases ---
+
+    private Dictionary<string, string>? _aliasCache;
+
+    private Dictionary<string, string> LoadAliases()
+    {
+        if (_aliasCache != null) return _aliasCache;
+        try
+        {
+            if (File.Exists(SessionAliasesFile))
+            {
+                var json = File.ReadAllText(SessionAliasesFile);
+                _aliasCache = JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new();
+                return _aliasCache;
+            }
+        }
+        catch { }
+        _aliasCache = new();
+        return _aliasCache;
+    }
+
+    public string? GetSessionAlias(string sessionId)
+    {
+        var aliases = LoadAliases();
+        return aliases.TryGetValue(sessionId, out var alias) ? alias : null;
+    }
+
+    public void SetSessionAlias(string sessionId, string alias)
+    {
+        var aliases = LoadAliases();
+        if (string.IsNullOrWhiteSpace(alias))
+            aliases.Remove(sessionId);
+        else
+            aliases[sessionId] = alias.Trim();
+        _aliasCache = aliases;
+        try
+        {
+            var json = JsonSerializer.Serialize(aliases, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(SessionAliasesFile, json);
+        }
+        catch { }
+    }
 }
 
 public class UiState
 {
     public string CurrentPage { get; set; } = "/";
     public string? ActiveSession { get; set; }
-    public int FontSize { get; set; } = 16;
+    public int FontSize { get; set; } = 20;
 }
 
 public class ActiveSessionEntry

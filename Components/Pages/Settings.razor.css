@@ -1,6 +1,6 @@
 .settings-page {
     padding: 1.5rem;
-    color: white;
+    color: #a0b4cc;
     background: #0f0f23;
     height: 100%;
     overflow-y: auto;
@@ -116,7 +116,7 @@
     border: 1px solid rgba(255,255,255,0.2);
     border-radius: 6px;
     background: rgba(255,255,255,0.08);
-    color: white;
+    color: #a0b4cc;
     font-size: 0.95rem;
 }
 
@@ -159,7 +159,7 @@
 
 .check-btn:hover:not(:disabled) {
     border-color: rgba(255,255,255,0.4);
-    color: white;
+    color: #a0b4cc;
 }
 
 .server-actions {
@@ -180,7 +180,7 @@
 
 .action-btn.start {
     background: #48bb78;
-    color: white;
+    color: #a0b4cc;
 }
 
 .action-btn.start:hover:not(:disabled) {
@@ -194,7 +194,7 @@
 
 .action-btn.stop {
     background: rgba(239, 68, 68, 0.8);
-    color: white;
+    color: #a0b4cc;
 }
 
 .action-btn.stop:hover {
@@ -218,7 +218,7 @@
     border: none;
     border-radius: 8px;
     background: #3b82f6;
-    color: white;
+    color: #a0b4cc;
     font-size: 1rem;
     font-weight: 500;
     cursor: pointer;
@@ -285,7 +285,7 @@
     border: 1px solid rgba(255,255,255,0.2);
     border-radius: 6px;
     background: rgba(255,255,255,0.08);
-    color: white;
+    color: #a0b4cc;
     font-size: 0.95rem;
 }
 
@@ -310,7 +310,7 @@
 
 .start-btn {
     background: #48bb78;
-    color: white;
+    color: #a0b4cc;
 }
 
 .start-btn:hover:not(:disabled) {
@@ -324,7 +324,7 @@
 
 .stop-btn {
     background: rgba(239, 68, 68, 0.8);
-    color: white;
+    color: #a0b4cc;
 }
 
 .stop-btn:hover {

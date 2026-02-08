@@ -31,18 +31,19 @@
     else
     {
         <div class="chat-header">
-            <button class="session-nav-btn" title="Previous session (▲)" @onclick="() => CycleSession(true)">◀</button>
             <h2>@activeSession.Name</h2>
-            <button class="session-nav-btn" title="Next session (▼)" @onclick="() => CycleSession(false)">▶</button>
-            <span class="model-badge">@activeSession.Model</span>
-            @if (activeSession.SessionId != null)
-            {
-                <span class="session-id-badge" title="Click to copy: @activeSession.SessionId" @onclick="() => CopySessionId(activeSession.SessionId)"><svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> @activeSession.SessionId[..8] <svg class="icon copy-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-            }
-            @if (activeSession.IsProcessing)
-            {
-                <span class="typing-indicator">Copilot is typing...</span>
-            }
+            <div class="chat-header-badges">
+                @if (activeSession.IsProcessing)
+                {
+                    <span class="typing-indicator">Copilot is typing<span class="dots"><span>.</span><span>.</span><span>.</span></span></span>
+                }
+                <span class="model-badge">@activeModelOverride</span>
+                @if (activeSession.SessionId != null)
+                {
+                    <span class="session-id-badge" title="Click to copy: @activeSession.SessionId" @onclick="() => CopySessionId(activeSession.SessionId)"><svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> @activeSession.SessionId[..8] <svg class="icon copy-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                    <button class="folder-btn" title="Open session folder" @onclick="() => OpenSessionFolder(activeSession.SessionId)" @onclick:stopPropagation="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
+                }
+            </div>
         </div>
 
         <div class="messages" @ref="messagesContainer">
@@ -137,12 +138,23 @@
                 </button>
             </div>
             <div class="input-status-bar">
-                <button class="plan-icon-toggle @(isPlanMode ? "active" : "")" @onclick="() => isPlanMode = !isPlanMode" title="Toggle planning mode — prefixes messages with [[PLAN]]">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1.5" width="12" height="13" rx="1.5"/><line x1="5" y1="5" x2="5.01" y2="5"/><line x1="7.5" y1="5" x2="11" y2="5"/><line x1="5" y1="8" x2="5.01" y2="8"/><line x1="7.5" y1="8" x2="11" y2="8"/><line x1="5" y1="11" x2="5.01" y2="11"/><line x1="7.5" y1="11" x2="11" y2="11"/></svg>
-                    <span>Planning</span>
-                </button>
+                <div class="mode-switcher">
+                    <button class="mode-btn @(!isPlanMode ? "active" : "")" @onclick="() => isPlanMode = false">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        Chat
+                    </button>
+                    <button class="mode-btn @(isPlanMode ? "active" : "")" @onclick="() => isPlanMode = true">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1.5" width="12" height="13" rx="1.5"/><line x1="5" y1="5" x2="5.01" y2="5"/><line x1="7.5" y1="5" x2="11" y2="5"/><line x1="5" y1="8" x2="5.01" y2="8"/><line x1="7.5" y1="8" x2="11" y2="8"/><line x1="5" y1="11" x2="5.01" y2="11"/><line x1="7.5" y1="11" x2="11" y2="11"/></svg>
+                        Plan
+                    </button>
+                </div>
                 <span class="status-sep">·</span>
-                <span class="status-model">@(currentUsage?.Model ?? activeSession.Model)</span>
+                <select class="inline-model-select" @bind="activeModelOverride" title="Switch model">
+                    @foreach (var m in inlineAvailableModels)
+                    {
+                        <option value="@m">@m</option>
+                    }
+                </select>
                 @if (currentUsage != null)
                 {
                     @if (currentUsage.InputTokens.HasValue || currentUsage.OutputTokens.HasValue)
@@ -218,7 +230,44 @@
         "AutoPilot", "image-attachments");
 
     private record PendingImage(string FilePath, string FileName, string DataUri);
-    private int fontSize = 16;
+    private int fontSize = 20;
+
+    private readonly string[] inlineAvailableModels = new[]
+    {
+        "claude-opus-4.6",
+        "claude-sonnet-4.5",
+        "claude-sonnet-4",
+        "claude-haiku-4.5",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-5",
+        "gpt-5-mini",
+        "gemini-3-pro-preview",
+    };
+
+    private string activeModelOverride
+    {
+        get
+        {
+            // Priority: usage model (actual from SDK) > session model (if not "resumed") > fallback
+            var model = currentUsage?.Model;
+            if (string.IsNullOrEmpty(model) || !inlineAvailableModels.Contains(model))
+            {
+                model = activeSession?.Model;
+                if (string.IsNullOrEmpty(model) || model == "resumed" || !inlineAvailableModels.Contains(model))
+                    model = _selectedModelOverride ?? inlineAvailableModels[0];
+            }
+            return model;
+        }
+        set
+        {
+            _selectedModelOverride = value;
+            if (activeSession != null && activeSession.Model != "resumed")
+                activeSession.Model = value;
+            StateHasChanged();
+        }
+    }
+    private string? _selectedModelOverride;
 
     private List<ChatMessage> VisibleHistory
     {
@@ -278,7 +327,7 @@
             _needsScroll = false;
             await ForceScrollToBottom();
         }
-        if (firstRender && fontSize != 16)
+        if (firstRender && fontSize != 20)
         {
             try { await JS.InvokeVoidAsync("setAppFontSize", fontSize); } catch { }
         }
@@ -443,6 +492,8 @@
         }
     }
 
+    private bool _forceNextScroll = false;
+
     private void RefreshState()
     {
         var prev = activeSession?.Name;
@@ -455,21 +506,29 @@
         InvokeAsync(async () =>
         {
             StateHasChanged();
-            await ScrollToBottom();
+            if (_forceNextScroll)
+            {
+                _forceNextScroll = false;
+                await ForceScrollToBottom();
+            }
+            else
+            {
+                await ScrollToBottom();
+            }
         });
     }
 
     private void HandleContentReceived(string sessionName, string content)
     {
-        if (sessionName == CopilotService.ActiveSessionName && activeSession?.IsProcessing == true)
+        if (sessionName != CopilotService.ActiveSessionName || activeSession?.IsProcessing != true)
+            return;
+
+        streamingContent += content;
+        InvokeAsync(async () =>
         {
-            streamingContent += content;
-            InvokeAsync(async () =>
-            {
-                StateHasChanged();
-                await ScrollToBottom();
-            });
-        }
+            StateHasChanged();
+            await ScrollToBottom();
+        });
     }
 
     private void HandleSessionComplete(string sessionName, string summary)
@@ -477,9 +536,11 @@
         if (sessionName == CopilotService.ActiveSessionName)
         {
             currentIntent = "";
+            streamingContent = "";
         }
         InvokeAsync(async () =>
         {
+            StateHasChanged();
             try { await JS.InvokeVoidAsync("showNotification", sessionName, summary); }
             catch { }
         });
@@ -554,9 +615,12 @@
             return;
         }
 
+        _forceNextScroll = true;
         streamingContent = "";
         currentIntent = "";
         lastError = null;
+        StateHasChanged();
+        await ForceScrollToBottom();
 
         try
         {
@@ -674,6 +738,17 @@
         await JS.InvokeVoidAsync("eval", $"navigator.clipboard.writeText('{sessionId}')");
     }
 
+    private void OpenSessionFolder(string sessionId)
+    {
+        var path = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".copilot", "session-state", sessionId);
+        if (Directory.Exists(path))
+        {
+            System.Diagnostics.Process.Start("open", path);
+        }
+    }
+
     private async Task InspectDom()
     {
         var result = await JS.InvokeAsync<string>("inspectMessages");
@@ -700,7 +775,7 @@
 
     private void IncreaseFontSize() { if (fontSize < 24) { fontSize += 2; ApplyFontSize(); } }
     private void DecreaseFontSize() { if (fontSize > 12) { fontSize -= 2; ApplyFontSize(); } }
-    private void ResetFontSize() { fontSize = 16; ApplyFontSize(); }
+    private void ResetFontSize() { fontSize = 20; ApplyFontSize(); }
     private void ApplyFontSize()
     {
         _ = JS.InvokeVoidAsync("setAppFontSize", fontSize);
