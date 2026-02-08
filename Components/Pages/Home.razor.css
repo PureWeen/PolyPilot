@@ -124,21 +124,20 @@
     line-height: 1.2;
 }
 
-.typing-indicator {
-    margin-left: auto;
-    font-size: 0.8rem;
-    color: #fbbf24;
+.processing-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #f59e0b;
+    box-shadow: 0 0 8px rgba(245,158,11,0.6);
+    animation: pulse-glow 1.5s ease-in-out infinite;
+    flex-shrink: 0;
 }
 
-.typing-indicator .dots span {
-    animation: dotPulse 1.4s infinite ease-in-out;
-    opacity: 0;
+@keyframes pulse-glow {
+    0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(245,158,11,0.6); }
+    50% { opacity: 0.4; box-shadow: 0 0 4px rgba(245,158,11,0.3); }
 }
-.typing-indicator .dots span:nth-child(1) { animation-delay: 0s; }
-.typing-indicator .dots span:nth-child(2) { animation-delay: 0.2s; }
-.typing-indicator .dots span:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes dotPulse { 0%, 80%, 100% { opacity: 0; } 40% { opacity: 1; } }
 
 .messages {
     flex: 1;
@@ -1026,7 +1025,6 @@
     .model-badge { font-size: 0.7rem; padding: 0.15rem 0.35rem; }
     .session-id-badge { font-size: 0.65rem; padding: 0.15rem 0.35rem; }
     .resumed-badge { font-size: 0.55rem; }
-    .typing-indicator { font-size: 0.85rem; }
 
     .messages {
         padding: 0.5rem;

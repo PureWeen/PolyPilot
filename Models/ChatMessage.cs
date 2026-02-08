@@ -36,7 +36,7 @@ public class ChatMessage
     public string? ToolCallId { get; set; }
     public string? ToolInput { get; set; }
     public bool IsComplete { get; set; } = true;
-    public bool IsCollapsed { get; set; }
+    public bool IsCollapsed { get; set; } = true;
     public bool IsSuccess { get; set; }
 
     // Reasoning fields

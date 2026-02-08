@@ -1176,6 +1176,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     private void CompleteResponse(SessionState state)
     {
+        if (!state.Info.IsProcessing) return; // Already completed (e.g. timeout)
+        
         var response = state.CurrentResponse.ToString();
         if (!string.IsNullOrEmpty(response))
         {
@@ -1206,7 +1208,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 try
                 {
-                    // Small delay to let UI update
                     await Task.Delay(500);
                     await SendPromptAsync(state.Info.Name, nextPrompt);
                 }
@@ -1310,18 +1311,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
 
         Console.WriteLine($"[DEBUG] SendAsync completed, waiting for response...");
-
-        // Add timeout - if no response in 120 seconds, something is wrong
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(TimeSpan.FromSeconds(120));
-        cts.Token.Register(() => 
-        {
-            if (!state.ResponseCompletion!.Task.IsCompleted)
-            {
-                OnError?.Invoke(sessionName, "Response timeout after 120 seconds");
-                state.ResponseCompletion.TrySetCanceled();
-            }
-        });
 
         return await state.ResponseCompletion.Task;
     }

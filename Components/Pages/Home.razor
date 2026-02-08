@@ -35,7 +35,7 @@
             <div class="chat-header-badges">
                 @if (activeSession.IsProcessing)
                 {
-                    <span class="typing-indicator">Copilot is typing<span class="dots"><span>.</span><span>.</span><span>.</span></span></span>
+                    <span class="processing-dot"></span>
                 }
                 <span class="model-badge">@activeModelOverride</span>
                 @if (activeSession.SessionId != null)
