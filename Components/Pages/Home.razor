@@ -159,6 +159,12 @@
                 <span class="status-sep">·</span>
                 <span class="status-msgs">@activeSession.History.Count msgs</span>
                 <span class="status-sep">·</span>
+                <span class="font-size-controls">
+                    <button class="font-size-btn" @onclick="DecreaseFontSize" title="Decrease font size (⌘−)" disabled="@(fontSize <= 12)">A−</button>
+                    <span class="font-size-label" @onclick="ResetFontSize" title="Reset to default">@(fontSize)px</span>
+                    <button class="font-size-btn" @onclick="IncreaseFontSize" title="Increase font size (⌘+)" disabled="@(fontSize >= 24)">A+</button>
+                </span>
+                <span class="status-sep">·</span>
                 <button class="plan-icon-toggle @(showDebugPanel ? "active" : "")" @onclick="() => showDebugPanel = !showDebugPanel" title="Toggle debug log">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.88 1.88"/><path d="M14.12 3.88L16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
                     <span>Log</span>
@@ -212,6 +218,7 @@
         "AutoPilot", "image-attachments");
 
     private record PendingImage(string FilePath, string FileName, string DataUri);
+    private int fontSize = 16;
 
     private List<ChatMessage> VisibleHistory
     {
@@ -270,6 +277,10 @@
         {
             _needsScroll = false;
             await ForceScrollToBottom();
+        }
+        if (firstRender && fontSize != 16)
+        {
+            try { await JS.InvokeVoidAsync("setAppFontSize", fontSize); } catch { }
         }
         try { await JS.InvokeVoidAsync("setupTextareaEnterHandler", textareaRef); } catch { }
         if (_dotNetRef == null)
@@ -392,6 +403,8 @@
             {
                 if (!string.IsNullOrEmpty(uiState.ActiveSession))
                     CopilotService.SetActiveSession(uiState.ActiveSession);
+                if (uiState.FontSize >= 12 && uiState.FontSize <= 24)
+                    fontSize = uiState.FontSize;
                 if (uiState.CurrentPage is "/dashboard" or "/settings")
                 {
                     _needsRedirect = true;
@@ -500,6 +513,10 @@
                 StateHasChanged();
             }
         }
+        // Cmd+Plus / Cmd+Minus to adjust font size
+        if (e.MetaKey && (e.Key == "=" || e.Key == "+")) IncreaseFontSize();
+        if (e.MetaKey && e.Key == "-") DecreaseFontSize();
+        if (e.MetaKey && e.Key == "0") ResetFontSize();
     }
 
     private async Task StopResponse()
@@ -680,6 +697,15 @@
 
     private static string FormatTokenCount(int count) =>
         count >= 1000 ? $"{count / 1000}k" : count.ToString();
+
+    private void IncreaseFontSize() { if (fontSize < 24) { fontSize += 2; ApplyFontSize(); } }
+    private void DecreaseFontSize() { if (fontSize > 12) { fontSize -= 2; ApplyFontSize(); } }
+    private void ResetFontSize() { fontSize = 16; ApplyFontSize(); }
+    private void ApplyFontSize()
+    {
+        _ = JS.InvokeVoidAsync("setAppFontSize", fontSize);
+        CopilotService.SaveUiState("/", fontSize: fontSize);
+    }
 
     private async Task ScrollToBottom()
     {

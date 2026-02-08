@@ -82,10 +82,13 @@ main {
     }
 
     .sidebar {
-        width: 280px;
+        width: 17.5rem;
+        min-width: 200px;
+        max-width: 360px;
         height: 100vh;
         position: sticky;
         top: 0;
         flex-shrink: 0;
+        overflow: hidden;
     }
 }

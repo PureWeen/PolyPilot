@@ -1521,14 +1521,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public void SaveUiState(string currentPage, string? activeSession = null)
+    public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null)
     {
         try
         {
+            var existing = LoadUiState();
             var state = new UiState
             {
                 CurrentPage = currentPage,
-                ActiveSession = activeSession ?? _activeSessionName
+                ActiveSession = activeSession ?? _activeSessionName,
+                FontSize = fontSize ?? existing?.FontSize ?? 16
             };
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);
@@ -1552,6 +1554,7 @@ public class UiState
 {
     public string CurrentPage { get; set; } = "/";
     public string? ActiveSession { get; set; }
+    public int FontSize { get; set; } = 16;
 }
 
 public class ActiveSessionEntry

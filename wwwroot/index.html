@@ -221,6 +221,10 @@
                 return results;
             });
         };
+
+        window.setAppFontSize = function(size) {
+            document.documentElement.style.setProperty('--app-font-size', size + 'px');
+        };
     </script>
 
 </body>

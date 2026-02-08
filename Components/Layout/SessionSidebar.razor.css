@@ -4,6 +4,7 @@
     height: 100%;
     background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
     color: white;
+    overflow: hidden;
 }
 
 .sidebar-header {
@@ -66,7 +67,8 @@
     background: rgba(255,255,255,0.1);
     color: white;
     font-size: 0.9rem;
-    max-width: 160px;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .model-select option {
@@ -221,6 +223,8 @@
     flex-direction: column;
     gap: 0.25rem;
     overflow: hidden;
+    min-width: 0;
+    flex: 1;
 }
 
 .session-name {
