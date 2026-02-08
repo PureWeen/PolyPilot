@@ -8,7 +8,7 @@
 {
     <div class="mobile-bar">
         <button class="hamburger-btn" @onclick="ToggleFlyout">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            ☰
         </button>
         <span class="mobile-title"><img src="autopilot_logo.png" width="18" height="18" style="vertical-align:middle;border-radius:4px" /> AutoPilot</span>
         <div class="mobile-tabs">
@@ -34,7 +34,7 @@ else if (IsFlyoutPanel)
                         <option value="@model">@model</option>
                     }
                 </select>
-                <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
+                <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory">⋯</button>
                 <button @onclick="CreateSession" disabled="@(isCreating || !hasSessionName)">
                     @(isCreating ? "..." : "+")
                 </button>
@@ -45,7 +45,7 @@ else if (IsFlyoutPanel)
                     <input type="text" id="flyoutSessionDirInput"
                            placeholder="Working directory (default: AutoPilot.App)" 
                            class="dir-input" />
-                    <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+                    <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders">…</button>
                 </div>
             }
             @if (createError != null)
@@ -89,7 +89,7 @@ else
                         <option value="@model">@model</option>
                     }
                 </select>
-                <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
+                <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory">⋯</button>
                 <button @onclick="CreateSession" disabled="@(isCreating || !hasSessionName)">
                     @(isCreating ? "..." : "+")
                 </button>
@@ -100,7 +100,7 @@ else
                     <input type="text" id="sessionDirInput"
                            placeholder="Working directory (default: AutoPilot.App)" 
                            class="dir-input" />
-                    <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+                    <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders">…</button>
                 </div>
             }
             @if (createError != null)
@@ -124,7 +124,7 @@ else
     private RenderFragment RenderSessionList => __builder =>
     {
         <div class="session-list">
-            <div class="section-header"><span class="section-header-label"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Active Sessions</span></div>
+            <div class="section-header"><span class="section-header-label">Active Sessions</span></div>
             @if (!sessions.Any())
             {
                 <p class="no-sessions">No active sessions.<br/>Create one above or resume below.</p>
@@ -149,7 +149,7 @@ else
                                 }
                                 @if (completedSessions.Contains(session.Name))
                                 {
-                                    <span class="done-badge"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+                                    <span class="done-badge">✅</span>
                                 }
                                 @if (renamingSession == session.Name)
                                 {
@@ -178,7 +178,7 @@ else
                                 </span>
                                 <div class="session-actions">
                                     <button class="rename-btn" @onclick:stopPropagation="true"
-                                            @onclick="() => StartRename(session.Name)" title="Rename session"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                                            @onclick="() => StartRename(session.Name)" title="Rename session">rename</button>
                                     <button class="close-btn" @onclick:stopPropagation="true" 
                                             @onclick="() => CloseSession(session.Name)">×</button>
                                 </div>
@@ -192,7 +192,7 @@ else
             {
                 <div class="sidebar-divider"></div>
                 <div class="section-header" @onclick="TogglePersistedSessions" style="cursor: pointer;">
-                    <span class="section-header-label"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> Saved Sessions (@filteredPersistedSessions.Count())</span>
+                    <span class="section-header-label">Saved Sessions (@filteredPersistedSessions.Count())</span>
                     <span class="toggle-icon">@(showPersistedSessions ? "▼" : "▶")</span>
                 </div>
                 
@@ -225,7 +225,7 @@ else
                                     }
                                     else if (confirmResumeId != persisted.SessionId)
                                     {
-                                        <span class="resume-icon"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Resume</span>
+                                        <span class="resume-icon">Resume</span>
                                     }
                                 </div>
                                 @if (!isOpen && confirmResumeId == persisted.SessionId)
