@@ -54,11 +54,12 @@ public class ConnectionSettings
     private static ConnectionSettings DefaultSettings()
     {
 #if ANDROID
-        // Android can't run Copilot locally — default to persistent mode with common LAN IP
+        // Android can't run Copilot locally — default to persistent mode
+        // User must configure the host IP in Settings to point to their Mac
         return new ConnectionSettings
         {
             Mode = ConnectionMode.Persistent,
-            Host = "192.168.50.72", // Mac host on local network
+            Host = "localhost",
             Port = 4321
         };
 #else
