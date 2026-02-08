@@ -384,6 +384,7 @@ else
 
     private async Task BrowseDirectory()
     {
+#if MACCATALYST
         try
         {
             var dir = await FolderPickerService.PickFolderAsync();
@@ -394,6 +395,7 @@ else
         {
             Console.WriteLine($"Folder picker error: {ex.Message}");
         }
+#endif
     }
 
     private async Task ResumeSession(PersistedSessionInfo persisted)

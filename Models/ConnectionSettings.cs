@@ -44,11 +44,26 @@ public class ConnectionSettings
             if (File.Exists(SettingsPath))
             {
                 var json = File.ReadAllText(SettingsPath);
-                return JsonSerializer.Deserialize<ConnectionSettings>(json) ?? new();
+                return JsonSerializer.Deserialize<ConnectionSettings>(json) ?? DefaultSettings();
             }
         }
         catch { }
+        return DefaultSettings();
+    }
+
+    private static ConnectionSettings DefaultSettings()
+    {
+#if ANDROID
+        // Android can't run Copilot locally — default to persistent mode with common LAN IP
+        return new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            Host = "192.168.50.72", // Mac host on local network
+            Port = 4321
+        };
+#else
         return new();
+#endif
     }
 
     public void Save()

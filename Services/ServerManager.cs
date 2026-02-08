@@ -14,6 +14,8 @@ public class ServerManager
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (string.IsNullOrEmpty(home))
             home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrEmpty(home))
+            home = Path.GetTempPath();
         return Path.Combine(home, ".copilot");
     }
 

@@ -69,8 +69,8 @@
     <ItemGroup>
         <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.22" />
         <PackageReference Include="Markdig" Version="0.40.0" />
-        <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
+        <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.31" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.31" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
         <PackageReference Include="sqlite-net-pcl" Version="*" />
         <PackageReference Include="SQLitePCLRaw.bundle_green" Version="*" />

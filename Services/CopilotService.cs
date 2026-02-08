@@ -16,24 +16,46 @@ public class CopilotService : IAsyncDisposable
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
     
-    private static readonly string AppDataDir = GetAppDataDir();
+    private static string? _copilotBaseDir;
+    private static string CopilotBaseDir => _copilotBaseDir ??= GetCopilotBaseDir();
 
-    private static string GetAppDataDir()
+    private static string GetCopilotBaseDir()
     {
-        // On mobile, UserProfile may be empty — use LocalApplicationData instead
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (string.IsNullOrEmpty(home))
-            home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(home, ".copilot");
+        try
+        {
+#if ANDROID
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrEmpty(home))
+                home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            if (string.IsNullOrEmpty(home))
+                home = Android.App.Application.Context.FilesDir?.AbsolutePath ?? Path.GetTempPath();
+            return Path.Combine(home, ".copilot");
+#else
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (string.IsNullOrEmpty(home))
+                home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrEmpty(home))
+                home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            return Path.Combine(home, ".copilot");
+#endif
+        }
+        catch
+        {
+            return Path.Combine(Path.GetTempPath(), ".copilot");
+        }
     }
 
-    private static readonly string SessionStatePath = Path.Combine(AppDataDir, "session-state");
+    private static string? _sessionStatePath;
+    private static string SessionStatePath => _sessionStatePath ??= Path.Combine(CopilotBaseDir, "session-state");
 
-    private static readonly string ActiveSessionsFile = Path.Combine(AppDataDir, "autopilot-active-sessions.json");
+    private static string? _activeSessionsFile;
+    private static string ActiveSessionsFile => _activeSessionsFile ??= Path.Combine(CopilotBaseDir, "autopilot-active-sessions.json");
 
-    private static readonly string UiStateFile = Path.Combine(AppDataDir, "autopilot-ui-state.json");
+    private static string? _uiStateFile;
+    private static string UiStateFile => _uiStateFile ??= Path.Combine(CopilotBaseDir, "autopilot-ui-state.json");
 
-    private static readonly string ProjectDir = FindProjectDir();
+    private static string? _projectDir;
+    private static string ProjectDir => _projectDir ??= FindProjectDir();
 
     private static string FindProjectDir()
     {
@@ -41,9 +63,9 @@ public class CopilotService : IAsyncDisposable
         {
             // Walk up from the base directory to find the .csproj (works from bin/Debug/... at runtime)
             var dir = AppDomain.CurrentDomain.BaseDirectory;
+            if (string.IsNullOrEmpty(dir)) return CopilotBaseDir;
             for (int i = 0; i < 10; i++)
             {
-                if (string.IsNullOrEmpty(dir)) break;
                 if (Directory.Exists(dir) && Directory.GetFiles(dir, "*.csproj").Length > 0)
                     return dir;
                 var parent = Directory.GetParent(dir);
@@ -53,10 +75,7 @@ public class CopilotService : IAsyncDisposable
         }
         catch { }
         // Fallback
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return string.IsNullOrEmpty(home)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-            : home;
+        return CopilotBaseDir;
     }
 
     public string DefaultModel { get; set; } = "claude-opus-4.6";
@@ -147,6 +166,16 @@ public class CopilotService : IAsyncDisposable
             return;
         }
 
+#if ANDROID
+        // Android can't run Copilot CLI locally — must connect to remote server
+        settings.Mode = ConnectionMode.Persistent;
+        CurrentMode = ConnectionMode.Persistent;
+        if (settings.Host == "localhost" || settings.Host == "127.0.0.1")
+        {
+            Debug("Android detected with localhost — update Host in settings to your Mac's IP");
+        }
+        Debug($"Android: connecting to remote server at {settings.CliUrl}");
+#endif
         // In Persistent mode, auto-start the server if not already running
         if (settings.Mode == ConnectionMode.Persistent)
         {

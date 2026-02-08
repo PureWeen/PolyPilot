@@ -13,7 +13,7 @@ public class MainActivity : MauiAppCompatActivity
     {
         base.OnCreate(savedInstanceState);
 
-        // Draw behind system bars (edge-to-edge)
+        // Edge-to-edge with transparent system bars
         if (Window != null)
         {
             WindowCompat.SetDecorFitsSystemWindows(Window, false);
