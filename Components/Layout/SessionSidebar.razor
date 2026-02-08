@@ -63,8 +63,8 @@ else
 {
     <div class="sidebar-content">
         <div class="sidebar-header">
-            <h3><img src="autopilot_logo.png" width="28" height="28" style="vertical-align:middle;border-radius:6px" /> AutoPilot</h3>
-            <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")">
+            <h3><img src="autopilot_text.png" height="44" style="vertical-align:middle" /></h3>
+            <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")" style="font-size:0.8rem">
                 @if (CopilotService.IsInitialized)
                 {
                     <text>● @CopilotService.CurrentMode</text>
@@ -161,30 +161,28 @@ else
                                 }
                                 else
                                 {
-                                    <span @ondblclick="() => StartRename(session.Name)" @ondblclick:stopPropagation="true">@session.Name</span>
-                                }
-                                @if (session.IsResumed)
-                                {
-                                    <span class="resumed-badge">resumed</span>
+                                    <span class="session-name-text" @ondblclick="() => StartRename(session.Name)" @ondblclick:stopPropagation="true">@session.Name</span>
                                 }
                             </span>
-                            <span class="session-meta">
-                                @session.MessageCount msgs • @session.Model
-                                @if (!string.IsNullOrEmpty(session.WorkingDirectory))
-                                {
-                                    <text> • @GetShortPath(session.WorkingDirectory)</text>
-                                }
-                            </span>
-                        </div>
-                        <div class="session-actions">
-                            @if (session.IsProcessing)
-                            {
-                                <span class="processing">●</span>
-                            }
-                            <button class="rename-btn" @onclick:stopPropagation="true"
-                                    @onclick="() => StartRename(session.Name)" title="Rename session"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                            <button class="close-btn" @onclick:stopPropagation="true" 
-                                    @onclick="() => CloseSession(session.Name)">×</button>
+                            <div class="session-meta-row">
+                                <span class="session-meta">
+                                    @session.MessageCount msgs@(session.Model != "resumed" ? $" • {session.Model}" : "")
+                                    @if (session.IsProcessing)
+                                    {
+                                        <span class="processing"> • Working</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(session.WorkingDirectory))
+                                    {
+                                        <text> • @GetShortPath(session.WorkingDirectory)</text>
+                                    }
+                                </span>
+                                <div class="session-actions">
+                                    <button class="rename-btn" @onclick:stopPropagation="true"
+                                            @onclick="() => StartRename(session.Name)" title="Rename session"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                                    <button class="close-btn" @onclick:stopPropagation="true" 
+                                            @onclick="() => CloseSession(session.Name)">×</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 }
@@ -207,18 +205,45 @@ else
                     
                     @foreach (var persisted in filteredPersistedSessions.Take(30))
                     {
-                        <div class="session-item persisted" 
-                             @onclick="() => ResumeSession(persisted)"
-                             title="@GetTooltip(persisted)">
+                        var isOpen = IsSessionOpen(persisted.SessionId);
+                        <div class="session-item persisted @(isOpen ? "already-open" : "") @(confirmResumeId == persisted.SessionId ? "confirm-active" : "")" 
+                             @onclick="() => { if (isOpen) SwitchToOpenSession(persisted.SessionId); else ConfirmResume(persisted); }"
+                             title="@(isOpen ? "Click to switch to this session" : GetTooltip(persisted))">
                             <div class="session-info">
                                 <span class="session-name persisted-name">@(persisted.Title ?? "Untitled")</span>
-                                <span class="session-meta-time">@persisted.LastModified.ToString("MMM dd h:mm tt")</span>
-                                @if (!string.IsNullOrEmpty(persisted.WorkingDirectory))
+                                <div class="session-meta-row">
+                                    <div class="session-meta-left">
+                                        <span class="session-meta-time">@persisted.LastModified.ToString("MMM dd h:mm tt")</span>
+                                        @if (!string.IsNullOrEmpty(persisted.WorkingDirectory))
+                                        {
+                                            <span class="session-meta-dir">@GetShortPath(persisted.WorkingDirectory)</span>
+                                        }
+                                    </div>
+                                    @if (isOpen)
+                                    {
+                                        <span class="open-badge">● Open</span>
+                                    }
+                                    else if (confirmResumeId != persisted.SessionId)
+                                    {
+                                        <span class="resume-icon"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Resume</span>
+                                    }
+                                </div>
+                                @if (!isOpen && confirmResumeId == persisted.SessionId)
                                 {
-                                    <span class="session-meta-dir">@GetShortPath(persisted.WorkingDirectory)</span>
+                                    <div class="resume-confirm-wrap">
+                                        <div class="resume-confirm">
+                                            <button class="btn-resume-yes" @onclick="() => ResumeSession(persisted)" @onclick:stopPropagation="true" disabled="@isCreating">
+                                                @if (isCreating) { <span>Resuming<span class="dots"><span>.</span><span>.</span><span>.</span></span></span> } else { <span>▶ Resume</span> }
+                                            </button>
+                                            <button class="btn-resume-no" @onclick="CancelResume" @onclick:stopPropagation="true">✕</button>
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(resumeError))
+                                        {
+                                            <div class="resume-error">⚠ @resumeError</div>
+                                        }
+                                    </div>
                                 }
                             </div>
-                            <span class="resume-icon"><svg style="vertical-align:middle" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Resume</span>
                         </div>
                     }
                 }
@@ -234,6 +259,8 @@ else
     private bool showPersistedSessions = false;
     private bool showDirectoryInput = false;
     private string? renamingSession = null;
+    private string? confirmResumeId = null;
+    private string? resumeError = null;
     private string currentPage = "/";
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
@@ -257,13 +284,15 @@ else
     };
 
     private IEnumerable<PersistedSessionInfo> filteredPersistedSessions => 
-        string.IsNullOrWhiteSpace(sessionFilter) 
+        (string.IsNullOrWhiteSpace(sessionFilter) 
             ? persistedSessions 
             : persistedSessions.Where(s => 
                 (s.Title?.Contains(sessionFilter, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (s.Preview?.Contains(sessionFilter, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (s.WorkingDirectory?.Contains(sessionFilter, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                s.SessionId.Contains(sessionFilter, StringComparison.OrdinalIgnoreCase));
+                s.SessionId.Contains(sessionFilter, StringComparison.OrdinalIgnoreCase)))
+        .OrderByDescending(s => IsSessionOpen(s.SessionId))
+        .ThenByDescending(s => s.LastModified);
 
     protected override void OnInitialized()
     {
@@ -316,6 +345,9 @@ else
     {
         persistedSessions = CopilotService.GetPersistedSessions().ToList();
     }
+
+    private bool IsSessionOpen(string sessionId) =>
+        sessions.Any(s => s.SessionId == sessionId);
 
     private void TogglePersistedSessions()
     {
@@ -396,26 +428,57 @@ else
 #endif
     }
 
+    private void ConfirmResume(PersistedSessionInfo persisted)
+    {
+        resumeError = null;
+        confirmResumeId = confirmResumeId == persisted.SessionId ? null : persisted.SessionId;
+    }
+
+    private void CancelResume()
+    {
+        confirmResumeId = null;
+        resumeError = null;
+    }
+
     private async Task ResumeSession(PersistedSessionInfo persisted)
     {
         isCreating = true;
+        resumeError = null;
         try
         {
-            // Use the session title as the display name
             var title = persisted.Title ?? "Untitled";
-            // Truncate and make unique
             var displayName = title.Length > 30 ? title[..27] + "..." : title;
             var sessionInfo = await CopilotService.ResumeSessionAsync(persisted.SessionId, displayName);
             CopilotService.SwitchSession(sessionInfo.Name);
+            confirmResumeId = null;
         }
         catch (Exception ex)
         {
+            resumeError = FriendlyResumeError(ex.Message);
             Console.WriteLine($"Error resuming session: {ex.Message}");
         }
         finally
         {
             isCreating = false;
         }
+    }
+
+    private string FriendlyResumeError(string message)
+    {
+        if (message.Contains("not found", StringComparison.OrdinalIgnoreCase) || 
+            message.Contains("does not exist", StringComparison.OrdinalIgnoreCase))
+            return "Session no longer exists — it may have expired or been deleted.";
+        if (message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+            return "A session with this name is already open. Close it first.";
+        if (message.Contains("not initialized", StringComparison.OrdinalIgnoreCase))
+            return "Copilot is not connected yet. Wait for initialization.";
+        if (message.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+            return "Connection timed out. Check your network and try again.";
+        if (message.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("401", StringComparison.OrdinalIgnoreCase))
+            return "Authentication failed. You may need to sign in again.";
+        return $"Resume failed: {(message.Length > 120 ? message[..120] + "…" : message)}";
     }
 
     private async Task StartRename(string sessionName)
@@ -461,6 +524,13 @@ else
         CopilotService.SwitchSession(name);
         CopilotService.SaveUiState("/", name);
         await OnSessionSelected.InvokeAsync();
+    }
+
+    private async Task SwitchToOpenSession(string sessionId)
+    {
+        var match = sessions.FirstOrDefault(s => s.SessionId == sessionId);
+        if (match != null)
+            await SelectSession(match.Name);
     }
 
     private async Task CloseSession(string name)
