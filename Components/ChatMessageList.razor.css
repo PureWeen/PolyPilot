@@ -247,72 +247,105 @@
     border-radius: 6px;
 }
 
-/* === Tool Activity Feed (live running tools) === */
-::deep .tool-activity-feed {
+/* === Action Items (Copilot CLI style) === */
+::deep .action-item {
     flex-shrink: 0;
-    margin: 0.3rem 1rem;
-    border-radius: 10px;
-    padding: 0.5rem 0.65rem;
-    background: rgba(78,168,209,0.04);
-    border: 1px solid rgba(78,168,209,0.12);
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-}
-
-::deep .tool-activity-item {
-    display: flex;
-    flex-direction: column;
-    padding: 0.3rem 0.5rem;
-    border-radius: 6px;
-    transition: background 0.2s;
-}
-
-::deep .tool-activity-item.running {
-    background: rgba(251, 191, 36, 0.06);
-}
-
-::deep .tool-activity-item.done {
-    opacity: 0.6;
-}
-
-::deep .tool-activity-item.error {
-    background: rgba(248, 113, 113, 0.06);
-}
-
-::deep .tool-activity-header {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    font-size: 0.8rem;
+    gap: 0.5rem;
+    margin: 0.1rem 1rem;
+    padding: 0.25rem 0.4rem;
+    font-size: 0.82rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.15s;
 }
 
-::deep .tool-activity-icon {
-    font-size: 0.7rem;
+::deep .action-item:hover {
+    background: rgba(200,216,240,0.04);
+}
+
+::deep .action-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
     flex-shrink: 0;
 }
 
-::deep .tool-activity-name {
+::deep .action-item.running .action-dot {
+    background: #f59e0b;
+    box-shadow: 0 0 6px rgba(245,158,11,0.5);
+    animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+::deep .action-item.done .action-dot { background: #22c55e; }
+::deep .action-item.failed .action-dot { background: #ef4444; }
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+::deep .action-label {
+    font-weight: 600;
     color: #c8d8f0;
-    font-weight: 500;
+    white-space: nowrap;
 }
 
-::deep .tool-activity-time {
-    margin-left: auto;
-    color: rgba(200,216,240,0.35);
-    font-size: 0.7rem;
-    font-variant-numeric: tabular-nums;
-}
+/* Action-specific label colors */
+::deep .action-edit .action-label { color: #f59e0b; }
+::deep .action-create .action-label { color: #22c55e; }
+::deep .action-read .action-label { color: #4ea8d1; }
+::deep .action-run .action-label { color: #a78bfa; }
+::deep .action-search .action-label { color: #60a5fa; }
+::deep .action-fetch .action-label { color: #34d399; }
+::deep .action-query .action-label { color: #f472b6; }
+::deep .action-agent .action-label { color: #c084fc; }
+::deep .action-ask .action-label { color: #fbbf24; }
+::deep .action-stop .action-label { color: #ef4444; }
+::deep .action-memory .action-label { color: #a78bfa; }
+::deep .action-done .action-label { color: #22c55e; }
 
-::deep .tool-activity-input {
-    font-size: 0.72rem;
-    color: rgba(200,216,240,0.45);
-    margin-top: 0.15rem;
-    padding-left: 1.3rem;
+::deep .action-desc {
+    color: rgba(200,216,240,0.55);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 0.75rem;
+}
+
+::deep .action-detail-hint {
+    margin-left: auto;
+    color: rgba(200,216,240,0.3);
+    font-size: 0.7rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+::deep .action-expanded-result {
+    margin: 0.15rem 1rem 0.3rem 2rem;
+    padding: 0.4rem 0.6rem;
+    background: rgba(15,15,35,0.5);
+    border-radius: 6px;
+    border: 1px solid rgba(78,168,209,0.08);
+    overflow: hidden;
+}
+
+::deep .action-expanded-result pre {
+    font-size: 0.75rem;
+    color: rgba(200,216,240,0.5);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+    margin: 0;
+}
+
+::deep .action-expanded-result img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 4px;
 }
 
 ::deep .task-complete-card {

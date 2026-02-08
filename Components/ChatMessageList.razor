@@ -101,60 +101,37 @@
                     }
                     else
                     {
-                        <div class="tool-card @(msg.IsComplete ? (msg.IsSuccess ? "success" : "error") : "running")">
-                            <div class="tool-header">
-                                <span class="tool-info">🔧 @FormatToolName(msg.ToolName ?? "")</span>
-                                <span class="tool-status">
-                                    @if (!msg.IsComplete)
-                                    {
-                                        <span>⏳ Running</span>
-                                    }
-                                    else if (msg.IsSuccess)
-                                    {
-                                        <span>✅ Done</span>
-                                    }
-                                    else
-                                    {
-                                        <span>❌ Failed</span>
-                                    }
-                                </span>
-                            </div>
-                            @if (!string.IsNullOrEmpty(msg.ToolInput))
-                            {
-                                <div class="tool-activity-input">@SummarizeToolInput(msg.ToolName ?? "", msg.ToolInput)</div>
-                            }
+                        <div class="action-item @(GetActionLabel(msg.ToolName ?? "").CssClass) @(msg.IsComplete ? (msg.IsSuccess ? "done" : "failed") : "running")" @onclick="() => msg.IsCollapsed = !msg.IsCollapsed">
+                            <span class="action-dot"></span>
+                            <span class="action-label">@(GetActionLabel(msg.ToolName ?? "").Label)</span>
+                            <span class="action-desc">@FormatActionDescription(msg.ToolName ?? "", msg.ToolInput, msg.Content, msg.IsComplete)</span>
                             @if (msg.IsComplete && !string.IsNullOrEmpty(msg.Content) && !IsUnusableResult(msg.Content))
                             {
-                                @if (GetImagePath(msg.Content) is string imgPath && FileToDataUri(imgPath) is string dataUri)
+                                @if (GetImagePath(msg.Content) is string imgPath)
                                 {
-                                    <div class="tool-result-section tool-image-result">
-                                        <img src="@dataUri" alt="@System.IO.Path.GetFileName(imgPath)" />
-                                    </div>
+                                    <span class="action-detail-hint">🖼</span>
                                 }
-                                else if (LineCount(msg.Content) <= 5)
+                                else if (LineCount(msg.Content) > 0)
                                 {
-                                    <div class="tool-result-section">
-                                        <pre class="tool-result-content">@TruncateResult(msg.Content)</pre>
-                                    </div>
-                                }
-                                else
-                                {
-                                    <div class="tool-result-section">
-                                        <button class="tool-result-toggle" @onclick="() => msg.IsCollapsed = !msg.IsCollapsed">
-                                            @(msg.IsCollapsed ? "Show Full Result ▶" : "Collapse ▼")
-                                        </button>
-                                        @if (!msg.IsCollapsed)
-                                        {
-                                            <pre class="tool-result-content">@TruncateResult(msg.Content)</pre>
-                                        }
-                                        else
-                                        {
-                                            <pre class="tool-result-content preview">@FirstLines(msg.Content, 3)</pre>
-                                        }
-                                    </div>
+                                    <span class="action-detail-hint">↳ @LineCount(msg.Content) line@(LineCount(msg.Content) != 1 ? "s" : "")</span>
                                 }
                             }
                         </div>
+                        @if (!msg.IsCollapsed && msg.IsComplete && !string.IsNullOrEmpty(msg.Content) && !IsUnusableResult(msg.Content))
+                        {
+                            @if (GetImagePath(msg.Content) is string imgPath2 && FileToDataUri(imgPath2) is string dataUri2)
+                            {
+                                <div class="action-expanded-result">
+                                    <img src="@dataUri2" alt="@System.IO.Path.GetFileName(imgPath2)" />
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="action-expanded-result">
+                                    <pre>@TruncateResult(msg.Content)</pre>
+                                </div>
+                            }
+                        }
                     }
                     break;
 
@@ -196,22 +173,14 @@
             }
             else
             {
-                <div class="tool-activity-feed">
-                    @foreach (var activity in ToolActivities)
-                    {
-                        <div class="tool-activity-item @(activity.IsComplete ? (activity.IsSuccess ? "done" : "error") : "running")">
-                            <div class="tool-activity-header">
-                                <span class="tool-activity-icon">@(activity.IsComplete ? (activity.IsSuccess ? "✅" : "❌") : "⏳")</span>
-                                <span class="tool-activity-name">@FormatToolName(activity.Name)</span>
-                                <span class="tool-activity-time">@activity.ElapsedDisplay</span>
-                            </div>
-                            @if (!string.IsNullOrEmpty(activity.Input))
-                            {
-                                <div class="tool-activity-input">@SummarizeToolInput(activity.Name, activity.Input)</div>
-                            }
-                        </div>
-                    }
-                </div>
+                @foreach (var activity in ToolActivities)
+                {
+                    <div class="action-item @(GetActionLabel(activity.Name).CssClass) @(activity.IsComplete ? (activity.IsSuccess ? "done" : "failed") : "running")">
+                        <span class="action-dot"></span>
+                        <span class="action-label">@(GetActionLabel(activity.Name).Label)</span>
+                        <span class="action-desc">@FormatActionDescription(activity.Name, activity.Input, activity.Result, activity.IsComplete)</span>
+                    </div>
+                }
             }
         }
         else if (!string.IsNullOrEmpty(CurrentToolName))
@@ -225,13 +194,9 @@
             }
             else
             {
-                <div class="tool-activity-feed">
-                    <div class="tool-activity-item running">
-                        <div class="tool-activity-header">
-                            <span class="tool-activity-icon">⏳</span>
-                            <span class="tool-activity-name">@FormatToolName(CurrentToolName)</span>
-                        </div>
-                    </div>
+                <div class="action-item @(GetActionLabel(CurrentToolName).CssClass) running">
+                    <span class="action-dot"></span>
+                    <span class="action-label">@(GetActionLabel(CurrentToolName).Label)</span>
                 </div>
             }
         }
@@ -255,22 +220,26 @@
         }
 
         @* Activity indicator *@
-        @if (IsProcessing && string.IsNullOrEmpty(StreamingContent) && string.IsNullOrEmpty(CurrentToolName))
+        @if (IsProcessing && string.IsNullOrEmpty(StreamingContent) && string.IsNullOrEmpty(CurrentToolName) && !ToolActivities.Any())
         {
-            <div class="chat-msg assistant">
-                @if (Compact)
-                {
-                    <span class="chat-msg-role">AI</span>
-                    <span class="chat-msg-text thinking">@if (string.IsNullOrEmpty(ActivityText)) { <span class="thinking-label">Thinking<span class="dots"><span>.</span><span>.</span><span>.</span></span></span> } else { @ActivityText }</span>
-                }
-                else
-                {
-                    <div class="chat-msg-avatar"><img src="autopilot_logo.png" width="22" height="22" alt="AutoPilot" /></div>
-                    <div class="chat-msg-content">
-                        <div class="chat-msg-text thinking">@if (string.IsNullOrEmpty(ActivityText)) { <span class="thinking-label">Thinking<span class="dots"><span>.</span><span>.</span><span>.</span></span></span> } else { @ActivityText }</div>
-                    </div>
-                }
-            </div>
+            @if (Compact)
+            {
+                <div class="chat-msg tool">
+                    <span class="chat-msg-role">⏳</span>
+                    <span class="chat-msg-text">@(string.IsNullOrEmpty(ActivityText) ? "Thinking…" : ActivityText)</span>
+                </div>
+            }
+            else
+            {
+                <div class="action-item action-default running">
+                    <span class="action-dot"></span>
+                    <span class="action-label">Thinking</span>
+                    @if (!string.IsNullOrEmpty(ActivityText))
+                    {
+                        <span class="action-desc">@ActivityText</span>
+                    }
+                </div>
+            }
         }
     }
 </div>
@@ -369,6 +338,115 @@
         if (string.IsNullOrEmpty(toolName)) return "";
         return string.Join(" ", toolName.Split('_').Select(w =>
             w.Length > 0 ? char.ToUpperInvariant(w[0]) + w[1..].ToLowerInvariant() : w));
+    }
+
+    internal static (string Label, string CssClass) GetActionLabel(string toolName)
+    {
+        return toolName switch
+        {
+            "edit" => ("Edit", "action-edit"),
+            "create" => ("Create", "action-create"),
+            "view" => ("Read", "action-read"),
+            "bash" => ("Run", "action-run"),
+            "read_bash" => ("Read", "action-read"),
+            "write_bash" => ("Write", "action-run"),
+            "stop_bash" => ("Stop", "action-stop"),
+            "grep" => ("Search", "action-search"),
+            "glob" => ("Search", "action-search"),
+            "web_fetch" => ("Fetch", "action-fetch"),
+            "web_search" => ("Search", "action-search"),
+            "sql" => ("Query", "action-query"),
+            "task" => ("Agent", "action-agent"),
+            "ask_user" => ("Ask", "action-ask"),
+            "task_complete" => ("Done", "action-done"),
+            "store_memory" => ("Memory", "action-memory"),
+            "report_intent" => ("Intent", "action-intent"),
+            "skill" => ("Skill", "action-agent"),
+            _ when toolName.StartsWith("github-mcp") => ("GitHub", "action-fetch"),
+            _ when toolName.StartsWith("context7") => ("Docs", "action-read"),
+            _ => (FormatToolName(toolName), "action-default"),
+        };
+    }
+
+    internal static string FormatActionDescription(string toolName, string? toolInput, string? result, bool isComplete)
+    {
+        var summary = !string.IsNullOrEmpty(toolInput) ? SummarizeToolInput(toolName, toolInput) : "";
+        
+        if (toolName == "edit" && !string.IsNullOrEmpty(toolInput))
+        {
+            // Try to extract path and show line changes
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
+                var root = doc.RootElement;
+                var path = ExtractJsonProp(root, "path") ?? "";
+                if (!string.IsNullOrEmpty(path))
+                {
+                    // Show relative path
+                    var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
+                    var dir = path.Contains('/') ? path[..path.LastIndexOf('/')] : "";
+                    var oldStr = ExtractJsonProp(root, "old_str");
+                    var newStr = ExtractJsonProp(root, "new_str");
+                    var added = newStr?.Split('\n').Length ?? 0;
+                    var removed = oldStr?.Split('\n').Length ?? 0;
+                    var delta = "";
+                    if (added > 0 || removed > 0)
+                        delta = $" (+{added} -{removed})";
+                    return $"{fileName}{delta}";
+                }
+            }
+            catch { }
+        }
+        
+        if (toolName == "bash" && !string.IsNullOrEmpty(summary))
+        {
+            return $"$ {summary}";
+        }
+
+        if (toolName == "view" && !string.IsNullOrEmpty(toolInput))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
+                var root = doc.RootElement;
+                var path = ExtractJsonProp(root, "path") ?? "";
+                var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
+                // Check for view_range
+                if (root.TryGetProperty("view_range", out var range))
+                {
+                    var rangeStr = range.ToString();
+                    return $"{fileName} lines {rangeStr}";
+                }
+                return fileName;
+            }
+            catch { }
+        }
+
+        if (toolName == "create" && !string.IsNullOrEmpty(toolInput))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
+                var root = doc.RootElement;
+                var path = ExtractJsonProp(root, "path") ?? "";
+                var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
+                return fileName;
+            }
+            catch { }
+        }
+
+        if (toolName == "grep" && !string.IsNullOrEmpty(toolInput))
+        {
+            return summary;
+        }
+
+        if (!string.IsNullOrEmpty(summary)) return summary;
+        if (isComplete && !string.IsNullOrEmpty(result) && !IsUnusableResult(result))
+        {
+            var lines = LineCount(result);
+            return $"↳ {lines} line{(lines != 1 ? "s" : "")}";
+        }
+        return "";
     }
 
     internal static string TruncateResult(string result, int maxLength = 1500)
