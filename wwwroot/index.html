@@ -134,6 +134,93 @@
                 setTimeout(() => toast.remove(), 300);
             }, 5000);
         };
+
+        // Image drag-and-drop + paste support
+        window.setupImageDropZone = function(dropZoneElement, dotNetRef) {
+            if (!dropZoneElement || dropZoneElement._dropSetup) return;
+            dropZoneElement._dropSetup = true;
+
+            dropZoneElement.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZoneElement.classList.add('drag-over');
+            });
+            dropZoneElement.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZoneElement.classList.remove('drag-over');
+            });
+            dropZoneElement.addEventListener('drop', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZoneElement.classList.remove('drag-over');
+                var files = e.dataTransfer.files;
+                for (var i = 0; i < files.length; i++) {
+                    var file = files[i];
+                    if (file.type.startsWith('image/')) {
+                        readFileAsBase64(file, dotNetRef);
+                    }
+                }
+            });
+
+            // Paste support on the textarea inside
+            var textarea = dropZoneElement.querySelector('textarea');
+            if (textarea) {
+                textarea.addEventListener('paste', function(e) {
+                    var items = e.clipboardData && e.clipboardData.items;
+                    if (!items) return;
+                    for (var i = 0; i < items.length; i++) {
+                        if (items[i].type.startsWith('image/')) {
+                            e.preventDefault();
+                            var file = items[i].getAsFile();
+                            if (file) readFileAsBase64(file, dotNetRef);
+                            return;
+                        }
+                    }
+                });
+            }
+        };
+
+        function readFileAsBase64(file, dotNetRef) {
+            var reader = new FileReader();
+            reader.onload = function() {
+                var base64 = reader.result.split(',')[1];
+                var ext = file.name.split('.').pop() || 'png';
+                dotNetRef.invokeMethodAsync('OnImageDropped', base64, file.name, ext);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        window.triggerImageFilePicker = function(inputElement) {
+            if (inputElement) inputElement.click();
+        };
+
+        window.readSelectedFiles = function(inputElement) {
+            if (!inputElement || !inputElement.files) return null;
+            var results = [];
+            var promises = [];
+            for (var i = 0; i < inputElement.files.length; i++) {
+                var file = inputElement.files[i];
+                if (!file.type.startsWith('image/')) continue;
+                (function(f) {
+                    var p = new Promise(function(resolve) {
+                        var reader = new FileReader();
+                        reader.onload = function() {
+                            var base64 = reader.result.split(',')[1];
+                            var ext = f.name.split('.').pop() || 'png';
+                            results.push(base64, f.name, ext);
+                            resolve();
+                        };
+                        reader.readAsDataURL(f);
+                    });
+                    promises.push(p);
+                })(file);
+            }
+            return Promise.all(promises).then(function() {
+                inputElement.value = '';
+                return results;
+            });
+        };
     </script>
 
 </body>

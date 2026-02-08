@@ -296,3 +296,34 @@
 
 @keyframes spin { to { transform: rotate(360deg); } }
 ::deep .spin { animation: spin 1s linear infinite; }
+
+/* === User image attachments inline === */
+::deep .user-image-attachment {
+    display: inline-block;
+    margin: 0.3rem 0.2rem 0.3rem 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(0,0,0,0.2);
+    max-width: 300px;
+    vertical-align: top;
+}
+
+::deep .user-image-attachment img {
+    max-width: 300px;
+    max-height: 200px;
+    object-fit: contain;
+    display: block;
+    border-radius: 8px 8px 0 0;
+}
+
+::deep .user-image-name {
+    display: block;
+    font-size: 0.65rem;
+    color: rgba(255,255,255,0.4);
+    padding: 2px 6px 4px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

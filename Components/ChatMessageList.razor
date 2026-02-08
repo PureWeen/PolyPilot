@@ -280,8 +280,27 @@
 
     internal static string FormatUserMessage(string content)
     {
-        var escaped = System.Net.WebUtility.HtmlEncode(content);
-        return escaped.Replace("\n", "<br/>");
+        if (string.IsNullOrEmpty(content)) return "";
+        var lines = content.Split('\n');
+        var sb = new System.Text.StringBuilder();
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith('/') && ImageExtensions.Any(ext => 
+                trimmed.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) &&
+                System.IO.File.Exists(trimmed))
+            {
+                var dataUri = FileToDataUri(trimmed);
+                if (dataUri != null)
+                {
+                    sb.Append($"<div class=\"user-image-attachment\"><img src=\"{dataUri}\" alt=\"{System.Net.WebUtility.HtmlEncode(System.IO.Path.GetFileName(trimmed))}\" /><span class=\"user-image-name\">{System.Net.WebUtility.HtmlEncode(System.IO.Path.GetFileName(trimmed))}</span></div>");
+                    continue;
+                }
+            }
+            if (sb.Length > 0) sb.Append("<br/>");
+            sb.Append(System.Net.WebUtility.HtmlEncode(line));
+        }
+        return sb.ToString();
     }
 
     internal static int LineCount(string? text)

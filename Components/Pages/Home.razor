@@ -68,7 +68,7 @@
             </div>
         }
 
-        <div class="input-area">
+        <div class="input-area" @ref="inputAreaRef">
             @if (!string.IsNullOrEmpty(currentIntent))
             {
                 <div class="intent-pill"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg> @currentIntent</div>
@@ -92,7 +92,26 @@
                     }
                 </div>
             }
+            @if (pendingImages.Count > 0)
+            {
+                <div class="attachment-strip">
+                    @for (var i = 0; i < pendingImages.Count; i++)
+                    {
+                        var idx = i;
+                        var img = pendingImages[i];
+                        <div class="attachment-thumb">
+                            <img src="@img.DataUri" alt="@img.FileName" />
+                            <button class="attachment-remove" @onclick="() => RemoveAttachment(idx)" title="Remove">×</button>
+                            <span class="attachment-name">@TruncateFileName(img.FileName, 15)</span>
+                        </div>
+                    }
+                </div>
+            }
             <div class="input-row">
+                <button class="attach-btn" @onclick="OpenFilePicker" title="Attach image (or drag & drop)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
+                </button>
+                <input type="file" @ref="fileInputRef" accept="image/*" multiple style="display:none" @onchange="HandleFileSelected" />
                 <textarea @ref="textareaRef" @bind="userInput" @bind:event="oninput" 
                           @onkeydown="HandleKeyDown"
                           placeholder="@GetInputPlaceholder()"
@@ -104,7 +123,7 @@
                     </button>
                 }
                 <button @onclick="SendMessage" 
-                        disabled="@(string.IsNullOrWhiteSpace(userInput))"
+                        disabled="@(string.IsNullOrWhiteSpace(userInput) && pendingImages.Count == 0)"
                         title="@(activeSession.IsProcessing ? "Queue message" : "Send message")">
                     @if (activeSession.IsProcessing)
                     {
@@ -178,11 +197,20 @@
     private bool showDebugPanel = false;
     private ElementReference messagesContainer;
     private ElementReference textareaRef;
+    private ElementReference inputAreaRef;
+    private ElementReference fileInputRef;
     private DotNetObjectReference<Home>? _dotNetRef;
     private bool _needsRedirect;
     private string? _redirectTo;
     private bool _needsScroll = true;
     private int visibleMessageCount = 50;
+    private List<PendingImage> pendingImages = new();
+
+    private static readonly string ImageTempDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "AutoPilot", "image-attachments");
+
+    private record PendingImage(string FilePath, string FileName, string DataUri);
 
     private List<ChatMessage> VisibleHistory
     {
@@ -248,6 +276,7 @@
             _dotNetRef = DotNetObjectReference.Create(this);
         }
         try { await JS.InvokeVoidAsync("setupTabNavigation", _dotNetRef); } catch { }
+        try { await JS.InvokeVoidAsync("setupImageDropZone", inputAreaRef, _dotNetRef); } catch { }
     }
 
     private string currentToolName = "";
@@ -482,10 +511,21 @@
 
     private async Task SendMessage()
     {
-        if (string.IsNullOrWhiteSpace(userInput) || activeSession == null)
+        if ((string.IsNullOrWhiteSpace(userInput) && pendingImages.Count == 0) || activeSession == null)
             return;
 
         var prompt = userInput.Trim();
+        
+        // Prepend image file paths
+        if (pendingImages.Count > 0)
+        {
+            var imagePaths = string.Join("\n", pendingImages.Select(img => img.FilePath));
+            prompt = string.IsNullOrEmpty(prompt)
+                ? $"I've attached {pendingImages.Count} image(s) for you to look at:\n{imagePaths}"
+                : $"{imagePaths}\n\n{prompt}";
+            pendingImages.Clear();
+        }
+        
         if (isPlanMode)
             prompt = $"[[PLAN]] {prompt}";
         userInput = "";
@@ -528,6 +568,87 @@
     private void ClearQueue()
     {
         if (activeSession != null) CopilotService.ClearQueue(activeSession.Name);
+    }
+
+    // Image attachment methods
+    [JSInvokable]
+    public void OnImageDropped(string base64Data, string fileName, string extension)
+    {
+        try
+        {
+            Directory.CreateDirectory(ImageTempDir);
+            var safeName = $"{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString("N")[..8]}.{extension}";
+            var filePath = Path.Combine(ImageTempDir, safeName);
+            var bytes = Convert.FromBase64String(base64Data);
+            File.WriteAllBytes(filePath, bytes);
+            
+            var mime = extension.ToLowerInvariant() switch
+            {
+                "png" => "image/png",
+                "jpg" or "jpeg" => "image/jpeg",
+                "gif" => "image/gif",
+                "webp" => "image/webp",
+                "svg" => "image/svg+xml",
+                "bmp" => "image/bmp",
+                _ => "image/png"
+            };
+            var dataUri = $"data:{mime};base64,{base64Data}";
+            pendingImages.Add(new PendingImage(filePath, fileName, dataUri));
+            InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            lastError = $"Failed to save image: {ex.Message}";
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void RemoveAttachment(int index)
+    {
+        if (index >= 0 && index < pendingImages.Count)
+        {
+            try { File.Delete(pendingImages[index].FilePath); } catch { }
+            pendingImages.RemoveAt(index);
+        }
+    }
+
+    private async Task OpenFilePicker()
+    {
+        try { await JS.InvokeVoidAsync("triggerImageFilePicker", fileInputRef); } catch { }
+    }
+
+    private async Task HandleFileSelected(ChangeEventArgs e)
+    {
+        // For Blazor file input, we need to read via JS since ChangeEventArgs doesn't have file data
+        // Instead, use InputFile approach — read the selected files via JS
+        try
+        {
+            var fileData = await JS.InvokeAsync<string[]>("readSelectedFiles", fileInputRef);
+            if (fileData != null)
+            {
+                for (var i = 0; i < fileData.Length; i += 3)
+                {
+                    if (i + 2 < fileData.Length)
+                    {
+                        OnImageDropped(fileData[i], fileData[i + 1], fileData[i + 2]);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Fallback: file picker worked but we couldn't read — that's OK
+        }
+    }
+
+    private static string TruncateFileName(string name, int maxLen)
+    {
+        if (name.Length <= maxLen) return name;
+        var ext = Path.GetExtension(name);
+        var stem = Path.GetFileNameWithoutExtension(name);
+        var maxStem = maxLen - ext.Length - 1;
+        if (maxStem < 3) return name[..maxLen];
+        return stem[..maxStem] + "…" + ext;
     }
 
     private async Task CopySessionId(string sessionId)
