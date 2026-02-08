@@ -18,6 +18,13 @@
     font-size: 18px;
 }
 
+.welcome-logo {
+    width: 120px;
+    height: 120px;
+    border-radius: 24px;
+    filter: drop-shadow(0 4px 20px rgba(59, 130, 246, 0.3));
+}
+
 .initializing .error { color: #ef4444; }
 
 .initializing button {
