@@ -26,7 +26,7 @@ else if (IsFlyoutPanel)
         </div>
 
         <div class="new-session">
-            <input type="text" id="flyoutSessionNameInput" placeholder="Session name..." />
+            <input type="text" id="flyoutSessionNameInput" placeholder="Session name..." @oninput="OnSessionNameInput" />
             <div class="session-options-row">
                 <select @bind="selectedModel" class="model-select">
                     @foreach (var model in availableModels)
@@ -35,7 +35,7 @@ else if (IsFlyoutPanel)
                     }
                 </select>
                 <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
-                <button @onclick="CreateSession" disabled="@isCreating">
+                <button @onclick="CreateSession" disabled="@(isCreating || !hasSessionName)">
                     @(isCreating ? "..." : "+")
                 </button>
             </div>
@@ -81,7 +81,7 @@ else
         </div>
 
         <div class="new-session">
-            <input type="text" id="sessionNameInput" placeholder="Session name..." />
+            <input type="text" id="sessionNameInput" placeholder="Session name..." @oninput="OnSessionNameInput" />
             <div class="session-options-row">
                 <select @bind="selectedModel" class="model-select">
                     @foreach (var model in availableModels)
@@ -90,7 +90,7 @@ else
                     }
                 </select>
                 <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
-                <button @onclick="CreateSession" disabled="@isCreating">
+                <button @onclick="CreateSession" disabled="@(isCreating || !hasSessionName)">
                     @(isCreating ? "..." : "+")
                 </button>
             </div>
@@ -229,6 +229,7 @@ else
     private string selectedModel = "claude-opus-4.6";
     private string sessionFilter = "";
     private bool isCreating = false;
+    private bool hasSessionName = false;
     private string? createError = null;
     private bool showPersistedSessions = false;
     private bool showDirectoryInput = false;
@@ -321,12 +322,18 @@ else
         showPersistedSessions = !showPersistedSessions;
     }
 
+    private void OnSessionNameInput(ChangeEventArgs e)
+    {
+        hasSessionName = !string.IsNullOrWhiteSpace(e.Value?.ToString());
+    }
+
     private async Task CreateSession()
     {
         // Try both desktop and flyout input IDs
         var name = await JS.InvokeAsync<string>("eval", 
             "document.getElementById('sessionNameInput')?.value || document.getElementById('flyoutSessionNameInput')?.value || ''");
         if (string.IsNullOrWhiteSpace(name) || isCreating) return;
+        hasSessionName = false;
 
         // Read working directory if the input is visible
         string? workingDir = null;

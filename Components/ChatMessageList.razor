@@ -223,13 +223,13 @@
                 @if (Compact)
                 {
                     <span class="chat-msg-role">AI</span>
-                    <span class="chat-msg-text thinking">@(string.IsNullOrEmpty(ActivityText) ? "Thinking..." : ActivityText)</span>
+                    <span class="chat-msg-text thinking">@if (string.IsNullOrEmpty(ActivityText)) { <span class="thinking-label">Thinking<span class="dots"><span>.</span><span>.</span><span>.</span></span></span> } else { @ActivityText }</span>
                 }
                 else
                 {
                     <div class="chat-msg-avatar"><img src="autopilot_logo.png" width="22" height="22" alt="AutoPilot" /></div>
                     <div class="chat-msg-content">
-                        <div class="chat-msg-text thinking">@(string.IsNullOrEmpty(ActivityText) ? "Thinking..." : ActivityText)</div>
+                        <div class="chat-msg-text thinking">@if (string.IsNullOrEmpty(ActivityText)) { <span class="thinking-label">Thinking<span class="dots"><span>.</span><span>.</span><span>.</span></span></span> } else { @ActivityText }</div>
                     </div>
                 }
             </div>
