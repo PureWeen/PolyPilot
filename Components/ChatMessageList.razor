@@ -119,6 +119,10 @@
                                     }
                                 </span>
                             </div>
+                            @if (!string.IsNullOrEmpty(msg.ToolInput))
+                            {
+                                <div class="tool-activity-input">@SummarizeToolInput(msg.ToolName ?? "", msg.ToolInput)</div>
+                            }
                             @if (msg.IsComplete && !string.IsNullOrEmpty(msg.Content) && !IsUnusableResult(msg.Content))
                             {
                                 @if (GetImagePath(msg.Content) is string imgPath && FileToDataUri(imgPath) is string dataUri)
@@ -177,8 +181,40 @@
             }
         }
 
-        @* Current tool activity *@
-        @if (!string.IsNullOrEmpty(CurrentToolName))
+        @* Current turn tool activity feed *@
+        @if (ToolActivities.Any())
+        {
+            @if (Compact)
+            {
+                @foreach (var activity in ToolActivities.TakeLast(3))
+                {
+                    <div class="chat-msg tool">
+                        <span class="chat-msg-role">🔧</span>
+                        <span class="chat-msg-text">@FormatToolName(activity.Name) @(activity.IsComplete ? (activity.IsSuccess ? "✓" : "✗") : "…")</span>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="tool-activity-feed">
+                    @foreach (var activity in ToolActivities)
+                    {
+                        <div class="tool-activity-item @(activity.IsComplete ? (activity.IsSuccess ? "done" : "error") : "running")">
+                            <div class="tool-activity-header">
+                                <span class="tool-activity-icon">@(activity.IsComplete ? (activity.IsSuccess ? "✅" : "❌") : "⏳")</span>
+                                <span class="tool-activity-name">@FormatToolName(activity.Name)</span>
+                                <span class="tool-activity-time">@activity.ElapsedDisplay</span>
+                            </div>
+                            @if (!string.IsNullOrEmpty(activity.Input))
+                            {
+                                <div class="tool-activity-input">@SummarizeToolInput(activity.Name, activity.Input)</div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+        else if (!string.IsNullOrEmpty(CurrentToolName))
         {
             @if (Compact)
             {
@@ -189,10 +225,12 @@
             }
             else
             {
-                <div class="tool-card running">
-                    <div class="tool-header">
-                        <span class="tool-info">🔧 @FormatToolName(CurrentToolName)</span>
-                        <span class="tool-status">⏳ @ToolCount tool@(ToolCount != 1 ? "s" : "")</span>
+                <div class="tool-activity-feed">
+                    <div class="tool-activity-item running">
+                        <div class="tool-activity-header">
+                            <span class="tool-activity-icon">⏳</span>
+                            <span class="tool-activity-name">@FormatToolName(CurrentToolName)</span>
+                        </div>
                     </div>
                 </div>
             }
@@ -242,6 +280,7 @@
     [Parameter] public string StreamingContent { get; set; } = "";
     [Parameter] public string CurrentToolName { get; set; } = "";
     [Parameter] public int ToolCount { get; set; }
+    [Parameter] public List<ToolActivity> ToolActivities { get; set; } = new();
     [Parameter] public string ActivityText { get; set; } = "";
     [Parameter] public bool IsProcessing { get; set; }
     [Parameter] public bool Compact { get; set; }
@@ -390,5 +429,51 @@
             return dataUri;
         }
         catch { return null; }
+    }
+
+    internal static string SummarizeToolInput(string toolName, string? input)
+    {
+        if (string.IsNullOrEmpty(input)) return "";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(input);
+            var root = doc.RootElement;
+            // Tool-specific summaries
+            return toolName switch
+            {
+                "bash" => ExtractJsonProp(root, "command") ?? Truncate(input, 120),
+                "read_bash" or "write_bash" => ExtractJsonProp(root, "shellId") is string sid ? $"shell: {sid}" : Truncate(input, 120),
+                "edit" or "create" => ExtractJsonProp(root, "path") ?? Truncate(input, 120),
+                "view" => ExtractJsonProp(root, "path") ?? Truncate(input, 120),
+                "grep" => $"{ExtractJsonProp(root, "pattern") ?? "?"} in {ExtractJsonProp(root, "glob") ?? ExtractJsonProp(root, "path") ?? "."}",
+                "glob" => ExtractJsonProp(root, "pattern") ?? Truncate(input, 120),
+                "web_fetch" => ExtractJsonProp(root, "url") ?? Truncate(input, 120),
+                "web_search" => ExtractJsonProp(root, "query") ?? Truncate(input, 120),
+                "task" => ExtractJsonProp(root, "description") ?? Truncate(input, 120),
+                "ask_user" => ExtractJsonProp(root, "question") ?? Truncate(input, 120),
+                "sql" => ExtractJsonProp(root, "query") ?? Truncate(input, 120),
+                _ => Truncate(input, 120)
+            };
+        }
+        catch
+        {
+            return Truncate(input, 120);
+        }
+    }
+
+    private static string? ExtractJsonProp(System.Text.Json.JsonElement root, string prop)
+    {
+        if (root.TryGetProperty(prop, out var val) && val.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            var s = val.GetString();
+            return string.IsNullOrEmpty(s) ? null : Truncate(s, 120);
+        }
+        return null;
+    }
+
+    private static string Truncate(string s, int max)
+    {
+        if (s.Length <= max) return s;
+        return s[..max] + "…";
     }
 }
