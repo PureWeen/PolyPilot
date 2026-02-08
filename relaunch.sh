@@ -5,15 +5,15 @@ set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$PROJECT_DIR/bin/Debug/net10.0-maccatalyst/maccatalyst-arm64"
-APP_NAME="AutoPilot.App.app"
+APP_NAME="AutoPilot.app"
 STAGING_DIR="$PROJECT_DIR/bin/staging"
 
 # Capture PIDs of currently running instances BEFORE launch
-OLD_PIDS=$(ps -eo pid,comm | grep "AutoPilot.App" | grep -v grep | awk '{print $1}' | tr '\n' ' ')
+OLD_PIDS=$(ps -eo pid,comm | grep "AutoPilot" | grep -v grep | grep -v "AutoPilot.App.csproj" | awk '{print $1}' | tr '\n' ' ')
 
 echo "🔨 Building..."
 cd "$PROJECT_DIR"
-dotnet build -f net10.0-maccatalyst 2>&1 | tail -8
+dotnet build AutoPilot.App.csproj -f net10.0-maccatalyst 2>&1 | tail -8
 
 echo "📦 Copying to staging..."
 rm -rf "$STAGING_DIR/$APP_NAME"
@@ -27,7 +27,7 @@ open -n "$STAGING_DIR/$APP_NAME"
 echo "⏳ Waiting for new instance to start..."
 for i in $(seq 1 30); do
     sleep 1
-    NEW_PIDS=$(ps -eo pid,comm | grep "AutoPilot.App" | grep -v grep | awk '{print $1}')
+    NEW_PIDS=$(ps -eo pid,comm | grep "AutoPilot" | grep -v grep | grep -v "AutoPilot.App.csproj" | awk '{print $1}')
     for PID in $NEW_PIDS; do
         # Check if this PID is NOT in the old set — it's the new instance
         if ! echo "$OLD_PIDS" | grep -qw "$PID"; then

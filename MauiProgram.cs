@@ -3,6 +3,10 @@ using Microsoft.Extensions.Logging;
 using ZXing.Net.Maui.Controls;
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
+#if MACCATALYST
+using Microsoft.Maui.LifecycleEvents;
+using UIKit;
+#endif
 
 namespace AutoPilot.App;
 
@@ -36,6 +40,24 @@ public static class MauiProgram
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 			});
+
+#if MACCATALYST
+		builder.ConfigureLifecycleEvents(events =>
+		{
+			events.AddiOS(ios => ios.SceneWillConnect((scene, session, options) =>
+			{
+				if (scene is UIWindowScene windowScene)
+				{
+					var titlebar = windowScene.Titlebar;
+					if (titlebar != null)
+					{
+						titlebar.TitleVisibility = UITitlebarTitleVisibility.Hidden;
+						titlebar.Toolbar = null;
+					}
+				}
+			}));
+		});
+#endif
 
 		builder.Services.AddMauiBlazorWebView();
 		

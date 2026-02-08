@@ -2,7 +2,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+    background: linear-gradient(180deg, #161630 0%, #1a1a38 100%);
     color: #a0b4cc;
     overflow: hidden;
 }
@@ -72,7 +72,7 @@
 }
 
 .model-select option {
-    background: #1a1a2e;
+    background: #0f0f23;
     color: #a0b4cc;
 }
 
@@ -116,10 +116,10 @@
 }
 
 .dir-toggle-btn {
-    padding: 0.5rem !important;
+    padding: 0.3rem 0.5rem !important;
     background: rgba(255,255,255,0.1) !important;
     border: 1px solid rgba(255,255,255,0.2) !important;
-    font-size: 0.9rem !important;
+    font-size: 0.75rem !important;
     font-weight: normal !important;
 }
 
@@ -244,7 +244,7 @@
 .session-meta-row {
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: center;
     gap: 0.5rem;
 }
 
@@ -375,7 +375,10 @@
 }
 
 .rename-btn {
-    font-size: 0.8rem;
+    font-size: 0.65rem;
+    width: auto;
+    padding: 0 0.3rem;
+    letter-spacing: 0.02em;
 }
 
 .resume-btn:hover {
@@ -534,16 +537,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.4rem;
-    padding: 0.5rem;
+    gap: 0.3rem;
+    padding: 0.4rem;
     border: 1px solid transparent;
     border-radius: 6px;
     background: rgba(255,255,255,0.08);
     color: rgba(255,255,255,0.7);
     text-decoration: none;
-    font-size: 0.95rem;
-    line-height: 1;
+    font-size: 0.8rem;
+    line-height: 1.2;
     transition: all 0.15s ease;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .nav-tab:hover {

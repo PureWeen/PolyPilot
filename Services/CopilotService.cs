@@ -51,9 +51,9 @@ public class CopilotService : IAsyncDisposable
     private static string? _activeSessionsFile;
     private static string ActiveSessionsFile => _activeSessionsFile ??= Path.Combine(CopilotBaseDir, "autopilot-active-sessions.json");
 
-    private static readonly string SessionAliasesFile = Path.Combine(AppDataDir, "autopilot-session-aliases.json");
+    private static readonly string SessionAliasesFile = Path.Combine(CopilotBaseDir, "autopilot-session-aliases.json");
 
-    private static readonly string UiStateFile = Path.Combine(AppDataDir, "autopilot-ui-state.json");
+    private static readonly string UiStateFile = Path.Combine(CopilotBaseDir, "autopilot-ui-state.json");
 
     private static string? _projectDir;
     private static string ProjectDir => _projectDir ??= FindProjectDir();

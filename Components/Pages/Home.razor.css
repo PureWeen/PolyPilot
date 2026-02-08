@@ -2,7 +2,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #0a0e2e;
+    background: #0f0f23;
     color: #a0b4cc;
 }
 
@@ -126,7 +126,7 @@
 
 .typing-indicator {
     margin-left: auto;
-    font-size: 1.1rem;
+    font-size: 0.8rem;
     color: #fbbf24;
 }
 
@@ -691,7 +691,7 @@
     border-top: 1px solid rgba(78,168,209,0.15);
 }
 
-.input-row { display: flex; gap: 0.5rem; align-items: flex-end; }
+.input-row { display: flex; gap: 0.5rem; align-items: stretch; }
 
 .input-area textarea {
     flex: 1;
@@ -711,12 +711,12 @@
 .input-area textarea:focus { outline: none; border-color: #4ea8d1; }
 .input-area textarea:disabled { opacity: 0.6; }
 
-.input-area .input-row button {
+.input-area .input-row button.send-btn {
     padding: 0.45rem 0.7rem;
-    border: none;
+    border: 1px solid rgba(255,255,255,0.2);
     border-radius: 8px;
-    background: #4ea8d1;
-    color: #a0b4cc;
+    background: transparent;
+    color: rgba(255,255,255,0.6);
     font-size: 0.9rem;
     font-weight: 500;
     cursor: pointer;
@@ -724,20 +724,25 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 36px;
     flex-shrink: 0;
 }
 
-.input-area .input-row button:hover:not(:disabled) { background: #3d8db5; }
-.input-area .input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+.input-area .input-row button.send-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.8); }
+.input-area .input-row button.send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
 .input-area .input-row .stop-btn {
-    padding: 0.75rem;
-    background: #ef4444;
+    padding: 0.35rem 0.6rem;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.2);
     border-radius: 8px;
     min-width: auto;
+    color: rgba(255,255,255,0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
 }
-.input-area .input-row .stop-btn:hover { background: #dc2626; }
+.input-area .input-row .stop-btn:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); border-color: rgba(255,255,255,0.3); }
 
 /* === Drag & drop / image attachments === */
 .input-area.drag-over {

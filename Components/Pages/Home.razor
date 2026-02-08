@@ -40,8 +40,8 @@
                 <span class="model-badge">@activeModelOverride</span>
                 @if (activeSession.SessionId != null)
                 {
-                    <span class="session-id-badge" title="Click to copy: @activeSession.SessionId" @onclick="() => CopySessionId(activeSession.SessionId)"><svg class="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> @activeSession.SessionId[..8] <svg class="icon copy-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-                    <button class="folder-btn" title="Open session folder" @onclick="() => OpenSessionFolder(activeSession.SessionId)" @onclick:stopPropagation="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></button>
+                    <span class="session-id-badge" title="Click to copy: @activeSession.SessionId" @onclick="() => CopySessionId(activeSession.SessionId)">🔗 @activeSession.SessionId[..8] 📋</span>
+                    <button class="folder-btn" title="Open session folder" @onclick="() => OpenSessionFolder(activeSession.SessionId)" @onclick:stopPropagation="true">📂</button>
                 }
             </div>
         </div>
@@ -50,7 +50,7 @@
             @if (HasMoreMessages)
             {
                 <button class="load-more-btn" @onclick="LoadMoreMessages">
-                    <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 11 12 6 7 11"/><polyline points="17 18 12 13 7 18"/></svg>
+                    ⬆️
                     Load @Math.Min(50, activeSession.History.Count - visibleMessageCount) older messages (@(activeSession.History.Count - visibleMessageCount) remaining)
                 </button>
             }
@@ -65,7 +65,7 @@
         @if (!string.IsNullOrEmpty(lastError))
         {
             <div class="error-bar">
-                <span><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> @lastError</span>
+                <span>⚠️ @lastError</span>
                 <button @onclick="() => lastError = null">×</button>
             </div>
         }
@@ -73,13 +73,13 @@
         <div class="input-area" @ref="inputAreaRef">
             @if (!string.IsNullOrEmpty(currentIntent))
             {
-                <div class="intent-pill"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg> @currentIntent</div>
+                <div class="intent-pill">💭 @currentIntent</div>
             }
             @if (activeSession.MessageQueue.Any())
             {
                 <div class="message-queue">
                     <div class="queue-header">
-                        <span><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> Queued (@activeSession.MessageQueue.Count)</span>
+                        <span>📋 Queued (@activeSession.MessageQueue.Count)</span>
                         <button class="queue-clear-btn" @onclick="ClearQueue">Clear</button>
                     </div>
                     @for (var i = 0; i < activeSession.MessageQueue.Count; i++)
@@ -121,30 +121,22 @@
                 @if (activeSession.IsProcessing)
                 {
                     <button class="stop-btn" @onclick="StopResponse" title="Stop response">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"/></svg>
                     </button>
                 }
                 <button @onclick="SendMessage" 
+                        class="send-btn"
                         disabled="@(string.IsNullOrWhiteSpace(userInput) && pendingImages.Count == 0)"
                         title="@(activeSession.IsProcessing ? "Queue message" : "Send message")">
-                    @if (activeSession.IsProcessing)
-                    {
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-                    }
-                    else
-                    {
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                    }
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
                 </button>
             </div>
             <div class="input-status-bar">
                 <div class="mode-switcher">
                     <button class="mode-btn @(!isPlanMode ? "active" : "")" @onclick="() => isPlanMode = false">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         Chat
                     </button>
                     <button class="mode-btn @(isPlanMode ? "active" : "")" @onclick="() => isPlanMode = true">
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1.5" width="12" height="13" rx="1.5"/><line x1="5" y1="5" x2="5.01" y2="5"/><line x1="7.5" y1="5" x2="11" y2="5"/><line x1="5" y1="8" x2="5.01" y2="8"/><line x1="7.5" y1="8" x2="11" y2="8"/><line x1="5" y1="11" x2="5.01" y2="11"/><line x1="7.5" y1="11" x2="11" y2="11"/></svg>
                         Plan
                     </button>
                 </div>
@@ -178,7 +170,6 @@
                 </span>
                 <span class="status-sep">·</span>
                 <button class="plan-icon-toggle @(showDebugPanel ? "active" : "")" @onclick="() => showDebugPanel = !showDebugPanel" title="Toggle debug log">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.88 1.88"/><path d="M14.12 3.88L16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
                     <span>Log</span>
                 </button>
             </div>
@@ -192,7 +183,7 @@
                 <span>Debug Log</span>
                 <div class="debug-actions">
                     <input type="text" class="debug-filter" placeholder="Filter..." @bind="debugFilter" @bind:event="oninput" />
-                    <button @onclick="InspectDom" title="Inspect DOM"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
+                    <button @onclick="InspectDom" title="Inspect DOM">🔍</button>
                     <button @onclick="() => debugLog = string.Empty" title="Clear log">Clear</button>
                     <button @onclick="() => showDebugPanel = false" title="Close">✕</button>
                 </div>

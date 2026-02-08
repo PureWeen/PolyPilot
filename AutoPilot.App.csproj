@@ -29,7 +29,7 @@
         <MauiXamlInflator>SourceGen</MauiXamlInflator>
 
         <!-- Display name -->
-        <ApplicationTitle>AutoPilot.App</ApplicationTitle>
+        <ApplicationTitle>AutoPilot</ApplicationTitle>
 
         <!-- App Identifier -->
         <ApplicationId>com.companyname.autopilot.app</ApplicationId>
@@ -50,7 +50,7 @@
 
     <ItemGroup>
         <!-- App Icon -->
-        <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+        <MauiIcon Include="Resources\AppIcon\appicon.png" />
 
         <!-- Splash Screen -->
         <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
@@ -84,5 +84,15 @@
     <ItemGroup>
         <TrimmerRootAssembly Include="GitHub.Copilot.SDK" />
     </ItemGroup>
+
+    <!-- Replace MAUI-generated icons with our custom full-bleed versions -->
+    <Target Name="ReplaceAppIcon" AfterTargets="Build" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+        <Copy SourceFiles="Resources/AppIcon/appicon.icns"
+              DestinationFiles="$(OutputPath)/AutoPilot.app/Contents/Resources/appicon.icns"
+              OverwriteReadOnlyFiles="true" />
+        <Copy SourceFiles="Resources/AppIcon/CustomAssets.car"
+              DestinationFiles="$(OutputPath)/AutoPilot.app/Contents/Resources/Assets.car"
+              OverwriteReadOnlyFiles="true" />
+    </Target>
 
 </Project>
