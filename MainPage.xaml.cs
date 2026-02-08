@@ -25,6 +25,7 @@ public partial class MainPage : ContentPage
 	private void OnBlazorWebViewInitialized(object? sender, BlazorWebViewInitializedEventArgs e)
 	{
 		var webView = e.WebView;
+
 		// Wait for layout so WindowInsets are available
 		webView.ViewTreeObserver!.GlobalLayout += (s, args) =>
 		{
