@@ -12,6 +12,7 @@ public class CopilotService : IAsyncDisposable
     private readonly ChatDatabase _chatDb;
     private readonly ServerManager _serverManager;
     private readonly WsBridgeClient _bridgeClient;
+    private readonly DemoService _demoService;
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
@@ -86,6 +87,7 @@ public class CopilotService : IAsyncDisposable
     public bool IsInitialized { get; private set; }
     public bool NeedsConfiguration { get; private set; }
     public bool IsRemoteMode { get; private set; }
+    public bool IsDemoMode { get; private set; }
     public string? ActiveSessionName => _activeSessionName;
     public ChatDatabase ChatDb => _chatDb;
     public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
@@ -95,6 +97,7 @@ public class CopilotService : IAsyncDisposable
         _chatDb = chatDb;
         _serverManager = serverManager;
         _bridgeClient = bridgeClient;
+        _demoService = new DemoService();
     }
 
     // Debug info
@@ -167,6 +170,13 @@ public class CopilotService : IAsyncDisposable
         if (settings.Mode == ConnectionMode.Remote && !string.IsNullOrWhiteSpace(settings.RemoteUrl))
         {
             await InitializeRemoteAsync(settings, cancellationToken);
+            return;
+        }
+
+        // Demo mode: local mock responses, no network needed
+        if (settings.Mode == ConnectionMode.Demo)
+        {
+            InitializeDemo();
             return;
         }
 
@@ -309,6 +319,58 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
+    /// Initialize in Demo mode: wire up DemoService events for local mock responses.
+    /// </summary>
+    private void InitializeDemo()
+    {
+        Debug("Demo mode: initializing with mock responses");
+
+        _demoService.OnStateChanged += () => InvokeOnUI(() => OnStateChanged?.Invoke());
+        _demoService.OnContentReceived += (s, c) =>
+        {
+            // Accumulate response in SessionState for history
+            if (_sessions.TryGetValue(s, out var state))
+                state.CurrentResponse.Append(c);
+            InvokeOnUI(() => OnContentReceived?.Invoke(s, c));
+        };
+        _demoService.OnToolStarted += (s, tool, id) =>
+        {
+            if (_sessions.TryGetValue(s, out var state))
+            {
+                FlushCurrentResponse(state);
+                state.Info.History.Add(ChatMessage.ToolCallMessage(tool, id));
+            }
+            InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id, null));
+        };
+        _demoService.OnToolCompleted += (s, id, result, success) =>
+        {
+            if (_sessions.TryGetValue(s, out var state))
+            {
+                var toolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == id);
+                if (toolMsg != null) { toolMsg.IsComplete = true; toolMsg.IsSuccess = success; toolMsg.Content = result; }
+            }
+            InvokeOnUI(() => OnToolCompleted?.Invoke(s, id, result, success));
+        };
+        _demoService.OnIntentChanged += (s, i) => InvokeOnUI(() => OnIntentChanged?.Invoke(s, i));
+        _demoService.OnTurnStart += (s) => InvokeOnUI(() => OnTurnStart?.Invoke(s));
+        _demoService.OnTurnEnd += (s) =>
+        {
+            // Flush accumulated response into history (mirrors CompleteResponse)
+            if (_sessions.TryGetValue(s, out var state))
+            {
+                CompleteResponse(state);
+            }
+            InvokeOnUI(() => OnTurnEnd?.Invoke(s));
+        };
+
+        IsInitialized = true;
+        IsDemoMode = true;
+        NeedsConfiguration = false;
+        Debug("Demo mode initialized");
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
     /// Sync remote session list from WsBridgeClient into our local _sessions dictionary.
     /// </summary>
     private void SyncRemoteSessions()
@@ -400,8 +462,16 @@ public class CopilotService : IAsyncDisposable
 
         IsInitialized = false;
         IsRemoteMode = false;
+        IsDemoMode = false;
         CurrentMode = settings.Mode;
         OnStateChanged?.Invoke();
+
+        // Demo mode: local mock responses
+        if (settings.Mode == ConnectionMode.Demo)
+        {
+            InitializeDemo();
+            return;
+        }
 
         // Remote mode uses WsBridgeClient state-sync
         if (settings.Mode == ConnectionMode.Remote && !string.IsNullOrWhiteSpace(settings.RemoteUrl))
@@ -881,6 +951,17 @@ public class CopilotService : IAsyncDisposable
 
     public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
+        // In demo mode, create a local mock session
+        if (IsDemoMode)
+        {
+            var demoInfo = _demoService.CreateSession(name, model);
+            var demoState = new SessionState { Session = null!, Info = demoInfo };
+            _sessions[name] = demoState;
+            _activeSessionName ??= name;
+            OnStateChanged?.Invoke();
+            return demoInfo;
+        }
+
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
         {
@@ -1313,6 +1394,19 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default)
     {
+        // In demo mode, simulate a response locally
+        if (IsDemoMode)
+        {
+            if (!_sessions.TryGetValue(sessionName, out var demoState))
+                throw new InvalidOperationException($"Session '{sessionName}' not found.");
+            demoState.Info.History.Add(ChatMessage.UserMessage(prompt));
+            demoState.Info.MessageCount = demoState.Info.History.Count;
+            demoState.CurrentResponse.Clear();
+            OnStateChanged?.Invoke();
+            _ = Task.Run(() => _demoService.SimulateResponseAsync(sessionName, prompt, _syncContext, cancellationToken));
+            return "";
+        }
+
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
         {

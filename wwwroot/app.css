@@ -13,6 +13,23 @@
     --type-caption2: 0.55rem;     /* 11px — minimum readable size */
 }
 
+/* Mobile: scale down for phone screens */
+@media (max-width: 640px) {
+    :root {
+        --type-large-title: 1.55rem;
+        --type-title1: 1.25rem;
+        --type-title2: 1.0rem;
+        --type-title3: 0.9rem;
+        --type-headline: 0.8rem;
+        --type-body: 0.8rem;
+        --type-callout: 0.75rem;
+        --type-subhead: 0.7rem;
+        --type-footnote: 0.6rem;
+        --type-caption1: 0.55rem;
+        --type-caption2: 0.5rem;
+    }
+}
+
 /* Mac Catalyst / desktop: bump scale to compensate for 77% Catalyst scaling */
 @media (min-width: 641px) {
     :root {

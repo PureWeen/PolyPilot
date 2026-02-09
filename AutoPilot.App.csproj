@@ -53,7 +53,7 @@
         <MauiIcon Include="Resources\AppIcon\appicon.png" />
 
         <!-- Splash Screen -->
-        <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+        <MauiSplashScreen Include="Resources\Splash\splash.png" Color="#0d1526" BaseSize="128,128" />
 
         <!-- Images -->
         <MauiImage Include="Resources\Images\*" />
@@ -69,8 +69,8 @@
     <ItemGroup>
         <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.22" />
         <PackageReference Include="Markdig" Version="0.40.0" />
-        <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.31" />
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.31" />
+        <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.1" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.1" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
         <PackageReference Include="sqlite-net-pcl" Version="*" />
         <PackageReference Include="SQLitePCLRaw.bundle_green" Version="*" />
@@ -88,16 +88,10 @@
     <!-- Replace MAUI-generated icons with our custom full-bleed versions -->
     <Target Name="ReplaceAppIcon" AfterTargets="Build" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
         <Copy SourceFiles="Resources/AppIcon/appicon.icns"
-              DestinationFiles="$(OutputPath)/AutoPilot.app/Contents/Resources/appicon.icns"
+              DestinationFiles="$(OutputPath)/AutoPilot.App.app/Contents/Resources/appicon.icns"
               OverwriteReadOnlyFiles="true" />
         <Copy SourceFiles="Resources/AppIcon/CustomAssets.car"
-              DestinationFiles="$(OutputPath)/AutoPilot.app/Contents/Resources/Assets.car"
-              OverwriteReadOnlyFiles="true" />
-    </Target>
-
-    <Target Name="ReplaceAppIconIOS" AfterTargets="Build" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">
-        <Copy SourceFiles="Resources/AppIcon/iOSAssets.car"
-              DestinationFiles="$(OutputPath)/AutoPilot.App.app/Assets.car"
+              DestinationFiles="$(OutputPath)/AutoPilot.App.app/Contents/Resources/Assets.car"
               OverwriteReadOnlyFiles="true" />
     </Target>
 

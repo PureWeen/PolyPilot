@@ -61,7 +61,7 @@
 }
 
 .model-select {
-    padding: 0.5rem;
+    padding: 0.5rem 1.8rem 0.5rem 0.5rem;
     border: 1px solid rgba(255,255,255,0.2);
     border-radius: 6px;
     background: rgba(255,255,255,0.1);
@@ -69,6 +69,11 @@
     font-size: var(--type-body);
     min-width: 0;
     max-width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a0b4cc' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
 }
 
 .model-select option {
@@ -667,6 +672,62 @@
 
 /* === Mobile responsive === */
 @media (max-width: 640px) {
+    .flyout-header {
+        padding: 0.6rem 0.75rem;
+    }
+
+    .flyout-header h3 {
+        font-size: var(--type-body);
+    }
+
+    .flyout-close-btn {
+        font-size: var(--type-body);
+    }
+
+    .new-session {
+        padding: 0.6rem 0.75rem;
+        gap: 0.4rem;
+    }
+
+    .new-session input {
+        padding: 0.4rem 0.5rem;
+        font-size: var(--type-callout);
+        border-radius: 6px;
+    }
+
+    .model-select {
+        padding: 0.35rem 0.4rem;
+        font-size: var(--type-callout);
+    }
+
+    .new-session button {
+        padding: 0.4rem 0.6rem;
+        font-size: var(--type-callout);
+    }
+
+    .dir-toggle-btn {
+        font-size: var(--type-footnote) !important;
+        padding: 0.2rem 0.4rem !important;
+    }
+
+    .section-header {
+        padding: 0.35rem 0.5rem;
+        font-size: var(--type-footnote);
+    }
+
+    .session-item {
+        padding: 0.5rem;
+    }
+
+    .session-name {
+        font-size: var(--type-callout);
+    }
+
+    .no-sessions {
+        font-size: var(--type-callout);
+        padding: 0.75rem;
+    }
+
     .session-item.persisted {
         flex-wrap: wrap;
     }

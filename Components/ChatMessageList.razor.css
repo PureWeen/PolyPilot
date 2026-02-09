@@ -463,3 +463,40 @@
     text-overflow: ellipsis;
     max-width: 160px;
 }
+
+/* === Mobile: tighter chat bubbles matching iOS chat conventions === */
+@media (max-width: 640px) {
+    .chat-message-list.full .chat-msg {
+        padding: 0.4rem 0.5rem;
+        gap: 0.35rem;
+    }
+
+    .chat-message-list.full .chat-msg-text {
+        font-size: var(--type-callout);
+        line-height: 1.45;
+    }
+
+    .chat-message-list.full .chat-msg.user .chat-msg-content,
+    .chat-message-list.full .chat-msg.assistant .chat-msg-content {
+        padding: 0.5rem 0.75rem;
+        max-width: 85%;
+    }
+
+    .chat-message-list.full .chat-msg-time {
+        font-size: var(--type-caption1);
+    }
+
+    .chat-message-list.full .chat-msg.user .chat-msg-avatar {
+        width: 24px;
+        height: 24px;
+    }
+
+    .chat-message-list.full .chat-msg.assistant .chat-msg-avatar {
+        width: 32px;
+        height: 32px;
+    }
+
+    .chat-message-list.full .system-text {
+        font-size: var(--type-callout);
+    }
+}
