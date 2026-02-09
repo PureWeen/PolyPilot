@@ -271,6 +271,7 @@
     private int fontSize = 20;
     private string? expandedSession;
     private string? _focusedInputId;
+    private string? _lastActiveSession;
     private int _cursorStart;
     private int _cursorEnd;
     private DotNetObjectReference<Dashboard>? _dotNetRef;
@@ -368,6 +369,10 @@
                             if (idx < 0) idx = 0;
                             idx = e.shiftKey ? (idx - 1 + inputs.length) % inputs.length : (idx + 1) % inputs.length;
                             inputs[idx].focus();
+                            var card = inputs[idx].closest('.session-card');
+                            if (card && card.dataset.session && window.__dashRef) {
+                                window.__dashRef.invokeMethodAsync('JsSelectSession', card.dataset.session);
+                            }
                         }
                         if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
                             e.preventDefault();
@@ -444,10 +449,69 @@
         ");
     }
 
+    private async Task SafeRefreshAsync()
+    {
+        // Capture all card input values before re-render wipes them
+        try
+        {
+            var json = await JS.InvokeAsync<string>("eval", @"
+                (function() {
+                    var result = {};
+                    var active = document.activeElement;
+                    document.querySelectorAll('.card-input input, .card-input textarea, .expanded-card .input-area textarea').forEach(function(el) {
+                        if (el.id && el.value) result[el.id] = el.value;
+                    });
+                    if (active && active.id) result['__focused'] = active.id;
+                    if (active) { result['__selStart'] = active.selectionStart || 0; result['__selEnd'] = active.selectionEnd || 0; }
+                    return JSON.stringify(result);
+                })();
+            ");
+            if (!string.IsNullOrEmpty(json))
+            {
+                var saved = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                if (saved != null)
+                {
+                    foreach (var (id, val) in saved)
+                    {
+                        if (id.StartsWith("__")) continue;
+                        // Map input id back to session name
+                        var sessionName = id.Replace("input-", "").Replace("-", " ");
+                        if (!string.IsNullOrEmpty(val))
+                            draftBySession[sessionName] = val;
+                    }
+                    if (saved.TryGetValue("__focused", out var fid))
+                        _focusedInputId = fid;
+                    if (saved.TryGetValue("__selStart", out var ss) && int.TryParse(ss, out var start))
+                        _cursorStart = start;
+                    if (saved.TryGetValue("__selEnd", out var se) && int.TryParse(se, out var end))
+                        _cursorEnd = end;
+                }
+            }
+        }
+        catch { }
+        StateHasChanged();
+    }
+
     private void RefreshState()
     {
         sessions = CopilotService.GetAllSessions().ToList();
-        InvokeAsync(StateHasChanged);
+        // Detect sidebar-initiated session switch
+        var active = CopilotService.ActiveSessionName;
+        if (active != null && active != _lastActiveSession && sessions.Any(s => s.Name == active))
+        {
+            _lastActiveSession = active;
+            if (expandedSession != null)
+            {
+                // In expanded mode: switch to the selected session
+                expandedSession = active;
+            }
+            else
+            {
+                // In grid mode: focus that session's input
+                _focusedInputId = $"input-{active.Replace(" ", "-")}";
+            }
+        }
+        InvokeAsync(SafeRefreshAsync);
     }
 
     private void HandleComplete(string sessionName, string summary)
@@ -455,11 +519,11 @@
         completedSessions.Add(sessionName);
         streamingBySession.Remove(sessionName);
         activityBySession.Remove(sessionName);
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(SafeRefreshAsync);
         _ = Task.Delay(10000).ContinueWith(_ =>
         {
             completedSessions.Remove(sessionName);
-            InvokeAsync(StateHasChanged);
+            InvokeAsync(SafeRefreshAsync);
         });
     }
 
@@ -468,13 +532,13 @@
         if (!streamingBySession.ContainsKey(sessionName))
             streamingBySession[sessionName] = "";
         streamingBySession[sessionName] += content;
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(SafeRefreshAsync);
     }
 
     private void HandleActivity(string sessionName, string activity)
     {
         activityBySession[sessionName] = activity;
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(SafeRefreshAsync);
     }
 
     private void HandleToolStarted(string sessionName, string toolName, string callId, string? inputSummary)
@@ -489,7 +553,7 @@
             Input = inputSummary,
             StartedAt = DateTime.Now
         });
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(SafeRefreshAsync);
     }
 
     private void HandleToolCompleted(string sessionName, string callId, string result, bool success)
@@ -506,13 +570,13 @@
             }
         }
         currentToolBySession.Remove(sessionName);
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(SafeRefreshAsync);
     }
 
     private void HandleIntentChanged(string sessionName, string intent)
     {
         intentBySession[sessionName] = intent;
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(SafeRefreshAsync);
     }
 
     private void HandleUsageInfoChanged(string sessionName, SessionUsageInfo info)
@@ -530,28 +594,28 @@
         {
             usageBySession[sessionName] = info;
         }
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(SafeRefreshAsync);
     }
 
     private void HandleError(string sessionName, string error)
     {
         if (error.Contains("cancell", StringComparison.OrdinalIgnoreCase)) return;
         errorBySession[sessionName] = error;
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(SafeRefreshAsync);
     }
 
     private void HandleTurnStart(string sessionName)
     {
         currentToolBySession.Remove(sessionName);
         toolActivitiesBySession[sessionName] = new();
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(SafeRefreshAsync);
     }
 
     private void HandleTurnEnd(string sessionName)
     {
         intentBySession.Remove(sessionName);
         currentToolBySession.Remove(sessionName);
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(SafeRefreshAsync);
     }
 
     private void DismissError(string sessionName)
@@ -605,6 +669,7 @@
     {
         await SaveDraftsAndCursor();
         expandedSession = sessionName;
+        CopilotService.SwitchSession(sessionName);
     }
 
     private async Task CollapseExpanded()
@@ -701,6 +766,7 @@
     {
         await SaveDraftsAndCursor();
         expandedSession = sessionName;
+        CopilotService.SwitchSession(sessionName);
         StateHasChanged();
     }
 
@@ -713,10 +779,17 @@
         if (idx < 0) idx = 0;
         idx = reverse ? (idx - 1 + sessions.Count) % sessions.Count : (idx + 1) % sessions.Count;
         expandedSession = sessions[idx].Name;
+        CopilotService.SwitchSession(expandedSession);
         _focusedInputId = $"input-{expandedSession.Replace(" ", "-")}";
         _cursorStart = 0;
         _cursorEnd = 0;
         StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void JsSelectSession(string sessionName)
+    {
+        CopilotService.SwitchSession(sessionName);
     }
 
     private const int DefaultMessageWindow = 25;
