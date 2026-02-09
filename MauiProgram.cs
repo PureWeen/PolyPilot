@@ -12,11 +12,27 @@ namespace AutoPilot.App;
 
 public static class MauiProgram
 {
-	private static readonly string CrashLogPath = Path.Combine(
-		string.IsNullOrEmpty(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
-			? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-			: Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-		".copilot", "autopilot-crash.log");
+	private static string? _crashLogPath;
+	private static string CrashLogPath => _crashLogPath ??= GetCrashLogPath();
+
+	private static string GetCrashLogPath()
+	{
+		try
+		{
+#if ANDROID || IOS
+			return Path.Combine(FileSystem.AppDataDirectory, ".copilot", "autopilot-crash.log");
+#else
+			var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+			if (string.IsNullOrEmpty(home))
+				home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+			return Path.Combine(home, ".copilot", "autopilot-crash.log");
+#endif
+		}
+		catch
+		{
+			return Path.Combine(Path.GetTempPath(), ".copilot", "autopilot-crash.log");
+		}
+	}
 
 	public static MauiApp CreateMauiApp()
 	{

@@ -11,6 +11,7 @@ public class AgentSessionInfo
     public List<string> MessageQueue { get; } = new();
     
     public string? WorkingDirectory { get; set; }
+    public string? GitBranch { get; set; }
     
     // For resumed sessions
     public string? SessionId { get; set; }

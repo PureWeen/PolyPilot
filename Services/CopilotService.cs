@@ -51,9 +51,11 @@ public class CopilotService : IAsyncDisposable
     private static string? _activeSessionsFile;
     private static string ActiveSessionsFile => _activeSessionsFile ??= Path.Combine(CopilotBaseDir, "autopilot-active-sessions.json");
 
-    private static readonly string SessionAliasesFile = Path.Combine(CopilotBaseDir, "autopilot-session-aliases.json");
+    private static string? _sessionAliasesFile;
+    private static string SessionAliasesFile => _sessionAliasesFile ??= Path.Combine(CopilotBaseDir, "autopilot-session-aliases.json");
 
-    private static readonly string UiStateFile = Path.Combine(CopilotBaseDir, "autopilot-ui-state.json");
+    private static string? _uiStateFile;
+    private static string UiStateFile => _uiStateFile ??= Path.Combine(CopilotBaseDir, "autopilot-ui-state.json");
 
     private static string? _projectDir;
     private static string ProjectDir => _projectDir ??= FindProjectDir();
@@ -122,6 +124,7 @@ public class CopilotService : IAsyncDisposable
         public TaskCompletionSource<string>? ResponseCompletion { get; set; }
         public StringBuilder CurrentResponse { get; } = new();
         public bool HasReceivedDeltasThisTurn { get; set; }
+        public bool HasReceivedEventsSinceResume { get; set; }
         public string? LastMessageId { get; set; }
     }
 
@@ -328,6 +331,7 @@ public class CopilotService : IAsyncDisposable
                     CreatedAt = rs.CreatedAt,
                     SessionId = rs.SessionId,
                     WorkingDirectory = rs.WorkingDirectory,
+                    GitBranch = GetGitBranch(rs.WorkingDirectory),
                 };
                 _sessions[rs.Name] = new SessionState
                 {
@@ -795,8 +799,10 @@ public class CopilotService : IAsyncDisposable
             Model = "resumed", // Model info may not be immediately available
             CreatedAt = DateTime.Now,
             SessionId = sessionId,
-            IsResumed = true
+            IsResumed = true,
+            WorkingDirectory = GetSessionWorkingDirectory(sessionId)
         };
+        info.GitBranch = GetGitBranch(info.WorkingDirectory);
 
         // Add loaded history to the session info
         foreach (var msg in history)
@@ -839,10 +845,24 @@ public class CopilotService : IAsyncDisposable
         };
 
         // If still processing, set up ResponseCompletion so events flow properly
+        // but add a timeout — if no new events arrive, the old turn is gone
         if (isStillProcessing)
         {
             state.ResponseCompletion = new TaskCompletionSource<string>();
             Debug($"Session '{displayName}' is still processing (was mid-turn when app restarted)");
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(10));
+                if (state.Info.IsProcessing && !state.HasReceivedEventsSinceResume)
+                {
+                    Debug($"Session '{displayName}' processing timeout — no new events after resume, clearing stale state");
+                    state.Info.IsProcessing = false;
+                    state.ResponseCompletion?.TrySetResult("timeout");
+                    state.Info.History.Add(ChatMessage.SystemMessage("⏹ Previous turn appears to have ended. Ready for new input."));
+                    InvokeOnUI(() => OnStateChanged?.Invoke());
+                }
+            });
         }
 
         copilotSession.On(evt => HandleSessionEvent(state, evt));
@@ -921,7 +941,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             Model = sessionModel,
             CreatedAt = DateTime.Now,
             SessionId = copilotSession.SessionId,
-            WorkingDirectory = sessionDir
+            WorkingDirectory = sessionDir,
+            GitBranch = GetGitBranch(sessionDir)
         };
 
         Debug($"Session '{name}' created with ID: {copilotSession.SessionId}");
@@ -954,6 +975,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
+        state.HasReceivedEventsSinceResume = true;
         var sessionName = state.Info.Name;
         void Invoke(Action action)
         {
@@ -1079,6 +1101,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
             case SessionIdleEvent:
                 CompleteResponse(state);
+                // Refresh git branch — agent may have switched branches
+                state.Info.GitBranch = GetGitBranch(state.Info.WorkingDirectory);
                 break;
 
             case SessionStartEvent start:
@@ -1113,8 +1137,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 break;
 
             case SessionErrorEvent err:
-                Invoke(() => OnError?.Invoke(sessionName, err.Data.Message));
-                state.ResponseCompletion?.TrySetException(new Exception(err.Data.Message));
+                var errMsg = err.Data?.Message ?? "Unknown error";
+                Invoke(() => OnError?.Invoke(sessionName, errMsg));
+                state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                 state.Info.IsProcessing = false;
                 Invoke(() => OnStateChanged?.Invoke());
                 break;
@@ -1276,12 +1301,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 try
                 {
                     await state.Session.DisposeAsync();
-                    var newSession = await _client!.ResumeSessionAsync(state.Info.SessionId, cancellationToken: cancellationToken);
+                    if (_client == null)
+                        throw new InvalidOperationException("Client is not initialized");
+                    var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, cancellationToken: cancellationToken);
                     var newState = new SessionState
                     {
                         Session = newSession,
                         Info = state.Info
                     };
+                    newState.ResponseCompletion = state.ResponseCompletion;
                     newSession.On(evt => HandleSessionEvent(newState, evt));
                     _sessions[sessionName] = newState;
                     state = newState;
@@ -1312,6 +1340,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         Console.WriteLine($"[DEBUG] SendAsync completed, waiting for response...");
 
+        if (state.ResponseCompletion == null)
+            return ""; // Response already completed via events
         return await state.ResponseCompletion.Task;
     }
 
@@ -1436,10 +1466,17 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public async Task<bool> CloseSessionAsync(string name)
     {
+        // In remote mode, send close request to server
+        if (_bridgeClient != null && _bridgeClient.IsConnected)
+        {
+            await _bridgeClient.CloseSessionAsync(name);
+        }
+
         if (!_sessions.TryRemove(name, out var state))
             return false;
 
-        await state.Session.DisposeAsync();
+        if (state.Session is not null)
+            await state.Session.DisposeAsync();
 
         if (_activeSessionName == name)
         {
@@ -1642,6 +1679,60 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             File.WriteAllText(SessionAliasesFile, json);
         }
         catch { }
+    }
+
+    private static string? GetGitBranch(string? directory)
+    {
+        if (string.IsNullOrEmpty(directory)) return null;
+        try
+        {
+            var headFile = FindGitHead(directory);
+            if (headFile == null) return null;
+            var head = File.ReadAllText(headFile).Trim();
+            return head.StartsWith("ref: refs/heads/")
+                ? head["ref: refs/heads/".Length..]
+                : head.Length >= 8 ? head[..8] : head; // detached HEAD — show short SHA
+        }
+        catch { return null; }
+    }
+
+    private static string? FindGitHead(string dir)
+    {
+        var d = new DirectoryInfo(dir);
+        while (d != null)
+        {
+            var head = Path.Combine(d.FullName, ".git", "HEAD");
+            if (File.Exists(head)) return head;
+            d = d.Parent;
+        }
+        return null;
+    }
+
+    private string? GetSessionWorkingDirectory(string sessionId)
+    {
+        try
+        {
+            var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+            if (!File.Exists(eventsFile)) return null;
+            // Read only enough lines to find session.start
+            foreach (var line in File.ReadLines(eventsFile).Take(5))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("type", out var t) || t.GetString() != "session.start") continue;
+                if (root.TryGetProperty("data", out var data))
+                {
+                    if (data.TryGetProperty("context", out var ctx) &&
+                        ctx.TryGetProperty("cwd", out var cwd))
+                        return cwd.GetString();
+                    if (data.TryGetProperty("workingDirectory", out var wd))
+                        return wd.GetString();
+                }
+            }
+        }
+        catch { }
+        return null;
     }
 }
 

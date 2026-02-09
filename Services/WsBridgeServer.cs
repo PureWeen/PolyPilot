@@ -18,6 +18,7 @@ public class WsBridgeServer : IDisposable
     private int _bridgePort;
     private CopilotService? _copilot;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
 
     public int BridgePort => _bridgePort;
     public bool IsRunning => _listener?.IsListening == true;
@@ -128,6 +129,8 @@ public class WsBridgeServer : IDisposable
             catch { }
         }
         _clients.Clear();
+        foreach (var kvp in _clientSendLocks) kvp.Value.Dispose();
+        _clientSendLocks.Clear();
         try { _listener?.Stop(); } catch { }
         _listener = null;
         Console.WriteLine("[WsBridge] Stopped");
@@ -183,30 +186,37 @@ public class WsBridgeServer : IDisposable
             var wsContext = await httpContext.AcceptWebSocketAsync(null);
             ws = wsContext.WebSocket;
             _clients[clientId] = ws;
+            _clientSendLocks[clientId] = new SemaphoreSlim(1, 1);
             Console.WriteLine($"[WsBridge] Client {clientId} connected ({_clients.Count} total)");
 
             // Send initial state
-            await SendSessionsList(ws, ct);
-            await SendPersistedSessions(ws, ct);
+            await SendToClientAsync(clientId, ws,
+                BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
+            await SendPersistedToClient(clientId, ws, ct);
 
             // Send active session history
             if (_copilot != null)
             {
                 var active = _copilot.GetActiveSession();
                 if (active != null)
-                    await SendSessionHistory(ws, active.Name, ct);
+                    await SendSessionHistoryToClient(clientId, ws, active.Name, ct);
             }
 
-            // Read client commands
-            var buffer = new byte[8192];
+            // Read client commands (with fragmentation support)
+            var buffer = new byte[65536];
+            var messageBuffer = new StringBuilder();
             while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
             {
                 var result = await ws.ReceiveAsync(buffer, ct);
                 if (result.MessageType == WebSocketMessageType.Close) break;
-                if (result.Count > 0)
+
+                messageBuffer.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+
+                if (result.EndOfMessage)
                 {
-                    var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    await HandleClientMessage(ws, json, ct);
+                    var json = messageBuffer.ToString();
+                    messageBuffer.Clear();
+                    await HandleClientMessage(clientId, ws, json, ct);
                 }
             }
         }
@@ -219,6 +229,7 @@ public class WsBridgeServer : IDisposable
         finally
         {
             _clients.TryRemove(clientId, out _);
+            if (_clientSendLocks.TryRemove(clientId, out var lk)) lk.Dispose();
             if (ws?.State == WebSocketState.Open)
             {
                 try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None); }
@@ -229,7 +240,7 @@ public class WsBridgeServer : IDisposable
         }
     }
 
-    private async Task HandleClientMessage(WebSocket ws, string json, CancellationToken ct)
+    private async Task HandleClientMessage(string clientId, WebSocket ws, string json, CancellationToken ct)
     {
         var msg = BridgeMessage.Deserialize(json);
         if (msg == null || _copilot == null) return;
@@ -239,13 +250,14 @@ public class WsBridgeServer : IDisposable
             switch (msg.Type)
             {
                 case BridgeMessageTypes.GetSessions:
-                    await SendSessionsList(ws, ct);
+                    await SendToClientAsync(clientId, ws,
+                        BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
                     break;
 
                 case BridgeMessageTypes.GetHistory:
                     var histReq = msg.GetPayload<GetHistoryPayload>();
                     if (histReq != null)
-                        await SendSessionHistory(ws, histReq.SessionName, ct);
+                        await SendSessionHistoryToClient(clientId, ws, histReq.SessionName, ct);
                     break;
 
                 case BridgeMessageTypes.SendMessage:
@@ -271,7 +283,7 @@ public class WsBridgeServer : IDisposable
                     if (switchReq != null)
                     {
                         _copilot.SetActiveSession(switchReq.SessionName);
-                        await SendSessionHistory(ws, switchReq.SessionName, ct);
+                        await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, ct);
                     }
                     break;
 
@@ -282,7 +294,7 @@ public class WsBridgeServer : IDisposable
                     break;
 
                 case BridgeMessageTypes.GetPersistedSessions:
-                    await SendPersistedSessions(ws, ct);
+                    await SendPersistedToClient(clientId, ws, ct);
                     break;
 
                 case BridgeMessageTypes.ResumeSession:
@@ -294,6 +306,15 @@ public class WsBridgeServer : IDisposable
                         await _copilot.ResumeSessionAsync(resumeReq.SessionId, displayName, ct);
                     }
                     break;
+
+                case BridgeMessageTypes.CloseSession:
+                    var closeReq = msg.GetPayload<SessionNamePayload>();
+                    if (closeReq != null)
+                    {
+                        Console.WriteLine($"[WsBridge] Client closing session '{closeReq.SessionName}'");
+                        await _copilot.CloseSessionAsync(closeReq.SessionName);
+                    }
+                    break;
             }
         }
         catch (Exception ex)
@@ -302,18 +323,27 @@ public class WsBridgeServer : IDisposable
         }
     }
 
-    // --- Send helpers ---
+    // --- Send helpers (per-client lock to prevent concurrent SendAsync) ---
 
-    private async Task SendSessionsList(WebSocket ws, CancellationToken ct)
+    private async Task SendToClientAsync(string clientId, WebSocket ws, BridgeMessage msg, CancellationToken ct)
     {
-        if (_copilot == null) return;
+        if (ws.State != WebSocketState.Open) return;
+        if (!_clientSendLocks.TryGetValue(clientId, out var sendLock)) return;
 
-        var payload = BuildSessionsListPayload();
-        var msg = BridgeMessage.Create(BridgeMessageTypes.SessionsList, payload);
-        await SendAsync(ws, msg, ct);
+        var bytes = Encoding.UTF8.GetBytes(msg.Serialize());
+        await sendLock.WaitAsync(ct);
+        try
+        {
+            if (ws.State == WebSocketState.Open)
+                await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
+        }
+        finally
+        {
+            sendLock.Release();
+        }
     }
 
-    private async Task SendPersistedSessions(WebSocket ws, CancellationToken ct)
+    private async Task SendPersistedToClient(string clientId, WebSocket ws, CancellationToken ct)
     {
         if (_copilot == null) return;
 
@@ -336,10 +366,10 @@ public class WsBridgeServer : IDisposable
 
         var msg = BridgeMessage.Create(BridgeMessageTypes.PersistedSessionsList,
             new PersistedSessionsPayload { Sessions = persisted });
-        await SendAsync(ws, msg, ct);
+        await SendToClientAsync(clientId, ws, msg, ct);
     }
 
-    private async Task SendSessionHistory(WebSocket ws, string sessionName, CancellationToken ct)
+    private async Task SendSessionHistoryToClient(string clientId, WebSocket ws, string sessionName, CancellationToken ct)
     {
         if (_copilot == null) return;
 
@@ -352,7 +382,7 @@ public class WsBridgeServer : IDisposable
             Messages = session.History.ToList()
         };
         var msg = BridgeMessage.Create(BridgeMessageTypes.SessionHistory, payload);
-        await SendAsync(ws, msg, ct);
+        await SendToClientAsync(clientId, ws, msg, ct);
     }
 
     private SessionsListPayload BuildSessionsListPayload()
@@ -396,28 +426,32 @@ public class WsBridgeServer : IDisposable
             if (ws.State != WebSocketState.Open)
             {
                 _clients.TryRemove(id, out _);
+                if (_clientSendLocks.TryRemove(id, out var lk)) lk.Dispose();
                 continue;
             }
+            if (!_clientSendLocks.TryGetValue(id, out var sendLock)) continue;
+
+            var clientId = id;
             _ = Task.Run(async () =>
             {
+                await sendLock.WaitAsync();
                 try
                 {
-                    await ws.SendAsync(new ArraySegment<byte>(bytes),
-                        WebSocketMessageType.Text, true, CancellationToken.None);
+                    if (ws.State == WebSocketState.Open)
+                        await ws.SendAsync(new ArraySegment<byte>(bytes),
+                            WebSocketMessageType.Text, true, CancellationToken.None);
                 }
                 catch
                 {
-                    _clients.TryRemove(id, out _);
+                    _clients.TryRemove(clientId, out _);
+                    if (_clientSendLocks.TryRemove(clientId, out var lk2)) lk2.Dispose();
+                }
+                finally
+                {
+                    sendLock.Release();
                 }
             });
         }
-    }
-
-    private static async Task SendAsync(WebSocket ws, BridgeMessage msg, CancellationToken ct)
-    {
-        if (ws.State != WebSocketState.Open) return;
-        var bytes = Encoding.UTF8.GetBytes(msg.Serialize());
-        await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
     }
 
     public void Dispose()

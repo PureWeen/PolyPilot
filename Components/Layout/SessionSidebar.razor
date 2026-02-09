@@ -12,8 +12,7 @@
         </button>
         <span class="mobile-title"><img src="autopilot_logo.png" width="18" height="18" style="vertical-align:middle;border-radius:4px" /> AutoPilot</span>
         <div class="mobile-tabs">
-            <a href="/" class="mobile-tab @(currentPage == "/" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/"); currentPage = "/"; }'>Chat</a>
-            <a href="/dashboard" class="mobile-tab @(currentPage == "/dashboard" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/dashboard"); currentPage = "/dashboard"; }'>Dashboard</a>
+            <a href="/" class="mobile-tab @(currentPage == "/" || currentPage == "/dashboard" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/"); currentPage = "/"; }'>Dashboard</a>
             <a href="/settings" class="mobile-tab @(currentPage == "/settings" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/settings"); currentPage = "/settings"; }'>⚙️</a>
         </div>
     </div>
@@ -76,8 +75,7 @@ else
                 }
             </p>
             <div class="nav-tabs">
-                <a href="/" class="nav-tab @(currentPage == "/" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/"); currentPage = "/"; }'>Chat</a>
-                <a href="/dashboard" class="nav-tab @(currentPage == "/dashboard" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/dashboard"); currentPage = "/dashboard"; }'>Dashboard</a>
+                <a href="/" class="nav-tab @(currentPage == "/" || currentPage == "/dashboard" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/"); currentPage = "/"; }'>Dashboard</a>
                 <a href="/settings" class="nav-tab @(currentPage == "/settings" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/settings"); currentPage = "/settings"; }'>Settings</a>
             </div>
         </div>
@@ -339,10 +337,7 @@ else
     private void RefreshSessions()
     {
         sessions = CopilotService.GetAllSessions().ToList();
-        if (showPersistedSessions)
-        {
-            LoadPersistedSessions();
-        }
+        LoadPersistedSessions();
         InvokeAsync(StateHasChanged);
     }
 
@@ -357,10 +352,6 @@ else
     private void TogglePersistedSessions()
     {
         showPersistedSessions = !showPersistedSessions;
-        if (showPersistedSessions)
-        {
-            LoadPersistedSessions();
-        }
     }
 
     private void OnSessionNameInput(ChangeEventArgs e)

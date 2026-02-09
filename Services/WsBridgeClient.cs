@@ -178,6 +178,10 @@ public class WsBridgeClient : IDisposable
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ResumeSession,
             new ResumeSessionPayload { SessionId = sessionId, DisplayName = displayName }), ct);
 
+    public async Task CloseSessionAsync(string sessionName, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.CloseSession,
+            new SessionNamePayload { SessionName = sessionName }), ct);
+
     // --- Receive loop ---
 
     private async Task ReceiveLoopAsync(CancellationToken ct)

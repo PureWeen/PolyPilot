@@ -1,40 +1,210 @@
+@page "/"
 @page "/dashboard"
 @using AutoPilot.App.Services
 @using AutoPilot.App.Models
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject DevTunnelService DevTunnelService
 @implements IDisposable
 
-<div class="dashboard">
-    <div class="dashboard-header">
-        <h2><svg style="vertical-align:middle" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> Session Orchestrator</h2>
-        <span class="session-count">@sessions.Count active sessions</span>
-    </div>
-
-    @if (!sessions.Any())
+<div class="dashboard @(expandedSession != null ? "expanded-mode" : "")">
+    @if (!CopilotService.IsInitialized)
     {
+        <div class="initializing">
+            <div class="spinner"></div>
+            <p>Connecting to Copilot...</p>
+            @if (!string.IsNullOrEmpty(initError))
+            {
+                <p class="init-error">@initError</p>
+                <button class="retry-btn" @onclick="Initialize">Retry</button>
+            }
+        </div>
+    }
+    else if (!sessions.Any() && expandedSession == null)
+    {
+        <div class="dashboard-header">
+            <h2><svg style="vertical-align:middle" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> Session Orchestrator</h2>
+        </div>
         <div class="no-sessions-dash">
             <p>No active sessions. Create sessions from the sidebar to orchestrate them here.</p>
         </div>
     }
+    else if (expandedSession != null)
+    {
+        @* Expanded single-session view — mirrors Chat (Home.razor) layout *@
+        var session = sessions.FirstOrDefault(s => s.Name == expandedSession);
+        if (session != null)
+        {
+            var isCompleted = completedSessions.Contains(session.Name);
+            var cardClass = session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
+            <div class="expanded-card @cardClass">
+                <div class="chat-header">
+                    <div class="chat-header-top">
+                        <h2>@session.Name</h2>
+                        <div class="chat-header-badges">
+                            @if (session.IsProcessing)
+                            {
+                                <span class="processing-dot"></span>
+                            }
+                            <span class="model-badge">@GetExpandedModel(session)</span>
+                            @if (session.SessionId != null)
+                            {
+                                <span class="session-id-badge" title="Click to copy: @session.SessionId" @onclick="() => CopyToClipboard(session.SessionId)">🔗 @session.SessionId[..Math.Min(8, session.SessionId.Length)] 📋</span>
+                            }
+                            <button class="collapse-card-btn" @onclick="CollapseExpanded" title="Back to grid (Esc / ⌘E)">⊟ Grid</button>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrEmpty(session.WorkingDirectory) || !string.IsNullOrEmpty(session.GitBranch))
+                    {
+                        <div class="chat-header-context">
+                            @if (!string.IsNullOrEmpty(session.WorkingDirectory))
+                            {
+                                <span class="context-badge dir-badge" title="@session.WorkingDirectory">📁 @ShortenPath(session.WorkingDirectory)</span>
+                            }
+                            @if (!string.IsNullOrEmpty(session.GitBranch))
+                            {
+                                <span class="context-badge branch-badge"> @session.GitBranch</span>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="messages expanded-messages">
+                    @{ var expandedMessages = GetWindowedMessages(session.Name, session.History); }
+                    @if (session.History.Count > expandedMessages.Count)
+                    {
+                        <button class="load-more-btn" @onclick="() => LoadMoreExpandedMessages(session.Name)">
+                            ⬆️ Load more (@(session.History.Count - expandedMessages.Count) remaining)
+                        </button>
+                    }
+                    <ChatMessageList Messages="expandedMessages"
+                                     StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s2) ? s2 : "")"
+                                     CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t2) ? t2 : "")"
+                                     ToolActivities="@(toolActivitiesBySession.TryGetValue(session.Name, out var ta2) ? ta2 : new())"
+                                     ActivityText="@(activityBySession.TryGetValue(session.Name, out var a2) ? a2 : "")"
+                                     IsProcessing="session.IsProcessing"
+                                     Compact="false" />
+                </div>
+
+                @if (errorBySession.TryGetValue(session.Name, out var err2))
+                {
+                    <div class="error-bar">
+                        <span>⚠️ @err2</span>
+                        <button @onclick="() => DismissError(session.Name)">×</button>
+                    </div>
+                }
+
+                <div class="input-area">
+                    @if (intentBySession.TryGetValue(session.Name, out var intent2) && !string.IsNullOrEmpty(intent2))
+                    {
+                        <div class="intent-pill">💭 @intent2</div>
+                    }
+                    @if (session.MessageQueue.Any())
+                    {
+                        <div class="message-queue">
+                            <div class="queue-header">
+                                <span>📋 Queued (@session.MessageQueue.Count)</span>
+                                <button class="queue-clear-btn" @onclick="() => ClearQueue(session.Name)">Clear</button>
+                            </div>
+                            @for (var i = 0; i < session.MessageQueue.Count; i++)
+                            {
+                                var index = i;
+                                var msg = session.MessageQueue[i];
+                                <div class="queue-item">
+                                    <span class="queue-index">@(index + 1)</span>
+                                    <span class="queue-text">@Truncate(msg, 80)</span>
+                                    <button class="queue-remove-btn" @onclick="() => RemoveQueuedMessage(session.Name, index)">×</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    <div class="input-row">
+                        <textarea id="input-@session.Name.Replace(" ", "-")"
+                                  placeholder="@(session.IsProcessing ? "Message will be queued…" : $"Send to {session.Name}...")"
+                                  rows="1"></textarea>
+                        @if (session.IsProcessing)
+                        {
+                            <button class="stop-btn" @onclick="() => StopSession(session.Name)" title="Stop response">
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"/></svg>
+                            </button>
+                        }
+                        <button class="send-btn" @onclick="() => SendFromCard(session.Name)">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                        </button>
+                    </div>
+                    <div class="input-status-bar">
+                        <div class="mode-switcher">
+                            <button class="mode-btn @(!planModeBySession.GetValueOrDefault(session.Name) ? "active" : "")" @onclick="() => SetPlanMode(session.Name, false)">Chat</button>
+                            <button class="mode-btn @(planModeBySession.GetValueOrDefault(session.Name) ? "active" : "")" @onclick="() => SetPlanMode(session.Name, true)">Plan</button>
+                        </div>
+                        <span class="status-sep">·</span>
+                        <select class="inline-model-select" value="@GetExpandedModel(session)" @onchange="e => SetExpandedModel(session, e.Value?.ToString())">
+                            @foreach (var m in availableModels)
+                            {
+                                <option value="@m">@m</option>
+                            }
+                        </select>
+                        @if (usageBySession.TryGetValue(session.Name, out var usage2))
+                        {
+                            @if (usage2.InputTokens.HasValue || usage2.OutputTokens.HasValue)
+                            {
+                                <span class="status-sep">·</span>
+                                <span class="status-tokens">↑@FormatTokenCount(usage2.InputTokens ?? 0) ↓@FormatTokenCount(usage2.OutputTokens ?? 0)</span>
+                            }
+                            @if (usage2.CurrentTokens.HasValue && usage2.TokenLimit.HasValue)
+                            {
+                                <span class="status-sep">·</span>
+                                <span class="status-ctx">@FormatTokenCount(usage2.CurrentTokens.Value)/@FormatTokenCount(usage2.TokenLimit.Value) ctx</span>
+                            }
+                        }
+                        <span class="status-sep">·</span>
+                        <span class="status-msgs">@session.History.Count msgs</span>
+                        <span class="status-sep">·</span>
+                        <span class="font-size-controls">
+                            <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)">A−</button>
+                            <span class="font-size-label" @onclick="ResetFontSize">@(fontSize)px</span>
+                            <button class="font-size-btn" @onclick="IncreaseFontSize" disabled="@(fontSize >= 24)">A+</button>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        }
+    }
     else
     {
+        <div class="dashboard-header">
+            <h2><svg style="vertical-align:middle" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> Session Orchestrator</h2>
+            <span class="session-count">@sessions.Count active sessions</span>
+        </div>
         <div class="session-grid">
             @foreach (var session in sessions)
             {
                 var isCompleted = completedSessions.Contains(session.Name);
                 var cardClass = session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
-                <div class="session-card @cardClass">
+                <div class="session-card @cardClass" data-session="@session.Name">
                     <div class="card-header">
                         <div class="card-title" @onclick="() => GoToSession(session.Name)" style="cursor:pointer">
                             <span class="card-status-dot @cardClass"></span>
                             <h3>@session.Name</h3>
                         </div>
-                        <span class="card-model">@session.Model</span>
+                        @if (session.IsProcessing)
+                        {
+                            <button class="card-stop" @onclick="() => StopSession(session.Name)" title="Stop">■</button>
+                        }
                         <button class="card-close" @onclick="() => CloseSession(session.Name)" title="Close session">✕</button>
                     </div>
-
+                    <div class="card-context">
+                        <span class="card-model">@session.Model</span>
+                        @if (!string.IsNullOrEmpty(session.WorkingDirectory))
+                        {
+                            <span class="card-dir" title="@session.WorkingDirectory">📁 @ShortenPath(session.WorkingDirectory)</span>
+                        }
+                        @if (!string.IsNullOrEmpty(session.GitBranch))
+                        {
+                            <span class="card-branch-sub"> @session.GitBranch</span>
+                        }
+                    </div>
 
                     <div class="card-messages">
                         @{
@@ -44,31 +214,47 @@
                         }
                         <ChatMessageList Messages="lastMessages"
                                          StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s) ? s : "")"
+                                         CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t) ? t : "")"
+                                         ToolActivities="@(toolActivitiesBySession.TryGetValue(session.Name, out var ta) ? ta : new())"
                                          ActivityText="@(activityBySession.TryGetValue(session.Name, out var a) ? a : "")"
                                          IsProcessing="session.IsProcessing"
                                          Compact="true" />
                     </div>
 
+                    @if (errorBySession.TryGetValue(session.Name, out var errG))
+                    {
+                        <div class="card-error">
+                            <span>⚠️ @errG</span>
+                            <button @onclick="() => DismissError(session.Name)">✕</button>
+                        </div>
+                    }
+
+                    @if (session.MessageQueue.Any())
+                    {
+                        <div class="card-queue">
+                            <span class="queue-label">📋 Queued (@session.MessageQueue.Count)</span>
+                            <button class="queue-clear-btn" @onclick="() => ClearQueue(session.Name)">Clear</button>
+                        </div>
+                    }
+
+                    @if (intentBySession.TryGetValue(session.Name, out var intentG) && !string.IsNullOrEmpty(intentG))
+                    {
+                        <div class="intent-pill compact">💭 @intentG</div>
+                    }
+
                     <div class="card-input">
                         <input type="text" id="input-@session.Name.Replace(" ", "-")"
-                               placeholder="Send to @session.Name..."
-                               disabled="@session.IsProcessing" />
-                        <button @onclick="() => SendFromCard(session.Name)"
-                                disabled="@session.IsProcessing">
-                            @(session.IsProcessing ? "…" : "➤")
+                               placeholder="@(session.IsProcessing ? "Queue a message…" : $"Send to {session.Name}...")" />
+                        @if (session.IsProcessing)
+                        {
+                            <button class="card-stop" @onclick="() => StopSession(session.Name)" title="Stop">■</button>
+                        }
+                        <button @onclick="() => SendFromCard(session.Name)">
+                            @(session.IsProcessing ? "📋" : "➤")
                         </button>
                     </div>
                 </div>
             }
-        </div>
-
-        <div class="broadcast-section">
-            <h3><svg style="vertical-align:middle" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 8.5L9 12l-3.5 3.5"/><path d="M2 12h7"/><path d="M14 4.5A7.5 7.5 0 0 1 14 19.5"/><path d="M17.5 2a11 11 0 0 1 0 20"/></svg> Broadcast to All</h3>
-            <div class="broadcast-input">
-                <input type="text" id="broadcastInput"
-                       placeholder="Send same message to all sessions..." />
-                <button @onclick="BroadcastMessage">Send to All</button>
-            </div>
         </div>
     }
 </div>
@@ -78,13 +264,80 @@
     private HashSet<string> completedSessions = new();
     private Dictionary<string, string> streamingBySession = new();
     private Dictionary<string, string> activityBySession = new();
+    private Dictionary<string, string> draftBySession = new();
+    private Dictionary<string, int> expandedMessageCounts = new();
+    private Dictionary<string, List<ToolActivity>> toolActivitiesBySession = new();
+    private Dictionary<string, string> currentToolBySession = new();
+    private Dictionary<string, string> intentBySession = new();
+    private Dictionary<string, string> errorBySession = new();
+    private Dictionary<string, SessionUsageInfo> usageBySession = new();
+    private Dictionary<string, bool> planModeBySession = new();
+    private Dictionary<string, string> modelOverrideBySession = new();
+    private int fontSize = 20;
+    private string? expandedSession;
+    private string? _focusedInputId;
+    private int _cursorStart;
+    private int _cursorEnd;
+    private DotNetObjectReference<Dashboard>? _dotNetRef;
+    private string? initError;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         CopilotService.OnStateChanged += RefreshState;
         CopilotService.OnSessionComplete += HandleComplete;
         CopilotService.OnContentReceived += HandleContent;
         CopilotService.OnActivity += HandleActivity;
+        CopilotService.OnToolStarted += HandleToolStarted;
+        CopilotService.OnToolCompleted += HandleToolCompleted;
+        CopilotService.OnIntentChanged += HandleIntentChanged;
+        CopilotService.OnUsageInfoChanged += HandleUsageInfoChanged;
+        CopilotService.OnError += HandleError;
+        CopilotService.OnTurnStart += HandleTurnStart;
+        CopilotService.OnTurnEnd += HandleTurnEnd;
+
+        await Initialize();
+    }
+
+    private async Task Initialize()
+    {
+        initError = null;
+        try
+        {
+            await CopilotService.InitializeAsync();
+
+            if (CopilotService.NeedsConfiguration)
+            {
+                Nav.NavigateTo("/settings");
+                return;
+            }
+
+            var uiState = CopilotService.LoadUiState();
+            if (uiState != null)
+            {
+                if (!string.IsNullOrEmpty(uiState.ActiveSession))
+                    CopilotService.SetActiveSession(uiState.ActiveSession);
+                if (uiState.FontSize >= 12 && uiState.FontSize <= 24)
+                    fontSize = uiState.FontSize;
+                if (uiState.CurrentPage == "/settings")
+                    Nav.NavigateTo("/settings");
+            }
+
+            var connSettings = ConnectionSettings.Load();
+            if (connSettings.AutoStartTunnel && DevTunnelService.State == TunnelState.NotStarted)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try { await DevTunnelService.HostAsync(connSettings.Port); }
+                    catch (Exception ex) { Console.WriteLine($"[AutoStart] Tunnel failed: {ex.Message}"); }
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            initError = ex.Message;
+            Console.WriteLine($"Init error: {ex}");
+        }
+
         RefreshState();
     }
 
@@ -92,37 +345,107 @@
     {
         if (firstRender)
         {
-            // Set up Enter and Tab key handlers for card inputs
             await JS.InvokeVoidAsync("eval", @"
-                document.addEventListener('keydown', function(e) {
-                    var isCardInput = e.target.matches && e.target.matches('.card-input input');
-                    var isBroadcast = e.target.id === 'broadcastInput';
-                    if (e.key === 'Enter' && isCardInput) {
-                        e.preventDefault();
-                        e.target.closest('.card-input').querySelector('button')?.click();
-                    }
-                    if (e.key === 'Enter' && isBroadcast) {
-                        e.preventDefault();
-                        document.querySelector('.broadcast-input button')?.click();
-                    }
-                    // Tab / Shift+Tab to cycle between card inputs only when focused on one
-                    if (e.key === 'Tab' && (isCardInput || isBroadcast)) {
-                        e.preventDefault();
-                        e.stopImmediatePropagation();
-                        var inputs = Array.from(document.querySelectorAll('.card-input input:not(:disabled), #broadcastInput'));
-                        if (inputs.length < 2) return;
-                        var idx = inputs.indexOf(e.target);
-                        if (idx < 0) idx = 0;
-                        idx = e.shiftKey ? (idx - 1 + inputs.length) % inputs.length : (idx + 1) % inputs.length;
-                        inputs[idx].focus();
-                    }
-                });
+                if (!window.__dashboardKeydownRegistered) {
+                    window.__dashboardKeydownRegistered = true;
+                    document.addEventListener('keydown', function(e) {
+                        var sel = '.card-input input, .card-input textarea, .input-row textarea';
+                        var isInput = e.target.matches && e.target.matches(sel);
+                        if (e.key === 'Enter' && !e.shiftKey && isInput) {
+                            e.preventDefault();
+                            var container = e.target.closest('.card-input') || e.target.closest('.input-row');
+                            if (container) {
+                                var btn = container.querySelector('.send-btn') || container.querySelectorAll('button')[container.querySelectorAll('button').length - 1];
+                                if (btn) btn.click();
+                            }
+                        }
+                        if (e.key === 'Tab' && isInput) {
+                            e.preventDefault();
+                            e.stopImmediatePropagation();
+                            var expandedCard = document.querySelector('.expanded-card');
+                            if (expandedCard && window.__dashRef) {
+                                window.__dashRef.invokeMethodAsync('JsCycleExpandedSession', e.shiftKey);
+                                return;
+                            }
+                            var inputs = Array.from(document.querySelectorAll(sel));
+                            if (inputs.length < 2) return;
+                            var idx = inputs.indexOf(e.target);
+                            if (idx < 0) idx = 0;
+                            idx = e.shiftKey ? (idx - 1 + inputs.length) % inputs.length : (idx + 1) % inputs.length;
+                            inputs[idx].focus();
+                        }
+                        if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+                            e.preventDefault();
+                            var collapseBtn = document.querySelector('.collapse-card-btn');
+                            if (collapseBtn) { collapseBtn.click(); return; }
+                            var card = isInput ? e.target.closest('.session-card') : document.querySelector('.session-card');
+                            if (card && card.dataset.session && window.__dashRef) {
+                                window.__dashRef.invokeMethodAsync('JsExpandSession', card.dataset.session);
+                            }
+                        }
+                        if (e.key === 'Escape') {
+                            var collapseBtn = document.querySelector('.collapse-card-btn');
+                            if (collapseBtn) collapseBtn.click();
+                        }
+                    });
+                }
             ");
+            var dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("eval", "window.__dashRef = null;");
+            // Store .NET ref so keydown handler can call back
+            _dotNetRef = dotNetRef;
+            await JS.InvokeVoidAsync("eval", "void 0"); // no-op to sync
+            // We need to pass the ref via a named function
+            await JS.InvokeVoidAsync("eval", "window.__setDashRef = function(ref) { window.__dashRef = ref; };");
+            await JS.InvokeVoidAsync("__setDashRef", _dotNetRef);
         }
 
         // Auto-scroll all card message containers to bottom
+        // Restore draft text, focus, and cursor position — all in ONE JS call
+        var draftsJson = "{}";
+        if (draftBySession.Count > 0)
+        {
+            var draftMap = new Dictionary<string, string>();
+            foreach (var (name, draft) in draftBySession)
+            {
+                if (!string.IsNullOrEmpty(draft))
+                    draftMap[$"input-{name.Replace(" ", "-")}"] = draft;
+            }
+            draftsJson = System.Text.Json.JsonSerializer.Serialize(draftMap);
+        }
+        var focusId = _focusedInputId ?? "";
+        var selStart = _cursorStart;
+        var selEnd = _cursorEnd;
+        _focusedInputId = null;
+
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                document.querySelectorAll('.card-messages, .messages').forEach(function(el) {{ el.scrollTop = el.scrollHeight; }});
+                var drafts = {draftsJson};
+                for (var id in drafts) {{
+                    var el = document.getElementById(id);
+                    if (el) el.value = drafts[id];
+                }}
+                var focusId = '{focusId}';
+                if (focusId) {{
+                    var fel = document.getElementById(focusId);
+                    if (fel) {{ fel.focus(); fel.setSelectionRange({selStart}, {selEnd}); }}
+                }}
+            }})();
+        ");
+
+        // Auto-load more messages when scrolled to top (IntersectionObserver on load-more buttons)
         await JS.InvokeVoidAsync("eval", @"
-            document.querySelectorAll('.card-messages').forEach(el => el.scrollTop = el.scrollHeight);
+            if (!window.__loadMoreObserver) {
+                window.__loadMoreObserver = new IntersectionObserver(function(entries) {
+                    entries.forEach(function(entry) {
+                        if (entry.isIntersecting) entry.target.click();
+                    });
+                }, { threshold: 0.1 });
+            }
+            document.querySelectorAll('.load-more-btn').forEach(function(btn) {
+                if (!btn.__observed) { btn.__observed = true; window.__loadMoreObserver.observe(btn); }
+            });
         ");
     }
 
@@ -159,6 +482,88 @@
         InvokeAsync(StateHasChanged);
     }
 
+    private void HandleToolStarted(string sessionName, string toolName, string callId, string? inputSummary)
+    {
+        currentToolBySession[sessionName] = toolName;
+        if (!toolActivitiesBySession.ContainsKey(sessionName))
+            toolActivitiesBySession[sessionName] = new();
+        toolActivitiesBySession[sessionName].Add(new ToolActivity
+        {
+            Name = toolName,
+            CallId = callId,
+            Input = inputSummary,
+            StartedAt = DateTime.Now
+        });
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleToolCompleted(string sessionName, string callId, string result, bool success)
+    {
+        if (toolActivitiesBySession.TryGetValue(sessionName, out var activities))
+        {
+            var activity = activities.LastOrDefault(a => a.CallId == callId);
+            if (activity != null)
+            {
+                activity.IsComplete = true;
+                activity.IsSuccess = success;
+                activity.Result = result;
+                activity.CompletedAt = DateTime.Now;
+            }
+        }
+        currentToolBySession.Remove(sessionName);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleIntentChanged(string sessionName, string intent)
+    {
+        intentBySession[sessionName] = intent;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleUsageInfoChanged(string sessionName, SessionUsageInfo info)
+    {
+        if (usageBySession.TryGetValue(sessionName, out var current))
+        {
+            usageBySession[sessionName] = new SessionUsageInfo(
+                info.Model ?? current.Model,
+                info.CurrentTokens ?? current.CurrentTokens,
+                info.TokenLimit ?? current.TokenLimit,
+                info.InputTokens ?? current.InputTokens,
+                info.OutputTokens ?? current.OutputTokens);
+        }
+        else
+        {
+            usageBySession[sessionName] = info;
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleError(string sessionName, string error)
+    {
+        if (error.Contains("cancell", StringComparison.OrdinalIgnoreCase)) return;
+        errorBySession[sessionName] = error;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleTurnStart(string sessionName)
+    {
+        currentToolBySession.Remove(sessionName);
+        toolActivitiesBySession[sessionName] = new();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleTurnEnd(string sessionName)
+    {
+        intentBySession.Remove(sessionName);
+        currentToolBySession.Remove(sessionName);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void DismissError(string sessionName)
+    {
+        errorBySession.Remove(sessionName);
+    }
+
     private async Task SendFromCard(string sessionName)
     {
         var inputId = $"input-{sessionName.Replace(" ", "-")}";
@@ -166,12 +571,25 @@
         if (string.IsNullOrWhiteSpace(prompt)) return;
 
         await JS.InvokeVoidAsync("eval", $"document.getElementById('{inputId}').value = ''");
+        draftBySession.Remove(sessionName);
+
+        var finalPrompt = prompt.Trim();
+        if (planModeBySession.GetValueOrDefault(sessionName))
+            finalPrompt = $"[[PLAN]] {finalPrompt}";
+
+        var session = sessions.FirstOrDefault(s => s.Name == sessionName);
+        if (session?.IsProcessing == true)
+        {
+            CopilotService.EnqueueMessage(sessionName, finalPrompt);
+            return;
+        }
+
         streamingBySession.Remove(sessionName);
         activityBySession.Remove(sessionName);
 
         try
         {
-            _ = CopilotService.SendPromptAsync(sessionName, prompt.Trim()).ContinueWith(t =>
+            _ = CopilotService.SendPromptAsync(sessionName, finalPrompt).ContinueWith(t =>
             {
                 if (t.IsFaulted)
                 {
@@ -188,36 +606,199 @@
         }
     }
 
-    private async Task BroadcastMessage()
+    private async Task ExpandSession(string sessionName)
     {
-        var prompt = await JS.InvokeAsync<string>("eval", "document.getElementById('broadcastInput')?.value || ''");
-        if (string.IsNullOrWhiteSpace(prompt)) return;
+        await SaveDraftsAndCursor();
+        expandedSession = sessionName;
+    }
 
-        await JS.InvokeVoidAsync("eval", "document.getElementById('broadcastInput').value = ''");
+    private async Task CollapseExpanded()
+    {
+        await SaveDraftsAndCursor();
+        expandedSession = null;
+    }
 
-        foreach (var session in sessions.Where(s => !s.IsProcessing))
+    private async Task SaveDraftsAndCursor()
+    {
+        var json = await JS.InvokeAsync<string>("eval", @"
+            (function() {
+                var focused = document.activeElement;
+                var sel = '.card-input input, .card-input textarea, .input-row textarea';
+                var focusId = (focused && focused.id && focused.matches(sel)) ? focused.id : null;
+                var selStart = focusId ? (focused.selectionStart || 0) : 0;
+                var selEnd = focusId ? (focused.selectionEnd || 0) : 0;
+                var items = Array.from(document.querySelectorAll(sel))
+                    .filter(el => el.id)
+                    .map(el => ({ id: el.id, value: el.value || '' }));
+                return JSON.stringify({ focusId: focusId, selStart: selStart, selEnd: selEnd, items: items });
+            })()
+        ");
+        if (!string.IsNullOrEmpty(json))
         {
             try
             {
-                _ = CopilotService.SendPromptAsync(session.Name, prompt.Trim());
+                var state = System.Text.Json.JsonSerializer.Deserialize<DraftState>(json);
+                if (state != null)
+                {
+                    _focusedInputId = state.FocusId;
+                    _cursorStart = state.SelStart;
+                    _cursorEnd = state.SelEnd;
+                    draftBySession.Clear();
+                    foreach (var item in state.Items ?? [])
+                    {
+                        var name = item.Id.Replace("input-", "").Replace("-", " ");
+                        draftBySession[name] = item.Value;
+                    }
+                }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error broadcasting to {session.Name}: {ex.Message}");
-            }
+            catch { }
         }
+    }
+
+    private record DraftItem(
+        [property: System.Text.Json.Serialization.JsonPropertyName("id")] string Id,
+        [property: System.Text.Json.Serialization.JsonPropertyName("value")] string Value);
+
+    private record DraftState(
+        [property: System.Text.Json.Serialization.JsonPropertyName("focusId")] string? FocusId,
+        [property: System.Text.Json.Serialization.JsonPropertyName("selStart")] int SelStart,
+        [property: System.Text.Json.Serialization.JsonPropertyName("selEnd")] int SelEnd,
+        [property: System.Text.Json.Serialization.JsonPropertyName("items")] List<DraftItem>? Items);
+
+    private async Task StopSession(string sessionName)
+    {
+        await CopilotService.AbortSessionAsync(sessionName);
     }
 
     private async Task CloseSession(string sessionName)
     {
         await CopilotService.CloseSessionAsync(sessionName);
+        if (expandedSession == sessionName)
+            expandedSession = null;
     }
 
-    private void GoToSession(string sessionName)
+    private void ClearQueue(string sessionName)
+    {
+        CopilotService.ClearQueue(sessionName);
+    }
+
+    private async Task GoToSession(string sessionName)
     {
         CopilotService.SwitchSession(sessionName);
-        CopilotService.SaveUiState("/", sessionName);
-        Nav.NavigateTo("/");
+        await SaveDraftsAndCursor();
+        expandedSession = sessionName;
+        _focusedInputId = $"input-{sessionName.Replace(" ", "-")}";
+        _cursorStart = 0;
+        _cursorEnd = 0;
+    }
+
+    private static string ShortenPath(string path)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(home) && path.StartsWith(home))
+            return "~" + path[home.Length..];
+        var parts = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return parts.Length > 3 ? string.Join("/", parts[^3..]) : path;
+    }
+
+    [JSInvokable]
+    public async Task JsExpandSession(string sessionName)
+    {
+        await SaveDraftsAndCursor();
+        expandedSession = sessionName;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task JsCycleExpandedSession(bool reverse)
+    {
+        if (expandedSession == null || sessions.Count < 2) return;
+        await SaveDraftsAndCursor();
+        var idx = sessions.FindIndex(s => s.Name == expandedSession);
+        if (idx < 0) idx = 0;
+        idx = reverse ? (idx - 1 + sessions.Count) % sessions.Count : (idx + 1) % sessions.Count;
+        expandedSession = sessions[idx].Name;
+        _focusedInputId = $"input-{expandedSession.Replace(" ", "-")}";
+        _cursorStart = 0;
+        _cursorEnd = 0;
+        StateHasChanged();
+    }
+
+    private const int DefaultMessageWindow = 25;
+
+    private List<ChatMessage> GetWindowedMessages(string sessionName, IReadOnlyList<ChatMessage> history)
+    {
+        var limit = expandedMessageCounts.TryGetValue(sessionName, out var c) ? c : DefaultMessageWindow;
+        try
+        {
+            if (history.Count <= limit) return history.ToList();
+            return history.Skip(history.Count - limit).ToList();
+        }
+        catch (InvalidOperationException)
+        {
+            return history.ToArray().TakeLast(limit).ToList();
+        }
+    }
+
+    private void LoadMoreExpandedMessages(string sessionName)
+    {
+        var current = expandedMessageCounts.TryGetValue(sessionName, out var c) ? c : DefaultMessageWindow;
+        expandedMessageCounts[sessionName] = current + 25;
+    }
+
+    // === Model, plan mode, font, token helpers ===
+
+    private readonly string[] availableModels = new[]
+    {
+        "claude-opus-4.6", "claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5",
+        "gpt-5.2", "gpt-5.1", "gpt-5", "gpt-5-mini", "gemini-3-pro-preview",
+    };
+
+    private string GetExpandedModel(AgentSessionInfo session)
+    {
+        if (usageBySession.TryGetValue(session.Name, out var u) && !string.IsNullOrEmpty(u.Model) && availableModels.Contains(u.Model))
+            return u.Model;
+        if (modelOverrideBySession.TryGetValue(session.Name, out var m))
+            return m;
+        if (!string.IsNullOrEmpty(session.Model) && session.Model != "resumed" && availableModels.Contains(session.Model))
+            return session.Model;
+        return availableModels[0];
+    }
+
+    private void SetExpandedModel(AgentSessionInfo session, string? model)
+    {
+        if (string.IsNullOrEmpty(model)) return;
+        modelOverrideBySession[session.Name] = model;
+        if (session.Model != "resumed") session.Model = model;
+    }
+
+    private void SetPlanMode(string sessionName, bool enabled) => planModeBySession[sessionName] = enabled;
+
+    private void IncreaseFontSize() { if (fontSize < 24) { fontSize += 2; ApplyFontSize(); } }
+    private void DecreaseFontSize() { if (fontSize > 12) { fontSize -= 2; ApplyFontSize(); } }
+    private void ResetFontSize() { fontSize = 20; ApplyFontSize(); }
+    private void ApplyFontSize()
+    {
+        _ = JS.InvokeVoidAsync("setAppFontSize", fontSize);
+        CopilotService.SaveUiState("/dashboard", fontSize: fontSize);
+    }
+
+    private static string FormatTokenCount(int count) =>
+        count >= 1000 ? $"{count / 1000}k" : count.ToString();
+
+    private static string Truncate(string s, int max) =>
+        s.Length <= max ? s : s[..max] + "…";
+
+    private void RemoveQueuedMessage(string sessionName, int index)
+    {
+        var session = sessions.FirstOrDefault(s => s.Name == sessionName);
+        if (session != null && index >= 0 && index < session.MessageQueue.Count)
+            session.MessageQueue.RemoveAt(index);
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); } catch { }
     }
 
     public void Dispose()
@@ -226,5 +807,13 @@
         CopilotService.OnSessionComplete -= HandleComplete;
         CopilotService.OnContentReceived -= HandleContent;
         CopilotService.OnActivity -= HandleActivity;
+        CopilotService.OnToolStarted -= HandleToolStarted;
+        CopilotService.OnToolCompleted -= HandleToolCompleted;
+        CopilotService.OnIntentChanged -= HandleIntentChanged;
+        CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;
+        CopilotService.OnError -= HandleError;
+        CopilotService.OnTurnStart -= HandleTurnStart;
+        CopilotService.OnTurnEnd -= HandleTurnEnd;
+        _dotNetRef?.Dispose();
     }
 }

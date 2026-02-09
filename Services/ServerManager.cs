@@ -6,7 +6,8 @@ namespace AutoPilot.App.Services;
 
 public class ServerManager
 {
-    private static readonly string PidFilePath = Path.Combine(
+    private static string? _pidFilePath;
+    private static string PidFilePath => _pidFilePath ??= Path.Combine(
         GetCopilotDir(), "autopilot-server.pid");
 
     private static string GetCopilotDir()

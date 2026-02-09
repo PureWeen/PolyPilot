@@ -26,15 +26,30 @@ public class ConnectionSettings
         ? RemoteUrl
         : $"{Host}:{Port}";
 
-    private static readonly string SettingsPath = Path.Combine(
+    private static string? _settingsPath;
+    private static string SettingsPath => _settingsPath ??= Path.Combine(
         GetCopilotDir(), "autopilot-settings.json");
 
     private static string GetCopilotDir()
     {
+#if IOS || ANDROID
+        try
+        {
+            return Path.Combine(FileSystem.AppDataDirectory, ".copilot");
+        }
+        catch
+        {
+            var fallback = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrEmpty(fallback))
+                fallback = Path.GetTempPath();
+            return Path.Combine(fallback, ".copilot");
+        }
+#else
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (string.IsNullOrEmpty(home))
             home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return Path.Combine(home, ".copilot");
+#endif
     }
 
     public static ConnectionSettings Load()

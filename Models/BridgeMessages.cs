@@ -75,6 +75,7 @@ public static class BridgeMessageTypes
     public const string ResumeSession = "resume_session";
     public const string SwitchSession = "switch_session";
     public const string QueueMessage = "queue_message";
+    public const string CloseSession = "close_session";
 }
 
 // --- Server → Client payloads ---

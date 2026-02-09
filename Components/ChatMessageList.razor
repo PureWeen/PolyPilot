@@ -1,7 +1,7 @@
 @using AutoPilot.App.Models
 @using Markdig
 
-@* Shared chat message list — used by both Home.razor (full) and Dashboard.razor (compact) *@
+@* Shared chat message list — used by Dashboard.razor (grid=compact, expanded=full) *@
 
 <div class="chat-message-list @(Compact ? "compact" : "full")">
     @if (!Messages.Any() && string.IsNullOrEmpty(StreamingContent))
