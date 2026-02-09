@@ -40,8 +40,8 @@
             var cardClass = session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
             <div class="expanded-card @cardClass">
                 <div class="chat-header">
-                    <div class="chat-header-top">
-                        <h2>@session.Name</h2>
+                    <div class="chat-header-top" style="display:block; width:100%;">
+                        <h2 style="margin:0; font-size:1.2rem; width:100%; white-space:normal; word-break:break-word; overflow:visible;">@session.Name</h2>
                     </div>
                     <div class="chat-header-badges">
                         @if (session.IsProcessing)
@@ -62,7 +62,6 @@
                             <span class="context-badge branch-badge"> @session.GitBranch</span>
                         }
                         <button class="collapse-card-btn" @onclick="CollapseExpanded" title="Back to grid (Esc / ⌘E)">⊟ Grid</button>
-                    </div>
                     </div>
                 </div>
 

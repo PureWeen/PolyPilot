@@ -130,8 +130,8 @@
     border-bottom: 1px solid rgba(78,168,209,0.15);
     flex-shrink: 0;
 }
-.chat-header-top { display: flex; align-items: center; }
-.expanded-card .chat-header h2 { margin: 0; font-size: 1.2rem; }
+.chat-header-top { display: block; width: 100%; }
+.expanded-card .chat-header h2 { margin: 0; font-size: 1.2rem; width: 100%; white-space: normal; word-break: break-word; }
 .chat-header-badges { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .chat-header-context { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .context-badge { font-size: var(--type-caption1, 0.6rem); color: rgba(255,255,255,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }

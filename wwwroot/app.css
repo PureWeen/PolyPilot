@@ -4,6 +4,19 @@ html, body {
     color: #a0b4cc;
 }
 
+/* Expanded chat title — global override to prevent truncation */
+.expanded-card .chat-header-top h2 {
+    margin: 0 !important;
+    font-size: 1.2rem !important;
+    width: 100% !important;
+    max-width: none !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow: visible !important;
+    text-overflow: unset !important;
+    flex-shrink: 0 !important;
+}
+
 a, .btn-link {
     color: #006bb7;
 }
