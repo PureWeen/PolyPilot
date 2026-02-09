@@ -130,9 +130,9 @@
     border-bottom: 1px solid rgba(78,168,209,0.15);
     flex-shrink: 0;
 }
-.chat-header-top { display: flex; align-items: center; gap: 0.75rem; min-width: 0; flex-wrap: wrap; }
-.expanded-card .chat-header h2 { margin: 0; font-size: 1.2rem; flex-shrink: 0; }
-.chat-header-badges { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.chat-header-top { display: flex; align-items: center; }
+.expanded-card .chat-header h2 { margin: 0; font-size: 1.2rem; }
+.chat-header-badges { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .chat-header-context { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .context-badge { font-size: var(--type-caption1, 0.6rem); color: rgba(255,255,255,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
 .branch-badge { color: rgba(78,168,209,0.85); font-weight: 500; }

@@ -42,32 +42,28 @@
                 <div class="chat-header">
                     <div class="chat-header-top">
                         <h2>@session.Name</h2>
-                        <div class="chat-header-badges">
-                            @if (session.IsProcessing)
-                            {
-                                <span class="processing-dot"></span>
-                            }
-                            <span class="model-badge">@GetExpandedModel(session)</span>
-                            @if (session.SessionId != null)
-                            {
-                                <span class="session-id-badge" title="Click to copy: @session.SessionId" @onclick="() => CopyToClipboard(session.SessionId)">🔗 @session.SessionId[..Math.Min(8, session.SessionId.Length)] 📋</span>
-                            }
-                            <button class="collapse-card-btn" @onclick="CollapseExpanded" title="Back to grid (Esc / ⌘E)">⊟ Grid</button>
-                        </div>
                     </div>
-                    @if (!string.IsNullOrEmpty(session.WorkingDirectory) || !string.IsNullOrEmpty(session.GitBranch))
-                    {
-                        <div class="chat-header-context">
-                            @if (!string.IsNullOrEmpty(session.WorkingDirectory))
-                            {
-                                <span class="context-badge dir-badge" title="@session.WorkingDirectory">📁 @ShortenPath(session.WorkingDirectory)</span>
-                            }
-                            @if (!string.IsNullOrEmpty(session.GitBranch))
-                            {
-                                <span class="context-badge branch-badge"> @session.GitBranch</span>
-                            }
-                        </div>
-                    }
+                    <div class="chat-header-badges">
+                        @if (session.IsProcessing)
+                        {
+                            <span class="processing-dot"></span>
+                        }
+                        <span class="model-badge">@GetExpandedModel(session)</span>
+                        @if (session.SessionId != null)
+                        {
+                            <span class="session-id-badge" title="Click to copy: @session.SessionId" @onclick="() => CopyToClipboard(session.SessionId)">🔗 @session.SessionId[..Math.Min(8, session.SessionId.Length)] 📋</span>
+                        }
+                        @if (!string.IsNullOrEmpty(session.WorkingDirectory))
+                        {
+                            <span class="context-badge dir-badge" title="@session.WorkingDirectory">📁 @ShortenPath(session.WorkingDirectory)</span>
+                        }
+                        @if (!string.IsNullOrEmpty(session.GitBranch))
+                        {
+                            <span class="context-badge branch-badge"> @session.GitBranch</span>
+                        }
+                        <button class="collapse-card-btn" @onclick="CollapseExpanded" title="Back to grid (Esc / ⌘E)">⊟ Grid</button>
+                    </div>
+                    </div>
                 </div>
 
                 <div class="messages expanded-messages">
