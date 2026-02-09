@@ -95,4 +95,10 @@
               OverwriteReadOnlyFiles="true" />
     </Target>
 
+    <Target Name="ReplaceAppIconIOS" AfterTargets="Build" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">
+        <Copy SourceFiles="Resources/AppIcon/iOSAssets.car"
+              DestinationFiles="$(OutputPath)/AutoPilot.App.app/Assets.car"
+              OverwriteReadOnlyFiles="true" />
+    </Target>
+
 </Project>

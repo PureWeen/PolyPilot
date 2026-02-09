@@ -18,8 +18,20 @@ public partial class MainPage : ContentPage
 
 #if ANDROID
 		blazorWebView.BlazorWebViewInitialized += OnBlazorWebViewInitialized;
+#elif IOS
+		blazorWebView.BlazorWebViewInitialized += OnBlazorWebViewInitializediOS;
 #endif
 	}
+
+#if IOS
+	private void OnBlazorWebViewInitializediOS(object? sender, BlazorWebViewInitializedEventArgs e)
+	{
+		var wkWebView = e.WebView;
+		wkWebView.Opaque = false;
+		wkWebView.BackgroundColor = UIKit.UIColor.FromRGB(0x1a, 0x1a, 0x2e);
+		wkWebView.ScrollView.BackgroundColor = UIKit.UIColor.FromRGB(0x1a, 0x1a, 0x2e);
+	}
+#endif
 
 #if ANDROID
 	private void OnBlazorWebViewInitialized(object? sender, BlazorWebViewInitializedEventArgs e)

@@ -265,7 +265,7 @@ public class WsBridgeServer : IDisposable
                     if (sendReq != null)
                     {
                         Console.WriteLine($"[WsBridge] Client sending message to '{sendReq.SessionName}'");
-                        await _copilot.SendPromptAsync(sendReq.SessionName, sendReq.Message, ct);
+                        await _copilot.SendPromptAsync(sendReq.SessionName, sendReq.Message, cancellationToken: ct);
                     }
                     break;
 

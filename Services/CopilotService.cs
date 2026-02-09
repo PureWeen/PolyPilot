@@ -1028,7 +1028,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 var toolInput = ExtractToolInput(toolStart.Data);
                 if (!FilteredTools.Contains(startToolName))
                 {
-                    // Add to session history
+                    // Flush any accumulated assistant text before adding tool message
+                    FlushCurrentResponse(state);
+                    
                     var toolMsg = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
                     state.Info.History.Add(toolMsg);
                     
@@ -1199,6 +1201,70 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         return null;
     }
 
+    private void TryAttachImages(MessageOptions options, List<string> imagePaths)
+    {
+        try
+        {
+            var sdkAssembly = typeof(MessageOptions).Assembly;
+            var attachItemType = sdkAssembly.GetType("GitHub.Copilot.SDK.UserMessageDataAttachmentsItem");
+            var fileType = sdkAssembly.GetType("GitHub.Copilot.SDK.UserMessageDataAttachmentsItemFile");
+            if (attachItemType == null || fileType == null)
+            {
+                Debug("SDK attachment types not found, falling back to path-in-prompt");
+                return;
+            }
+
+            var items = new System.Collections.Generic.List<object>();
+            foreach (var path in imagePaths)
+            {
+                if (!File.Exists(path)) continue;
+                
+                // Create UserMessageDataAttachmentsItemFile with FilePath
+                var fileObj = Activator.CreateInstance(fileType);
+                fileType.GetProperty("FilePath")?.SetValue(fileObj, path);
+                
+                // Create UserMessageDataAttachmentsItem with File
+                var itemObj = Activator.CreateInstance(attachItemType);
+                attachItemType.GetProperty("File")?.SetValue(itemObj, fileObj);
+                
+                items.Add(itemObj!);
+            }
+
+            if (items.Count == 0) return;
+
+            // Create typed list and set on MessageOptions.Attachments
+            var listType = typeof(List<>).MakeGenericType(attachItemType);
+            var typedList = Activator.CreateInstance(listType);
+            var addMethod = listType.GetMethod("Add");
+            foreach (var item in items)
+                addMethod?.Invoke(typedList, new[] { item });
+
+            typeof(MessageOptions).GetProperty("Attachments")?.SetValue(options, typedList);
+            Debug($"Attached {items.Count} image(s) via SDK");
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to attach images via SDK: {ex.Message}");
+        }
+    }
+
+    /// <summary>Flush accumulated assistant text to history without ending the turn.</summary>
+    private void FlushCurrentResponse(SessionState state)
+    {
+        var text = state.CurrentResponse.ToString();
+        if (string.IsNullOrEmpty(text)) return;
+        
+        var msg = new ChatMessage("assistant", text, DateTime.Now);
+        state.Info.History.Add(msg);
+        state.Info.MessageCount = state.Info.History.Count;
+        
+        if (!string.IsNullOrEmpty(state.Info.SessionId))
+            _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+        
+        state.CurrentResponse.Clear();
+        state.HasReceivedDeltasThisTurn = false;
+    }
+
     private void CompleteResponse(SessionState state)
     {
         if (!state.Info.IsProcessing) return; // Already completed (e.g. timeout)
@@ -1245,7 +1311,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public async Task<string> SendPromptAsync(string sessionName, string prompt, CancellationToken cancellationToken = default)
+    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default)
     {
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
@@ -1284,10 +1350,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         
         try 
         {
-            await state.Session.SendAsync(new MessageOptions
+            var messageOptions = new MessageOptions { Prompt = prompt };
+            
+            // Attach images via SDK if available
+            if (imagePaths != null && imagePaths.Count > 0)
             {
-                Prompt = prompt
-            }, cancellationToken);
+                TryAttachImages(messageOptions, imagePaths);
+            }
+            
+            await state.Session.SendAsync(messageOptions, cancellationToken);
         }
         catch (Exception ex)
         {

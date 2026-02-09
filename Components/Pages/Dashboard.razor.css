@@ -22,11 +22,11 @@
 
 .dashboard-header h2 {
     margin: 0;
-    font-size: 1.6rem;
+    font-size: var(--type-large-title);
 }
 
 .session-count {
-    font-size: 1rem;
+    font-size: var(--type-title3);
     color: rgba(255,255,255,0.5);
 }
 
@@ -36,7 +36,7 @@
     justify-content: center;
     flex: 1;
     color: rgba(255,255,255,0.5);
-    font-size: 1.1rem;
+    font-size: var(--type-title2);
 }
 
 .initializing {
@@ -279,7 +279,7 @@
     background: none;
     border: none;
     color: rgba(255,255,255,0.4);
-    font-size: 0.85rem;
+    font-size: var(--type-body);
     padding: 0.2rem 0.4rem;
     border-radius: 4px;
     cursor: pointer;
@@ -336,7 +336,7 @@
 
 .card-title h3 {
     margin: 0;
-    font-size: 1.15rem;
+    font-size: var(--type-title2);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -439,7 +439,7 @@
     color: rgba(255,255,255,0.3);
     text-align: center;
     margin: auto;
-    font-size: 0.95rem;
+    font-size: var(--type-body);
 }
 
 .load-more-btn {
@@ -462,14 +462,14 @@
 .card-msg {
     display: flex;
     gap: 0.5rem;
-    font-size: 0.95rem;
+    font-size: var(--type-body);
     line-height: 1.4;
 }
 
 .card-msg-role {
     font-weight: 600;
     flex-shrink: 0;
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     padding: 0.1rem 0.3rem;
     border-radius: 3px;
     align-self: flex-start;
@@ -507,7 +507,7 @@
     border-radius: 6px;
     background: rgba(255,255,255,0.08);
     color: #a0b4cc;
-    font-size: 1rem;
+    font-size: var(--type-title3, 1rem);
     font-family: inherit;
     resize: none;
 }
@@ -532,7 +532,7 @@
     background: #3b82f6;
     color: #a0b4cc;
     cursor: pointer;
-    font-size: 1.1rem;
+    font-size: var(--type-title2);
 }
 
 .card-input button:hover:not(:disabled) {
@@ -610,14 +610,14 @@
 @media (max-width: 640px) {
     .dashboard { padding: 0.75rem; }
     .dashboard-header { gap: 0.5rem; margin-bottom: 0.75rem; }
-    .dashboard-header h2 { font-size: 1.1rem; }
-    .session-count { font-size: 0.8rem; }
-    .no-sessions-dash { font-size: 0.9rem; }
+    .dashboard-header h2 { font-size: var(--type-title2); }
+    .session-count { font-size: var(--type-callout); }
+    .no-sessions-dash { font-size: var(--type-body); }
     .session-grid { grid-template-columns: 1fr; gap: 0.75rem; }
     .session-card { padding: 0.75rem; border-radius: 8px; }
-    .card-header h3 { font-size: 0.95rem; }
-    .card-model-badge { font-size: 0.65rem; padding: 0.1rem 0.3rem; }
-    .card-close { font-size: 0.75rem; }
-    .card-messages { max-height: 180px; gap: 0.3rem; font-size: 0.8rem; }
+    .card-header h3 { font-size: var(--type-body, 0.95rem); }
+    .card-model-badge { font-size: var(--type-footnote, 0.65rem); padding: 0.1rem 0.3rem; }
+    .card-close { font-size: var(--type-subhead, 0.75rem); }
+    .card-messages { max-height: 180px; gap: 0.3rem; font-size: var(--type-callout, 0.8rem); }
     .card-dir { max-width: 160px; }
 }
