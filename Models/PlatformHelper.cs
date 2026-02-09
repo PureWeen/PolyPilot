@@ -21,6 +21,6 @@ public static class PlatformHelper
         : [ConnectionMode.Remote];
 
     public static ConnectionMode DefaultMode => IsDesktop
-        ? ConnectionMode.Embedded
+        ? ConnectionMode.Persistent
         : ConnectionMode.Remote;
 }
