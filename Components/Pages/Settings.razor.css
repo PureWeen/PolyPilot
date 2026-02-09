@@ -520,3 +520,37 @@
 .icon { vertical-align: middle; }
 .icon.spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* === Hotkey table === */
+.hotkey-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.hotkey-table th {
+    text-align: left;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid rgba(78,168,209,0.2);
+    color: rgba(255,255,255,0.5);
+    font-weight: 500;
+}
+
+.hotkey-table td {
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    color: #a0b4cc;
+}
+
+.hotkey-table kbd {
+    display: inline-block;
+    padding: 0.15rem 0.4rem;
+    background: rgba(78,168,209,0.15);
+    border: 1px solid rgba(78,168,209,0.3);
+    border-radius: 4px;
+    font-family: -apple-system, 'SF Mono', monospace;
+    font-size: 0.75rem;
+    color: #4ea8d1;
+    line-height: 1.3;
+}

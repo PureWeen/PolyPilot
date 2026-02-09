@@ -194,6 +194,24 @@
             <li><strong>Remote</strong> — Connect to a Copilot server on another machine via a DevTunnel URL. Use this from iOS/Android.</li>
         </ul>
     </div>
+
+    @if (PlatformHelper.IsDesktop)
+    {
+        <div class="settings-section info">
+            <h3>⌨️ Keyboard Shortcuts</h3>
+            <table class="hotkey-table">
+                <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+                <tbody>
+                    <tr><td><kbd>⌘E</kbd> / <kbd>Ctrl+E</kbd></td><td>Expand focused session / collapse back to grid</td></tr>
+                    <tr><td><kbd>Escape</kbd></td><td>Collapse expanded session back to grid</td></tr>
+                    <tr><td><kbd>Tab</kbd></td><td>Focus next session input (grid) or switch to next session (expanded)</td></tr>
+                    <tr><td><kbd>Shift+Tab</kbd></td><td>Focus previous session input (grid) or switch to previous session (expanded)</td></tr>
+                    <tr><td><kbd>Enter</kbd></td><td>Send message (or queue if session is busy)</td></tr>
+                    <tr><td><kbd>A−</kbd> / <kbd>A+</kbd></td><td>Decrease / increase font size (in expanded view status bar)</td></tr>
+                </tbody>
+            </table>
+        </div>
+    }
 </div>
 
 @code {
