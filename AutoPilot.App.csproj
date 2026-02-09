@@ -88,10 +88,10 @@
     <!-- Replace MAUI-generated icons with our custom full-bleed versions -->
     <Target Name="ReplaceAppIcon" AfterTargets="Build" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
         <Copy SourceFiles="Resources/AppIcon/appicon.icns"
-              DestinationFiles="$(OutputPath)/AutoPilot.App.app/Contents/Resources/appicon.icns"
+              DestinationFiles="$(OutputPath)/AutoPilot.app/Contents/Resources/appicon.icns"
               OverwriteReadOnlyFiles="true" />
         <Copy SourceFiles="Resources/AppIcon/CustomAssets.car"
-              DestinationFiles="$(OutputPath)/AutoPilot.App.app/Contents/Resources/Assets.car"
+              DestinationFiles="$(OutputPath)/AutoPilot.app/Contents/Resources/Assets.car"
               OverwriteReadOnlyFiles="true" />
     </Target>
 

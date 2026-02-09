@@ -401,10 +401,12 @@ public class CopilotService : IAsyncDisposable
                     Info = info
                 };
             }
-            // Update processing state
+            // Update processing state — don't overwrite local 'true' with remote 'false' 
+            // (race: we sent a message but server hasn't started processing yet)
             if (_sessions.TryGetValue(rs.Name, out var state))
             {
-                state.Info.IsProcessing = rs.IsProcessing;
+                if (rs.IsProcessing)
+                    state.Info.IsProcessing = true;
                 state.Info.MessageCount = rs.MessageCount;
             }
         }
@@ -418,13 +420,17 @@ public class CopilotService : IAsyncDisposable
         }
 
         // Sync history from WsBridgeClient cache
+        // Don't overwrite if local history has messages not yet reflected by server
         foreach (var (name, messages) in _bridgeClient.SessionHistories)
         {
             if (_sessions.TryGetValue(name, out var s))
             {
-                Debug($"SyncRemoteSessions: Syncing {messages.Count} messages for '{name}'");
-                s.Info.History.Clear();
-                s.Info.History.AddRange(messages);
+                if (messages.Count >= s.Info.History.Count)
+                {
+                    Debug($"SyncRemoteSessions: Syncing {messages.Count} messages for '{name}'");
+                    s.Info.History.Clear();
+                    s.Info.History.AddRange(messages);
+                }
             }
         }
 

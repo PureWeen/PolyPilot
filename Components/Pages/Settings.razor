@@ -221,6 +221,12 @@
             </table>
         </div>
     }
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="status-toast @statusClass">@(statusClass == "success" ? "✓ " : statusClass == "error" ? "✗ " : "")@statusMessage</div>
+    }
+    }
 </div>
 
 @code {
@@ -234,6 +240,25 @@
     private bool tunnelBusy;
     private bool showToken;
     private string? qrCodeDataUri;
+    private CancellationTokenSource? _statusCts;
+
+    private void ShowStatus(string message, string cls, int dismissMs = 3000)
+    {
+        _statusCts?.Cancel();
+        statusMessage = message;
+        statusClass = cls;
+        StateHasChanged();
+        if (dismissMs > 0)
+        {
+            _statusCts = new CancellationTokenSource();
+            var token = _statusCts.Token;
+            _ = Task.Delay(dismissMs, token).ContinueWith(_ =>
+            {
+                if (!token.IsCancellationRequested)
+                    InvokeAsync(() => { statusMessage = null; StateHasChanged(); });
+            }, TaskScheduler.Default);
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -344,9 +369,7 @@
         if (!string.IsNullOrEmpty(url))
             settings.RemoteUrl = url;
 
-        statusMessage = "QR code scanned!";
-        statusClass = "success";
-        StateHasChanged();
+        ShowStatus("QR code scanned!", "success");
     }
 
     private async Task TunnelLogin()
@@ -381,9 +404,7 @@
         if (DevTunnelService.TunnelUrl != null)
         {
             await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(DevTunnelService.TunnelUrl);
-            statusMessage = "URL copied!";
-            statusClass = "success";
-            StateHasChanged();
+            ShowStatus("URL copied!", "success");
         }
     }
 
@@ -392,9 +413,7 @@
         if (DevTunnelService.AccessToken != null)
         {
             await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(DevTunnelService.AccessToken);
-            statusMessage = "Token copied!";
-            statusClass = "success";
-            StateHasChanged();
+            ShowStatus("Token copied!", "success");
         }
     }
 
@@ -407,12 +426,8 @@
         serverAlive = success;
         starting = false;
 
-        if (success)
-            statusMessage = $"Server started on port {settings.Port}";
-        else
-            statusMessage = "Failed to start server";
-        statusClass = success ? "success" : "error";
-        StateHasChanged();
+        ShowStatus(success ? $"Server started on port {settings.Port}" : "Failed to start server",
+            success ? "success" : "error");
     }
 
     private void StopServer()
@@ -421,45 +436,35 @@
             DevTunnelService.Stop();
         ServerManager.StopServer();
         serverAlive = false;
-        statusMessage = "Server stopped";
-        statusClass = "";
-        StateHasChanged();
+        ShowStatus("Server stopped", "success");
     }
 
     private async Task SaveAndApply()
     {
         if (settings.Mode == ConnectionMode.Persistent && !serverAlive)
         {
-            statusMessage = "Start the persistent server first";
-            statusClass = "error";
-            StateHasChanged();
+            ShowStatus("Start the persistent server first", "error", 5000);
             return;
         }
 
         if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl))
         {
-            statusMessage = "Enter a remote server URL";
-            statusClass = "error";
-            StateHasChanged();
+            ShowStatus("Enter a remote server URL", "error", 5000);
             return;
         }
 
         settings.Save();
-        statusMessage = "Settings saved. Reconnecting...";
-        statusClass = "";
-        StateHasChanged();
+        ShowStatus("Settings saved. Reconnecting...", "", 0);
 
         try
         {
             await CopilotService.ReconnectAsync(settings);
-            statusMessage = "Connected!";
-            statusClass = "success";
+            ShowStatus("Connected!", "success");
+            Nav.NavigateTo("/");
         }
         catch (Exception ex)
         {
-            statusMessage = $"Connection failed: {ex.Message}";
-            statusClass = "error";
+            ShowStatus($"Connection failed: {ex.Message}", "error", 8000);
         }
-        StateHasChanged();
     }
 }

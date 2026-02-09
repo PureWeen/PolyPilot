@@ -487,13 +487,13 @@
     }
 
     .chat-message-list.full .chat-msg.user .chat-msg-avatar {
-        width: 24px;
-        height: 24px;
+        width: 30px;
+        height: 30px;
     }
 
     .chat-message-list.full .chat-msg.assistant .chat-msg-avatar {
-        width: 32px;
-        height: 32px;
+        width: 40px;
+        height: 40px;
     }
 
     .chat-message-list.full .system-text {
