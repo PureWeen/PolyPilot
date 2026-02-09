@@ -5,7 +5,7 @@ namespace AutoPilot.App.Models;
 
 public enum ConnectionMode
 {
-    Embedded,   // SDK spawns copilot via stdio (default, dies with app)
+    Embedded,   // SDK spawns copilot via stdio (dies with app)
     Persistent, // App spawns detached copilot server; survives app restarts
     Remote      // Connect to a remote server via URL (e.g. DevTunnel)
 }

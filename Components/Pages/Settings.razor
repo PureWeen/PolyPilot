@@ -188,8 +188,8 @@
         <ul>
             @if (PlatformHelper.IsDesktop)
             {
-                <li><strong>Embedded</strong> — Simple, default. Copilot process dies when app closes. All sessions are lost.</li>
-                <li><strong>Persistent</strong> — App spawns a detached Copilot server on a port. Survives app restarts — sessions reconnect after relaunching.</li>
+                <li><strong>Embedded</strong> — Simple. Copilot process dies when app closes. All sessions are lost.</li>
+                <li><strong>Persistent</strong> — Default. App spawns a detached Copilot server on a port. Survives app restarts — sessions reconnect after relaunching.</li>
             }
             <li><strong>Remote</strong> — Connect to a Copilot server on another machine via a DevTunnel URL. Use this from iOS/Android.</li>
         </ul>
@@ -290,8 +290,8 @@
 
     private string GetModeDescription(ConnectionMode mode) => mode switch
     {
-        ConnectionMode.Embedded => "Default. Copilot process dies when app closes.",
-        ConnectionMode.Persistent => "Copilot server survives app restarts. Sessions persist.",
+        ConnectionMode.Embedded => "Copilot process dies when app closes.",
+        ConnectionMode.Persistent => "Default. Copilot server survives app restarts. Sessions persist.",
         ConnectionMode.Remote => "Connect to a remote server via DevTunnel URL.",
         _ => ""
     };
