@@ -10,23 +10,32 @@
 
 <div class="settings-page">
     <div class="settings-header">
-        <h2><svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Connection Settings</h2>
-    </div>
-
-    <div class="settings-section">
-        <h3>Transport Mode</h3>
-        <div class="mode-cards">
-            @foreach (var mode in PlatformHelper.AvailableModes)
-            {
-                <div class="mode-card @(settings.Mode == mode ? "selected" : "")"
-                     @onclick="() => SetMode(mode)">
-                    <div class="mode-icon">@GetModeIcon(mode)</div>
-                    <div class="mode-title">@mode</div>
-                    <div class="mode-desc">@GetModeDescription(mode)</div>
-                </div>
-            }
+        <div class="header-row">
+            <h2>Connection Settings</h2>
+            <div class="connection-badge @(CopilotService.IsInitialized ? "connected" : "disconnected")">
+                <span class="badge-dot"></span>
+                <span>@CopilotService.CurrentMode — @(CopilotService.IsInitialized ? "Connected" : "Disconnected")</span>
+            </div>
         </div>
     </div>
+
+    @if (PlatformHelper.AvailableModes.Length > 1)
+    {
+        <div class="settings-section">
+            <h3>Transport Mode</h3>
+            <div class="mode-cards">
+                @foreach (var mode in PlatformHelper.AvailableModes)
+                {
+                    <div class="mode-card @(settings.Mode == mode ? "selected" : "")"
+                         @onclick="() => SetMode(mode)">
+                        <div class="mode-icon">@GetModeIcon(mode)</div>
+                        <div class="mode-title">@mode</div>
+                        <div class="mode-desc">@GetModeDescription(mode)</div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
 
     @if (settings.Mode == ConnectionMode.Persistent)
     {
@@ -60,11 +69,12 @@
                 </div>
             </div>
         </div>
+    }
 
-        @if (serverAlive && PlatformHelper.IsDesktop)
-        {
-            <div class="settings-section">
-                <h3><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m4.93 19.07 1.41-1.41"/><path d="m17.66 6.34 1.41-1.41"/></svg> Share via DevTunnel</h3>
+    @if (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || (settings.Mode == ConnectionMode.Persistent && serverAlive)))
+    {
+        <div class="settings-section">
+            <h3>Share via DevTunnel</h3>
                 @if (!devTunnelAvailable)
                 {
                     <div class="tunnel-warning">
@@ -139,12 +149,11 @@
                 }
             </div>
         }
-    }
 
     @if (settings.Mode == ConnectionMode.Remote)
     {
         <div class="settings-section">
-            <h3><svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg> Remote Server</h3>
+            <h3>Remote Server</h3>
             <div class="remote-controls">
                 <p class="mode-hint">Connect to a Copilot server running on another machine (via DevTunnel URL).</p>
 
@@ -212,6 +221,12 @@
             </table>
         </div>
     }
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="status-toast @statusClass">@(statusClass == "success" ? "✓ " : statusClass == "error" ? "✗ " : "")@statusMessage</div>
+    }
+    }
 </div>
 
 @code {
@@ -225,6 +240,25 @@
     private bool tunnelBusy;
     private bool showToken;
     private string? qrCodeDataUri;
+    private CancellationTokenSource? _statusCts;
+
+    private void ShowStatus(string message, string cls, int dismissMs = 3000)
+    {
+        _statusCts?.Cancel();
+        statusMessage = message;
+        statusClass = cls;
+        StateHasChanged();
+        if (dismissMs > 0)
+        {
+            _statusCts = new CancellationTokenSource();
+            var token = _statusCts.Token;
+            _ = Task.Delay(dismissMs, token).ContinueWith(_ =>
+            {
+                if (!token.IsCancellationRequested)
+                    InvokeAsync(() => { statusMessage = null; StateHasChanged(); });
+            }, TaskScheduler.Default);
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -335,9 +369,7 @@
         if (!string.IsNullOrEmpty(url))
             settings.RemoteUrl = url;
 
-        statusMessage = "QR code scanned!";
-        statusClass = "success";
-        StateHasChanged();
+        ShowStatus("QR code scanned!", "success");
     }
 
     private async Task TunnelLogin()
@@ -372,9 +404,7 @@
         if (DevTunnelService.TunnelUrl != null)
         {
             await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(DevTunnelService.TunnelUrl);
-            statusMessage = "URL copied!";
-            statusClass = "success";
-            StateHasChanged();
+            ShowStatus("URL copied!", "success");
         }
     }
 
@@ -383,9 +413,7 @@
         if (DevTunnelService.AccessToken != null)
         {
             await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(DevTunnelService.AccessToken);
-            statusMessage = "Token copied!";
-            statusClass = "success";
-            StateHasChanged();
+            ShowStatus("Token copied!", "success");
         }
     }
 
@@ -398,12 +426,8 @@
         serverAlive = success;
         starting = false;
 
-        if (success)
-            statusMessage = $"Server started on port {settings.Port}";
-        else
-            statusMessage = "Failed to start server";
-        statusClass = success ? "success" : "error";
-        StateHasChanged();
+        ShowStatus(success ? $"Server started on port {settings.Port}" : "Failed to start server",
+            success ? "success" : "error");
     }
 
     private void StopServer()
@@ -412,45 +436,35 @@
             DevTunnelService.Stop();
         ServerManager.StopServer();
         serverAlive = false;
-        statusMessage = "Server stopped";
-        statusClass = "";
-        StateHasChanged();
+        ShowStatus("Server stopped", "success");
     }
 
     private async Task SaveAndApply()
     {
         if (settings.Mode == ConnectionMode.Persistent && !serverAlive)
         {
-            statusMessage = "Start the persistent server first";
-            statusClass = "error";
-            StateHasChanged();
+            ShowStatus("Start the persistent server first", "error", 5000);
             return;
         }
 
         if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl))
         {
-            statusMessage = "Enter a remote server URL";
-            statusClass = "error";
-            StateHasChanged();
+            ShowStatus("Enter a remote server URL", "error", 5000);
             return;
         }
 
         settings.Save();
-        statusMessage = "Settings saved. Reconnecting...";
-        statusClass = "";
-        StateHasChanged();
+        ShowStatus("Settings saved. Reconnecting...", "", 0);
 
         try
         {
             await CopilotService.ReconnectAsync(settings);
-            statusMessage = "Connected!";
-            statusClass = "success";
+            ShowStatus("Connected!", "success");
+            Nav.NavigateTo("/");
         }
         catch (Exception ex)
         {
-            statusMessage = $"Connection failed: {ex.Message}";
-            statusClass = "error";
+            ShowStatus($"Connection failed: {ex.Message}", "error", 8000);
         }
-        StateHasChanged();
     }
 }

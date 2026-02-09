@@ -61,6 +61,7 @@ main {
     transform: translateX(-100%);
     transition: transform 0.25s ease;
     overflow-y: auto;
+    padding-top: env(safe-area-inset-top, 0px);
 }
 
 .flyout-panel.open {

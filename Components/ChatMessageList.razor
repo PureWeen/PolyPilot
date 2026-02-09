@@ -299,9 +299,11 @@
                 System.IO.File.Exists(trimmed))
             {
                 var dataUri = FileToDataUri(trimmed);
+                var fileName = System.IO.Path.GetFileName(trimmed);
+                var safeName = System.Net.WebUtility.HtmlEncode(fileName);
                 if (dataUri != null)
                 {
-                    sb.Append($"<div class=\"user-image-attachment\"><img src=\"{dataUri}\" alt=\"{System.Net.WebUtility.HtmlEncode(System.IO.Path.GetFileName(trimmed))}\" /><span class=\"user-image-name\">{System.Net.WebUtility.HtmlEncode(System.IO.Path.GetFileName(trimmed))}</span></div>");
+                    sb.Append($"<div class=\"user-image-attachment\"><img src=\"{dataUri}\" alt=\"{safeName}\" /><span class=\"user-image-name\">📷 {safeName}</span></div>");
                     continue;
                 }
             }

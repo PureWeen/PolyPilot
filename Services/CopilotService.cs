@@ -12,6 +12,7 @@ public class CopilotService : IAsyncDisposable
     private readonly ChatDatabase _chatDb;
     private readonly ServerManager _serverManager;
     private readonly WsBridgeClient _bridgeClient;
+    private readonly DemoService _demoService;
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
@@ -86,6 +87,7 @@ public class CopilotService : IAsyncDisposable
     public bool IsInitialized { get; private set; }
     public bool NeedsConfiguration { get; private set; }
     public bool IsRemoteMode { get; private set; }
+    public bool IsDemoMode { get; private set; }
     public string? ActiveSessionName => _activeSessionName;
     public ChatDatabase ChatDb => _chatDb;
     public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
@@ -95,6 +97,7 @@ public class CopilotService : IAsyncDisposable
         _chatDb = chatDb;
         _serverManager = serverManager;
         _bridgeClient = bridgeClient;
+        _demoService = new DemoService();
     }
 
     // Debug info
@@ -167,6 +170,13 @@ public class CopilotService : IAsyncDisposable
         if (settings.Mode == ConnectionMode.Remote && !string.IsNullOrWhiteSpace(settings.RemoteUrl))
         {
             await InitializeRemoteAsync(settings, cancellationToken);
+            return;
+        }
+
+        // Demo mode: local mock responses, no network needed
+        if (settings.Mode == ConnectionMode.Demo)
+        {
+            InitializeDemo();
             return;
         }
 
@@ -309,6 +319,58 @@ public class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
+    /// Initialize in Demo mode: wire up DemoService events for local mock responses.
+    /// </summary>
+    private void InitializeDemo()
+    {
+        Debug("Demo mode: initializing with mock responses");
+
+        _demoService.OnStateChanged += () => InvokeOnUI(() => OnStateChanged?.Invoke());
+        _demoService.OnContentReceived += (s, c) =>
+        {
+            // Accumulate response in SessionState for history
+            if (_sessions.TryGetValue(s, out var state))
+                state.CurrentResponse.Append(c);
+            InvokeOnUI(() => OnContentReceived?.Invoke(s, c));
+        };
+        _demoService.OnToolStarted += (s, tool, id) =>
+        {
+            if (_sessions.TryGetValue(s, out var state))
+            {
+                FlushCurrentResponse(state);
+                state.Info.History.Add(ChatMessage.ToolCallMessage(tool, id));
+            }
+            InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id, null));
+        };
+        _demoService.OnToolCompleted += (s, id, result, success) =>
+        {
+            if (_sessions.TryGetValue(s, out var state))
+            {
+                var toolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == id);
+                if (toolMsg != null) { toolMsg.IsComplete = true; toolMsg.IsSuccess = success; toolMsg.Content = result; }
+            }
+            InvokeOnUI(() => OnToolCompleted?.Invoke(s, id, result, success));
+        };
+        _demoService.OnIntentChanged += (s, i) => InvokeOnUI(() => OnIntentChanged?.Invoke(s, i));
+        _demoService.OnTurnStart += (s) => InvokeOnUI(() => OnTurnStart?.Invoke(s));
+        _demoService.OnTurnEnd += (s) =>
+        {
+            // Flush accumulated response into history (mirrors CompleteResponse)
+            if (_sessions.TryGetValue(s, out var state))
+            {
+                CompleteResponse(state);
+            }
+            InvokeOnUI(() => OnTurnEnd?.Invoke(s));
+        };
+
+        IsInitialized = true;
+        IsDemoMode = true;
+        NeedsConfiguration = false;
+        Debug("Demo mode initialized");
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
     /// Sync remote session list from WsBridgeClient into our local _sessions dictionary.
     /// </summary>
     private void SyncRemoteSessions()
@@ -339,10 +401,12 @@ public class CopilotService : IAsyncDisposable
                     Info = info
                 };
             }
-            // Update processing state
+            // Update processing state — don't overwrite local 'true' with remote 'false' 
+            // (race: we sent a message but server hasn't started processing yet)
             if (_sessions.TryGetValue(rs.Name, out var state))
             {
-                state.Info.IsProcessing = rs.IsProcessing;
+                if (rs.IsProcessing)
+                    state.Info.IsProcessing = true;
                 state.Info.MessageCount = rs.MessageCount;
             }
         }
@@ -356,13 +420,17 @@ public class CopilotService : IAsyncDisposable
         }
 
         // Sync history from WsBridgeClient cache
+        // Don't overwrite if local history has messages not yet reflected by server
         foreach (var (name, messages) in _bridgeClient.SessionHistories)
         {
             if (_sessions.TryGetValue(name, out var s))
             {
-                Debug($"SyncRemoteSessions: Syncing {messages.Count} messages for '{name}'");
-                s.Info.History.Clear();
-                s.Info.History.AddRange(messages);
+                if (messages.Count >= s.Info.History.Count)
+                {
+                    Debug($"SyncRemoteSessions: Syncing {messages.Count} messages for '{name}'");
+                    s.Info.History.Clear();
+                    s.Info.History.AddRange(messages);
+                }
             }
         }
 
@@ -400,8 +468,16 @@ public class CopilotService : IAsyncDisposable
 
         IsInitialized = false;
         IsRemoteMode = false;
+        IsDemoMode = false;
         CurrentMode = settings.Mode;
         OnStateChanged?.Invoke();
+
+        // Demo mode: local mock responses
+        if (settings.Mode == ConnectionMode.Demo)
+        {
+            InitializeDemo();
+            return;
+        }
 
         // Remote mode uses WsBridgeClient state-sync
         if (settings.Mode == ConnectionMode.Remote && !string.IsNullOrWhiteSpace(settings.RemoteUrl))
@@ -881,6 +957,17 @@ public class CopilotService : IAsyncDisposable
 
     public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
+        // In demo mode, create a local mock session
+        if (IsDemoMode)
+        {
+            var demoInfo = _demoService.CreateSession(name, model);
+            var demoState = new SessionState { Session = null!, Info = demoInfo };
+            _sessions[name] = demoState;
+            _activeSessionName ??= name;
+            OnStateChanged?.Invoke();
+            return demoInfo;
+        }
+
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
         {
@@ -1028,7 +1115,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 var toolInput = ExtractToolInput(toolStart.Data);
                 if (!FilteredTools.Contains(startToolName))
                 {
-                    // Add to session history
+                    // Flush any accumulated assistant text before adding tool message
+                    FlushCurrentResponse(state);
+                    
                     var toolMsg = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
                     state.Info.History.Add(toolMsg);
                     
@@ -1199,6 +1288,70 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         return null;
     }
 
+    private void TryAttachImages(MessageOptions options, List<string> imagePaths)
+    {
+        try
+        {
+            var sdkAssembly = typeof(MessageOptions).Assembly;
+            var attachItemType = sdkAssembly.GetType("GitHub.Copilot.SDK.UserMessageDataAttachmentsItem");
+            var fileType = sdkAssembly.GetType("GitHub.Copilot.SDK.UserMessageDataAttachmentsItemFile");
+            if (attachItemType == null || fileType == null)
+            {
+                Debug("SDK attachment types not found, falling back to path-in-prompt");
+                return;
+            }
+
+            var items = new System.Collections.Generic.List<object>();
+            foreach (var path in imagePaths)
+            {
+                if (!File.Exists(path)) continue;
+                
+                // Create UserMessageDataAttachmentsItemFile with FilePath
+                var fileObj = Activator.CreateInstance(fileType);
+                fileType.GetProperty("FilePath")?.SetValue(fileObj, path);
+                
+                // Create UserMessageDataAttachmentsItem with File
+                var itemObj = Activator.CreateInstance(attachItemType);
+                attachItemType.GetProperty("File")?.SetValue(itemObj, fileObj);
+                
+                items.Add(itemObj!);
+            }
+
+            if (items.Count == 0) return;
+
+            // Create typed list and set on MessageOptions.Attachments
+            var listType = typeof(List<>).MakeGenericType(attachItemType);
+            var typedList = Activator.CreateInstance(listType);
+            var addMethod = listType.GetMethod("Add");
+            foreach (var item in items)
+                addMethod?.Invoke(typedList, new[] { item });
+
+            typeof(MessageOptions).GetProperty("Attachments")?.SetValue(options, typedList);
+            Debug($"Attached {items.Count} image(s) via SDK");
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to attach images via SDK: {ex.Message}");
+        }
+    }
+
+    /// <summary>Flush accumulated assistant text to history without ending the turn.</summary>
+    private void FlushCurrentResponse(SessionState state)
+    {
+        var text = state.CurrentResponse.ToString();
+        if (string.IsNullOrEmpty(text)) return;
+        
+        var msg = new ChatMessage("assistant", text, DateTime.Now);
+        state.Info.History.Add(msg);
+        state.Info.MessageCount = state.Info.History.Count;
+        
+        if (!string.IsNullOrEmpty(state.Info.SessionId))
+            _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+        
+        state.CurrentResponse.Clear();
+        state.HasReceivedDeltasThisTurn = false;
+    }
+
     private void CompleteResponse(SessionState state)
     {
         if (!state.Info.IsProcessing) return; // Already completed (e.g. timeout)
@@ -1245,8 +1398,21 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public async Task<string> SendPromptAsync(string sessionName, string prompt, CancellationToken cancellationToken = default)
+    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default)
     {
+        // In demo mode, simulate a response locally
+        if (IsDemoMode)
+        {
+            if (!_sessions.TryGetValue(sessionName, out var demoState))
+                throw new InvalidOperationException($"Session '{sessionName}' not found.");
+            demoState.Info.History.Add(ChatMessage.UserMessage(prompt));
+            demoState.Info.MessageCount = demoState.Info.History.Count;
+            demoState.CurrentResponse.Clear();
+            OnStateChanged?.Invoke();
+            _ = Task.Run(() => _demoService.SimulateResponseAsync(sessionName, prompt, _syncContext, cancellationToken));
+            return "";
+        }
+
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
         {
@@ -1284,10 +1450,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         
         try 
         {
-            await state.Session.SendAsync(new MessageOptions
+            var messageOptions = new MessageOptions { Prompt = prompt };
+            
+            // Attach images via SDK if available
+            if (imagePaths != null && imagePaths.Count > 0)
             {
-                Prompt = prompt
-            }, cancellationToken);
+                TryAttachImages(messageOptions, imagePaths);
+            }
+            
+            await state.Session.SendAsync(messageOptions, cancellationToken);
         }
         catch (Exception ex)
         {

@@ -41,6 +41,21 @@ public partial class DevTunnelService : IDisposable
 
     public event Action? OnStateChanged;
 
+    private static string ResolveDevTunnel()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var candidates = new[] {
+            Path.Combine(home, "bin", "devtunnel"),
+            Path.Combine(home, ".local", "bin", "devtunnel"),
+            "/usr/local/bin/devtunnel",
+            "/opt/homebrew/bin/devtunnel",
+            "devtunnel"
+        };
+        foreach (var c in candidates)
+            if (c != "devtunnel" && File.Exists(c)) return c;
+        return "devtunnel";
+    }
+
     [GeneratedRegex(@"(https?://\S+\.devtunnels\.ms\S*)", RegexOptions.IgnoreCase)]
     private static partial Regex TunnelUrlRegex();
 
@@ -63,7 +78,7 @@ public partial class DevTunnelService : IDisposable
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "devtunnel",
+                FileName = ResolveDevTunnel(),
                 Arguments = "--version",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -86,7 +101,7 @@ public partial class DevTunnelService : IDisposable
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "devtunnel",
+                FileName = ResolveDevTunnel(),
                 Arguments = "user show",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -114,7 +129,7 @@ public partial class DevTunnelService : IDisposable
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "devtunnel",
+                FileName = ResolveDevTunnel(),
                 Arguments = "user login -g",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -247,7 +262,7 @@ public partial class DevTunnelService : IDisposable
 
         var psi = new ProcessStartInfo
         {
-            FileName = "devtunnel",
+            FileName = ResolveDevTunnel(),
             Arguments = hostArgs,
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -360,7 +375,7 @@ public partial class DevTunnelService : IDisposable
         {
             var psi = new ProcessStartInfo
             {
-                FileName = "devtunnel",
+                FileName = ResolveDevTunnel(),
                 Arguments = $"token {tunnelArg} --scopes connect",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,

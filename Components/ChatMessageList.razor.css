@@ -8,21 +8,21 @@
     color: rgba(200,216,240,0.3);
     text-align: center;
     margin: auto;
-    font-size: 0.95rem;
+    font-size: var(--type-body);
 }
 
 /* === Compact mode (dashboard cards) === */
 .chat-message-list.compact .chat-msg {
     display: flex;
     gap: 0.5rem;
-    font-size: 0.95rem;
+    font-size: var(--type-body);
     line-height: 1.4;
 }
 
 .chat-message-list.compact .chat-msg-role {
     font-weight: 600;
     flex-shrink: 0;
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     padding: 0.1rem 0.3rem;
     border-radius: 3px;
     align-self: flex-start;
@@ -142,7 +142,7 @@
 }
 
 .chat-message-list.full .chat-msg-time {
-    font-size: 0.75rem;
+    font-size: var(--type-subhead);
     color: rgba(200,216,240,0.3);
     margin-top: 0.25rem;
 }
@@ -152,7 +152,7 @@
 }
 
 .chat-message-list.full .system-text {
-    font-size: 0.85rem;
+    font-size: var(--type-body);
     color: #646e8a;
     font-style: italic;
     text-align: center;
@@ -171,7 +171,7 @@
     background: none;
     border: none;
     color: rgba(168, 85, 247, 0.7);
-    font-size: 0.85rem;
+    font-size: var(--type-body);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -181,7 +181,7 @@
 }
 
 ::deep .reasoning-content {
-    font-size: 0.85rem;
+    font-size: var(--type-body);
     color: #7a85a0;
     white-space: pre-wrap;
     line-height: 1.5;
@@ -198,7 +198,7 @@
     margin: 0.25rem 1rem;
     border-radius: 8px;
     padding: 0.5rem 0.75rem;
-    font-size: 0.85rem;
+    font-size: var(--type-body);
     border: 1px solid rgba(78,168,209,0.15);
     background: rgba(78,168,209,0.03);
 }
@@ -223,7 +223,7 @@
 }
 
 ::deep .tool-result-content {
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     color: #7a85a0;
     white-space: pre-wrap;
     word-break: break-word;
@@ -236,7 +236,7 @@
     background: none;
     border: none;
     color: rgba(78, 168, 209, 0.7);
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     cursor: pointer;
     padding: 0;
 }
@@ -255,7 +255,7 @@
     gap: 0.5rem;
     margin: 0.1rem 1rem;
     padding: 0.25rem 0.4rem;
-    font-size: 0.82rem;
+    font-size: var(--type-callout);
     cursor: pointer;
     border-radius: 4px;
     transition: background 0.15s;
@@ -312,13 +312,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
-    font-size: 0.75rem;
+    font-size: var(--type-subhead);
 }
 
 ::deep .action-detail-hint {
     margin-left: auto;
     color: rgba(200,216,240,0.3);
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     white-space: nowrap;
     flex-shrink: 0;
 }
@@ -333,7 +333,7 @@
 }
 
 ::deep .action-expanded-result pre {
-    font-size: 0.75rem;
+    font-size: var(--type-subhead);
     color: rgba(200,216,240,0.5);
     white-space: pre-wrap;
     word-break: break-word;
@@ -359,7 +359,7 @@
     border: 1px solid rgba(0, 195, 91, 0.3);
     border-radius: 8px;
     color: #00c35b;
-    font-size: 0.95rem;
+    font-size: var(--type-body);
 }
 
 ::deep .error-card {
@@ -373,7 +373,7 @@
     border: 1px solid rgba(248, 113, 113, 0.3);
     border-radius: 8px;
     color: #fca5a5;
-    font-size: 0.9rem;
+    font-size: var(--type-body);
 }
 
 ::deep .markdown-body {
@@ -390,7 +390,7 @@
     background: rgba(78,168,209,0.15);
     padding: 0.15em 0.3em;
     border-radius: 3px;
-    font-size: 0.9em;
+    font-size: 0.85em;
 }
 
 ::deep .markdown-body pre {
@@ -434,31 +434,69 @@
 
 /* === User image attachments inline === */
 ::deep .user-image-attachment {
-    display: inline-block;
-    margin: 0.3rem 0.2rem 0.3rem 0;
-    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.2rem 0.3rem 0.2rem 0;
+    border-radius: 6px;
     overflow: hidden;
-    border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(0,0,0,0.2);
-    max-width: 300px;
-    vertical-align: top;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.25);
+    padding: 0.2rem 0.5rem 0.2rem 0.25rem;
+    vertical-align: middle;
+    cursor: pointer;
 }
 
 ::deep .user-image-attachment img {
-    max-width: 300px;
-    max-height: 200px;
-    object-fit: contain;
-    display: block;
-    border-radius: 8px 8px 0 0;
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
 }
 
 ::deep .user-image-name {
-    display: block;
-    font-size: 0.65rem;
-    color: rgba(255,255,255,0.4);
-    padding: 2px 6px 4px;
-    text-align: center;
+    font-size: var(--type-subhead);
+    color: rgba(200,216,240,0.6);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 160px;
+}
+
+/* === Mobile: tighter chat bubbles matching iOS chat conventions === */
+@media (max-width: 640px) {
+    .chat-message-list.full .chat-msg {
+        padding: 0.4rem 0.5rem;
+        gap: 0.35rem;
+    }
+
+    .chat-message-list.full .chat-msg-text {
+        font-size: var(--type-callout);
+        line-height: 1.45;
+    }
+
+    .chat-message-list.full .chat-msg.user .chat-msg-content,
+    .chat-message-list.full .chat-msg.assistant .chat-msg-content {
+        padding: 0.5rem 0.75rem;
+        max-width: 85%;
+    }
+
+    .chat-message-list.full .chat-msg-time {
+        font-size: var(--type-caption1);
+    }
+
+    .chat-message-list.full .chat-msg.user .chat-msg-avatar {
+        width: 30px;
+        height: 30px;
+    }
+
+    .chat-message-list.full .chat-msg.assistant .chat-msg-avatar {
+        width: 40px;
+        height: 40px;
+    }
+
+    .chat-message-list.full .system-text {
+        font-size: var(--type-callout);
+    }
 }

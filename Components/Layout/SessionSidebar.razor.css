@@ -26,11 +26,11 @@
 
 .sidebar-header h3 {
     margin: 0 0 0.25rem 0;
-    font-size: 1.4rem;
+    font-size: var(--type-title1);
 }
 
 .sidebar-header .status {
-    font-size: 1rem;
+    font-size: var(--type-title3);
     margin: 0;
 }
 
@@ -57,18 +57,23 @@
     border-radius: 6px;
     background: rgba(255,255,255,0.1);
     color: #a0b4cc;
-    font-size: 1rem;
+    font-size: var(--type-title3);
 }
 
 .model-select {
-    padding: 0.5rem;
+    padding: 0.5rem 1.8rem 0.5rem 0.5rem;
     border: 1px solid rgba(255,255,255,0.2);
     border-radius: 6px;
     background: rgba(255,255,255,0.1);
     color: #a0b4cc;
-    font-size: 0.9rem;
+    font-size: var(--type-body);
     min-width: 0;
     max-width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a0b4cc' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
 }
 
 .model-select option {
@@ -92,7 +97,7 @@
     background: #3b82f6;
     color: #a0b4cc;
     cursor: pointer;
-    font-size: 1rem;
+    font-size: var(--type-title3);
     font-weight: bold;
 }
 
@@ -119,7 +124,7 @@
     padding: 0.3rem 0.5rem !important;
     background: rgba(255,255,255,0.1) !important;
     border: 1px solid rgba(255,255,255,0.2) !important;
-    font-size: 0.75rem !important;
+    font-size: var(--type-subhead) !important;
     font-weight: normal !important;
 }
 
@@ -134,7 +139,7 @@
 }
 
 .dir-input {
-    font-size: 0.85rem !important;
+    font-size: var(--type-body) !important;
 }
 
 .dir-browse-btn {
@@ -142,7 +147,7 @@
     background: rgba(255,255,255,0.1) !important;
     border: 1px solid rgba(255,255,255,0.2) !important;
     border-radius: 6px;
-    font-size: 0.9rem !important;
+    font-size: var(--type-body) !important;
     font-weight: normal !important;
     color: #a0b4cc;
     cursor: pointer;
@@ -160,7 +165,7 @@
 
 .section-header {
     padding: 0.5rem 0.75rem;
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -177,14 +182,14 @@
 }
 
 .toggle-icon {
-    font-size: 0.6rem;
+    font-size: var(--type-caption1);
 }
 
 .no-sessions {
     text-align: center;
     color: rgba(255,255,255,0.5);
     padding: 1rem;
-    font-size: 1rem;
+    font-size: var(--type-title3);
     line-height: 1.5;
 }
 
@@ -221,7 +226,7 @@
 }
 
 .open-badge {
-    font-size: 0.75rem;
+    font-size: var(--type-subhead);
     color: #00c35b;
     white-space: nowrap;
     flex-shrink: 0;
@@ -257,7 +262,7 @@
 
 .session-name {
     font-weight: 500;
-    font-size: 0.95rem;
+    font-size: var(--type-body);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -278,7 +283,7 @@
 
 .persisted-name {
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 0.9rem;
+    font-size: var(--type-body);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -286,7 +291,7 @@
 }
 
 .resumed-badge {
-    font-size: 0.6rem;
+    font-size: var(--type-caption1);
     padding: 0.1rem 0.3rem;
     background: rgba(251, 191, 36, 0.3);
     border-radius: 3px;
@@ -299,7 +304,7 @@
     justify-content: center;
     width: 1.2em;
     height: 1.2em;
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     font-weight: 600;
     background: rgba(255,255,255,0.12);
     border: 1px solid rgba(255,255,255,0.2);
@@ -309,17 +314,17 @@
 }
 
 .session-meta {
-    font-size: 0.95rem;
+    font-size: var(--type-body);
     color: rgba(255,255,255,0.5);
 }
 
 .session-meta-time {
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     color: rgba(255,255,255,0.4);
 }
 
 .session-meta-dir {
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     color: rgba(255,255,255,0.35);
     white-space: nowrap;
     overflow: hidden;
@@ -335,7 +340,7 @@
 .processing {
     color: #fbbf24;
     animation: pulse 1s infinite;
-    font-size: 0.75rem;
+    font-size: var(--type-subhead);
     white-space: nowrap;
 }
 
@@ -352,7 +357,7 @@
     background: transparent;
     color: rgba(255,255,255,0.5);
     cursor: pointer;
-    font-size: 1rem;
+    font-size: var(--type-title3);
     line-height: 1;
     opacity: 0;
     transition: all 0.15s ease;
@@ -375,7 +380,7 @@
 }
 
 .rename-btn {
-    font-size: 0.65rem;
+    font-size: var(--type-footnote);
     width: auto;
     padding: 0 0.3rem;
     letter-spacing: 0.02em;
@@ -397,7 +402,7 @@
     border-radius: 6px;
     background: rgba(255,255,255,0.1);
     color: #a0b4cc;
-    font-size: 1rem;
+    font-size: var(--type-title3);
 }
 
 .filter-input::placeholder {
@@ -411,7 +416,7 @@
 }
 
 .resume-icon {
-    font-size: 0.85rem;
+    font-size: var(--type-body);
     color: rgba(255,255,255,0.3);
     white-space: nowrap;
     transition: color 0.15s ease;
@@ -441,7 +446,7 @@
     background: #4ea8d1;
     color: #a0b4cc;
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     font-weight: 600;
     white-space: nowrap;
     transition: background 0.15s ease;
@@ -463,7 +468,7 @@
     background: rgba(255,255,255,0.1);
     color: rgba(255,255,255,0.6);
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     transition: all 0.15s ease;
 }
 
@@ -481,7 +486,7 @@
 }
 
 .resume-error {
-    font-size: 0.75rem;
+    font-size: var(--type-subhead);
     color: #f87171;
     line-height: 1.3;
     max-width: 180px;
@@ -544,7 +549,7 @@
     background: rgba(255,255,255,0.08);
     color: rgba(255,255,255,0.7);
     text-decoration: none;
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     line-height: 1.2;
     transition: all 0.15s ease;
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -568,7 +573,7 @@
     border-radius: 4px;
     background: rgba(255,255,255,0.15);
     color: #a0b4cc;
-    font-size: 1rem;
+    font-size: var(--type-title3);
     font-weight: 500;
     font-family: inherit;
     outline: none;
@@ -578,45 +583,59 @@
 .mobile-bar {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem 1rem;
+    gap: 0.5rem;
+    padding: calc(env(safe-area-inset-top, 0px) + 0.6rem) 0.75rem 0.6rem;
     color: #a0b4cc;
 }
 
 .hamburger-btn {
     background: none;
     border: none;
-    color: #a0b4cc;
+    color: rgba(200,216,240,0.6);
     cursor: pointer;
-    padding: 0.25rem;
+    padding: 0.4rem;
     display: flex;
     align-items: center;
+    font-size: var(--type-title3);
+    -webkit-tap-highlight-color: transparent;
+}
+
+.hamburger-btn:active {
+    color: #60a5fa;
 }
 
 .mobile-title {
-    font-size: 1.1rem;
-    font-weight: 600;
+    font-size: var(--type-title3);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    flex-shrink: 0;
 }
 
 .mobile-tabs {
     display: flex;
-    gap: 0.5rem;
+    gap: 0.25rem;
     margin-left: auto;
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 0.15rem;
 }
 
 .mobile-tab {
-    padding: 0.35rem 0.75rem;
+    padding: 0.3rem 0.7rem;
     border-radius: 6px;
-    background: rgba(255,255,255,0.08);
-    color: rgba(255,255,255,0.7);
+    background: transparent;
+    color: rgba(200,216,240,0.5);
     text-decoration: none;
-    font-size: 0.85rem;
-    transition: all 0.15s ease;
+    font-size: var(--type-subhead);
+    font-weight: 500;
+    transition: all 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .mobile-tab.active {
-    background: rgba(59, 130, 246, 0.25);
+    background: rgba(59, 130, 246, 0.2);
     color: #60a5fa;
+    font-weight: 600;
 }
 
 /* Flyout panel content */
@@ -634,7 +653,7 @@
 
 .flyout-header h3 {
     margin: 0;
-    font-size: 1.2rem;
+    font-size: var(--type-title2);
     color: #a0b4cc;
 }
 
@@ -643,7 +662,7 @@
     border: none;
     color: rgba(255,255,255,0.5);
     cursor: pointer;
-    font-size: 1.2rem;
+    font-size: var(--type-title2);
     padding: 0.25rem;
 }
 
@@ -653,6 +672,62 @@
 
 /* === Mobile responsive === */
 @media (max-width: 640px) {
+    .flyout-header {
+        padding: 0.6rem 0.75rem;
+    }
+
+    .flyout-header h3 {
+        font-size: var(--type-body);
+    }
+
+    .flyout-close-btn {
+        font-size: var(--type-body);
+    }
+
+    .new-session {
+        padding: 0.6rem 0.75rem;
+        gap: 0.4rem;
+    }
+
+    .new-session input {
+        padding: 0.4rem 0.5rem;
+        font-size: var(--type-callout);
+        border-radius: 6px;
+    }
+
+    .model-select {
+        padding: 0.35rem 0.4rem;
+        font-size: var(--type-callout);
+    }
+
+    .new-session button {
+        padding: 0.4rem 0.6rem;
+        font-size: var(--type-callout);
+    }
+
+    .dir-toggle-btn {
+        font-size: var(--type-footnote) !important;
+        padding: 0.2rem 0.4rem !important;
+    }
+
+    .section-header {
+        padding: 0.35rem 0.5rem;
+        font-size: var(--type-footnote);
+    }
+
+    .session-item {
+        padding: 0.5rem;
+    }
+
+    .session-name {
+        font-size: var(--type-callout);
+    }
+
+    .no-sessions {
+        font-size: var(--type-callout);
+        padding: 0.75rem;
+    }
+
     .session-item.persisted {
         flex-wrap: wrap;
     }
@@ -660,6 +735,6 @@
         width: 100%;
         text-align: right;
         margin-top: 0.25rem;
-        font-size: 0.8rem;
+        font-size: var(--type-callout);
     }
 }

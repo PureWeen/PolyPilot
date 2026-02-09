@@ -1,5 +1,50 @@
+/* Apple iOS Dynamic Type scale (relative to --app-font-size base) */
+:root {
+    --type-large-title: 1.7rem;   /* 34px — page titles */
+    --type-title1: 1.4rem;        /* 28px — major section headers */
+    --type-title2: 1.1rem;        /* 22px — section headers */
+    --type-title3: 1.0rem;        /* 20px — sub-section headers, prominent controls */
+    --type-headline: 0.85rem;     /* 17px — emphasized body text (use font-weight:600) */
+    --type-body: 0.85rem;         /* 17px — primary content */
+    --type-callout: 0.8rem;       /* 16px — secondary content, labels */
+    --type-subhead: 0.75rem;      /* 15px — tertiary content */
+    --type-footnote: 0.65rem;     /* 13px — timestamps, metadata */
+    --type-caption1: 0.6rem;      /* 12px — badges, small labels */
+    --type-caption2: 0.55rem;     /* 11px — minimum readable size */
+}
+
+/* Mobile: scale down for phone screens */
+@media (max-width: 640px) {
+    :root {
+        --type-large-title: 1.55rem;
+        --type-title1: 1.25rem;
+        --type-title2: 1.0rem;
+        --type-title3: 0.9rem;
+        --type-headline: 0.8rem;
+        --type-body: 0.8rem;
+        --type-callout: 0.75rem;
+        --type-subhead: 0.7rem;
+        --type-footnote: 0.6rem;
+        --type-caption1: 0.55rem;
+        --type-caption2: 0.5rem;
+    }
+}
+
+/* Mac Catalyst / desktop: bump scale to compensate for 77% Catalyst scaling */
+@media (min-width: 641px) {
+    :root {
+        --type-body: 0.95rem;
+        --type-headline: 0.95rem;
+        --type-callout: 0.85rem;
+        --type-subhead: 0.8rem;
+        --type-footnote: 0.75rem;
+        --type-caption1: 0.65rem;
+        --type-caption2: 0.6rem;
+    }
+}
+
 html, body {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
     font-size: var(--app-font-size, 20px);
     color: #a0b4cc;
 }
@@ -106,7 +151,7 @@ h1:focus {
         position: sticky;
         top: 0;
         height: env(safe-area-inset-top);
-        background-color: #f7f7f7;
+        background-color: #1a1a2e;
         width: 100%;
         z-index: 1;
     }
@@ -164,7 +209,7 @@ h1:focus {
         left: 10px;
         max-width: none;
         padding: 10px 14px;
-        font-size: 0.8rem;
+        font-size: var(--type-callout);
         border-radius: 8px;
         transform: translateY(-20px);
     }
