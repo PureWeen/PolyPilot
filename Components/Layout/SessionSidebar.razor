@@ -28,7 +28,7 @@ else if (IsFlyoutPanel)
         <div class="new-session">
             <input type="text" id="flyoutSessionNameInput" placeholder="Session name..." @oninput="OnSessionNameInput" />
             <div class="session-options-row">
-                <select @bind="selectedModel" class="model-select">
+                <select @bind="selectedModel" @bind:after="SaveSelectedModel" class="model-select">
                     @foreach (var model in availableModels)
                     {
                         <option value="@model">@model</option>
@@ -83,7 +83,7 @@ else
         <div class="new-session">
             <input type="text" id="sessionNameInput" placeholder="Session name..." @oninput="OnSessionNameInput" />
             <div class="session-options-row">
-                <select @bind="selectedModel" class="model-select">
+                <select @bind="selectedModel" @bind:after="SaveSelectedModel" class="model-select">
                     @foreach (var model in availableModels)
                     {
                         <option value="@model">@model</option>
@@ -252,6 +252,7 @@ else
     };
 
     private string selectedModel = "claude-opus-4.6";
+    private string _lastSavedModel = "";
     private string sessionFilter = "";
     private bool isCreating = false;
     private bool hasSessionName = false;
@@ -270,18 +271,27 @@ else
         await OnToggleFlyout.InvokeAsync();
     }
 
-    private readonly string[] availableModels = new[]
+    private static readonly string[] _fallbackModels = new[]
     {
         "claude-opus-4.6",
+        "claude-opus-4.6-fast",
+        "claude-opus-4.5",
         "claude-sonnet-4.5",
         "claude-sonnet-4",
         "claude-haiku-4.5",
         "gpt-5.2",
+        "gpt-5.2-codex",
         "gpt-5.1",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
         "gpt-5",
         "gpt-5-mini",
+        "gpt-4.1",
         "gemini-3-pro-preview",
     };
+    private IReadOnlyList<string> availableModels =>
+        CopilotService.AvailableModels.Count > 0 ? CopilotService.AvailableModels : _fallbackModels;
 
     private IEnumerable<PersistedSessionInfo> filteredPersistedSessions => 
         (string.IsNullOrWhiteSpace(sessionFilter) 
@@ -302,6 +312,16 @@ else
         CopilotService.OnSessionComplete += HandleSessionComplete;
         RefreshSessions();
         LoadPersistedSessions();
+
+        // Restore last selected model
+        var uiState = CopilotService.LoadUiState();
+        if (!string.IsNullOrEmpty(uiState?.SelectedModel))
+            selectedModel = uiState.SelectedModel;
+    }
+
+    private void SaveSelectedModel()
+    {
+        CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
     }
 
     private HashSet<string> completedSessions = new();
@@ -334,8 +354,28 @@ else
         }
     }
 
+    private DateTime _lastSidebarRefresh = DateTime.MinValue;
+    private bool _sidebarRefreshPending;
+
     private void RefreshSessions()
     {
+        var now = DateTime.UtcNow;
+        if ((now - _lastSidebarRefresh).TotalMilliseconds < 500)
+        {
+            if (!_sidebarRefreshPending)
+            {
+                _sidebarRefreshPending = true;
+                _ = Task.Delay(500).ContinueWith(_ => InvokeAsync(() => {
+                    _sidebarRefreshPending = false;
+                    _lastSidebarRefresh = DateTime.UtcNow;
+                    sessions = CopilotService.GetAllSessions().ToList();
+                    LoadPersistedSessions();
+                    StateHasChanged();
+                }));
+            }
+            return;
+        }
+        _lastSidebarRefresh = now;
         sessions = CopilotService.GetAllSessions().ToList();
         LoadPersistedSessions();
         InvokeAsync(StateHasChanged);

@@ -60,18 +60,26 @@ public static class MauiProgram
 #if MACCATALYST
 		builder.ConfigureLifecycleEvents(events =>
 		{
-			events.AddiOS(ios => ios.SceneWillConnect((scene, session, options) =>
+			events.AddiOS(ios =>
 			{
-				if (scene is UIWindowScene windowScene)
+				ios.SceneWillConnect((scene, session, options) =>
 				{
-					var titlebar = windowScene.Titlebar;
-					if (titlebar != null)
+					if (scene is UIWindowScene windowScene)
 					{
-						titlebar.TitleVisibility = UITitlebarTitleVisibility.Hidden;
-						titlebar.Toolbar = null;
+						var titlebar = windowScene.Titlebar;
+						if (titlebar != null)
+						{
+							titlebar.TitleVisibility = UITitlebarTitleVisibility.Hidden;
+							titlebar.Toolbar = null;
+						}
 					}
-				}
-			}));
+				});
+				ios.OnActivated(app =>
+				{
+					// Clear dock badge when app becomes active
+					app.ApplicationIconBadgeNumber = 0;
+				});
+			});
 		});
 #endif
 

@@ -113,6 +113,12 @@
     border-color: rgba(255,255,255,0.15);
 }
 
+.session-card:focus-within {
+    border-color: rgba(78,168,209,0.6);
+    box-shadow: 0 0 0 1px rgba(78,168,209,0.3), 0 0 16px rgba(78,168,209,0.15);
+    background: rgba(78,168,209,0.06);
+}
+
 /* === Expanded card — mirrors Chat (Home.razor) layout === */
 .expanded-card {
     display: flex;
@@ -435,6 +441,23 @@
     padding: 0.5rem;
     background: rgba(0,0,0,0.2);
     border-radius: 8px;
+}
+
+.card-messages .load-more-btn {
+    background: rgba(78,168,209,0.1);
+    border: 1px solid rgba(78,168,209,0.2);
+    border-radius: 6px;
+    color: rgba(78,168,209,0.7);
+    font-size: 0.7rem;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.card-messages .load-more-btn:hover {
+    background: rgba(78,168,209,0.2);
+    color: #4ea8d1;
 }
 
 .card-empty {

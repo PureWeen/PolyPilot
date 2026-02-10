@@ -135,6 +135,11 @@
                         </div>
                         <span class="status-sep">·</span>
                         <select class="inline-model-select" value="@GetExpandedModel(session)" @onchange="e => SetExpandedModel(session, e.Value?.ToString())">
+                            @{ var sessionModel = GetSessionModel(session); }
+                            @if (!availableModels.Contains(sessionModel))
+                            {
+                                <option value="@sessionModel">@sessionModel</option>
+                            }
                             @foreach (var m in availableModels)
                             {
                                 <option value="@m">@m</option>
@@ -190,7 +195,7 @@
                         <button class="card-close" @onclick="() => CloseSession(session.Name)" title="Close session">✕</button>
                     </div>
                     <div class="card-context">
-                        <span class="card-model">@session.Model</span>
+                        <span class="card-model">@GetSessionModel(session)</span>
                         @if (!string.IsNullOrEmpty(session.WorkingDirectory))
                         {
                             <span class="card-dir" title="@session.WorkingDirectory">📁 @ShortenPath(session.WorkingDirectory)</span>
@@ -203,11 +208,14 @@
 
                     <div class="card-messages">
                         @{
-                            List<ChatMessage> lastMessages;
-                            try { lastMessages = session.History.TakeLast(6).ToList(); }
-                            catch { lastMessages = new(); }
+                            var cardMsgs = GetCardMessages(session.Name, session.History);
+                            var hasMoreCard = session.History.Count > cardMsgs.Count;
                         }
-                        <ChatMessageList Messages="lastMessages"
+                        @if (hasMoreCard)
+                        {
+                            <button class="load-more-btn" @onclick="() => LoadMoreCardMessages(session.Name)">▲ Load earlier messages (@(session.History.Count - cardMsgs.Count) more)</button>
+                        }
+                        <ChatMessageList Messages="cardMsgs"
                                          StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s) ? s : "")"
                                          CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t) ? t : "")"
                                          ToolActivities="@(toolActivitiesBySession.TryGetValue(session.Name, out var ta) ? ta : new())"
@@ -449,8 +457,25 @@
         ");
     }
 
+    private DateTime _lastRefresh = DateTime.MinValue;
+    private bool _refreshPending;
+
     private async Task SafeRefreshAsync()
     {
+        // Throttle to max ~4 refreshes per second to avoid blocking UI interactions
+        var now = DateTime.UtcNow;
+        if ((now - _lastRefresh).TotalMilliseconds < 250)
+        {
+            if (!_refreshPending)
+            {
+                _refreshPending = true;
+                _ = Task.Delay(250).ContinueWith(_ => InvokeAsync(SafeRefreshAsync));
+            }
+            return;
+        }
+        _lastRefresh = now;
+        _refreshPending = false;
+
         // Capture all card input values before re-render wipes them
         try
         {
@@ -793,6 +818,8 @@
     }
 
     private const int DefaultMessageWindow = 25;
+    private const int DefaultCardMessageWindow = 10;
+    private Dictionary<string, int> cardMessageCounts = new();
 
     private List<ChatMessage> GetWindowedMessages(string sessionName, IReadOnlyList<ChatMessage> history)
     {
@@ -808,6 +835,26 @@
         }
     }
 
+    private List<ChatMessage> GetCardMessages(string sessionName, IReadOnlyList<ChatMessage> history)
+    {
+        var limit = cardMessageCounts.TryGetValue(sessionName, out var c) ? c : DefaultCardMessageWindow;
+        try
+        {
+            if (history.Count <= limit) return history.ToList();
+            return history.Skip(history.Count - limit).ToList();
+        }
+        catch (InvalidOperationException)
+        {
+            return history.ToArray().TakeLast(limit).ToList();
+        }
+    }
+
+    private void LoadMoreCardMessages(string sessionName)
+    {
+        var current = cardMessageCounts.TryGetValue(sessionName, out var c) ? c : DefaultCardMessageWindow;
+        cardMessageCounts[sessionName] = current + 15;
+    }
+
     private void LoadMoreExpandedMessages(string sessionName)
     {
         var current = expandedMessageCounts.TryGetValue(sessionName, out var c) ? c : DefaultMessageWindow;
@@ -816,21 +863,30 @@
 
     // === Model, plan mode, font, token helpers ===
 
-    private readonly string[] availableModels = new[]
+    private static readonly string[] _fallbackModels = new[]
     {
-        "claude-opus-4.6", "claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5",
-        "gpt-5.2", "gpt-5.1", "gpt-5", "gpt-5-mini", "gemini-3-pro-preview",
+        "claude-opus-4.6", "claude-opus-4.6-fast", "claude-opus-4.5", "claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5",
+        "gpt-5.2", "gpt-5.2-codex", "gpt-5.1", "gpt-5.1-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5", "gpt-5-mini", "gpt-4.1",
+        "gemini-3-pro-preview",
     };
+    private IReadOnlyList<string> availableModels =>
+        CopilotService.AvailableModels.Count > 0 ? CopilotService.AvailableModels : _fallbackModels;
 
-    private string GetExpandedModel(AgentSessionInfo session)
+    private string GetSessionModel(AgentSessionInfo session)
     {
-        if (usageBySession.TryGetValue(session.Name, out var u) && !string.IsNullOrEmpty(u.Model) && availableModels.Contains(u.Model))
+        // Priority: 1) actual model from usage events, 2) user override, 3) session config, 4) first available
+        if (usageBySession.TryGetValue(session.Name, out var u) && !string.IsNullOrEmpty(u.Model))
             return u.Model;
         if (modelOverrideBySession.TryGetValue(session.Name, out var m))
             return m;
-        if (!string.IsNullOrEmpty(session.Model) && session.Model != "resumed" && availableModels.Contains(session.Model))
+        if (!string.IsNullOrEmpty(session.Model) && session.Model != "resumed")
             return session.Model;
         return availableModels[0];
+    }
+
+    private string GetExpandedModel(AgentSessionInfo session)
+    {
+        return GetSessionModel(session);
     }
 
     private void SetExpandedModel(AgentSessionInfo session, string? model)

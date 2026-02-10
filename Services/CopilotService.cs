@@ -91,6 +91,7 @@ public class CopilotService : IAsyncDisposable
     public string? ActiveSessionName => _activeSessionName;
     public ChatDatabase ChatDb => _chatDb;
     public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
+    public List<string> AvailableModels { get; private set; } = new();
 
     public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient)
     {
@@ -226,6 +227,9 @@ public class CopilotService : IAsyncDisposable
         }
 
         OnStateChanged?.Invoke();
+
+        // Fetch available models dynamically
+        _ = FetchAvailableModelsAsync();
 
         // Restore previous sessions (includes subscribing to untracked server sessions in Persistent mode)
         await RestorePreviousSessionsAsync(cancellationToken);
@@ -1207,7 +1211,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 var uTokenLimit = uData?.GetType().GetProperty("TokenLimit")?.GetValue(uData) as int?;
                 var uInputTokens = uData?.GetType().GetProperty("InputTokens")?.GetValue(uData) as int?;
                 var uOutputTokens = uData?.GetType().GetProperty("OutputTokens")?.GetValue(uData) as int?;
-                if (!string.IsNullOrEmpty(uModel) && state.Info.Model == "resumed")
+                if (!string.IsNullOrEmpty(uModel))
                     state.Info.Model = uModel;
                 Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(uModel, uCurrentTokens, uTokenLimit, uInputTokens, uOutputTokens)));
                 break;
@@ -1217,7 +1221,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 var aModel = aData?.GetType().GetProperty("Model")?.GetValue(aData)?.ToString();
                 var aInput = aData?.GetType().GetProperty("InputTokens")?.GetValue(aData) as int?;
                 var aOutput = aData?.GetType().GetProperty("OutputTokens")?.GetValue(aData) as int?;
-                if (!string.IsNullOrEmpty(aModel) && state.Info.Model == "resumed")
+                if (!string.IsNullOrEmpty(aModel))
                     state.Info.Model = aModel;
                 if (aInput.HasValue || aOutput.HasValue)
                 {
@@ -1231,6 +1235,17 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                 state.Info.IsProcessing = false;
                 Invoke(() => OnStateChanged?.Invoke());
+                break;
+
+            case SessionModelChangeEvent modelChange:
+                var newModel = modelChange.Data?.NewModel;
+                if (!string.IsNullOrEmpty(newModel))
+                {
+                    state.Info.Model = newModel;
+                    Debug($"Session '{sessionName}' model changed to: {newModel}");
+                    Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(newModel, null, null, null, null)));
+                    Invoke(() => OnStateChanged?.Invoke());
+                }
                 break;
                 
             default:
@@ -1376,6 +1391,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Fire completion notification
         var summary = response.Length > 100 ? response[..100] + "..." : response;
         OnSessionComplete?.Invoke(state.Info.Name, summary);
+        IncrementBadge();
 
         // Auto-dispatch next queued message
         if (state.Info.MessageQueue.Count > 0)
@@ -1782,7 +1798,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null)
+    public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null)
     {
         try
         {
@@ -1791,7 +1807,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 CurrentPage = currentPage,
                 ActiveSession = activeSession ?? _activeSessionName,
-                FontSize = fontSize ?? existing?.FontSize ?? 20
+                FontSize = fontSize ?? existing?.FontSize ?? 20,
+                SelectedModel = selectedModel ?? existing?.SelectedModel
             };
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);
@@ -1905,6 +1922,60 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         catch { }
         return null;
     }
+
+    // Dock badge for completed sessions
+    private int _badgeCount;
+
+    private void IncrementBadge()
+    {
+#if MACCATALYST || IOS
+        _badgeCount++;
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            try { UIKit.UIApplication.SharedApplication.ApplicationIconBadgeNumber = _badgeCount; }
+            catch { }
+        });
+#endif
+    }
+
+    public void ClearBadge()
+    {
+#if MACCATALYST || IOS
+        _badgeCount = 0;
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            try { UIKit.UIApplication.SharedApplication.ApplicationIconBadgeNumber = 0; }
+            catch { }
+        });
+#endif
+    }
+
+    private async Task FetchAvailableModelsAsync()
+    {
+        try
+        {
+            if (_client == null) return;
+            var modelList = await _client.ListModelsAsync();
+            if (modelList != null && modelList.Count > 0)
+            {
+                var models = modelList
+                    .Where(m => !string.IsNullOrEmpty(m.Name))
+                    .Select(m => m.Name!)
+                    .OrderBy(m => m)
+                    .ToList();
+                if (models.Count > 0)
+                {
+                    AvailableModels = models;
+                    Debug($"Loaded {models.Count} models from SDK");
+                    OnStateChanged?.Invoke();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to fetch models: {ex.Message}");
+        }
+    }
 }
 
 public class UiState
@@ -1912,6 +1983,7 @@ public class UiState
     public string CurrentPage { get; set; } = "/";
     public string? ActiveSession { get; set; }
     public int FontSize { get; set; } = 20;
+    public string? SelectedModel { get; set; }
 }
 
 public class ActiveSessionEntry
