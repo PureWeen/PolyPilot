@@ -283,6 +283,24 @@
     gap: 0.5rem;
 }
 
+.card-expand {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.4);
+    font-size: var(--type-body);
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    cursor: pointer;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+.card-expand:hover {
+    background: rgba(96, 165, 250, 0.2);
+    color: #60a5fa;
+}
+
 .card-close {
     background: none;
     border: none;

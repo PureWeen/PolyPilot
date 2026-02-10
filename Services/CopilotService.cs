@@ -405,12 +405,10 @@ public class CopilotService : IAsyncDisposable
                     Info = info
                 };
             }
-            // Update processing state — don't overwrite local 'true' with remote 'false' 
-            // (race: we sent a message but server hasn't started processing yet)
+            // Update processing state from server
             if (_sessions.TryGetValue(rs.Name, out var state))
             {
-                if (rs.IsProcessing)
-                    state.Info.IsProcessing = true;
+                state.Info.IsProcessing = rs.IsProcessing;
                 state.Info.MessageCount = rs.MessageCount;
             }
         }
@@ -425,6 +423,7 @@ public class CopilotService : IAsyncDisposable
 
         // Sync history from WsBridgeClient cache
         // Don't overwrite if local history has messages not yet reflected by server
+        var sessionsNeedingHistory = new List<string>();
         foreach (var (name, messages) in _bridgeClient.SessionHistories)
         {
             if (_sessions.TryGetValue(name, out var s))
@@ -436,6 +435,28 @@ public class CopilotService : IAsyncDisposable
                     s.Info.History.AddRange(messages);
                 }
             }
+        }
+
+        // Request history for sessions that have messages but no local history yet
+        foreach (var rs in remoteSessions)
+        {
+            if (rs.MessageCount > 0 && _sessions.TryGetValue(rs.Name, out var s) && s.Info.History.Count == 0
+                && !_bridgeClient.SessionHistories.ContainsKey(rs.Name))
+            {
+                sessionsNeedingHistory.Add(rs.Name);
+            }
+        }
+
+        if (sessionsNeedingHistory.Count > 0)
+        {
+            _ = Task.Run(async () =>
+            {
+                foreach (var name in sessionsNeedingHistory)
+                {
+                    try { await _bridgeClient.RequestHistoryAsync(name); }
+                    catch { }
+                }
+            });
         }
 
         // Sync active session
