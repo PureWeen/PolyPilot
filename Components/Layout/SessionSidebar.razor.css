@@ -392,12 +392,12 @@
 }
 
 .filter-box {
-    padding: 0.5rem 0.75rem;
+    padding: 0.5rem 0.5rem;
 }
 
 .filter-input {
     width: 100%;
-    padding: 0.5rem 0.75rem;
+    padding: 0.5rem;
     border: 1px solid rgba(255,255,255,0.2);
     border-radius: 6px;
     background: rgba(255,255,255,0.1);
@@ -741,5 +741,14 @@
         text-align: right;
         margin-top: 0.25rem;
         font-size: var(--type-callout);
+    }
+
+    .filter-input {
+        padding: 0.4rem 0.5rem;
+        font-size: var(--type-callout);
+    }
+
+    .filter-box {
+        padding: 0.5rem 0.25rem;
     }
 }

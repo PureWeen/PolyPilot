@@ -305,7 +305,7 @@
 .expanded-card .input-area textarea {
     flex: 1;
     min-width: 0;
-    padding: 0.45rem 0.6rem;
+    padding: 0.5rem 0.65rem;
     border: 1px solid rgba(78,168,209,0.25);
     border-radius: 8px;
     background: rgba(78,168,209,0.15);
@@ -314,8 +314,9 @@
     font-family: inherit;
     resize: none;
     overflow-y: hidden;
-    min-height: 36px;
+    min-height: 38px;
     max-height: 150px;
+    line-height: 1.4;
 }
 .expanded-card .input-area textarea::placeholder { color: #646e8a; }
 .expanded-card .input-area textarea:focus { outline: none; border-color: #4ea8d1; }
@@ -337,8 +338,8 @@
 }
 .send-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
 .send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-.send-btn.stop-btn { border-color: rgba(239,68,68,0.5); color: rgba(239,68,68,0.8); }
-.send-btn.stop-btn:hover { background: rgba(239,68,68,0.15); }
+.send-btn.stop-btn { border-color: rgba(255,255,255,0.25); color: rgba(239,68,68,0.7); }
+.send-btn.stop-btn:hover { background: rgba(239,68,68,0.1); }
 
 .attach-btn {
     border: none;
@@ -358,24 +359,27 @@
 .attach-btn:hover { background: rgba(59,130,246,0.3); color: white; }
 
 .stop-btn {
-    padding: 0.35rem 0.6rem;
+    padding: 0;
     background: transparent;
-    border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 8px;
-    color: rgba(255,255,255,0.35);
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 50%;
+    color: rgba(239,68,68,0.7);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    height: 36px;
+    width: 36px;
+    flex-shrink: 0;
 }
-.stop-btn:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+.stop-btn:hover { background: rgba(239,68,68,0.1); }
 
 /* Status bar (expanded) */
 .input-status-bar {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0 0.25rem;
+    padding: 0;
     font-size: 0.75rem;
     color: rgba(200,216,240,0.35);
     overflow-x: auto;
@@ -910,4 +914,5 @@
     .collapse-card-btn { font-size: var(--type-callout, 0.8rem); padding: 0.15rem 0.35rem; }
     .expanded-card .chat-header { padding: 0.4rem 0.5rem; gap: 0.4rem; }
     .chat-header-title { font-size: var(--type-body); }
+    .expanded-card .input-area textarea { font-size: var(--type-callout, 0.8rem); }
 }

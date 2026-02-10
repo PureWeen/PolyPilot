@@ -287,6 +287,7 @@
         if (string.IsNullOrEmpty(content)) return "";
         var lines = content.Split('\n');
         var sb = new System.Text.StringBuilder();
+        var hasText = false;
         foreach (var line in lines)
         {
             var trimmed = line.Trim();
@@ -294,6 +295,7 @@
                 trimmed.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) &&
                 System.IO.File.Exists(trimmed))
             {
+                if (hasText) { sb.Append("</p>"); hasText = false; }
                 var dataUri = FileToDataUri(trimmed);
                 var fileName = System.IO.Path.GetFileName(trimmed);
                 var safeName = System.Net.WebUtility.HtmlEncode(fileName);
@@ -303,9 +305,11 @@
                     continue;
                 }
             }
-            if (sb.Length > 0) sb.Append("<br/>");
+            if (!hasText) { sb.Append("<p>"); hasText = true; }
+            else sb.Append("<br/>");
             sb.Append(System.Net.WebUtility.HtmlEncode(line));
         }
+        if (hasText) sb.Append("</p>");
         return sb.ToString();
     }
 

@@ -74,8 +74,16 @@
     background: rgba(78, 168, 209, 0.2);
     border: 1px solid rgba(78, 168, 209, 0.3);
     border-radius: 12px 12px 0 12px;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem 1rem 0.35rem;
     max-width: 80%;
+}
+
+::deep .chat-msg.user .chat-msg-text p {
+    margin: 0 0 0.4rem;
+}
+
+::deep .chat-msg.user .chat-msg-text p:last-child {
+    margin-bottom: 0;
 }
 
 .chat-message-list.full .chat-msg.assistant .chat-msg-content {
@@ -84,6 +92,14 @@
     border-radius: 12px 12px 12px 0;
     padding: 0.75rem 1rem 0.35rem;
     max-width: 80%;
+}
+
+::deep .chat-msg.assistant .chat-msg-text p {
+    margin: 0 0 0.4rem;
+}
+
+::deep .chat-msg.assistant .chat-msg-text p:last-child {
+    margin-bottom: 0;
 }
 
 .chat-message-list.full .chat-msg-avatar {
@@ -378,6 +394,10 @@
 
 ::deep .markdown-body {
     color: #a0b4cc;
+}
+
+::deep .markdown-body p:last-child {
+    margin-bottom: 0;
 }
 
 ::deep .markdown-body h1, ::deep .markdown-body h2, ::deep .markdown-body h3 {

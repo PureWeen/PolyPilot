@@ -642,6 +642,12 @@
             {
                 CopilotService.SetActiveSession(null);
             }
+            // Clear stale streaming content for sessions that finished
+            foreach (var s in sessions)
+            {
+                if (!s.IsProcessing && streamingBySession.ContainsKey(s.Name))
+                    streamingBySession.Remove(s.Name);
+            }
             InvokeAsync(SafeRefreshAsync);
         }
         finally { _refreshing = false; }
