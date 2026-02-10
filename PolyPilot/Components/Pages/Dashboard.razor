@@ -643,8 +643,21 @@
             return;
         }
 
+        _needsScrollToBottom = true;
         streamingBySession.Remove(sessionName);
         activityBySession.Remove(sessionName);
+
+        // Force scroll to bottom immediately after sending
+        await JS.InvokeVoidAsync("eval", @"
+            document.querySelectorAll('.card-messages, .messages').forEach(function(el) {
+                el.scrollTop = el.scrollHeight;
+            });
+            setTimeout(function() {
+                document.querySelectorAll('.card-messages, .messages').forEach(function(el) {
+                    el.scrollTop = el.scrollHeight;
+                });
+            }, 100);
+        ");
 
         try
         {
