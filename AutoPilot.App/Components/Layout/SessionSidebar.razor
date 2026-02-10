@@ -198,7 +198,7 @@ else
                     {
                         var isOpen = IsSessionOpen(persisted.SessionId);
                         <div class="session-item persisted @(isOpen ? "already-open" : "") @(confirmResumeId == persisted.SessionId ? "confirm-active" : "")" 
-                             @onclick="() => { if (isOpen) SwitchToOpenSession(persisted.SessionId); else ConfirmResume(persisted); }"
+                             @onclick="async () => { if (isOpen) await SwitchToOpenSession(persisted.SessionId); else ConfirmResume(persisted); }"
                              title="@(isOpen ? "Click to switch to this session" : GetTooltip(persisted))">
                             <div class="session-info">
                                 <span class="session-name persisted-name">@(persisted.Title ?? "Untitled")</span>
@@ -243,7 +243,6 @@ else
     };
 
     private string selectedModel = "claude-opus-4.6";
-    private string _lastSavedModel = "";
     private string sessionFilter = "";
     private bool isCreating = false;
     private string newSessionName = "";

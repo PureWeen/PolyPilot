@@ -273,7 +273,11 @@ public partial class CopilotService
         _badgeCount++;
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            try { UIKit.UIApplication.SharedApplication.ApplicationIconBadgeNumber = _badgeCount; }
+            try
+            {
+                if (OperatingSystem.IsIOSVersionAtLeast(16) || OperatingSystem.IsMacCatalystVersionAtLeast(16))
+                    UserNotifications.UNUserNotificationCenter.Current.SetBadgeCount(_badgeCount, null);
+            }
             catch { }
         });
 #endif
@@ -285,7 +289,11 @@ public partial class CopilotService
         _badgeCount = 0;
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            try { UIKit.UIApplication.SharedApplication.ApplicationIconBadgeNumber = 0; }
+            try
+            {
+                if (OperatingSystem.IsIOSVersionAtLeast(16) || OperatingSystem.IsMacCatalystVersionAtLeast(16))
+                    UserNotifications.UNUserNotificationCenter.Current.SetBadgeCount(0, null);
+            }
             catch { }
         });
 #endif

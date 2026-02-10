@@ -79,7 +79,8 @@ public static class MauiProgram
 				ios.OnActivated(app =>
 				{
 					// Clear dock badge when app becomes active
-					app.ApplicationIconBadgeNumber = 0;
+					if (OperatingSystem.IsIOSVersionAtLeast(16) || OperatingSystem.IsMacCatalystVersionAtLeast(16))
+						try { UserNotifications.UNUserNotificationCenter.Current.SetBadgeCount(0, null); } catch { }
 				});
 			});
 		});

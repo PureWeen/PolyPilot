@@ -231,7 +231,6 @@
                 await Task.Delay(2000);
             }
             sessions = CopilotService.GetAllSessions().ToList();
-            _sessionsLoaded = true;
 
             if (CopilotService.NeedsConfiguration)
             {
@@ -476,7 +475,6 @@
     }
 
     private bool _explicitlyCollapsed;
-    private bool _sessionsLoaded;
     private bool _initialGridSet;
     private bool _refreshing;
 
@@ -487,7 +485,6 @@
         try
         {
             sessions = CopilotService.GetAllSessions().ToList();
-            _sessionsLoaded = true;
 
             // On first load with multiple sessions, default to grid view
             if (!_initialGridSet && sessions.Count > 1)

@@ -87,7 +87,7 @@ public partial class CopilotService
                 if (toolDone.Data == null) break;
                 var completeCallId = toolDone.Data.ToolCallId ?? "";
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
-                var resultStr = FormatToolResult(toolDone.Data.Result);
+                var resultStr = FormatToolResult(toolDone.Data!.Result);
                 var hasError = toolDone.Data.Error != null;
 
                 // Skip filtered tools
