@@ -216,6 +216,82 @@ public class WsBridgeClient : IDisposable
 
         Console.WriteLine("[WsBridgeClient] Receive loop ended");
         OnStateChanged?.Invoke();
+
+        // Auto-reconnect if not intentionally stopped
+        if (!ct.IsCancellationRequested && !string.IsNullOrEmpty(_remoteWsUrl))
+        {
+            _ = ReconnectAsync();
+        }
+    }
+
+    private async Task ReconnectAsync()
+    {
+        var maxDelay = 30_000;
+        var delay = 2_000;
+
+        while (!(_cts?.IsCancellationRequested ?? true))
+        {
+            Console.WriteLine($"[WsBridgeClient] Reconnecting in {delay / 1000}s...");
+            try { await Task.Delay(delay, _cts!.Token); }
+            catch (OperationCanceledException) { return; }
+
+            try
+            {
+                _ws?.Dispose();
+                _ws = new ClientWebSocket();
+                if (!string.IsNullOrEmpty(_authToken))
+                    _ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {_authToken}");
+
+                var uri = new Uri(_remoteWsUrl!);
+
+                HttpMessageInvoker? invoker = null;
+                try
+                {
+                    var addresses = await System.Net.Dns.GetHostAddressesAsync(uri.Host);
+                    var handler = new SocketsHttpHandler
+                    {
+                        SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+                        {
+                            ApplicationProtocols = [System.Net.Security.SslApplicationProtocol.Http11],
+                            TargetHost = uri.Host
+                        },
+                        ConnectCallback = async (context, cancellationToken) =>
+                        {
+                            var socket = new System.Net.Sockets.Socket(System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp);
+                            await socket.ConnectAsync(addresses, context.DnsEndPoint.Port, cancellationToken);
+                            return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
+                        }
+                    };
+                    invoker = new HttpMessageInvoker(handler);
+                    await _ws.ConnectAsync(uri, invoker, _cts!.Token);
+                }
+                catch
+                {
+                    invoker?.Dispose();
+                    invoker = null;
+                    _ws?.Dispose();
+                    _ws = new ClientWebSocket();
+                    if (!string.IsNullOrEmpty(_authToken))
+                        _ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {_authToken}");
+                    await _ws.ConnectAsync(uri, _cts!.Token);
+                }
+
+                Console.WriteLine("[WsBridgeClient] Reconnected");
+                OnStateChanged?.Invoke();
+
+                // Request fresh state
+                await RequestSessionsAsync(_cts!.Token);
+
+                // Resume receive loop
+                _receiveTask = ReceiveLoopAsync(_cts!.Token);
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WsBridgeClient] Reconnect failed: {ex.Message}");
+                delay = Math.Min(delay * 2, maxDelay);
+            }
+        }
     }
 
     private void HandleServerMessage(string json)
