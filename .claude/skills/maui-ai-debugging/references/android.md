@@ -52,7 +52,7 @@ dotnet build -f net10.0-android
 Forward both the Agent and CDP ports:
 ```bash
 adb reverse tcp:9223 tcp:9223                 # MauiDevFlow Agent
-adb reverse tcp:9222 tcp:9222                 # CDP (Blazor WebView)
+# (CDP uses same port as agent - no separate forwarding needed)
 ```
 
 Then verify: `maui-devflow MAUI status` and `maui-devflow cdp status`.
@@ -119,7 +119,7 @@ adb shell am force-stop <pkg>                 # kill app
 ### Port forwarding (critical for MauiDevFlow)
 ```bash
 adb reverse tcp:9223 tcp:9223                 # Agent
-adb reverse tcp:9222 tcp:9222                 # CDP
+# (CDP uses same port as agent - no separate forwarding needed)
 adb reverse --list                            # verify forwarding
 adb reverse --remove-all                      # clean up
 ```
