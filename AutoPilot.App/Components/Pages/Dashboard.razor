@@ -320,6 +320,7 @@
     private Dictionary<string, List<PendingImage>> pendingImagesBySession = new();
     private int fontSize = 20;
     private string? expandedSession;
+    private bool _needsScrollToBottom;
     private string? _focusedInputId;
     private string? _lastActiveSession;
     private int _cursorStart;
@@ -495,12 +496,24 @@
         var selEnd = _cursorEnd;
         _focusedInputId = null;
 
+        var forceScroll = _needsScrollToBottom ? "true" : "false";
+        _needsScrollToBottom = false;
+
         await JS.InvokeVoidAsync("eval", $@"
             (function() {{
-                document.querySelectorAll('.card-messages, .messages').forEach(function(el) {{
-                    var atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 120;
-                    if (atBottom) el.scrollTop = el.scrollHeight;
-                }});
+                function doScroll() {{
+                    document.querySelectorAll('.card-messages, .messages').forEach(function(el) {{
+                        if (!el.__scrollInit) {{
+                            el.__scrollInit = true;
+                            el.scrollTop = el.scrollHeight;
+                            return;
+                        }}
+                        var atBottom = {forceScroll} || (el.scrollHeight - el.scrollTop - el.clientHeight) < 120;
+                        if (atBottom) el.scrollTop = el.scrollHeight;
+                    }});
+                }}
+                doScroll();
+                if ({forceScroll}) setTimeout(doScroll, 50);
                 var drafts = {draftsJson};
                 for (var id in drafts) {{
                     var el = document.getElementById(id);
@@ -822,6 +835,7 @@
     {
         await SaveDraftsAndCursor();
         expandedSession = sessionName;
+        _needsScrollToBottom = true;
         CopilotService.SwitchSession(sessionName);
     }
 
@@ -829,6 +843,7 @@
     {
         await SaveDraftsAndCursor();
         expandedSession = null;
+        _needsScrollToBottom = true;
         _lastActiveSession = null;
         _explicitlyCollapsed = true;
         CopilotService.SetActiveSession(null);
@@ -959,6 +974,7 @@
         CopilotService.SwitchSession(sessionName);
         await SaveDraftsAndCursor();
         expandedSession = sessionName;
+        _needsScrollToBottom = true;
         _focusedInputId = $"input-{sessionName.Replace(" ", "-")}";
         _cursorStart = 0;
         _cursorEnd = 0;
