@@ -42,6 +42,69 @@
             }
         }, true);
 
+        // Global image paste handler for chat inputs
+        document.addEventListener('paste', function(e) {
+            var sel = '.card-input input, .card-input textarea, .input-row textarea';
+            if (!e.target.matches || !e.target.matches(sel)) return;
+            var items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].type.startsWith('image/')) {
+                    if (!window.__dashRef) return;
+                    e.preventDefault();
+                    var file = items[i].getAsFile();
+                    if (file) {
+                        var reader = new FileReader();
+                        reader.onload = function() {
+                            var base64 = reader.result.split(',')[1];
+                            var ext = (file.name && file.name.includes('.')) ? file.name.split('.').pop() : 'png';
+                            var name = file.name || ('pasted-image.' + ext);
+                            window.__dashRef.invokeMethodAsync('JsImagePasted', base64, name, ext, e.target.id || '');
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                    return;
+                }
+            }
+        }, true);
+
+        // Global image drop handler for chat input areas
+        document.addEventListener('dragover', function(e) {
+            var zone = e.target.closest && (e.target.closest('.input-area') || e.target.closest('.card-input'));
+            if (zone && e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
+                e.preventDefault();
+                zone.classList.add('drag-over');
+            }
+        });
+        document.addEventListener('dragleave', function(e) {
+            var zone = e.target.closest && (e.target.closest('.input-area') || e.target.closest('.card-input'));
+            if (zone) zone.classList.remove('drag-over');
+        });
+        document.addEventListener('drop', function(e) {
+            var zone = e.target.closest && (e.target.closest('.input-area') || e.target.closest('.card-input'));
+            if (!zone) return;
+            e.preventDefault();
+            zone.classList.remove('drag-over');
+            var input = zone.querySelector('textarea') || zone.querySelector('input');
+            var inputId = input ? input.id : '';
+            var files = e.dataTransfer && e.dataTransfer.files;
+            if (!files || !window.__dashRef) return;
+            for (var i = 0; i < files.length; i++) {
+                if (files[i].type.startsWith('image/')) {
+                    (function(f) {
+                        var reader = new FileReader();
+                        reader.onload = function() {
+                            var base64 = reader.result.split(',')[1];
+                            var ext = (f.name && f.name.includes('.')) ? f.name.split('.').pop() : 'png';
+                            var name = f.name || ('dropped-image.' + ext);
+                            window.__dashRef.invokeMethodAsync('JsImagePasted', base64, name, ext, inputId);
+                        };
+                        reader.readAsDataURL(f);
+                    })(files[i]);
+                }
+            }
+        });
+
         window.setupTextareaEnterHandler = function(element) {
             if (!element || element._enterHandlerSet) return;
             element._enterHandlerSet = true;

@@ -114,6 +114,21 @@
                             }
                         </div>
                     }
+                    @if (pendingImagesBySession.TryGetValue(session.Name, out var pendingImgs) && pendingImgs.Any())
+                    {
+                        <div class="pending-images">
+                            @for (var pi = 0; pi < pendingImgs.Count; pi++)
+                            {
+                                var pidx = pi;
+                                var pimg = pendingImgs[pi];
+                                <div class="image-badge">
+                                    <span class="image-badge-icon">🖼️</span>
+                                    <span class="image-badge-name">@pimg.FileName</span>
+                                    <button class="image-badge-remove" @onclick="() => RemovePendingImage(session.Name, pidx)">×</button>
+                                </div>
+                            }
+                        </div>
+                    }
                     <div class="input-row">
                         <textarea id="input-@session.Name.Replace(" ", "-")"
                                   placeholder="@(session.IsProcessing ? "Message will be queued…" : $"Send to {session.Name}...")"
@@ -245,6 +260,22 @@
                         <div class="intent-pill compact">💭 @intentG</div>
                     }
 
+                    @if (pendingImagesBySession.TryGetValue(session.Name, out var cardPendingImgs) && cardPendingImgs.Any())
+                    {
+                        <div class="pending-images">
+                            @for (var cpi = 0; cpi < cardPendingImgs.Count; cpi++)
+                            {
+                                var cpidx = cpi;
+                                var cpimg = cardPendingImgs[cpi];
+                                <div class="image-badge">
+                                    <span class="image-badge-icon">🖼️</span>
+                                    <span class="image-badge-name">@cpimg.FileName</span>
+                                    <button class="image-badge-remove" @onclick="() => RemovePendingImage(session.Name, cpidx)">×</button>
+                                </div>
+                            }
+                        </div>
+                    }
+
                     <div class="card-input">
                         <input type="text" id="input-@session.Name.Replace(" ", "-")"
                                placeholder="@(session.IsProcessing ? "Queue a message…" : $"Send to {session.Name}...")" />
@@ -276,6 +307,7 @@
     private Dictionary<string, SessionUsageInfo> usageBySession = new();
     private Dictionary<string, bool> planModeBySession = new();
     private Dictionary<string, string> modelOverrideBySession = new();
+    private Dictionary<string, List<PendingImage>> pendingImagesBySession = new();
     private int fontSize = 20;
     private string? expandedSession;
     private string? _focusedInputId;
@@ -652,14 +684,22 @@
     {
         var inputId = $"input-{sessionName.Replace(" ", "-")}";
         var prompt = await JS.InvokeAsync<string>("eval", $"document.getElementById('{inputId}')?.value || ''");
-        if (string.IsNullOrWhiteSpace(prompt)) return;
+        var hasImages = pendingImagesBySession.TryGetValue(sessionName, out var pendingSendImages) && pendingSendImages.Count > 0;
+        if (string.IsNullOrWhiteSpace(prompt) && !hasImages) return;
 
         await JS.InvokeVoidAsync("eval", $"document.getElementById('{inputId}').value = ''");
         draftBySession.Remove(sessionName);
 
-        var finalPrompt = prompt.Trim();
+        var finalPrompt = (prompt ?? "").Trim();
         if (planModeBySession.GetValueOrDefault(sessionName))
             finalPrompt = $"[[PLAN]] {finalPrompt}";
+
+        List<string>? imagePaths = null;
+        if (hasImages)
+        {
+            imagePaths = pendingSendImages!.Select(i => i.TempPath).ToList();
+            pendingImagesBySession.Remove(sessionName);
+        }
 
         var session = sessions.FirstOrDefault(s => s.Name == sessionName);
         if (session?.IsProcessing == true)
@@ -673,7 +713,7 @@
 
         try
         {
-            _ = CopilotService.SendPromptAsync(sessionName, finalPrompt).ContinueWith(t =>
+            _ = CopilotService.SendPromptAsync(sessionName, finalPrompt, imagePaths).ContinueWith(t =>
             {
                 if (t.IsFaulted)
                 {
@@ -749,6 +789,45 @@
         [property: System.Text.Json.Serialization.JsonPropertyName("selStart")] int SelStart,
         [property: System.Text.Json.Serialization.JsonPropertyName("selEnd")] int SelEnd,
         [property: System.Text.Json.Serialization.JsonPropertyName("items")] List<DraftItem>? Items);
+
+    private record PendingImage(string TempPath, string FileName, string Extension);
+
+    [JSInvokable]
+    public async Task JsImagePasted(string base64, string fileName, string extension, string inputId)
+    {
+        var rawName = inputId.Replace("input-", "");
+        var sessionName = sessions.FirstOrDefault(s => s.Name.Replace(" ", "-") == rawName)?.Name;
+        if (string.IsNullOrEmpty(sessionName)) return;
+
+        try
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "autopilot-images");
+            Directory.CreateDirectory(tempDir);
+            var tempPath = Path.Combine(tempDir, $"{Guid.NewGuid()}.{extension}");
+            var bytes = Convert.FromBase64String(base64);
+            await File.WriteAllBytesAsync(tempPath, bytes);
+
+            if (!pendingImagesBySession.ContainsKey(sessionName))
+                pendingImagesBySession[sessionName] = new();
+            pendingImagesBySession[sessionName].Add(new PendingImage(tempPath, fileName, extension));
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving pasted image: {ex.Message}");
+        }
+    }
+
+    private void RemovePendingImage(string sessionName, int index)
+    {
+        if (pendingImagesBySession.TryGetValue(sessionName, out var images) && index >= 0 && index < images.Count)
+        {
+            try { File.Delete(images[index].TempPath); } catch { }
+            images.RemoveAt(index);
+            if (images.Count == 0) pendingImagesBySession.Remove(sessionName);
+        }
+    }
 
     private async Task StopSession(string sessionName)
     {
@@ -938,6 +1017,9 @@
         CopilotService.OnError -= HandleError;
         CopilotService.OnTurnStart -= HandleTurnStart;
         CopilotService.OnTurnEnd -= HandleTurnEnd;
+        foreach (var images in pendingImagesBySession.Values)
+            foreach (var img in images)
+                try { File.Delete(img.TempPath); } catch { }
         _dotNetRef?.Dispose();
     }
 }

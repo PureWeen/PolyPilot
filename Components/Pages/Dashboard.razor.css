@@ -646,3 +646,54 @@
     .card-messages { max-height: 180px; gap: 0.3rem; font-size: var(--type-callout, 0.8rem); }
     .card-dir { max-width: 160px; }
 }
+
+/* Image paste/drop badges */
+.pending-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    padding: 0.15rem 0;
+}
+
+.image-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.5rem;
+    background: rgba(78,168,209,0.12);
+    border: 1px solid rgba(78,168,209,0.25);
+    border-radius: 6px;
+    font-size: 0.7rem;
+    color: #a0b4cc;
+    max-width: 180px;
+}
+
+.image-badge-icon { flex-shrink: 0; font-size: 0.75rem; }
+
+.image-badge-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.image-badge-remove {
+    all: unset;
+    cursor: pointer;
+    color: rgba(255,255,255,0.35);
+    font-size: 0.8rem;
+    line-height: 1;
+    padding: 0 0.1rem;
+    flex-shrink: 0;
+}
+
+.image-badge-remove:hover { color: #ef4444; }
+
+/* Drag-over visual feedback */
+::deep .input-area.drag-over,
+::deep .card-input.drag-over {
+    background: rgba(78,168,209,0.15);
+    outline: 2px dashed rgba(78,168,209,0.5);
+    outline-offset: -2px;
+    border-radius: 8px;
+}

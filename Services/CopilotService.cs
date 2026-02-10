@@ -1131,6 +1131,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
                     });
                 }
+                else if (state.CurrentResponse.Length > 0)
+                {
+                    // Separate text blocks around filtered tools so they don't run together
+                    state.CurrentResponse.Append("\n\n");
+                }
                 break;
 
             case ToolExecutionCompleteEvent toolDone:
@@ -1307,42 +1312,21 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     {
         try
         {
-            var sdkAssembly = typeof(MessageOptions).Assembly;
-            var attachItemType = sdkAssembly.GetType("GitHub.Copilot.SDK.UserMessageDataAttachmentsItem");
-            var fileType = sdkAssembly.GetType("GitHub.Copilot.SDK.UserMessageDataAttachmentsItemFile");
-            if (attachItemType == null || fileType == null)
-            {
-                Debug("SDK attachment types not found, falling back to path-in-prompt");
-                return;
-            }
-
-            var items = new System.Collections.Generic.List<object>();
+            var attachments = new List<UserMessageDataAttachmentsItem>();
             foreach (var path in imagePaths)
             {
                 if (!File.Exists(path)) continue;
-                
-                // Create UserMessageDataAttachmentsItemFile with FilePath
-                var fileObj = Activator.CreateInstance(fileType);
-                fileType.GetProperty("FilePath")?.SetValue(fileObj, path);
-                
-                // Create UserMessageDataAttachmentsItem with File
-                var itemObj = Activator.CreateInstance(attachItemType);
-                attachItemType.GetProperty("File")?.SetValue(itemObj, fileObj);
-                
-                items.Add(itemObj!);
+                var fileItem = new UserMessageDataAttachmentsItemFile
+                {
+                    Path = path,
+                    DisplayName = System.IO.Path.GetFileName(path)
+                };
+                attachments.Add(fileItem);
             }
 
-            if (items.Count == 0) return;
-
-            // Create typed list and set on MessageOptions.Attachments
-            var listType = typeof(List<>).MakeGenericType(attachItemType);
-            var typedList = Activator.CreateInstance(listType);
-            var addMethod = listType.GetMethod("Add");
-            foreach (var item in items)
-                addMethod?.Invoke(typedList, new[] { item });
-
-            typeof(MessageOptions).GetProperty("Attachments")?.SetValue(options, typedList);
-            Debug($"Attached {items.Count} image(s) via SDK");
+            if (attachments.Count == 0) return;
+            options.Attachments = attachments;
+            Debug($"Attached {attachments.Count} image(s) via SDK");
         }
         catch (Exception ex)
         {
@@ -1454,7 +1438,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.ResponseCompletion = new TaskCompletionSource<string>();
         state.CurrentResponse.Clear();
 
-        state.Info.History.Add(new ChatMessage("user", prompt, DateTime.Now));
+        // Include image paths in history display so FormatUserMessage renders thumbnails
+        var displayPrompt = prompt;
+        if (imagePaths != null && imagePaths.Count > 0)
+            displayPrompt += "\n" + string.Join("\n", imagePaths);
+        state.Info.History.Add(new ChatMessage("user", displayPrompt, DateTime.Now));
         state.Info.MessageCount = state.Info.History.Count;
         OnStateChanged?.Invoke();
 
