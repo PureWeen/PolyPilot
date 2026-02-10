@@ -5,6 +5,6 @@
              Background="#1a1e33"
              x:Class="AutoPilot.App.MainPage">
 
-    <BlazorWebView x:Name="blazorWebView" HostPage="wwwroot/index.html" />
+    <BlazorWebView Background="#1a1e33" x:Name="blazorWebView" HostPage="wwwroot/index.html" />
 
 </ContentPage>

@@ -82,7 +82,7 @@
     background: rgba(0, 195, 91, 0.1);
     border: 1px solid rgba(0, 195, 91, 0.2);
     border-radius: 12px 12px 12px 0;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem 1rem 0.35rem;
     max-width: 80%;
 }
 
@@ -144,7 +144,7 @@
 .chat-message-list.full .chat-msg-time {
     font-size: var(--type-subhead);
     color: rgba(200,216,240,0.3);
-    margin-top: 0.25rem;
+    margin-top: 0.05rem;
 }
 
 .chat-message-list.full .chat-msg.system {

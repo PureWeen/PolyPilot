@@ -41,8 +41,8 @@
                         {
                             <span class="processing-dot"></span>
                         }
-                        <span class="model-badge hide-mobile">@GetExpandedModel(session)</span>
-                        @if (session.SessionId != null)
+                        <span class="model-badge">@GetExpandedModel(session)</span>
+                        @if (session.SessionId != null && PlatformHelper.IsDesktop)
                         {
                             <button class="folder-btn" title="Open session folder" @onclick="() => OpenSessionFolder(session.SessionId)" @onclick:stopPropagation="true">📂</button>
                         }
@@ -123,11 +123,21 @@
                         </div>
                     }
                     <div class="input-row">
+                        <input type="file" id="file-@session.Name.Replace(" ", "-")" accept="image/*" multiple style="display:none" />
                         <textarea id="input-@session.Name.Replace(" ", "-")"
-                                  placeholder="@(session.IsProcessing ? "Message will be queued…" : $"Send to {session.Name}...")"
+                                  placeholder="@(session.IsProcessing ? "Message will be queued…" : PlatformHelper.IsMobile ? "Message..." : "Message... (↵ send, ⇧↵ newline)")"
                                   rows="1"></textarea>
+                        <button class="attach-btn" @onclick="() => TriggerAttach(session.Name)" title="Attach image">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
+                        </button>
+                        @if (session.IsProcessing)
+                        {
+                            <button class="send-btn stop-btn" @onclick="() => StopSession(session.Name)" title="Stop">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                            </button>
+                        }
                         <button class="send-btn" @onclick="() => SendFromCard(session.Name)">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z"/></svg>
                         </button>
                     </div>
                     <div class="input-status-bar">
@@ -147,27 +157,31 @@
                                 <option value="@m">@m</option>
                             }
                         </select>
-                        @if (usageBySession.TryGetValue(session.Name, out var usage2))
-                        {
-                            @if (usage2.InputTokens.HasValue || usage2.OutputTokens.HasValue)
+                        <span class="status-extra">
+                            @if (usageBySession.TryGetValue(session.Name, out var usage2))
                             {
-                                <span class="status-sep">·</span>
-                                <span class="status-tokens">↑@FormatTokenCount(usage2.InputTokens ?? 0) ↓@FormatTokenCount(usage2.OutputTokens ?? 0)</span>
+                                @if (usage2.InputTokens.HasValue || usage2.OutputTokens.HasValue)
+                                {
+                                    <span class="status-sep">·</span>
+                                    <span class="status-tokens">↑@FormatTokenCount(usage2.InputTokens ?? 0) ↓@FormatTokenCount(usage2.OutputTokens ?? 0)</span>
+                                }
+                                @if (usage2.CurrentTokens.HasValue && usage2.TokenLimit.HasValue)
+                                {
+                                    <span class="status-sep">·</span>
+                                    <span class="status-ctx">@FormatTokenCount(usage2.CurrentTokens.Value)/@FormatTokenCount(usage2.TokenLimit.Value) ctx</span>
+                                }
                             }
-                            @if (usage2.CurrentTokens.HasValue && usage2.TokenLimit.HasValue)
-                            {
-                                <span class="status-sep">·</span>
-                                <span class="status-ctx">@FormatTokenCount(usage2.CurrentTokens.Value)/@FormatTokenCount(usage2.TokenLimit.Value) ctx</span>
-                            }
-                        }
-                        <span class="status-sep">·</span>
-                        <span class="status-msgs">@session.History.Count msgs</span>
-                        <span class="status-sep">·</span>
-                        <span class="font-size-controls">
-                            <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)">A−</button>
-                            <span class="font-size-label" @onclick="ResetFontSize">@(fontSize)px</span>
-                            <button class="font-size-btn" @onclick="IncreaseFontSize" disabled="@(fontSize >= 24)">A+</button>
+                            <span class="status-sep">·</span>
+                            <span class="status-msgs">@session.History.Count msgs</span>
+                            <span class="status-sep">·</span>
+                            <span class="font-size-controls">
+                                <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)">A−</button>
+                                <span class="font-size-label" @onclick="ResetFontSize">@(fontSize)px</span>
+                                <button class="font-size-btn" @onclick="IncreaseFontSize" disabled="@(fontSize >= 24)">A+</button>
+                            </span>
                         </span>
+                        <span class="status-sep log-sep">·</span>
+                        <span class="log-label" style="color:rgba(200,216,240,0.35);font-size:var(--type-footnote)">Log</span>
                     </div>
                 </div>
             </div>
@@ -274,6 +288,10 @@
                     <div class="card-input">
                         <input type="text" id="input-@session.Name.Replace(" ", "-")"
                                placeholder="@(session.IsProcessing ? "Queue a message…" : $"Send to {session.Name}...")" />
+                        @if (session.IsProcessing)
+                        {
+                            <button class="card-stop-btn" @onclick="() => StopSession(session.Name)" title="Stop">■</button>
+                        }
                         <button @onclick="() => SendFromCard(session.Name)">
                             @(session.IsProcessing ? "📋" : "➤")
                         </button>
@@ -385,9 +403,12 @@
                         var isInput = e.target.matches && e.target.matches(sel);
                         if (e.key === 'Enter' && !e.shiftKey && isInput) {
                             e.preventDefault();
+                            if (window.__sendPending) return;
+                            window.__sendPending = true;
+                            setTimeout(function() { window.__sendPending = false; }, 500);
                             var container = e.target.closest('.card-input') || e.target.closest('.input-row');
                             if (container) {
-                                var btn = container.querySelector('.send-btn') || container.querySelectorAll('button')[container.querySelectorAll('button').length - 1];
+                                var btn = container.querySelector('.send-btn:not(.stop-btn)') || container.querySelectorAll('button')[container.querySelectorAll('button').length - 1];
                                 if (btn) btn.click();
                             }
                         }
@@ -434,6 +455,17 @@
             // We need to pass the ref via a named function
             await JS.InvokeVoidAsync("eval", "window.__setDashRef = function(ref) { window.__dashRef = ref; };");
             await JS.InvokeVoidAsync("__setDashRef", _dotNetRef);
+            await JS.InvokeVoidAsync("eval", @"
+                if (!window.__textareaAutoResize) {
+                    window.__textareaAutoResize = true;
+                    document.addEventListener('input', function(e) {
+                        if (e.target.tagName === 'TEXTAREA' && e.target.closest('.input-row')) {
+                            e.target.style.height = 'auto';
+                            e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
+                        }
+                    });
+                }
+            ");
         }
 
         // Auto-scroll all card message containers to bottom
@@ -696,7 +728,7 @@
         var hasImages = pendingImagesBySession.TryGetValue(sessionName, out var pendingSendImages) && pendingSendImages.Count > 0;
         if (string.IsNullOrWhiteSpace(prompt) && !hasImages) return;
 
-        await JS.InvokeVoidAsync("eval", $"document.getElementById('{inputId}').value = ''");
+        await JS.InvokeVoidAsync("eval", $"var el = document.getElementById('{inputId}'); el.value = ''; el.style.height = 'auto';");
         draftBySession.Remove(sessionName);
 
         var finalPrompt = (prompt ?? "").Trim();
@@ -737,6 +769,17 @@
         {
             Console.WriteLine($"Error sending to {sessionName}: {ex.Message}");
         }
+    }
+
+    private async Task StopSession(string sessionName)
+    {
+        await CopilotService.AbortSessionAsync(sessionName);
+    }
+
+    private async Task TriggerAttach(string sessionName)
+    {
+        var fileId = $"file-{sessionName.Replace(" ", "-")}";
+        await JS.InvokeVoidAsync("eval", $"document.getElementById('{fileId}')?.click()");
     }
 
     private async Task ExpandSession(string sessionName)
