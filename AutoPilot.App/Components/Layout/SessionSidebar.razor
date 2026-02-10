@@ -556,12 +556,12 @@ else
 
     private async Task BrowseDirectory()
     {
-#if MACCATALYST
+#if MACCATALYST || WINDOWS
         try
         {
             var dir = await FolderPickerService.PickFolderAsync();
             if (!string.IsNullOrEmpty(dir))
-                await JS.InvokeVoidAsync("eval", $"document.getElementById('sessionDirInput').value = '{dir.Replace("'", "\\'")}'");
+                await JS.InvokeVoidAsync("eval", $"document.getElementById('sessionDirInput').value = '{dir.Replace("'", "\\'").Replace("\\", "\\\\")}'");
         }
         catch (Exception ex)
         {

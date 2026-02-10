@@ -44,16 +44,34 @@ public partial class DevTunnelService : IDisposable
     private static string ResolveDevTunnel()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var candidates = new[] {
-            Path.Combine(home, "bin", "devtunnel"),
-            Path.Combine(home, ".local", "bin", "devtunnel"),
-            "/usr/local/bin/devtunnel",
-            "/opt/homebrew/bin/devtunnel",
-            "devtunnel"
-        };
+        var candidates = new List<string>();
+
+        if (OperatingSystem.IsWindows())
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            candidates.AddRange(new[]
+            {
+                Path.Combine(localAppData, "Microsoft", "DevTunnels", "devtunnel.exe"),
+                Path.Combine(home, ".devtunnels", "bin", "devtunnel.exe"),
+                Path.Combine(home, "bin", "devtunnel.exe"),
+            });
+        }
+        else
+        {
+            candidates.AddRange(new[]
+            {
+                Path.Combine(home, "bin", "devtunnel"),
+                Path.Combine(home, ".local", "bin", "devtunnel"),
+                "/usr/local/bin/devtunnel",
+                "/opt/homebrew/bin/devtunnel",
+            });
+        }
+
         foreach (var c in candidates)
-            if (c != "devtunnel" && File.Exists(c)) return c;
-        return "devtunnel";
+            if (File.Exists(c)) return c;
+
+        // Fallback: rely on PATH
+        return OperatingSystem.IsWindows() ? "devtunnel.exe" : "devtunnel";
     }
 
     [GeneratedRegex(@"(https?://\S+\.devtunnels\.ms\S*)", RegexOptions.IgnoreCase)]
