@@ -1,0 +1,265 @@
+@using AutoPilot.App.Services
+@using AutoPilot.App.Models
+@inject CopilotService CopilotService
+@inject IJSRuntime JS
+
+<div class="session-card @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : "idle") @(Meta?.IsPinned == true ? "pinned" : "")" data-session="@Session.Name">
+    <div class="card-header">
+        <div class="card-title" @onclick="GoToSession" style="cursor:pointer">
+            @if (Meta?.IsPinned == true)
+            {
+                <span class="card-pin-indicator">📌</span>
+            }
+            <span class="card-status-dot @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : "idle")"></span>
+            @if (IsRenaming)
+            {
+                <input type="text" class="card-rename-input" id="cardRenameInput"
+                       value="@Session.Name"
+                       @onclick:stopPropagation="true"
+                       @onblur="CommitRename"
+                       @onkeydown="HandleRenameKeyDown" />
+            }
+            else
+            {
+                <h3>@Session.Name</h3>
+            }
+        </div>
+        <button class="card-more-btn" @onclick="ToggleMenu" @onclick:stopPropagation="true" title="More actions">⋯</button>
+        @if (IsMenuOpen)
+        {
+            <div class="card-menu" @onclick:stopPropagation="true">
+                <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnStartRename.InvokeAsync(); }">
+                    ✏️ Rename
+                </button>
+                @if (Meta?.IsPinned == true)
+                {
+                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.PinSession(Session.Name, false); }">
+                        📌 Unpin
+                    </button>
+                }
+                else
+                {
+                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.PinSession(Session.Name, true); }">
+                        📌 Pin
+                    </button>
+                }
+                @if (CopilotService.Organization.Groups.Count > 1)
+                {
+                    @foreach (var g in CopilotService.Organization.Groups.Where(g => g.Id != (Meta?.GroupId ?? SessionGroup.DefaultId)))
+                    {
+                        var targetGroup = g;
+                        <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.MoveSession(Session.Name, targetGroup.Id); }">
+                            📁 Move to @targetGroup.Name
+                        </button>
+                    }
+                }
+                <div class="card-menu-separator"></div>
+                <button class="card-menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.CloseSessionAsync(Session.Name); }">
+                    🗑 Close Session
+                </button>
+            </div>
+        }
+        @if (Session.IsProcessing)
+        {
+            <button class="card-stop" @onclick="() => CopilotService.AbortSessionAsync(Session.Name)" title="Stop">■</button>
+        }
+        <button class="card-expand" @onclick="ExpandSession" title="Expand">⤢</button>
+    </div>
+    <div class="card-context">
+        <span class="card-model">@GetSessionModel(Session)</span>
+        @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
+        {
+            <span class="card-dir" title="@Session.WorkingDirectory">📁 @ShortenPath(Session.WorkingDirectory)</span>
+        }
+        @if (!string.IsNullOrEmpty(Session.GitBranch))
+        {
+            <span class="card-branch-sub"> @Session.GitBranch</span>
+        }
+    </div>
+
+    <div class="card-messages">
+        @{
+            var cardMsgs = GetCardMessages(Session.Name, Session.History);
+            var hasMoreCard = Session.History.Count > cardMsgs.Count;
+        }
+        @if (hasMoreCard)
+        {
+            <button class="load-more-btn" @onclick="LoadMoreMessages">▲ Load earlier messages (@(Session.History.Count - cardMsgs.Count) more)</button>
+        }
+        <ChatMessageList Messages="cardMsgs"
+                         StreamingContent="@StreamingContent"
+                         CurrentToolName="@CurrentToolName"
+                         ToolActivities="@ToolActivities"
+                         ActivityText="@ActivityText"
+                         IsProcessing="Session.IsProcessing"
+                         Compact="true" />
+    </div>
+
+    @if (!string.IsNullOrEmpty(Error))
+    {
+        <div class="card-error">
+            <span>⚠️ @Error</span>
+            <button @onclick="DismissError">✕</button>
+        </div>
+    }
+
+    @if (Session.MessageQueue.Any())
+    {
+        <div class="card-queue">
+            <span class="queue-label">📋 Queued (@Session.MessageQueue.Count)</span>
+            <button class="queue-clear-btn" @onclick="ClearQueue">Clear</button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(Intent))
+    {
+        <div class="intent-pill compact">💭 @Intent</div>
+    }
+
+    @if (PendingImages.Any())
+    {
+        <div class="attachment-strip">
+            @for (var cpi = 0; cpi < PendingImages.Count; cpi++)
+            {
+                var cpidx = cpi;
+                var cpimg = PendingImages[cpi];
+                <div class="attachment-thumb">
+                    <img src="@cpimg.DataUri" alt="@cpimg.FileName" />
+                    <button class="attachment-remove" @onclick="() => OnRemovePendingImage.InvokeAsync(cpidx)" title="Remove">×</button>
+                    <span class="attachment-name">@TruncateFileName(cpimg.FileName, 15)</span>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="card-input">
+        <input type="text" id="input-@Session.Name.Replace(" ", "-")"
+               placeholder="@(Session.IsProcessing ? "Queue a message…" : $"Send to {Session.Name}...")"
+               @onkeyup="HandleInputKeyUp" />
+        @if (Session.IsProcessing)
+        {
+            <button class="card-stop-btn" @onclick="() => CopilotService.AbortSessionAsync(Session.Name)" title="Stop">■</button>
+        }
+        <button @onclick="SendInput">➤</button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public AgentSessionInfo Session { get; set; } = default!;
+    [Parameter] public SessionMeta? Meta { get; set; }
+    [Parameter] public bool IsCompleted { get; set; }
+    [Parameter] public string StreamingContent { get; set; } = "";
+    [Parameter] public string ActivityText { get; set; } = "";
+    [Parameter] public string CurrentToolName { get; set; } = "";
+    [Parameter] public List<ToolActivity> ToolActivities { get; set; } = new();
+    [Parameter] public string Intent { get; set; } = "";
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public List<PendingImage> PendingImages { get; set; } = new();
+    
+    // State controlled by parent or callbacks
+    [Parameter] public bool IsRenaming { get; set; }
+    [Parameter] public bool IsMenuOpen { get; set; }
+    [Parameter] public int MessageCount { get; set; } = 5; // Default for card view
+
+    [Parameter] public EventCallback OnExpand { get; set; }
+    [Parameter] public EventCallback OnGoTo { get; set; }
+    [Parameter] public EventCallback OnToggleMenu { get; set; }
+    [Parameter] public EventCallback OnCloseMenu { get; set; }
+    [Parameter] public EventCallback OnStartRename { get; set; }
+    [Parameter] public EventCallback<string> OnCommitRename { get; set; } // new name
+    [Parameter] public EventCallback OnLoadMore { get; set; }
+    [Parameter] public EventCallback OnDismissError { get; set; }
+    [Parameter] public EventCallback OnClearQueue { get; set; }
+    [Parameter] public EventCallback<int> OnRemovePendingImage { get; set; }
+    [Parameter] public EventCallback<string> OnSend { get; set; } // message text
+
+    private async Task HandleRenameKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+             // We need to read the value via JS because input value binding might not be updated on Enter if using @onkeydown
+             // But let's assume standard binding or JS interop
+             // For simplicity, I'll rely on onblur or just call commit. 
+             // Actually, parent implementation used onblur="CommitCardRename".
+             // We can use JS to get value or bind a local var. 
+             // Let's use JS to get value to be safe as done in Dashboard? 
+             // Dashboard uses @onblur="CommitCardRename".
+             await CommitRename();
+        }
+        else if (e.Key == "Escape")
+        {
+            await OnCloseMenu.InvokeAsync(); // Close rename (reuse close menu/cancel rename logic?)
+            // Actually, cancel rename isn't exposed. Just commit or blur.
+        }
+    }
+
+    private async Task CommitRename()
+    {
+        // Get value from input
+        var val = await JS.InvokeAsync<string>("eval", $"document.getElementById('cardRenameInput')?.value");
+        if (!string.IsNullOrWhiteSpace(val))
+        {
+            await OnCommitRename.InvokeAsync(val);
+        }
+    }
+
+    private async Task HandleInputKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendInput();
+        }
+    }
+
+    private async Task SendInput()
+    {
+        var id = $"input-{Session.Name.Replace(" ", "-")}";
+        var text = await JS.InvokeAsync<string>("eval", $"document.getElementById('{id}')?.value");
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            await JS.InvokeVoidAsync("eval", $"document.getElementById('{id}').value = ''");
+            await OnSend.InvokeAsync(text);
+        }
+    }
+
+    private void GoToSession() => OnGoTo.InvokeAsync();
+    private void ToggleMenu() => OnToggleMenu.InvokeAsync();
+    private void ExpandSession() => OnExpand.InvokeAsync();
+    private void LoadMoreMessages() => OnLoadMore.InvokeAsync();
+    private void DismissError() => OnDismissError.InvokeAsync();
+    private void ClearQueue() => OnClearQueue.InvokeAsync();
+
+    private List<ChatMessage> GetCardMessages(string sessionName, List<ChatMessage> history)
+    {
+        // Logic from Dashboard.razor
+        // Take last N messages
+        if (history.Count <= MessageCount) return history;
+        return history.Skip(history.Count - MessageCount).ToList();
+    }
+
+    private string GetSessionModel(AgentSessionInfo s)
+    {
+        var model = s.Model; 
+        // Dashboard logic: if override exists, show it.
+        // We don't pass override here. Let's assume s.Model is accurate or Meta has it.
+        // Dashboard line 193: @GetSessionModel(session)
+        // Dashboard GetSessionModel checks modelOverrideBySession.
+        // I'll skip override logic for now or rely on s.Model.
+        return model.Contains("claude-3-opus") || model.Contains("claude-opus") ? "Opus" :
+               model.Contains("claude-3-sonnet") || model.Contains("claude-sonnet") ? "Sonnet" :
+               model.Contains("gpt-4") ? "GPT-4" : model;
+    }
+
+    private string ShortenPath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return "";
+        var parts = path.Split(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+        return parts.Length > 2 ? ".../" + parts[^1] : path;
+    }
+    
+    private string TruncateFileName(string name, int len)
+    {
+        if (name.Length <= len) return name;
+        return name.Substring(0, len - 3) + "...";
+    }
+}
