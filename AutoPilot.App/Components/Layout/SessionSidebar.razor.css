@@ -163,6 +163,169 @@
     padding: 0.5rem;
 }
 
+/* Sort/group toolbar */
+.sidebar-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.75rem;
+}
+
+.sort-select {
+    all: unset;
+    font-size: var(--type-caption1);
+    color: rgba(255,255,255,0.4);
+    cursor: pointer;
+    padding: 0.15rem 0.3rem;
+    border-radius: 4px;
+    background: rgba(78,168,209,0.08);
+    border: 1px solid rgba(78,168,209,0.12);
+}
+.sort-select:hover { color: rgba(255,255,255,0.6); background: rgba(78,168,209,0.15); }
+.sort-select option { background: #1a1e3a; color: #a0b4cc; }
+
+.new-group-btn {
+    all: unset;
+    margin-left: auto;
+    font-size: var(--type-caption1);
+    color: rgba(78,168,209,0.5);
+    cursor: pointer;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    border: 1px solid rgba(78,168,209,0.15);
+}
+.new-group-btn:hover { color: #4ea8d1; background: rgba(78,168,209,0.15); border-color: rgba(78,168,209,0.3); }
+
+.new-group-input {
+    margin-left: auto;
+    font-size: var(--type-caption1);
+    color: #a0b4cc;
+    background: rgba(78,168,209,0.15);
+    border: 1px solid rgba(78,168,209,0.3);
+    border-radius: 4px;
+    padding: 0.15rem 0.4rem;
+    width: 100px;
+    outline: none;
+}
+
+/* Group headers */
+.group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.75rem 0.25rem;
+    cursor: pointer;
+    user-select: none;
+}
+.group-header:hover { background: rgba(255,255,255,0.03); }
+
+.group-chevron {
+    font-size: var(--type-caption2);
+    color: rgba(255,255,255,0.35);
+    width: 0.8rem;
+    text-align: center;
+}
+
+.group-name {
+    font-size: var(--type-callout);
+    font-weight: 600;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.group-count {
+    font-size: var(--type-caption2);
+    color: rgba(255,255,255,0.25);
+}
+.group-count::before { content: "("; }
+.group-count::after { content: ")"; }
+
+.group-busy-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #fbbf24;
+    animation: pulse-dot 1s infinite;
+}
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.group-delete-btn {
+    all: unset;
+    margin-left: auto;
+    font-size: var(--type-callout);
+    color: rgba(255,255,255,0.2);
+    cursor: pointer;
+    padding: 0 0.3rem;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.group-header:hover .group-delete-btn { opacity: 1; }
+.group-delete-btn:hover { color: #ef4444; background: rgba(239,68,68,0.15); }
+
+/* Pinned session styles */
+.session-item.pinned {
+    border-left: 2px solid rgba(251,191,36,0.4);
+}
+
+.pin-badge {
+    font-size: 0.65rem;
+    cursor: pointer;
+    margin-right: 0.15rem;
+}
+.pin-badge:hover { opacity: 0.6; }
+
+/* ⋯ More menu */
+.more-btn {
+    all: unset;
+    font-size: var(--type-body);
+    color: rgba(255,255,255,0.3);
+    cursor: pointer;
+    padding: 0 0.3rem;
+    border-radius: 3px;
+    line-height: 1;
+    letter-spacing: 0.1em;
+}
+.more-btn:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.08); }
+
+.session-menu {
+    position: absolute;
+    right: 0.5rem;
+    top: 100%;
+    z-index: 100;
+    min-width: 140px;
+    background: #1e2240;
+    border: 1px solid rgba(78,168,209,0.25);
+    border-radius: 8px;
+    padding: 0.25rem 0;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    display: flex;
+    flex-direction: column;
+}
+
+.menu-item {
+    all: unset;
+    display: block;
+    width: 100%;
+    padding: 0.35rem 0.65rem;
+    font-size: var(--type-callout);
+    color: rgba(255,255,255,0.7);
+    cursor: pointer;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+.menu-item:hover { background: rgba(78,168,209,0.15); color: #fff; }
+
+.menu-separator {
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+    margin: 0.2rem 0.5rem;
+}
+
+.menu-item.destructive { color: rgba(239,68,68,0.7); }
+.menu-item.destructive:hover { background: rgba(239,68,68,0.12); color: #ef4444; }
+
 .section-header {
     padding: 0.5rem 0.75rem;
     font-size: var(--type-callout);
@@ -194,6 +357,7 @@
 }
 
 .session-item {
+    position: relative;
     display: flex;
     justify-content: space-between;
     align-items: center;

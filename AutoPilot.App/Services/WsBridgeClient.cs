@@ -38,6 +38,7 @@ public class WsBridgeClient : IDisposable
     public event Action<string>? OnTurnEnd;
     public event Action<string, string>? OnSessionComplete;
     public event Action<string, string>? OnError;
+    public event Action<OrganizationState>? OnOrganizationStateReceived;
 
     /// <summary>
     /// Connect to the remote WsBridgeServer.
@@ -181,6 +182,9 @@ public class WsBridgeClient : IDisposable
     public async Task CloseSessionAsync(string sessionName, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.CloseSession,
             new SessionNamePayload { SessionName = sessionName }), ct);
+
+    public async Task SendOrganizationCommandAsync(OrganizationCommandPayload cmd, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.OrganizationCommand, cmd), ct);
 
     // --- Receive loop ---
 
@@ -404,6 +408,12 @@ public class WsBridgeClient : IDisposable
                 var error = msg.GetPayload<ErrorPayload>();
                 if (error != null)
                     OnError?.Invoke(error.SessionName, error.Error);
+                break;
+
+            case BridgeMessageTypes.OrganizationState:
+                var orgState = msg.GetPayload<OrganizationState>();
+                if (orgState != null)
+                    OnOrganizationStateReceived?.Invoke(orgState);
                 break;
         }
     }
