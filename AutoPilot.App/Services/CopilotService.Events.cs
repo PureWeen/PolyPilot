@@ -64,6 +64,15 @@ public partial class CopilotService
                 var toolInput = ExtractToolInput(toolStart.Data);
                 if (!FilteredTools.Contains(startToolName))
                 {
+                    // Deduplicate: SDK replays events on resume/reconnect — update existing
+                    var existingTool = state.Info.History.FirstOrDefault(m => m.ToolCallId == startCallId);
+                    if (existingTool != null)
+                    {
+                        // Update with potentially fresher data
+                        if (!string.IsNullOrEmpty(toolInput)) existingTool.ToolInput = toolInput;
+                        break;
+                    }
+
                     // Flush any accumulated assistant text before adding tool message
                     FlushCurrentResponse(state);
                     

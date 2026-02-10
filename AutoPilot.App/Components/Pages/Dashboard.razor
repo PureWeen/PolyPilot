@@ -504,22 +504,15 @@
                 expandedSession = sessions[0].Name;
                 CopilotService.SwitchSession(sessions[0].Name);
             }
-            // Detect sidebar-initiated session switch (only expand if already in expanded mode)
+            // Detect sidebar-initiated session switch — expand to chat view
             var active = CopilotService.ActiveSessionName;
             if (active != null && active != _lastActiveSession && sessions.Any(s => s.Name == active))
             {
                 _lastActiveSession = active;
-                if (expandedSession != null)
-                {
-                    expandedSession = active;
-                    _focusedInputId = $"input-{active.Replace(" ", "-")}";
-                }
+                expandedSession = active;
+                _focusedInputId = $"input-{active.Replace(" ", "-")}";
             }
             // Clear sidebar highlight when showing grid view
-            if (expandedSession == null && sessions.Count > 1 && CopilotService.ActiveSessionName != null)
-            {
-                CopilotService.SetActiveSession(null);
-            }
             // Clear stale streaming content for sessions that finished
             foreach (var s in sessions)
             {
@@ -563,6 +556,13 @@
         currentToolBySession[sessionName] = toolName;
         if (!toolActivitiesBySession.ContainsKey(sessionName))
             toolActivitiesBySession[sessionName] = new();
+        // Deduplicate: update existing activity if replayed
+        var existing = toolActivitiesBySession[sessionName].FirstOrDefault(a => a.CallId == callId);
+        if (existing != null)
+        {
+            if (!string.IsNullOrEmpty(inputSummary)) existing.Input = inputSummary;
+            return;
+        }
         toolActivitiesBySession[sessionName].Add(new ToolActivity
         {
             Name = toolName,

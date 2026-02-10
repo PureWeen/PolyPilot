@@ -339,6 +339,30 @@
     flex-shrink: 0;
 }
 
+::deep .action-expanded-input {
+    margin: 0.15rem 1rem 0 2rem;
+    padding: 0.4rem 0.6rem;
+    background: rgba(15,15,35,0.35);
+    border-radius: 6px 6px 0 0;
+    border: 1px solid rgba(78,168,209,0.08);
+    border-bottom: none;
+}
+
+::deep .action-expanded-input pre {
+    font-size: var(--type-subhead);
+    color: rgba(200,216,240,0.7);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 150px;
+    overflow-y: auto;
+    margin: 0;
+}
+
+::deep .action-expanded-input + .action-expanded-result {
+    margin-top: 0;
+    border-radius: 0 0 6px 6px;
+}
+
 ::deep .action-expanded-result {
     margin: 0.15rem 1rem 0.3rem 2rem;
     padding: 0.4rem 0.6rem;

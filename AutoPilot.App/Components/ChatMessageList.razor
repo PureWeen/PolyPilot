@@ -15,12 +15,12 @@
             <ChatMessageItem Message="msg" Compact="Compact" />
         }
 
-        @* Current turn tool activity feed *@
-        @if (ToolActivities.Any())
+        @* Current turn tool activity feed — skip activities already in history *@
+        @if (GetNewActivities().Any())
         {
             @if (Compact)
             {
-                @foreach (var activity in ToolActivities.TakeLast(3))
+                @foreach (var activity in GetNewActivities().TakeLast(3))
                 {
                     <div class="chat-msg tool">
                         <span class="chat-msg-role">🔧</span>
@@ -30,7 +30,7 @@
             }
             else
             {
-                @foreach (var activity in ToolActivities)
+                @foreach (var activity in GetNewActivities())
                 {
                     <div class="action-item @(GetActionLabel(activity.Name).CssClass) @(activity.IsComplete ? (activity.IsSuccess ? "done" : "failed") : "running")">
                         <span class="action-dot"></span>
@@ -106,6 +106,12 @@
     [Parameter] public string ActivityText { get; set; } = "";
     [Parameter] public bool IsProcessing { get; set; }
     [Parameter] public bool Compact { get; set; }
+
+    private IEnumerable<ToolActivity> GetNewActivities()
+    {
+        var historyCallIds = Messages.Where(m => m.ToolCallId != null).Select(m => m.ToolCallId).ToHashSet();
+        return ToolActivities.Where(a => !historyCallIds.Contains(a.CallId));
+    }
 
     private static readonly MarkdownPipeline MdPipeline = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions().Build();
@@ -405,6 +411,33 @@
             var s = val.GetString();
             return string.IsNullOrEmpty(s) ? null : Truncate(s, 120);
         }
+        return null;
+    }
+
+    internal static string FormatToolInputExpanded(string toolName, string input)
+    {
+        if (string.IsNullOrEmpty(input)) return "";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(input);
+            var root = doc.RootElement;
+            return toolName switch
+            {
+                "bash" => $"$ {ExtractJsonPropFull(root, "command") ?? input}",
+                "edit" or "create" => ExtractJsonPropFull(root, "path") ?? input,
+                "view" => ExtractJsonPropFull(root, "path") ?? input,
+                "grep" => $"grep '{ExtractJsonPropFull(root, "pattern")}' {ExtractJsonPropFull(root, "glob") ?? ExtractJsonPropFull(root, "path") ?? "."}",
+                "sql" => ExtractJsonPropFull(root, "query") ?? input,
+                _ => input.Length > 2000 ? input[..2000] + "…" : input
+            };
+        }
+        catch { return input.Length > 2000 ? input[..2000] + "…" : input; }
+    }
+
+    private static string? ExtractJsonPropFull(System.Text.Json.JsonElement root, string prop)
+    {
+        if (root.TryGetProperty(prop, out var val) && val.ValueKind == System.Text.Json.JsonValueKind.String)
+            return val.GetString();
         return null;
     }
 
