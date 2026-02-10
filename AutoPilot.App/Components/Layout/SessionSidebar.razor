@@ -197,92 +197,23 @@ else
                             sessionIndex++;
                             var idx = sessionIndex;
                             var meta = CopilotService.GetSessionMeta(session.Name);
-                            var isPinned = meta?.IsPinned ?? false;
-                            var cssClass = session.Name == CopilotService.ActiveSessionName ? "active" : 
-                                           completedSessions.Contains(session.Name) ? "completed" :
-                                           session.IsProcessing ? "busy" : "";
-                            <div class="session-item @cssClass @(isPinned ? "pinned" : "")"
-                                 @onclick="() => SelectSession(session.Name)">
-                                <div class="session-info">
-                                    <span class="session-name">
-                                        @if (idx <= 9)
-                                        {
-                                            <span class="shortcut-badge" title="⌘@idx">@idx</span>
-                                        }
-                                        @if (isPinned)
-                                        {
-                                            <span class="pin-badge" title="Pinned" @onclick="() => CopilotService.PinSession(session.Name, false)" @onclick:stopPropagation="true">📌</span>
-                                        }
-                                        @if (completedSessions.Contains(session.Name))
-                                        {
-                                            <span class="done-badge">✅</span>
-                                        }
-                                        @if (renamingSession == session.Name)
-                                        {
-                                            <input type="text" class="rename-input" id="renameInput"
-                                                   value="@session.Name"
-                                                   @onclick:stopPropagation="true"
-                                                   @onblur="CommitRename"
-                                                   @onkeydown="HandleRenameKeyDown" />
-                                        }
-                                        else
-                                        {
-                                            <span class="session-name-text" @ondblclick="() => StartRename(session.Name)" @ondblclick:stopPropagation="true">@session.Name</span>
-                                        }
-                                    </span>
-                                    <div class="session-meta-row">
-                                        <span class="session-meta">
-                                            @session.MessageCount msgs@(session.Model != "resumed" ? $" • {session.Model}" : "")
-                                            @if (session.IsProcessing)
-                                            {
-                                                <span class="processing"> • Working</span>
-                                            }
-                                            @if (!string.IsNullOrEmpty(session.WorkingDirectory))
-                                            {
-                                                <text> • @GetShortPath(session.WorkingDirectory)</text>
-                                            }
-                                        </span>
-                                        <div class="session-actions">
-                                            <button class="more-btn" @onclick:stopPropagation="true"
-                                                    @onclick="() => ToggleSessionMenu(session.Name)" title="More actions">⋯</button>
-                                            @if (openMenuSession == session.Name)
-                                            {
-                                                <div class="session-menu" @onclick:stopPropagation="true">
-                                                    <button class="menu-item" @onclick="() => { openMenuSession = null; StartRename(session.Name); }">
-                                                        ✏️ Rename
-                                                    </button>
-                                                    @if (isPinned)
-                                                    {
-                                                        <button class="menu-item" @onclick="() => { openMenuSession = null; CopilotService.PinSession(session.Name, false); }">
-                                                            📌 Unpin
-                                                        </button>
-                                                    }
-                                                    else
-                                                    {
-                                                        <button class="menu-item" @onclick="() => { openMenuSession = null; CopilotService.PinSession(session.Name, true); }">
-                                                            📌 Pin
-                                                        </button>
-                                                    }
-                                                    @if (CopilotService.Organization.Groups.Count > 1)
-                                                    {
-                                                        @foreach (var g in CopilotService.Organization.Groups.Where(g => g.Id != (meta?.GroupId ?? SessionGroup.DefaultId)))
-                                                        {
-                                                            var targetGroup = g;
-                                                            <button class="menu-item" @onclick="() => { openMenuSession = null; CopilotService.MoveSession(session.Name, targetGroup.Id); }">
-                                                                📁 Move to @targetGroup.Name
-                                                            </button>
-                                                        }
-                                                    }
-                                                    <div class="menu-separator"></div>
-                                                    <button class="menu-item destructive" @onclick="() => { openMenuSession = null; CloseSession(session.Name); }">
-                                                        🗑 Close Session
-                                                    </button>
-                                                </div>
-                                            }
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                            var sName = session.Name;
+                            <SessionListItem Session="session"
+                                             Meta="meta"
+                                             IsActive="@(session.Name == CopilotService.ActiveSessionName)"
+                                             IsCompleted="@completedSessions.Contains(session.Name)"
+                                             IsRenaming="@(renamingSession == session.Name)"
+                                             IsMenuOpen="@(openMenuSession == session.Name)"
+                                             ShortcutIndex="idx"
+                                             Groups="CopilotService.Organization.Groups"
+                                             OnSelect="() => SelectSession(sName)"
+                                             OnClose="() => CloseSession(sName)"
+                                             OnPin="(pinned) => { CopilotService.PinSession(sName, pinned); }"
+                                             OnMove="(groupId) => CopilotService.MoveSession(sName, groupId)"
+                                             OnStartRename="() => StartRename(sName)"
+                                             OnCommitRename="CommitRename"
+                                             OnToggleMenu="() => ToggleSessionMenu(sName)"
+                                             OnCloseMenu="() => { openMenuSession = null; }" />
                         }
                     }
                 }

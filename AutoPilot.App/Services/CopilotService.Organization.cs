@@ -1,0 +1,240 @@
+using System.Text.Json;
+using AutoPilot.App.Models;
+
+namespace AutoPilot.App.Services;
+
+public partial class CopilotService
+{
+    #region Session Organization (groups, pinning, sorting)
+
+    public void LoadOrganization()
+    {
+        try
+        {
+            if (File.Exists(OrganizationFile))
+            {
+                var json = File.ReadAllText(OrganizationFile);
+                Organization = JsonSerializer.Deserialize<OrganizationState>(json) ?? new OrganizationState();
+            }
+            else
+            {
+                Organization = new OrganizationState();
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to load organization: {ex.Message}");
+            Organization = new OrganizationState();
+        }
+
+        // Ensure default group always exists
+        if (!Organization.Groups.Any(g => g.Id == SessionGroup.DefaultId))
+        {
+            Organization.Groups.Insert(0, new SessionGroup
+            {
+                Id = SessionGroup.DefaultId,
+                Name = SessionGroup.DefaultName,
+                SortOrder = 0
+            });
+        }
+
+        ReconcileOrganization();
+    }
+
+    public void SaveOrganization()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(OrganizationFile, json);
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to save organization: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Ensure every active session has a SessionMeta entry and clean up orphans.
+    /// </summary>
+    private void ReconcileOrganization()
+    {
+        var activeNames = _sessions.Keys.ToHashSet();
+        bool changed = false;
+
+        // Add missing sessions to default group
+        foreach (var name in activeNames)
+        {
+            if (!Organization.Sessions.Any(m => m.SessionName == name))
+            {
+                Organization.Sessions.Add(new SessionMeta
+                {
+                    SessionName = name,
+                    GroupId = SessionGroup.DefaultId
+                });
+                changed = true;
+            }
+        }
+
+        // Fix sessions pointing to deleted groups
+        var groupIds = Organization.Groups.Select(g => g.Id).ToHashSet();
+        foreach (var meta in Organization.Sessions)
+        {
+            if (!groupIds.Contains(meta.GroupId))
+            {
+                meta.GroupId = SessionGroup.DefaultId;
+                changed = true;
+            }
+        }
+
+        // Remove metadata for sessions that no longer exist
+        int removed = Organization.Sessions.RemoveAll(m => !activeNames.Contains(m.SessionName));
+        if (removed > 0) changed = true;
+
+        if (changed) SaveOrganization();
+    }
+
+    public void PinSession(string sessionName, bool pinned)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta != null)
+        {
+            meta.IsPinned = pinned;
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    public void MoveSession(string sessionName, string groupId)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta != null && Organization.Groups.Any(g => g.Id == groupId))
+        {
+            meta.GroupId = groupId;
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    public SessionGroup CreateGroup(string name)
+    {
+        var group = new SessionGroup
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = name,
+            SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
+        };
+        Organization.Groups.Add(group);
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+        return group;
+    }
+
+    public void RenameGroup(string groupId, string name)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group != null)
+        {
+            group.Name = name;
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    public void DeleteGroup(string groupId)
+    {
+        if (groupId == SessionGroup.DefaultId) return;
+
+        // Move all sessions in this group to default
+        foreach (var meta in Organization.Sessions.Where(m => m.GroupId == groupId))
+        {
+            meta.GroupId = SessionGroup.DefaultId;
+        }
+
+        Organization.Groups.RemoveAll(g => g.Id == groupId);
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+    }
+
+    public void ToggleGroupCollapsed(string groupId)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group != null)
+        {
+            group.IsCollapsed = !group.IsCollapsed;
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    public void SetSortMode(SessionSortMode mode)
+    {
+        Organization.SortMode = mode;
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+    }
+
+    public void SetSessionManualOrder(string sessionName, int order)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta != null)
+        {
+            meta.ManualOrder = order;
+            SaveOrganization();
+        }
+    }
+
+    public void SetGroupOrder(string groupId, int order)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group != null)
+        {
+            group.SortOrder = order;
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// Returns sessions organized by group, with pinned sessions first and sorted by the current sort mode.
+    /// </summary>
+    public IEnumerable<(SessionGroup Group, List<AgentSessionInfo> Sessions)> GetOrganizedSessions()
+    {
+        var metas = Organization.Sessions.ToDictionary(m => m.SessionName);
+        var allSessions = GetAllSessions().ToList();
+
+        foreach (var group in Organization.Groups.OrderBy(g => g.SortOrder))
+        {
+            var groupSessions = allSessions
+                .Where(s => metas.TryGetValue(s.Name, out var m) && m.GroupId == group.Id)
+                .ToList();
+
+            // Pinned first, then apply sort mode within each partition
+            var sorted = groupSessions
+                .OrderByDescending(s => metas.TryGetValue(s.Name, out var m) && m.IsPinned)
+                .ThenBy(s => ApplySort(s, metas))
+                .ToList();
+
+            yield return (group, sorted);
+        }
+    }
+
+    private object ApplySort(AgentSessionInfo session, Dictionary<string, SessionMeta> metas)
+    {
+        return Organization.SortMode switch
+        {
+            SessionSortMode.LastActive => DateTime.MaxValue - session.LastUpdatedAt,
+            SessionSortMode.CreatedAt => DateTime.MaxValue - session.CreatedAt,
+            SessionSortMode.Alphabetical => session.Name,
+            SessionSortMode.Manual => (object)(metas.TryGetValue(session.Name, out var m) ? m.ManualOrder : int.MaxValue),
+            _ => DateTime.MaxValue - session.LastUpdatedAt
+        };
+    }
+
+    public bool HasMultipleGroups => Organization.Groups.Count > 1;
+
+    public SessionMeta? GetSessionMeta(string sessionName) =>
+        Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+
+    #endregion
+}
