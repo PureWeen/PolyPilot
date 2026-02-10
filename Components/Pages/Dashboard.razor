@@ -13,11 +13,14 @@
     {
         <div class="no-sessions-dash">
             <img src="autopilot_logo_lg.png" alt="AutoPilot" class="empty-logo" />
-            <p>Welcome to AutoPilot</p>
+            <p class="welcome-title">Welcome to AutoPilot</p>
             @if (!string.IsNullOrEmpty(initError))
             {
-                <p class="init-error">@initError</p>
-                <button class="retry-btn" @onclick="Initialize">Retry</button>
+                <div class="init-error-card">
+                    <span class="init-error-icon">⚠️</span>
+                    <p class="init-error-text">@initError</p>
+                    <button class="retry-btn" @onclick="Initialize">Retry</button>
+                </div>
             }
             @if (PlatformHelper.IsMobile)
             {
@@ -109,15 +112,15 @@
                     }
                     @if (pendingImagesBySession.TryGetValue(session.Name, out var pendingImgs) && pendingImgs.Any())
                     {
-                        <div class="pending-images">
+                        <div class="attachment-strip">
                             @for (var pi = 0; pi < pendingImgs.Count; pi++)
                             {
                                 var pidx = pi;
                                 var pimg = pendingImgs[pi];
-                                <div class="image-badge">
-                                    <span class="image-badge-icon">🖼️</span>
-                                    <span class="image-badge-name">@pimg.FileName</span>
-                                    <button class="image-badge-remove" @onclick="() => RemovePendingImage(session.Name, pidx)">×</button>
+                                <div class="attachment-thumb">
+                                    <img src="@pimg.DataUri" alt="@pimg.FileName" />
+                                    <button class="attachment-remove" @onclick="() => RemovePendingImage(session.Name, pidx)" title="Remove">×</button>
+                                    <span class="attachment-name">@TruncateFileName(pimg.FileName, 15)</span>
                                 </div>
                             }
                         </div>
@@ -271,15 +274,15 @@
 
                     @if (pendingImagesBySession.TryGetValue(session.Name, out var cardPendingImgs) && cardPendingImgs.Any())
                     {
-                        <div class="pending-images">
+                        <div class="attachment-strip">
                             @for (var cpi = 0; cpi < cardPendingImgs.Count; cpi++)
                             {
                                 var cpidx = cpi;
                                 var cpimg = cardPendingImgs[cpi];
-                                <div class="image-badge">
-                                    <span class="image-badge-icon">🖼️</span>
-                                    <span class="image-badge-name">@cpimg.FileName</span>
-                                    <button class="image-badge-remove" @onclick="() => RemovePendingImage(session.Name, cpidx)">×</button>
+                                <div class="attachment-thumb">
+                                    <img src="@cpimg.DataUri" alt="@cpimg.FileName" />
+                                    <button class="attachment-remove" @onclick="() => RemovePendingImage(session.Name, cpidx)" title="Remove">×</button>
+                                    <span class="attachment-name">@TruncateFileName(cpimg.FileName, 15)</span>
                                 </div>
                             }
                         </div>
@@ -292,9 +295,7 @@
                         {
                             <button class="card-stop-btn" @onclick="() => StopSession(session.Name)" title="Stop">■</button>
                         }
-                        <button @onclick="() => SendFromCard(session.Name)">
-                            @(session.IsProcessing ? "📋" : "➤")
-                        </button>
+                        <button @onclick="() => SendFromCard(session.Name)">➤</button>
                     </div>
                 </div>
             }
@@ -366,10 +367,18 @@
             var uiState = CopilotService.LoadUiState();
             if (uiState != null)
             {
-                if (!string.IsNullOrEmpty(uiState.ActiveSession))
+                if (!string.IsNullOrEmpty(uiState.ActiveSession) && sessions.Count <= 1)
                     CopilotService.SetActiveSession(uiState.ActiveSession);
                 if (uiState.FontSize >= 12 && uiState.FontSize <= 24)
                     fontSize = uiState.FontSize;
+            }
+
+            // When multiple sessions exist, start on grid view
+            if (sessions.Count > 1)
+            {
+                _lastActiveSession = CopilotService.ActiveSessionName;
+                CopilotService.SetActiveSession(null);
+                _explicitlyCollapsed = true;
             }
 
             var connSettings = ConnectionSettings.Load();
@@ -589,27 +598,53 @@
 
     private bool _explicitlyCollapsed;
     private bool _sessionsLoaded;
+    private bool _initialGridSet;
+    private bool _refreshing;
 
     private void RefreshState()
     {
-        sessions = CopilotService.GetAllSessions().ToList();
-        _sessionsLoaded = true;
-        // Auto-expand when only one session (unless user explicitly collapsed)
-        if (sessions.Count == 1 && expandedSession == null && !_explicitlyCollapsed)
+        if (_refreshing) return;
+        _refreshing = true;
+        try
         {
-            expandedSession = sessions[0].Name;
-            CopilotService.SwitchSession(sessions[0].Name);
+            sessions = CopilotService.GetAllSessions().ToList();
+            _sessionsLoaded = true;
+
+            // On first load with multiple sessions, default to grid view
+            if (!_initialGridSet && sessions.Count > 1)
+            {
+                _initialGridSet = true;
+                expandedSession = null;
+                _lastActiveSession = CopilotService.ActiveSessionName;
+                if (CopilotService.ActiveSessionName != null)
+                    CopilotService.SetActiveSession(null);
+                InvokeAsync(SafeRefreshAsync);
+                return;
+            }
+
+            // Auto-expand when only one session (unless user explicitly collapsed)
+            if (sessions.Count == 1 && expandedSession == null && !_explicitlyCollapsed)
+            {
+                expandedSession = sessions[0].Name;
+                CopilotService.SwitchSession(sessions[0].Name);
+            }
+            // Detect sidebar-initiated session switch
+            var active = CopilotService.ActiveSessionName;
+            if (active != null && active != _lastActiveSession && sessions.Any(s => s.Name == active))
+            {
+                _lastActiveSession = active;
+                _explicitlyCollapsed = false;
+                expandedSession = active;
+                _focusedInputId = $"input-{active.Replace(" ", "-")}";
+            }
+            // Clear sidebar highlight when showing grid view
+            if (expandedSession == null && sessions.Count > 1 && CopilotService.ActiveSessionName != null)
+            {
+                CopilotService.SetActiveSession(null);
+            }
+            InvokeAsync(SafeRefreshAsync);
         }
-        // Detect sidebar-initiated session switch
-        var active = CopilotService.ActiveSessionName;
-        if (active != null && active != _lastActiveSession && sessions.Any(s => s.Name == active))
-        {
-            _lastActiveSession = active;
-            _explicitlyCollapsed = false;
-            expandedSession = active;
-            _focusedInputId = $"input-{active.Replace(" ", "-")}";
-        }
-        InvokeAsync(SafeRefreshAsync);
+        finally { _refreshing = false; }
     }
 
     private void HandleComplete(string sessionName, string summary)
@@ -845,7 +880,7 @@
         [property: System.Text.Json.Serialization.JsonPropertyName("selEnd")] int SelEnd,
         [property: System.Text.Json.Serialization.JsonPropertyName("items")] List<DraftItem>? Items);
 
-    private record PendingImage(string TempPath, string FileName, string Extension);
+    private record PendingImage(string TempPath, string FileName, string DataUri);
 
     [JSInvokable]
     public async Task JsImagePasted(string base64, string fileName, string extension, string inputId)
@@ -862,9 +897,21 @@
             var bytes = Convert.FromBase64String(base64);
             await File.WriteAllBytesAsync(tempPath, bytes);
 
+            var mime = extension.ToLowerInvariant() switch
+            {
+                "png" => "image/png",
+                "jpg" or "jpeg" => "image/jpeg",
+                "gif" => "image/gif",
+                "webp" => "image/webp",
+                "svg" => "image/svg+xml",
+                "bmp" => "image/bmp",
+                _ => "image/png"
+            };
+            var dataUri = $"data:{mime};base64,{base64}";
+
             if (!pendingImagesBySession.ContainsKey(sessionName))
                 pendingImagesBySession[sessionName] = new();
-            pendingImagesBySession[sessionName].Add(new PendingImage(tempPath, fileName, extension));
+            pendingImagesBySession[sessionName].Add(new PendingImage(tempPath, fileName, dataUri));
 
             await InvokeAsync(StateHasChanged);
         }
@@ -884,9 +931,14 @@
         }
     }
 
-    private async Task StopSession(string sessionName)
+    private static string TruncateFileName(string name, int maxLen)
     {
-        await CopilotService.AbortSessionAsync(sessionName);
+        if (name.Length <= maxLen) return name;
+        var ext = Path.GetExtension(name);
+        var stem = Path.GetFileNameWithoutExtension(name);
+        var maxStem = maxLen - ext.Length - 1;
+        if (maxStem < 3) return name[..maxLen];
+        return stem[..maxStem] + "…" + ext;
     }
 
     private async Task CloseSession(string sessionName)
