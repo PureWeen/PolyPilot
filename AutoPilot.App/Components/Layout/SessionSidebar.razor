@@ -566,7 +566,7 @@ else
         CopilotService.SetActiveSession(null);
         CopilotService.SaveUiState("/");
         currentPage = "/";
-        await JS.InvokeVoidAsync("eval", "window.__dashRef?.invokeMethodAsync('JsCollapseToGrid')");
+        try { await JS.InvokeVoidAsync("eval", "window.__dashRef?.invokeMethodAsync('JsCollapseToGrid')"); } catch { }
         Nav.NavigateTo("/");
     }
 
