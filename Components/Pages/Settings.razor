@@ -12,9 +12,37 @@
     <div class="settings-header">
         <div class="header-row">
             <h2>Connection Settings</h2>
-            <div class="connection-badge @(CopilotService.IsInitialized ? "connected" : "disconnected")">
-                <span class="badge-dot"></span>
-                <span>@CopilotService.CurrentMode — @(CopilotService.IsInitialized ? "Connected" : "Disconnected")</span>
+            <div class="header-right">
+                @if (PlatformHelper.IsDesktop)
+                {
+                    <div class="shortcuts-popover-wrap">
+                        <button class="shortcuts-trigger" @onclick="() => showShortcuts = !showShortcuts" title="Keyboard Shortcuts">⌨️</button>
+                        @if (showShortcuts)
+                        {
+                            <div class="shortcuts-popover">
+                                <div class="shortcuts-popover-header">
+                                    <span>Keyboard Shortcuts</span>
+                                    <button class="shortcuts-close" @onclick="() => showShortcuts = false">×</button>
+                                </div>
+                                <table class="hotkey-table">
+                                    <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+                                    <tbody>
+                                        <tr><td><kbd>⌘E</kbd> / <kbd>Ctrl+E</kbd></td><td>Expand / collapse session</td></tr>
+                                        <tr><td><kbd>Escape</kbd></td><td>Collapse to grid</td></tr>
+                                        <tr><td><kbd>Tab</kbd></td><td>Next session</td></tr>
+                                        <tr><td><kbd>Shift+Tab</kbd></td><td>Previous session</td></tr>
+                                        <tr><td><kbd>Enter</kbd></td><td>Send message</td></tr>
+                                        <tr><td><kbd>A−</kbd> / <kbd>A+</kbd></td><td>Font size</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                }
+                <div class="connection-badge @(CopilotService.IsInitialized ? "connected" : "disconnected")">
+                    <span class="badge-dot"></span>
+                    <span>@CopilotService.CurrentMode — @(CopilotService.IsInitialized ? "Connected" : "Disconnected")</span>
+                </div>
             </div>
         </div>
     </div>
@@ -181,51 +209,12 @@
             <button class="save-btn" @onclick="SaveAndApply">
                 <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save &amp; Reconnect
             </button>
-            @if (!string.IsNullOrEmpty(statusMessage))
-            {
-                <span class="save-status @statusClass">@statusMessage</span>
-            }
         </div>
     </div>
-
-    <div class="settings-section info">
-        <h3>Current Connection</h3>
-        <p><strong>Mode:</strong> @CopilotService.CurrentMode</p>
-        <p><strong>Status:</strong> @if (CopilotService.IsInitialized) {<span style="color:#4ade80"> Connected</span>} else {<span style="color:#f87171"> Disconnected</span>}</p>
-
-        <h3>About Transport Modes</h3>
-        <ul>
-            @if (PlatformHelper.IsDesktop)
-            {
-                <li><strong>Embedded</strong> — Simple. Copilot process dies when app closes. All sessions are lost.</li>
-                <li><strong>Persistent</strong> — Default. App spawns a detached Copilot server on a port. Survives app restarts — sessions reconnect after relaunching.</li>
-            }
-            <li><strong>Remote</strong> — Connect to a Copilot server on another machine via a DevTunnel URL. Use this from iOS/Android.</li>
-        </ul>
-    </div>
-
-    @if (PlatformHelper.IsDesktop)
-    {
-        <div class="settings-section info">
-            <h3>⌨️ Keyboard Shortcuts</h3>
-            <table class="hotkey-table">
-                <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
-                <tbody>
-                    <tr><td><kbd>⌘E</kbd> / <kbd>Ctrl+E</kbd></td><td>Expand focused session / collapse back to grid</td></tr>
-                    <tr><td><kbd>Escape</kbd></td><td>Collapse expanded session back to grid</td></tr>
-                    <tr><td><kbd>Tab</kbd></td><td>Focus next session input (grid) or switch to next session (expanded)</td></tr>
-                    <tr><td><kbd>Shift+Tab</kbd></td><td>Focus previous session input (grid) or switch to previous session (expanded)</td></tr>
-                    <tr><td><kbd>Enter</kbd></td><td>Send message (or queue if session is busy)</td></tr>
-                    <tr><td><kbd>A−</kbd> / <kbd>A+</kbd></td><td>Decrease / increase font size (in expanded view status bar)</td></tr>
-                </tbody>
-            </table>
-        </div>
-    }
 
     @if (!string.IsNullOrEmpty(statusMessage))
     {
         <div class="status-toast @statusClass">@(statusClass == "success" ? "✓ " : statusClass == "error" ? "✗ " : "")@statusMessage</div>
-    }
     }
 </div>
 
@@ -234,6 +223,7 @@
     private string? statusMessage;
     private string statusClass = "";
     private bool serverAlive;
+    private bool showShortcuts;
     private bool starting;
     private bool devTunnelAvailable;
     private bool tunnelLoggedIn;

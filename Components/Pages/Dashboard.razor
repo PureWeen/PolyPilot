@@ -23,10 +23,8 @@
     }
     else if (!sessions.Any() && expandedSession == null)
     {
-        <div class="dashboard-header">
-            <h2><svg style="vertical-align:middle" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> Session Orchestrator</h2>
-        </div>
         <div class="no-sessions-dash">
+            <img src="autopilot_logo_lg.png" alt="AutoPilot" class="empty-logo" />
             <p>No active sessions. Create sessions from the sidebar to orchestrate them here.</p>
         </div>
     }
@@ -40,9 +38,7 @@
             var cardClass = session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
             <div class="expanded-card @cardClass">
                 <div class="chat-header">
-                    <div class="chat-header-top" style="display:block; width:100%;">
-                        <h2>@session.Name</h2>
-                    </div>
+                    <h2 class="chat-header-title">@session.Name</h2>
                     <div class="chat-header-badges">
                         @if (session.IsProcessing)
                         {
@@ -51,7 +47,7 @@
                         <span class="model-badge hide-mobile">@GetExpandedModel(session)</span>
                         @if (session.SessionId != null)
                         {
-                            <span class="session-id-badge" title="Click to copy: @session.SessionId" @onclick="() => CopyToClipboard(session.SessionId)">🔗 @session.SessionId[..Math.Min(8, session.SessionId.Length)] 📋</span>
+                            <button class="folder-btn" title="Open session folder" @onclick="() => OpenSessionFolder(session.SessionId)" @onclick:stopPropagation="true">📂</button>
                         }
                         @if (!string.IsNullOrEmpty(session.WorkingDirectory))
                         {
@@ -133,12 +129,6 @@
                         <textarea id="input-@session.Name.Replace(" ", "-")"
                                   placeholder="@(session.IsProcessing ? "Message will be queued…" : $"Send to {session.Name}...")"
                                   rows="1"></textarea>
-                        @if (session.IsProcessing)
-                        {
-                            <button class="stop-btn" @onclick="() => StopSession(session.Name)" title="Stop response">
-                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"/></svg>
-                            </button>
-                        }
                         <button class="send-btn" @onclick="() => SendFromCard(session.Name)">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
                         </button>
@@ -189,7 +179,7 @@
     else
     {
         <div class="dashboard-header">
-            <h2><svg style="vertical-align:middle" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> Session Orchestrator</h2>
+            <h2>Session Orchestrator</h2>
             <span class="session-count">@sessions.Count active sessions</span>
             @if (CopilotService.IsRemoteMode)
             {
@@ -287,10 +277,6 @@
                     <div class="card-input">
                         <input type="text" id="input-@session.Name.Replace(" ", "-")"
                                placeholder="@(session.IsProcessing ? "Queue a message…" : $"Send to {session.Name}...")" />
-                        @if (session.IsProcessing)
-                        {
-                            <button class="card-stop" @onclick="() => StopSession(session.Name)" title="Stop">■</button>
-                        }
                         <button @onclick="() => SendFromCard(session.Name)">
                             @(session.IsProcessing ? "📋" : "➤")
                         </button>
@@ -351,8 +337,7 @@
 
             if (CopilotService.NeedsConfiguration)
             {
-                Nav.NavigateTo("/settings");
-                return;
+                // Stay on dashboard, user can navigate to settings manually
             }
 
             var uiState = CopilotService.LoadUiState();
@@ -362,8 +347,6 @@
                     CopilotService.SetActiveSession(uiState.ActiveSession);
                 if (uiState.FontSize >= 12 && uiState.FontSize <= 24)
                     fontSize = uiState.FontSize;
-                if (uiState.CurrentPage == "/settings")
-                    Nav.NavigateTo("/settings");
             }
 
             var connSettings = ConnectionSettings.Load();
@@ -567,24 +550,25 @@
         StateHasChanged();
     }
 
+    private bool _explicitlyCollapsed;
+
     private void RefreshState()
     {
         sessions = CopilotService.GetAllSessions().ToList();
+        // Auto-expand when only one session (unless user explicitly collapsed)
+        if (sessions.Count == 1 && expandedSession == null && !_explicitlyCollapsed)
+        {
+            expandedSession = sessions[0].Name;
+            CopilotService.SwitchSession(sessions[0].Name);
+        }
         // Detect sidebar-initiated session switch
         var active = CopilotService.ActiveSessionName;
         if (active != null && active != _lastActiveSession && sessions.Any(s => s.Name == active))
         {
             _lastActiveSession = active;
-            if (expandedSession != null)
-            {
-                // In expanded mode: switch to the selected session
-                expandedSession = active;
-            }
-            else
-            {
-                // In grid mode: focus that session's input
-                _focusedInputId = $"input-{active.Replace(" ", "-")}";
-            }
+            _explicitlyCollapsed = false;
+            expandedSession = active;
+            _focusedInputId = $"input-{active.Replace(" ", "-")}";
         }
         InvokeAsync(SafeRefreshAsync);
     }
@@ -759,6 +743,9 @@
     {
         await SaveDraftsAndCursor();
         expandedSession = null;
+        _lastActiveSession = null;
+        _explicitlyCollapsed = true;
+        CopilotService.SetActiveSession(null);
     }
 
     private async Task SaveDraftsAndCursor()
@@ -883,12 +870,32 @@
         return parts.Length > 3 ? string.Join("/", parts[^3..]) : path;
     }
 
+    private void OpenSessionFolder(string sessionId)
+    {
+        var path = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".copilot", "session-state", sessionId);
+        if (Directory.Exists(path))
+            System.Diagnostics.Process.Start("open", path);
+    }
+
     [JSInvokable]
     public async Task JsExpandSession(string sessionName)
     {
         await SaveDraftsAndCursor();
         expandedSession = sessionName;
         CopilotService.SwitchSession(sessionName);
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task JsCollapseToGrid()
+    {
+        await SaveDraftsAndCursor();
+        expandedSession = null;
+        _lastActiveSession = null;
+        _explicitlyCollapsed = true;
+        CopilotService.SetActiveSession(null);
         StateHasChanged();
     }
 

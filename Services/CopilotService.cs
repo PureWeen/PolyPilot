@@ -1654,7 +1654,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public void SetActiveSession(string? name)
     {
-        if (name != null && _sessions.ContainsKey(name))
+        if (name == null)
+        {
+            _activeSessionName = null;
+            OnStateChanged?.Invoke();
+            return;
+        }
+        if (_sessions.ContainsKey(name))
         {
             _activeSessionName = name;
             if (IsRemoteMode)
