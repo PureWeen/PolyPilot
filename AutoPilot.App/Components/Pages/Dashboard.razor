@@ -202,104 +202,201 @@
                     @(CopilotService.IsBridgeConnected ? "🟢" : "🔴")
                 </span>
             }
-        </div>
-        <div class="session-grid">
-            @foreach (var session in sessions)
+            <button class="grid-density-btn" @onclick="ToggleGridDensity" title="@(expandedGrid ? "Compact grid" : "Expanded grid")">
+                @(expandedGrid ? "▦ Compact" : "▤ Expanded")
+            </button>
+            <span class="font-size-controls">
+                <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)">A−</button>
+                <span class="font-size-label" @onclick="ResetFontSize">@(fontSize)px</span>
+                <button class="font-size-btn" @onclick="IncreaseFontSize" disabled="@(fontSize >= 24)">A+</button>
+            </span>
+            <select class="sort-select" @onchange="OnSortModeChanged">
+                <option value="LastActive" selected="@(CopilotService.Organization.SortMode == SessionSortMode.LastActive)">↕ Last Active</option>
+                <option value="CreatedAt" selected="@(CopilotService.Organization.SortMode == SessionSortMode.CreatedAt)">↕ Created</option>
+                <option value="Alphabetical" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Alphabetical)">↕ A–Z</option>
+                <option value="Manual" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Manual)">↕ Manual</option>
+            </select>
+            @if (isAddingDashGroup)
             {
-                var isCompleted = completedSessions.Contains(session.Name);
-                var cardClass = session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
-                <div class="session-card @cardClass" data-session="@session.Name">
-                    <div class="card-header">
-                        <div class="card-title" @onclick="() => GoToSession(session.Name)" style="cursor:pointer">
-                            <span class="card-status-dot @cardClass"></span>
-                            <h3>@session.Name</h3>
-                        </div>
-                        @if (session.IsProcessing)
-                        {
-                            <button class="card-stop" @onclick="() => StopSession(session.Name)" title="Stop">■</button>
-                        }
-                        <button class="card-expand" @onclick="() => ExpandSession(session.Name)" title="Expand">⤢</button>
-                        <button class="card-close" @onclick="() => CloseSession(session.Name)" title="Close session">✕</button>
-                    </div>
-                    <div class="card-context">
-                        <span class="card-model">@GetSessionModel(session)</span>
-                        @if (!string.IsNullOrEmpty(session.WorkingDirectory))
-                        {
-                            <span class="card-dir" title="@session.WorkingDirectory">📁 @ShortenPath(session.WorkingDirectory)</span>
-                        }
-                        @if (!string.IsNullOrEmpty(session.GitBranch))
-                        {
-                            <span class="card-branch-sub"> @session.GitBranch</span>
-                        }
-                    </div>
-
-                    <div class="card-messages">
-                        @{
-                            var cardMsgs = GetCardMessages(session.Name, session.History);
-                            var hasMoreCard = session.History.Count > cardMsgs.Count;
-                        }
-                        @if (hasMoreCard)
-                        {
-                            <button class="load-more-btn" @onclick="() => LoadMoreCardMessages(session.Name)">▲ Load earlier messages (@(session.History.Count - cardMsgs.Count) more)</button>
-                        }
-                        <ChatMessageList Messages="cardMsgs"
-                                         StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s) ? s : "")"
-                                         CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t) ? t : "")"
-                                         ToolActivities="@(toolActivitiesBySession.TryGetValue(session.Name, out var ta) ? ta : new())"
-                                         ActivityText="@(activityBySession.TryGetValue(session.Name, out var a) ? a : "")"
-                                         IsProcessing="session.IsProcessing"
-                                         Compact="true" />
-                    </div>
-
-                    @if (errorBySession.TryGetValue(session.Name, out var errG))
-                    {
-                        <div class="card-error">
-                            <span>⚠️ @errG</span>
-                            <button @onclick="() => DismissError(session.Name)">✕</button>
-                        </div>
-                    }
-
-                    @if (session.MessageQueue.Any())
-                    {
-                        <div class="card-queue">
-                            <span class="queue-label">📋 Queued (@session.MessageQueue.Count)</span>
-                            <button class="queue-clear-btn" @onclick="() => ClearQueue(session.Name)">Clear</button>
-                        </div>
-                    }
-
-                    @if (intentBySession.TryGetValue(session.Name, out var intentG) && !string.IsNullOrEmpty(intentG))
-                    {
-                        <div class="intent-pill compact">💭 @intentG</div>
-                    }
-
-                    @if (pendingImagesBySession.TryGetValue(session.Name, out var cardPendingImgs) && cardPendingImgs.Any())
-                    {
-                        <div class="attachment-strip">
-                            @for (var cpi = 0; cpi < cardPendingImgs.Count; cpi++)
-                            {
-                                var cpidx = cpi;
-                                var cpimg = cardPendingImgs[cpi];
-                                <div class="attachment-thumb">
-                                    <img src="@cpimg.DataUri" alt="@cpimg.FileName" />
-                                    <button class="attachment-remove" @onclick="() => RemovePendingImage(session.Name, cpidx)" title="Remove">×</button>
-                                    <span class="attachment-name">@TruncateFileName(cpimg.FileName, 15)</span>
-                                </div>
-                            }
-                        </div>
-                    }
-
-                    <div class="card-input">
-                        <input type="text" id="input-@session.Name.Replace(" ", "-")"
-                               placeholder="@(session.IsProcessing ? "Queue a message…" : $"Send to {session.Name}...")" />
-                        @if (session.IsProcessing)
-                        {
-                            <button class="card-stop-btn" @onclick="() => StopSession(session.Name)" title="Stop">■</button>
-                        }
-                        <button @onclick="() => SendFromCard(session.Name)">➤</button>
-                    </div>
-                </div>
+                <input type="text" class="new-group-input" id="dashNewGroupInput"
+                       placeholder="Group name..."
+                       @onblur="CommitDashGroup"
+                       @onkeydown="HandleDashGroupKeyDown" />
+            }
+            else
+            {
+                <button class="grid-density-btn" @onclick="() => { isAddingDashGroup = true; }" title="New group">+ Group</button>
             }
         </div>
+        @foreach (var (group, groupSessions) in CopilotService.GetOrganizedSessions().ToList())
+        {
+            var showGroupHeaders = CopilotService.HasMultipleGroups;
+            @if (showGroupHeaders)
+            {
+                <div class="group-divider @(group.IsCollapsed ? "collapsed" : "")"
+                     @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
+                    <span class="group-divider-name">@group.Name</span>
+                    <span class="group-divider-count">@groupSessions.Count sessions</span>
+                    @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
+                    {
+                        <span class="group-divider-busy">● working</span>
+                    }
+                    <span class="group-divider-chevron">@(group.IsCollapsed ? "▶" : "▼")</span>
+                </div>
+            }
+
+            @if (!group.IsCollapsed || !showGroupHeaders)
+            {
+                <div class="session-grid @(expandedGrid ? "expanded-grid" : "")">
+                @foreach (var session in groupSessions)
+                {
+                    var isCompleted = completedSessions.Contains(session.Name);
+                    var cardClass = session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
+                    var meta = CopilotService.GetSessionMeta(session.Name);
+                    var isPinned = meta?.IsPinned ?? false;
+                    <div class="session-card @cardClass @(isPinned ? "pinned" : "")" data-session="@session.Name">
+                        <div class="card-header">
+                            <div class="card-title" @onclick="() => GoToSession(session.Name)" style="cursor:pointer">
+                                @if (isPinned)
+                                {
+                                    <span class="card-pin-indicator">📌</span>
+                                }
+                                <span class="card-status-dot @cardClass"></span>
+                                @if (cardRenamingSession == session.Name)
+                                {
+                                    <input type="text" class="card-rename-input" id="cardRenameInput"
+                                           value="@session.Name"
+                                           @onclick:stopPropagation="true"
+                                           @onblur="CommitCardRename"
+                                           @onkeydown="HandleCardRenameKeyDown" />
+                                }
+                                else
+                                {
+                                    <h3>@session.Name</h3>
+                                }
+                            </div>
+                            <button class="card-more-btn" @onclick="() => ToggleCardMenu(session.Name)" @onclick:stopPropagation="true" title="More actions">⋯</button>
+                            @if (cardMenuSession == session.Name)
+                            {
+                                <div class="card-menu" @onclick:stopPropagation="true">
+                                    <button class="card-menu-item" @onclick="() => { cardMenuSession = null; StartCardRename(session.Name); }">
+                                        ✏️ Rename
+                                    </button>
+                                    @if (isPinned)
+                                    {
+                                        <button class="card-menu-item" @onclick="() => { cardMenuSession = null; CopilotService.PinSession(session.Name, false); }">
+                                            📌 Unpin
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="card-menu-item" @onclick="() => { cardMenuSession = null; CopilotService.PinSession(session.Name, true); }">
+                                            📌 Pin
+                                        </button>
+                                    }
+                                    @if (CopilotService.Organization.Groups.Count > 1)
+                                    {
+                                        @foreach (var g in CopilotService.Organization.Groups.Where(g => g.Id != (meta?.GroupId ?? SessionGroup.DefaultId)))
+                                        {
+                                            var targetGroup = g;
+                                            <button class="card-menu-item" @onclick="() => { cardMenuSession = null; CopilotService.MoveSession(session.Name, targetGroup.Id); }">
+                                                📁 Move to @targetGroup.Name
+                                            </button>
+                                        }
+                                    }
+                                    <div class="card-menu-separator"></div>
+                                    <button class="card-menu-item destructive" @onclick="() => { cardMenuSession = null; CloseSession(session.Name); }">
+                                        🗑 Close Session
+                                    </button>
+                                </div>
+                            }
+                            @if (session.IsProcessing)
+                            {
+                                <button class="card-stop" @onclick="() => StopSession(session.Name)" title="Stop">■</button>
+                            }
+                            <button class="card-expand" @onclick="() => ExpandSession(session.Name)" title="Expand">⤢</button>
+                        </div>
+                        <div class="card-context">
+                            <span class="card-model">@GetSessionModel(session)</span>
+                            @if (!string.IsNullOrEmpty(session.WorkingDirectory))
+                            {
+                                <span class="card-dir" title="@session.WorkingDirectory">📁 @ShortenPath(session.WorkingDirectory)</span>
+                            }
+                            @if (!string.IsNullOrEmpty(session.GitBranch))
+                            {
+                                <span class="card-branch-sub"> @session.GitBranch</span>
+                            }
+                        </div>
+
+                        <div class="card-messages">
+                            @{
+                                var cardMsgs = GetCardMessages(session.Name, session.History);
+                                var hasMoreCard = session.History.Count > cardMsgs.Count;
+                            }
+                            @if (hasMoreCard)
+                            {
+                                <button class="load-more-btn" @onclick="() => LoadMoreCardMessages(session.Name)">▲ Load earlier messages (@(session.History.Count - cardMsgs.Count) more)</button>
+                            }
+                            <ChatMessageList Messages="cardMsgs"
+                                             StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s) ? s : "")"
+                                             CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t) ? t : "")"
+                                             ToolActivities="@(toolActivitiesBySession.TryGetValue(session.Name, out var ta) ? ta : new())"
+                                             ActivityText="@(activityBySession.TryGetValue(session.Name, out var a) ? a : "")"
+                                             IsProcessing="session.IsProcessing"
+                                             Compact="true" />
+                        </div>
+
+                        @if (errorBySession.TryGetValue(session.Name, out var errG))
+                        {
+                            <div class="card-error">
+                                <span>⚠️ @errG</span>
+                                <button @onclick="() => DismissError(session.Name)">✕</button>
+                            </div>
+                        }
+
+                        @if (session.MessageQueue.Any())
+                        {
+                            <div class="card-queue">
+                                <span class="queue-label">📋 Queued (@session.MessageQueue.Count)</span>
+                                <button class="queue-clear-btn" @onclick="() => ClearQueue(session.Name)">Clear</button>
+                            </div>
+                        }
+
+                        @if (intentBySession.TryGetValue(session.Name, out var intentG) && !string.IsNullOrEmpty(intentG))
+                        {
+                            <div class="intent-pill compact">💭 @intentG</div>
+                        }
+
+                        @if (pendingImagesBySession.TryGetValue(session.Name, out var cardPendingImgs) && cardPendingImgs.Any())
+                        {
+                            <div class="attachment-strip">
+                                @for (var cpi = 0; cpi < cardPendingImgs.Count; cpi++)
+                                {
+                                    var cpidx = cpi;
+                                    var cpimg = cardPendingImgs[cpi];
+                                    <div class="attachment-thumb">
+                                        <img src="@cpimg.DataUri" alt="@cpimg.FileName" />
+                                        <button class="attachment-remove" @onclick="() => RemovePendingImage(session.Name, cpidx)" title="Remove">×</button>
+                                        <span class="attachment-name">@TruncateFileName(cpimg.FileName, 15)</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        <div class="card-input">
+                            <input type="text" id="input-@session.Name.Replace(" ", "-")"
+                                   placeholder="@(session.IsProcessing ? "Queue a message…" : $"Send to {session.Name}...")" />
+                            @if (session.IsProcessing)
+                            {
+                                <button class="card-stop-btn" @onclick="() => StopSession(session.Name)" title="Stop">■</button>
+                            }
+                            <button @onclick="() => SendFromCard(session.Name)">➤</button>
+                        </div>
+                    </div>
+                }
+                </div>
+            }
+        }
     }
 </div>
 
@@ -321,6 +418,10 @@
     private int fontSize = 20;
     private string? expandedSession;
     private bool _needsScrollToBottom;
+    private bool expandedGrid;
+    private string? cardMenuSession;
+    private string? cardRenamingSession;
+    private bool isAddingDashGroup;
     private string? _focusedInputId;
     private string? _lastActiveSession;
     private int _cursorStart;
@@ -847,6 +948,76 @@
         _lastActiveSession = null;
         _explicitlyCollapsed = true;
         CopilotService.SetActiveSession(null);
+    }
+
+    private void ToggleGridDensity()
+    {
+        expandedGrid = !expandedGrid;
+    }
+
+    private void ToggleCardMenu(string sessionName)
+    {
+        cardMenuSession = cardMenuSession == sessionName ? null : sessionName;
+    }
+
+    private void StartCardRename(string sessionName)
+    {
+        cardRenamingSession = sessionName;
+        _ = FocusCardRenameInput();
+    }
+
+    private async Task FocusCardRenameInput()
+    {
+        await Task.Yield();
+        StateHasChanged();
+        await Task.Yield();
+        await JS.InvokeVoidAsync("eval", @"
+            var el = document.getElementById('cardRenameInput');
+            if (el) { el.focus(); el.select(); }
+        ");
+    }
+
+    private async Task CommitCardRename()
+    {
+        if (cardRenamingSession == null) return;
+        var oldName = cardRenamingSession;
+        cardRenamingSession = null;
+
+        var newName = await JS.InvokeAsync<string>("eval", "document.getElementById('cardRenameInput')?.value || ''");
+        if (!string.IsNullOrWhiteSpace(newName) && newName.Trim() != oldName)
+        {
+            CopilotService.RenameSession(oldName, newName.Trim());
+        }
+    }
+
+    private async Task HandleCardRenameKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await CommitCardRename();
+        else if (e.Key == "Escape") cardRenamingSession = null;
+    }
+
+    private void OnSortModeChanged(ChangeEventArgs e)
+    {
+        if (e.Value is string val && Enum.TryParse<SessionSortMode>(val, out var mode))
+        {
+            CopilotService.SetSortMode(mode);
+        }
+    }
+
+    private async Task CommitDashGroup()
+    {
+        var name = await JS.InvokeAsync<string>("eval", "document.getElementById('dashNewGroupInput')?.value ?? ''");
+        isAddingDashGroup = false;
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            CopilotService.CreateGroup(name.Trim());
+        }
+    }
+
+    private async Task HandleDashGroupKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await CommitDashGroup();
+        else if (e.Key == "Escape") isAddingDashGroup = false;
     }
 
     private async Task SaveDraftsAndCursor()

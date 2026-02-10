@@ -192,6 +192,8 @@ public class WsBridgeServer : IDisposable
             // Send initial state
             await SendToClientAsync(clientId, ws,
                 BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
+            await SendToClientAsync(clientId, ws,
+                BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot?.Organization ?? new OrganizationState()), ct);
             await SendPersistedToClient(clientId, ws, ct);
 
             // Send active session history
@@ -328,6 +330,15 @@ public class WsBridgeServer : IDisposable
                         await _copilot.CloseSessionAsync(closeReq.SessionName);
                     }
                     break;
+
+                case BridgeMessageTypes.OrganizationCommand:
+                    var orgCmd = msg.GetPayload<OrganizationCommandPayload>();
+                    if (orgCmd != null)
+                    {
+                        HandleOrganizationCommand(orgCmd);
+                        BroadcastOrganizationState();
+                    }
+                    break;
             }
         }
         catch (Exception ex)
@@ -424,6 +435,46 @@ public class WsBridgeServer : IDisposable
         if (_copilot == null || _clients.IsEmpty) return;
         var msg = BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload());
         Broadcast(msg);
+    }
+
+    private void BroadcastOrganizationState()
+    {
+        if (_copilot == null) return;
+        var msg = BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot.Organization);
+        Broadcast(msg);
+    }
+
+    private void HandleOrganizationCommand(OrganizationCommandPayload cmd)
+    {
+        if (_copilot == null) return;
+        switch (cmd.Command)
+        {
+            case "pin":
+                if (cmd.SessionName != null) _copilot.PinSession(cmd.SessionName, true);
+                break;
+            case "unpin":
+                if (cmd.SessionName != null) _copilot.PinSession(cmd.SessionName, false);
+                break;
+            case "move":
+                if (cmd.SessionName != null && cmd.GroupId != null) _copilot.MoveSession(cmd.SessionName, cmd.GroupId);
+                break;
+            case "create_group":
+                if (cmd.Name != null) _copilot.CreateGroup(cmd.Name);
+                break;
+            case "rename_group":
+                if (cmd.GroupId != null && cmd.Name != null) _copilot.RenameGroup(cmd.GroupId, cmd.Name);
+                break;
+            case "delete_group":
+                if (cmd.GroupId != null) _copilot.DeleteGroup(cmd.GroupId);
+                break;
+            case "toggle_collapsed":
+                if (cmd.GroupId != null) _copilot.ToggleGroupCollapsed(cmd.GroupId);
+                break;
+            case "set_sort":
+                if (cmd.SortMode != null && Enum.TryParse<SessionSortMode>(cmd.SortMode, out var mode))
+                    _copilot.SetSortMode(mode);
+                break;
+        }
     }
 
     // --- Broadcast/Send ---

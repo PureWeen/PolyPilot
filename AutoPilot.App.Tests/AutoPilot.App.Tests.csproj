@@ -25,6 +25,7 @@
     <Compile Include="../AutoPilot.App/Models/BridgeMessages.cs" Link="Shared/BridgeMessages.cs" />
     <Compile Include="../AutoPilot.App/Models/ConnectionSettings.cs" Link="Shared/ConnectionSettings.cs" />
     <Compile Include="../AutoPilot.App/Models/PlatformHelper.cs" Link="Shared/PlatformHelper.cs" />
+    <Compile Include="../AutoPilot.App/Models/SessionOrganization.cs" Link="Shared/SessionOrganization.cs" />
   </ItemGroup>
 
 </Project>

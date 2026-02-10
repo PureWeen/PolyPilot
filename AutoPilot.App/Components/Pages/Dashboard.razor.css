@@ -147,6 +147,183 @@
     margin-bottom: 1.5rem;
 }
 
+.session-grid.expanded-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(600px, 100%), 1fr));
+}
+
+.grid-density-btn {
+    margin-left: auto;
+    padding: 0.25rem 0.6rem;
+    background: rgba(78,168,209,0.1);
+    border: 1px solid rgba(78,168,209,0.2);
+    border-radius: 6px;
+    color: rgba(78,168,209,0.7);
+    font-size: var(--type-callout);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.grid-density-btn:hover {
+    background: rgba(78,168,209,0.2);
+    color: #4ea8d1;
+    border-color: rgba(78,168,209,0.4);
+}
+
+.dashboard-header .font-size-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+}
+
+.dashboard-header .font-size-btn {
+    font-size: var(--type-caption1);
+    padding: 0.15rem 0.4rem;
+}
+
+.dashboard-header .font-size-label {
+    font-size: var(--type-caption1);
+}
+
+/* Sort select in dashboard header */
+.dashboard-header .sort-select {
+    all: unset;
+    font-size: var(--type-caption1);
+    color: rgba(78,168,209,0.6);
+    cursor: pointer;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    background: rgba(78,168,209,0.08);
+    border: 1px solid rgba(78,168,209,0.15);
+}
+.dashboard-header .sort-select:hover { color: #4ea8d1; background: rgba(78,168,209,0.15); }
+.dashboard-header .sort-select option { background: #1a1e3a; color: #a0b4cc; }
+
+.dashboard-header .new-group-input {
+    font-size: var(--type-caption1);
+    color: #a0b4cc;
+    background: rgba(78,168,209,0.15);
+    border: 1px solid rgba(78,168,209,0.3);
+    border-radius: 6px;
+    padding: 0.2rem 0.5rem;
+    width: 120px;
+    outline: none;
+}
+
+/* Group dividers in dashboard */
+.group-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.25rem;
+    margin: 0.5rem 0 0.25rem;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.group-divider:first-child { margin-top: 0; }
+.group-divider:hover { border-bottom-color: rgba(78,168,209,0.2); }
+
+.group-divider-name {
+    font-size: var(--type-callout);
+    font-weight: 600;
+    color: rgba(255,255,255,0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.group-divider-count {
+    font-size: var(--type-caption1);
+    color: rgba(255,255,255,0.25);
+}
+
+.group-divider-busy {
+    font-size: var(--type-caption1);
+    color: rgba(251,191,36,0.7);
+    animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+.group-divider-chevron {
+    margin-left: auto;
+    font-size: var(--type-caption1);
+    color: rgba(255,255,255,0.25);
+}
+
+/* Pinned card styles */
+.session-card.pinned {
+    border-color: rgba(251,191,36,0.25);
+}
+
+.card-pin-indicator {
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+
+/* ⋯ More menu for cards */
+.card-more-btn {
+    all: unset;
+    font-size: var(--type-title2);
+    color: rgba(255,255,255,0.25);
+    cursor: pointer;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    line-height: 1;
+    letter-spacing: 0.1em;
+    flex-shrink: 0;
+}
+.card-more-btn:hover { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.08); }
+
+.card-menu {
+    position: absolute;
+    right: 0.75rem;
+    top: 2.5rem;
+    z-index: 100;
+    min-width: 160px;
+    background: #1e2240;
+    border: 1px solid rgba(78,168,209,0.25);
+    border-radius: 8px;
+    padding: 0.25rem 0;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    display: flex;
+    flex-direction: column;
+}
+
+.card-menu-item {
+    all: unset;
+    display: block;
+    width: 100%;
+    padding: 0.4rem 0.75rem;
+    font-size: var(--type-callout);
+    color: rgba(255,255,255,0.7);
+    cursor: pointer;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+.card-menu-item:hover { background: rgba(78,168,209,0.15); color: #fff; }
+
+.card-menu-separator {
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+    margin: 0.2rem 0.5rem;
+}
+
+.card-menu-item.destructive { color: rgba(239,68,68,0.7); }
+.card-menu-item.destructive:hover { background: rgba(239,68,68,0.12); color: #ef4444; }
+
+.card-rename-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.2rem 0.4rem;
+    border: 1px solid rgba(78,168,209,0.4);
+    border-radius: 4px;
+    background: rgba(78,168,209,0.15);
+    color: #a0b4cc;
+    font-size: var(--type-title2);
+    font-weight: 600;
+    font-family: inherit;
+    outline: none;
+}
+
 .session-card {
     position: relative;
     background: rgba(255,255,255,0.05);

@@ -58,7 +58,7 @@ else if (IsFlyoutPanel)
         </div>
 
         <div class="sidebar-divider"></div>
-
+        @RenderSortToolbar
         @RenderSessionList
     </div>
 }
@@ -113,7 +113,7 @@ else
         </div>
 
         <div class="sidebar-divider"></div>
-
+        @RenderSortToolbar
         @RenderSessionList
     </div>
 }
@@ -124,70 +124,167 @@ else
     [Parameter] public EventCallback OnToggleFlyout { get; set; }
     [Parameter] public EventCallback OnSessionSelected { get; set; }
 
+    private RenderFragment RenderSortToolbar => __builder =>
+    {
+        <div class="sidebar-toolbar">
+            <select class="sort-select" title="Sort sessions" @onchange="OnSortModeChanged">
+                <option value="LastActive" selected="@(CopilotService.Organization.SortMode == SessionSortMode.LastActive)">↕ Last Active</option>
+                <option value="CreatedAt" selected="@(CopilotService.Organization.SortMode == SessionSortMode.CreatedAt)">↕ Created</option>
+                <option value="Alphabetical" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Alphabetical)">↕ A–Z</option>
+                <option value="Manual" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Manual)">↕ Manual</option>
+            </select>
+            @if (isAddingGroup)
+            {
+                <input type="text" class="new-group-input" id="newGroupInput"
+                       placeholder="Group name..."
+                       @onblur="CommitNewGroup"
+                       @onkeydown="HandleNewGroupKeyDown" />
+            }
+            else
+            {
+                <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
+            }
+        </div>
+    };
+
     private RenderFragment RenderSessionList => __builder =>
     {
         <div class="session-list">
-            <div class="section-header"><span class="section-header-label">Active Sessions</span></div>
+            @{
+                var organized = CopilotService.GetOrganizedSessions().ToList();
+                var showGroupHeaders = CopilotService.HasMultipleGroups;
+                var sessionIndex = 0;
+            }
+
             @if (!sessions.Any())
             {
+                <div class="section-header"><span class="section-header-label">Active Sessions</span></div>
                 <p class="no-sessions">No active sessions.<br/>Create one above or resume below.</p>
             }
             else
             {
-                var sessionIndex = 0;
-                @foreach (var session in sessions)
+                @if (!showGroupHeaders)
                 {
-                    sessionIndex++;
-                    var idx = sessionIndex;
-                    var cssClass = session.Name == CopilotService.ActiveSessionName ? "active" : 
-                                   completedSessions.Contains(session.Name) ? "completed" :
-                                   session.IsProcessing ? "busy" : "";
-                    <div class="session-item @cssClass"
-                         @onclick="() => SelectSession(session.Name)">
-                        <div class="session-info">
-                            <span class="session-name">
-                                @if (idx <= 9)
-                                {
-                                    <span class="shortcut-badge" title="⌘@idx">@idx</span>
-                                }
-                                @if (completedSessions.Contains(session.Name))
-                                {
-                                    <span class="done-badge">✅</span>
-                                }
-                                @if (renamingSession == session.Name)
-                                {
-                                    <input type="text" class="rename-input" id="renameInput"
-                                           value="@session.Name"
-                                           @onclick:stopPropagation="true"
-                                           @onblur="CommitRename"
-                                           @onkeydown="HandleRenameKeyDown" />
-                                }
-                                else
-                                {
-                                    <span class="session-name-text" @ondblclick="() => StartRename(session.Name)" @ondblclick:stopPropagation="true">@session.Name</span>
-                                }
-                            </span>
-                            <div class="session-meta-row">
-                                <span class="session-meta">
-                                    @session.MessageCount msgs@(session.Model != "resumed" ? $" • {session.Model}" : "")
-                                    @if (session.IsProcessing)
-                                    {
-                                        <span class="processing"> • Working</span>
-                                    }
-                                    @if (!string.IsNullOrEmpty(session.WorkingDirectory))
-                                    {
-                                        <text> • @GetShortPath(session.WorkingDirectory)</text>
-                                    }
-                                </span>
-                                <div class="session-actions">
-                                    <button class="rename-btn" @onclick:stopPropagation="true"
-                                            @onclick="() => StartRename(session.Name)" title="Rename session">rename</button>
-                                    <button class="close-btn" @onclick:stopPropagation="true" 
-                                            @onclick="() => CloseSession(session.Name)">×</button>
+                    <div class="section-header"><span class="section-header-label">Active Sessions</span></div>
+                }
+
+                @foreach (var (group, groupSessions) in organized)
+                {
+                    @if (showGroupHeaders)
+                    {
+                        <div class="group-header @(group.IsCollapsed ? "collapsed" : "")"
+                             @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
+                            <span class="group-chevron">@(group.IsCollapsed ? "▶" : "▼")</span>
+                            <span class="group-name">@group.Name</span>
+                            <span class="group-count">@groupSessions.Count</span>
+                            @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
+                            {
+                                <span class="group-busy-dot"></span>
+                            }
+                            @if (group.Id != SessionGroup.DefaultId)
+                            {
+                                <button class="group-delete-btn" title="Delete group"
+                                        @onclick="() => CopilotService.DeleteGroup(group.Id)"
+                                        @onclick:stopPropagation="true">×</button>
+                            }
+                        </div>
+                    }
+
+                    @if (!group.IsCollapsed || !showGroupHeaders)
+                    {
+                        @foreach (var session in groupSessions)
+                        {
+                            sessionIndex++;
+                            var idx = sessionIndex;
+                            var meta = CopilotService.GetSessionMeta(session.Name);
+                            var isPinned = meta?.IsPinned ?? false;
+                            var cssClass = session.Name == CopilotService.ActiveSessionName ? "active" : 
+                                           completedSessions.Contains(session.Name) ? "completed" :
+                                           session.IsProcessing ? "busy" : "";
+                            <div class="session-item @cssClass @(isPinned ? "pinned" : "")"
+                                 @onclick="() => SelectSession(session.Name)">
+                                <div class="session-info">
+                                    <span class="session-name">
+                                        @if (idx <= 9)
+                                        {
+                                            <span class="shortcut-badge" title="⌘@idx">@idx</span>
+                                        }
+                                        @if (isPinned)
+                                        {
+                                            <span class="pin-badge" title="Pinned" @onclick="() => CopilotService.PinSession(session.Name, false)" @onclick:stopPropagation="true">📌</span>
+                                        }
+                                        @if (completedSessions.Contains(session.Name))
+                                        {
+                                            <span class="done-badge">✅</span>
+                                        }
+                                        @if (renamingSession == session.Name)
+                                        {
+                                            <input type="text" class="rename-input" id="renameInput"
+                                                   value="@session.Name"
+                                                   @onclick:stopPropagation="true"
+                                                   @onblur="CommitRename"
+                                                   @onkeydown="HandleRenameKeyDown" />
+                                        }
+                                        else
+                                        {
+                                            <span class="session-name-text" @ondblclick="() => StartRename(session.Name)" @ondblclick:stopPropagation="true">@session.Name</span>
+                                        }
+                                    </span>
+                                    <div class="session-meta-row">
+                                        <span class="session-meta">
+                                            @session.MessageCount msgs@(session.Model != "resumed" ? $" • {session.Model}" : "")
+                                            @if (session.IsProcessing)
+                                            {
+                                                <span class="processing"> • Working</span>
+                                            }
+                                            @if (!string.IsNullOrEmpty(session.WorkingDirectory))
+                                            {
+                                                <text> • @GetShortPath(session.WorkingDirectory)</text>
+                                            }
+                                        </span>
+                                        <div class="session-actions">
+                                            <button class="more-btn" @onclick:stopPropagation="true"
+                                                    @onclick="() => ToggleSessionMenu(session.Name)" title="More actions">⋯</button>
+                                            @if (openMenuSession == session.Name)
+                                            {
+                                                <div class="session-menu" @onclick:stopPropagation="true">
+                                                    <button class="menu-item" @onclick="() => { openMenuSession = null; StartRename(session.Name); }">
+                                                        ✏️ Rename
+                                                    </button>
+                                                    @if (isPinned)
+                                                    {
+                                                        <button class="menu-item" @onclick="() => { openMenuSession = null; CopilotService.PinSession(session.Name, false); }">
+                                                            📌 Unpin
+                                                        </button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <button class="menu-item" @onclick="() => { openMenuSession = null; CopilotService.PinSession(session.Name, true); }">
+                                                            📌 Pin
+                                                        </button>
+                                                    }
+                                                    @if (CopilotService.Organization.Groups.Count > 1)
+                                                    {
+                                                        @foreach (var g in CopilotService.Organization.Groups.Where(g => g.Id != (meta?.GroupId ?? SessionGroup.DefaultId)))
+                                                        {
+                                                            var targetGroup = g;
+                                                            <button class="menu-item" @onclick="() => { openMenuSession = null; CopilotService.MoveSession(session.Name, targetGroup.Id); }">
+                                                                📁 Move to @targetGroup.Name
+                                                            </button>
+                                                        }
+                                                    }
+                                                    <div class="menu-separator"></div>
+                                                    <button class="menu-item destructive" @onclick="() => { openMenuSession = null; CloseSession(session.Name); }">
+                                                        🗑 Close Session
+                                                    </button>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </div>
+                        }
+                    }
                 }
             }
 
@@ -266,6 +363,8 @@ else
     private string? confirmResumeId = null;
     private string? resumeError = null;
     private string currentPage = "/";
+    private bool isAddingGroup = false;
+    private string? openMenuSession = null;
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
 
@@ -588,6 +687,48 @@ else
     private async Task CloseSession(string name)
     {
         await CopilotService.CloseSessionAsync(name);
+    }
+
+    private void MoveSessionToGroup(string sessionName, ChangeEventArgs e)
+    {
+        if (e.Value is string groupId && !string.IsNullOrEmpty(groupId))
+        {
+            CopilotService.MoveSession(sessionName, groupId);
+        }
+    }
+
+    private void OnSortModeChanged(ChangeEventArgs e)
+    {
+        if (e.Value is string val && Enum.TryParse<SessionSortMode>(val, out var mode))
+        {
+            CopilotService.SetSortMode(mode);
+        }
+    }
+
+    private void StartAddGroup()
+    {
+        isAddingGroup = true;
+    }
+
+    private async Task CommitNewGroup()
+    {
+        var name = await JS.InvokeAsync<string>("eval", "document.getElementById('newGroupInput')?.value ?? ''");
+        isAddingGroup = false;
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            CopilotService.CreateGroup(name.Trim());
+        }
+    }
+
+    private async Task HandleNewGroupKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await CommitNewGroup();
+        else if (e.Key == "Escape") isAddingGroup = false;
+    }
+
+    private void ToggleSessionMenu(string sessionName)
+    {
+        openMenuSession = openMenuSession == sessionName ? null : sessionName;
     }
 
     private string GetTooltip(PersistedSessionInfo persisted)

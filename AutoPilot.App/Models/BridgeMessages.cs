@@ -54,6 +54,7 @@ public static class BridgeMessageTypes
     public const string SessionsList = "sessions_list";
     public const string SessionHistory = "session_history";
     public const string PersistedSessionsList = "persisted_sessions";
+    public const string OrganizationState = "organization_state";
     public const string ContentDelta = "content_delta";
     public const string ToolStarted = "tool_started";
     public const string ToolCompleted = "tool_completed";
@@ -76,6 +77,7 @@ public static class BridgeMessageTypes
     public const string SwitchSession = "switch_session";
     public const string QueueMessage = "queue_message";
     public const string CloseSession = "close_session";
+    public const string OrganizationCommand = "organization_command";
 }
 
 // --- Server → Client payloads ---
@@ -214,4 +216,15 @@ public class ResumeSessionPayload
 {
     public string SessionId { get; set; } = "";
     public string? DisplayName { get; set; }
+}
+
+// --- Organization bridge payloads ---
+
+public class OrganizationCommandPayload
+{
+    public string Command { get; set; } = "";  // "pin", "unpin", "move", "create_group", "rename_group", "delete_group", "toggle_collapsed", "set_sort"
+    public string? SessionName { get; set; }
+    public string? GroupId { get; set; }
+    public string? Name { get; set; }
+    public string? SortMode { get; set; }
 }
