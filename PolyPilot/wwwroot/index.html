@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>PolyPilot</title>
+    <base href="/" />
+    <link rel="stylesheet" href="lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="PolyPilot.styles.css" />
+    <link rel="icon" href="data:,">
+</head>
+
+<body>
+
+    <div class="status-bar-safe-area"></div>
+
+    <div id="app">Loading...</div>
+
+    <div id="blazor-error-ui" data-nosnippet>
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+    <script src="chobitsu.js"></script>
+    <script>
+        // Request notification permission on load
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+
+        // Global keyboard listener — registered immediately on load
+        document.addEventListener('keydown', function(e) {
+            // Ctrl+] for next session, Ctrl+[ for previous
+            if (e.ctrlKey && e.code === 'BracketRight' && window._tabDotNetRef) {
+                e.preventDefault();
+                window._tabDotNetRef.invokeMethodAsync('CycleSession', false);
+            } else if (e.ctrlKey && e.code === 'BracketLeft' && window._tabDotNetRef) {
+                e.preventDefault();
+                window._tabDotNetRef.invokeMethodAsync('CycleSession', true);
+            }
+        }, true);
+
+        // Global image paste handler for chat inputs
+        document.addEventListener('paste', function(e) {
+            var sel = '.card-input input, .card-input textarea, .input-row textarea';
+            if (!e.target.matches || !e.target.matches(sel)) return;
+            var items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].type.startsWith('image/')) {
+                    if (!window.__dashRef) return;
+                    e.preventDefault();
+                    var file = items[i].getAsFile();
+                    if (file) {
+                        var reader = new FileReader();
+                        reader.onload = function() {
+                            var base64 = reader.result.split(',')[1];
+                            var ext = (file.name && file.name.includes('.')) ? file.name.split('.').pop() : 'png';
+                            var name = file.name || ('pasted-image.' + ext);
+                            window.__dashRef.invokeMethodAsync('JsImagePasted', base64, name, ext, e.target.id || '');
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                    return;
+                }
+            }
+        }, true);
+
+        // Global image drop handler for chat input areas
+        document.addEventListener('dragover', function(e) {
+            var zone = e.target.closest && (e.target.closest('.input-area') || e.target.closest('.card-input'));
+            if (zone && e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
+                e.preventDefault();
+                zone.classList.add('drag-over');
+            }
+        });
+        document.addEventListener('dragleave', function(e) {
+            var zone = e.target.closest && (e.target.closest('.input-area') || e.target.closest('.card-input'));
+            if (zone) zone.classList.remove('drag-over');
+        });
+        document.addEventListener('drop', function(e) {
+            var zone = e.target.closest && (e.target.closest('.input-area') || e.target.closest('.card-input'));
+            if (!zone) return;
+            e.preventDefault();
+            zone.classList.remove('drag-over');
+            var input = zone.querySelector('textarea') || zone.querySelector('input');
+            var inputId = input ? input.id : '';
+            var files = e.dataTransfer && e.dataTransfer.files;
+            if (!files || !window.__dashRef) return;
+            for (var i = 0; i < files.length; i++) {
+                if (files[i].type.startsWith('image/')) {
+                    (function(f) {
+                        var reader = new FileReader();
+                        reader.onload = function() {
+                            var base64 = reader.result.split(',')[1];
+                            var ext = (f.name && f.name.includes('.')) ? f.name.split('.').pop() : 'png';
+                            var name = f.name || ('dropped-image.' + ext);
+                            window.__dashRef.invokeMethodAsync('JsImagePasted', base64, name, ext, inputId);
+                        };
+                        reader.readAsDataURL(f);
+                    })(files[i]);
+                }
+            }
+        });
+
+        window.setupTextareaEnterHandler = function(element) {
+            if (!element || element._enterHandlerSet) return;
+            element._enterHandlerSet = true;
+            element.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    // Reset height after send
+                    setTimeout(function() { element.style.height = 'auto'; }, 50);
+                }
+                // Tab / Shift+Tab to cycle sessions
+                if (e.key === 'Tab' && window._tabDotNetRef) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window._tabDotNetRef.invokeMethodAsync('CycleSession', !e.shiftKey);
+                }
+            });
+            element.addEventListener('input', function() {
+                element.style.height = 'auto';
+                element.style.height = Math.min(element.scrollHeight, 200) + 'px';
+            });
+        };
+
+        // Auto-scroll overflowed text on hover
+
+        window.scrollToBottom = function(element) {
+            if (element) {
+                element.scrollTop = element.scrollHeight;
+            }
+        };
+
+        window.smartScrollToBottom = function(element) {
+            if (!element) return;
+            var threshold = 150;
+            var isAtBottom = (element.scrollHeight - element.scrollTop - element.clientHeight) < threshold;
+            if (isAtBottom) {
+                requestAnimationFrame(function() {
+                    element.scrollTop = element.scrollHeight;
+                });
+            }
+        };
+
+        window.isScrolledToBottom = function(element) {
+            if (!element) return true;
+            return (element.scrollHeight - element.scrollTop - element.clientHeight) < 150;
+        };
+
+        window.inspectMessages = function() {
+            var msgs = document.querySelector('.messages');
+            if (!msgs) return 'No .messages element';
+            var children = msgs.children;
+            var result = 'Container: w=' + msgs.clientWidth + ' h=' + msgs.clientHeight + ' scrollW=' + msgs.scrollWidth + ', display=' + getComputedStyle(msgs).display + ', flexDir=' + getComputedStyle(msgs).flexDirection + ', alignItems=' + getComputedStyle(msgs).alignItems + '\n';
+            for (var i = 0; i < Math.min(children.length, 30); i++) {
+                var c = children[i];
+                var cs = getComputedStyle(c);
+                result += i + ': <' + c.tagName + '> class="' + c.className.substring(0, 50) + '" w=' + c.clientWidth + '/' + c.offsetWidth + ' h=' + c.clientHeight + '/' + c.offsetHeight + ' display=' + cs.display + ' maxW=' + cs.maxWidth + ' width=' + cs.width + ' alignSelf=' + cs.alignSelf + ' overflow=' + cs.overflow + '\n';
+            }
+            var toolCards = document.querySelectorAll('.tool-card');
+            if (toolCards.length > 0) {
+                result += '\n=== TOOL CARDS ===\n';
+                toolCards.forEach(function(tc, i) {
+                    var tcs = getComputedStyle(tc);
+                    var parent = tc.parentElement;
+                    var ps = parent ? getComputedStyle(parent) : null;
+                    result += 'TC' + i + ': w=' + tc.clientWidth + '/' + tc.offsetWidth + ' h=' + tc.clientHeight + '/' + tc.offsetHeight + ' display=' + tcs.display + ' width=' + tcs.width + ' minW=' + tcs.minWidth + ' overflow=' + tcs.overflow + '\n';
+                    if (parent) result += '  parent: <' + parent.tagName + '> class="' + parent.className.substring(0, 40) + '" w=' + parent.clientWidth + ' display=' + ps.display + ' width=' + ps.width + '\n';
+                });
+            }
+            return result;
+        };
+
+        window.setupTabNavigation = function(dotnetRef) {
+            window._tabDotNetRef = dotnetRef;
+        };
+
+        window.showNotification = function(sessionName, summary) {
+            // Play a sound
+            try {
+                const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEA...');
+                // Simple beep instead
+            } catch(e) {}
+
+            // Browser notification
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification('PolyPilot: ' + sessionName, {
+                    body: summary.substring(0, 100) + (summary.length > 100 ? '...' : ''),
+                    icon: '🤖',
+                    tag: 'session-complete-' + sessionName
+                });
+            }
+            
+            // Also show in-app notification
+            const toast = document.createElement('div');
+            toast.className = 'toast-notification';
+            toast.innerHTML = '<strong>' + sessionName + '</strong> finished<br/>' + 
+                summary.substring(0, 80) + (summary.length > 80 ? '...' : '');
+            document.body.appendChild(toast);
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
+        };
+
+        // Image drag-and-drop + paste support
+        window.setupImageDropZone = function(dropZoneElement, dotNetRef) {
+            if (!dropZoneElement || dropZoneElement._dropSetup) return;
+            dropZoneElement._dropSetup = true;
+
+            dropZoneElement.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZoneElement.classList.add('drag-over');
+            });
+            dropZoneElement.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZoneElement.classList.remove('drag-over');
+            });
+            dropZoneElement.addEventListener('drop', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZoneElement.classList.remove('drag-over');
+                var files = e.dataTransfer.files;
+                for (var i = 0; i < files.length; i++) {
+                    var file = files[i];
+                    if (file.type.startsWith('image/')) {
+                        readFileAsBase64(file, dotNetRef);
+                    }
+                }
+            });
+
+            // Paste support on the textarea inside
+            var textarea = dropZoneElement.querySelector('textarea');
+            if (textarea) {
+                textarea.addEventListener('paste', function(e) {
+                    var items = e.clipboardData && e.clipboardData.items;
+                    if (!items) return;
+                    for (var i = 0; i < items.length; i++) {
+                        if (items[i].type.startsWith('image/')) {
+                            e.preventDefault();
+                            var file = items[i].getAsFile();
+                            if (file) readFileAsBase64(file, dotNetRef);
+                            return;
+                        }
+                    }
+                });
+            }
+        };
+
+        function readFileAsBase64(file, dotNetRef) {
+            var reader = new FileReader();
+            reader.onload = function() {
+                var base64 = reader.result.split(',')[1];
+                var ext = file.name.split('.').pop() || 'png';
+                dotNetRef.invokeMethodAsync('OnImageDropped', base64, file.name, ext);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        window.triggerImageFilePicker = function(inputElement) {
+            if (inputElement) inputElement.click();
+        };
+
+        window.readSelectedFiles = function(inputElement) {
+            if (!inputElement || !inputElement.files) return null;
+            var results = [];
+            var promises = [];
+            for (var i = 0; i < inputElement.files.length; i++) {
+                var file = inputElement.files[i];
+                if (!file.type.startsWith('image/')) continue;
+                (function(f) {
+                    var p = new Promise(function(resolve) {
+                        var reader = new FileReader();
+                        reader.onload = function() {
+                            var base64 = reader.result.split(',')[1];
+                            var ext = f.name.split('.').pop() || 'png';
+                            results.push(base64, f.name, ext);
+                            resolve();
+                        };
+                        reader.readAsDataURL(f);
+                    });
+                    promises.push(p);
+                })(file);
+            }
+            return Promise.all(promises).then(function() {
+                inputElement.value = '';
+                return results;
+            });
+        };
+
+        window.setAppFontSize = function(size) {
+            document.documentElement.style.setProperty('--app-font-size', size + 'px');
+        };
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,460 @@
+@page "/settings"
+@using PolyPilot.Services
+@using PolyPilot.Models
+@inject CopilotService CopilotService
+@inject ServerManager ServerManager
+@inject DevTunnelService DevTunnelService
+@inject QrScannerService QrScanner
+@inject NavigationManager Nav
+@implements IDisposable
+
+<div class="settings-page">
+    <div class="settings-header">
+        <div class="header-row">
+            <h2>Connection Settings</h2>
+            <div class="header-right">
+                @if (PlatformHelper.IsDesktop)
+                {
+                    <div class="shortcuts-popover-wrap">
+                        <button class="shortcuts-trigger" @onclick="() => showShortcuts = !showShortcuts" title="Keyboard Shortcuts">⌨️</button>
+                        @if (showShortcuts)
+                        {
+                            <div class="shortcuts-popover">
+                                <div class="shortcuts-popover-header">
+                                    <span>Keyboard Shortcuts</span>
+                                    <button class="shortcuts-close" @onclick="() => showShortcuts = false">×</button>
+                                </div>
+                                <table class="hotkey-table">
+                                    <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+                                    <tbody>
+                                        <tr><td><kbd>⌘E</kbd> / <kbd>Ctrl+E</kbd></td><td>Expand / collapse session</td></tr>
+                                        <tr><td><kbd>Escape</kbd></td><td>Collapse to grid</td></tr>
+                                        <tr><td><kbd>Tab</kbd></td><td>Next session</td></tr>
+                                        <tr><td><kbd>Shift+Tab</kbd></td><td>Previous session</td></tr>
+                                        <tr><td><kbd>Enter</kbd></td><td>Send message</td></tr>
+                                        <tr><td><kbd>A−</kbd> / <kbd>A+</kbd></td><td>Font size</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                }
+                <div class="connection-badge @(CopilotService.IsInitialized ? "connected" : "disconnected")">
+                    <span class="badge-dot"></span>
+                    <span>@CopilotService.CurrentMode — @(CopilotService.IsInitialized ? "Connected" : "Disconnected")</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (PlatformHelper.AvailableModes.Length > 1)
+    {
+        <div class="settings-section">
+            <h3>Transport Mode</h3>
+            <div class="mode-cards">
+                @foreach (var mode in PlatformHelper.AvailableModes)
+                {
+                    <div class="mode-card @(settings.Mode == mode ? "selected" : "")"
+                         @onclick="() => SetMode(mode)">
+                        <div class="mode-icon">@GetModeIcon(mode)</div>
+                        <div class="mode-title">@mode</div>
+                        <div class="mode-desc">@GetModeDescription(mode)</div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (settings.Mode == ConnectionMode.Persistent)
+    {
+        <div class="settings-section">
+            <h3>Persistent Server</h3>
+            <div class="server-controls">
+                <div class="server-status">
+                    <span class="status-dot @(serverAlive ? "alive" : "dead")"></span>
+                    <span>@(serverAlive ? $"Running on port {settings.Port}" : "Not running")</span>
+                    @if (ServerManager.ServerPid != null && serverAlive)
+                    {
+                        <span class="pid-label">PID @ServerManager.ServerPid</span>
+                    }
+                </div>
+                <div class="port-input">
+                    <label>Port:</label>
+                    <input type="number" @bind="settings.Port" min="1024" max="65535" />
+                </div>
+                <div class="server-buttons">
+                    @if (!serverAlive)
+                    {
+                        <button class="start-btn" @onclick="StartServer" disabled="@starting">
+                            @if (starting) {<svg class="icon spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><text> Starting...</text>}
+                            else {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg><text> Start Server</text>}
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="stop-btn" @onclick="StopServer"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg> Stop Server</button>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || (settings.Mode == ConnectionMode.Persistent && serverAlive)))
+    {
+        <div class="settings-section">
+            <h3>Share via DevTunnel</h3>
+                @if (!devTunnelAvailable)
+                {
+                    <div class="tunnel-warning">
+                        <p><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> <code>devtunnel</code> CLI not found. Install it to share your server remotely.</p>
+                        <p class="hint">Run: <code>winget install Microsoft.devtunnel</code> (Windows) or <code>brew install --cask devtunnel</code> (macOS)</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="tunnel-controls">
+                        <div class="server-status">
+                            <span class="status-dot @(DevTunnelService.State == TunnelState.Running ? "alive" : DevTunnelService.State == TunnelState.Error ? "error" : "dead")"></span>
+                            <span>@GetTunnelStatusText()</span>
+                        </div>
+
+                        @if (DevTunnelService.State == TunnelState.NotStarted || DevTunnelService.State == TunnelState.Error)
+                        {
+                            @if (!tunnelLoggedIn)
+                            {
+                                <button class="start-btn" @onclick="TunnelLogin" disabled="@tunnelBusy">
+                                    @if (tunnelBusy) {<svg class="icon spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><text> Authenticating...</text>}
+                                    else {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg><text> Login with GitHub</text>}
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="start-btn" @onclick="StartTunnel" disabled="@tunnelBusy">
+                                    @if (tunnelBusy) {<svg class="icon spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg><text> Starting tunnel...</text>}
+                                    else {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 15 22 11 13 2 9z"/></svg><text> Start Tunnel</text>}
+                                </button>
+                            }
+
+                            @if (DevTunnelService.State == TunnelState.Error)
+                            {
+                                <p class="tunnel-error">@DevTunnelService.ErrorMessage</p>
+                            }
+                        }
+                        else if (DevTunnelService.State == TunnelState.Running)
+                        {
+                            <div class="tunnel-url-section">
+                                <div class="tunnel-url">
+                                    <code>@DevTunnelService.TunnelUrl</code>
+                                    <button class="copy-btn" @onclick="CopyTunnelUrl" title="Copy URL"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                                </div>
+
+                                @if (!string.IsNullOrEmpty(DevTunnelService.AccessToken))
+                                {
+                                    <div class="tunnel-token">
+                                        <label>Token:</label>
+                                        <code class="token-value @(showToken ? "" : "blurred")">@DevTunnelService.AccessToken</code>
+                                        <button class="copy-btn" @onclick="() => showToken = !showToken" title="@(showToken ? "Hide" : "Reveal")">@if (showToken) {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>} else {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}</button>
+                                        <button class="copy-btn" @onclick="CopyTunnelToken" title="Copy Token"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                                    </div>
+                                }
+
+                                @if (!string.IsNullOrEmpty(qrCodeDataUri))
+                                {
+                                    <div class="qr-code">
+                                        <img src="@qrCodeDataUri" alt="QR Code" />
+                                        <p class="qr-hint">Scan with PolyPilot on iOS/Android to connect</p>
+                                    </div>
+                                }
+                            </div>
+
+                            <button class="stop-btn" @onclick="StopTunnel"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg> Stop Tunnel</button>
+                        }
+                        else
+                        {
+                            <p class="tunnel-status-text">@GetTunnelStatusText()</p>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+    @if (settings.Mode == ConnectionMode.Remote)
+    {
+        <div class="settings-section">
+            <h3>Remote Server</h3>
+            <div class="remote-controls">
+                <p class="mode-hint">Connect to a Copilot server running on another machine (via DevTunnel URL).</p>
+
+                @if (PlatformHelper.IsMobile)
+                {
+                    <button class="scan-btn" @onclick="ScanQrCode">
+                        <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Scan QR Code
+                    </button>
+                }
+
+                <div class="url-input">
+                    <label>Server URL:</label>
+                    <input type="text" @bind="settings.RemoteUrl" placeholder="https://xxx.devtunnels.ms" class="form-input wide" />
+                </div>
+                <div class="url-input">
+                    <label>Token:</label>
+                    <input type="password" @bind="settings.RemoteToken" placeholder="Tunnel access token" class="form-input wide" />
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="settings-section">
+        <div class="save-row">
+            <button class="save-btn" @onclick="SaveAndApply">
+                <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save &amp; Reconnect
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="status-toast @statusClass">@(statusClass == "success" ? "✓ " : statusClass == "error" ? "✗ " : "")@statusMessage</div>
+    }
+</div>
+
+@code {
+    private ConnectionSettings settings = new();
+    private string? statusMessage;
+    private string statusClass = "";
+    private bool serverAlive;
+    private bool showShortcuts;
+    private bool starting;
+    private bool devTunnelAvailable;
+    private bool tunnelLoggedIn;
+    private bool tunnelBusy;
+    private bool showToken;
+    private string? qrCodeDataUri;
+    private CancellationTokenSource? _statusCts;
+
+    private void ShowStatus(string message, string cls, int dismissMs = 3000)
+    {
+        _statusCts?.Cancel();
+        statusMessage = message;
+        statusClass = cls;
+        StateHasChanged();
+        if (dismissMs > 0)
+        {
+            _statusCts = new CancellationTokenSource();
+            var token = _statusCts.Token;
+            _ = Task.Delay(dismissMs, token).ContinueWith(_ =>
+            {
+                if (!token.IsCancellationRequested)
+                    InvokeAsync(() => { statusMessage = null; StateHasChanged(); });
+            }, TaskScheduler.Default);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        settings = ConnectionSettings.Load();
+        serverAlive = ServerManager.CheckServerRunning("localhost", settings.Port);
+        devTunnelAvailable = DevTunnelService.IsCliAvailable();
+        if (devTunnelAvailable)
+            tunnelLoggedIn = await DevTunnelService.IsLoggedInAsync();
+
+        DevTunnelService.OnStateChanged += OnTunnelStateChanged;
+
+        if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
+            GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
+    }
+
+    public void Dispose()
+    {
+        DevTunnelService.OnStateChanged -= OnTunnelStateChanged;
+    }
+
+    private void OnTunnelStateChanged()
+    {
+        InvokeAsync(() =>
+        {
+            if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
+                GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
+            else
+                qrCodeDataUri = null;
+            StateHasChanged();
+        });
+    }
+
+    private void GenerateQrCode(string url, string? token)
+    {
+        try
+        {
+            // Encode URL and token as JSON so the client gets everything from the QR code
+            var payload = string.IsNullOrEmpty(token)
+                ? url
+                : System.Text.Json.JsonSerializer.Serialize(new { url, token });
+
+            Console.WriteLine($"[QR] Generating QR code: url={url}, hasToken={!string.IsNullOrEmpty(token)}, payloadLen={payload.Length}");
+
+            using var qrGenerator = new QRCoder.QRCodeGenerator();
+            using var qrCodeData = qrGenerator.CreateQrCode(payload, QRCoder.QRCodeGenerator.ECCLevel.L);
+            using var qrCode = new QRCoder.PngByteQRCode(qrCodeData);
+            var pngBytes = qrCode.GetGraphic(4, new byte[] { 0, 0, 0 }, new byte[] { 255, 255, 255 });
+            qrCodeDataUri = $"data:image/png;base64,{Convert.ToBase64String(pngBytes)}";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[QR] Error generating QR code: {ex.Message}");
+        }
+    }
+
+    private MarkupString GetModeIcon(ConnectionMode mode) => mode switch
+    {
+        ConnectionMode.Embedded => new("<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2\" ry=\"2\"/><rect x=\"9\" y=\"9\" width=\"6\" height=\"6\"/><line x1=\"9\" y1=\"1\" x2=\"9\" y2=\"4\"/><line x1=\"15\" y1=\"1\" x2=\"15\" y2=\"4\"/><line x1=\"9\" y1=\"20\" x2=\"9\" y2=\"23\"/><line x1=\"15\" y1=\"20\" x2=\"15\" y2=\"23\"/><line x1=\"20\" y1=\"9\" x2=\"23\" y2=\"9\"/><line x1=\"20\" y1=\"14\" x2=\"23\" y2=\"14\"/><line x1=\"1\" y1=\"9\" x2=\"4\" y2=\"9\"/><line x1=\"1\" y1=\"14\" x2=\"4\" y2=\"14\"/></svg>"),
+        ConnectionMode.Persistent => new("<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"2\" width=\"20\" height=\"8\" rx=\"2\" ry=\"2\"/><rect x=\"2\" y=\"14\" width=\"20\" height=\"8\" rx=\"2\" ry=\"2\"/><line x1=\"6\" y1=\"6\" x2=\"6.01\" y2=\"6\"/><line x1=\"6\" y1=\"18\" x2=\"6.01\" y2=\"18\"/></svg>"),
+        ConnectionMode.Remote => new("<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"2\" y1=\"12\" x2=\"22\" y2=\"12\"/><path d=\"M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z\"/></svg>"),
+        _ => new("<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3\"/><line x1=\"12\" y1=\"17\" x2=\"12.01\" y2=\"17\"/></svg>")
+    };
+
+    private string GetModeDescription(ConnectionMode mode) => mode switch
+    {
+        ConnectionMode.Embedded => "Copilot process dies when app closes.",
+        ConnectionMode.Persistent => "Default. Copilot server survives app restarts. Sessions persist.",
+        ConnectionMode.Remote => "Connect to a remote server via DevTunnel URL.",
+        _ => ""
+    };
+
+    private string GetTunnelStatusText() => DevTunnelService.State switch
+    {
+        TunnelState.NotStarted => "Tunnel not started",
+        TunnelState.Authenticating => "Authenticating with GitHub...",
+        TunnelState.Starting => "Starting tunnel...",
+        TunnelState.Running => $"Tunnel active: {DevTunnelService.TunnelUrl}",
+        TunnelState.Stopping => "Stopping tunnel...",
+        TunnelState.Error => $"Error: {DevTunnelService.ErrorMessage}",
+        _ => "Unknown"
+    };
+
+    private void SetMode(ConnectionMode mode)
+    {
+        settings.Mode = mode;
+    }
+
+    private async Task ScanQrCode()
+    {
+        var result = await QrScanner.ScanAsync();
+        if (string.IsNullOrEmpty(result)) return;
+
+        // QR code contains JSON { url, token } or a plain URL string
+        string? url = null;
+        try
+        {
+            var doc = System.Text.Json.JsonDocument.Parse(result);
+            if (doc.RootElement.TryGetProperty("url", out var urlProp))
+                url = urlProp.GetString();
+            if (doc.RootElement.TryGetProperty("token", out var tokenProp))
+                settings.RemoteToken = tokenProp.GetString();
+        }
+        catch
+        {
+            url = result;
+        }
+
+        if (!string.IsNullOrEmpty(url))
+            settings.RemoteUrl = url;
+
+        ShowStatus("QR code scanned!", "success");
+    }
+
+    private async Task TunnelLogin()
+    {
+        tunnelBusy = true;
+        StateHasChanged();
+        tunnelLoggedIn = await DevTunnelService.LoginAsync();
+        tunnelBusy = false;
+        StateHasChanged();
+    }
+
+    private async Task StartTunnel()
+    {
+        tunnelBusy = true;
+        StateHasChanged();
+        await DevTunnelService.HostAsync(settings.Port);
+        tunnelBusy = false;
+        StateHasChanged();
+    }
+
+    private void StopTunnel()
+    {
+        DevTunnelService.Stop();
+        settings.AutoStartTunnel = false;
+        settings.Save();
+        qrCodeDataUri = null;
+        StateHasChanged();
+    }
+
+    private async Task CopyTunnelUrl()
+    {
+        if (DevTunnelService.TunnelUrl != null)
+        {
+            await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(DevTunnelService.TunnelUrl);
+            ShowStatus("URL copied!", "success");
+        }
+    }
+
+    private async Task CopyTunnelToken()
+    {
+        if (DevTunnelService.AccessToken != null)
+        {
+            await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(DevTunnelService.AccessToken);
+            ShowStatus("Token copied!", "success");
+        }
+    }
+
+    private async Task StartServer()
+    {
+        starting = true;
+        StateHasChanged();
+
+        var success = await ServerManager.StartServerAsync(settings.Port);
+        serverAlive = success;
+        starting = false;
+
+        ShowStatus(success ? $"Server started on port {settings.Port}" : "Failed to start server",
+            success ? "success" : "error");
+    }
+
+    private void StopServer()
+    {
+        if (DevTunnelService.State == TunnelState.Running)
+            DevTunnelService.Stop();
+        ServerManager.StopServer();
+        serverAlive = false;
+        ShowStatus("Server stopped", "success");
+    }
+
+    private async Task SaveAndApply()
+    {
+        if (settings.Mode == ConnectionMode.Persistent && !serverAlive)
+        {
+            ShowStatus("Start the persistent server first", "error", 5000);
+            return;
+        }
+
+        if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl))
+        {
+            ShowStatus("Enter a remote server URL", "error", 5000);
+            return;
+        }
+
+        settings.Save();
+        ShowStatus("Settings saved. Reconnecting...", "", 0);
+
+        try
+        {
+            await CopilotService.ReconnectAsync(settings);
+            ShowStatus("Connected!", "success");
+            Nav.NavigateTo("/");
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Connection failed: {ex.Message}", "error", 8000);
+        }
+    }
+}

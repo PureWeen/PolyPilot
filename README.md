@@ -1,10 +1,10 @@
-# AutoPilot.App
+# PolyPilot
 
-A .NET MAUI Blazor hybrid desktop app that manages multiple GitHub Copilot CLI sessions. AutoPilot provides a native GUI for creating, orchestrating, and interacting with parallel Copilot agent sessions — acting as a multi-agent control plane.
+A .NET MAUI Blazor hybrid desktop app that manages multiple GitHub Copilot CLI sessions. PolyPilot provides a native GUI for creating, orchestrating, and interacting with parallel Copilot agent sessions — acting as a multi-agent control plane.
 
 ## What Problem It Solves
 
-Working with GitHub Copilot CLI is powerful, but limited to a single terminal session at a time. AutoPilot lets you:
+Working with GitHub Copilot CLI is powerful, but limited to a single terminal session at a time. PolyPilot lets you:
 
 - Run **multiple Copilot sessions in parallel**, each with its own model, working directory, and conversation history
 - **Orchestrate agents** from a dashboard — broadcast the same prompt to all sessions at once
@@ -26,13 +26,13 @@ A grid view of all active sessions showing their last messages, streaming output
 During processing, the UI displays a live activity feed showing Copilot's intent (`💭 Thinking...`), tool calls (`🔧 Running bash...`), and completion status (`✅ Tool completed`). This gives full visibility into multi-step agent workflows.
 
 ### Session Persistence & Resume
-- **Active sessions** are saved to `~/.copilot/autopilot-active-sessions.json` and automatically restored on app relaunch
+- **Active sessions** are saved to `~/.copilot/PolyPilot-active-sessions.json` and automatically restored on app relaunch
 - **All Copilot sessions** persisted in `~/.copilot/session-state/` can be browsed and resumed from the sidebar's "Saved Sessions" panel
 - Conversation history is reconstructed from the SDK's `events.jsonl` files on resume
 - Sessions display their first user message as a title for easy identification
 
 ### UI State Persistence
-The app remembers which page you were on (Chat, Dashboard, or Settings) and which session was active, restoring both on relaunch via `~/.copilot/autopilot-ui-state.json`.
+The app remembers which page you were on (Chat, Dashboard, or Settings) and which session was active, restoring both on relaunch via `~/.copilot/PolyPilot-ui-state.json`.
 
 ### Auto-Reconnect
 If a session disconnects during a prompt, the service automatically attempts to resume the session by its GUID and retry the message.
@@ -45,14 +45,14 @@ Sessions can be created with any of the supported models:
 `claude-opus-4.6`, `claude-sonnet-4.5`, `claude-sonnet-4`, `claude-haiku-4.5`, `gpt-5.2`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gemini-3-pro-preview`
 
 ### System Instructions
-Automatically loads project-level instructions from `.github/copilot-instructions.md` and appends them to every session's system message. When a session targets the AutoPilot project directory, it also injects build/relaunch instructions.
+Automatically loads project-level instructions from `.github/copilot-instructions.md` and appends them to every session's system message. When a session targets the PolyPilot project directory, it also injects build/relaunch instructions.
 
 ### Crash Logging
-Unhandled exceptions and unobserved task failures are caught globally and written to `~/.copilot/autopilot-crash.log`.
+Unhandled exceptions and unobserved task failures are caught globally and written to `~/.copilot/PolyPilot-crash.log`.
 
 ## Connection Modes
 
-AutoPilot supports three transport modes, configurable from the Settings page:
+PolyPilot supports three transport modes, configurable from the Settings page:
 
 | Mode | Transport | Lifecycle | Best For |
 |------|-----------|-----------|----------|
@@ -67,13 +67,13 @@ The SDK spawns a Copilot CLI process and communicates via stdin/stdout. Simplest
 The SDK spawns and manages a Copilot CLI process using TCP transport internally. More stable for long-running sessions, but the server still dies when the app exits.
 
 ### Persistent Server
-The app spawns a **detached** Copilot CLI server process (`copilot --headless --port 4321`) that runs independently. The server's PID and port are tracked in `~/.copilot/autopilot-server.pid`. On relaunch, the app detects the existing server and reconnects. You can start/stop the server from the Settings page.
+The app spawns a **detached** Copilot CLI server process (`copilot --headless --port 4321`) that runs independently. The server's PID and port are tracked in `~/.copilot/PolyPilot-server.pid`. On relaunch, the app detects the existing server and reconnects. You can start/stop the server from the Settings page.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    AutoPilot.App                        │
+│                    PolyPilot                        │
 │              (.NET MAUI Blazor Hybrid)                  │
 │                                                         │
 │  ┌──────────────┐  ┌────────────┐  ┌────────────────┐  │
@@ -134,8 +134,8 @@ When a prompt is sent, the SDK emits events processed by `HandleSessionEvent`:
 ## Project Structure
 
 ```
-AutoPilot.App/
-├── AutoPilot.App.csproj        # Project config, SDK reference, trimmer settings
+PolyPilot/
+├── PolyPilot.csproj        # Project config, SDK reference, trimmer settings
 ├── MauiProgram.cs              # App bootstrap, DI registration, crash logging
 ├── relaunch.sh                 # Build + seamless relaunch script (macOS)
 ├── .github/
@@ -207,15 +207,15 @@ AutoPilot.App/
 dotnet workload install maui
 
 # Restore NuGet packages
-cd AutoPilot.App
+cd PolyPilot
 dotnet restore
 ```
 
 ### macOS (Mac Catalyst)
 
 ```bash
-dotnet build AutoPilot.App.csproj -f net10.0-maccatalyst
-open bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/AutoPilot.App.app
+dotnet build PolyPilot.csproj -f net10.0-maccatalyst
+open bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/PolyPilot.app
 ```
 
 The project includes a `relaunch.sh` script for seamless hot-relaunch during development:
@@ -227,15 +227,15 @@ The project includes a `relaunch.sh` script for seamless hot-relaunch during dev
 ### Windows
 
 ```bash
-dotnet build AutoPilot.App.csproj -f net10.0-windows10.0.19041.0
-.\bin\Debug\net10.0-windows10.0.19041.0\win-x64\AutoPilot.App.exe
+dotnet build PolyPilot.csproj -f net10.0-windows10.0.19041.0
+.\bin\Debug\net10.0-windows10.0.19041.0\win-x64\PolyPilot.exe
 ```
 
 ### Android
 
 ```bash
-dotnet build AutoPilot.App.csproj -f net10.0-android -t:Install   # Build + deploy to connected device
-adb shell am start -n com.companyname.autopilot.app/crc645dd8ecec3b5d9ba6.MainActivity
+dotnet build PolyPilot.csproj -f net10.0-android -t:Install   # Build + deploy to connected device
+adb shell am start -n com.companyname.PolyPilot/crc645dd8ecec3b5d9ba6.MainActivity
 ```
 
 ## Connecting Mobile Devices via DevTunnel
@@ -256,7 +256,7 @@ brew install --cask devtunnel
 
 ### Step 2: Start the desktop app and enable sharing
 
-1. Launch AutoPilot on your desktop (macOS or Windows)
+1. Launch PolyPilot on your desktop (macOS or Windows)
 2. Go to **Settings** and select **Persistent** or **Embedded** mode
 3. If using Persistent mode, click **Start Server** to start the Copilot server
 4. Under **Share via DevTunnel**:
@@ -270,14 +270,14 @@ brew install --cask devtunnel
 ### Step 3: Connect from your mobile device
 
 **Option A — Scan QR Code (recommended):**
-1. Open AutoPilot on your phone
+1. Open PolyPilot on your phone
 2. Go to **Settings** → tap **Scan QR Code**
 3. Point your camera at the QR code shown on the desktop
 4. The URL and token are filled in automatically
 5. Tap **Save & Reconnect**
 
 **Option B — Manual entry:**
-1. Open AutoPilot on your phone
+1. Open PolyPilot on your phone
 2. Go to **Settings** → **Remote Server**
 3. Enter the tunnel URL and access token from the desktop
 4. Tap **Save & Reconnect**
@@ -287,7 +287,7 @@ brew install --cask devtunnel
 ```
 ┌─────────────────┐         DevTunnel          ┌──────────────────┐
 │  Mobile Device   │ ──── wss://xxx.ms ────▶   │  Desktop App     │
-│  (AutoPilot)     │                            │  (AutoPilot)     │
+│  (PolyPilot)     │                            │  (PolyPilot)     │
 │                  │                            │                  │
 │  WsBridgeClient  │  ◄── JSON state sync ──▶  │  WsBridgeServer  │
 │                  │                            │       │          │
@@ -307,14 +307,14 @@ The tunnel URL and ID are persisted across restarts — stopping and restarting 
 
 | File | Purpose |
 |------|---------|
-| `autopilot-settings.json` | Connection mode, host, port, auto-start preference |
-| `autopilot-active-sessions.json` | List of active sessions (session ID, display name, model) for restore on relaunch |
-| `autopilot-ui-state.json` | Last active page and session name |
-| `autopilot-server.pid` | PID and port of the persistent Copilot server |
-| `autopilot-crash.log` | Unhandled exception log |
+| `PolyPilot-settings.json` | Connection mode, host, port, auto-start preference |
+| `PolyPilot-active-sessions.json` | List of active sessions (session ID, display name, model) for restore on relaunch |
+| `PolyPilot-ui-state.json` | Last active page and session name |
+| `PolyPilot-server.pid` | PID and port of the persistent Copilot server |
+| `PolyPilot-crash.log` | Unhandled exception log |
 | `session-state/<guid>/events.jsonl` | Per-session event history (managed by Copilot SDK) |
 
-### Example `autopilot-settings.json`
+### Example `PolyPilot-settings.json`
 
 ```json
 {
@@ -351,7 +351,7 @@ If `SendAsync` throws (e.g., the underlying process died), the service attempts 
 
 ### Persistent Server Detection
 
-On startup in Persistent mode, `ServerManager.DetectExistingServer()` reads `autopilot-server.pid`, checks if the process is alive via TCP connect, and reuses it if available. Stale PID files are cleaned up automatically.
+On startup in Persistent mode, `ServerManager.DetectExistingServer()` reads `PolyPilot-server.pid`, checks if the process is alive via TCP connect, and reuses it if available. Stale PID files are cleaned up automatically.
 
 ## NuGet Dependencies
 

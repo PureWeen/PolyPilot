@@ -1,7 +1,0 @@
-<Solution>
-  <Folder Name="/AutoPilot.Console/">
-    <Project Path="AutoPilot.Console/AutoPilot.csproj" />
-  </Folder>
-  <Project Path="AutoPilot.App.Tests/AutoPilot.App.Tests.csproj" />
-  <Project Path="AutoPilot.App/AutoPilot.App.csproj" />
-</Solution>
