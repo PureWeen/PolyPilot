@@ -498,14 +498,7 @@
         await JS.InvokeVoidAsync("eval", $@"
             (function() {{
                 document.querySelectorAll('.card-messages, .messages').forEach(function(el) {{
-                    if (!el.__scrollInit) {{
-                        if (el.scrollHeight > el.clientHeight) {{
-                            el.__scrollInit = true;
-                            el.scrollTop = el.scrollHeight;
-                        }}
-                        return;
-                    }}
-                    var atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 80;
+                    var atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 120;
                     if (atBottom) el.scrollTop = el.scrollHeight;
                 }});
                 var drafts = {draftsJson};
@@ -628,14 +621,16 @@
                 expandedSession = sessions[0].Name;
                 CopilotService.SwitchSession(sessions[0].Name);
             }
-            // Detect sidebar-initiated session switch
+            // Detect sidebar-initiated session switch (only expand if already in expanded mode)
             var active = CopilotService.ActiveSessionName;
             if (active != null && active != _lastActiveSession && sessions.Any(s => s.Name == active))
             {
                 _lastActiveSession = active;
-                _explicitlyCollapsed = false;
-                expandedSession = active;
-                _focusedInputId = $"input-{active.Replace(" ", "-")}";
+                if (expandedSession != null)
+                {
+                    expandedSession = active;
+                    _focusedInputId = $"input-{active.Replace(" ", "-")}";
+                }
             }
             // Clear sidebar highlight when showing grid view
             if (expandedSession == null && sessions.Count > 1 && CopilotService.ActiveSessionName != null)
@@ -1026,6 +1021,7 @@
     [JSInvokable]
     public void JsSelectSession(string sessionName)
     {
+        _lastActiveSession = sessionName;
         CopilotService.SwitchSession(sessionName);
     }
 
