@@ -88,6 +88,7 @@ public partial class CopilotService : IAsyncDisposable
     public string DefaultModel { get; set; } = "claude-opus-4.6";
     public string? SystemInstructions { get; set; }
     public bool IsInitialized { get; private set; }
+    public bool IsRestoring { get; private set; }
     public bool NeedsConfiguration { get; private set; }
     public bool IsRemoteMode { get; private set; }
     public bool IsBridgeConnected => _bridgeClient.IsConnected;
@@ -239,10 +240,14 @@ public partial class CopilotService : IAsyncDisposable
         _ = FetchAvailableModelsAsync();
 
         // Restore previous sessions (includes subscribing to untracked server sessions in Persistent mode)
+        IsRestoring = true;
+        OnStateChanged?.Invoke();
         await RestorePreviousSessionsAsync(cancellationToken);
+        IsRestoring = false;
 
         // Load organization state (groups, pinning, sorting) — reconciles with active sessions
         LoadOrganization();
+        OnStateChanged?.Invoke();
     }
 
     /// <summary>

@@ -14,6 +14,13 @@
         <div class="no-sessions-dash">
             <img src="autopilot_logo_lg.png" alt="AutoPilot" class="empty-logo" />
             <p class="welcome-title">Welcome to AutoPilot</p>
+            @if (CopilotService.IsRestoring)
+            {
+                <div class="restoring-indicator">
+                    <div class="restoring-spinner"></div>
+                    <span>Restoring sessions…</span>
+                </div>
+            }
             @if (!string.IsNullOrEmpty(initError))
             {
                 <div class="init-error-card">

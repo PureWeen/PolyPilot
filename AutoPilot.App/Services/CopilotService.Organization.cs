@@ -56,6 +56,7 @@ public partial class CopilotService
 
     /// <summary>
     /// Ensure every active session has a SessionMeta entry and clean up orphans.
+    /// Only prunes metadata for sessions whose on-disk session directory no longer exists.
     /// </summary>
     private void ReconcileOrganization()
     {
@@ -87,8 +88,36 @@ public partial class CopilotService
             }
         }
 
-        // Remove metadata for sessions that no longer exist
-        int removed = Organization.Sessions.RemoveAll(m => !activeNames.Contains(m.SessionName));
+        // Build the full set of known session names: active sessions + aliases (persisted names)
+        var knownNames = new HashSet<string>(activeNames);
+        try
+        {
+            var aliases = LoadAliases();
+            foreach (var alias in aliases.Values)
+                knownNames.Add(alias);
+
+            // Also include display names from the active-sessions file (covers sessions not yet resumed)
+            if (File.Exists(ActiveSessionsFile))
+            {
+                var json = File.ReadAllText(ActiveSessionsFile);
+                var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
+                if (entries != null)
+                {
+                    foreach (var e in entries)
+                        knownNames.Add(e.DisplayName);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"ReconcileOrganization: error loading known names, skipping prune: {ex.Message}");
+            // If we can't determine known names, don't prune anything
+            if (changed) SaveOrganization();
+            return;
+        }
+
+        // Remove metadata only for sessions that are truly gone (not in any known set)
+        int removed = Organization.Sessions.RemoveAll(m => !knownNames.Contains(m.SessionName));
         if (removed > 0) changed = true;
 
         if (changed) SaveOrganization();
