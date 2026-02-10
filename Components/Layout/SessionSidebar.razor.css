@@ -555,6 +555,11 @@
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+.nav-tab:last-child {
+    flex: 0;
+    padding: 0.4rem 0.6rem;
+}
+
 .nav-tab:hover {
     background: rgba(255,255,255,0.15);
     color: #a0b4cc;

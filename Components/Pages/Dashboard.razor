@@ -9,23 +9,20 @@
 @implements IDisposable
 
 <div class="dashboard @(expandedSession != null ? "expanded-mode" : "")">
-    @if (!CopilotService.IsInitialized)
+    @if (!sessions.Any())
     {
-        <div class="initializing">
-            <div class="spinner"></div>
-            <p>Connecting to Copilot...</p>
+        <div class="no-sessions-dash">
+            <img src="autopilot_logo_lg.png" alt="AutoPilot" class="empty-logo" />
+            <p>Welcome to AutoPilot</p>
             @if (!string.IsNullOrEmpty(initError))
             {
                 <p class="init-error">@initError</p>
                 <button class="retry-btn" @onclick="Initialize">Retry</button>
             }
-        </div>
-    }
-    else if (!sessions.Any() && expandedSession == null)
-    {
-        <div class="no-sessions-dash">
-            <img src="autopilot_logo_lg.png" alt="AutoPilot" class="empty-logo" />
-            <p>No active sessions. Create sessions from the sidebar to orchestrate them here.</p>
+            @if (PlatformHelper.IsMobile)
+            {
+                <button class="connect-btn" @onclick='() => Nav.NavigateTo("/settings")'>Connect to Remote Server</button>
+            }
         </div>
     }
     else if (expandedSession != null)
@@ -335,6 +332,14 @@
         {
             await CopilotService.InitializeAsync();
 
+            // Wait for sessions to arrive (remote mode needs time to sync)
+            if (!CopilotService.GetAllSessions().Any())
+            {
+                await Task.Delay(2000);
+            }
+            sessions = CopilotService.GetAllSessions().ToList();
+            _sessionsLoaded = true;
+
             if (CopilotService.NeedsConfiguration)
             {
                 // Stay on dashboard, user can navigate to settings manually
@@ -551,10 +556,12 @@
     }
 
     private bool _explicitlyCollapsed;
+    private bool _sessionsLoaded;
 
     private void RefreshState()
     {
         sessions = CopilotService.GetAllSessions().ToList();
+        _sessionsLoaded = true;
         // Auto-expand when only one session (unless user explicitly collapsed)
         if (sessions.Count == 1 && expandedSession == null && !_explicitlyCollapsed)
         {

@@ -39,17 +39,39 @@
     align-items: center;
     justify-content: center;
     flex: 1;
-    color: rgba(255,255,255,0.5);
-    font-size: var(--type-title2);
     text-align: center;
-    padding: 0 1.5rem 2rem;
-    gap: 1.5rem;
+    padding: 0 1.5rem 4rem;
+    gap: 0.25rem;
+}
+
+.no-sessions-dash p {
+    margin: 0;
+    color: rgba(255,255,255,0.35);
+    font-size: var(--type-title2);
+    font-weight: 300;
+    letter-spacing: 0.02em;
 }
 
 .empty-logo {
     width: 120px;
     height: auto;
-    opacity: 0.6;
+    opacity: 0.45;
+}
+
+.connect-btn {
+    margin-top: 0.75rem;
+    padding: 0.5rem 1.25rem;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.55);
+    font-size: var(--type-callout);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.connect-btn:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.25);
 }
 
 .initializing {
@@ -61,6 +83,15 @@
     gap: 1rem;
     color: rgba(255,255,255,0.6);
 }
+
+.loading-logo {
+    width: 80px;
+    height: auto;
+    opacity: 0.5;
+    animation: pulse-fade 2s ease-in-out infinite;
+}
+
+@keyframes pulse-fade { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.7; } }
 
 .spinner {
     width: 32px;
