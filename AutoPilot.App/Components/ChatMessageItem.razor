@@ -108,19 +108,28 @@
                     }
                 }
             </div>
-            @if (!Message.IsCollapsed && Message.IsComplete && !string.IsNullOrEmpty(Message.Content) && !ChatMessageList.IsUnusableResult(Message.Content))
+            @if (!Message.IsCollapsed)
             {
-                @if (ChatMessageList.GetImagePath(Message.Content) is string imgPath2 && ChatMessageList.FileToDataUri(imgPath2) is string dataUri2)
+                @if (!string.IsNullOrEmpty(Message.ToolInput))
                 {
-                    <div class="action-expanded-result">
-                        <img src="@dataUri2" alt="@System.IO.Path.GetFileName(imgPath2)" />
+                    <div class="action-expanded-input">
+                        <pre>@ChatMessageList.FormatToolInputExpanded(Message.ToolName ?? "", Message.ToolInput)</pre>
                     </div>
                 }
-                else
+                @if (Message.IsComplete && !string.IsNullOrEmpty(Message.Content) && !ChatMessageList.IsUnusableResult(Message.Content))
                 {
-                    <div class="action-expanded-result">
-                        <pre>@ChatMessageList.TruncateResult(Message.Content)</pre>
-                    </div>
+                    @if (ChatMessageList.GetImagePath(Message.Content) is string imgPath2 && ChatMessageList.FileToDataUri(imgPath2) is string dataUri2)
+                    {
+                        <div class="action-expanded-result">
+                            <img src="@dataUri2" alt="@System.IO.Path.GetFileName(imgPath2)" />
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="action-expanded-result">
+                            <pre>@ChatMessageList.TruncateResult(Message.Content)</pre>
+                        </div>
+                    }
                 }
             }
         }
