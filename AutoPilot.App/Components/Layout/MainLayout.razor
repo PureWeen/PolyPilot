@@ -3,6 +3,7 @@
 <div class="page @(flyoutOpen ? "flyout-open" : "")">
     <div class="sidebar desktop-only">
         <SessionSidebar />
+        <div class="sidebar-resize-handle" @onmousedown="StartResize"></div>
     </div>
 
     <div class="mobile-top-bar mobile-only">
@@ -23,6 +24,34 @@
 
 @code {
     private bool flyoutOpen;
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    private async Task StartResize(MouseEventArgs e)
+    {
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var sidebar = document.querySelector('.sidebar.desktop-only');
+                if (!sidebar) return;
+                var startX = {e.ClientX};
+                var startW = sidebar.offsetWidth;
+                function onMove(e) {{
+                    var w = Math.min(Math.max(startW + e.clientX - startX, 200), 600);
+                    sidebar.style.width = w + 'px';
+                }}
+                function onUp() {{
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    document.body.style.userSelect = '';
+                    document.body.style.cursor = '';
+                }}
+                document.body.style.userSelect = 'none';
+                document.body.style.cursor = 'col-resize';
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+            }})();
+        ");
+    }
 
     private void ToggleFlyout()
     {
