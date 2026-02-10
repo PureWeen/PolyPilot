@@ -151,23 +151,50 @@
     grid-template-columns: repeat(auto-fill, minmax(min(600px, 100%), 1fr));
 }
 
-.grid-density-btn {
+.toolbar-actions {
     margin-left: auto;
-    padding: 0.25rem 0.6rem;
+    display: flex;
+    align-items: center;
+    position: relative;
+}
+
+.toolbar-overflow-btn {
+    all: unset;
+    display: none;
+    font-size: var(--type-body);
+    color: rgba(78,168,209,0.7);
+    cursor: pointer;
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
     background: rgba(78,168,209,0.1);
     border: 1px solid rgba(78,168,209,0.2);
-    border-radius: 6px;
-    color: rgba(78,168,209,0.7);
-    font-size: var(--type-callout);
+    letter-spacing: 0.1em;
+    line-height: 1;
+}
+.toolbar-overflow-btn:hover { background: rgba(78,168,209,0.2); color: #4ea8d1; }
+
+.toolbar-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.grid-density-btn {
+    all: unset;
+    padding: 0.2rem 0.4rem;
+    background: rgba(78,168,209,0.08);
+    border: 1px solid rgba(78,168,209,0.15);
+    border-radius: 4px;
+    color: rgba(78,168,209,0.6);
+    font-size: var(--type-caption1);
     cursor: pointer;
     transition: all 0.15s ease;
     white-space: nowrap;
 }
 
 .grid-density-btn:hover {
-    background: rgba(78,168,209,0.2);
+    background: rgba(78,168,209,0.15);
     color: #4ea8d1;
-    border-color: rgba(78,168,209,0.4);
 }
 
 .dashboard-header .font-size-controls {
@@ -1066,6 +1093,33 @@
 
 .usage-info .usage-context {
     color: rgba(255,255,255,0.25);
+}
+
+/* === Toolbar collapses early (sidebar + toolbar compete for space) === */
+@media (max-width: 1200px) {
+    .toolbar-overflow-btn {
+        display: block;
+    }
+    .toolbar-controls {
+        display: none;
+        position: absolute;
+        right: 0;
+        top: 100%;
+        margin-top: 0.35rem;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.35rem;
+        background: #1e2240;
+        border: 1px solid rgba(78,168,209,0.25);
+        border-radius: 8px;
+        padding: 0.5rem;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+        z-index: 100;
+        min-width: 160px;
+    }
+    .toolbar-controls.open {
+        display: flex;
+    }
 }
 
 /* === Mobile responsive === */

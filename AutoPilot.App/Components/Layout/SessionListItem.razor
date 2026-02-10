@@ -49,45 +49,45 @@
                     <text> • @GetShortPath(Session.WorkingDirectory)</text>
                 }
             </span>
-            <div class="session-actions">
-                <button class="more-btn" @onclick:stopPropagation="true"
-                        @onclick="() => OnToggleMenu.InvokeAsync()" title="More actions">⋯</button>
-                @if (IsMenuOpen)
-                {
-                    <div class="session-menu" @onclick:stopPropagation="true">
-                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnStartRename.InvokeAsync(); }">
-                            ✏️ Rename
-                        </button>
-                        @if (isPinned)
-                        {
-                            <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnPin.InvokeAsync(false); }">
-                                📌 Unpin
-                            </button>
-                        }
-                        else
-                        {
-                            <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnPin.InvokeAsync(true); }">
-                                📌 Pin
-                            </button>
-                        }
-                        @if (Groups != null && Groups.Count > 1)
-                        {
-                            @foreach (var g in Groups.Where(g => g.Id != (Meta?.GroupId ?? SessionGroup.DefaultId)))
-                            {
-                                var targetGroup = g;
-                                <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnMove.InvokeAsync(targetGroup.Id); }">
-                                    📁 Move to @targetGroup.Name
-                                </button>
-                            }
-                        }
-                        <div class="menu-separator"></div>
-                        <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnClose.InvokeAsync(); }">
-                            🗑 Close Session
-                        </button>
-                    </div>
-                }
-            </div>
         </div>
+    </div>
+    <div class="session-actions">
+        <button class="more-btn" @onclick:stopPropagation="true"
+                @onclick="() => OnToggleMenu.InvokeAsync()" title="More actions">⋯</button>
+        @if (IsMenuOpen)
+        {
+            <div class="session-menu" @onclick:stopPropagation="true">
+                <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnStartRename.InvokeAsync(); }">
+                    ✏️ Rename
+                </button>
+                @if (isPinned)
+                {
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnPin.InvokeAsync(false); }">
+                        📌 Unpin
+                    </button>
+                }
+                else
+                {
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnPin.InvokeAsync(true); }">
+                        📌 Pin
+                    </button>
+                }
+                @if (Groups != null && Groups.Count > 1)
+                {
+                    @foreach (var g in Groups.Where(g => g.Id != (Meta?.GroupId ?? SessionGroup.DefaultId)))
+                    {
+                        var targetGroup = g;
+                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnMove.InvokeAsync(targetGroup.Id); }">
+                            📁 Move to @targetGroup.Name
+                        </button>
+                    }
+                }
+                <div class="menu-separator"></div>
+                <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnClose.InvokeAsync(); }">
+                    🗑 Close Session
+                </button>
+            </div>
+        }
     </div>
 </div>
 

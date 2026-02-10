@@ -28,33 +28,13 @@ else if (IsFlyoutPanel)
             <button class="flyout-close-btn" @onclick="ToggleFlyout">✕</button>
         </div>
 
-        <div class="new-session">
-            <input type="text" id="flyoutSessionNameInput" placeholder="Session name..." @oninput="OnSessionNameInput" />
-            <div class="session-options-row">
-                <select @bind="selectedModel" @bind:after="SaveSelectedModel" class="model-select">
-                    @foreach (var model in availableModels)
-                    {
-                        <option value="@model">@model</option>
-                    }
-                </select>
-                <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory">⋯</button>
-                <button @onclick="CreateSession" disabled="@(isCreating || !hasSessionName)">
-                    @(isCreating ? "..." : "+")
-                </button>
-            </div>
-            @if (showDirectoryInput)
-            {
-                <div class="dir-input-row">
-                    <input type="text" id="flyoutSessionDirInput"
-                           placeholder="Working directory (default: AutoPilot.App)" 
-                           class="dir-input" />
-                    <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders">…</button>
-                </div>
-            }
-            @if (createError != null)
-            {
-                <div style="color:#ff6b6b;font-size:0.75rem;padding:2px 4px;">⚠ @createError</div>
-            }
+        <div class="new-session-wrapper">
+            <CreateSessionForm @bind-SessionName="newSessionName"
+                               @bind-SelectedModel="selectedModel"
+                               AvailableModels="availableModels.ToList()"
+                               IsCreating="isCreating"
+                               CreateError="@createError"
+                               OnCreate="HandleCreateSession" />
         </div>
 
         <div class="sidebar-divider"></div>
@@ -83,33 +63,13 @@ else
             </div>
         </div>
 
-        <div class="new-session">
-            <input type="text" id="sessionNameInput" placeholder="Session name..." @oninput="OnSessionNameInput" />
-            <div class="session-options-row">
-                <select @bind="selectedModel" @bind:after="SaveSelectedModel" class="model-select">
-                    @foreach (var model in availableModels)
-                    {
-                        <option value="@model">@model</option>
-                    }
-                </select>
-                <button class="dir-toggle-btn" @onclick="ToggleDirectoryInput" title="Set working directory">⋯</button>
-                <button @onclick="CreateSession" disabled="@(isCreating || !hasSessionName)">
-                    @(isCreating ? "..." : "+")
-                </button>
-            </div>
-            @if (showDirectoryInput)
-            {
-                <div class="dir-input-row">
-                    <input type="text" id="sessionDirInput"
-                           placeholder="Working directory (default: AutoPilot.App)" 
-                           class="dir-input" />
-                    <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders">…</button>
-                </div>
-            }
-            @if (createError != null)
-            {
-                <div style="color:#ff6b6b;font-size:0.75rem;padding:2px 4px;">⚠ @createError</div>
-            }
+        <div class="new-session-wrapper">
+            <CreateSessionForm @bind-SessionName="newSessionName"
+                               @bind-SelectedModel="selectedModel"
+                               AvailableModels="availableModels.ToList()"
+                               IsCreating="isCreating"
+                               CreateError="@createError"
+                               OnCreate="HandleCreateSession" />
         </div>
 
         <div class="sidebar-divider"></div>
@@ -286,10 +246,9 @@ else
     private string _lastSavedModel = "";
     private string sessionFilter = "";
     private bool isCreating = false;
-    private bool hasSessionName = false;
+    private string newSessionName = "";
     private string? createError = null;
     private bool showPersistedSessions = false;
-    private bool showDirectoryInput = false;
     private string? renamingSession = null;
     private string? confirmResumeId = null;
     private string? resumeError = null;
@@ -427,46 +386,17 @@ else
         showPersistedSessions = !showPersistedSessions;
     }
 
-    private void OnSessionNameInput(ChangeEventArgs e)
+    private async Task HandleCreateSession((string Name, string Model, string Directory) args)
     {
-        hasSessionName = !string.IsNullOrWhiteSpace(e.Value?.ToString());
-    }
-
-    private async Task CreateSession()
-    {
-        // Try both desktop and flyout input IDs
-        var name = await JS.InvokeAsync<string>("eval", 
-            "document.getElementById('sessionNameInput')?.value || document.getElementById('flyoutSessionNameInput')?.value || ''");
-        if (string.IsNullOrWhiteSpace(name) || isCreating) return;
-        hasSessionName = false;
-
-        // Read working directory if the input is visible
-        string? workingDir = null;
-        if (showDirectoryInput)
-        {
-            var dirValue = await JS.InvokeAsync<string>("eval", 
-                "document.getElementById('sessionDirInput')?.value || document.getElementById('flyoutSessionDirInput')?.value || ''");
-            if (!string.IsNullOrWhiteSpace(dirValue))
-                workingDir = dirValue.Trim();
-        }
-
+        if (isCreating) return;
         isCreating = true;
         createError = null;
         try
         {
-            var sessionInfo = await CopilotService.CreateSessionAsync(name.Trim(), selectedModel, workingDir);
+            var sessionInfo = await CopilotService.CreateSessionAsync(args.Name, args.Model, args.Directory);
             CopilotService.SwitchSession(sessionInfo.Name);
-            // Clear both input variants
-            await JS.InvokeVoidAsync("eval", @"
-                var el = document.getElementById('sessionNameInput'); if(el) el.value='';
-                var el2 = document.getElementById('flyoutSessionNameInput'); if(el2) el2.value='';
-            ");
-            if (showDirectoryInput)
-                await JS.InvokeVoidAsync("eval", @"
-                    var el = document.getElementById('sessionDirInput'); if(el) el.value='';
-                    var el2 = document.getElementById('flyoutSessionDirInput'); if(el2) el2.value='';
-                ");
-            showDirectoryInput = false;
+            newSessionName = "";
+            CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
             await OnSessionSelected.InvokeAsync();
         }
         catch (Exception ex)
@@ -478,27 +408,6 @@ else
         {
             isCreating = false;
         }
-    }
-
-    private void ToggleDirectoryInput()
-    {
-        showDirectoryInput = !showDirectoryInput;
-    }
-
-    private async Task BrowseDirectory()
-    {
-#if MACCATALYST || WINDOWS
-        try
-        {
-            var dir = await FolderPickerService.PickFolderAsync();
-            if (!string.IsNullOrEmpty(dir))
-                await JS.InvokeVoidAsync("eval", $"document.getElementById('sessionDirInput').value = '{dir.Replace("'", "\\'").Replace("\\", "\\\\")}'");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Folder picker error: {ex.Message}");
-        }
-#endif
     }
 
     private void ConfirmResume(PersistedSessionInfo persisted)
