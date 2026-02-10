@@ -6,6 +6,9 @@
     color: #a0b4cc;
     padding: 1.5rem;
     overflow-y: auto;
+    overflow-x: hidden;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .dashboard.expanded-mode {
@@ -91,6 +94,8 @@
     flex-direction: column;
     gap: 0.75rem;
     transition: all 0.3s ease;
+    overflow: hidden;
+    min-width: 0;
 }
 
 .session-card.processing {
@@ -126,6 +131,8 @@
     height: 100%;
     background: #0f0f23;
     color: #a0b4cc;
+    overflow: hidden;
+    max-width: 100%;
 }
 
 /* Chat header (expanded) */
@@ -195,10 +202,14 @@
     background: rgba(78,168,209,0.06);
     border-top: 1px solid rgba(78,168,209,0.15);
     flex-shrink: 0;
+    overflow: hidden;
+    max-width: 100%;
+    box-sizing: border-box;
 }
-.input-row { display: flex; gap: 0.5rem; align-items: stretch; }
+.input-row { display: flex; gap: 0.5rem; align-items: stretch; max-width: 100%; min-width: 0; }
 .expanded-card .input-area textarea {
     flex: 1;
+    min-width: 0;
     padding: 0.45rem 0.6rem;
     border: 1px solid rgba(78,168,209,0.25);
     border-radius: 8px;
@@ -248,6 +259,9 @@
     padding: 0 0.25rem;
     font-size: 0.75rem;
     color: rgba(200,216,240,0.35);
+    overflow-x: auto;
+    max-width: 100%;
+    flex-wrap: wrap;
 }
 .status-sep { color: rgba(78,168,209,0.2); user-select: none; }
 
@@ -281,6 +295,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    min-width: 0;
 }
 
 .card-expand {
@@ -541,10 +556,12 @@
 .card-input {
     display: flex;
     gap: 0.5rem;
+    min-width: 0;
 }
 
 .card-input input, .card-input textarea {
     flex: 1;
+    min-width: 0;
     padding: 0.5rem 0.75rem;
     border: 1px solid rgba(255,255,255,0.2);
     border-radius: 6px;
@@ -663,6 +680,22 @@
     .card-close { font-size: var(--type-subhead, 0.75rem); }
     .card-messages { max-height: 180px; gap: 0.3rem; font-size: var(--type-callout, 0.8rem); }
     .card-dir { max-width: 160px; }
+    .card-input input, .card-input textarea { font-size: var(--type-body, 0.85rem); padding: 0.4rem 0.5rem; }
+    .card-input button { padding: 0.4rem 0.5rem; font-size: var(--type-body, 0.85rem); }
+    .card-context { font-size: var(--type-caption1, 0.6rem); }
+    .card-model { font-size: var(--type-caption1, 0.6rem); }
+
+    /* Expanded view mobile fixes */
+    .expanded-card .chat-header { padding: 0.5rem 0.75rem; }
+    .expanded-card .chat-header h2 { font-size: var(--type-body, 0.85rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hide-mobile { display: none !important; }
+    .expanded-card .messages { padding: 0.75rem; }
+    .chat-header-badges { gap: 0.25rem; }
+    .model-badge { font-size: 0.6rem; padding: 0.1rem 0.3rem; }
+    .session-id-badge { font-size: 0.55rem; padding: 0.1rem 0.25rem; }
+    .context-badge { font-size: 0.5rem; max-width: 120px; }
+    .collapse-card-btn { font-size: 0.6rem !important; padding: 0.15rem 0.35rem !important; }
+    .input-status-bar { gap: 0.4rem; font-size: 0.65rem; }
 }
 
 /* Image paste/drop badges */

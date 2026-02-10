@@ -275,6 +275,7 @@ public class WsBridgeServer : IDisposable
                     {
                         Console.WriteLine($"[WsBridge] Client creating session '{createReq.Name}'");
                         await _copilot.CreateSessionAsync(createReq.Name, createReq.Model, createReq.WorkingDirectory, ct);
+                        BroadcastSessionsList();
                     }
                     break;
 
@@ -303,7 +304,19 @@ public class WsBridgeServer : IDisposable
                     {
                         Console.WriteLine($"[WsBridge] Client resuming session '{resumeReq.SessionId}'");
                         var displayName = resumeReq.DisplayName ?? "Resumed";
-                        await _copilot.ResumeSessionAsync(resumeReq.SessionId, displayName, ct);
+                        try
+                        {
+                            await _copilot.ResumeSessionAsync(resumeReq.SessionId, displayName, ct);
+                            Console.WriteLine($"[WsBridge] Session resumed successfully, broadcasting updated list");
+                            BroadcastSessionsList();
+                        }
+                        catch (Exception resumeEx)
+                        {
+                            Console.WriteLine($"[WsBridge] Resume failed: {resumeEx.Message}");
+                            await SendToClientAsync(clientId, ws,
+                                BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                    new ErrorPayload { SessionName = displayName, Error = $"Resume failed: {resumeEx.Message}" }), ct);
+                        }
                     }
                     break;
 

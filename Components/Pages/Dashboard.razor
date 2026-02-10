@@ -41,14 +41,14 @@
             <div class="expanded-card @cardClass">
                 <div class="chat-header">
                     <div class="chat-header-top" style="display:block; width:100%;">
-                        <h2 style="margin:0; font-size:1.2rem; width:100%; white-space:normal; word-break:break-word; overflow:visible;">@session.Name</h2>
+                        <h2>@session.Name</h2>
                     </div>
                     <div class="chat-header-badges">
                         @if (session.IsProcessing)
                         {
                             <span class="processing-dot"></span>
                         }
-                        <span class="model-badge">@GetExpandedModel(session)</span>
+                        <span class="model-badge hide-mobile">@GetExpandedModel(session)</span>
                         @if (session.SessionId != null)
                         {
                             <span class="session-id-badge" title="Click to copy: @session.SessionId" @onclick="() => CopyToClipboard(session.SessionId)">🔗 @session.SessionId[..Math.Min(8, session.SessionId.Length)] 📋</span>
