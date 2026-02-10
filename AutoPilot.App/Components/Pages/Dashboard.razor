@@ -6,7 +6,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject DevTunnelService DevTunnelService
-@implements IDisposable
+@implements IAsyncDisposable
 
 <div class="dashboard @(expandedSession != null ? "expanded-mode" : "")">
     @if (!sessions.Any())
@@ -1149,7 +1149,7 @@
         try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); } catch { }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         CopilotService.OnStateChanged -= RefreshState;
         CopilotService.OnSessionComplete -= HandleComplete;
@@ -1165,6 +1165,7 @@
         foreach (var images in pendingImagesBySession.Values)
             foreach (var img in images)
                 try { File.Delete(img.TempPath); } catch { }
+        try { await JS.InvokeVoidAsync("eval", "window.__dashRef = null;"); } catch { }
         _dotNetRef?.Dispose();
     }
 }
