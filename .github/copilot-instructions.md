@@ -75,6 +75,11 @@ This is a .NET MAUI Blazor Hybrid app targeting Mac Catalyst, Android, and iOS. 
 
 ## Critical Conventions
 
+### Git Workflow
+- **NEVER force push** (`git push --force` / `git push -f`). Always add new commits on top of existing ones.
+- When contributing to an existing PR, add commits — do not rebase or squash interactively.
+- Use `git add -f` when adding files matched by `.gitignore` patterns (e.g., `*.app/` catches `AutoPilot.App/`).
+
 ### No `static readonly` fields that call platform APIs
 `static readonly` fields are evaluated during type initialization — before MAUI's platform layer is ready on Android/iOS. This causes `TypeInitializationException` crashes.
 
