@@ -38,7 +38,7 @@ The app remembers which page you were on (Chat, Dashboard, or Settings) and whic
 If a session disconnects during a prompt, the service automatically attempts to resume the session by its GUID and retry the message.
 
 ### Per-Session Working Directory
-Each session can target a different directory on disk. A native macOS folder picker (via `UIDocumentPickerViewController`) is available for browsing.
+Each session can target a different directory on disk. A native folder picker is available on macOS (via `UIDocumentPickerViewController`) and Windows (via WinRT `FolderPicker`).
 
 ### Model Selection
 Sessions can be created with any of the supported models:
@@ -137,16 +137,21 @@ When a prompt is sent, the SDK emits events processed by `HandleSessionEvent`:
 AutoPilot.App/
 ├── AutoPilot.App.csproj        # Project config, SDK reference, trimmer settings
 ├── MauiProgram.cs              # App bootstrap, DI registration, crash logging
-├── relaunch.sh                 # Build + seamless relaunch script
+├── relaunch.sh                 # Build + seamless relaunch script (macOS)
 ├── .github/
 │   └── copilot-instructions.md # System instructions loaded into every session
 ├── Models/
 │   ├── AgentSessionInfo.cs     # Session metadata (name, model, history, state)
 │   ├── ChatMessage.cs          # Chat message record (role, content, timestamp)
-│   └── ConnectionSettings.cs   # Connection mode enum + serializable settings
+│   ├── ConnectionSettings.cs   # Connection mode enum + serializable settings
+│   └── PlatformHelper.cs       # Platform detection (IsDesktop, IsMobile, defaults)
 ├── Services/
 │   ├── CopilotService.cs       # Core service: session CRUD, events, persistence
-│   └── ServerManager.cs        # Persistent server lifecycle + PID tracking
+│   ├── ServerManager.cs        # Persistent server lifecycle + PID tracking
+│   ├── DevTunnelService.cs     # DevTunnel CLI wrapper for remote sharing
+│   ├── WsBridgeServer.cs       # WebSocket bridge server (desktop → mobile)
+│   ├── WsBridgeClient.cs       # WebSocket bridge client (mobile → desktop)
+│   └── QrScannerService.cs     # QR code scanning for mobile connection setup
 ├── Components/
 │   ├── Layout/
 │   │   ├── MainLayout.razor    # App shell with sidebar + content area
@@ -157,21 +162,41 @@ AutoPilot.App/
 │       ├── Dashboard.razor     # Multi-session orchestrator grid
 │       └── Settings.razor      # Connection mode selector, server controls
 ├── Platforms/
-│   └── MacCatalyst/
-│       ├── Entitlements.plist  # Sandbox disabled, network access enabled
-│       ├── FolderPickerService.cs # Native macOS folder picker
-│       └── Program.cs          # Mac Catalyst entry point
+│   ├── MacCatalyst/
+│   │   ├── Entitlements.plist  # Sandbox disabled, network access enabled
+│   │   ├── FolderPickerService.cs # Native macOS folder picker
+│   │   └── Program.cs          # Mac Catalyst entry point
+│   ├── Windows/
+│   │   ├── App.xaml.cs         # WinUI application entry point
+│   │   ├── FolderPickerService.cs # WinRT folder picker
+│   │   └── app.manifest        # DPI awareness, long path support
+│   ├── Android/                # Android platform bootstrapping
+│   └── iOS/                    # iOS platform bootstrapping
 └── wwwroot/
     └── app.css                 # Global styles
 ```
 
+## Supported Platforms
+
+| Platform | Target Framework | Status |
+|----------|-----------------|--------|
+| **macOS** (Mac Catalyst) | `net10.0-maccatalyst` | ✅ Primary development target |
+| **Windows** | `net10.0-windows10.0.19041.0` | ✅ Supported |
+| **Android** | `net10.0-android` | ✅ Supported (Remote mode only) |
+| **iOS** | `net10.0-ios` | ✅ Supported (Remote mode only) |
+
 ## Prerequisites
 
-- **.NET 10 SDK** (Preview) — the project targets `net10.0-maccatalyst`
+- **.NET 10 SDK** (Preview)
 - **.NET MAUI workload** — install with `dotnet workload install maui`
 - **GitHub Copilot CLI** — installed globally via npm (`npm install -g @github/copilot`)
-- **macOS** — the app runs as a Mac Catalyst application (macOS 15.0+)
 - **GitHub Copilot subscription** — required for the CLI to authenticate
+
+### Platform-specific requirements
+
+- **macOS**: macOS 15.0+ for Mac Catalyst
+- **Windows**: Windows 10 (build 17763+). The app runs as an unpackaged WinUI 3 application
+- **Android/iOS**: Requires a desktop instance running with a DevTunnel for remote connection
 
 ## Building & Running
 
@@ -182,29 +207,99 @@ AutoPilot.App/
 dotnet workload install maui
 
 # Restore NuGet packages
-cd /path/to/AutoPilot.App
+cd AutoPilot.App
 dotnet restore
 ```
 
-### Build and run
+### macOS (Mac Catalyst)
 
 ```bash
-# Build for Mac Catalyst
-dotnet build -f net10.0-maccatalyst
-
-# Run the app
+dotnet build AutoPilot.App.csproj -f net10.0-maccatalyst
 open bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/AutoPilot.App.app
 ```
 
-### Relaunch after code changes
-
-The project includes a `relaunch.sh` script for seamless hot-relaunch. It builds, copies to a staging directory, launches a new instance, waits for it to start, then kills the old one:
+The project includes a `relaunch.sh` script for seamless hot-relaunch during development:
 
 ```bash
 ./relaunch.sh
 ```
 
-This is safe to run from a Copilot session inside the app — the new instance is fully running before the old one is terminated.
+### Windows
+
+```bash
+dotnet build AutoPilot.App.csproj -f net10.0-windows10.0.19041.0
+.\bin\Debug\net10.0-windows10.0.19041.0\win-x64\AutoPilot.App.exe
+```
+
+### Android
+
+```bash
+dotnet build AutoPilot.App.csproj -f net10.0-android -t:Install   # Build + deploy to connected device
+adb shell am start -n com.companyname.autopilot.app/crc645dd8ecec3b5d9ba6.MainActivity
+```
+
+## Connecting Mobile Devices via DevTunnel
+
+Mobile devices (Android/iOS) can't run the Copilot CLI locally — they connect to a desktop instance over the network using [Azure DevTunnels](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/). This creates a secure, publicly-accessible tunnel URL that the mobile app connects to.
+
+### Step 1: Install the DevTunnel CLI (on your desktop)
+
+**Windows:**
+```bash
+winget install Microsoft.devtunnel
+```
+
+**macOS:**
+```bash
+brew install --cask devtunnel
+```
+
+### Step 2: Start the desktop app and enable sharing
+
+1. Launch AutoPilot on your desktop (macOS or Windows)
+2. Go to **Settings** and select **Persistent** or **Embedded** mode
+3. If using Persistent mode, click **Start Server** to start the Copilot server
+4. Under **Share via DevTunnel**:
+   - Click **Login with GitHub** (first time only — opens browser for OAuth)
+   - Click **Start Tunnel** — this starts a WebSocket bridge and creates a DevTunnel
+5. Once running, the UI shows:
+   - A **tunnel URL** (e.g., `https://xxx.devtunnels.ms`)
+   - An **access token** for authentication
+   - A **QR code** that encodes both the URL and token
+
+### Step 3: Connect from your mobile device
+
+**Option A — Scan QR Code (recommended):**
+1. Open AutoPilot on your phone
+2. Go to **Settings** → tap **Scan QR Code**
+3. Point your camera at the QR code shown on the desktop
+4. The URL and token are filled in automatically
+5. Tap **Save & Reconnect**
+
+**Option B — Manual entry:**
+1. Open AutoPilot on your phone
+2. Go to **Settings** → **Remote Server**
+3. Enter the tunnel URL and access token from the desktop
+4. Tap **Save & Reconnect**
+
+### How it works under the hood
+
+```
+┌─────────────────┐         DevTunnel          ┌──────────────────┐
+│  Mobile Device   │ ──── wss://xxx.ms ────▶   │  Desktop App     │
+│  (AutoPilot)     │                            │  (AutoPilot)     │
+│                  │                            │                  │
+│  WsBridgeClient  │  ◄── JSON state sync ──▶  │  WsBridgeServer  │
+│                  │                            │       │          │
+└──────────────────┘                            │  CopilotService  │
+                                                │       │          │
+                                                │  Copilot CLI     │
+                                                └──────────────────┘
+```
+
+The desktop app runs a `WsBridgeServer` on a local port, which the DevTunnel exposes publicly. The mobile app's `WsBridgeClient` connects via WebSocket and receives real-time session state, chat messages, and tool execution events. Commands sent from the mobile device (create session, send prompt, etc.) are forwarded to the desktop's `CopilotService`.
+
+The tunnel URL and ID are persisted across restarts — stopping and restarting the tunnel reuses the same URL so mobile devices don't need to reconfigure.
 
 ## Configuration
 
