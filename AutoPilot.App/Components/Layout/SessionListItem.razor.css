@@ -1,0 +1,202 @@
+/* Session item styles — extracted from SessionSidebar for child component scoping */
+.session-item {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 0.75rem;
+    margin-bottom: 0.25rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.session-item:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.session-item.active {
+    background: rgba(59, 130, 246, 0.3);
+    border: 1px solid rgba(59, 130, 246, 0.5);
+}
+
+.session-item.completed {
+    background: rgba(72, 187, 120, 0.2);
+    border: 1px solid rgba(72, 187, 120, 0.5);
+    animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+    0%, 100% { border-color: rgba(72, 187, 120, 0.5); }
+    50% { border-color: rgba(72, 187, 120, 1); box-shadow: 0 0 8px rgba(72, 187, 120, 0.3); }
+}
+
+.session-item.busy {
+    border-left: 3px solid #fbbf24;
+}
+
+.session-item.pinned {
+    border-left: 2px solid rgba(251,191,36,0.4);
+}
+
+.session-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    overflow: hidden;
+    min-width: 0;
+    flex: 1;
+}
+
+.session-meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.session-name {
+    font-weight: 500;
+    font-size: var(--type-body);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.session-name-text {
+    display: inline-block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
+}
+
+.shortcut-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.2em;
+    height: 1.2em;
+    font-size: var(--type-footnote);
+    font-weight: 600;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 3px;
+    color: rgba(255,255,255,0.5);
+    flex-shrink: 0;
+}
+
+.pin-badge {
+    font-size: 0.65rem;
+    cursor: pointer;
+    margin-right: 0.15rem;
+}
+.pin-badge:hover { opacity: 0.6; }
+
+.done-badge {
+    color: #48bb78;
+    font-weight: bold;
+    margin-right: 0.25rem;
+}
+
+.session-meta {
+    font-size: var(--type-body);
+    color: rgba(255,255,255,0.5);
+}
+
+.processing {
+    color: #fbbf24;
+    animation: pulse 1s infinite;
+    font-size: var(--type-subhead);
+    white-space: nowrap;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.session-actions {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding-top: 0.05rem;
+}
+
+.more-btn {
+    all: unset;
+    font-size: var(--type-body);
+    color: rgba(255,255,255,0.3);
+    cursor: pointer;
+    padding: 0 0.3rem;
+    border-radius: 3px;
+    line-height: 1;
+    letter-spacing: 0.1em;
+}
+.more-btn:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.08); }
+
+.session-menu {
+    position: absolute;
+    right: 0.5rem;
+    top: 100%;
+    z-index: 100;
+    min-width: 140px;
+    background: #1e2240;
+    border: 1px solid rgba(78,168,209,0.25);
+    border-radius: 8px;
+    padding: 0.25rem 0;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    display: flex;
+    flex-direction: column;
+}
+
+.menu-item {
+    all: unset;
+    display: block;
+    width: 100%;
+    padding: 0.35rem 0.65rem;
+    font-size: var(--type-callout);
+    color: rgba(255,255,255,0.7);
+    cursor: pointer;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+.menu-item:hover { background: rgba(78,168,209,0.15); color: #fff; }
+
+.menu-separator {
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+    margin: 0.2rem 0.5rem;
+}
+
+.menu-item.destructive { color: rgba(239,68,68,0.7); }
+.menu-item.destructive:hover { background: rgba(239,68,68,0.12); color: #ef4444; }
+
+.rename-input {
+    width: 100%;
+    padding: 0.2rem 0.4rem;
+    border: 1px solid #60a5fa;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.15);
+    color: #a0b4cc;
+    font-size: var(--type-title3);
+    font-weight: 500;
+    font-family: inherit;
+    outline: none;
+}
+
+/* === Mobile responsive === */
+@media (max-width: 640px) {
+    .session-item {
+        padding: 0.5rem;
+    }
+
+    .session-name {
+        font-size: var(--type-callout);
+    }
+}

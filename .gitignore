@@ -36,6 +36,3 @@ launchSettings.json
 .DS_Store
 *.swp
 *~
-
-## MAUI / Mac Catalyst
-*.app/
