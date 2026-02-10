@@ -368,36 +368,10 @@
         var selEnd = _cursorEnd;
         _focusedInputId = null;
 
-        var forceScroll = _needsScrollToBottom ? "true" : "false";
+        var forceScroll = _needsScrollToBottom;
         _needsScrollToBottom = false;
 
-        await JS.InvokeVoidAsync("eval", $@"
-            (function() {{
-                function doScroll() {{
-                    document.querySelectorAll('.card-messages, .messages').forEach(function(el) {{
-                        if (!el.__scrollInit) {{
-                            el.__scrollInit = true;
-                            el.scrollTop = el.scrollHeight;
-                            return;
-                        }}
-                        var atBottom = {forceScroll} || (el.scrollHeight - el.scrollTop - el.clientHeight) < 120;
-                        if (atBottom) el.scrollTop = el.scrollHeight;
-                    }});
-                }}
-                doScroll();
-                if ({forceScroll}) setTimeout(doScroll, 50);
-                var drafts = {draftsJson};
-                for (var id in drafts) {{
-                    var el = document.getElementById(id);
-                    if (el) el.value = drafts[id];
-                }}
-                var focusId = '{focusId}';
-                if (focusId) {{
-                    var fel = document.getElementById(focusId);
-                    if (fel) {{ fel.focus(); fel.setSelectionRange({selStart}, {selEnd}); }}
-                }}
-            }})();
-        ");
+        await JS.InvokeVoidAsync("restoreDraftsAndFocus", draftsJson, focusId, selStart, selEnd, forceScroll);
 
         // Auto-load more messages when scrolled to top (IntersectionObserver on load-more buttons)
         await JS.InvokeVoidAsync("eval", @"
@@ -643,12 +617,12 @@
     private async Task SendFromCard(string sessionName, string? explicitText = null)
     {
         var inputId = $"input-{sessionName.Replace(" ", "-")}";
-        var prompt = explicitText ?? await JS.InvokeAsync<string>("eval", $"document.getElementById('{inputId}')?.value || ''");
+        var prompt = explicitText ?? await JS.InvokeAsync<string>("getElementValue", inputId);
         var hasImages = pendingImagesBySession.TryGetValue(sessionName, out var pendingSendImages) && pendingSendImages.Count > 0;
         if (string.IsNullOrWhiteSpace(prompt) && !hasImages) return;
 
         if (explicitText == null) // Only clear if we read from DOM, otherwise child component cleared it
-            await JS.InvokeVoidAsync("eval", $"var el = document.getElementById('{inputId}'); el.value = ''; el.style.height = 'auto';");
+            await JS.InvokeVoidAsync("clearElementValue", inputId);
         draftBySession.Remove(sessionName);
 
         var finalPrompt = (prompt ?? "").Trim();
@@ -699,7 +673,7 @@
     private async Task TriggerAttach(string sessionName)
     {
         var fileId = $"file-{sessionName.Replace(" ", "-")}";
-        await JS.InvokeVoidAsync("eval", $"document.getElementById('{fileId}')?.click()");
+        await JS.InvokeVoidAsync("clickElement", fileId);
     }
 
     private async Task ExpandSession(string sessionName)
@@ -753,7 +727,7 @@
         var oldName = cardRenamingSession;
         cardRenamingSession = null;
 
-        var newName = await JS.InvokeAsync<string>("eval", "document.getElementById('cardRenameInput')?.value || ''");
+        var newName = await JS.InvokeAsync<string>("getElementValue", "cardRenameInput");
         if (!string.IsNullOrWhiteSpace(newName) && newName.Trim() != oldName)
         {
             CopilotService.RenameSession(oldName, newName.Trim());
@@ -776,7 +750,7 @@
 
     private async Task CommitDashGroup()
     {
-        var name = await JS.InvokeAsync<string>("eval", "document.getElementById('dashNewGroupInput')?.value ?? ''");
+        var name = await JS.InvokeAsync<string>("getElementValue", "dashNewGroupInput");
         isAddingDashGroup = false;
         if (!string.IsNullOrWhiteSpace(name))
         {

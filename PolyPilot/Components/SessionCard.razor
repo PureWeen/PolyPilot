@@ -195,8 +195,7 @@
 
     private async Task CommitRename()
     {
-        // Get value from input
-        var val = await JS.InvokeAsync<string>("eval", $"document.getElementById('cardRenameInput')?.value");
+        var val = await JS.InvokeAsync<string>("getElementValue", "cardRenameInput");
         if (!string.IsNullOrWhiteSpace(val))
         {
             await OnCommitRename.InvokeAsync(val);
@@ -214,10 +213,10 @@
     private async Task SendInput()
     {
         var id = $"input-{Session.Name.Replace(" ", "-")}";
-        var text = await JS.InvokeAsync<string>("eval", $"document.getElementById('{id}')?.value");
+        var text = await JS.InvokeAsync<string>("getElementValue", id);
         if (!string.IsNullOrWhiteSpace(text))
         {
-            await JS.InvokeVoidAsync("eval", $"document.getElementById('{id}').value = ''");
+            await JS.InvokeVoidAsync("clearElementValue", id);
             await OnSend.InvokeAsync(text);
         }
     }

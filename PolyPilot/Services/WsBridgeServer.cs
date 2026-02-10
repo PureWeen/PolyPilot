@@ -147,13 +147,26 @@ public class WsBridgeServer : IDisposable
 
                 if (context.Request.IsWebSocketRequest)
                 {
+                    if (!ValidateClientToken(context.Request))
+                    {
+                        context.Response.StatusCode = 401;
+                        context.Response.Close();
+                        Console.WriteLine("[WsBridge] Rejected unauthenticated WebSocket connection");
+                        continue;
+                    }
                     _ = Task.Run(() => HandleClientAsync(context, ct), ct);
                 }
                 else if (context.Request.Url?.AbsolutePath == "/token" && context.Request.HttpMethod == "GET")
                 {
+                    // Only serve token to loopback clients (localhost)
+                    if (!IsLoopbackRequest(context.Request))
+                    {
+                        context.Response.StatusCode = 403;
+                        context.Response.Close();
+                        continue;
+                    }
                     context.Response.StatusCode = 200;
                     context.Response.ContentType = "text/plain";
-                    context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
                     var tokenBytes = Encoding.UTF8.GetBytes(AccessToken ?? "");
                     await context.Response.OutputStream.WriteAsync(tokenBytes, ct);
                     context.Response.Close();
@@ -174,6 +187,47 @@ public class WsBridgeServer : IDisposable
                 Console.WriteLine($"[WsBridge] Accept error: {ex.Message}");
             }
         }
+    }
+
+    /// <summary>
+    /// Validate client token from X-Tunnel-Authorization header or query string.
+    /// If no AccessToken is configured, all connections are allowed (local-only mode).
+    /// Loopback connections are always allowed — they're either local or proxied
+    /// through the DevTunnel (which validates tokens at the tunnel layer).
+    /// </summary>
+    private bool ValidateClientToken(HttpListenerRequest request)
+    {
+        if (string.IsNullOrEmpty(AccessToken))
+            return true; // No token configured — local-only mode, allow all
+
+        // Loopback connections are trusted — DevTunnel proxies appear as localhost
+        if (IsLoopbackRequest(request))
+            return true;
+
+        // Check X-Tunnel-Authorization header: "tunnel <token>"
+        var authHeader = request.Headers["X-Tunnel-Authorization"];
+        if (!string.IsNullOrEmpty(authHeader))
+        {
+            var token = authHeader.StartsWith("tunnel ", StringComparison.OrdinalIgnoreCase)
+                ? authHeader["tunnel ".Length..]
+                : authHeader;
+            if (string.Equals(token.Trim(), AccessToken, StringComparison.Ordinal))
+                return true;
+        }
+
+        // Check query string: ?token=<token>
+        var queryToken = request.QueryString["token"];
+        if (!string.IsNullOrEmpty(queryToken) &&
+            string.Equals(queryToken, AccessToken, StringComparison.Ordinal))
+            return true;
+
+        return false;
+    }
+
+    private static bool IsLoopbackRequest(HttpListenerRequest request)
+    {
+        var remoteAddr = request.RemoteEndPoint?.Address;
+        return remoteAddr != null && IPAddress.IsLoopback(remoteAddr);
     }
 
     private async Task HandleClientAsync(HttpListenerContext httpContext, CancellationToken ct)
@@ -264,7 +318,7 @@ public class WsBridgeServer : IDisposable
 
                 case BridgeMessageTypes.SendMessage:
                     var sendReq = msg.GetPayload<SendMessagePayload>();
-                    if (sendReq != null)
+                    if (sendReq != null && !string.IsNullOrWhiteSpace(sendReq.SessionName) && !string.IsNullOrWhiteSpace(sendReq.Message))
                     {
                         Console.WriteLine($"[WsBridge] Client sending message to '{sendReq.SessionName}'");
                         await _copilot.SendPromptAsync(sendReq.SessionName, sendReq.Message, cancellationToken: ct);
@@ -273,8 +327,19 @@ public class WsBridgeServer : IDisposable
 
                 case BridgeMessageTypes.CreateSession:
                     var createReq = msg.GetPayload<CreateSessionPayload>();
-                    if (createReq != null)
+                    if (createReq != null && !string.IsNullOrWhiteSpace(createReq.Name))
                     {
+                        // Validate WorkingDirectory if provided — must be an absolute path that exists
+                        if (createReq.WorkingDirectory != null)
+                        {
+                            if (!Path.IsPathRooted(createReq.WorkingDirectory) ||
+                                createReq.WorkingDirectory.Contains("..") ||
+                                !Directory.Exists(createReq.WorkingDirectory))
+                            {
+                                Console.WriteLine($"[WsBridge] Rejected invalid WorkingDirectory: {createReq.WorkingDirectory}");
+                                break;
+                            }
+                        }
                         Console.WriteLine($"[WsBridge] Client creating session '{createReq.Name}'");
                         await _copilot.CreateSessionAsync(createReq.Name, createReq.Model, createReq.WorkingDirectory, ct);
                         BroadcastSessionsList();
@@ -292,7 +357,7 @@ public class WsBridgeServer : IDisposable
 
                 case BridgeMessageTypes.QueueMessage:
                     var queueReq = msg.GetPayload<QueueMessagePayload>();
-                    if (queueReq != null)
+                    if (queueReq != null && !string.IsNullOrWhiteSpace(queueReq.SessionName) && !string.IsNullOrWhiteSpace(queueReq.Message))
                         _copilot.EnqueueMessage(queueReq.SessionName, queueReq.Message);
                     break;
 
@@ -302,8 +367,17 @@ public class WsBridgeServer : IDisposable
 
                 case BridgeMessageTypes.ResumeSession:
                     var resumeReq = msg.GetPayload<ResumeSessionPayload>();
-                    if (resumeReq != null)
+                    if (resumeReq != null && !string.IsNullOrWhiteSpace(resumeReq.SessionId))
                     {
+                        // Validate session ID is a valid GUID to prevent path traversal
+                        if (!Guid.TryParse(resumeReq.SessionId, out _))
+                        {
+                            Console.WriteLine($"[WsBridge] Rejected invalid session ID format: {resumeReq.SessionId}");
+                            await SendToClientAsync(clientId, ws,
+                                BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                    new ErrorPayload { SessionName = resumeReq.DisplayName ?? "Unknown", Error = "Invalid session ID format" }), ct);
+                            break;
+                        }
                         Console.WriteLine($"[WsBridge] Client resuming session '{resumeReq.SessionId}'");
                         var displayName = resumeReq.DisplayName ?? "Resumed";
                         try

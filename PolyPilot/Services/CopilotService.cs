@@ -391,6 +391,9 @@ public partial class CopilotService : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(sessionId))
             throw new ArgumentException("Session ID cannot be empty.", nameof(sessionId));
 
+        if (!Guid.TryParse(sessionId, out _))
+            throw new ArgumentException("Session ID must be a valid GUID.", nameof(sessionId));
+
         if (_sessions.ContainsKey(displayName))
             throw new InvalidOperationException($"Session '{displayName}' already exists.");
 
