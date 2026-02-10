@@ -984,7 +984,13 @@
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".copilot", "session-state", sessionId);
         if (Directory.Exists(path))
+        {
+#if MACCATALYST
             System.Diagnostics.Process.Start("open", path);
+#elif WINDOWS
+            System.Diagnostics.Process.Start("explorer.exe", path);
+#endif
+        }
     }
 
     [JSInvokable]

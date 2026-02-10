@@ -1,8 +1,10 @@
 using AutoPilot.App.Services;
 using Microsoft.Extensions.Logging;
 using ZXing.Net.Maui.Controls;
+#if !WINDOWS
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
+#endif
 #if MACCATALYST
 using Microsoft.Maui.LifecycleEvents;
 using UIKit;
@@ -102,7 +104,7 @@ public static class MauiProgram
 		// Mac server app: Agent=9233, CDP=9232
 		builder.AddMauiDevFlowAgent(options => { options.Port = 9233; });
 		builder.AddMauiBlazorDevFlowTools();
-#else
+#elif !WINDOWS
 		// Mobile client apps: Agent=9243, CDP=9242
 		builder.AddMauiDevFlowAgent(options => { options.Port = 9243; });
 		builder.AddMauiBlazorDevFlowTools();

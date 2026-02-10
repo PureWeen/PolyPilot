@@ -203,19 +203,35 @@ public class ServerManager
 
     private static string FindCopilotBinary()
     {
-        // Try the native binary first (faster startup, better detachment)
-        var nativePaths = new[]
+        // Try platform-specific native binaries first (faster startup, better detachment)
+        var nativePaths = new List<string>();
+
+        if (OperatingSystem.IsWindows())
         {
-            "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
-            "/usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
-        };
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            nativePaths.AddRange(new[]
+            {
+                Path.Combine(appData, "npm", "node_modules", "@github", "copilot", "node_modules", "@github", "copilot-win-x64", "copilot.exe"),
+                Path.Combine(localAppData, "npm", "node_modules", "@github", "copilot", "node_modules", "@github", "copilot-win-x64", "copilot.exe"),
+                Path.Combine(appData, "npm", "copilot.cmd"),
+            });
+        }
+        else
+        {
+            nativePaths.AddRange(new[]
+            {
+                "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+                "/usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+            });
+        }
 
         foreach (var path in nativePaths)
         {
             if (File.Exists(path)) return path;
         }
 
-        // Fallback to node wrapper
-        return "copilot";
+        // Fallback to node wrapper (works if copilot is on PATH)
+        return OperatingSystem.IsWindows() ? "copilot.cmd" : "copilot";
     }
 }
