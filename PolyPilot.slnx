@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/PolyPilot.Console/">
+    <Project Path="PolyPilot.Console/PolyPilot.csproj" />
+  </Folder>
+  <Project Path="PolyPilot.Tests/PolyPilot.Tests.csproj" />
+  <Project Path="PolyPilot/PolyPilot.csproj" />
+</Solution>

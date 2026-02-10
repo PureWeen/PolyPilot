@@ -1,4 +1,4 @@
-# AutoPilot.App — Copilot Instructions
+# PolyPilot — Copilot Instructions
 
 ## Build & Deploy Commands
 
@@ -11,11 +11,11 @@ dotnet build -f net10.0-maccatalyst   # Build only
 
 ### Tests
 ```bash
-cd ../AutoPilot.App.Tests && dotnet test              # Run all tests
-cd ../AutoPilot.App.Tests && dotnet test --filter "FullyQualifiedName~ChatMessageTests"  # Run one test class
-cd ../AutoPilot.App.Tests && dotnet test --filter "FullyQualifiedName~ChatMessageTests.UserMessage_SetsRoleAndType"  # Single test
+cd ../PolyPilot.Tests && dotnet test              # Run all tests
+cd ../PolyPilot.Tests && dotnet test --filter "FullyQualifiedName~ChatMessageTests"  # Run one test class
+cd ../PolyPilot.Tests && dotnet test --filter "FullyQualifiedName~ChatMessageTests.UserMessage_SetsRoleAndType"  # Single test
 ```
-The test project lives at `../AutoPilot.App.Tests/` (sibling directory). It includes source files from the main project via `<Compile Include>` links because the MAUI project can't be directly referenced from a plain `net10.0` test project. When adding new model or utility classes, add a corresponding `<Compile Include>` entry to the test csproj if the file has no MAUI dependencies.
+The test project lives at `../PolyPilot.Tests/` (sibling directory). It includes source files from the main project via `<Compile Include>` links because the MAUI project can't be directly referenced from a plain `net10.0` test project. When adding new model or utility classes, add a corresponding `<Compile Include>` entry to the test csproj if the file has no MAUI dependencies.
 
 **Always run tests after modifying models, bridge messages, or serialization logic.** When adding new features or changing existing behavior, update or add tests to match. The tests serve as a living specification of the app's data contracts and parsing logic.
 
@@ -23,15 +23,15 @@ The test project lives at `../AutoPilot.App.Tests/` (sibling directory). It incl
 ```bash
 dotnet build -f net10.0-android                  # Build only
 dotnet build -f net10.0-android -t:Install       # Build + deploy to connected device (use this, not bare `adb install`)
-adb shell am start -n com.companyname.autopilot.app/crc645dd8ecec3b5d9ba6.MainActivity   # Launch
+adb shell am start -n com.companyname.PolyPilot/crc645dd8ecec3b5d9ba6.MainActivity   # Launch
 ```
 Fast Deployment requires `dotnet build -t:Install` — it pushes assemblies to `.__override__` on device.
 
 ### iOS (physical device)
 ```bash
 dotnet build -f net10.0-ios -r ios-arm64         # Build only
-xcrun devicectl device install app --device <UDID> bin/Debug/net10.0-ios/ios-arm64/AutoPilot.App.app/
-xcrun devicectl device process launch --device <UDID> com.companyname.autopilot.app
+xcrun devicectl device install app --device <UDID> bin/Debug/net10.0-ios/ios-arm64/PolyPilot.app/
+xcrun devicectl device process launch --device <UDID> com.companyname.PolyPilot
 ```
 Do NOT use `dotnet build -t:Run` for physical iOS — it hangs waiting for the app to exit.
 
@@ -78,7 +78,7 @@ This is a .NET MAUI Blazor Hybrid app targeting Mac Catalyst, Android, and iOS. 
 ### Git Workflow
 - **NEVER force push** (`git push --force` / `git push -f`). Always add new commits on top of existing ones.
 - When contributing to an existing PR, add commits — do not rebase or squash interactively.
-- Use `git add -f` when adding files matched by `.gitignore` patterns (e.g., `*.app/` catches `AutoPilot.App/`).
+- Use `git add -f` when adding files matched by `.gitignore` patterns (e.g., `*.app/` catches `PolyPilot/`).
 
 ### No `static readonly` fields that call platform APIs
 `static readonly` fields are evaluated during type initialization — before MAUI's platform layer is ready on Android/iOS. This causes `TypeInitializationException` crashes.
@@ -122,8 +122,8 @@ When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in
 Avoid `@bind:event="oninput"` — causes round-trip lag per keystroke. Use plain HTML inputs with JS event listeners and read values via `JS.InvokeAsync<string>("eval", "document.getElementById('id')?.value")` on submit.
 
 ### Session Persistence
-- Active sessions: `~/.copilot/autopilot-active-sessions.json`
+- Active sessions: `~/.copilot/PolyPilot-active-sessions.json`
 - Session state: `~/.copilot/session-state/<guid>/events.jsonl` (SDK-managed)
-- UI state: `~/.copilot/autopilot-ui-state.json`
-- Settings: `~/.copilot/autopilot-settings.json`
-- Crash log: `~/.copilot/autopilot-crash.log`
+- UI state: `~/.copilot/PolyPilot-ui-state.json`
+- Settings: `~/.copilot/PolyPilot-settings.json`
+- Crash log: `~/.copilot/PolyPilot-crash.log`

@@ -1,0 +1,449 @@
+@using PolyPilot.Models
+@using Markdig
+
+@* Shared chat message list — used by Dashboard.razor (grid=compact, expanded=full) *@
+
+<div class="chat-message-list @(Compact ? "compact" : "full")">
+    @if (!Messages.Any() && string.IsNullOrEmpty(StreamingContent))
+    {
+        <p class="chat-empty">@(Compact ? "No messages yet" : "Start a conversation with Copilot!")</p>
+    }
+    else
+    {
+        @foreach (var msg in Messages)
+        {
+            <ChatMessageItem Message="msg" Compact="Compact" />
+        }
+
+        @* Current turn tool activity feed — skip activities already in history *@
+        @if (GetNewActivities().Any())
+        {
+            @if (Compact)
+            {
+                @foreach (var activity in GetNewActivities().TakeLast(3))
+                {
+                    <div class="chat-msg tool">
+                        <span class="chat-msg-role">🔧</span>
+                        <span class="chat-msg-text">@FormatToolName(activity.Name) @(activity.IsComplete ? (activity.IsSuccess ? "✓" : "✗") : "…")</span>
+                    </div>
+                }
+            }
+            else
+            {
+                @foreach (var activity in GetNewActivities())
+                {
+                    <div class="action-item @(GetActionLabel(activity.Name).CssClass) @(activity.IsComplete ? (activity.IsSuccess ? "done" : "failed") : "running")">
+                        <span class="action-dot"></span>
+                        <span class="action-label">@(GetActionLabel(activity.Name).Label)</span>
+                        <span class="action-desc">@FormatActionDescription(activity.Name, activity.Input, activity.Result, activity.IsComplete)</span>
+                    </div>
+                }
+            }
+        }
+        else if (!string.IsNullOrEmpty(CurrentToolName))
+        {
+            @if (Compact)
+            {
+                <div class="chat-msg tool">
+                    <span class="chat-msg-role">🔧</span>
+                    <span class="chat-msg-text">@FormatToolName(CurrentToolName) …</span>
+                </div>
+            }
+            else
+            {
+                <div class="action-item @(GetActionLabel(CurrentToolName).CssClass) running">
+                    <span class="action-dot"></span>
+                    <span class="action-label">@(GetActionLabel(CurrentToolName).Label)</span>
+                </div>
+            }
+        }
+
+        @* Streaming content *@
+        @if (!string.IsNullOrEmpty(StreamingContent))
+        {
+            <div class="chat-msg assistant streaming">
+                @if (!Compact)
+                {
+                    <div class="chat-msg-avatar"><img src="PolyPilot_logo.png" width="22" height="22" alt="PolyPilot" /></div>
+                }
+                <div class="chat-msg-content">
+                    @if (Compact)
+                    {
+                        <span class="chat-msg-role">AI</span>
+                    }
+                    <div class="chat-msg-text markdown-body">@((MarkupString)RenderMarkdown(StreamingContent))</div>
+                </div>
+            </div>
+        }
+
+        @* Activity indicator *@
+        @if (IsProcessing && string.IsNullOrEmpty(StreamingContent) && string.IsNullOrEmpty(CurrentToolName) && !ToolActivities.Any())
+        {
+            @if (Compact)
+            {
+                <div class="chat-msg tool">
+                    <span class="chat-msg-role">⏳</span>
+                    <span class="chat-msg-text">@(string.IsNullOrEmpty(ActivityText) ? "Thinking…" : ActivityText)</span>
+                </div>
+            }
+            else
+            {
+                <div class="action-item action-default running">
+                    <span class="action-dot"></span>
+                    <span class="action-label">Thinking</span>
+                </div>
+            }
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public List<ChatMessage> Messages { get; set; } = new();
+    [Parameter] public string StreamingContent { get; set; } = "";
+    [Parameter] public string CurrentToolName { get; set; } = "";
+    [Parameter] public int ToolCount { get; set; }
+    [Parameter] public List<ToolActivity> ToolActivities { get; set; } = new();
+    [Parameter] public string ActivityText { get; set; } = "";
+    [Parameter] public bool IsProcessing { get; set; }
+    [Parameter] public bool Compact { get; set; }
+
+    private IEnumerable<ToolActivity> GetNewActivities()
+    {
+        var historyCallIds = Messages.Where(m => m.ToolCallId != null).Select(m => m.ToolCallId).ToHashSet();
+        return ToolActivities.Where(a => !historyCallIds.Contains(a.CallId));
+    }
+
+    private static readonly MarkdownPipeline MdPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions().Build();
+
+    private static readonly Dictionary<string, string> _imageCache = new();
+    private static readonly Dictionary<int, string> _markdownCache = new();
+
+    private static readonly System.Text.RegularExpressions.Regex ImagePathRegex = new(
+        @"(?<!\(|""|\w)((?:/[\w\-. ]+)+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|tiff))(?!\)|""|\w)",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    internal static string RenderMarkdown(string content)
+    {
+        if (string.IsNullOrEmpty(content)) return "";
+        var key = content.GetHashCode();
+        if (_markdownCache.TryGetValue(key, out var cached)) return cached;
+        try
+        {
+            var html = Markdig.Markdown.ToHtml(content, MdPipeline);
+            html = ImagePathRegex.Replace(html, match =>
+            {
+                var path = match.Value;
+                var dataUri = FileToDataUri(path);
+                if (dataUri != null)
+                    return $"<img src=\"{dataUri}\" alt=\"{System.IO.Path.GetFileName(path)}\" />";
+                return match.Value;
+            });
+            if (_markdownCache.Count < 500) _markdownCache[key] = html;
+            return html;
+        }
+        catch { return System.Net.WebUtility.HtmlEncode(content).Replace("\n", "<br/>"); }
+    }
+
+    internal static string FormatUserMessage(string content)
+    {
+        if (string.IsNullOrEmpty(content)) return "";
+        var lines = content.Split('\n');
+        var sb = new System.Text.StringBuilder();
+        var hasText = false;
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith('/') && ImageExtensions.Any(ext => 
+                trimmed.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) &&
+                System.IO.File.Exists(trimmed))
+            {
+                if (hasText) { sb.Append("</p>"); hasText = false; }
+                var dataUri = FileToDataUri(trimmed);
+                var fileName = System.IO.Path.GetFileName(trimmed);
+                var safeName = System.Net.WebUtility.HtmlEncode(fileName);
+                if (dataUri != null)
+                {
+                    sb.Append($"<div class=\"user-image-attachment\"><img src=\"{dataUri}\" alt=\"{safeName}\" /><span class=\"user-image-name\">📷 {safeName}</span></div>");
+                    continue;
+                }
+            }
+            if (!hasText) { sb.Append("<p>"); hasText = true; }
+            else sb.Append("<br/>");
+            sb.Append(System.Net.WebUtility.HtmlEncode(line));
+        }
+        if (hasText) sb.Append("</p>");
+        return sb.ToString();
+    }
+
+    internal static int LineCount(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        var count = 1;
+        foreach (var c in text) { if (c == '\n') count++; }
+        return count;
+    }
+
+    internal static string FirstLines(string? text, int lines)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        var idx = 0;
+        for (var i = 0; i < lines && idx < text.Length; i++)
+        {
+            var next = text.IndexOf('\n', idx);
+            if (next < 0) break;
+            idx = next + 1;
+        }
+        if (idx <= 0 || idx >= text.Length) return text;
+        return text[..idx] + "…";
+    }
+
+    internal static string FormatToolName(string toolName)
+    {
+        if (string.IsNullOrEmpty(toolName)) return "";
+        return string.Join(" ", toolName.Split('_').Select(w =>
+            w.Length > 0 ? char.ToUpperInvariant(w[0]) + w[1..].ToLowerInvariant() : w));
+    }
+
+    internal static (string Label, string CssClass) GetActionLabel(string toolName)
+    {
+        return toolName switch
+        {
+            "edit" => ("Edit", "action-edit"),
+            "create" => ("Create", "action-create"),
+            "view" => ("Read", "action-read"),
+            "bash" => ("Run", "action-run"),
+            "read_bash" => ("Read", "action-read"),
+            "write_bash" => ("Write", "action-run"),
+            "stop_bash" => ("Stop", "action-stop"),
+            "grep" => ("Search", "action-search"),
+            "glob" => ("Search", "action-search"),
+            "web_fetch" => ("Fetch", "action-fetch"),
+            "web_search" => ("Search", "action-search"),
+            "sql" => ("Query", "action-query"),
+            "task" => ("Agent", "action-agent"),
+            "ask_user" => ("Ask", "action-ask"),
+            "task_complete" => ("Done", "action-done"),
+            "store_memory" => ("Memory", "action-memory"),
+            "report_intent" => ("Intent", "action-intent"),
+            "skill" => ("Skill", "action-agent"),
+            _ when toolName.StartsWith("github-mcp") => ("GitHub", "action-fetch"),
+            _ when toolName.StartsWith("context7") => ("Docs", "action-read"),
+            _ => (FormatToolName(toolName), "action-default"),
+        };
+    }
+
+    internal static string FormatActionDescription(string toolName, string? toolInput, string? result, bool isComplete)
+    {
+        var summary = !string.IsNullOrEmpty(toolInput) ? SummarizeToolInput(toolName, toolInput) : "";
+        
+        if (toolName == "edit" && !string.IsNullOrEmpty(toolInput))
+        {
+            // Try to extract path and show line changes
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
+                var root = doc.RootElement;
+                var path = ExtractJsonProp(root, "path") ?? "";
+                if (!string.IsNullOrEmpty(path))
+                {
+                    // Show relative path
+                    var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
+                    var dir = path.Contains('/') ? path[..path.LastIndexOf('/')] : "";
+                    var oldStr = ExtractJsonProp(root, "old_str");
+                    var newStr = ExtractJsonProp(root, "new_str");
+                    var added = newStr?.Split('\n').Length ?? 0;
+                    var removed = oldStr?.Split('\n').Length ?? 0;
+                    var delta = "";
+                    if (added > 0 || removed > 0)
+                        delta = $" (+{added} -{removed})";
+                    return $"{fileName}{delta}";
+                }
+            }
+            catch { }
+        }
+        
+        if (toolName == "bash" && !string.IsNullOrEmpty(summary))
+        {
+            return $"$ {summary}";
+        }
+
+        if (toolName == "view" && !string.IsNullOrEmpty(toolInput))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
+                var root = doc.RootElement;
+                var path = ExtractJsonProp(root, "path") ?? "";
+                var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
+                // Check for view_range
+                if (root.TryGetProperty("view_range", out var range))
+                {
+                    var rangeStr = range.ToString();
+                    return $"{fileName} lines {rangeStr}";
+                }
+                return fileName;
+            }
+            catch { }
+        }
+
+        if (toolName == "create" && !string.IsNullOrEmpty(toolInput))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
+                var root = doc.RootElement;
+                var path = ExtractJsonProp(root, "path") ?? "";
+                var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
+                return fileName;
+            }
+            catch { }
+        }
+
+        if (toolName == "grep" && !string.IsNullOrEmpty(toolInput))
+        {
+            return summary;
+        }
+
+        if (!string.IsNullOrEmpty(summary)) return summary;
+        if (isComplete && !string.IsNullOrEmpty(result) && !IsUnusableResult(result))
+        {
+            var lines = LineCount(result);
+            return $"↳ {lines} line{(lines != 1 ? "s" : "")}";
+        }
+        return "";
+    }
+
+    internal static string TruncateResult(string result, int maxLength = 1500)
+    {
+        if (string.IsNullOrEmpty(result) || result.Length <= maxLength) return result ?? "";
+        return result[..maxLength] + "\n… (truncated)";
+    }
+
+    internal static bool IsUnusableResult(string? content)
+    {
+        if (string.IsNullOrEmpty(content)) return true;
+        if (content.StartsWith("GitHub.Copilot.SDK.")) return true;
+        if (content is "(no result)" or "Intent logged") return true;
+        return false;
+    }
+
+    private static readonly string[] ImageExtensions = { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tiff" };
+
+    internal static string? GetImagePath(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return null;
+        var trimmed = content.Trim();
+        foreach (var ext in ImageExtensions)
+        {
+            var idx = trimmed.LastIndexOf(ext, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) continue;
+            var endIdx = idx + ext.Length;
+            var pathStart = trimmed.LastIndexOf(' ', idx) + 1;
+            if (pathStart < 0) pathStart = 0;
+            var path = trimmed[pathStart..endIdx];
+            if (path.StartsWith('/') && System.IO.File.Exists(path))
+                return path;
+        }
+        return null;
+    }
+
+    internal static string? FileToDataUri(string path)
+    {
+        if (_imageCache.TryGetValue(path, out var cached)) return cached;
+        try
+        {
+            if (!System.IO.File.Exists(path)) return null;
+            var bytes = System.IO.File.ReadAllBytes(path);
+            var ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+            var mime = ext switch
+            {
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".gif" => "image/gif",
+                ".webp" => "image/webp",
+                ".svg" => "image/svg+xml",
+                ".bmp" => "image/bmp",
+                ".tiff" or ".tif" => "image/tiff",
+                _ => "application/octet-stream"
+            };
+            var dataUri = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+            _imageCache[path] = dataUri;
+            return dataUri;
+        }
+        catch { return null; }
+    }
+
+    internal static string SummarizeToolInput(string toolName, string? input)
+    {
+        if (string.IsNullOrEmpty(input)) return "";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(input);
+            var root = doc.RootElement;
+            // Tool-specific summaries
+            return toolName switch
+            {
+                "bash" => ExtractJsonProp(root, "command") ?? Truncate(input, 120),
+                "read_bash" or "write_bash" => ExtractJsonProp(root, "shellId") is string sid ? $"shell: {sid}" : Truncate(input, 120),
+                "edit" or "create" => ExtractJsonProp(root, "path") ?? Truncate(input, 120),
+                "view" => ExtractJsonProp(root, "path") ?? Truncate(input, 120),
+                "grep" => $"{ExtractJsonProp(root, "pattern") ?? "?"} in {ExtractJsonProp(root, "glob") ?? ExtractJsonProp(root, "path") ?? "."}",
+                "glob" => ExtractJsonProp(root, "pattern") ?? Truncate(input, 120),
+                "web_fetch" => ExtractJsonProp(root, "url") ?? Truncate(input, 120),
+                "web_search" => ExtractJsonProp(root, "query") ?? Truncate(input, 120),
+                "task" => ExtractJsonProp(root, "description") ?? Truncate(input, 120),
+                "ask_user" => ExtractJsonProp(root, "question") ?? Truncate(input, 120),
+                "sql" => ExtractJsonProp(root, "query") ?? Truncate(input, 120),
+                _ => Truncate(input, 120)
+            };
+        }
+        catch
+        {
+            return Truncate(input, 120);
+        }
+    }
+
+    private static string? ExtractJsonProp(System.Text.Json.JsonElement root, string prop)
+    {
+        if (root.TryGetProperty(prop, out var val) && val.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            var s = val.GetString();
+            return string.IsNullOrEmpty(s) ? null : Truncate(s, 120);
+        }
+        return null;
+    }
+
+    internal static string FormatToolInputExpanded(string toolName, string input)
+    {
+        if (string.IsNullOrEmpty(input)) return "";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(input);
+            var root = doc.RootElement;
+            return toolName switch
+            {
+                "bash" => $"$ {ExtractJsonPropFull(root, "command") ?? input}",
+                "edit" or "create" => ExtractJsonPropFull(root, "path") ?? input,
+                "view" => ExtractJsonPropFull(root, "path") ?? input,
+                "grep" => $"grep '{ExtractJsonPropFull(root, "pattern")}' {ExtractJsonPropFull(root, "glob") ?? ExtractJsonPropFull(root, "path") ?? "."}",
+                "sql" => ExtractJsonPropFull(root, "query") ?? input,
+                _ => input.Length > 2000 ? input[..2000] + "…" : input
+            };
+        }
+        catch { return input.Length > 2000 ? input[..2000] + "…" : input; }
+    }
+
+    private static string? ExtractJsonPropFull(System.Text.Json.JsonElement root, string prop)
+    {
+        if (root.TryGetProperty(prop, out var val) && val.ValueKind == System.Text.Json.JsonValueKind.String)
+            return val.GetString();
+        return null;
+    }
+
+    private static string Truncate(string s, int max)
+    {
+        if (s.Length <= max) return s;
+        return s[..max] + "…";
+    }
+}
