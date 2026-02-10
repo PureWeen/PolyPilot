@@ -31,7 +31,7 @@
 }
 
 /* Mac Catalyst / desktop: bump scale to compensate for 77% Catalyst scaling */
-@media (min-width: 641px) {
+@media (min-width: 1024px) {
     :root {
         --type-body: 0.95rem;
         --type-headline: 0.95rem;
@@ -201,7 +201,7 @@ h1:focus {
     color: #48bb78;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 1023px) {
     .toast-notification {
         top: 10px;
         bottom: auto;

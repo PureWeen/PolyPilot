@@ -83,7 +83,7 @@ main {
 }
 
 /* Desktop: show sidebar, hide mobile elements */
-@media (min-width: 641px) {
+@media (min-width: 1024px) {
     .page {
         flex-direction: row;
     }
