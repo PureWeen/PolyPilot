@@ -1,6 +1,6 @@
 @inherits LayoutComponentBase
 
-<div class="page">
+<div class="page @(flyoutOpen ? "flyout-open" : "")">
     <div class="sidebar desktop-only">
         <SessionSidebar />
     </div>

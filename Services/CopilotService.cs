@@ -87,6 +87,7 @@ public class CopilotService : IAsyncDisposable
     public bool IsInitialized { get; private set; }
     public bool NeedsConfiguration { get; private set; }
     public bool IsRemoteMode { get; private set; }
+    public bool IsBridgeConnected => _bridgeClient.IsConnected;
     public bool IsDemoMode { get; private set; }
     public string? ActiveSessionName => _activeSessionName;
     public ChatDatabase ChatDb => _chatDb;
@@ -459,8 +460,9 @@ public class CopilotService : IAsyncDisposable
             });
         }
 
-        // Sync active session
-        if (remoteActive != null && _sessions.ContainsKey(remoteActive))
+        // Sync active session — only on first load, not on every update
+        // (user may have selected a different session locally on mobile)
+        if (_activeSessionName == null && remoteActive != null && _sessions.ContainsKey(remoteActive))
             _activeSessionName = remoteActive;
 
         Debug($"SyncRemoteSessions: Done. _sessions has {_sessions.Count} entries, active={_activeSessionName}");

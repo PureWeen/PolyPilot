@@ -191,6 +191,13 @@
         <div class="dashboard-header">
             <h2><svg style="vertical-align:middle" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> Session Orchestrator</h2>
             <span class="session-count">@sessions.Count active sessions</span>
+            @if (CopilotService.IsRemoteMode)
+            {
+                <span class="bridge-status @(CopilotService.IsBridgeConnected ? "connected" : "disconnected")" 
+                      title="@(CopilotService.IsBridgeConnected ? "Bridge connected" : "Bridge disconnected — reconnecting...")">
+                    @(CopilotService.IsBridgeConnected ? "🟢" : "🔴")
+                </span>
+            }
         </div>
         <div class="session-grid">
             @foreach (var session in sessions)
@@ -461,7 +468,17 @@
 
         await JS.InvokeVoidAsync("eval", $@"
             (function() {{
-                document.querySelectorAll('.card-messages, .messages').forEach(function(el) {{ el.scrollTop = el.scrollHeight; }});
+                document.querySelectorAll('.card-messages, .messages').forEach(function(el) {{
+                    if (!el.__scrollInit) {{
+                        if (el.scrollHeight > el.clientHeight) {{
+                            el.__scrollInit = true;
+                            el.scrollTop = el.scrollHeight;
+                        }}
+                        return;
+                    }}
+                    var atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 80;
+                    if (atBottom) el.scrollTop = el.scrollHeight;
+                }});
                 var drafts = {draftsJson};
                 for (var id in drafts) {{
                     var el = document.getElementById(id);

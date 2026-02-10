@@ -220,7 +220,7 @@ public class WsBridgeClient : IDisposable
         // Auto-reconnect if not intentionally stopped
         if (!ct.IsCancellationRequested && !string.IsNullOrEmpty(_remoteWsUrl))
         {
-            _ = ReconnectAsync();
+            _ = Task.Run(async () => { try { await ReconnectAsync(); } catch { } });
         }
     }
 
