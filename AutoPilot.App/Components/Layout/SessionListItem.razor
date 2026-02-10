@@ -1,0 +1,125 @@
+@using AutoPilot.App.Services
+@using AutoPilot.App.Models
+@inject CopilotService CopilotService
+
+@{
+    var isPinned = Meta?.IsPinned ?? false;
+    var cssClass = IsActive ? "active" : 
+                   IsCompleted ? "completed" :
+                   Session.IsProcessing ? "busy" : "";
+}
+<div class="session-item @cssClass @(isPinned ? "pinned" : "")"
+     @onclick="() => OnSelect.InvokeAsync()">
+    <div class="session-info">
+        <span class="session-name">
+            @if (ShortcutIndex is > 0 and <= 9)
+            {
+                <span class="shortcut-badge" title="⌘@ShortcutIndex">@ShortcutIndex</span>
+            }
+            @if (isPinned)
+            {
+                <span class="pin-badge" title="Pinned" @onclick="() => OnPin.InvokeAsync(false)" @onclick:stopPropagation="true">📌</span>
+            }
+            @if (IsCompleted)
+            {
+                <span class="done-badge">✅</span>
+            }
+            @if (IsRenaming)
+            {
+                <input type="text" class="rename-input" id="renameInput"
+                       value="@Session.Name"
+                       @onclick:stopPropagation="true"
+                       @onblur="() => OnCommitRename.InvokeAsync()"
+                       @onkeydown="HandleRenameKeyDown" />
+            }
+            else
+            {
+                <span class="session-name-text" @ondblclick="() => OnStartRename.InvokeAsync()" @ondblclick:stopPropagation="true">@Session.Name</span>
+            }
+        </span>
+        <div class="session-meta-row">
+            <span class="session-meta">
+                @Session.MessageCount msgs@(Session.Model != "resumed" ? $" • {Session.Model}" : "")
+                @if (Session.IsProcessing)
+                {
+                    <span class="processing"> • Working</span>
+                }
+                @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
+                {
+                    <text> • @GetShortPath(Session.WorkingDirectory)</text>
+                }
+            </span>
+            <div class="session-actions">
+                <button class="more-btn" @onclick:stopPropagation="true"
+                        @onclick="() => OnToggleMenu.InvokeAsync()" title="More actions">⋯</button>
+                @if (IsMenuOpen)
+                {
+                    <div class="session-menu" @onclick:stopPropagation="true">
+                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnStartRename.InvokeAsync(); }">
+                            ✏️ Rename
+                        </button>
+                        @if (isPinned)
+                        {
+                            <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnPin.InvokeAsync(false); }">
+                                📌 Unpin
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnPin.InvokeAsync(true); }">
+                                📌 Pin
+                            </button>
+                        }
+                        @if (Groups != null && Groups.Count > 1)
+                        {
+                            @foreach (var g in Groups.Where(g => g.Id != (Meta?.GroupId ?? SessionGroup.DefaultId)))
+                            {
+                                var targetGroup = g;
+                                <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnMove.InvokeAsync(targetGroup.Id); }">
+                                    📁 Move to @targetGroup.Name
+                                </button>
+                            }
+                        }
+                        <div class="menu-separator"></div>
+                        <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnClose.InvokeAsync(); }">
+                            🗑 Close Session
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public AgentSessionInfo Session { get; set; } = null!;
+    [Parameter] public SessionMeta? Meta { get; set; }
+    [Parameter] public bool IsActive { get; set; }
+    [Parameter] public bool IsCompleted { get; set; }
+    [Parameter] public bool IsRenaming { get; set; }
+    [Parameter] public bool IsMenuOpen { get; set; }
+    [Parameter] public int ShortcutIndex { get; set; }
+    [Parameter] public List<SessionGroup>? Groups { get; set; }
+
+    [Parameter] public EventCallback OnSelect { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<bool> OnPin { get; set; }
+    [Parameter] public EventCallback<string> OnMove { get; set; }
+    [Parameter] public EventCallback OnStartRename { get; set; }
+    [Parameter] public EventCallback OnCommitRename { get; set; }
+    [Parameter] public EventCallback OnToggleMenu { get; set; }
+    [Parameter] public EventCallback OnCloseMenu { get; set; }
+
+    private async Task HandleRenameKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await OnCommitRename.InvokeAsync();
+        else if (e.Key == "Escape") await OnCloseMenu.InvokeAsync();
+    }
+
+    private static string GetShortPath(string path)
+    {
+        var parts = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (parts.Length <= 2) return path;
+        return "…/" + parts[^1];
+    }
+}
