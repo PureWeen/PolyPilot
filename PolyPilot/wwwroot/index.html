@@ -199,8 +199,8 @@
             // Also show in-app notification
             const toast = document.createElement('div');
             toast.className = 'toast-notification';
-            toast.innerHTML = '<strong>' + sessionName + '</strong> finished<br/>' + 
-                summary.substring(0, 80) + (summary.length > 80 ? '...' : '');
+            toast.innerHTML = '<strong>' + window.escapeHtml(sessionName) + '</strong> finished<br/>' + 
+                window.escapeHtml(summary.substring(0, 80)) + (summary.length > 80 ? '...' : '');
             document.body.appendChild(toast);
             setTimeout(() => toast.classList.add('show'), 10);
             setTimeout(() => {
@@ -298,6 +298,53 @@
 
         window.setAppFontSize = function(size) {
             document.documentElement.style.setProperty('--app-font-size', size + 'px');
+        };
+
+        // Safe DOM helpers — avoid eval() with interpolated strings
+        window.getElementValue = function(elementId) {
+            var el = document.getElementById(elementId);
+            return el ? (el.value || '') : '';
+        };
+
+        window.clearElementValue = function(elementId) {
+            var el = document.getElementById(elementId);
+            if (el) { el.value = ''; el.style.height = 'auto'; }
+        };
+
+        window.escapeHtml = function(str) {
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        };
+
+        window.clickElement = function(elementId) {
+            var el = document.getElementById(elementId);
+            if (el) el.click();
+        };
+
+        window.restoreDraftsAndFocus = function(draftsJson, focusId, selStart, selEnd, forceScroll) {
+            function doScroll() {
+                document.querySelectorAll('.card-messages, .messages').forEach(function(el) {
+                    if (!el.__scrollInit) {
+                        el.__scrollInit = true;
+                        el.scrollTop = el.scrollHeight;
+                        return;
+                    }
+                    var atBottom = forceScroll || (el.scrollHeight - el.scrollTop - el.clientHeight) < 120;
+                    if (atBottom) el.scrollTop = el.scrollHeight;
+                });
+            }
+            doScroll();
+            if (forceScroll) setTimeout(doScroll, 50);
+            var drafts = JSON.parse(draftsJson || '{}');
+            for (var id in drafts) {
+                var el = document.getElementById(id);
+                if (el) el.value = drafts[id];
+            }
+            if (focusId) {
+                var fel = document.getElementById(focusId);
+                if (fel) { fel.focus(); fel.setSelectionRange(selStart || 0, selEnd || 0); }
+            }
         };
     </script>
 

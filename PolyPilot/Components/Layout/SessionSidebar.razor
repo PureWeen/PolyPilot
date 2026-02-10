@@ -480,7 +480,7 @@ else
         var oldName = renamingSession;
         renamingSession = null;
 
-        var newName = await JS.InvokeAsync<string>("eval", "document.getElementById('renameInput')?.value || ''");
+        var newName = await JS.InvokeAsync<string>("getElementValue", "renameInput");
         if (!string.IsNullOrWhiteSpace(newName) && newName.Trim() != oldName)
         {
             CopilotService.RenameSession(oldName, newName.Trim());
@@ -551,7 +551,7 @@ else
 
     private async Task CommitNewGroup()
     {
-        var name = await JS.InvokeAsync<string>("eval", "document.getElementById('newGroupInput')?.value ?? ''");
+        var name = await JS.InvokeAsync<string>("getElementValue", "newGroupInput");
         isAddingGroup = false;
         if (!string.IsNullOrWhiteSpace(name))
         {
