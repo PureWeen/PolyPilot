@@ -239,14 +239,17 @@ public partial class CopilotService : IAsyncDisposable
         // Fetch available models dynamically
         _ = FetchAvailableModelsAsync();
 
+        // Load organization state FIRST (groups, pinning, sorting) so reconcile during restore doesn't wipe it
+        LoadOrganization();
+
         // Restore previous sessions (includes subscribing to untracked server sessions in Persistent mode)
         IsRestoring = true;
         OnStateChanged?.Invoke();
         await RestorePreviousSessionsAsync(cancellationToken);
         IsRestoring = false;
 
-        // Load organization state (groups, pinning, sorting) — reconciles with active sessions
-        LoadOrganization();
+        // Reconcile now that all sessions are restored
+        ReconcileOrganization();
         OnStateChanged?.Invoke();
     }
 
@@ -485,7 +488,7 @@ public partial class CopilotService : IAsyncDisposable
         _activeSessionName ??= displayName;
         OnStateChanged?.Invoke();
         SaveActiveSessionsToDisk();
-        ReconcileOrganization();
+        if (!IsRestoring) ReconcileOrganization();
         return info;
     }
 

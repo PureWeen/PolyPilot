@@ -117,8 +117,7 @@ public partial class CopilotService
         }
 
         // Remove metadata only for sessions that are truly gone (not in any known set)
-        int removed = Organization.Sessions.RemoveAll(m => !knownNames.Contains(m.SessionName));
-        if (removed > 0) changed = true;
+        Organization.Sessions.RemoveAll(m => !knownNames.Contains(m.SessionName));
 
         if (changed) SaveOrganization();
     }
