@@ -81,6 +81,11 @@ public partial class CopilotService
         };
         _bridgeClient.OnSessionComplete += (s, sum) => InvokeOnUI(() => OnSessionComplete?.Invoke(s, sum));
         _bridgeClient.OnError += (s, e) => InvokeOnUI(() => OnError?.Invoke(s, e));
+        _bridgeClient.OnOrganizationStateReceived += (org) =>
+        {
+            Organization = org;
+            InvokeOnUI(() => OnStateChanged?.Invoke());
+        };
 
         await _bridgeClient.ConnectAsync(wsUrl, settings.RemoteToken, ct);
 
@@ -182,7 +187,9 @@ public partial class CopilotService
             _activeSessionName = remoteActive;
 
         Debug($"SyncRemoteSessions: Done. _sessions has {_sessions.Count} entries, active={_activeSessionName}");
-        ReconcileOrganization();
+        // In Remote mode, organization state comes from the server via OnOrganizationStateReceived — skip local reconcile
+        if (!IsRemoteMode)
+            ReconcileOrganization();
     }
 
     private AgentSessionInfo? GetRemoteSession(string name) =>
