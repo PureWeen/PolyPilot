@@ -714,6 +714,13 @@
             return;
         }
 
+        // Handle / slash commands
+        if (finalPrompt.StartsWith("/"))
+        {
+            await HandleSlashCommand(sessionName, finalPrompt);
+            return;
+        }
+
         if (planModeBySession.GetValueOrDefault(sessionName))
             finalPrompt = $"[[PLAN]] {finalPrompt}";
 
@@ -849,6 +856,107 @@
         }
 
         session.MessageCount = session.History.Count;
+        _needsScrollToBottom = true;
+        await InvokeAsync(SafeRefreshAsync);
+    }
+
+    private async Task HandleSlashCommand(string sessionName, string input)
+    {
+        var session = sessions.FirstOrDefault(s => s.Name == sessionName);
+        if (session == null) return;
+
+        var parts = input.TrimStart('/').Split(' ', 2, StringSplitOptions.TrimEntries);
+        var cmd = parts[0].ToLowerInvariant();
+        var arg = parts.Length > 1 ? parts[1] : "";
+
+        session.History.Add(ChatMessage.UserMessage(input));
+        session.MessageCount = session.History.Count;
+
+        switch (cmd)
+        {
+            case "help":
+                session.History.Add(ChatMessage.SystemMessage(
+                    "**Available commands:**\n" +
+                    "- `/help` — Show this help\n" +
+                    "- `/clear` — Clear chat history\n" +
+                    "- `/compact` — Summarize conversation and start fresh\n" +
+                    "- `/new [name]` — Create a new session\n" +
+                    "- `/sessions` — List all sessions\n" +
+                    "- `/rename <name>` — Rename current session\n" +
+                    "- `!<command>` — Run a shell command"));
+                break;
+
+            case "clear":
+                CopilotService.ClearHistory(sessionName);
+                session.History.Add(ChatMessage.SystemMessage("Chat history cleared."));
+                break;
+
+            case "compact":
+                session.History.Add(ChatMessage.SystemMessage("Compacting conversation..."));
+                session.MessageCount = session.History.Count;
+                _needsScrollToBottom = true;
+                await InvokeAsync(SafeRefreshAsync);
+                _ = CopilotService.SendPromptAsync(sessionName,
+                    "Summarize our conversation so far into a concise context block, then we'll continue from there. Keep key decisions, file paths, and code snippets. Drop routine chatter.");
+                return;
+
+            case "new":
+                var newName = string.IsNullOrWhiteSpace(arg)
+                    ? $"Session {CopilotService.SessionCount + 1}"
+                    : arg;
+                await CopilotService.CreateSessionAsync(newName);
+                sessions = CopilotService.GetAllSessions().ToList();
+                var created = sessions.LastOrDefault();
+                if (created != null)
+                {
+                    CopilotService.SetActiveSession(created.Name);
+                    expandedSession = created.Name;
+                    _explicitlyCollapsed = false;
+                }
+                await InvokeAsync(SafeRefreshAsync);
+                return;
+
+            case "sessions":
+                var allSessions = CopilotService.GetAllSessions().ToList();
+                var listing = string.Join("\n", allSessions.Select((s, i) =>
+                    $"- {(s.Name == sessionName ? "**" : "")}{s.Name}{(s.Name == sessionName ? "** (current)" : "")}" +
+                    $" — {s.MessageCount} messages" +
+                    $"{(s.IsProcessing ? " ⏳" : "")}"));
+                session.History.Add(ChatMessage.SystemMessage(
+                    $"**{allSessions.Count} session{(allSessions.Count != 1 ? "s" : "")}:**\n{listing}"));
+                break;
+
+            case "rename":
+                if (string.IsNullOrWhiteSpace(arg))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: /rename <new name>"));
+                }
+                else
+                {
+                    var success = CopilotService.RenameSession(sessionName, arg);
+                    if (success)
+                    {
+                        if (expandedSession == sessionName)
+                            expandedSession = arg;
+                        sessions = CopilotService.GetAllSessions().ToList();
+                        session = sessions.FirstOrDefault(s => s.Name == arg);
+                        session?.History.Add(ChatMessage.SystemMessage($"Session renamed to **{arg}**."));
+                    }
+                    else
+                    {
+                        session.History.Add(ChatMessage.ErrorMessage($"Failed to rename — \"{arg}\" may already exist."));
+                    }
+                }
+                break;
+
+            default:
+                // Unknown command — pass through to the SDK as a regular prompt
+                _ = CopilotService.SendPromptAsync(sessionName, input);
+                return;
+        }
+
+        if (session != null)
+            session.MessageCount = session.History.Count;
         _needsScrollToBottom = true;
         await InvokeAsync(SafeRefreshAsync);
     }
