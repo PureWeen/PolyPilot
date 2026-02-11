@@ -6,6 +6,54 @@
     overflow-y: auto;
 }
 
+.settings-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-icon {
+    position: absolute;
+    left: 0.6rem;
+    color: #5a6a7a;
+    pointer-events: none;
+}
+
+.search-input {
+    padding: 0.4rem 1.8rem 0.4rem 2rem;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.05);
+    color: #a0b4cc;
+    font-size: var(--type-callout);
+    width: 220px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.search-input:focus {
+    border-color: rgba(78,168,209,0.5);
+}
+
+.search-input::placeholder {
+    color: #5a6a7a;
+}
+
+.search-clear {
+    position: absolute;
+    right: 0.3rem;
+    background: none;
+    border: none;
+    color: #5a6a7a;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0.2rem 0.4rem;
+}
+
+.search-hidden {
+    display: none !important;
+}
+
 .settings-header h2 {
     margin: 0;
     font-size: var(--type-large-title);

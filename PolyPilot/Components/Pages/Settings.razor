@@ -13,6 +13,14 @@
         <div class="header-row">
             <h2>Settings</h2>
             <div class="header-right">
+                <div class="settings-search">
+                    <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input type="text" class="search-input" placeholder="Search settings..." @oninput="OnSearchInput" value="@searchQuery" />
+                    @if (!string.IsNullOrEmpty(searchQuery))
+                    {
+                        <button class="search-clear" @onclick="ClearSearch">×</button>
+                    }
+                </div>
                 @if (PlatformHelper.IsDesktop)
                 {
                     <div class="shortcuts-popover-wrap">
@@ -47,12 +55,12 @@
         </div>
     </div>
 
-    <div class="settings-group">
+    <div class="settings-group @(GroupVisible("connection") ? "" : "search-hidden")">
         <h2 class="group-title">Connection</h2>
 
     @if (PlatformHelper.AvailableModes.Length > 1)
     {
-        <div class="settings-section">
+        <div class="settings-section @(SectionVisible("transport mode embedded persistent remote") ? "" : "search-hidden")">
             <h3>Transport Mode</h3>
             <div class="mode-cards">
                 @foreach (var mode in PlatformHelper.AvailableModes)
@@ -70,7 +78,7 @@
 
     @if (settings.Mode == ConnectionMode.Persistent)
     {
-        <div class="settings-section">
+        <div class="settings-section @(SectionVisible("persistent server port start stop pid") ? "" : "search-hidden")">
             <h3>Persistent Server</h3>
             <div class="server-controls">
                 <div class="server-status">
@@ -104,7 +112,7 @@
 
     @if (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || (settings.Mode == ConnectionMode.Persistent && serverAlive)))
     {
-        <div class="settings-section">
+        <div class="settings-section @(SectionVisible("devtunnel share tunnel remote mobile qr") ? "" : "search-hidden")">
             <h3>Share via DevTunnel</h3>
                 @if (!devTunnelAvailable)
                 {
@@ -183,7 +191,7 @@
 
     @if (settings.Mode == ConnectionMode.Remote)
     {
-        <div class="settings-section">
+        <div class="settings-section @(SectionVisible("remote server url token connect") ? "" : "search-hidden")">
             <h3>Remote Server</h3>
             <div class="remote-controls">
                 <p class="mode-hint">Connect to a Copilot server running on another machine (via DevTunnel URL).</p>
@@ -216,10 +224,10 @@
     </div>
     </div>
 
-    <div class="settings-group">
+    <div class="settings-group @(GroupVisible("ui") ? "" : "search-hidden")">
         <h2 class="group-title">UI</h2>
 
-        <div class="settings-section">
+        <div class="settings-section @(SectionVisible("chat message layout default reversed both left") ? "" : "search-hidden")">
             <h3>Chat</h3>
             <div class="layout-option">
                 <label>Message layout:</label>
@@ -272,6 +280,39 @@
     private bool showToken;
     private string? qrCodeDataUri;
     private CancellationTokenSource? _statusCts;
+    private string searchQuery = "";
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        searchQuery = e.Value?.ToString() ?? "";
+    }
+
+    private void ClearSearch()
+    {
+        searchQuery = "";
+    }
+
+    private bool SectionVisible(string keywords)
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery)) return true;
+        var q = searchQuery.Trim().ToLowerInvariant();
+        return keywords.ToLowerInvariant().Contains(q);
+    }
+
+    private bool GroupVisible(string groupKeyword)
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery)) return true;
+        var q = searchQuery.Trim().ToLowerInvariant();
+        // Group visible if any keyword matches, or if group name matches
+        if (groupKeyword.Contains(q)) return true;
+        // Also check all section keywords within the group
+        return groupKeyword switch
+        {
+            "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect"),
+            "ui" => SectionVisible("chat message layout default reversed both left theme"),
+            _ => true
+        };
+    }
 
     private void ShowStatus(string message, string cls, int dismissMs = 3000)
     {
