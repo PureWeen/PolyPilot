@@ -109,7 +109,7 @@
 .settings-section h3 {
     margin: 0 0 1rem 0;
     font-size: var(--type-title2);
-    color: rgba(255,255,255,0.9);
+    color: var(--text-bright);
 }
 
 .settings-group {
@@ -118,7 +118,7 @@
 
 .settings-group .group-title {
     font-size: var(--type-title1);
-    color: rgba(255,255,255,0.85);
+    color: var(--text-primary);
     margin: 0 0 0.75rem 0;
     padding-bottom: 0.4rem;
     border-bottom: 1px solid var(--control-bg);
@@ -539,15 +539,15 @@
 }
 
 .copy-btn:hover {
-    border-color: rgba(255,255,255,0.35);
-    color: rgba(255,255,255,0.8);
+    border-color: var(--border-default);
+    color: var(--text-primary);
     background: var(--bg-input);
 }
 
 .qr-code {
     text-align: center;
     padding: 1rem;
-    background: rgba(255,255,255,0.03);
+    background: var(--bg-input);
     border-radius: 12px;
     border: 1px solid var(--control-bg);
 }
@@ -955,7 +955,7 @@
     position: relative;
     width: 40px;
     height: 22px;
-    background: rgba(255,255,255,0.12);
+    background: var(--control-bg);
     border-radius: 11px;
     transition: background 0.2s;
     cursor: pointer;
