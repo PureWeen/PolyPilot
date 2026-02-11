@@ -116,13 +116,23 @@ jobs:
           cp $RUNNER_TEMP/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
           echo "Installed profile with UUID: $PROFILE_UUID"
 
-          # Create keychain and import certificate (strip whitespace for strict macOS base64)
-          printf '%s' "$APPLE_CERTIFICATE_P12" | tr -d '\n\r\t ' | base64 --decode > $RUNNER_TEMP/certificate.p12
-          if [ ! -s $RUNNER_TEMP/certificate.p12 ]; then
-            echo "::error::Failed to decode APPLE_CERTIFICATE_P12 — secret may be corrupted or not base64-encoded"
+          # Create keychain and import certificate
+          P12_LEN=${#APPLE_CERTIFICATE_P12}
+          echo "APPLE_CERTIFICATE_P12 secret length: $P12_LEN chars"
+          if [ "$P12_LEN" -lt 10 ]; then
+            echo "::error::APPLE_CERTIFICATE_P12 secret is too short ($P12_LEN chars) — was the secret set correctly?"
+            echo "To set: base64 -i certificate.p12 | gh secret set APPLE_CERTIFICATE_P12"
             exit 1
           fi
-          echo "Certificate decoded ($(wc -c < $RUNNER_TEMP/certificate.p12) bytes)"
+          # Use openssl base64 (more forgiving than macOS base64)
+          printf '%s' "$APPLE_CERTIFICATE_P12" | openssl base64 -d -A > $RUNNER_TEMP/certificate.p12
+          P12_SIZE=$(wc -c < $RUNNER_TEMP/certificate.p12 | tr -d ' ')
+          if [ "$P12_SIZE" -lt 100 ]; then
+            echo "::error::Decoded P12 is only $P12_SIZE bytes — secret may not be base64-encoded"
+            echo "To fix: base64 -i certificate.p12 | gh secret set APPLE_CERTIFICATE_P12"
+            exit 1
+          fi
+          echo "Certificate decoded ($P12_SIZE bytes)"
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
