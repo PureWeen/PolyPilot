@@ -78,7 +78,7 @@
 
 .load-more-btn:hover {
     background: var(--control-border);
-    color: rgba(255,255,255,0.85);
+    color: var(--text-primary);
 }
 
 /* Error bar (expanded) */
@@ -242,10 +242,10 @@
 .expanded-card .input-area textarea:focus { outline: none; border-color: var(--accent-primary); }
 
 .send-btn {
-    border: 1px solid rgba(255,255,255,0.25);
+    border: 1px solid var(--border-default);
     border-radius: 50%;
     background: transparent;
-    color: rgba(255,255,255,0.8);
+    color: var(--text-primary);
     cursor: pointer;
     transition: background 0.15s ease;
     display: flex;
@@ -258,7 +258,7 @@
 }
 .send-btn:hover:not(:disabled) { background: var(--control-bg); }
 .send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-.send-btn.stop-btn { border-color: rgba(255,255,255,0.25); color: var(--accent-primary); }
+.send-btn.stop-btn { border-color: var(--border-default); color: var(--accent-primary); }
 .send-btn.stop-btn:hover { background: var(--hover-bg); }
 
 .attach-btn {
