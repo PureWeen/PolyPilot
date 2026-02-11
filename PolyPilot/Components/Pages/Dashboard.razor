@@ -886,6 +886,7 @@
                     "- `/version` — Show version info\n" +
                     "- `/diff [args]` — Show git diff\n" +
                     "- `/status` — Show git status\n" +
+                    "- `/mcp` — List connected MCP servers\n" +
                     "- `!<command>` — Run a shell command"));
                 break;
 
@@ -997,6 +998,11 @@
                 await RunGitCommand(sessionName, session, gitCmd);
                 return;
 
+            case "mcp":
+                var mcpInfo = GetMcpServerInfo();
+                session.History.Add(ChatMessage.SystemMessage(mcpInfo));
+                break;
+
             default:
                 // Unknown command — pass through to the SDK as a regular prompt
                 _ = CopilotService.SendPromptAsync(sessionName, input);
@@ -1059,6 +1065,70 @@
         session.MessageCount = session.History.Count;
         _needsScrollToBottom = true;
         await InvokeAsync(SafeRefreshAsync);
+    }
+
+    private string GetMcpServerInfo()
+    {
+        var sb = new System.Text.StringBuilder();
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var copilotDir = Path.Combine(home, ".copilot");
+        var servers = new List<(string name, string command, string[] args)>();
+
+        // Read ~/.copilot/mcp-servers.json (simple format)
+        try
+        {
+            var path = Path.Combine(copilotDir, "mcp-servers.json");
+            if (File.Exists(path))
+            {
+                var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    var command = prop.Value.TryGetProperty("command", out var c) ? c.GetString() ?? "" : "";
+                    var args = prop.Value.TryGetProperty("args", out var a)
+                        ? a.EnumerateArray().Select(x => x.GetString() ?? "").ToArray()
+                        : Array.Empty<string>();
+                    servers.Add((prop.Name, command, args));
+                }
+            }
+        }
+        catch { }
+
+        // Read ~/.copilot/mcp-config.json (wrapped format)
+        try
+        {
+            var path = Path.Combine(copilotDir, "mcp-config.json");
+            if (File.Exists(path))
+            {
+                var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+                if (doc.RootElement.TryGetProperty("mcpServers", out var mcpServers))
+                {
+                    foreach (var prop in mcpServers.EnumerateObject())
+                    {
+                        if (servers.Any(s => s.name == prop.Name)) continue;
+                        var command = prop.Value.TryGetProperty("command", out var c) ? c.GetString() ?? "" : "";
+                        var args = prop.Value.TryGetProperty("args", out var a)
+                            ? a.EnumerateArray().Select(x => x.GetString() ?? "").ToArray()
+                            : Array.Empty<string>();
+                        servers.Add((prop.Name, command, args));
+                    }
+                }
+            }
+        }
+        catch { }
+
+        if (servers.Count == 0)
+            return "**No MCP servers configured.**\n\nAdd servers to `~/.copilot/mcp-servers.json` or `~/.copilot/mcp-config.json`.";
+
+        sb.AppendLine($"**{servers.Count} MCP server{(servers.Count != 1 ? "s" : "")}:**\n");
+        foreach (var (name, command, args) in servers)
+        {
+            var lastArg = args.LastOrDefault() ?? "";
+            var script = Path.GetFileName(lastArg);
+            var display = !string.IsNullOrEmpty(script) ? $"`{command} {script}`" : $"`{command}`";
+            sb.AppendLine($"- **{name}** — {display}");
+        }
+
+        return sb.ToString().TrimEnd();
     }
 
     private async Task StopSession(string sessionName)
