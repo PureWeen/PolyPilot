@@ -191,6 +191,8 @@
     private Dictionary<string, string> modelOverrideBySession = new();
     private Dictionary<string, List<PendingImage>> pendingImagesBySession = new();
     private Dictionary<string, string> shellCwdBySession = new();
+    private Dictionary<string, List<string>> commandHistoryBySession = new();
+    private Dictionary<string, int> historyIndexBySession = new();
     private int fontSize = 20;
     private string? expandedSession;
     private bool _needsScrollToBottom;
@@ -297,6 +299,20 @@
                             if (container) {
                                 var btn = container.querySelector('.send-btn:not(.stop-btn)') || container.querySelectorAll('button')[container.querySelectorAll('button').length - 1];
                                 if (btn) btn.click();
+                            }
+                        }
+                        // ArrowUp/Down: command history navigation
+                        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && isInput && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+                            var ta = e.target;
+                            var atStart = ta.selectionStart === 0 && ta.selectionEnd === 0;
+                            var atEnd = ta.selectionStart === ta.value.length;
+                            if ((e.key === 'ArrowUp' && atStart) || (e.key === 'ArrowDown' && atEnd)) {
+                                var card = ta.closest('[data-session]');
+                                var sessionName = card ? card.dataset.session : '';
+                                if (sessionName && window.__dashRef) {
+                                    e.preventDefault();
+                                    window.__dashRef.invokeMethodAsync('JsNavigateHistory', sessionName, e.key === 'ArrowUp');
+                                }
                             }
                         }
                         if (e.key === 'Tab' && isInput) {
@@ -631,6 +647,21 @@
         draftBySession.Remove(sessionName);
 
         var finalPrompt = (prompt ?? "").Trim();
+
+        // Record in command history
+        if (!string.IsNullOrWhiteSpace(finalPrompt))
+        {
+            if (!commandHistoryBySession.ContainsKey(sessionName))
+                commandHistoryBySession[sessionName] = new();
+            var history = commandHistoryBySession[sessionName];
+            // Avoid consecutive duplicates
+            if (history.Count == 0 || history[^1] != finalPrompt)
+            {
+                history.Add(finalPrompt);
+                if (history.Count > 50) history.RemoveAt(0);
+            }
+            historyIndexBySession[sessionName] = history.Count; // past the end = "no selection"
+        }
 
         // Handle ! shell commands
         if (finalPrompt.StartsWith("!") && finalPrompt.Length > 1)
@@ -1072,6 +1103,27 @@
     {
         _lastActiveSession = sessionName;
         CopilotService.SwitchSession(sessionName);
+    }
+
+    [JSInvokable]
+    public async Task JsNavigateHistory(string sessionName, bool up)
+    {
+        if (!commandHistoryBySession.TryGetValue(sessionName, out var history) || history.Count == 0)
+            return;
+
+        if (!historyIndexBySession.ContainsKey(sessionName))
+            historyIndexBySession[sessionName] = history.Count;
+
+        var idx = historyIndexBySession[sessionName];
+        if (up)
+            idx = Math.Max(0, idx - 1);
+        else
+            idx = Math.Min(history.Count, idx + 1);
+
+        historyIndexBySession[sessionName] = idx;
+        var inputId = $"input-{sessionName.Replace(" ", "-")}";
+        var text = idx < history.Count ? history[idx] : "";
+        await JS.InvokeVoidAsync("eval", $"(function(){{ var el = document.getElementById('{inputId}'); if(el){{ el.value = {System.Text.Json.JsonSerializer.Serialize(text)}; el.setSelectionRange(el.value.length, el.value.length); }} }})()");
     }
 
     private const int DefaultMessageWindow = 25;
