@@ -2,20 +2,20 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: linear-gradient(180deg, #161630 0%, #1a1a38 100%);
+    background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
     color: var(--text-primary);
     overflow: hidden;
 }
 
 .sidebar-header {
     padding: 1rem;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+    border-bottom: 1px solid var(--border-subtle);
 }
 
 .sidebar-divider {
     min-height: 1px;
     height: 1px;
-    background: rgba(255,255,255,0.15);
+    background: var(--control-bg);
     margin: 0;
     flex-shrink: 0;
 }
@@ -53,18 +53,18 @@
     flex: 1;
     min-width: 100px;
     padding: 0.5rem;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid var(--control-border);
     border-radius: 6px;
-    background: rgba(255,255,255,0.1);
+    background: var(--control-bg);
     color: var(--text-primary);
     font-size: var(--type-title3);
 }
 
 .model-select {
     padding: 0.5rem 1.8rem 0.5rem 0.5rem;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid var(--control-border);
     border-radius: 6px;
-    background: rgba(255,255,255,0.1);
+    background: var(--control-bg);
     color: var(--text-primary);
     font-size: var(--type-body);
     min-width: 0;
@@ -82,7 +82,7 @@
 }
 
 .new-session input::placeholder {
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
 }
 
 .new-session input:focus {
@@ -122,14 +122,14 @@
 
 .dir-toggle-btn {
     padding: 0.3rem 0.5rem !important;
-    background: rgba(255,255,255,0.1) !important;
-    border: 1px solid rgba(255,255,255,0.2) !important;
+    background: var(--control-bg) !important;
+    border: 1px solid var(--control-border) !important;
     font-size: var(--type-subhead) !important;
     font-weight: normal !important;
 }
 
 .dir-toggle-btn:hover:not(:disabled) {
-    background: rgba(255,255,255,0.2) !important;
+    background: var(--hover-bg) !important;
 }
 
 .dir-input-row {
@@ -144,8 +144,8 @@
 
 .dir-browse-btn {
     padding: 0.5rem 0.6rem !important;
-    background: rgba(255,255,255,0.1) !important;
-    border: 1px solid rgba(255,255,255,0.2) !important;
+    background: var(--control-bg) !important;
+    border: 1px solid var(--control-border) !important;
     border-radius: 6px;
     font-size: var(--type-body) !important;
     font-weight: normal !important;
@@ -154,7 +154,7 @@
 }
 
 .dir-browse-btn:hover {
-    background: rgba(255,255,255,0.2) !important;
+    background: var(--hover-bg) !important;
 }
 
 .session-list {
@@ -174,14 +174,14 @@
 .sort-select {
     all: unset;
     font-size: var(--type-caption1);
-    color: rgba(255,255,255,0.4);
+    color: var(--text-dim);
     cursor: pointer;
     padding: 0.15rem 0.3rem;
     border-radius: 4px;
     background: rgba(78,168,209,0.08);
     border: 1px solid rgba(78,168,209,0.12);
 }
-.sort-select:hover { color: rgba(255,255,255,0.6); background: rgba(78,168,209,0.15); }
+.sort-select:hover { color: var(--text-on-surface); background: rgba(78,168,209,0.15); }
 .sort-select option { background: #1a1e3a; color: var(--text-primary); }
 
 .new-group-btn {
@@ -217,11 +217,11 @@
     cursor: pointer;
     user-select: none;
 }
-.group-header:hover { background: rgba(255,255,255,0.03); }
+.group-header:hover { background: var(--hover-bg); }
 
 .group-chevron {
     font-size: var(--type-caption2);
-    color: rgba(255,255,255,0.35);
+    color: var(--text-dim);
     width: 0.8rem;
     text-align: center;
 }
@@ -229,14 +229,14 @@
 .group-name {
     font-size: var(--type-callout);
     font-weight: 600;
-    color: rgba(255,255,255,0.55);
+    color: var(--text-dim);
     letter-spacing: 0.02em;
     text-transform: uppercase;
 }
 
 .group-count {
     font-size: var(--type-caption2);
-    color: rgba(255,255,255,0.25);
+    color: var(--text-dim);
 }
 .group-count::before { content: "("; }
 .group-count::after { content: ")"; }
@@ -254,7 +254,7 @@
     all: unset;
     margin-left: auto;
     font-size: var(--type-callout);
-    color: rgba(255,255,255,0.2);
+    color: var(--text-dim);
     cursor: pointer;
     padding: 0 0.3rem;
     border-radius: 3px;
@@ -280,14 +280,14 @@
 .more-btn {
     all: unset;
     font-size: var(--type-body);
-    color: rgba(255,255,255,0.3);
+    color: var(--text-dim);
     cursor: pointer;
     padding: 0 0.3rem;
     border-radius: 3px;
     line-height: 1;
     letter-spacing: 0.1em;
 }
-.more-btn:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.08); }
+.more-btn:hover { color: var(--text-on-surface); background: var(--hover-bg); }
 
 .session-menu {
     position: absolute;
@@ -310,7 +310,7 @@
     width: 100%;
     padding: 0.35rem 0.65rem;
     font-size: var(--type-callout);
-    color: rgba(255,255,255,0.7);
+    color: var(--text-on-surface);
     cursor: pointer;
     white-space: nowrap;
     box-sizing: border-box;
@@ -319,7 +319,7 @@
 
 .menu-separator {
     height: 1px;
-    background: rgba(255,255,255,0.08);
+    background: var(--hover-bg);
     margin: 0.2rem 0.5rem;
 }
 
@@ -332,7 +332,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -350,7 +350,7 @@
 
 .no-sessions {
     text-align: center;
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
     padding: 1rem;
     font-size: var(--type-title3);
     line-height: 1.5;
@@ -369,7 +369,7 @@
 }
 
 .session-item:hover {
-    background: rgba(255,255,255,0.1);
+    background: var(--control-bg);
 }
 
 .session-item.active {
@@ -379,7 +379,7 @@
 
 .session-item.persisted {
     opacity: 0.7;
-    border: 1px dashed rgba(255,255,255,0.2);
+    border: 1px dashed var(--control-border);
 }
 
 .session-item.persisted.already-open {
@@ -470,26 +470,26 @@
     height: 1.2em;
     font-size: var(--type-footnote);
     font-weight: 600;
-    background: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.2);
+    background: var(--control-bg);
+    border: 1px solid var(--control-border);
     border-radius: 3px;
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
     flex-shrink: 0;
 }
 
 .session-meta {
     font-size: var(--type-body);
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
 }
 
 .session-meta-time {
     font-size: var(--type-callout);
-    color: rgba(255,255,255,0.4);
+    color: var(--text-dim);
 }
 
 .session-meta-dir {
     font-size: var(--type-callout);
-    color: rgba(255,255,255,0.35);
+    color: var(--text-dim);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -519,7 +519,7 @@
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
     cursor: pointer;
     font-size: var(--type-title3);
     line-height: 1;
@@ -562,26 +562,26 @@
 .filter-input {
     width: 100%;
     padding: 0.5rem;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid var(--control-border);
     border-radius: 6px;
-    background: rgba(255,255,255,0.1);
+    background: var(--control-bg);
     color: var(--text-primary);
     font-size: var(--type-title3);
 }
 
 .filter-input::placeholder {
-    color: rgba(255,255,255,0.4);
+    color: var(--text-dim);
 }
 
 .filter-input:focus {
     outline: none;
     border-color: #60a5fa;
-    background: rgba(255,255,255,0.15);
+    background: var(--control-bg);
 }
 
 .resume-icon {
     font-size: var(--type-body);
-    color: rgba(255,255,255,0.3);
+    color: var(--text-dim);
     white-space: nowrap;
     transition: color 0.15s ease;
 }
@@ -629,8 +629,8 @@
     padding: 0.3rem 0.45rem;
     border: none;
     border-radius: 5px;
-    background: rgba(255,255,255,0.1);
-    color: rgba(255,255,255,0.6);
+    background: var(--control-bg);
+    color: var(--text-on-surface);
     cursor: pointer;
     font-size: var(--type-callout);
     transition: all 0.15s ease;
@@ -710,8 +710,8 @@
     padding: 0.4rem;
     border: 1px solid transparent;
     border-radius: 6px;
-    background: rgba(255,255,255,0.08);
-    color: rgba(255,255,255,0.7);
+    background: var(--hover-bg);
+    color: var(--text-on-surface);
     text-decoration: none;
     font-size: var(--type-callout);
     line-height: 1.2;
@@ -725,7 +725,7 @@
 }
 
 .nav-tab:hover {
-    background: rgba(255,255,255,0.15);
+    background: var(--control-bg);
     color: var(--text-primary);
 }
 
@@ -740,7 +740,7 @@
     padding: 0.2rem 0.4rem;
     border: 1px solid #60a5fa;
     border-radius: 4px;
-    background: rgba(255,255,255,0.15);
+    background: var(--control-bg);
     color: var(--text-primary);
     font-size: var(--type-title3);
     font-weight: 500;
@@ -784,7 +784,7 @@
     display: flex;
     gap: 0.25rem;
     margin-left: auto;
-    background: rgba(255,255,255,0.06);
+    background: var(--hover-bg);
     border-radius: 8px;
     padding: 0.15rem;
 }
@@ -817,7 +817,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 1rem;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+    border-bottom: 1px solid var(--border-subtle);
 }
 
 .flyout-header h3 {
@@ -829,7 +829,7 @@
 .flyout-close-btn {
     background: none;
     border: none;
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
     cursor: pointer;
     font-size: var(--type-title2);
     padding: 0.25rem;

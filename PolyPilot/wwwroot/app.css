@@ -29,6 +29,11 @@
     --accent-warning: #fbbf24;
     --accent-error: #ef4444;
     --accent-purple: #a78bfa;
+    --hover-bg: rgba(255,255,255,0.08);
+    --control-bg: rgba(255,255,255,0.1);
+    --control-border: rgba(255,255,255,0.2);
+    --text-on-surface: rgba(255,255,255,0.7);
+    --text-dim: rgba(255,255,255,0.4);
     --chat-user-bg: rgba(78, 168, 209, 0.2);
     --chat-user-border: rgba(78, 168, 209, 0.3);
     --chat-user-text: #7fc4e8;
@@ -63,6 +68,11 @@
     --chat-assistant-bg: rgba(39, 174, 96, 0.08);
     --chat-assistant-border: rgba(39, 174, 96, 0.2);
     --chat-assistant-text: #1e8449;
+    --hover-bg: rgba(0,0,0,0.06);
+    --control-bg: rgba(0,0,0,0.06);
+    --control-border: rgba(0,0,0,0.15);
+    --text-on-surface: rgba(0,0,0,0.65);
+    --text-dim: rgba(0,0,0,0.4);
     --toast-bg: linear-gradient(135deg, #e8eaf0, #dcdee5);
     --safe-area-bg: #e8eaf0;
 }
@@ -91,6 +101,11 @@
     --chat-assistant-bg: rgba(133, 153, 0, 0.1);
     --chat-assistant-border: rgba(133, 153, 0, 0.2);
     --chat-assistant-text: #859900;
+    --hover-bg: rgba(147,161,161,0.08);
+    --control-bg: rgba(147,161,161,0.1);
+    --control-border: rgba(147,161,161,0.2);
+    --text-on-surface: #93a1a1;
+    --text-dim: #586e75;
     --toast-bg: linear-gradient(135deg, #073642, #002b36);
     --safe-area-bg: #073642;
 }
@@ -119,6 +134,11 @@
     --chat-assistant-bg: rgba(133, 153, 0, 0.08);
     --chat-assistant-border: rgba(133, 153, 0, 0.15);
     --chat-assistant-text: #859900;
+    --hover-bg: rgba(0,0,0,0.05);
+    --control-bg: rgba(0,0,0,0.05);
+    --control-border: rgba(88,110,117,0.2);
+    --text-on-surface: #586e75;
+    --text-dim: #93a1a1;
     --toast-bg: linear-gradient(135deg, #eee8d5, #fdf6e3);
     --safe-area-bg: #eee8d5;
 }
@@ -148,6 +168,11 @@
         --chat-assistant-bg: rgba(39, 174, 96, 0.08);
         --chat-assistant-border: rgba(39, 174, 96, 0.2);
         --chat-assistant-text: #1e8449;
+        --hover-bg: rgba(0,0,0,0.06);
+        --control-bg: rgba(0,0,0,0.06);
+        --control-border: rgba(0,0,0,0.15);
+        --text-on-surface: rgba(0,0,0,0.65);
+        --text-dim: rgba(0,0,0,0.4);
         --toast-bg: linear-gradient(135deg, #e8eaf0, #dcdee5);
         --safe-area-bg: #e8eaf0;
     }

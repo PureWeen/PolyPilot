@@ -30,7 +30,7 @@
 
 .session-count {
     font-size: var(--type-title3);
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
 }
 
 .no-sessions-dash {
@@ -46,7 +46,7 @@
 
 .no-sessions-dash .welcome-title {
     margin: 0;
-    color: rgba(255,255,255,0.35);
+    color: var(--text-dim);
     font-size: var(--type-title2);
     font-weight: 300;
     letter-spacing: 0.02em;
@@ -127,7 +127,7 @@
     justify-content: center;
     flex: 1;
     gap: 1rem;
-    color: rgba(255,255,255,0.6);
+    color: var(--text-on-surface);
 }
 
 .loading-logo {
@@ -275,14 +275,14 @@
 .group-divider-name {
     font-size: var(--type-callout);
     font-weight: 600;
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
 
 .group-divider-count {
     font-size: var(--type-caption1);
-    color: rgba(255,255,255,0.25);
+    color: var(--text-dim);
 }
 
 .group-divider-busy {
@@ -294,7 +294,7 @@
 .group-divider-chevron {
     margin-left: auto;
     font-size: var(--type-caption1);
-    color: rgba(255,255,255,0.25);
+    color: var(--text-dim);
 }
 
 /* Pinned card styles */
@@ -311,7 +311,7 @@
 .card-more-btn {
     all: unset;
     font-size: var(--type-title2);
-    color: rgba(255,255,255,0.25);
+    color: var(--text-dim);
     cursor: pointer;
     padding: 0.1rem 0.35rem;
     border-radius: 4px;
@@ -319,7 +319,7 @@
     letter-spacing: 0.1em;
     flex-shrink: 0;
 }
-.card-more-btn:hover { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.08); }
+.card-more-btn:hover { color: var(--text-on-surface); background: var(--hover-bg); }
 
 .card-menu {
     position: absolute;
@@ -342,7 +342,7 @@
     width: 100%;
     padding: 0.4rem 0.75rem;
     font-size: var(--type-callout);
-    color: rgba(255,255,255,0.7);
+    color: var(--text-on-surface);
     cursor: pointer;
     white-space: nowrap;
     box-sizing: border-box;
@@ -351,7 +351,7 @@
 
 .card-menu-separator {
     height: 1px;
-    background: rgba(255,255,255,0.08);
+    background: var(--hover-bg);
     margin: 0.2rem 0.5rem;
 }
 
@@ -374,8 +374,8 @@
 
 .session-card {
     position: relative;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.1);
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
     border-radius: 12px;
     padding: 1rem;
     display: flex;
@@ -437,7 +437,7 @@
 .chat-header-title { margin: 0; font-size: var(--type-title2); min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-header-badges { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
 .chat-header-context { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.context-badge { font-size: var(--type-caption1, 0.6rem); color: rgba(255,255,255,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+.context-badge { font-size: var(--type-caption1, 0.6rem); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
 .branch-badge { color: rgba(78,168,209,0.85); font-weight: 500; }
 .model-badge { padding: 0.2rem 0.5rem; background: rgba(78,168,209,0.2); border: 1px solid rgba(78,168,209,0.3); border-radius: 4px; font-size: var(--type-body); color: var(--accent-primary); line-height: 1.2; }
 .session-id-badge { padding: 0.2rem 0.5rem; background: rgba(251,191,36,0.2); border: 1px solid rgba(251,191,36,0.3); border-radius: 4px; font-size: var(--type-body); color: #fbbf24; font-family: monospace; cursor: pointer; }
@@ -550,7 +550,7 @@
     border: 1px solid rgba(255,255,255,0.25);
     border-radius: 50%;
     background: transparent;
-    color: rgba(255,255,255,0.8);
+    color: var(--text-primary);
     cursor: pointer;
     transition: background 0.15s ease;
     display: flex;
@@ -561,16 +561,16 @@
     aspect-ratio: 1;
     padding: 0;
 }
-.send-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); }
+.send-btn:hover:not(:disabled) { background: var(--hover-bg); }
 .send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-.send-btn.stop-btn { border-color: rgba(255,255,255,0.25); color: rgba(239,68,68,0.7); }
+.send-btn.stop-btn { border-color: var(--text-dim); color: rgba(239,68,68,0.7); }
 .send-btn.stop-btn:hover { background: rgba(239,68,68,0.1); }
 
 .attach-btn {
     border: none;
     border-radius: 50%;
-    background: rgba(255,255,255,0.08);
-    color: rgba(255,255,255,0.6);
+    background: var(--hover-bg);
+    color: var(--text-on-surface);
     cursor: pointer;
     transition: all 0.15s ease;
     display: flex;
@@ -650,7 +650,7 @@
 .card-expand {
     background: none;
     border: none;
-    color: rgba(255,255,255,0.4);
+    color: var(--text-dim);
     font-size: var(--type-title1);
     padding: 0.2rem 0.4rem;
     border-radius: 4px;
@@ -668,7 +668,7 @@
 .card-close {
     background: none;
     border: none;
-    color: rgba(255,255,255,0.4);
+    color: var(--text-dim);
     font-size: var(--type-title1);
     padding: 0.2rem 0.4rem;
     border-radius: 4px;
@@ -764,7 +764,7 @@
 
 .card-model {
     font-size: var(--type-caption1, 0.6rem);
-    color: rgba(255,255,255,0.4);
+    color: var(--text-dim);
 }
 
 .card-context {
@@ -807,7 +807,7 @@
 .queue-clear-btn {
     background: none;
     border: none;
-    color: rgba(255,255,255,0.4);
+    color: var(--text-dim);
     font-size: 0.7rem;
     cursor: pointer;
     padding: 0.1rem 0.3rem;
@@ -848,7 +848,7 @@
 }
 
 .card-empty {
-    color: rgba(255,255,255,0.3);
+    color: var(--text-dim);
     text-align: center;
     margin: auto;
     font-size: var(--type-body);
@@ -898,12 +898,12 @@
 }
 
 .card-msg-text {
-    color: rgba(255,255,255,0.8);
+    color: var(--text-primary);
     word-break: break-word;
 }
 
 .card-msg-text.thinking {
-    color: rgba(255,255,255,0.4);
+    color: var(--text-dim);
     font-style: italic;
 }
 
@@ -928,7 +928,7 @@
 }
 
 .card-input input::placeholder, .card-input textarea::placeholder {
-    color: rgba(255,255,255,0.3);
+    color: var(--text-dim);
 }
 
 .card-input input:focus, .card-input textarea:focus {
@@ -945,7 +945,7 @@
     border: 1px solid rgba(255,255,255,0.25);
     border-radius: 50%;
     background: transparent;
-    color: rgba(255,255,255,0.8);
+    color: var(--text-primary);
     cursor: pointer;
     font-size: var(--type-body);
     display: flex;
@@ -957,7 +957,7 @@
 }
 
 .card-input button:hover:not(:disabled) {
-    background: rgba(255,255,255,0.08);
+    background: var(--hover-bg);
 }
 
 .card-input button:disabled {
@@ -1048,7 +1048,7 @@
     border-radius: 8px;
     overflow: hidden;
     border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(255,255,255,0.05);
+    background: var(--bg-input);
     width: 80px;
     display: flex;
     flex-direction: column;
@@ -1064,7 +1064,7 @@
 
 .attachment-thumb .attachment-name {
     font-size: 0.65rem;
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
     padding: 2px 4px;
     text-align: center;
     white-space: nowrap;
@@ -1108,12 +1108,12 @@
     display: flex;
     gap: 0.5rem;
     font-size: 0.6rem;
-    color: rgba(255,255,255,0.35);
+    color: var(--text-dim);
     padding: 0 0.25rem;
 }
 
 .usage-info .usage-context {
-    color: rgba(255,255,255,0.25);
+    color: var(--text-dim);
 }
 
 /* === Toolbar collapses early (sidebar + toolbar compete for space) === */
