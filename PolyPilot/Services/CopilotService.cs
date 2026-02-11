@@ -380,7 +380,8 @@ public partial class CopilotService : IAsyncDisposable
         // Remote mode is handled by InitializeRemoteAsync, not here.
         var options = new CopilotClientOptions
         {
-            CliPath = "copilot"
+            CliPath = "copilot",
+            Cwd = ProjectDir
         };
 
         // Pass additional MCP server configs via CLI args.
