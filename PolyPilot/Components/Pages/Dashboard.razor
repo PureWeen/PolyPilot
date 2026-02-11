@@ -254,10 +254,9 @@
             }
 
             // When multiple sessions exist, start on grid view
-            if (sessions.Count > 1)
+            // (actual expand logic handled in RefreshState's _initialGridSet block)
+            if (sessions.Count > 1 && CopilotService.ActiveSessionName == null)
             {
-                _lastActiveSession = CopilotService.ActiveSessionName;
-                CopilotService.SetActiveSession(null);
                 _explicitlyCollapsed = true;
             }
 
@@ -346,6 +345,13 @@
                         if (e.key === 'Escape') {
                             var collapseBtn = document.querySelector('.collapse-card-btn');
                             if (collapseBtn) collapseBtn.click();
+                        }
+                        // ⌘1-9 / Ctrl+1-9: switch to session by index
+                        if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
+                            e.preventDefault();
+                            if (window.__dashRef) {
+                                window.__dashRef.invokeMethodAsync('JsSwitchToSessionByIndex', parseInt(e.key));
+                            }
                         }
                     });
                 }
@@ -482,13 +488,24 @@
             sessions = CopilotService.GetAllSessions().ToList();
 
             // On first load with multiple sessions, default to grid view
+            // unless a session was explicitly selected (e.g. from Settings page)
             if (!_initialGridSet && sessions.Count > 1)
             {
                 _initialGridSet = true;
-                expandedSession = null;
-                _lastActiveSession = CopilotService.ActiveSessionName;
-                if (CopilotService.ActiveSessionName != null)
-                    CopilotService.SetActiveSession(null);
+                var selected = CopilotService.ActiveSessionName;
+                if (selected != null && sessions.Any(s => s.Name == selected))
+                {
+                    expandedSession = selected;
+                    _lastActiveSession = selected;
+                    _focusedInputId = $"input-{selected.Replace(" ", "-")}";
+                }
+                else
+                {
+                    expandedSession = null;
+                    _lastActiveSession = selected;
+                    if (selected != null)
+                        CopilotService.SetActiveSession(null);
+                }
                 InvokeAsync(SafeRefreshAsync);
                 return;
             }
@@ -1124,6 +1141,34 @@
         var inputId = $"input-{sessionName.Replace(" ", "-")}";
         var text = idx < history.Count ? history[idx] : "";
         await JS.InvokeVoidAsync("eval", $"(function(){{ var el = document.getElementById('{inputId}'); if(el){{ el.value = {System.Text.Json.JsonSerializer.Serialize(text)}; el.setSelectionRange(el.value.length, el.value.length); }} }})()");
+    }
+
+    [JSInvokable]
+    public async Task JsSwitchToSessionByIndex(int index)
+    {
+        // Use organized sessions to match sidebar badge ordering
+        var organized = CopilotService.GetOrganizedSessions().ToList();
+        var sessionIndex = 0;
+        foreach (var (group, groupSessions) in organized)
+        {
+            if (group.IsCollapsed && CopilotService.HasMultipleGroups) continue;
+            foreach (var session in groupSessions)
+            {
+                sessionIndex++;
+                if (sessionIndex == index)
+                {
+                    if (expandedSession != null)
+                    {
+                        await SaveDraftsAndCursor();
+                        expandedSession = session.Name;
+                        _focusedInputId = $"input-{session.Name.Replace(" ", "-")}";
+                    }
+                    CopilotService.SwitchSession(session.Name);
+                    StateHasChanged();
+                    return;
+                }
+            }
+        }
     }
 
     private const int DefaultMessageWindow = 25;

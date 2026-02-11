@@ -12,7 +12,7 @@
 }
 
 .session-item:hover {
-    background: rgba(255,255,255,0.1);
+    background: var(--control-bg);
 }
 
 .session-item.active {
@@ -84,10 +84,10 @@
     height: 1.2em;
     font-size: var(--type-footnote);
     font-weight: 600;
-    background: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.2);
+    background: var(--control-bg);
+    border: 1px solid var(--control-border);
     border-radius: 3px;
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
     flex-shrink: 0;
 }
 
@@ -106,7 +106,7 @@
 
 .session-meta {
     font-size: var(--type-body);
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
 }
 
 .processing {
@@ -131,14 +131,14 @@
 .more-btn {
     all: unset;
     font-size: var(--type-body);
-    color: rgba(255,255,255,0.3);
+    color: var(--text-dim);
     cursor: pointer;
     padding: 0 0.3rem;
     border-radius: 3px;
     line-height: 1;
     letter-spacing: 0.1em;
 }
-.more-btn:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.08); }
+.more-btn:hover { color: var(--text-on-surface); background: var(--hover-bg); }
 
 .session-menu {
     position: absolute;
@@ -146,7 +146,7 @@
     top: 100%;
     z-index: 100;
     min-width: 140px;
-    background: #1e2240;
+    background: var(--bg-tertiary);
     border: 1px solid rgba(78,168,209,0.25);
     border-radius: 8px;
     padding: 0.25rem 0;
@@ -161,7 +161,7 @@
     width: 100%;
     padding: 0.35rem 0.65rem;
     font-size: var(--type-callout);
-    color: rgba(255,255,255,0.7);
+    color: var(--text-on-surface);
     cursor: pointer;
     white-space: nowrap;
     box-sizing: border-box;
@@ -170,7 +170,7 @@
 
 .menu-separator {
     height: 1px;
-    background: rgba(255,255,255,0.08);
+    background: var(--hover-bg);
     margin: 0.2rem 0.5rem;
 }
 
@@ -182,8 +182,8 @@
     padding: 0.2rem 0.4rem;
     border: 1px solid #60a5fa;
     border-radius: 4px;
-    background: rgba(255,255,255,0.15);
-    color: #a0b4cc;
+    background: var(--control-bg);
+    color: var(--text-primary);
     font-size: var(--type-title3);
     font-weight: 500;
     font-family: inherit;

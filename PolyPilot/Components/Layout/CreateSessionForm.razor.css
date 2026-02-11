@@ -9,19 +9,19 @@
     flex: 1;
     min-width: 100px;
     padding: 0.5rem;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid var(--control-border);
     border-radius: 6px;
-    background: rgba(255,255,255,0.1);
-    color: #a0b4cc;
+    background: var(--control-bg);
+    color: var(--text-primary);
     font-size: var(--type-title3);
 }
 
 .model-select {
     padding: 0.5rem 1.8rem 0.5rem 0.5rem;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid var(--control-border);
     border-radius: 6px;
-    background: rgba(255,255,255,0.1);
-    color: #a0b4cc;
+    background: var(--control-bg);
+    color: var(--text-primary);
     font-size: var(--type-body);
     min-width: 0;
     max-width: 100%;
@@ -33,12 +33,12 @@
 }
 
 .model-select option {
-    background: #0f0f23;
-    color: #a0b4cc;
+    background: var(--bg-primary);
+    color: var(--text-primary);
 }
 
 .new-session input::placeholder {
-    color: rgba(255,255,255,0.5);
+    color: var(--text-dim);
 }
 
 .new-session input:focus {
@@ -51,7 +51,7 @@
     border: none;
     border-radius: 6px;
     background: #3b82f6;
-    color: #a0b4cc;
+    color: var(--text-primary);
     cursor: pointer;
     font-size: var(--type-title3);
     font-weight: bold;
@@ -78,14 +78,14 @@
 
 .dir-toggle-btn {
     padding: 0.3rem 0.5rem !important;
-    background: rgba(255,255,255,0.1) !important;
-    border: 1px solid rgba(255,255,255,0.2) !important;
+    background: var(--control-bg) !important;
+    border: 1px solid var(--control-border) !important;
     font-size: var(--type-subhead) !important;
     font-weight: normal !important;
 }
 
 .dir-toggle-btn:hover:not(:disabled) {
-    background: rgba(255,255,255,0.2) !important;
+    background: var(--hover-bg) !important;
 }
 
 .dir-input-row {
@@ -100,17 +100,17 @@
 
 .dir-browse-btn {
     padding: 0.5rem 0.6rem !important;
-    background: rgba(255,255,255,0.1) !important;
-    border: 1px solid rgba(255,255,255,0.2) !important;
+    background: var(--control-bg) !important;
+    border: 1px solid var(--control-border) !important;
     border-radius: 6px;
     font-size: var(--type-body) !important;
     font-weight: normal !important;
-    color: #a0b4cc;
+    color: var(--text-primary);
     cursor: pointer;
 }
 
 .dir-browse-btn:hover {
-    background: rgba(255,255,255,0.2) !important;
+    background: var(--hover-bg) !important;
 }
 
 /* === Mobile responsive === */

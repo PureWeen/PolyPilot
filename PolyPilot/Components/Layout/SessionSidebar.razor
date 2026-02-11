@@ -514,6 +514,8 @@ else
         CopilotService.SwitchSession(name);
         CopilotService.SaveUiState("/", name);
         await OnSessionSelected.InvokeAsync();
+        if (currentPage != "/")
+            Nav.NavigateTo("/");
     }
 
     private async Task SwitchToOpenSession(string sessionId)

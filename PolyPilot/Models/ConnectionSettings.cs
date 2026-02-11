@@ -18,6 +18,15 @@ public enum ChatLayout
     BothLeft      // Both on left
 }
 
+public enum UiTheme
+{
+    System,          // Follow OS light/dark preference
+    PolyPilotDark,   // Default dark theme
+    PolyPilotLight,  // Light variant
+    SolarizedDark,   // Solarized dark
+    SolarizedLight   // Solarized light
+}
+
 public class ConnectionSettings
 {
     public ConnectionMode Mode { get; set; } = PlatformHelper.DefaultMode;
@@ -29,6 +38,7 @@ public class ConnectionSettings
     public string? TunnelId { get; set; }
     public bool AutoStartTunnel { get; set; } = false;
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
+    public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
 
     [JsonIgnore]
     public string CliUrl => Mode == ConnectionMode.Remote && !string.IsNullOrEmpty(RemoteUrl)
