@@ -183,6 +183,10 @@ public class WsBridgeClient : IDisposable
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.CloseSession,
             new SessionNamePayload { SessionName = sessionName }), ct);
 
+    public async Task AbortSessionAsync(string sessionName, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.AbortSession,
+            new SessionNamePayload { SessionName = sessionName }), ct);
+
     public async Task SendOrganizationCommandAsync(OrganizationCommandPayload cmd, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.OrganizationCommand, cmd), ct);
 

@@ -343,6 +343,7 @@ public class WsBridgeServer : IDisposable
                         Console.WriteLine($"[WsBridge] Client creating session '{createReq.Name}'");
                         await _copilot.CreateSessionAsync(createReq.Name, createReq.Model, createReq.WorkingDirectory, ct);
                         BroadcastSessionsList();
+                        BroadcastOrganizationState();
                     }
                     break;
 
@@ -385,6 +386,7 @@ public class WsBridgeServer : IDisposable
                             await _copilot.ResumeSessionAsync(resumeReq.SessionId, displayName, ct);
                             Console.WriteLine($"[WsBridge] Session resumed successfully, broadcasting updated list");
                             BroadcastSessionsList();
+                            BroadcastOrganizationState();
                         }
                         catch (Exception resumeEx)
                         {
@@ -402,6 +404,15 @@ public class WsBridgeServer : IDisposable
                     {
                         Console.WriteLine($"[WsBridge] Client closing session '{closeReq.SessionName}'");
                         await _copilot.CloseSessionAsync(closeReq.SessionName);
+                    }
+                    break;
+
+                case BridgeMessageTypes.AbortSession:
+                    var abortReq = msg.GetPayload<SessionNamePayload>();
+                    if (abortReq != null && !string.IsNullOrWhiteSpace(abortReq.SessionName))
+                    {
+                        Console.WriteLine($"[WsBridge] Client aborting session '{abortReq.SessionName}'");
+                        await _copilot.AbortSessionAsync(abortReq.SessionName);
                     }
                     break;
 

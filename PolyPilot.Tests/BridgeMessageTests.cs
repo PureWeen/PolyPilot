@@ -147,6 +147,7 @@ public class BridgeMessageTypesTests
         Assert.Equal("switch_session", BridgeMessageTypes.SwitchSession);
         Assert.Equal("queue_message", BridgeMessageTypes.QueueMessage);
         Assert.Equal("close_session", BridgeMessageTypes.CloseSession);
+        Assert.Equal("abort_session", BridgeMessageTypes.AbortSession);
     }
 }
 

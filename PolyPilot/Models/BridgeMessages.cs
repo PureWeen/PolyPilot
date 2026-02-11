@@ -77,6 +77,7 @@ public static class BridgeMessageTypes
     public const string SwitchSession = "switch_session";
     public const string QueueMessage = "queue_message";
     public const string CloseSession = "close_session";
+    public const string AbortSession = "abort_session";
     public const string OrganizationCommand = "organization_command";
 }
 

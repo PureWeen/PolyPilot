@@ -127,3 +127,45 @@ Avoid `@bind:event="oninput"` — causes round-trip lag per keystroke. Use plain
 - UI state: `~/.copilot/PolyPilot-ui-state.json`
 - Settings: `~/.copilot/PolyPilot-settings.json`
 - Crash log: `~/.copilot/PolyPilot-crash.log`
+
+## Remote Mode (WsBridge Protocol)
+
+### Architecture
+Mobile apps connect to the desktop server via WebSocket. `WsBridgeServer` runs on desktop (port 4322), `WsBridgeClient` runs on mobile. The protocol is JSON-based state-sync defined in `Models/BridgeMessages.cs`.
+
+### Common Pitfalls for Future Agents
+
+1. **Remote mode operations must be handled separately.** Any `CopilotService` method that touches `state.Session` (the SDK `CopilotSession`) will crash in remote mode because `state.Session` is `null!`. Always check `IsRemoteMode` first and delegate to `_bridgeClient`.
+
+2. **Optimistic adds need full state.** When adding a session optimistically in remote mode (before server confirms), you must:
+   - Add to `_sessions` dictionary
+   - Add to `_pendingRemoteSessions` (prevents `SyncRemoteSessions` from removing it)
+   - Add `SessionMeta` to `Organization.Sessions` (or `GetOrganizedSessions()` won't render it)
+   - Do all this BEFORE awaiting the bridge send (race condition with server response)
+
+3. **Thread safety.** `SyncRemoteSessions` runs on the bridge client's background thread. `_sessions` is `ConcurrentDictionary` (safe). `_pendingRemoteSessions` is `ConcurrentDictionary` (safe). But `Organization.Sessions` is a plain `List<SessionMeta>` — access from the UI thread only.
+
+4. **Adding new bridge commands.** When adding client→server commands:
+   - Add a constant to `BridgeMessageTypes` in `BridgeMessages.cs`
+   - Add a payload class if needed (or reuse `SessionNamePayload`)
+   - Add the send method to `WsBridgeClient`
+   - Add a `case` handler in `WsBridgeServer.HandleClientMessage()`
+   - Add the remote-mode delegation in `CopilotService`
+   - Add tests in `RemoteModeTests.cs`
+
+5. **DevTunnel strips auth headers.** The `X-Tunnel-Authorization` header is consumed by DevTunnel infrastructure. `WsBridgeServer.ValidateClientToken` trusts loopback connections since DevTunnel proxies to localhost after its own auth.
+
+### Test Coverage
+Test files in `PolyPilot.Tests/`:
+- `BridgeMessageTests.cs` — Bridge protocol serialization, type constants
+- `RemoteModeTests.cs` — Remote mode payloads, organization state, chat serialization
+- `ChatMessageTests.cs` — Chat message factory methods, state transitions
+- `AgentSessionInfoTests.cs` — Session info properties, history, queue
+- `SessionOrganizationTests.cs` — Groups, sorting, metadata
+- `ConnectionSettingsTests.cs` — Settings persistence
+- `EventsJsonlParsingTests.cs` — SDK event log parsing
+- `PlatformHelperTests.cs` — Platform detection
+- `ToolResultFormattingTests.cs` — Tool output formatting
+- `UiStatePersistenceTests.cs` — UI state save/load
+
+Tests include source files via `<Compile Include>` links in the csproj. When adding new model classes, add a corresponding link entry.

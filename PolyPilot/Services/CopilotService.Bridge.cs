@@ -135,13 +135,17 @@ public partial class CopilotService
             }
         }
 
-        // Remove sessions that no longer exist on server
+        // Remove sessions that no longer exist on server (but keep pending optimistic adds)
         var remoteNames = remoteSessions.Select(s => s.Name).ToHashSet();
         foreach (var name in _sessions.Keys.ToList())
         {
-            if (!remoteNames.Contains(name))
+            if (!remoteNames.Contains(name) && !_pendingRemoteSessions.ContainsKey(name))
                 _sessions.TryRemove(name, out _);
         }
+
+        // Clear pending flag for sessions confirmed by server
+        foreach (var rs in remoteSessions)
+            _pendingRemoteSessions.TryRemove(rs.Name, out _);
 
         // Sync history from WsBridgeClient cache
         // Don't overwrite if local history has messages not yet reflected by server
