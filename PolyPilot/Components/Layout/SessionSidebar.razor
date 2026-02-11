@@ -128,24 +128,6 @@ else
             </div>
         }
 
-        @if (worktreeRepoId != null)
-        {
-            <div class="add-repo-form">
-                <input type="text" @bind="worktreeBranch" placeholder="Branch name (e.g. fix/login-bug)" class="repo-url-input"
-                       @onkeydown="HandleWorktreeKeyDown" />
-                <div class="add-repo-actions">
-                    <button class="btn-repo-add" @onclick="CreateWorktreeSession" disabled="@(isCreatingWorktree || string.IsNullOrWhiteSpace(worktreeBranch))">
-                        @(isCreatingWorktree ? "Creating..." : "⑂ Create Worktree")
-                    </button>
-                    <button class="btn-repo-cancel" @onclick="() => worktreeRepoId = null">Cancel</button>
-                </div>
-                @if (!string.IsNullOrEmpty(worktreeError))
-                {
-                    <div class="repo-error">⚠ @worktreeError</div>
-                }
-            </div>
-        }
-
         <div class="session-list">
             @{
                 var organized = CopilotService.GetOrganizedSessions().ToList();
@@ -182,13 +164,6 @@ else
                             @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
                             {
                                 <span class="group-busy-dot"></span>
-                            }
-                            @if (isRepoGroup)
-                            {
-                                var rId = group.RepoId!;
-                                <button class="group-worktree-btn" title="New worktree"
-                                        @onclick="() => StartNewWorktree(rId)"
-                                        @onclick:stopPropagation="true">⑂</button>
                             }
                             @if (group.Id != SessionGroup.DefaultId)
                             {
@@ -309,10 +284,6 @@ else
     private string newRepoUrl = "";
     private string? addRepoError = null;
     private bool isAddingRepo = false;
-    private string? worktreeRepoId = null;
-    private string worktreeBranch = "";
-    private string? worktreeError = null;
-    private bool isCreatingWorktree = false;
 
     private async Task ToggleFlyout()
     {
@@ -443,7 +414,7 @@ else
         showPersistedSessions = !showPersistedSessions;
     }
 
-    private async Task HandleCreateSession((string Name, string Model, string Directory) args)
+    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId) args)
     {
         if (isCreating) return;
         isCreating = true;
@@ -453,6 +424,25 @@ else
             var sessionInfo = await CopilotService.CreateSessionAsync(args.Name, args.Model, args.Directory);
             CopilotService.SwitchSession(sessionInfo.Name);
             newSessionName = "";
+
+            // If created from a worktree, place session in the repo group
+            if (!string.IsNullOrEmpty(args.WorktreeId))
+            {
+                var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == args.WorktreeId);
+                if (wt != null)
+                {
+                    RepoManager.LinkSessionToWorktree(wt.Id, sessionInfo.Name);
+                    var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
+                    if (repo != null)
+                    {
+                        var group = CopilotService.GetOrCreateRepoGroup(repo.Id, repo.Name);
+                        CopilotService.MoveSession(sessionInfo.Name, group.Id);
+                        var meta = CopilotService.GetSessionMeta(sessionInfo.Name);
+                        if (meta != null) meta.WorktreeId = wt.Id;
+                    }
+                }
+            }
+
             CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
             await OnSessionSelected.InvokeAsync();
         }
@@ -666,55 +656,6 @@ else
         finally
         {
             isAddingRepo = false;
-        }
-    }
-
-    private void StartNewWorktree(string repoId)
-    {
-        worktreeRepoId = repoId;
-        worktreeBranch = "";
-        worktreeError = null;
-    }
-
-    private async Task HandleWorktreeKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter") await CreateWorktreeSession();
-        else if (e.Key == "Escape") worktreeRepoId = null;
-    }
-
-    private async Task CreateWorktreeSession()
-    {
-        if (isCreatingWorktree || string.IsNullOrWhiteSpace(worktreeBranch) || worktreeRepoId == null) return;
-        isCreatingWorktree = true;
-        worktreeError = null;
-        try
-        {
-            var wt = await RepoManager.CreateWorktreeAsync(worktreeRepoId, worktreeBranch.Trim());
-            var sessionName = $"{worktreeBranch.Trim()}";
-            var sessionInfo = await CopilotService.CreateSessionAsync(sessionName, selectedModel, wt.Path);
-            RepoManager.LinkSessionToWorktree(wt.Id, sessionName);
-
-            // Move session to the repo group
-            var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.RepoId == worktreeRepoId);
-            if (group != null)
-            {
-                CopilotService.MoveSession(sessionName, group.Id);
-                var meta = CopilotService.GetSessionMeta(sessionName);
-                if (meta != null) meta.WorktreeId = wt.Id;
-            }
-
-            CopilotService.SwitchSession(sessionName);
-            worktreeRepoId = null;
-            worktreeBranch = "";
-            await OnSessionSelected.InvokeAsync();
-        }
-        catch (Exception ex)
-        {
-            worktreeError = ex.Message;
-        }
-        finally
-        {
-            isCreatingWorktree = false;
         }
     }
 
