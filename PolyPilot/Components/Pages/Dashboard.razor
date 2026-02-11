@@ -897,6 +897,7 @@
                     "- `/diff [args]` — Show git diff\n" +
                     "- `/status` — Show git status\n" +
                     "- `/mcp` — List connected MCP servers\n" +
+                    "- `/plugin` — List installed plugins\n" +
                     "- `!<command>` — Run a shell command"));
                 break;
 
@@ -1013,6 +1014,12 @@
                 session.History.Add(ChatMessage.SystemMessage(mcpInfo));
                 break;
 
+            case "plugin":
+            case "plugins":
+                var pluginInfo = GetPluginInfo();
+                session.History.Add(ChatMessage.SystemMessage(pluginInfo));
+                break;
+
             default:
                 // Unknown command — pass through to the SDK as a regular prompt
                 _ = CopilotService.SendPromptAsync(sessionName, input);
@@ -1126,6 +1133,41 @@
         }
         catch { }
 
+        // Read plugin .mcp.json files
+        try
+        {
+            var pluginsDir = Path.Combine(copilotDir, "installed-plugins");
+            if (Directory.Exists(pluginsDir))
+            {
+                foreach (var marketDir in Directory.GetDirectories(pluginsDir))
+                {
+                    foreach (var pluginDir in Directory.GetDirectories(marketDir))
+                    {
+                        var mcpFile = Path.Combine(pluginDir, ".mcp.json");
+                        if (!File.Exists(mcpFile)) continue;
+                        try
+                        {
+                            var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(mcpFile));
+                            if (doc.RootElement.TryGetProperty("mcpServers", out var mcpServers))
+                            {
+                                foreach (var prop in mcpServers.EnumerateObject())
+                                {
+                                    if (servers.Any(s => s.name == prop.Name)) continue;
+                                    var command = prop.Value.TryGetProperty("command", out var c) ? c.GetString() ?? "" : "";
+                                    var args = prop.Value.TryGetProperty("args", out var a)
+                                        ? a.EnumerateArray().Select(x => x.GetString() ?? "").ToArray()
+                                        : Array.Empty<string>();
+                                    servers.Add((prop.Name, command, args));
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+        }
+        catch { }
+
         if (servers.Count == 0)
             return "**No MCP servers configured.**\n\nAdd servers to `~/.copilot/mcp-servers.json` or `~/.copilot/mcp-config.json`.";
 
@@ -1144,6 +1186,75 @@
     private async Task StopSession(string sessionName)
     {
         await CopilotService.AbortSessionAsync(sessionName);
+    }
+
+    private string GetPluginInfo()
+    {
+        var sb = new System.Text.StringBuilder();
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var pluginsDir = Path.Combine(home, ".copilot", "installed-plugins");
+
+        if (!Directory.Exists(pluginsDir))
+            return "**No plugins installed.**\n\nInstall plugins with `copilot plugin install <source>`.";
+
+        var plugins = new List<(string name, string marketplace, string type, string detail)>();
+
+        foreach (var marketDir in Directory.GetDirectories(pluginsDir))
+        {
+            var marketplace = Path.GetFileName(marketDir);
+            foreach (var pluginDir in Directory.GetDirectories(marketDir))
+            {
+                var pluginName = Path.GetFileName(pluginDir);
+                var type = "plugin";
+                var detail = "";
+
+                // Check for MCP config
+                var mcpFile = Path.Combine(pluginDir, ".mcp.json");
+                if (File.Exists(mcpFile))
+                {
+                    type = "mcp";
+                    try
+                    {
+                        var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(mcpFile));
+                        if (doc.RootElement.TryGetProperty("mcpServers", out var servers))
+                        {
+                            var names = servers.EnumerateObject().Select(p => p.Name).ToList();
+                            detail = string.Join(", ", names);
+                        }
+                    }
+                    catch { }
+                }
+
+                // Check for skills
+                var skillDirs = Directory.GetDirectories(pluginDir, "skills", SearchOption.AllDirectories).FirstOrDefault();
+                if (skillDirs != null)
+                {
+                    var skills = Directory.GetDirectories(skillDirs).Select(Path.GetFileName).ToList();
+                    if (skills.Count > 0)
+                    {
+                        type = type == "mcp" ? "mcp+skills" : "skills";
+                        detail = string.IsNullOrEmpty(detail)
+                            ? string.Join(", ", skills!)
+                            : $"{detail} | skills: {string.Join(", ", skills!)}";
+                    }
+                }
+
+                plugins.Add((pluginName, marketplace, type, detail));
+            }
+        }
+
+        if (plugins.Count == 0)
+            return "**No plugins installed.**\n\nInstall plugins with `copilot plugin install <source>`.";
+
+        sb.AppendLine($"**{plugins.Count} plugin{(plugins.Count != 1 ? "s" : "")} installed:**\n");
+        foreach (var (name, marketplace, type, detail) in plugins)
+        {
+            var badge = type switch { "mcp" => "🔌", "skills" => "🛠️", "mcp+skills" => "🔌🛠️", _ => "📦" };
+            var detailStr = !string.IsNullOrEmpty(detail) ? $" — {detail}" : "";
+            sb.AppendLine($"- {badge} **{name}** `{marketplace}`{detailStr}");
+        }
+
+        return sb.ToString().TrimEnd();
     }
 
     [JSInvokable]
