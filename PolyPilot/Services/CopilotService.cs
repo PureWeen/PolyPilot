@@ -412,14 +412,18 @@ public partial class CopilotService : IAsyncDisposable
             // mcp-servers.json is { "name": { "command": "...", "args": [...], "env": {...} } }
             // CLI expects { "mcpServers": { "name": { ... } } }
             var raw = File.ReadAllText(serversPath);
-            var doc = JsonDocument.Parse(raw);
+            using var doc = JsonDocument.Parse(raw);
             
-            // Wrap in mcpServers envelope
+            // Wrap in mcpServers envelope and write to a temp file.
+            // Inline JSON loses quotes when passed via ProcessStartInfo,
+            // so use the @filepath syntax the CLI supports.
             var wrapped = new Dictionary<string, object> { ["mcpServers"] = JsonSerializer.Deserialize<object>(raw)! };
             var json = JsonSerializer.Serialize(wrapped);
+            var tempPath = Path.Combine(home, ".copilot", "polypilot-mcp-servers.json");
+            File.WriteAllText(tempPath, json);
             
             args.Add("--additional-mcp-config");
-            args.Add(json);
+            args.Add($"@{tempPath}");
         }
         catch (Exception ex)
         {
