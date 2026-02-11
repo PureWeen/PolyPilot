@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@using PolyPilot.Services
+@using PolyPilot.Models
 
 <div class="page @(flyoutOpen ? "flyout-open" : "")">
     <div class="sidebar desktop-only">
@@ -26,6 +28,23 @@
     private bool flyoutOpen;
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
+    [Inject] private CopilotService CopilotService { get; set; } = default!;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var dataTheme = CopilotService.Theme switch
+            {
+                UiTheme.System => "system",
+                UiTheme.PolyPilotLight => "polypilot-light",
+                UiTheme.SolarizedDark => "solarized-dark",
+                UiTheme.SolarizedLight => "solarized-light",
+                _ => ""
+            };
+            await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
+        }
+    }
 
     private async Task StartResize(MouseEventArgs e)
     {
