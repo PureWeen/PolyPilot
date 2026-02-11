@@ -139,7 +139,7 @@
 .queue-item:last-child { border-bottom: none; }
 .queue-index { color: var(--accent-primary); font-weight: 600; font-size: 0.8rem; min-width: 1.2rem; }
 .queue-text { flex: 1; color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.queue-remove-btn { padding: 0.1rem 0.4rem; font-size: 0.85rem; background: transparent; border: none; color: rgba(200,216,240,0.3); cursor: pointer; border-radius: 3px; }
+.queue-remove-btn { padding: 0.1rem 0.4rem; font-size: 0.85rem; background: transparent; border: none; color: var(--text-muted); cursor: pointer; border-radius: 3px; }
 .queue-remove-btn:hover { background: var(--hover-bg); color: var(--accent-primary); }
 .queue-clear-btn { background: none; border: none; color: var(--text-dim); font-size: 0.7rem; cursor: pointer; padding: 0.1rem 0.3rem; }
 .queue-clear-btn:hover { color: var(--accent-primary); }
@@ -285,7 +285,7 @@
     gap: 0.75rem;
     padding: 0;
     font-size: 0.75rem;
-    color: rgba(200,216,240,0.35);
+    color: var(--text-muted);
     overflow-x: auto;
     max-width: 100%;
     flex-wrap: wrap;
