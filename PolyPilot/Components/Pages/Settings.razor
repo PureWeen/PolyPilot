@@ -16,7 +16,7 @@
             <div class="header-right">
                 <div class="settings-search">
                     <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    <input type="text" class="search-input" placeholder="Search settings..." @oninput="OnSearchInput" value="@searchQuery" />
+                    <input type="text" class="search-input" id="settings-search" placeholder="Search settings..." />
                     @if (!string.IsNullOrEmpty(searchQuery))
                     {
                         <button class="search-clear" @onclick="ClearSearch">×</button>
@@ -305,15 +305,19 @@
     private string? qrCodeDataUri;
     private CancellationTokenSource? _statusCts;
     private string searchQuery = "";
+    private DotNetObjectReference<Settings>? _selfRef;
 
-    private void OnSearchInput(ChangeEventArgs e)
+    [JSInvokable]
+    public void JsUpdateSearch(string query)
     {
-        searchQuery = e.Value?.ToString() ?? "";
+        searchQuery = query;
+        InvokeAsync(StateHasChanged);
     }
 
-    private void ClearSearch()
+    private async Task ClearSearch()
     {
         searchQuery = "";
+        await JS.InvokeVoidAsync("eval", "document.getElementById('settings-search').value = ''");
     }
 
     private bool SectionVisible(string keywords)
@@ -370,9 +374,35 @@
             GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("eval", "window.__setSettingsRef = function(ref) { window.__settingsRef = ref; };");
+            await JS.InvokeVoidAsync("__setSettingsRef", _selfRef);
+            await JS.InvokeVoidAsync("eval", @"
+                (function() {
+                    var el = document.getElementById('settings-search');
+                    if (!el || el.__searchWired) return;
+                    el.__searchWired = true;
+                    var timer = null;
+                    el.addEventListener('input', function() {
+                        clearTimeout(timer);
+                        var val = el.value;
+                        timer = setTimeout(function() {
+                            if (window.__settingsRef) window.__settingsRef.invokeMethodAsync('JsUpdateSearch', val);
+                        }, 150);
+                    });
+                })()");
+        }
+    }
+
     public void Dispose()
     {
         DevTunnelService.OnStateChanged -= OnTunnelStateChanged;
+        _ = JS.InvokeVoidAsync("eval", "window.__settingsRef = null;");
+        _selfRef?.Dispose();
     }
 
     private void OnTunnelStateChanged()
