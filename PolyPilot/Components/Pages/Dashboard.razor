@@ -331,6 +331,13 @@
                             var collapseBtn = document.querySelector('.collapse-card-btn');
                             if (collapseBtn) collapseBtn.click();
                         }
+                        // ⌘1-9 / Ctrl+1-9: switch to session by index
+                        if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
+                            e.preventDefault();
+                            if (window.__dashRef) {
+                                window.__dashRef.invokeMethodAsync('JsSwitchToSessionByIndex', parseInt(e.key));
+                            }
+                        }
                     });
                 }
             ");
@@ -1072,6 +1079,34 @@
     {
         _lastActiveSession = sessionName;
         CopilotService.SwitchSession(sessionName);
+    }
+
+    [JSInvokable]
+    public async Task JsSwitchToSessionByIndex(int index)
+    {
+        // Use organized sessions to match sidebar badge ordering
+        var organized = CopilotService.GetOrganizedSessions().ToList();
+        var sessionIndex = 0;
+        foreach (var (group, groupSessions) in organized)
+        {
+            if (group.IsCollapsed && CopilotService.HasMultipleGroups) continue;
+            foreach (var session in groupSessions)
+            {
+                sessionIndex++;
+                if (sessionIndex == index)
+                {
+                    if (expandedSession != null)
+                    {
+                        await SaveDraftsAndCursor();
+                        expandedSession = session.Name;
+                        _focusedInputId = $"input-{session.Name.Replace(" ", "-")}";
+                    }
+                    CopilotService.SwitchSession(session.Name);
+                    StateHasChanged();
+                    return;
+                }
+            }
+        }
     }
 
     private const int DefaultMessageWindow = 25;
