@@ -22,17 +22,17 @@ public static class MauiProgram
 		try
 		{
 #if ANDROID || IOS
-			return Path.Combine(FileSystem.AppDataDirectory, ".copilot", "PolyPilot-crash.log");
+			return Path.Combine(FileSystem.AppDataDirectory, ".polypilot", "crash.log");
 #else
 			var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 			if (string.IsNullOrEmpty(home))
 				home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-			return Path.Combine(home, ".copilot", "PolyPilot-crash.log");
+			return Path.Combine(home, ".polypilot", "crash.log");
 #endif
 		}
 		catch
 		{
-			return Path.Combine(Path.GetTempPath(), ".copilot", "PolyPilot-crash.log");
+			return Path.Combine(Path.GetTempPath(), ".polypilot", "crash.log");
 		}
 	}
 
@@ -99,6 +99,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<TailscaleService>();
 		builder.Services.AddSingleton<KeyCommandService>();
 	builder.Services.AddSingleton<GitAutoUpdateService>();
+	builder.Services.AddSingleton<RepoManager>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

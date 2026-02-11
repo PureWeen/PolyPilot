@@ -122,11 +122,14 @@ When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in
 Avoid `@bind:event="oninput"` — causes round-trip lag per keystroke. Use plain HTML inputs with JS event listeners and read values via `JS.InvokeAsync<string>("eval", "document.getElementById('id')?.value")` on submit.
 
 ### Session Persistence
-- Active sessions: `~/.copilot/PolyPilot-active-sessions.json`
-- Session state: `~/.copilot/session-state/<guid>/events.jsonl` (SDK-managed)
-- UI state: `~/.copilot/PolyPilot-ui-state.json`
-- Settings: `~/.copilot/PolyPilot-settings.json`
-- Crash log: `~/.copilot/PolyPilot-crash.log`
+- Active sessions: `~/.polypilot/active-sessions.json`
+- Session state: `~/.copilot/session-state/<guid>/events.jsonl` (SDK-managed, stays in ~/.copilot)
+- UI state: `~/.polypilot/ui-state.json`
+- Settings: `~/.polypilot/settings.json`
+- Crash log: `~/.polypilot/crash.log`
+- Organization: `~/.polypilot/organization.json`
+- Server PID: `~/.polypilot/server.pid`
+- Repos/worktrees: `~/.polypilot/repos.json`, `~/.polypilot/repos/`, `~/.polypilot/worktrees/`
 
 ## Remote Mode (WsBridge Protocol)
 

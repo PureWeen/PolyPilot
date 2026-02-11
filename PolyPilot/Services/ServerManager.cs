@@ -8,16 +8,16 @@ public class ServerManager
 {
     private static string? _pidFilePath;
     private static string PidFilePath => _pidFilePath ??= Path.Combine(
-        GetCopilotDir(), "PolyPilot-server.pid");
+        GetPolyPilotDir(), "server.pid");
 
-    private static string GetCopilotDir()
+    private static string GetPolyPilotDir()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (string.IsNullOrEmpty(home))
             home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         if (string.IsNullOrEmpty(home))
             home = Path.GetTempPath();
-        return Path.Combine(home, ".copilot");
+        return Path.Combine(home, ".polypilot");
     }
 
     public bool IsServerRunning => CheckServerRunning();

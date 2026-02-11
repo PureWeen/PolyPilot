@@ -31,7 +31,7 @@
     padding: 0.5rem 0.75rem;
     border: none;
     border-radius: 6px;
-    background: var(--accent-primary);
+    background: var(--control-bg);
     color: var(--text-primary);
     cursor: pointer;
     font-size: var(--type-title3);
@@ -40,12 +40,21 @@
 }
 
 .new-session button:hover:not(:disabled) {
-    background: var(--accent-primary);
+    background: var(--hover-bg);
 }
 
 .new-session button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.session-options-row > button:last-child {
+    background: var(--accent-primary);
+}
+
+.session-options-row > button:last-child:hover:not(:disabled) {
+    background: var(--accent-primary);
+    filter: brightness(1.1);
 }
 
 .session-options-row {
@@ -94,6 +103,127 @@
 
 .dir-browse-btn:hover {
     background: var(--hover-bg) !important;
+}
+
+.worktree-picker {
+    width: 100%;
+    background: var(--surface-secondary);
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
+    overflow: hidden;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.wt-repo-name {
+    font-size: var(--type-caption2);
+    color: var(--text-dim);
+    padding: 0.3rem 0.5rem 0.1rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.wt-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.3rem 0.5rem;
+    border: none;
+    background: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: var(--type-footnote);
+    text-align: left;
+}
+
+.wt-option:hover {
+    background: var(--hover-bg);
+}
+
+.wt-branch {
+    font-weight: 500;
+}
+
+.wt-selected {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+    padding: 0.1rem 0;
+}
+
+.wt-clear {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: var(--type-footnote);
+    padding: 0 0.2rem;
+}
+
+.wt-clear:hover {
+    color: var(--text-primary);
+}
+
+.wt-new-form {
+    display: flex;
+    gap: 0.3rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.wt-branch-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid var(--control-border);
+    border-radius: 4px;
+    background: var(--surface-secondary);
+    color: var(--text-primary);
+    font-size: var(--type-footnote);
+}
+
+.wt-branch-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.wt-create-btn {
+    padding: 0.25rem 0.5rem;
+    border: none;
+    border-radius: 4px;
+    background: var(--accent-primary);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: var(--type-footnote);
+    font-weight: bold;
+}
+
+.wt-create-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.wt-error {
+    color: #ff6b6b;
+    font-size: var(--type-caption2);
+    padding: 0.15rem 0.5rem;
+}
+
+.wt-option.selected {
+    background: var(--hover-bg);
+}
+
+.wt-option.wt-new {
+    color: var(--accent-primary);
+    font-size: var(--type-footnote);
+}
+
+.dir-toggle-btn.active {
+    border-color: var(--accent-primary) !important;
 }
 
 /* === Mobile responsive === */

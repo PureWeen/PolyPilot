@@ -72,16 +72,6 @@
                         📌 Pin
                     </button>
                 }
-                @if (Groups != null && Groups.Count > 1)
-                {
-                    @foreach (var g in Groups.Where(g => g.Id != (Meta?.GroupId ?? SessionGroup.DefaultId)))
-                    {
-                        var targetGroup = g;
-                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnMove.InvokeAsync(targetGroup.Id); }">
-                            📁 Move to @targetGroup.Name
-                        </button>
-                    }
-                }
                 <div class="menu-separator"></div>
                 <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnClose.InvokeAsync(); }">
                     🗑 Close Session

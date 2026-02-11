@@ -578,6 +578,7 @@
                 _lastActiveSession = active;
                 expandedSession = active;
                 _focusedInputId = $"input-{active.Replace(" ", "-")}";
+                _needsScrollToBottom = true;
             }
             // Clear sidebar highlight when showing grid view
             // Clear stale streaming content for sessions that finished

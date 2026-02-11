@@ -335,7 +335,10 @@
                 });
             }
             doScroll();
-            if (forceScroll) setTimeout(doScroll, 50);
+            if (forceScroll) {
+                setTimeout(doScroll, 50);
+                setTimeout(doScroll, 200);
+            }
             var drafts = JSON.parse(draftsJson || '{}');
             for (var id in drafts) {
                 var el = document.getElementById(id);

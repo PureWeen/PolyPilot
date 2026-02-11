@@ -83,7 +83,7 @@ public class ConnectionSettingsTests
     [Fact]
     public void Save_Load_RoundTrip()
     {
-        var settingsPath = Path.Combine(_testDir, ".copilot", "PolyPilot-settings.json");
+        var settingsPath = Path.Combine(_testDir, ".polypilot", "settings.json");
 
         // Manually create settings JSON and verify deserialization
         var original = new ConnectionSettings
