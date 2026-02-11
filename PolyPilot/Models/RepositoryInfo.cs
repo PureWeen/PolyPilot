@@ -10,7 +10,7 @@ public class RepositoryInfo
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string Url { get; set; } = "";
-    /// <summary>Path to the bare clone (e.g. ~/.copilot/repos/PureWeen-PolyPilot.git)</summary>
+    /// <summary>Path to the bare clone (e.g. ~/.polypilot/repos/PureWeen-PolyPilot.git)</summary>
     public string BareClonePath { get; set; } = "";
     public DateTime AddedAt { get; set; } = DateTime.UtcNow;
 }

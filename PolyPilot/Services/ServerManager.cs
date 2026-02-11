@@ -8,7 +8,7 @@ public class ServerManager
 {
     private static string? _pidFilePath;
     private static string PidFilePath => _pidFilePath ??= Path.Combine(
-        GetCopilotDir(), "PolyPilot-server.pid");
+        GetCopilotDir(), "server.pid");
 
     private static string GetCopilotDir()
     {
@@ -17,7 +17,7 @@ public class ServerManager
             home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         if (string.IsNullOrEmpty(home))
             home = Path.GetTempPath();
-        return Path.Combine(home, ".copilot");
+        return Path.Combine(home, ".polypilot");
     }
 
     public bool IsServerRunning => CheckServerRunning();

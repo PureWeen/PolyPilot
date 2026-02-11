@@ -6,7 +6,7 @@ namespace PolyPilot.Services;
 
 /// <summary>
 /// Manages bare git clones and worktrees for repository-centric sessions.
-/// Repos live at ~/.copilot/repos/<id>.git, worktrees at ~/.copilot/worktrees/<id>/.
+/// Repos live at ~/.polypilot/repos/<id>.git, worktrees at ~/.polypilot/worktrees/<id>/.
 /// </summary>
 public class RepoManager
 {
