@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using PolyPilot.Models;
 using GitHub.Copilot.SDK;
 
@@ -15,6 +16,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ServerManager _serverManager;
     private readonly WsBridgeClient _bridgeClient;
     private readonly DemoService _demoService;
+    private readonly ILogger<CopilotService> _logger;
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
@@ -100,12 +102,13 @@ public partial class CopilotService : IAsyncDisposable
     public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
     public List<string> AvailableModels { get; private set; } = new();
 
-    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient)
+    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient, ILogger<CopilotService> logger)
     {
         _chatDb = chatDb;
         _serverManager = serverManager;
         _bridgeClient = bridgeClient;
         _demoService = new DemoService();
+        _logger = logger;
     }
 
     // Debug info
@@ -154,6 +157,7 @@ public partial class CopilotService : IAsyncDisposable
     {
         LastDebugMessage = message;
         Console.WriteLine($"[DEBUG] {message}");
+        _logger.LogInformation("[CopilotService] {Message}", message);
         OnDebug?.Invoke(message);
     }
 
@@ -211,32 +215,27 @@ public partial class CopilotService : IAsyncDisposable
         }
         Debug($"Android: connecting to remote server at {settings.CliUrl}");
 #endif
-        // In Persistent mode, auto-start the server if not already running
-        if (settings.Mode == ConnectionMode.Persistent)
-        {
-            if (!_serverManager.CheckServerRunning("localhost", settings.Port))
-            {
-                Debug($"Persistent server not running, auto-starting on port {settings.Port}...");
-                var started = await _serverManager.StartServerAsync(settings.Port);
-                if (!started)
-                {
-                    Debug("Failed to auto-start server, falling back to Embedded mode");
-                    settings.Mode = ConnectionMode.Embedded;
-                    CurrentMode = ConnectionMode.Embedded;
-                }
-            }
-            else
-            {
-                Debug($"Persistent server already running on port {settings.Port}");
-            }
-        }
-
+        // Persistent mode on desktop uses the same embedded SDK client as Embedded mode,
+        // but sessions are persisted to disk and restored on app restart.
+        // The headless server (CliUrl) approach has protocol compatibility issues
+        // with the current SDK version, so we use embedded mode universally on desktop.
+        Debug($"Creating CopilotClient for mode={settings.Mode}...");
         _client = CreateClient(settings);
+        Debug("CopilotClient created successfully, calling StartAsync...");
 
-        await _client.StartAsync(cancellationToken);
-        IsInitialized = true;
-        NeedsConfiguration = false;
-        Debug($"Copilot client started in {settings.Mode} mode");
+        try
+        {
+            await _client.StartAsync(cancellationToken);
+            IsInitialized = true;
+            NeedsConfiguration = false;
+            Debug($"Copilot client started in {settings.Mode} mode");
+        }
+        catch (Exception ex)
+        {
+            Debug($"CopilotClient.StartAsync FAILED: {ex.GetType().Name}: {ex.Message}");
+            _logger.LogError(ex, "CopilotClient.StartAsync failed");
+            throw;
+        }
 
         // Load default system instructions from the project's copilot-instructions.md
         var instructionsPath = Path.Combine(ProjectDir, ".github", "copilot-instructions.md");
@@ -376,15 +375,12 @@ public partial class CopilotService : IAsyncDisposable
 
     private CopilotClient CreateClient(ConnectionSettings settings)
     {
-        // Remote mode is handled by InitializeRemoteAsync, not here
-        var options = settings.Mode switch
+        // Both Embedded and Persistent modes use the default SDK client (stdio).
+        // Persistent mode differs only in that sessions are saved/restored from disk.
+        // Remote mode is handled by InitializeRemoteAsync, not here.
+        var options = new CopilotClientOptions
         {
-            ConnectionMode.Persistent => new CopilotClientOptions
-            {
-                CliUrl = settings.CliUrl,
-                UseStdio = false
-            },
-            _ => new CopilotClientOptions()
+            CliPath = "copilot"
         };
 
         // Pass additional MCP server configs via CLI args.
