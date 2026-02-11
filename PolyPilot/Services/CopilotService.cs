@@ -943,7 +943,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         
         foreach (var state in _sessions.Values)
         {
-            await state.Session.DisposeAsync();
+            if (state.Session is not null)
+                await state.Session.DisposeAsync();
         }
         _sessions.Clear();
 
