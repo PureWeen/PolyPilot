@@ -71,13 +71,23 @@ public class ServerManager
             var psi = new ProcessStartInfo
             {
                 FileName = copilotPath,
-                Arguments = $"--headless --log-level info --port {port}",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 RedirectStandardInput = false
             };
+
+            // Use ArgumentList for proper escaping (especially MCP JSON)
+            psi.ArgumentList.Add("--headless");
+            psi.ArgumentList.Add("--log-level");
+            psi.ArgumentList.Add("info");
+            psi.ArgumentList.Add("--port");
+            psi.ArgumentList.Add(port.ToString());
+
+            // Pass additional MCP server configs so tools are available
+            foreach (var arg in CopilotService.GetMcpCliArgs())
+                psi.ArgumentList.Add(arg);
 
             var process = Process.Start(psi);
             if (process == null)
