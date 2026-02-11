@@ -375,15 +375,57 @@ public partial class CopilotService : IAsyncDisposable
     private CopilotClient CreateClient(ConnectionSettings settings)
     {
         // Remote mode is handled by InitializeRemoteAsync, not here
-        return settings.Mode switch
+        var options = settings.Mode switch
         {
-            ConnectionMode.Persistent => new CopilotClient(new CopilotClientOptions
+            ConnectionMode.Persistent => new CopilotClientOptions
             {
                 CliUrl = settings.CliUrl,
                 UseStdio = false
-            }),
-            _ => new CopilotClient()
+            },
+            _ => new CopilotClientOptions()
         };
+
+        // Pass additional MCP server configs via CLI args.
+        // The CLI auto-reads ~/.copilot/mcp-config.json, but mcp-servers.json
+        // uses a different format that needs to be passed explicitly.
+        var mcpArgs = GetMcpCliArgs();
+        if (mcpArgs.Count > 0)
+            options.CliArgs = mcpArgs.ToArray();
+
+        return new CopilotClient(options);
+    }
+
+    /// <summary>
+    /// Build CLI args to pass additional MCP server configs.
+    /// Reads ~/.copilot/mcp-servers.json (simple format) and converts
+    /// to the --additional-mcp-config format the CLI expects.
+    /// </summary>
+    private static List<string> GetMcpCliArgs()
+    {
+        var args = new List<string>();
+        try
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var serversPath = Path.Combine(home, ".copilot", "mcp-servers.json");
+            if (!File.Exists(serversPath)) return args;
+
+            // mcp-servers.json is { "name": { "command": "...", "args": [...], "env": {...} } }
+            // CLI expects { "mcpServers": { "name": { ... } } }
+            var raw = File.ReadAllText(serversPath);
+            var doc = JsonDocument.Parse(raw);
+            
+            // Wrap in mcpServers envelope
+            var wrapped = new Dictionary<string, object> { ["mcpServers"] = JsonSerializer.Deserialize<object>(raw)! };
+            var json = JsonSerializer.Serialize(wrapped);
+            
+            args.Add("--additional-mcp-config");
+            args.Add(json);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MCP] Failed to read mcp-servers.json: {ex.Message}");
+        }
+        return args;
     }
 
     /// <summary>
