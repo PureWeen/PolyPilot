@@ -114,7 +114,7 @@
         </div>
     }
 
-    @if (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || (settings.Mode == ConnectionMode.Persistent && serverAlive)))
+    @if (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || settings.Mode == ConnectionMode.Persistent))
     {
         <div class="settings-section @(SectionVisible("devtunnel share tunnel remote mobile qr") ? "" : "search-hidden")">
             <h3>Share via DevTunnel</h3>
@@ -193,7 +193,7 @@
             </div>
         }
 
-    @if (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || (settings.Mode == ConnectionMode.Persistent && serverAlive)))
+    @if (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || settings.Mode == ConnectionMode.Persistent))
     {
         <div class="settings-section @(SectionVisible("direct connection sharing tailscale lan password qr") ? "" : "search-hidden")">
             <h3>Direct Connection</h3>
@@ -615,6 +615,11 @@
         tunnelBusy = true;
         StateHasChanged();
         await DevTunnelService.HostAsync(settings.Port);
+        if (DevTunnelService.State == TunnelState.Running)
+        {
+            settings.AutoStartTunnel = true;
+            settings.Save();
+        }
         tunnelBusy = false;
         StateHasChanged();
     }
