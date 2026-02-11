@@ -202,6 +202,10 @@ public partial class CopilotService : IAsyncDisposable
     {
         if (IsInitialized) return;
 
+        // Ensure required directories exist
+        Directory.CreateDirectory(CopilotBaseDir);
+        Directory.CreateDirectory(PolyPilotDir);
+
         // Capture the sync context for marshaling events back to UI thread
         _syncContext = SynchronizationContext.Current;
         Debug($"SyncContext captured: {_syncContext?.GetType().Name ?? "null"}");
