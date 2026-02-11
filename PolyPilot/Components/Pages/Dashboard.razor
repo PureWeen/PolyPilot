@@ -366,6 +366,15 @@
                                 window.__dashRef.invokeMethodAsync('JsChangeFontSize', delta);
                             }
                         }
+                        // Ctrl+C: interrupt running session (only when no text selected)
+                        if (e.ctrlKey && e.key === 'c' && !e.metaKey && !e.shiftKey) {
+                            var selection = window.getSelection();
+                            if (!selection || selection.toString().length === 0) {
+                                if (window.__dashRef) {
+                                    window.__dashRef.invokeMethodAsync('JsInterruptSession');
+                                }
+                            }
+                        }
                     });
                 }
             ");
@@ -843,6 +852,16 @@
     private async Task StopSession(string sessionName)
     {
         await CopilotService.AbortSessionAsync(sessionName);
+    }
+
+    [JSInvokable]
+    public async Task JsInterruptSession()
+    {
+        var target = expandedSession ?? CopilotService.ActiveSessionName;
+        if (target == null) return;
+        var session = sessions.FirstOrDefault(s => s.Name == target);
+        if (session?.IsProcessing == true)
+            await StopSession(target);
     }
 
     private async Task TriggerAttach(string sessionName)
