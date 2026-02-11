@@ -155,6 +155,12 @@
             <div class="system-text">@Message.Content</div>
         </div>
         break;
+
+    case ChatMessageType.ShellOutput:
+        <div class="chat-msg shell-output">
+            <pre class="shell-output-text">@Message.Content</pre>
+        </div>
+        break;
 }
 
 @code {

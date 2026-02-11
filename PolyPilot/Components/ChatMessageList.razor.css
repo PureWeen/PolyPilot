@@ -175,6 +175,27 @@
     padding: 0.5rem;
 }
 
+.chat-message-list.full ::deep .chat-msg.shell-output {
+    justify-content: flex-start;
+    padding: 0 1rem;
+}
+
+.chat-message-list.full ::deep .shell-output-text {
+    font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: var(--type-footnote);
+    color: #c8cfd8;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-x: auto;
+    max-height: 300px;
+    overflow-y: auto;
+    width: 100%;
+}
+
 /* Shared tool/reasoning styles for full mode */
 ::deep .reasoning-block {
     flex-shrink: 0;

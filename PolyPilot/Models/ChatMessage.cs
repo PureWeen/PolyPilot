@@ -7,7 +7,8 @@ public enum ChatMessageType
     Reasoning,
     ToolCall,
     Error,
-    System
+    System,
+    ShellOutput
 }
 
 public class ChatMessage
@@ -64,6 +65,9 @@ public class ChatMessage
 
     public static ChatMessage SystemMessage(string content) =>
         new("system", content, DateTime.Now, ChatMessageType.System) { IsComplete = true };
+
+    public static ChatMessage ShellOutputMessage(string content, int exitCode = 0) =>
+        new("system", content, DateTime.Now, ChatMessageType.ShellOutput) { IsComplete = true, IsSuccess = exitCode == 0 };
 }
 
 public class ToolActivity

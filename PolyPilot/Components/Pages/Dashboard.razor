@@ -186,6 +186,7 @@
     private Dictionary<string, bool> planModeBySession = new();
     private Dictionary<string, string> modelOverrideBySession = new();
     private Dictionary<string, List<PendingImage>> pendingImagesBySession = new();
+    private Dictionary<string, string> shellCwdBySession = new();
     private int fontSize = 20;
     private string? expandedSession;
     private bool _needsScrollToBottom;
@@ -626,6 +627,15 @@
         draftBySession.Remove(sessionName);
 
         var finalPrompt = (prompt ?? "").Trim();
+
+        // Handle ! shell commands
+        if (finalPrompt.StartsWith("!") && finalPrompt.Length > 1)
+        {
+            var shellCmd = finalPrompt.Substring(1).TrimStart();
+            await ExecuteShellCommand(sessionName, shellCmd);
+            return;
+        }
+
         if (planModeBySession.GetValueOrDefault(sessionName))
             finalPrompt = $"[[PLAN]] {finalPrompt}";
 
@@ -676,6 +686,93 @@
         {
             Console.WriteLine($"Error sending to {sessionName}: {ex.Message}");
         }
+    }
+
+    private string GetShellCwd(string sessionName)
+    {
+        if (!shellCwdBySession.TryGetValue(sessionName, out var cwd))
+        {
+            // Default to the session's working directory if available
+            var session = CopilotService.GetAllSessions().FirstOrDefault(s => s.Name == sessionName);
+            cwd = session?.WorkingDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        }
+        return cwd;
+    }
+
+    private async Task ExecuteShellCommand(string sessionName, string command)
+    {
+        var session = CopilotService.GetAllSessions().FirstOrDefault(s => s.Name == sessionName);
+        if (session == null) return;
+
+        session.History.Add(ChatMessage.UserMessage($"!{command}"));
+        session.MessageCount = session.History.Count;
+        _needsScrollToBottom = true;
+        await InvokeAsync(SafeRefreshAsync);
+
+        // Handle cd as a built-in: resolve the path and update the tracked cwd
+        var trimmed = command.Trim();
+        if (trimmed == "cd" || trimmed.StartsWith("cd "))
+        {
+            var arg = trimmed == "cd" ? "~" : trimmed.Substring(3).Trim();
+            if (string.IsNullOrEmpty(arg) || arg == "~")
+                arg = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            else if (arg.StartsWith("~/"))
+                arg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), arg.Substring(2));
+
+            var cwd = GetShellCwd(sessionName);
+            var resolved = Path.GetFullPath(Path.Combine(cwd, arg));
+
+            if (Directory.Exists(resolved))
+            {
+                shellCwdBySession[sessionName] = resolved;
+                session.History.Add(ChatMessage.SystemMessage(resolved));
+            }
+            else
+            {
+                session.History.Add(ChatMessage.ErrorMessage($"cd: no such directory: {resolved}"));
+            }
+
+            session.MessageCount = session.History.Count;
+            _needsScrollToBottom = true;
+            await InvokeAsync(SafeRefreshAsync);
+            return;
+        }
+
+        try
+        {
+            var cwd = GetShellCwd(sessionName);
+            using var process = new System.Diagnostics.Process();
+            process.StartInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                Arguments = $"-c \"{command.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = cwd
+            };
+            process.Start();
+            var stdout = await process.StandardOutput.ReadToEndAsync();
+            var stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            var output = stdout;
+            if (!string.IsNullOrEmpty(stderr))
+                output = string.IsNullOrEmpty(output) ? stderr : $"{output}\n{stderr}";
+            if (string.IsNullOrEmpty(output))
+                output = $"(exit code {process.ExitCode})";
+
+            session.History.Add(ChatMessage.ShellOutputMessage(output.TrimEnd(), process.ExitCode));
+        }
+        catch (Exception ex)
+        {
+            session.History.Add(ChatMessage.ErrorMessage($"Shell error: {ex.Message}"));
+        }
+
+        session.MessageCount = session.History.Count;
+        _needsScrollToBottom = true;
+        await InvokeAsync(SafeRefreshAsync);
     }
 
     private async Task StopSession(string sessionName)
