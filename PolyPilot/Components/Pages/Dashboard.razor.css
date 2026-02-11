@@ -826,7 +826,7 @@
     flex-direction: column;
     gap: 0.4rem;
     padding: 0.5rem;
-    background: rgba(0,0,0,0.2);
+    background: var(--hover-bg);
     border-radius: 8px;
 }
 
@@ -888,13 +888,13 @@
 }
 
 .card-msg.user .card-msg-role {
-    background: rgba(59, 130, 246, 0.3);
-    color: #93c5fd;
+    background: var(--chat-user-bg);
+    color: var(--chat-user-text);
 }
 
 .card-msg.assistant .card-msg-role {
-    background: rgba(72, 187, 120, 0.3);
-    color: #86efac;
+    background: var(--chat-assistant-bg);
+    color: var(--chat-assistant-text);
 }
 
 .card-msg-text {
