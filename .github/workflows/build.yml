@@ -109,11 +109,11 @@ jobs:
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
 
-          # Install provisioning profile
+          # Install provisioning profile (.provisionprofile for Mac Catalyst/macOS)
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          printenv APPLE_PROVISIONING_PROFILE | openssl base64 -d -A > $RUNNER_TEMP/profile.mobileprovision
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $RUNNER_TEMP/profile.mobileprovision))
-          cp $RUNNER_TEMP/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
+          printenv APPLE_PROVISIONING_PROFILE | openssl base64 -d -A > $RUNNER_TEMP/profile.provisionprofile
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $RUNNER_TEMP/profile.provisionprofile))
+          cp $RUNNER_TEMP/profile.provisionprofile ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.provisionprofile
           echo "Installed profile with UUID: $PROFILE_UUID"
 
           # Create keychain and import certificate
@@ -253,7 +253,7 @@ jobs:
         if: always()
         run: |
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
-          rm -f $RUNNER_TEMP/certificate.p12 $RUNNER_TEMP/profile.mobileprovision || true
+          rm -f $RUNNER_TEMP/certificate.p12 $RUNNER_TEMP/profile.provisionprofile || true
 
   notarize-maccatalyst:
     name: Notarize Mac Catalyst App
