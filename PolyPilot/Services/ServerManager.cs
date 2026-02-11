@@ -8,9 +8,9 @@ public class ServerManager
 {
     private static string? _pidFilePath;
     private static string PidFilePath => _pidFilePath ??= Path.Combine(
-        GetCopilotDir(), "server.pid");
+        GetPolyPilotDir(), "server.pid");
 
-    private static string GetCopilotDir()
+    private static string GetPolyPilotDir()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (string.IsNullOrEmpty(home))

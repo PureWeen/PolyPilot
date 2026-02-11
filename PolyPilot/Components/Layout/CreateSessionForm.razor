@@ -177,6 +177,7 @@
             selectedWorktreePath = null;
             selectedWorktreeId = null;
             selectedWorktreeBranch = null;
+            sessionDirectory = "";
         }
     }
 
@@ -197,7 +198,9 @@
             if (!string.IsNullOrEmpty(dir))
             {
                 sessionDirectory = dir;
-                ClearWorktree();
+                selectedWorktreePath = null;
+                selectedWorktreeId = null;
+                selectedWorktreeBranch = null;
                 StateHasChanged();
             }
         }
@@ -213,7 +216,9 @@
     public void SetDirectory(string path)
     {
         sessionDirectory = path;
-        ClearWorktree();
+        selectedWorktreePath = null;
+        selectedWorktreeId = null;
+        selectedWorktreeBranch = null;
         StateHasChanged();
     }
 }
