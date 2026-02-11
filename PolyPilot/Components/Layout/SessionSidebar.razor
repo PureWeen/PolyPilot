@@ -1,6 +1,7 @@
 @using PolyPilot.Services
 @using PolyPilot.Models
 @inject CopilotService CopilotService
+@inject RepoManager RepoManager
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
@@ -103,12 +104,48 @@ else
             else
             {
                 <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
+                <button class="new-group-btn" @onclick="() => showAddRepo = true" title="Add repository">+ Repo</button>
             }
         </div>
     };
 
     private RenderFragment RenderSessionList => __builder =>
     {
+        @if (showAddRepo)
+        {
+            <div class="add-repo-form">
+                <input type="text" @bind="newRepoUrl" placeholder="Repository URL (https://github.com/...)" class="repo-url-input" />
+                <div class="add-repo-actions">
+                    <button class="btn-repo-add" @onclick="AddRepository" disabled="@(isAddingRepo || string.IsNullOrWhiteSpace(newRepoUrl))">
+                        @(isAddingRepo ? "Cloning..." : "Add")
+                    </button>
+                    <button class="btn-repo-cancel" @onclick="() => { showAddRepo = false; addRepoError = null; }">Cancel</button>
+                </div>
+                @if (!string.IsNullOrEmpty(addRepoError))
+                {
+                    <div class="repo-error">⚠ @addRepoError</div>
+                }
+            </div>
+        }
+
+        @if (worktreeRepoId != null)
+        {
+            <div class="add-repo-form">
+                <input type="text" @bind="worktreeBranch" placeholder="Branch name (e.g. fix/login-bug)" class="repo-url-input"
+                       @onkeydown="HandleWorktreeKeyDown" />
+                <div class="add-repo-actions">
+                    <button class="btn-repo-add" @onclick="CreateWorktreeSession" disabled="@(isCreatingWorktree || string.IsNullOrWhiteSpace(worktreeBranch))">
+                        @(isCreatingWorktree ? "Creating..." : "⑂ Create Worktree")
+                    </button>
+                    <button class="btn-repo-cancel" @onclick="() => worktreeRepoId = null">Cancel</button>
+                </div>
+                @if (!string.IsNullOrEmpty(worktreeError))
+                {
+                    <div class="repo-error">⚠ @worktreeError</div>
+                }
+            </div>
+        }
+
         <div class="session-list">
             @{
                 var organized = CopilotService.GetOrganizedSessions().ToList();
@@ -132,14 +169,26 @@ else
                 {
                     @if (showGroupHeaders)
                     {
-                        <div class="group-header @(group.IsCollapsed ? "collapsed" : "")"
+                        var isRepoGroup = !string.IsNullOrEmpty(group.RepoId);
+                        <div class="group-header @(group.IsCollapsed ? "collapsed" : "") @(isRepoGroup ? "repo-group" : "")"
                              @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
                             <span class="group-chevron">@(group.IsCollapsed ? "▶" : "▼")</span>
+                            @if (isRepoGroup)
+                            {
+                                <span class="group-repo-icon" title="Repository">⌥</span>
+                            }
                             <span class="group-name">@group.Name</span>
                             <span class="group-count">@groupSessions.Count</span>
                             @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
                             {
                                 <span class="group-busy-dot"></span>
+                            }
+                            @if (isRepoGroup)
+                            {
+                                var rId = group.RepoId!;
+                                <button class="group-worktree-btn" title="New worktree"
+                                        @onclick="() => StartNewWorktree(rId)"
+                                        @onclick:stopPropagation="true">⑂</button>
                             }
                             @if (group.Id != SessionGroup.DefaultId)
                             {
@@ -256,6 +305,14 @@ else
     private string? openMenuSession = null;
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
+    private bool showAddRepo = false;
+    private string newRepoUrl = "";
+    private string? addRepoError = null;
+    private bool isAddingRepo = false;
+    private string? worktreeRepoId = null;
+    private string worktreeBranch = "";
+    private string? worktreeError = null;
+    private bool isCreatingWorktree = false;
 
     private async Task ToggleFlyout()
     {
@@ -587,6 +644,77 @@ else
         if (string.IsNullOrEmpty(path)) return "";
         var parts = path.Split('/');
         return parts.Length > 2 ? "~/" + parts[^1] : path;
+    }
+
+    private async Task AddRepository()
+    {
+        if (isAddingRepo || string.IsNullOrWhiteSpace(newRepoUrl)) return;
+        isAddingRepo = true;
+        addRepoError = null;
+        try
+        {
+            var repo = await RepoManager.AddRepositoryAsync(newRepoUrl.Trim());
+            CopilotService.GetOrCreateRepoGroup(repo.Id, repo.Name);
+            showAddRepo = false;
+            newRepoUrl = "";
+        }
+        catch (Exception ex)
+        {
+            addRepoError = ex.Message;
+        }
+        finally
+        {
+            isAddingRepo = false;
+        }
+    }
+
+    private void StartNewWorktree(string repoId)
+    {
+        worktreeRepoId = repoId;
+        worktreeBranch = "";
+        worktreeError = null;
+    }
+
+    private async Task HandleWorktreeKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await CreateWorktreeSession();
+        else if (e.Key == "Escape") worktreeRepoId = null;
+    }
+
+    private async Task CreateWorktreeSession()
+    {
+        if (isCreatingWorktree || string.IsNullOrWhiteSpace(worktreeBranch) || worktreeRepoId == null) return;
+        isCreatingWorktree = true;
+        worktreeError = null;
+        try
+        {
+            var wt = await RepoManager.CreateWorktreeAsync(worktreeRepoId, worktreeBranch.Trim());
+            var sessionName = $"{worktreeBranch.Trim()}";
+            var sessionInfo = await CopilotService.CreateSessionAsync(sessionName, selectedModel, wt.Path);
+            RepoManager.LinkSessionToWorktree(wt.Id, sessionName);
+
+            // Move session to the repo group
+            var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.RepoId == worktreeRepoId);
+            if (group != null)
+            {
+                CopilotService.MoveSession(sessionName, group.Id);
+                var meta = CopilotService.GetSessionMeta(sessionName);
+                if (meta != null) meta.WorktreeId = wt.Id;
+            }
+
+            CopilotService.SwitchSession(sessionName);
+            worktreeRepoId = null;
+            worktreeBranch = "";
+            await OnSessionSelected.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            worktreeError = ex.Message;
+        }
+        finally
+        {
+            isCreatingWorktree = false;
+        }
     }
 
     public void Dispose()

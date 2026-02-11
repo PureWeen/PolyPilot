@@ -99,6 +99,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<TailscaleService>();
 		builder.Services.AddSingleton<KeyCommandService>();
 	builder.Services.AddSingleton<GitAutoUpdateService>();
+	builder.Services.AddSingleton<RepoManager>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
