@@ -5,7 +5,7 @@
 }
 
 .chat-empty {
-    color: rgba(200,216,240,0.3);
+    color: var(--text-muted);
     text-align: center;
     margin: auto;
     font-size: var(--type-body);
@@ -29,22 +29,22 @@
 }
 
 .chat-message-list.compact ::deep .chat-msg.user .chat-msg-role {
-    background: rgba(78, 168, 209, 0.3);
-    color: #7fc4e8;
+    background: var(--chat-user-border);
+    color: var(--chat-user-text);
 }
 
 .chat-message-list.compact ::deep .chat-msg.assistant .chat-msg-role {
-    background: rgba(0, 195, 91, 0.2);
-    color: #00c35b;
+    background: var(--chat-assistant-border);
+    color: var(--chat-assistant-text);
 }
 
 .chat-message-list.compact ::deep .chat-msg-text {
-    color: rgba(255,255,255,0.8);
+    color: var(--text-primary);
     word-break: break-word;
 }
 
 .chat-message-list.compact ::deep .chat-msg-text.thinking {
-    color: #646e8a;
+    color: var(--text-muted);
     font-style: italic;
 }
 
@@ -71,8 +71,8 @@
 }
 
 .chat-message-list.full ::deep .chat-msg.user .chat-msg-content {
-    background: rgba(78, 168, 209, 0.2);
-    border: 1px solid rgba(78, 168, 209, 0.3);
+    background: var(--chat-user-bg);
+    border: 1px solid var(--chat-user-border);
     border-radius: 12px 12px 0 12px;
     padding: 0.75rem 1rem 0.35rem;
     max-width: 80%;
@@ -87,8 +87,8 @@
 }
 
 .chat-message-list.full ::deep .chat-msg.assistant .chat-msg-content {
-    background: rgba(0, 195, 91, 0.1);
-    border: 1px solid rgba(0, 195, 91, 0.2);
+    background: var(--chat-assistant-bg);
+    border: 1px solid var(--chat-assistant-border);
     border-radius: 12px 12px 12px 0;
     padding: 0.75rem 1rem 0.35rem;
     max-width: 80%;
@@ -114,7 +114,7 @@
 
 .chat-message-list.full ::deep .chat-msg.user .chat-msg-avatar {
     order: 1;
-    background: rgba(78, 168, 209, 0.3);
+    background: var(--chat-user-border);
     width: 30px;
     height: 30px;
     overflow: hidden;
@@ -142,13 +142,13 @@
 }
 
 .chat-message-list.full ::deep .chat-msg-text {
-    color: #a0b4cc;
+    color: var(--text-primary);
     word-break: break-word;
     line-height: 1.6;
 }
 
 .chat-message-list.full ::deep .chat-msg-text.thinking {
-    color: #646e8a;
+    color: var(--text-muted);
     font-style: italic;
 }
 
@@ -167,7 +167,7 @@
 
 .chat-message-list.full ::deep .chat-msg-time {
     font-size: var(--type-subhead);
-    color: rgba(200,216,240,0.3);
+    color: var(--text-muted);
     margin-top: 0.05rem;
 }
 
@@ -177,7 +177,7 @@
 
 .chat-message-list.full ::deep .system-text {
     font-size: var(--type-body);
-    color: #646e8a;
+    color: var(--text-muted);
     font-style: italic;
     text-align: center;
     padding: 0.5rem;
@@ -227,7 +227,7 @@
 
 ::deep .reasoning-content {
     font-size: var(--type-body);
-    color: #7a85a0;
+    color: var(--text-secondary);
     white-space: pre-wrap;
     line-height: 1.5;
     padding: 0.25rem 0;
@@ -244,8 +244,8 @@
     border-radius: 8px;
     padding: 0.5rem 0.75rem;
     font-size: var(--type-body);
-    border: 1px solid rgba(78,168,209,0.15);
-    background: rgba(78,168,209,0.03);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-input);
 }
 
 ::deep .tool-card.running { border-color: rgba(251, 191, 36, 0.3); }
@@ -258,18 +258,18 @@
     align-items: center;
 }
 
-::deep .tool-info { color: #c8d8f0; display: flex; align-items: center; gap: 0.35rem; }
-::deep .tool-status { display: flex; align-items: center; gap: 0.35rem; color: #7a85a0; }
+::deep .tool-info { color: var(--text-bright); display: flex; align-items: center; gap: 0.35rem; }
+::deep .tool-status { display: flex; align-items: center; gap: 0.35rem; color: var(--text-secondary); }
 
 ::deep .tool-result-section {
     margin-top: 0.5rem;
-    border-top: 1px solid rgba(78,168,209,0.06);
+    border-top: 1px solid var(--border-subtle);
     padding-top: 0.5rem;
 }
 
 ::deep .tool-result-content {
     font-size: var(--type-callout);
-    color: #7a85a0;
+    color: var(--text-secondary);
     white-space: pre-wrap;
     word-break: break-word;
     max-height: 300px;
@@ -280,7 +280,7 @@
 ::deep .tool-result-toggle {
     background: none;
     border: none;
-    color: rgba(78, 168, 209, 0.7);
+    color: var(--accent-primary);
     font-size: var(--type-callout);
     cursor: pointer;
     padding: 0;
@@ -307,7 +307,7 @@
 }
 
 ::deep .action-item:hover {
-    background: rgba(200,216,240,0.04);
+    background: var(--hover-bg);
 }
 
 ::deep .action-dot {
@@ -333,14 +333,14 @@
 
 ::deep .action-label {
     font-weight: 600;
-    color: #c8d8f0;
+    color: var(--text-bright);
     white-space: nowrap;
 }
 
 /* Action-specific label colors */
 ::deep .action-edit .action-label { color: #f59e0b; }
 ::deep .action-create .action-label { color: #22c55e; }
-::deep .action-read .action-label { color: #4ea8d1; }
+::deep .action-read .action-label { color: var(--accent-primary); }
 ::deep .action-run .action-label { color: #a78bfa; }
 ::deep .action-search .action-label { color: #60a5fa; }
 ::deep .action-fetch .action-label { color: #34d399; }
@@ -352,7 +352,7 @@
 ::deep .action-done .action-label { color: #22c55e; }
 
 ::deep .action-desc {
-    color: rgba(200,216,240,0.55);
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -362,7 +362,7 @@
 
 ::deep .action-detail-hint {
     margin-left: auto;
-    color: rgba(200,216,240,0.3);
+    color: var(--text-muted);
     font-size: var(--type-footnote);
     white-space: nowrap;
     flex-shrink: 0;
@@ -371,15 +371,15 @@
 ::deep .action-expanded-input {
     margin: 0.15rem 1rem 0 2rem;
     padding: 0.4rem 0.6rem;
-    background: rgba(15,15,35,0.35);
+    background: var(--bg-input);
     border-radius: 6px 6px 0 0;
-    border: 1px solid rgba(78,168,209,0.08);
+    border: 1px solid var(--border-subtle);
     border-bottom: none;
 }
 
 ::deep .action-expanded-input pre {
     font-size: var(--type-subhead);
-    color: rgba(200,216,240,0.7);
+    color: var(--text-primary);
     white-space: pre-wrap;
     word-break: break-word;
     max-height: 150px;
@@ -395,15 +395,15 @@
 ::deep .action-expanded-result {
     margin: 0.15rem 1rem 0.3rem 2rem;
     padding: 0.4rem 0.6rem;
-    background: rgba(15,15,35,0.5);
+    background: var(--bg-input);
     border-radius: 6px;
-    border: 1px solid rgba(78,168,209,0.08);
+    border: 1px solid var(--border-subtle);
     overflow: hidden;
 }
 
 ::deep .action-expanded-result pre {
     font-size: var(--type-subhead);
-    color: rgba(200,216,240,0.5);
+    color: var(--text-secondary);
     white-space: pre-wrap;
     word-break: break-word;
     max-height: 200px;
@@ -427,7 +427,7 @@
     background: rgba(0, 195, 91, 0.1);
     border: 1px solid rgba(0, 195, 91, 0.3);
     border-radius: 8px;
-    color: #00c35b;
+    color: var(--accent-success);
     font-size: var(--type-body);
 }
 
@@ -441,12 +441,12 @@
     background: rgba(248, 113, 113, 0.1);
     border: 1px solid rgba(248, 113, 113, 0.3);
     border-radius: 8px;
-    color: #fca5a5;
+    color: var(--accent-error);
     font-size: var(--type-body);
 }
 
 ::deep .markdown-body {
-    color: #a0b4cc;
+    color: var(--text-primary);
 }
 
 ::deep .markdown-body p:last-child {
@@ -456,18 +456,18 @@
 ::deep .markdown-body h1, ::deep .markdown-body h2, ::deep .markdown-body h3 {
     margin: 0.5em 0 0.25em;
     border: none;
-    color: #a0b4cc;
+    color: var(--text-primary);
 }
 
 ::deep .markdown-body code {
-    background: rgba(78,168,209,0.15);
+    background: var(--control-bg);
     padding: 0.15em 0.3em;
     border-radius: 3px;
     font-size: 0.85em;
 }
 
 ::deep .markdown-body pre {
-    background: rgba(0,0,0,0.3);
+    background: var(--bg-tertiary);
     padding: 0.75rem;
     border-radius: 6px;
     overflow-x: auto;
@@ -478,12 +478,12 @@
     padding: 0;
 }
 
-::deep .markdown-body a { color: #4ea8d1; }
+::deep .markdown-body a { color: var(--accent-primary); }
 ::deep .markdown-body blockquote {
-    border-left: 3px solid rgba(78,168,209,0.25);
+    border-left: 3px solid var(--border-default);
     margin: 0.5rem 0;
     padding: 0 0.75rem;
-    color: #8e9abd;
+    color: var(--text-secondary);
 }
 
 ::deep .markdown-body ul, ::deep .markdown-body ol {
@@ -497,7 +497,7 @@
 }
 
 ::deep .markdown-body th, ::deep .markdown-body td {
-    border: 1px solid rgba(78,168,209,0.2);
+    border: 1px solid var(--border-default);
     padding: 0.4rem 0.6rem;
     text-align: left;
 }
@@ -513,7 +513,7 @@
     margin: 0.2rem 0.3rem 0.2rem 0;
     border-radius: 6px;
     overflow: hidden;
-    border: 1px solid rgba(255,255,255,0.12);
+    border: 1px solid var(--border-subtle);
     background: rgba(0,0,0,0.25);
     padding: 0.2rem 0.5rem 0.2rem 0.25rem;
     vertical-align: middle;

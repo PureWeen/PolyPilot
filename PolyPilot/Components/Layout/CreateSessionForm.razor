@@ -12,7 +12,7 @@
             }
         </select>
         <button class="dir-toggle-btn" @onclick="() => showDirectoryInput = !showDirectoryInput" title="Set working directory">⋯</button>
-        <button @onclick="TriggerCreate" disabled="@(IsCreating || string.IsNullOrWhiteSpace(SessionName))">
+        <button @onclick="TriggerCreate" disabled="@(IsCreating || string.IsNullOrWhiteSpace(SessionName))" title="Create new session">
             @(IsCreating ? "..." : "+")
         </button>
     </div>
