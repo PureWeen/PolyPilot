@@ -97,6 +97,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<WsBridgeClient>();
 		builder.Services.AddSingleton<QrScannerService>();
 		builder.Services.AddSingleton<KeyCommandService>();
+	builder.Services.AddSingleton<GitAutoUpdateService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

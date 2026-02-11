@@ -39,6 +39,7 @@ public class ConnectionSettings
     public bool AutoStartTunnel { get; set; } = false;
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
     public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
+    public bool AutoUpdateFromMain { get; set; } = false;
 
     [JsonIgnore]
     public string CliUrl => Mode == ConnectionMode.Remote && !string.IsNullOrEmpty(RemoteUrl)

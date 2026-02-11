@@ -6,6 +6,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject DevTunnelService DevTunnelService
+@inject GitAutoUpdateService GitAutoUpdate
 @implements IAsyncDisposable
 
 <div class="dashboard @(expandedSession != null ? "expanded-mode" : "")">
@@ -274,6 +275,8 @@
                     catch (Exception ex) { Console.WriteLine($"[AutoStart] Tunnel failed: {ex.Message}"); }
                 });
             }
+
+            GitAutoUpdate.Initialize();
         }
         catch (Exception ex)
         {

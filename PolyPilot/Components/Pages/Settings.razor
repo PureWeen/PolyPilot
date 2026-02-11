@@ -5,6 +5,7 @@
 @inject ServerManager ServerManager
 @inject DevTunnelService DevTunnelService
 @inject QrScannerService QrScanner
+@inject GitAutoUpdateService GitAutoUpdate
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @implements IDisposable
@@ -285,6 +286,30 @@
         </div>
     </div>
 
+    @if (GitAutoUpdate.IsAvailable)
+    {
+    <div class="settings-group @(GroupVisible("developer") ? "" : "search-hidden")">
+        <h2 class="group-title">Developer</h2>
+
+        <div class="settings-section @(SectionVisible("auto update main git watch relaunch rebuild") ? "" : "search-hidden")">
+            <h3>Auto-Update from Main</h3>
+            <p class="section-desc">Watches <code>origin/main</code> for new commits every 30s. When changes are detected, automatically pulls, rebuilds, and relaunches.</p>
+            <div class="auto-update-row">
+                <label class="toggle-label">
+                    <span class="toggle-track @(GitAutoUpdate.IsEnabled ? "on" : "")" @onclick="ToggleAutoUpdate">
+                        <span class="toggle-thumb"></span>
+                    </span>
+                    <span>@(GitAutoUpdate.IsEnabled ? "Enabled" : "Disabled")</span>
+                </label>
+                @if (GitAutoUpdate.IsEnabled && !string.IsNullOrEmpty(GitAutoUpdate.Status))
+                {
+                    <span class="auto-update-status">@GitAutoUpdate.Status</span>
+                }
+            </div>
+        </div>
+    </div>
+    }
+
     @if (!string.IsNullOrEmpty(statusMessage))
     {
         <div class="status-toast @statusClass">@(statusClass == "success" ? "✓ " : statusClass == "error" ? "✗ " : "")@statusMessage</div>
@@ -338,6 +363,7 @@
         {
             "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect"),
             "ui" => SectionVisible("chat message layout default reversed both left theme"),
+            "developer" => SectionVisible("auto update main git watch relaunch rebuild"),
             _ => true
         };
     }
@@ -369,6 +395,7 @@
             tunnelLoggedIn = await DevTunnelService.IsLoggedInAsync();
 
         DevTunnelService.OnStateChanged += OnTunnelStateChanged;
+        GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
 
         if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
             GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
@@ -401,6 +428,7 @@
     public void Dispose()
     {
         DevTunnelService.OnStateChanged -= OnTunnelStateChanged;
+        GitAutoUpdate.OnStateChanged -= OnAutoUpdateStateChanged;
         _ = JS.InvokeVoidAsync("eval", "window.__settingsRef = null;");
         _selfRef?.Dispose();
     }
@@ -571,6 +599,27 @@
         settings.Save();
         CopilotService.ChatLayout = layout;
         ShowStatus("Layout updated", "success");
+    }
+
+    private void ToggleAutoUpdate()
+    {
+        if (GitAutoUpdate.IsEnabled)
+        {
+            GitAutoUpdate.Stop();
+            settings.AutoUpdateFromMain = false;
+        }
+        else
+        {
+            GitAutoUpdate.Start();
+            settings.AutoUpdateFromMain = true;
+        }
+        settings.Save();
+        StateHasChanged();
+    }
+
+    private void OnAutoUpdateStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
     }
 
     private string GetLayoutLabel(ChatLayout layout) => layout switch
