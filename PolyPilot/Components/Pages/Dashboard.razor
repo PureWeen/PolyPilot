@@ -370,6 +370,7 @@
                         if (e.ctrlKey && e.key === 'c' && !e.metaKey && !e.shiftKey) {
                             var selection = window.getSelection();
                             if (!selection || selection.toString().length === 0) {
+                                e.preventDefault();
                                 if (window.__dashRef) {
                                     window.__dashRef.invokeMethodAsync('JsInterruptSession');
                                 }
