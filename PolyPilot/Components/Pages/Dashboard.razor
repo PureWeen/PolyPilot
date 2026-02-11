@@ -103,9 +103,9 @@
                         @(expandedGrid ? "▦ Compact" : "▤ Expanded")
                     </button>
                     <span class="font-size-controls">
-                        <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)">A−</button>
-                        <span class="font-size-label" @onclick="ResetFontSize">@(fontSize)px</span>
-                        <button class="font-size-btn" @onclick="IncreaseFontSize" disabled="@(fontSize >= 24)">A+</button>
+                        <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)" title="Decrease font size (⌘−)">A−</button>
+                        <span class="font-size-label" @onclick="ResetFontSize" title="Reset font size (⌘0)">@(fontSize)px</span>
+                        <button class="font-size-btn" @onclick="IncreaseFontSize" disabled="@(fontSize >= 24)" title="Increase font size (⌘+)">A+</button>
                     </span>
                     <select class="sort-select" @onchange="OnSortModeChanged">
                         <option value="LastActive" selected="@(CopilotService.Organization.SortMode == SessionSortMode.LastActive)">↕ Last Active</option>
@@ -172,6 +172,11 @@
                 </div>
             }
         }
+    }
+
+    @if (_showFontBubble)
+    {
+        <div class="font-bubble">@(fontSize)px</div>
     }
 </div>
 
@@ -351,6 +356,14 @@
                             e.preventDefault();
                             if (window.__dashRef) {
                                 window.__dashRef.invokeMethodAsync('JsSwitchToSessionByIndex', parseInt(e.key));
+                            }
+                        }
+                        // ⌘+/⌘- / Ctrl+=/Ctrl+-: font size, ⌘0 reset
+                        if ((e.metaKey || e.ctrlKey) && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0')) {
+                            e.preventDefault();
+                            if (window.__dashRef) {
+                                var delta = (e.key === '=' || e.key === '+') ? 1 : e.key === '-' ? -1 : 0;
+                                window.__dashRef.invokeMethodAsync('JsChangeFontSize', delta);
                             }
                         }
                     });
@@ -1252,14 +1265,40 @@
 
     private void SetPlanMode(string sessionName, bool enabled) => planModeBySession[sessionName] = enabled;
 
-    private void IncreaseFontSize() { if (fontSize < 24) { fontSize += 2; ApplyFontSize(); } }
-    private void DecreaseFontSize() { if (fontSize > 12) { fontSize -= 2; ApplyFontSize(); } }
-    private void ResetFontSize() { fontSize = 20; ApplyFontSize(); }
+    private void IncreaseFontSize() { if (fontSize < 24) { fontSize += 2; ApplyFontSize(); ShowFontBubble(); } }
+    private void DecreaseFontSize() { if (fontSize > 12) { fontSize -= 2; ApplyFontSize(); ShowFontBubble(); } }
+    private void ResetFontSize() { fontSize = 20; ApplyFontSize(); ShowFontBubble(); }
     private void HandleFontSizeChange(int delta)
     {
         if (delta == 0) ResetFontSize();
         else if (delta > 0) IncreaseFontSize();
         else DecreaseFontSize();
+    }
+
+    [JSInvokable]
+    public void JsChangeFontSize(int delta)
+    {
+        HandleFontSizeChange(delta);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private bool _showFontBubble;
+    private CancellationTokenSource? _fontBubbleCts;
+
+    private void ShowFontBubble()
+    {
+        _fontBubbleCts?.Cancel();
+        _showFontBubble = true;
+        _fontBubbleCts = new CancellationTokenSource();
+        var cts = _fontBubbleCts;
+        _ = Task.Delay(1500, cts.Token).ContinueWith(_ =>
+        {
+            if (!cts.Token.IsCancellationRequested)
+            {
+                _showFontBubble = false;
+                InvokeAsync(StateHasChanged);
+            }
+        }, TaskScheduler.Default);
     }
     private void ApplyFontSize()
     {

@@ -1168,3 +1168,26 @@
     .chat-header-title { font-size: var(--type-body); }
     .expanded-card .input-area textarea { font-size: var(--type-callout, 0.8rem); }
 }
+
+.font-bubble {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-tertiary, rgba(30, 35, 50, 0.95));
+    color: var(--text-primary, #e0e6f0);
+    font-size: 2rem;
+    font-weight: 600;
+    padding: 1rem 2rem;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 9999;
+    pointer-events: none;
+    animation: fontBubbleFade 1.5s ease-out forwards;
+}
+
+@keyframes fontBubbleFade {
+    0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    70% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.95); }
+}
