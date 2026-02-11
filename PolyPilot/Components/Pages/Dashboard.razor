@@ -252,11 +252,22 @@
             }
 
             // When multiple sessions exist, start on grid view
+            // unless a specific session was selected (e.g. from Settings page)
             if (sessions.Count > 1)
             {
-                _lastActiveSession = CopilotService.ActiveSessionName;
-                CopilotService.SetActiveSession(null);
-                _explicitlyCollapsed = true;
+                var selectedSession = CopilotService.ActiveSessionName;
+                if (selectedSession != null && sessions.Any(s => s.Name == selectedSession))
+                {
+                    expandedSession = selectedSession;
+                    _lastActiveSession = selectedSession;
+                    _focusedInputId = $"input-{selectedSession.Replace(" ", "-")}";
+                }
+                else
+                {
+                    _lastActiveSession = CopilotService.ActiveSessionName;
+                    CopilotService.SetActiveSession(null);
+                    _explicitlyCollapsed = true;
+                }
             }
 
             var connSettings = ConnectionSettings.Load();
