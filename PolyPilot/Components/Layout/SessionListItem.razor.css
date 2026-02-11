@@ -99,7 +99,7 @@
 .pin-badge:hover { opacity: 0.6; }
 
 .done-badge {
-    color: #48bb78;
+    color: var(--accent-success);
     font-weight: bold;
     margin-right: 0.25rem;
 }
@@ -147,7 +147,7 @@
     z-index: 100;
     min-width: 140px;
     background: var(--bg-tertiary);
-    border: 1px solid rgba(78,168,209,0.25);
+    border: 1px solid var(--hover-bg);
     border-radius: 8px;
     padding: 0.25rem 0;
     box-shadow: 0 4px 16px rgba(0,0,0,0.4);
@@ -166,7 +166,7 @@
     white-space: nowrap;
     box-sizing: border-box;
 }
-.menu-item:hover { background: rgba(78,168,209,0.15); color: #fff; }
+.menu-item:hover { background: var(--control-border); color: #fff; }
 
 .menu-separator {
     height: 1px;
@@ -174,13 +174,13 @@
     margin: 0.2rem 0.5rem;
 }
 
-.menu-item.destructive { color: rgba(239,68,68,0.7); }
-.menu-item.destructive:hover { background: rgba(239,68,68,0.12); color: #ef4444; }
+.menu-item.destructive { color: var(--accent-primary); }
+.menu-item.destructive:hover { background: var(--control-border); color: var(--accent-primary); }
 
 .rename-input {
     width: 100%;
     padding: 0.2rem 0.4rem;
-    border: 1px solid #60a5fa;
+    border: 1px solid var(--accent-primary);
     border-radius: 4px;
     background: var(--control-bg);
     color: var(--text-primary);

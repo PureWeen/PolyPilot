@@ -24,6 +24,7 @@
     --border-subtle: rgba(255,255,255,0.08);
     --border-default: rgba(255,255,255,0.12);
     --accent-primary: #4ea8d1;
+    --accent-rgb: 78,168,209;
     --accent-link: #006bb7;
     --accent-success: #00c35b;
     --accent-warning: #fbbf24;
@@ -32,6 +33,7 @@
     --hover-bg: rgba(255,255,255,0.08);
     --control-bg: rgba(255,255,255,0.1);
     --control-border: rgba(255,255,255,0.2);
+    --border-accent: rgba(78,168,209,0.3);
     --text-on-surface: rgba(255,255,255,0.7);
     --text-dim: rgba(255,255,255,0.4);
     --chat-user-bg: rgba(78, 168, 209, 0.2);
@@ -57,6 +59,7 @@
     --border-subtle: rgba(0,0,0,0.08);
     --border-default: rgba(0,0,0,0.12);
     --accent-primary: #2980b9;
+    --accent-rgb: 41,128,185;
     --accent-link: #2471a3;
     --accent-success: #27ae60;
     --accent-warning: #f39c12;
@@ -71,6 +74,7 @@
     --hover-bg: rgba(0,0,0,0.06);
     --control-bg: rgba(0,0,0,0.06);
     --control-border: rgba(0,0,0,0.15);
+    --border-accent: rgba(41,128,185,0.3);
     --text-on-surface: rgba(0,0,0,0.65);
     --text-dim: rgba(0,0,0,0.4);
     --toast-bg: linear-gradient(135deg, #e8eaf0, #dcdee5);
@@ -90,6 +94,7 @@
     --border-subtle: rgba(147,161,161,0.1);
     --border-default: rgba(147,161,161,0.15);
     --accent-primary: #268bd2;
+    --accent-rgb: 38,139,210;
     --accent-link: #268bd2;
     --accent-success: #859900;
     --accent-warning: #b58900;
@@ -104,6 +109,7 @@
     --hover-bg: rgba(147,161,161,0.08);
     --control-bg: rgba(147,161,161,0.1);
     --control-border: rgba(147,161,161,0.2);
+    --border-accent: rgba(38,139,210,0.3);
     --text-on-surface: #93a1a1;
     --text-dim: #586e75;
     --toast-bg: linear-gradient(135deg, #073642, #002b36);
@@ -123,6 +129,7 @@
     --border-subtle: rgba(88,110,117,0.1);
     --border-default: rgba(88,110,117,0.15);
     --accent-primary: #268bd2;
+    --accent-rgb: 38,139,210;
     --accent-link: #268bd2;
     --accent-success: #859900;
     --accent-warning: #b58900;
@@ -137,6 +144,7 @@
     --hover-bg: rgba(0,0,0,0.05);
     --control-bg: rgba(0,0,0,0.05);
     --control-border: rgba(88,110,117,0.2);
+    --border-accent: rgba(38,139,210,0.3);
     --text-on-surface: #586e75;
     --text-dim: #93a1a1;
     --toast-bg: linear-gradient(135deg, #eee8d5, #fdf6e3);
@@ -157,6 +165,7 @@
         --border-subtle: rgba(0,0,0,0.08);
         --border-default: rgba(0,0,0,0.12);
         --accent-primary: #2980b9;
+        --accent-rgb: 41,128,185;
         --accent-link: #2471a3;
         --accent-success: #27ae60;
         --accent-warning: #f39c12;
@@ -171,6 +180,7 @@
         --hover-bg: rgba(0,0,0,0.06);
         --control-bg: rgba(0,0,0,0.06);
         --control-border: rgba(0,0,0,0.15);
+        --border-accent: rgba(41,128,185,0.3);
         --text-on-surface: rgba(0,0,0,0.65);
         --text-dim: rgba(0,0,0,0.4);
         --toast-bg: linear-gradient(135deg, #e8eaf0, #dcdee5);

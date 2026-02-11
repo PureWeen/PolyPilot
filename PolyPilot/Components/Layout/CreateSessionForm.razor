@@ -5,12 +5,7 @@
 <div class="new-session">
     <input type="text" value="@SessionName" @oninput="OnNameInput" @onkeydown="HandleKeyDown" placeholder="Session name..." />
     <div class="session-options-row">
-        <select @bind="SelectedModel" @bind:after="OnModelChanged" class="model-select">
-            @foreach (var model in AvailableModels)
-            {
-                <option value="@model">@model</option>
-            }
-        </select>
+        <ModelSelector Value="@SelectedModel" ValueChanged="OnModelSelected" Models="AvailableModels" CssClass="model-select-wrapper" />
         <button class="dir-toggle-btn" @onclick="() => showDirectoryInput = !showDirectoryInput" title="Set working directory">⋯</button>
         <button @onclick="TriggerCreate" disabled="@(IsCreating || string.IsNullOrWhiteSpace(SessionName))" title="Create new session">
             @(IsCreating ? "..." : "+")
@@ -58,6 +53,12 @@
     private async Task OnModelChanged()
     {
         await SelectedModelChanged.InvokeAsync(SelectedModel);
+    }
+
+    private async Task OnModelSelected(string model)
+    {
+        SelectedModel = model;
+        await SelectedModelChanged.InvokeAsync(model);
     }
 
     private async Task TriggerCreate()

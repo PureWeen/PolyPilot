@@ -23,7 +23,7 @@
 
 .session-card.completed {
     border-color: rgba(72, 187, 120, 0.6);
-    border-left: 4px solid #48bb78;
+    border-left: 4px solid var(--accent-success);
     animation: card-glow 2s infinite;
 }
 
@@ -37,9 +37,9 @@
 }
 
 .session-card:focus-within {
-    border-color: rgba(78,168,209,0.6);
-    box-shadow: 0 0 0 1px rgba(78,168,209,0.3), 0 0 16px rgba(78,168,209,0.15);
-    background: rgba(78,168,209,0.06);
+    border-color: var(--text-on-surface);
+    box-shadow: 0 0 0 1px var(--border-accent), 0 0 16px var(--control-border);
+    background: rgba(var(--accent-rgb, 78,168,209),0.06);
 }
 
 .card-header {
@@ -78,7 +78,7 @@
 }
 
 .card-status-dot.idle {
-    background: #6b7280;
+    background: var(--text-muted);
 }
 
 .card-status-dot.processing {
@@ -87,7 +87,7 @@
 }
 
 .card-status-dot.completed {
-    background: #48bb78;
+    background: var(--accent-success);
 }
 
 @keyframes pulse-dot {
@@ -99,9 +99,9 @@
     flex: 1;
     min-width: 0;
     padding: 0.2rem 0.4rem;
-    border: 1px solid rgba(78,168,209,0.4);
+    border: 1px solid var(--border-accent);
     border-radius: 4px;
-    background: rgba(78,168,209,0.15);
+    background: var(--control-border);
     color: var(--text-primary);
     font-size: var(--type-title2);
     font-weight: 600;
@@ -129,7 +129,7 @@
     z-index: 100;
     min-width: 160px;
     background: var(--bg-tertiary);
-    border: 1px solid rgba(78,168,209,0.25);
+    border: 1px solid var(--hover-bg);
     border-radius: 8px;
     padding: 0.25rem 0;
     box-shadow: 0 4px 16px rgba(0,0,0,0.4);
@@ -148,7 +148,7 @@
     white-space: nowrap;
     box-sizing: border-box;
 }
-.card-menu-item:hover { background: rgba(78,168,209,0.15); color: #fff; }
+.card-menu-item:hover { background: var(--control-border); color: #fff; }
 
 .card-menu-separator {
     height: 1px;
@@ -156,8 +156,8 @@
     margin: 0.2rem 0.5rem;
 }
 
-.card-menu-item.destructive { color: rgba(239,68,68,0.7); }
-.card-menu-item.destructive:hover { background: rgba(239,68,68,0.12); color: #ef4444; }
+.card-menu-item.destructive { color: var(--accent-primary); }
+.card-menu-item.destructive:hover { background: var(--control-border); color: var(--accent-primary); }
 
 .card-stop {
     background: transparent;
@@ -194,7 +194,7 @@
 
 .card-expand:hover {
     background: rgba(96, 165, 250, 0.2);
-    color: #60a5fa;
+    color: var(--accent-primary);
 }
 
 .card-context {
@@ -221,7 +221,7 @@
 
 .card-branch-sub {
     font-size: var(--type-caption1, 0.6rem);
-    color: rgba(78,168,209,0.7);
+    color: var(--accent-primary);
 }
 
 .card-messages {
@@ -240,8 +240,8 @@
 .load-more-btn {
     align-self: center;
     padding: 0.3rem 0.8rem;
-    background: rgba(78,168,209,0.08);
-    border: 1px solid rgba(78,168,209,0.2);
+    background: var(--control-bg);
+    border: 1px solid var(--hover-bg);
     border-radius: 6px;
     color: var(--text-secondary);
     font-size: 0.7rem;
@@ -250,7 +250,7 @@
 }
 
 .load-more-btn:hover {
-    background: rgba(78,168,209,0.15);
+    background: var(--control-border);
     color: var(--text-primary);
 }
 
@@ -262,7 +262,7 @@
     background: rgba(239, 68, 68, 0.08);
     border: 1px solid rgba(239, 68, 68, 0.2);
     border-radius: 8px;
-    color: #f87171;
+    color: var(--accent-primary);
     font-size: var(--type-footnote);
     line-height: 1.4;
 }
@@ -279,7 +279,7 @@
 
 .card-error button {
     background: none;
-    border: 1px solid rgba(239,68,68,0.25);
+    border: 1px solid var(--hover-bg);
     color: rgba(248,113,113,0.7);
     cursor: pointer;
     font-size: 0.55rem;
@@ -294,7 +294,7 @@
 }
 
 .card-error button:hover {
-    background: rgba(239,68,68,0.15);
+    background: var(--control-border);
     color: #fff;
 }
 
@@ -323,14 +323,14 @@
 }
 
 .queue-clear-btn:hover {
-    color: #ef4444;
+    color: var(--accent-primary);
 }
 
 .intent-pill {
     padding: 0.2rem 0.6rem;
-    background: rgba(78,168,209,0.08);
+    background: var(--control-bg);
     border-radius: 12px;
-    color: rgba(78,168,209,0.8);
+    color: var(--accent-primary);
     font-size: 0.75rem;
     white-space: nowrap;
     overflow: hidden;
@@ -416,9 +416,9 @@
     flex: 1;
     min-width: 0;
     padding: 0.45rem 0.6rem;
-    border: 1px solid rgba(78,168,209,0.25);
+    border: 1px solid var(--hover-bg);
     border-radius: 8px;
-    background: rgba(78,168,209,0.15);
+    background: var(--control-border);
     color: var(--text-primary);
     font-size: 0.9rem;
     font-family: inherit;
@@ -431,7 +431,7 @@
 
 .card-input input:focus, .card-input textarea:focus {
     outline: none;
-    border-color: #3b82f6;
+    border-color: var(--accent-primary);
 }
 
 .card-input button {
