@@ -252,22 +252,10 @@
             }
 
             // When multiple sessions exist, start on grid view
-            // unless a specific session was selected (e.g. from Settings page)
-            if (sessions.Count > 1)
+            // (actual expand logic handled in RefreshState's _initialGridSet block)
+            if (sessions.Count > 1 && CopilotService.ActiveSessionName == null)
             {
-                var selectedSession = CopilotService.ActiveSessionName;
-                if (selectedSession != null && sessions.Any(s => s.Name == selectedSession))
-                {
-                    expandedSession = selectedSession;
-                    _lastActiveSession = selectedSession;
-                    _focusedInputId = $"input-{selectedSession.Replace(" ", "-")}";
-                }
-                else
-                {
-                    _lastActiveSession = CopilotService.ActiveSessionName;
-                    CopilotService.SetActiveSession(null);
-                    _explicitlyCollapsed = true;
-                }
+                _explicitlyCollapsed = true;
             }
 
             var connSettings = ConnectionSettings.Load();
@@ -477,13 +465,24 @@
             sessions = CopilotService.GetAllSessions().ToList();
 
             // On first load with multiple sessions, default to grid view
+            // unless a session was explicitly selected (e.g. from Settings page)
             if (!_initialGridSet && sessions.Count > 1)
             {
                 _initialGridSet = true;
-                expandedSession = null;
-                _lastActiveSession = CopilotService.ActiveSessionName;
-                if (CopilotService.ActiveSessionName != null)
-                    CopilotService.SetActiveSession(null);
+                var selected = CopilotService.ActiveSessionName;
+                if (selected != null && sessions.Any(s => s.Name == selected))
+                {
+                    expandedSession = selected;
+                    _lastActiveSession = selected;
+                    _focusedInputId = $"input-{selected.Replace(" ", "-")}";
+                }
+                else
+                {
+                    expandedSession = null;
+                    _lastActiveSession = selected;
+                    if (selected != null)
+                        CopilotService.SetActiveSession(null);
+                }
                 InvokeAsync(SafeRefreshAsync);
                 return;
             }
