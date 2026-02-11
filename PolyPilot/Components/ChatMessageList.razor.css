@@ -172,14 +172,14 @@
 }
 
 .chat-message-list.full ::deep .chat-msg.system {
-    justify-content: center;
+    justify-content: flex-start;
 }
 
 .chat-message-list.full ::deep .system-text {
     font-size: var(--type-body);
     color: var(--text-muted);
     font-style: italic;
-    text-align: center;
+    text-align: left;
     padding: 0.5rem;
 }
 

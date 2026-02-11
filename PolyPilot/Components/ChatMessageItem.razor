@@ -161,7 +161,7 @@
 
     case ChatMessageType.System:
         <div class="chat-msg system">
-            <div class="system-text">@Message.Content</div>
+            <div class="system-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content))</div>
         </div>
         break;
 
