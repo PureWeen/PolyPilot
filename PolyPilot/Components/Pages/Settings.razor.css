@@ -989,3 +989,72 @@
 .tp-system .tp-line-2 {
     background: linear-gradient(90deg, rgba(78, 168, 209, 0.3) 50%, rgba(41, 128, 185, 0.25) 50%);
 }
+
+/* Auto-update toggle */
+.section-desc {
+    color: var(--text-dim, #6a7a8a);
+    font-size: var(--type-footnote);
+    margin: 0 0 0.8rem;
+    line-height: 1.5;
+}
+
+.section-desc code {
+    background: rgba(255,255,255,0.08);
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    font-size: inherit;
+}
+
+.auto-update-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    cursor: pointer;
+    font-size: var(--type-callout);
+    color: var(--text-primary);
+    user-select: none;
+}
+
+.toggle-track {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 11px;
+    transition: background 0.2s;
+    cursor: pointer;
+}
+
+.toggle-track.on {
+    background: rgba(78, 168, 209, 0.8);
+}
+
+.toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.toggle-track.on .toggle-thumb {
+    transform: translateX(18px);
+}
+
+.auto-update-status {
+    font-size: var(--type-footnote);
+    color: var(--text-dim, #6a7a8a);
+    padding: 0.2rem 0.6rem;
+    background: rgba(255,255,255,0.05);
+    border-radius: 6px;
+}
