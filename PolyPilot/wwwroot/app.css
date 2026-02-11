@@ -42,6 +42,20 @@
     --chat-assistant-text: #00c35b;
     --toast-bg: linear-gradient(135deg, #2d3748, #1a202c);
     --safe-area-bg: #1a1a2e;
+    --diff-add-bg: rgba(46,160,67,0.12);
+    --diff-add-text: #aff5b4;
+    --diff-del-bg: rgba(248,81,73,0.15);
+    --diff-del-text: #ffa198;
+    --diff-ln-add: rgba(46,160,67,0.7);
+    --diff-ln-del: rgba(248,81,73,0.7);
+    --diff-badge-new-bg: rgba(46,160,67,0.2);
+    --diff-badge-new-text: #3fb950;
+    --diff-badge-del-bg: rgba(248,81,73,0.2);
+    --diff-badge-del-text: #f85149;
+    --diff-badge-mod-bg: rgba(210,153,34,0.2);
+    --diff-badge-mod-text: #d29922;
+    --diff-stat-add: #3fb950;
+    --diff-stat-del: #f85149;
 }
 
 /* PolyPilot Light */
@@ -75,6 +89,20 @@
     --text-dim: rgba(0,0,0,0.4);
     --toast-bg: linear-gradient(135deg, #e8eaf0, #dcdee5);
     --safe-area-bg: #e8eaf0;
+    --diff-add-bg: rgba(46,160,67,0.15);
+    --diff-add-text: #116329;
+    --diff-del-bg: rgba(248,81,73,0.15);
+    --diff-del-text: #82071e;
+    --diff-ln-add: #1a7f37;
+    --diff-ln-del: #cf222e;
+    --diff-badge-new-bg: rgba(46,160,67,0.15);
+    --diff-badge-new-text: #1a7f37;
+    --diff-badge-del-bg: rgba(248,81,73,0.15);
+    --diff-badge-del-text: #cf222e;
+    --diff-badge-mod-bg: rgba(210,153,34,0.15);
+    --diff-badge-mod-text: #9a6700;
+    --diff-stat-add: #1a7f37;
+    --diff-stat-del: #cf222e;
 }
 
 /* Solarized Dark */
@@ -108,6 +136,20 @@
     --text-dim: #586e75;
     --toast-bg: linear-gradient(135deg, #073642, #002b36);
     --safe-area-bg: #073642;
+    --diff-add-bg: rgba(133,153,0,0.15);
+    --diff-add-text: #b5ce5a;
+    --diff-del-bg: rgba(220,50,47,0.15);
+    --diff-del-text: #f5a0a0;
+    --diff-ln-add: rgba(133,153,0,0.7);
+    --diff-ln-del: rgba(220,50,47,0.7);
+    --diff-badge-new-bg: rgba(133,153,0,0.2);
+    --diff-badge-new-text: #859900;
+    --diff-badge-del-bg: rgba(220,50,47,0.2);
+    --diff-badge-del-text: #dc322f;
+    --diff-badge-mod-bg: rgba(181,137,0,0.2);
+    --diff-badge-mod-text: #b58900;
+    --diff-stat-add: #859900;
+    --diff-stat-del: #dc322f;
 }
 
 /* Solarized Light */
@@ -141,6 +183,20 @@
     --text-dim: #93a1a1;
     --toast-bg: linear-gradient(135deg, #eee8d5, #fdf6e3);
     --safe-area-bg: #eee8d5;
+    --diff-add-bg: rgba(133,153,0,0.12);
+    --diff-add-text: #4a5700;
+    --diff-del-bg: rgba(220,50,47,0.12);
+    --diff-del-text: #8b1a18;
+    --diff-ln-add: #5a6b00;
+    --diff-ln-del: #b5201e;
+    --diff-badge-new-bg: rgba(133,153,0,0.15);
+    --diff-badge-new-text: #4a5700;
+    --diff-badge-del-bg: rgba(220,50,47,0.15);
+    --diff-badge-del-text: #b5201e;
+    --diff-badge-mod-bg: rgba(181,137,0,0.15);
+    --diff-badge-mod-text: #7a5b00;
+    --diff-stat-add: #4a5700;
+    --diff-stat-del: #b5201e;
 }
 
 /* System theme: follow OS preference */
@@ -175,6 +231,20 @@
         --text-dim: rgba(0,0,0,0.4);
         --toast-bg: linear-gradient(135deg, #e8eaf0, #dcdee5);
         --safe-area-bg: #e8eaf0;
+        --diff-add-bg: rgba(46,160,67,0.15);
+        --diff-add-text: #116329;
+        --diff-del-bg: rgba(248,81,73,0.15);
+        --diff-del-text: #82071e;
+        --diff-ln-add: #1a7f37;
+        --diff-ln-del: #cf222e;
+        --diff-badge-new-bg: rgba(46,160,67,0.15);
+        --diff-badge-new-text: #1a7f37;
+        --diff-badge-del-bg: rgba(248,81,73,0.15);
+        --diff-badge-del-text: #cf222e;
+        --diff-badge-mod-bg: rgba(210,153,34,0.15);
+        --diff-badge-mod-text: #9a6700;
+        --diff-stat-add: #1a7f37;
+        --diff-stat-del: #cf222e;
     }
 }
 
