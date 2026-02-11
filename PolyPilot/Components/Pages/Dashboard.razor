@@ -883,12 +883,52 @@
                     "- `/new [name]` — Create a new session\n" +
                     "- `/sessions` — List all sessions\n" +
                     "- `/rename <name>` — Rename current session\n" +
+                    "- `/version` — Show version info\n" +
                     "- `!<command>` — Run a shell command"));
                 break;
 
             case "clear":
                 CopilotService.ClearHistory(sessionName);
                 session.History.Add(ChatMessage.SystemMessage("Chat history cleared."));
+                break;
+
+            case "version":
+                var appVersion = AppInfo.Current.VersionString;
+                var buildVersion = AppInfo.Current.BuildString;
+                var sdkVersion = typeof(GitHub.Copilot.SDK.CopilotClient).Assembly.GetName().Version?.ToString() ?? "unknown";
+                var runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription;
+                var gitCommit = "";
+                try
+                {
+                    var gitDir = Path.GetDirectoryName(AppContext.BaseDirectory);
+                    for (int i = 0; i < 20 && gitDir != null; i++)
+                    {
+                        gitDir = Path.GetDirectoryName(gitDir);
+                        if (gitDir != null && Directory.Exists(Path.Combine(gitDir, ".git")))
+                        {
+                            var headFile = Path.Combine(gitDir, ".git", "HEAD");
+                            if (File.Exists(headFile))
+                            {
+                                var head = File.ReadAllText(headFile).Trim();
+                                if (head.StartsWith("ref: "))
+                                {
+                                    var refPath = Path.Combine(gitDir, ".git", head[5..]);
+                                    if (File.Exists(refPath))
+                                        gitCommit = File.ReadAllText(refPath).Trim()[..7];
+                                }
+                                else if (head.Length >= 7)
+                                    gitCommit = head[..7];
+                            }
+                            break;
+                        }
+                    }
+                }
+                catch { }
+                var versionText = $"**PolyPilot** v{appVersion} (build {buildVersion})\n" +
+                    $"**SDK:** GitHub.Copilot.SDK {sdkVersion}\n" +
+                    $"**Runtime:** {runtime}" +
+                    (string.IsNullOrEmpty(gitCommit) ? "" : $"\n**Git:** {gitCommit}");
+                session.History.Add(ChatMessage.SystemMessage(versionText));
                 break;
 
             case "compact":
