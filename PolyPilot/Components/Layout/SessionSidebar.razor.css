@@ -116,8 +116,9 @@
     width: 100%;
 }
 
-.session-options-row .model-select {
+.session-options-row ::deep .model-select {
     flex: 1;
+    min-width: 0;
 }
 
 .dir-toggle-btn {

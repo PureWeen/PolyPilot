@@ -16,10 +16,7 @@
     font-size: var(--type-title3);
 }
 
-.model-select-wrapper {
-    min-width: 0;
-    max-width: 100%;
-}
+
 
 .new-session input::placeholder {
     color: var(--text-dim);
@@ -39,6 +36,7 @@
     cursor: pointer;
     font-size: var(--type-title3);
     font-weight: bold;
+    flex-shrink: 0;
 }
 
 .new-session button:hover:not(:disabled) {
@@ -56,8 +54,9 @@
     width: 100%;
 }
 
-.session-options-row .model-select-wrapper {
+.session-options-row ::deep .model-select-wrapper {
     flex: 1;
+    min-width: 0;
 }
 
 .dir-toggle-btn {

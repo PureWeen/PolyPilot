@@ -19,6 +19,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     outline: none;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .model-selector-display:hover {
