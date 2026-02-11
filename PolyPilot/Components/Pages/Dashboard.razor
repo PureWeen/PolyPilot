@@ -1123,6 +1123,41 @@
         }
         catch { }
 
+        // Read plugin .mcp.json files
+        try
+        {
+            var pluginsDir = Path.Combine(copilotDir, "installed-plugins");
+            if (Directory.Exists(pluginsDir))
+            {
+                foreach (var marketDir in Directory.GetDirectories(pluginsDir))
+                {
+                    foreach (var pluginDir in Directory.GetDirectories(marketDir))
+                    {
+                        var mcpFile = Path.Combine(pluginDir, ".mcp.json");
+                        if (!File.Exists(mcpFile)) continue;
+                        try
+                        {
+                            var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(mcpFile));
+                            if (doc.RootElement.TryGetProperty("mcpServers", out var mcpServers))
+                            {
+                                foreach (var prop in mcpServers.EnumerateObject())
+                                {
+                                    if (servers.Any(s => s.name == prop.Name)) continue;
+                                    var command = prop.Value.TryGetProperty("command", out var c) ? c.GetString() ?? "" : "";
+                                    var args = prop.Value.TryGetProperty("args", out var a)
+                                        ? a.EnumerateArray().Select(x => x.GetString() ?? "").ToArray()
+                                        : Array.Empty<string>();
+                                    servers.Add((prop.Name, command, args));
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+        }
+        catch { }
+
         if (servers.Count == 0)
             return "**No MCP servers configured.**\n\nAdd servers to `~/.copilot/mcp-servers.json` or `~/.copilot/mcp-config.json`.";
 
