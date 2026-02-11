@@ -111,13 +111,13 @@ jobs:
 
           # Install provisioning profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          printf '%s' "$APPLE_PROVISIONING_PROFILE" | base64 --decode > $RUNNER_TEMP/profile.mobileprovision
+          printf '%s' "$APPLE_PROVISIONING_PROFILE" | tr -d '[:space:]' | base64 --decode > $RUNNER_TEMP/profile.mobileprovision
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $RUNNER_TEMP/profile.mobileprovision))
           cp $RUNNER_TEMP/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
           echo "Installed profile with UUID: $PROFILE_UUID"
 
           # Create keychain and import certificate
-          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          printf '%s' "$APPLE_CERTIFICATE_P12" | tr -d '[:space:]' | base64 --decode > $RUNNER_TEMP/certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
