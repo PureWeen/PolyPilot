@@ -36,17 +36,17 @@ public class RepoManager
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             if (string.IsNullOrEmpty(home))
                 home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(home, ".copilot");
+            return Path.Combine(home, ".polypilot");
         }
         catch
         {
-            return Path.Combine(Path.GetTempPath(), ".copilot");
+            return Path.Combine(Path.GetTempPath(), ".polypilot");
         }
     }
 
     private static string GetReposDir() => Path.Combine(GetBaseDir(), "repos");
     private static string GetWorktreesDir() => Path.Combine(GetBaseDir(), "worktrees");
-    private static string GetStateFile() => Path.Combine(GetBaseDir(), "PolyPilot-repos.json");
+    private static string GetStateFile() => Path.Combine(GetBaseDir(), "repos.json");
 
     public void Load()
     {
