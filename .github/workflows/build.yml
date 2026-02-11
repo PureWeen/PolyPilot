@@ -105,27 +105,23 @@ jobs:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
-          KEYCHAIN_PASSWORD: ${{ github.run_id }}
         run: |
-          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
 
-          mkdir -p "$PROFILE_DIR"
-
-          echo "Installing provisioning profile..."
-          echo -n "$APPLE_PROVISIONING_PROFILE" | base64 --decode > $RUNNER_TEMP/profile.mobileprovision
+          # Install provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$APPLE_PROVISIONING_PROFILE" | base64 --decode > $RUNNER_TEMP/profile.mobileprovision
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $RUNNER_TEMP/profile.mobileprovision))
-          cp $RUNNER_TEMP/profile.mobileprovision "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+          cp $RUNNER_TEMP/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
           echo "Installed profile with UUID: $PROFILE_UUID"
 
-          echo "Importing signing certificate..."
-          echo -n "$APPLE_CERTIFICATE_P12" | base64 --decode > $CERTIFICATE_PATH
-
+          # Create keychain and import certificate
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security import $CERTIFICATE_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security import $RUNNER_TEMP/certificate.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
 
@@ -149,6 +145,7 @@ jobs:
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
+          APPLE_PROVISIONING_PROFILE_NAME: ${{ secrets.APPLE_PROVISIONING_PROFILE_NAME }}
         run: |
           dotnet publish PolyPilot/PolyPilot.csproj \
             -f net10.0-maccatalyst \
@@ -156,6 +153,7 @@ jobs:
             -p:CreatePackage=false \
             -p:EnableCodeSigning=true \
             -p:CodesignKey="$APPLE_CODESIGN_IDENTITY" \
+            -p:CodesignProvision="$APPLE_PROVISIONING_PROFILE_NAME" \
             -p:ApplicationDisplayVersion=${{ steps.version.outputs.app_version }}
 
           mkdir -p ./artifacts/maccatalyst
@@ -250,9 +248,8 @@ jobs:
       - name: Cleanup keychain
         if: always()
         run: |
-          if [ -f "$RUNNER_TEMP/app-signing.keychain-db" ]; then
-            security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
-          fi
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+          rm -f $RUNNER_TEMP/certificate.p12 $RUNNER_TEMP/profile.mobileprovision || true
 
   notarize-maccatalyst:
     name: Notarize Mac Catalyst App
