@@ -884,6 +884,8 @@
                     "- `/sessions` — List all sessions\n" +
                     "- `/rename <name>` — Rename current session\n" +
                     "- `/version` — Show version info\n" +
+                    "- `/diff [args]` — Show git diff\n" +
+                    "- `/status` — Show git status\n" +
                     "- `!<command>` — Run a shell command"));
                 break;
 
@@ -989,6 +991,12 @@
                 }
                 break;
 
+            case "diff":
+            case "status":
+                var gitCmd = string.IsNullOrWhiteSpace(arg) ? cmd : $"{cmd} {arg}";
+                await RunGitCommand(sessionName, session, gitCmd);
+                return;
+
             default:
                 // Unknown command — pass through to the SDK as a regular prompt
                 _ = CopilotService.SendPromptAsync(sessionName, input);
@@ -997,6 +1005,58 @@
 
         if (session != null)
             session.MessageCount = session.History.Count;
+        _needsScrollToBottom = true;
+        await InvokeAsync(SafeRefreshAsync);
+    }
+
+    private async Task RunGitCommand(string sessionName, AgentSessionInfo session, string gitArgs)
+    {
+        var cwd = GetShellCwd(sessionName);
+        var isDiff = gitArgs.StartsWith("diff");
+        session.History.Add(ChatMessage.UserMessage($"/{gitArgs}"));
+        session.MessageCount = session.History.Count;
+        _needsScrollToBottom = true;
+        await InvokeAsync(SafeRefreshAsync);
+
+        try
+        {
+            using var process = new System.Diagnostics.Process();
+            process.StartInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "git",
+                Arguments = $"--no-pager {gitArgs}",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                WorkingDirectory = cwd
+            };
+            process.Start();
+
+            var stdout = await process.StandardOutput.ReadToEndAsync();
+            var stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            var output = !string.IsNullOrEmpty(stdout) ? stdout : stderr;
+            if (string.IsNullOrWhiteSpace(output))
+            {
+                session.History.Add(ChatMessage.SystemMessage("(no changes)"));
+            }
+            else if (isDiff)
+            {
+                session.History.Add(ChatMessage.DiffMessage(output));
+            }
+            else
+            {
+                var wrapped = $"```\n{output.TrimEnd()}\n```";
+                session.History.Add(ChatMessage.SystemMessage(wrapped));
+            }
+        }
+        catch (Exception ex)
+        {
+            session.History.Add(ChatMessage.ErrorMessage($"git error: {ex.Message}"));
+        }
+
+        session.MessageCount = session.History.Count;
         _needsScrollToBottom = true;
         await InvokeAsync(SafeRefreshAsync);
     }

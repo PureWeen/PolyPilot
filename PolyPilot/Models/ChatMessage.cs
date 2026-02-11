@@ -8,7 +8,8 @@ public enum ChatMessageType
     ToolCall,
     Error,
     System,
-    ShellOutput
+    ShellOutput,
+    Diff
 }
 
 public class ChatMessage
@@ -68,6 +69,9 @@ public class ChatMessage
 
     public static ChatMessage ShellOutputMessage(string content, int exitCode = 0) =>
         new("system", content, DateTime.Now, ChatMessageType.ShellOutput) { IsComplete = true, IsSuccess = exitCode == 0 };
+
+    public static ChatMessage DiffMessage(string rawDiff) =>
+        new("system", rawDiff, DateTime.Now, ChatMessageType.Diff) { IsComplete = true };
 }
 
 public class ToolActivity

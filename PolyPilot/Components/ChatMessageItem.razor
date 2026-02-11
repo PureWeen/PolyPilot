@@ -170,6 +170,12 @@
             <pre class="shell-output-text">@Message.Content</pre>
         </div>
         break;
+
+    case ChatMessageType.Diff:
+        <div class="chat-msg diff-msg">
+            <DiffView RawDiff="@Message.Content" />
+        </div>
+        break;
 }
 
 @code {

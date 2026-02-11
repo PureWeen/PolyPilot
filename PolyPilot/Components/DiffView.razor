@@ -1,0 +1,76 @@
+@using PolyPilot.Models
+@using System.Web
+
+@if (Files.Count == 0)
+{
+    <div class="diff-empty">No changes</div>
+}
+else
+{
+    <div class="diff-viewer">
+        @foreach (var file in Files)
+        {
+            <div class="diff-file">
+                <div class="diff-file-header">
+                    <span class="diff-file-badge @(file.IsNew ? "new" : file.IsDeleted ? "deleted" : file.IsRenamed ? "renamed" : "modified")">
+                        @(file.IsNew ? "NEW" : file.IsDeleted ? "DEL" : file.IsRenamed ? "REN" : "MOD")
+                    </span>
+                    <span class="diff-file-name">
+                        @if (file.IsRenamed)
+                        {
+                            <span>@file.OldFileName → @file.FileName</span>
+                        }
+                        else
+                        {
+                            @file.FileName
+                        }
+                    </span>
+                    <span class="diff-file-stats">
+                        @{ var added = file.Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Added); }
+                        @{ var removed = file.Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Removed); }
+                        @if (added > 0) { <span class="stat-add">+@added</span> }
+                        @if (removed > 0) { <span class="stat-del">-@removed</span> }
+                    </span>
+                </div>
+                @if (!file.IsDeleted || file.Hunks.Count > 0)
+                {
+                    <div class="diff-panes">
+                        <table class="diff-table">
+                            @foreach (var hunk in file.Hunks)
+                            {
+                                @if (!string.IsNullOrEmpty(hunk.Header))
+                                {
+                                    <tr class="diff-hunk-header">
+                                        <td colspan="4" class="hunk-label">@hunk.Header</td>
+                                    </tr>
+                                }
+                                @foreach (var row in DiffParser.PairLines(hunk))
+                                {
+                                    <tr>
+                                        <td class="diff-ln @(row.Left?.Type == DiffLineType.Removed ? "ln-del" : "")">@(row.Left?.OldLineNo?.ToString() ?? "")</td>
+                                        <td class="diff-code @(row.Left == null ? "diff-blank" : row.Left.Type == DiffLineType.Removed ? "diff-del" : "diff-ctx")"><pre>@(row.Left != null ? HtmlEncode(row.Left.Content) : "")</pre></td>
+                                        <td class="diff-ln @(row.Right?.Type == DiffLineType.Added ? "ln-add" : "")">@(row.Right?.NewLineNo?.ToString() ?? "")</td>
+                                        <td class="diff-code @(row.Right == null ? "diff-blank" : row.Right.Type == DiffLineType.Added ? "diff-add" : "diff-ctx")"><pre>@(row.Right != null ? HtmlEncode(row.Right.Content) : "")</pre></td>
+                                    </tr>
+                                }
+                            }
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string RawDiff { get; set; } = "";
+    private List<DiffFile> Files { get; set; } = new();
+
+    protected override void OnParametersSet()
+    {
+        Files = DiffParser.Parse(RawDiff);
+    }
+
+    private static string HtmlEncode(string s) =>
+        System.Web.HttpUtility.HtmlEncode(s);
+}
