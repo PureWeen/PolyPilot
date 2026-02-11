@@ -389,8 +389,8 @@ public partial class CopilotService : IAsyncDisposable
         // The CLI auto-reads ~/.copilot/mcp-config.json, but mcp-servers.json
         // uses a different format that needs to be passed explicitly.
         var mcpArgs = GetMcpCliArgs();
-        if (mcpArgs.Count > 0)
-            options.CliArgs = mcpArgs.ToArray();
+        if (mcpArgs.Length > 0)
+            options.CliArgs = mcpArgs;
 
         return new CopilotClient(options);
     }
@@ -400,14 +400,14 @@ public partial class CopilotService : IAsyncDisposable
     /// Reads ~/.copilot/mcp-servers.json (simple format) and converts
     /// to the --additional-mcp-config format the CLI expects.
     /// </summary>
-    private static List<string> GetMcpCliArgs()
+    internal static string[] GetMcpCliArgs()
     {
         var args = new List<string>();
         try
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var serversPath = Path.Combine(home, ".copilot", "mcp-servers.json");
-            if (!File.Exists(serversPath)) return args;
+            if (!File.Exists(serversPath)) return args.ToArray();
 
             // mcp-servers.json is { "name": { "command": "...", "args": [...], "env": {...} } }
             // CLI expects { "mcpServers": { "name": { ... } } }
@@ -425,7 +425,7 @@ public partial class CopilotService : IAsyncDisposable
         {
             System.Diagnostics.Debug.WriteLine($"[MCP] Failed to read mcp-servers.json: {ex.Message}");
         }
-        return args;
+        return args.ToArray();
     }
 
     /// <summary>
