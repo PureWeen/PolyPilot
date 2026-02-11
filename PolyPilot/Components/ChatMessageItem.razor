@@ -9,7 +9,16 @@
         <div class="chat-msg user">
             @if (!Compact)
             {
-                <div class="chat-msg-avatar">👤</div>
+                <div class="chat-msg-avatar">
+                    @if (!string.IsNullOrEmpty(UserAvatarUrl))
+                    {
+                        <img src="@UserAvatarUrl" width="22" height="22" alt="You" class="user-avatar-img" />
+                    }
+                    else
+                    {
+                        <text>👤</text>
+                    }
+                </div>
             }
             <div class="chat-msg-content">
                 @if (Compact)
@@ -161,4 +170,5 @@
     [Parameter] public ChatMessage Message { get; set; } = default!;
     [Parameter] public bool Compact { get; set; }
     [Parameter] public bool IsStreaming { get; set; }
+    [Parameter] public string? UserAvatarUrl { get; set; }
 }

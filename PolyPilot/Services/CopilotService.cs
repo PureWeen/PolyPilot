@@ -109,6 +109,13 @@ public partial class CopilotService : IAsyncDisposable
     // Debug info
     public string LastDebugMessage { get; private set; } = "";
 
+    // GitHub user info
+    public string? GitHubAvatarUrl { get; private set; }
+    public string? GitHubLogin { get; private set; }
+
+    // UI preferences
+    public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
+
     // Session organization (groups, pinning, sorting)
     public OrganizationState Organization { get; private set; } = new();
 
@@ -165,6 +172,7 @@ public partial class CopilotService : IAsyncDisposable
 
         var settings = ConnectionSettings.Load();
         CurrentMode = settings.Mode;
+        ChatLayout = settings.ChatLayout;
 
         // On mobile with Remote mode and no URL configured, skip initialization
         if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl))
@@ -238,6 +246,9 @@ public partial class CopilotService : IAsyncDisposable
 
         // Fetch available models dynamically
         _ = FetchAvailableModelsAsync();
+
+        // Fetch GitHub user info for avatar
+        _ = FetchGitHubUserInfoAsync();
 
         // Load organization state FIRST (groups, pinning, sorting) so reconcile during restore doesn't wipe it
         LoadOrganization();

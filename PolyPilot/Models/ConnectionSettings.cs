@@ -11,6 +11,13 @@ public enum ConnectionMode
     Demo        // Local mock mode for testing chat UI without a real connection
 }
 
+public enum ChatLayout
+{
+    Default,      // Copilot left, User right
+    Reversed,     // User left, Copilot right
+    BothLeft      // Both on left
+}
+
 public class ConnectionSettings
 {
     public ConnectionMode Mode { get; set; } = PlatformHelper.DefaultMode;
@@ -21,6 +28,7 @@ public class ConnectionSettings
     public string? RemoteToken { get; set; }
     public string? TunnelId { get; set; }
     public bool AutoStartTunnel { get; set; } = false;
+    public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
 
     [JsonIgnore]
     public string CliUrl => Mode == ConnectionMode.Remote && !string.IsNullOrEmpty(RemoteUrl)

@@ -92,7 +92,9 @@
                          ToolActivities="@ToolActivities"
                          ActivityText="@ActivityText"
                          IsProcessing="Session.IsProcessing"
-                         Compact="true" />
+                         Compact="true"
+                         UserAvatarUrl="@UserAvatarUrl"
+                         Layout="@Layout" />
     </div>
 
     @if (!string.IsNullOrEmpty(Error))
@@ -155,6 +157,8 @@
     [Parameter] public string Intent { get; set; } = "";
     [Parameter] public string? Error { get; set; }
     [Parameter] public List<PendingImage> PendingImages { get; set; } = new();
+    [Parameter] public string? UserAvatarUrl { get; set; }
+    [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
     
     // State controlled by parent or callbacks
     [Parameter] public bool IsRenaming { get; set; }

@@ -3,7 +3,7 @@
 
 @* Shared chat message list — used by Dashboard.razor (grid=compact, expanded=full) *@
 
-<div class="chat-message-list @(Compact ? "compact" : "full")">
+<div class="chat-message-list @(Compact ? "compact" : "full") @GetLayoutClass()">
     @if (!Messages.Any() && string.IsNullOrEmpty(StreamingContent))
     {
         <p class="chat-empty">@(Compact ? "No messages yet" : "Start a conversation with Copilot!")</p>
@@ -12,7 +12,7 @@
     {
         @foreach (var msg in Messages)
         {
-            <ChatMessageItem Message="msg" Compact="Compact" />
+            <ChatMessageItem Message="msg" Compact="Compact" UserAvatarUrl="@UserAvatarUrl" />
         }
 
         @* Current turn tool activity feed — skip activities already in history *@
@@ -106,6 +106,15 @@
     [Parameter] public string ActivityText { get; set; } = "";
     [Parameter] public bool IsProcessing { get; set; }
     [Parameter] public bool Compact { get; set; }
+    [Parameter] public string? UserAvatarUrl { get; set; }
+    [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
+
+    private string GetLayoutClass() => Layout switch
+    {
+        ChatLayout.Reversed => "layout-reversed",
+        ChatLayout.BothLeft => "layout-both-left",
+        _ => ""
+    };
 
     private IEnumerable<ToolActivity> GetNewActivities()
     {

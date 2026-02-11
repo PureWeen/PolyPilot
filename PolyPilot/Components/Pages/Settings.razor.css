@@ -768,3 +768,105 @@
         padding: 0.4rem 0.75rem;
     }
 }
+
+/* UI / Chat settings */
+.settings-subsection {
+    margin-top: 0.5rem;
+}
+
+.settings-subsection h4 {
+    font-size: var(--type-body);
+    color: rgba(255,255,255,0.6);
+    margin: 0 0 0.5rem;
+    font-weight: 500;
+}
+
+.layout-option label {
+    font-size: var(--type-body);
+    color: rgba(255,255,255,0.7);
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
+.layout-cards {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.layout-card {
+    border: 2px solid rgba(255,255,255,0.15);
+    border-radius: 10px;
+    padding: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    min-width: 100px;
+}
+
+.layout-card:hover {
+    border-color: rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.05);
+}
+
+.layout-card.selected {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.layout-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 0.4rem;
+    padding: 0.25rem;
+}
+
+.lp-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.lp-row.lp-left {
+    justify-content: flex-start;
+}
+
+.lp-row.lp-right {
+    justify-content: flex-end;
+}
+
+.lp-bot, .lp-user {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.lp-bot {
+    background: rgba(0, 195, 91, 0.5);
+}
+
+.lp-user {
+    background: rgba(78, 168, 209, 0.5);
+}
+
+.lp-bubble {
+    height: 8px;
+    border-radius: 4px;
+    width: 40px;
+}
+
+.lp-bubble.lp-ai {
+    background: rgba(0, 195, 91, 0.2);
+    border: 1px solid rgba(0, 195, 91, 0.3);
+}
+
+.lp-bubble.lp-you {
+    background: rgba(78, 168, 209, 0.2);
+    border: 1px solid rgba(78, 168, 209, 0.3);
+}
+
+.layout-label {
+    font-size: var(--type-footnote);
+    color: rgba(255,255,255,0.6);
+}

@@ -325,4 +325,36 @@ public partial class CopilotService
             Debug($"Failed to fetch models: {ex.Message}");
         }
     }
+
+    private async Task FetchGitHubUserInfoAsync()
+    {
+        try
+        {
+            using var process = new System.Diagnostics.Process();
+            process.StartInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "gh",
+                Arguments = "api user --jq \"{login: .login, avatar_url: .avatar_url}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            process.Start();
+            var output = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(output))
+            {
+                using var doc = JsonDocument.Parse(output);
+                GitHubLogin = doc.RootElement.GetProperty("login").GetString();
+                GitHubAvatarUrl = doc.RootElement.GetProperty("avatar_url").GetString();
+                Debug($"GitHub user: {GitHubLogin}");
+                InvokeOnUI(() => OnStateChanged?.Invoke());
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to fetch GitHub user info: {ex.Message}");
+        }
+    }
 }

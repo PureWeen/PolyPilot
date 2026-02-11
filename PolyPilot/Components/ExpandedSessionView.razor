@@ -47,7 +47,9 @@
                          ToolActivities="@ToolActivities"
                          ActivityText="@ActivityText"
                          IsProcessing="Session.IsProcessing"
-                         Compact="false" />
+                         Compact="false"
+                         UserAvatarUrl="@UserAvatarUrl"
+                         Layout="@Layout" />
     </div>
 
     @if (!string.IsNullOrEmpty(Error))
@@ -174,6 +176,8 @@
     [Parameter] public string CurrentModel { get; set; } = "";
     [Parameter] public IReadOnlyList<string> AvailableModels { get; set; } = Array.Empty<string>();
     [Parameter] public List<PendingImage>? PendingImages { get; set; }
+    [Parameter] public string? UserAvatarUrl { get; set; }
+    [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
     [Parameter] public int FontSize { get; set; } = 20;
     [Parameter] public int MessageWindowSize { get; set; } = 25;
 

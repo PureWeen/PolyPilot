@@ -11,7 +11,7 @@
 <div class="settings-page">
     <div class="settings-header">
         <div class="header-row">
-            <h2>Connection Settings</h2>
+            <h2>Settings</h2>
             <div class="header-right">
                 @if (PlatformHelper.IsDesktop)
                 {
@@ -209,6 +209,42 @@
             <button class="save-btn" @onclick="SaveAndApply">
                 <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save &amp; Reconnect
             </button>
+        </div>
+    </div>
+
+    <div class="settings-section">
+        <h3>UI</h3>
+        <div class="settings-subsection">
+            <h4>Chat</h4>
+            <div class="layout-option">
+                <label>Message layout:</label>
+                <div class="layout-cards">
+                    @foreach (var layout in Enum.GetValues<ChatLayout>())
+                    {
+                        <div class="layout-card @(settings.ChatLayout == layout ? "selected" : "")"
+                             @onclick="() => SetChatLayout(layout)">
+                            <div class="layout-preview">
+                                @switch (layout)
+                                {
+                                    case ChatLayout.Default:
+                                        <div class="lp-row lp-left"><span class="lp-bot"></span><span class="lp-bubble lp-ai"></span></div>
+                                        <div class="lp-row lp-right"><span class="lp-bubble lp-you"></span><span class="lp-user"></span></div>
+                                        break;
+                                    case ChatLayout.Reversed:
+                                        <div class="lp-row lp-right"><span class="lp-bubble lp-ai"></span><span class="lp-bot"></span></div>
+                                        <div class="lp-row lp-left"><span class="lp-user"></span><span class="lp-bubble lp-you"></span></div>
+                                        break;
+                                    case ChatLayout.BothLeft:
+                                        <div class="lp-row lp-left"><span class="lp-bot"></span><span class="lp-bubble lp-ai"></span></div>
+                                        <div class="lp-row lp-left"><span class="lp-user"></span><span class="lp-bubble lp-you"></span></div>
+                                        break;
+                                }
+                            </div>
+                            <div class="layout-label">@GetLayoutLabel(layout)</div>
+                        </div>
+                    }
+                </div>
+            </div>
         </div>
     </div>
 
@@ -428,6 +464,22 @@
         serverAlive = false;
         ShowStatus("Server stopped", "success");
     }
+
+    private void SetChatLayout(ChatLayout layout)
+    {
+        settings.ChatLayout = layout;
+        settings.Save();
+        CopilotService.ChatLayout = layout;
+        ShowStatus("Layout updated", "success");
+    }
+
+    private string GetLayoutLabel(ChatLayout layout) => layout switch
+    {
+        ChatLayout.Default => "Default",
+        ChatLayout.Reversed => "Reversed",
+        ChatLayout.BothLeft => "Both left",
+        _ => ""
+    };
 
     private async Task SaveAndApply()
     {
