@@ -834,11 +834,17 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (_activeSessionName == oldName)
             _activeSessionName = newName;
 
+        // Update organization metadata to reflect new name
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == oldName);
+        if (meta != null)
+            meta.SessionName = newName;
+
         // Persist alias so saved sessions also show the custom name
         if (state.Info.SessionId != null)
             SetSessionAlias(state.Info.SessionId, newName);
 
         SaveActiveSessionsToDisk();
+        ReconcileOrganization();
         OnStateChanged?.Invoke();
         return true;
     }
