@@ -5,7 +5,7 @@
 }
 
 .chat-empty {
-    color: rgba(200,216,240,0.3);
+    color: var(--text-muted);
     text-align: center;
     margin: auto;
     font-size: var(--type-body);
@@ -167,7 +167,7 @@
 
 .chat-message-list.full ::deep .chat-msg-time {
     font-size: var(--type-subhead);
-    color: rgba(200,216,240,0.3);
+    color: var(--text-muted);
     margin-top: 0.05rem;
 }
 
@@ -307,7 +307,7 @@
 }
 
 ::deep .action-item:hover {
-    background: rgba(200,216,240,0.04);
+    background: var(--hover-bg);
 }
 
 ::deep .action-dot {
@@ -352,7 +352,7 @@
 ::deep .action-done .action-label { color: #22c55e; }
 
 ::deep .action-desc {
-    color: rgba(200,216,240,0.55);
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -362,7 +362,7 @@
 
 ::deep .action-detail-hint {
     margin-left: auto;
-    color: rgba(200,216,240,0.3);
+    color: var(--text-muted);
     font-size: var(--type-footnote);
     white-space: nowrap;
     flex-shrink: 0;
@@ -371,7 +371,7 @@
 ::deep .action-expanded-input {
     margin: 0.15rem 1rem 0 2rem;
     padding: 0.4rem 0.6rem;
-    background: rgba(15,15,35,0.35);
+    background: var(--bg-input);
     border-radius: 6px 6px 0 0;
     border: 1px solid var(--control-bg);
     border-bottom: none;
@@ -379,7 +379,7 @@
 
 ::deep .action-expanded-input pre {
     font-size: var(--type-subhead);
-    color: rgba(200,216,240,0.7);
+    color: var(--text-primary);
     white-space: pre-wrap;
     word-break: break-word;
     max-height: 150px;
@@ -395,7 +395,7 @@
 ::deep .action-expanded-result {
     margin: 0.15rem 1rem 0.3rem 2rem;
     padding: 0.4rem 0.6rem;
-    background: rgba(15,15,35,0.5);
+    background: var(--bg-input);
     border-radius: 6px;
     border: 1px solid var(--control-bg);
     overflow: hidden;
@@ -403,7 +403,7 @@
 
 ::deep .action-expanded-result pre {
     font-size: var(--type-subhead);
-    color: rgba(200,216,240,0.5);
+    color: var(--text-secondary);
     white-space: pre-wrap;
     word-break: break-word;
     max-height: 200px;
@@ -467,7 +467,7 @@
 }
 
 ::deep .markdown-body pre {
-    background: rgba(0,0,0,0.3);
+    background: var(--bg-tertiary);
     padding: 0.75rem;
     border-radius: 6px;
     overflow-x: auto;
@@ -514,7 +514,7 @@
     border-radius: 6px;
     overflow: hidden;
     border: 1px solid var(--border-default);
-    background: rgba(0,0,0,0.25);
+    background: var(--bg-tertiary);
     padding: 0.2rem 0.5rem 0.2rem 0.25rem;
     vertical-align: middle;
     cursor: pointer;
@@ -530,7 +530,7 @@
 
 ::deep .user-image-name {
     font-size: var(--type-subhead);
-    color: rgba(200,216,240,0.6);
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
