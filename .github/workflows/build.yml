@@ -111,13 +111,17 @@ jobs:
 
           # Install provisioning profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          printf '%s' "$APPLE_PROVISIONING_PROFILE" | tr -d '[:space:]' | base64 --decode > $RUNNER_TEMP/profile.mobileprovision
+          printenv APPLE_PROVISIONING_PROFILE | openssl base64 -d -A > $RUNNER_TEMP/profile.mobileprovision
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $RUNNER_TEMP/profile.mobileprovision))
           cp $RUNNER_TEMP/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
           echo "Installed profile with UUID: $PROFILE_UUID"
 
           # Create keychain and import certificate
-          printf '%s' "$APPLE_CERTIFICATE_P12" | tr -d '[:space:]' | base64 --decode > $RUNNER_TEMP/certificate.p12
+          printenv APPLE_CERTIFICATE_P12 | openssl base64 -d -A > $RUNNER_TEMP/certificate.p12
+          if [ ! -s $RUNNER_TEMP/certificate.p12 ]; then
+            echo "::error::Failed to decode APPLE_CERTIFICATE_P12 — check that the secret is valid base64"
+            exit 1
+          fi
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
