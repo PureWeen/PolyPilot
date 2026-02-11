@@ -8,7 +8,7 @@
     var isCompleted = IsCompleted;
     var cardClass = Session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
 }
-<div class="expanded-card @cardClass">
+<div class="expanded-card @cardClass" data-session="@Session.Name">
     <div class="chat-header">
         <h2 class="chat-header-title">@Session.Name</h2>
         <div class="chat-header-badges">
