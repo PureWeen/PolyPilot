@@ -1,0 +1,112 @@
+.model-selector {
+    position: relative;
+    display: inline-flex;
+    cursor: pointer;
+    user-select: none;
+}
+
+.model-selector-display {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.5rem;
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    font-size: var(--type-body);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    outline: none;
+}
+
+.model-selector-display:hover {
+    border-color: var(--text-dim);
+    background: var(--control-border);
+}
+
+.model-selector.open .model-selector-display {
+    border-color: var(--accent-primary);
+}
+
+.model-chevron {
+    display: flex;
+    align-items: center;
+    margin-left: 0.2rem;
+    flex-shrink: 0;
+    transition: transform 0.15s ease;
+}
+
+.model-selector.open .model-chevron {
+    transform: rotate(180deg);
+}
+
+.model-selector-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    width: max-content;
+    max-height: 320px;
+    overflow-y: auto;
+    background: var(--bg-secondary);
+    border: 1px solid var(--control-border);
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    z-index: 1000;
+    padding: 4px;
+}
+
+.model-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-size: var(--type-body);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.model-option:hover {
+    background: var(--control-bg);
+}
+
+.model-option.selected {
+    color: var(--text-bright);
+    font-weight: 500;
+}
+
+.model-icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.model-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.model-check {
+    color: var(--accent-primary);
+    font-size: var(--type-body);
+    flex-shrink: 0;
+    margin-left: 0.5rem;
+}
+
+/* Mobile responsive */
+@media (max-width: 640px) {
+    .model-selector-display {
+        padding: 0.35rem 0.4rem;
+        font-size: var(--type-callout);
+    }
+
+    .model-option {
+        padding: 0.35rem 0.5rem;
+        font-size: var(--type-callout);
+    }
+}
