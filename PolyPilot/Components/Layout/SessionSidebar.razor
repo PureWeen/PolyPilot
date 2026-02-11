@@ -358,6 +358,7 @@ else
         Nav.LocationChanged += (_, e) => { currentPage = new Uri(e.Location).AbsolutePath; InvokeAsync(StateHasChanged); };
         CopilotService.OnStateChanged += RefreshSessions;
         CopilotService.OnSessionComplete += HandleSessionComplete;
+        RepoManager.Load();
         RefreshSessions();
         LoadPersistedSessions();
 

@@ -18,10 +18,16 @@ public class RepoManager
     private static string StateFile => _stateFile ??= GetStateFile();
 
     private RepositoryState _state = new();
-    public IReadOnlyList<RepositoryInfo> Repositories => _state.Repositories.AsReadOnly();
-    public IReadOnlyList<WorktreeInfo> Worktrees => _state.Worktrees.AsReadOnly();
+    private bool _loaded;
+    public IReadOnlyList<RepositoryInfo> Repositories { get { EnsureLoaded(); return _state.Repositories.AsReadOnly(); } }
+    public IReadOnlyList<WorktreeInfo> Worktrees { get { EnsureLoaded(); return _state.Worktrees.AsReadOnly(); } }
 
     public event Action? OnStateChanged;
+
+    private void EnsureLoaded()
+    {
+        if (!_loaded) Load();
+    }
 
     private static string GetBaseDir()
     {
@@ -44,6 +50,7 @@ public class RepoManager
 
     public void Load()
     {
+        _loaded = true;
         try
         {
             if (File.Exists(StateFile))
@@ -95,6 +102,7 @@ public class RepoManager
     /// </summary>
     public async Task<RepositoryInfo> AddRepositoryAsync(string url, CancellationToken ct = default)
     {
+        EnsureLoaded();
         var id = RepoIdFromUrl(url);
         var existing = _state.Repositories.FirstOrDefault(r => r.Id == id);
         if (existing != null)
@@ -141,6 +149,7 @@ public class RepoManager
     /// </summary>
     public async Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName, string? baseBranch = null, CancellationToken ct = default)
     {
+        EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
 
@@ -175,6 +184,7 @@ public class RepoManager
     /// </summary>
     public async Task RemoveWorktreeAsync(string worktreeId, CancellationToken ct = default)
     {
+        EnsureLoaded();
         var wt = _state.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
         if (wt == null) return;
 
@@ -235,6 +245,7 @@ public class RepoManager
     /// </summary>
     public async Task FetchAsync(string repoId, CancellationToken ct = default)
     {
+        EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
         await RunGitAsync(repo.BareClonePath, ct, "fetch", "--all", "--prune");
@@ -245,12 +256,13 @@ public class RepoManager
     /// </summary>
     public async Task<List<string>> GetBranchesAsync(string repoId, CancellationToken ct = default)
     {
+        EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
-        var output = await RunGitAsync(repo.BareClonePath, ct, "branch", "-r", "--list");
+        var output = await RunGitAsync(repo.BareClonePath, ct, "branch", "--list");
         return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(b => b.TrimStart('*').Trim())
-            .Where(b => !b.Contains("HEAD"))
+            .Where(b => !string.IsNullOrEmpty(b))
             .ToList();
     }
 
@@ -258,14 +270,13 @@ public class RepoManager
     {
         try
         {
-            var output = await RunGitAsync(barePath, ct, "symbolic-ref", "refs/remotes/origin/HEAD");
-            var refName = output.Trim();
-            // e.g. refs/remotes/origin/main → origin/main
-            return refName.Replace("refs/remotes/", "");
+            // In bare repos, HEAD points directly to the default branch
+            var output = await RunGitAsync(barePath, ct, "symbolic-ref", "HEAD");
+            return output.Trim(); // e.g. refs/heads/main
         }
         catch
         {
-            return "origin/main";
+            return "main";
         }
     }
 
