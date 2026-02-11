@@ -606,7 +606,7 @@
     gap: 0.75rem;
     padding: 0;
     font-size: 0.75rem;
-    color: rgba(200,216,240,0.35);
+    color: var(--text-dim);
     overflow-x: auto;
     max-width: 100%;
     flex-wrap: wrap;
