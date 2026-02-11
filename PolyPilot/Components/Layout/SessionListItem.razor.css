@@ -146,7 +146,7 @@
     top: 100%;
     z-index: 100;
     min-width: 140px;
-    background: #1e2240;
+    background: var(--bg-tertiary);
     border: 1px solid rgba(78,168,209,0.25);
     border-radius: 8px;
     padding: 0.25rem 0;
@@ -183,7 +183,7 @@
     border: 1px solid #60a5fa;
     border-radius: 4px;
     background: rgba(255,255,255,0.15);
-    color: #a0b4cc;
+    color: var(--text-primary);
     font-size: var(--type-title3);
     font-weight: 500;
     font-family: inherit;

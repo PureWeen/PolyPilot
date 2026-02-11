@@ -6,6 +6,7 @@
 @inject DevTunnelService DevTunnelService
 @inject QrScannerService QrScanner
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 @implements IDisposable
 
 <div class="settings-page">
@@ -218,6 +219,29 @@
 
     <div class="settings-group">
         <h2 class="group-title">UI</h2>
+
+        <div class="settings-section">
+            <h3>Theme</h3>
+            <div class="layout-option">
+                <label>Appearance:</label>
+                <div class="layout-cards">
+                    @foreach (var theme in Enum.GetValues<UiTheme>())
+                    {
+                        <div class="layout-card @(settings.Theme == theme ? "selected" : "")"
+                             @onclick="() => SetTheme(theme)">
+                            <div class="theme-preview @GetThemePreviewClass(theme)">
+                                <div class="tp-bar"></div>
+                                <div class="tp-content">
+                                    <div class="tp-line tp-line-1"></div>
+                                    <div class="tp-line tp-line-2"></div>
+                                </div>
+                            </div>
+                            <div class="layout-label">@GetThemeLabel(theme)</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
 
         <div class="settings-section">
             <h3>Chat</h3>
@@ -483,6 +507,49 @@
         ChatLayout.Default => "Default",
         ChatLayout.Reversed => "Reversed",
         ChatLayout.BothLeft => "Both left",
+        _ => ""
+    };
+
+    private async Task SetTheme(UiTheme theme)
+    {
+        settings.Theme = theme;
+        settings.Save();
+        CopilotService.Theme = theme;
+        await ApplyTheme(theme);
+        ShowStatus("Theme updated", "success");
+    }
+
+    private async Task ApplyTheme(UiTheme theme)
+    {
+        var dataTheme = theme switch
+        {
+            UiTheme.System => "system",
+            UiTheme.PolyPilotDark => "",        // default, no attribute needed
+            UiTheme.PolyPilotLight => "polypilot-light",
+            UiTheme.SolarizedDark => "solarized-dark",
+            UiTheme.SolarizedLight => "solarized-light",
+            _ => ""
+        };
+        await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
+    }
+
+    private string GetThemeLabel(UiTheme theme) => theme switch
+    {
+        UiTheme.System => "System",
+        UiTheme.PolyPilotDark => "PolyPilot Dark",
+        UiTheme.PolyPilotLight => "PolyPilot Light",
+        UiTheme.SolarizedDark => "Solarized Dark",
+        UiTheme.SolarizedLight => "Solarized Light",
+        _ => ""
+    };
+
+    private string GetThemePreviewClass(UiTheme theme) => theme switch
+    {
+        UiTheme.System => "tp-system",
+        UiTheme.PolyPilotDark => "tp-pp-dark",
+        UiTheme.PolyPilotLight => "tp-pp-light",
+        UiTheme.SolarizedDark => "tp-sol-dark",
+        UiTheme.SolarizedLight => "tp-sol-light",
         _ => ""
     };
 

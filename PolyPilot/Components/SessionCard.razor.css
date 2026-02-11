@@ -102,7 +102,7 @@
     border: 1px solid rgba(78,168,209,0.4);
     border-radius: 4px;
     background: rgba(78,168,209,0.15);
-    color: #a0b4cc;
+    color: var(--text-primary);
     font-size: var(--type-title2);
     font-weight: 600;
     font-family: inherit;
@@ -128,7 +128,7 @@
     top: 2.5rem;
     z-index: 100;
     min-width: 160px;
-    background: #1e2240;
+    background: var(--bg-tertiary);
     border: 1px solid rgba(78,168,209,0.25);
     border-radius: 8px;
     padding: 0.25rem 0;
@@ -243,7 +243,7 @@
     background: rgba(78,168,209,0.08);
     border: 1px solid rgba(78,168,209,0.2);
     border-radius: 6px;
-    color: #8e9abd;
+    color: var(--text-secondary);
     font-size: 0.7rem;
     cursor: pointer;
     flex-shrink: 0;
@@ -419,7 +419,7 @@
     border: 1px solid rgba(78,168,209,0.25);
     border-radius: 8px;
     background: rgba(78,168,209,0.15);
-    color: #a0b4cc;
+    color: var(--text-primary);
     font-size: 0.9rem;
     font-family: inherit;
     resize: none;

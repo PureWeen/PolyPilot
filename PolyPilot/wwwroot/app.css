@@ -11,6 +11,146 @@
     --type-footnote: 0.65rem;     /* 13px — timestamps, metadata */
     --type-caption1: 0.6rem;      /* 12px — badges, small labels */
     --type-caption2: 0.55rem;     /* 11px — minimum readable size */
+
+    /* Theme colors — PolyPilot Dark (default) */
+    --bg-primary: #0f0f23;
+    --bg-secondary: #1a1a2e;
+    --bg-tertiary: #1e2240;
+    --bg-input: rgba(255,255,255,0.05);
+    --text-primary: #a0b4cc;
+    --text-secondary: #8e9abd;
+    --text-muted: #646e8a;
+    --text-bright: #c8d8f0;
+    --border-subtle: rgba(255,255,255,0.08);
+    --border-default: rgba(255,255,255,0.12);
+    --accent-primary: #4ea8d1;
+    --accent-link: #006bb7;
+    --accent-success: #00c35b;
+    --accent-warning: #fbbf24;
+    --accent-error: #ef4444;
+    --accent-purple: #a78bfa;
+    --chat-user-bg: rgba(78, 168, 209, 0.2);
+    --chat-user-border: rgba(78, 168, 209, 0.3);
+    --chat-user-text: #7fc4e8;
+    --chat-assistant-bg: rgba(0, 195, 91, 0.1);
+    --chat-assistant-border: rgba(0, 195, 91, 0.2);
+    --chat-assistant-text: #00c35b;
+    --toast-bg: linear-gradient(135deg, #2d3748, #1a202c);
+    --safe-area-bg: #1a1a2e;
+}
+
+/* PolyPilot Light */
+[data-theme="polypilot-light"] {
+    --bg-primary: #f5f6fa;
+    --bg-secondary: #e8eaf0;
+    --bg-tertiary: #dcdee5;
+    --bg-input: rgba(0,0,0,0.04);
+    --text-primary: #2c3e50;
+    --text-secondary: #5a6a7a;
+    --text-muted: #8899aa;
+    --text-bright: #1a2530;
+    --border-subtle: rgba(0,0,0,0.08);
+    --border-default: rgba(0,0,0,0.12);
+    --accent-primary: #2980b9;
+    --accent-link: #2471a3;
+    --accent-success: #27ae60;
+    --accent-warning: #f39c12;
+    --accent-error: #e74c3c;
+    --accent-purple: #8e44ad;
+    --chat-user-bg: rgba(41, 128, 185, 0.12);
+    --chat-user-border: rgba(41, 128, 185, 0.25);
+    --chat-user-text: #2471a3;
+    --chat-assistant-bg: rgba(39, 174, 96, 0.08);
+    --chat-assistant-border: rgba(39, 174, 96, 0.2);
+    --chat-assistant-text: #1e8449;
+    --toast-bg: linear-gradient(135deg, #e8eaf0, #dcdee5);
+    --safe-area-bg: #e8eaf0;
+}
+
+/* Solarized Dark */
+[data-theme="solarized-dark"] {
+    --bg-primary: #002b36;
+    --bg-secondary: #073642;
+    --bg-tertiary: #0a4050;
+    --bg-input: rgba(255,255,255,0.05);
+    --text-primary: #839496;
+    --text-secondary: #657b83;
+    --text-muted: #586e75;
+    --text-bright: #93a1a1;
+    --border-subtle: rgba(147,161,161,0.1);
+    --border-default: rgba(147,161,161,0.15);
+    --accent-primary: #268bd2;
+    --accent-link: #268bd2;
+    --accent-success: #859900;
+    --accent-warning: #b58900;
+    --accent-error: #dc322f;
+    --accent-purple: #6c71c4;
+    --chat-user-bg: rgba(38, 139, 210, 0.15);
+    --chat-user-border: rgba(38, 139, 210, 0.25);
+    --chat-user-text: #268bd2;
+    --chat-assistant-bg: rgba(133, 153, 0, 0.1);
+    --chat-assistant-border: rgba(133, 153, 0, 0.2);
+    --chat-assistant-text: #859900;
+    --toast-bg: linear-gradient(135deg, #073642, #002b36);
+    --safe-area-bg: #073642;
+}
+
+/* Solarized Light */
+[data-theme="solarized-light"] {
+    --bg-primary: #fdf6e3;
+    --bg-secondary: #eee8d5;
+    --bg-tertiary: #e0dbc7;
+    --bg-input: rgba(0,0,0,0.04);
+    --text-primary: #657b83;
+    --text-secondary: #839496;
+    --text-muted: #93a1a1;
+    --text-bright: #586e75;
+    --border-subtle: rgba(88,110,117,0.1);
+    --border-default: rgba(88,110,117,0.15);
+    --accent-primary: #268bd2;
+    --accent-link: #268bd2;
+    --accent-success: #859900;
+    --accent-warning: #b58900;
+    --accent-error: #dc322f;
+    --accent-purple: #6c71c4;
+    --chat-user-bg: rgba(38, 139, 210, 0.1);
+    --chat-user-border: rgba(38, 139, 210, 0.2);
+    --chat-user-text: #268bd2;
+    --chat-assistant-bg: rgba(133, 153, 0, 0.08);
+    --chat-assistant-border: rgba(133, 153, 0, 0.15);
+    --chat-assistant-text: #859900;
+    --toast-bg: linear-gradient(135deg, #eee8d5, #fdf6e3);
+    --safe-area-bg: #eee8d5;
+}
+
+/* System theme: follow OS preference */
+@media (prefers-color-scheme: light) {
+    [data-theme="system"] {
+        --bg-primary: #f5f6fa;
+        --bg-secondary: #e8eaf0;
+        --bg-tertiary: #dcdee5;
+        --bg-input: rgba(0,0,0,0.04);
+        --text-primary: #2c3e50;
+        --text-secondary: #5a6a7a;
+        --text-muted: #8899aa;
+        --text-bright: #1a2530;
+        --border-subtle: rgba(0,0,0,0.08);
+        --border-default: rgba(0,0,0,0.12);
+        --accent-primary: #2980b9;
+        --accent-link: #2471a3;
+        --accent-success: #27ae60;
+        --accent-warning: #f39c12;
+        --accent-error: #e74c3c;
+        --accent-purple: #8e44ad;
+        --chat-user-bg: rgba(41, 128, 185, 0.12);
+        --chat-user-border: rgba(41, 128, 185, 0.25);
+        --chat-user-text: #2471a3;
+        --chat-assistant-bg: rgba(39, 174, 96, 0.08);
+        --chat-assistant-border: rgba(39, 174, 96, 0.2);
+        --chat-assistant-text: #1e8449;
+        --toast-bg: linear-gradient(135deg, #e8eaf0, #dcdee5);
+        --safe-area-bg: #e8eaf0;
+    }
 }
 
 /* Mobile: scale down for phone screens */
@@ -46,7 +186,8 @@
 html, body {
     font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
     font-size: var(--app-font-size, 20px);
-    color: #a0b4cc;
+    color: var(--text-primary);
+    background: var(--bg-primary);
 }
 
 /* Expanded chat title — global override to prevent truncation */
@@ -63,7 +204,7 @@ html, body {
 }
 
 a, .btn-link {
-    color: #006bb7;
+    color: var(--accent-link);
 }
 
 .btn-primary {
@@ -151,7 +292,7 @@ h1:focus {
         position: sticky;
         top: 0;
         height: env(safe-area-inset-top);
-        background-color: #1a1a2e;
+        background-color: var(--safe-area-bg);
         width: 100%;
         z-index: 1;
     }
@@ -168,7 +309,7 @@ h1:focus {
         position: sticky;
         top: 0;
         height: var(--status-bar-height, env(safe-area-inset-top, 0px));
-        background-color: #0f0f23;
+        background-color: var(--bg-primary);
         width: 100%;
         z-index: 1;
     }
@@ -179,8 +320,8 @@ h1:focus {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    background: linear-gradient(135deg, #2d3748, #1a202c);
-    color: #a0b4cc;
+    background: var(--toast-bg);
+    color: var(--text-primary);
     padding: 16px 24px;
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.3);
@@ -198,7 +339,7 @@ h1:focus {
 }
 
 .toast-notification strong {
-    color: #48bb78;
+    color: var(--accent-success);
 }
 
 @media (max-width: 1023px) {
