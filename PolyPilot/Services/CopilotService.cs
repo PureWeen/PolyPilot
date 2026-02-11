@@ -431,6 +431,33 @@ public partial class CopilotService : IAsyncDisposable
         {
             System.Diagnostics.Debug.WriteLine($"[MCP] Failed to read mcp-servers.json: {ex.Message}");
         }
+
+        // Include plugin .mcp.json files (already in mcpServers wrapped format)
+        try
+        {
+            var home2 = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var pluginsDir = Path.Combine(home2, ".copilot", "installed-plugins");
+            if (Directory.Exists(pluginsDir))
+            {
+                foreach (var marketDir in Directory.GetDirectories(pluginsDir))
+                {
+                    foreach (var pluginDir in Directory.GetDirectories(marketDir))
+                    {
+                        var mcpFile = Path.Combine(pluginDir, ".mcp.json");
+                        if (File.Exists(mcpFile))
+                        {
+                            args.Add("--additional-mcp-config");
+                            args.Add($"@{mcpFile}");
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MCP] Failed to scan plugin MCPs: {ex.Message}");
+        }
+
         return args.ToArray();
     }
 
