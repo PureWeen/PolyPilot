@@ -99,6 +99,8 @@
     cursor: pointer;
     font-size: var(--type-title3);
     font-weight: bold;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .new-session button:hover:not(:disabled) {

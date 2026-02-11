@@ -99,7 +99,7 @@ main {
 
     .sidebar {
         width: 17.5rem;
-        min-width: 200px;
+        min-width: 240px;
         max-width: 600px;
         height: 100vh;
         position: sticky;
