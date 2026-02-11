@@ -217,11 +217,11 @@
     cursor: pointer;
     user-select: none;
 }
-.group-header:hover { background: var(--hover-bg); }
+.group-header:hover { background: rgba(255,255,255,0.03); }
 
 .group-chevron {
     font-size: var(--type-caption2);
-    color: var(--text-muted);
+    color: rgba(255,255,255,0.35);
     width: 0.8rem;
     text-align: center;
 }
@@ -236,7 +236,7 @@
 
 .group-count {
     font-size: var(--type-caption2);
-    color: var(--text-muted);
+    color: rgba(255,255,255,0.25);
 }
 .group-count::before { content: "("; }
 .group-count::after { content: ")"; }
@@ -470,7 +470,7 @@
     height: 1.2em;
     font-size: var(--type-footnote);
     font-weight: 600;
-    background: var(--control-bg);
+    background: rgba(255,255,255,0.12);
     border: 1px solid var(--control-border);
     border-radius: 3px;
     color: var(--text-dim);
@@ -489,7 +489,7 @@
 
 .session-meta-dir {
     font-size: var(--type-callout);
-    color: var(--text-muted);
+    color: rgba(255,255,255,0.35);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -784,7 +784,7 @@
     display: flex;
     gap: 0.25rem;
     margin-left: auto;
-    background: var(--hover-bg);
+    background: rgba(255,255,255,0.06);
     border-radius: 8px;
     padding: 0.15rem;
 }

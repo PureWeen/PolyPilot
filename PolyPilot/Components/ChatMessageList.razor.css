@@ -39,7 +39,7 @@
 }
 
 .chat-message-list.compact ::deep .chat-msg-text {
-    color: var(--text-primary);
+    color: rgba(255,255,255,0.8);
     word-break: break-word;
 }
 
@@ -513,7 +513,7 @@
     margin: 0.2rem 0.3rem 0.2rem 0;
     border-radius: 6px;
     overflow: hidden;
-    border: 1px solid var(--border-default);
+    border: 1px solid rgba(255,255,255,0.12);
     background: rgba(0,0,0,0.25);
     padding: 0.2rem 0.5rem 0.2rem 0.25rem;
     vertical-align: middle;
