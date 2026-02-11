@@ -343,7 +343,14 @@
             }
             if (focusId) {
                 var fel = document.getElementById(focusId);
-                if (fel) { fel.focus(); fel.setSelectionRange(selStart || 0, selEnd || 0); }
+                if (fel) {
+                    // If element already has focus, don't call focus()/setSelectionRange()
+                    // — that clobbers the user's active text selection (double-click, drag, etc.)
+                    if (document.activeElement !== fel) {
+                        fel.focus();
+                        fel.setSelectionRange(selStart || 0, selEnd || 0);
+                    }
+                }
             }
         };
     </script>
