@@ -58,8 +58,8 @@
             }
         }
 
-        @* Streaming content *@
-        @if (!string.IsNullOrEmpty(StreamingContent))
+        @* Streaming content — only show while actively processing to avoid overlap with finalized History *@
+        @if (!string.IsNullOrEmpty(StreamingContent) && IsProcessing)
         {
             <div class="chat-msg assistant streaming">
                 @if (!Compact)
