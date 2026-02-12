@@ -399,8 +399,8 @@ public partial class CopilotService : IAsyncDisposable
 
     /// <summary>
     /// Build CLI args to pass additional MCP server configs.
-    /// Merges all sources (mcp-servers.json, installed plugins) into a single
-    /// --additional-mcp-config arg. mcp-config.json is auto-read by the CLI.
+    /// Also writes a merged mcp-config.json that the CLI auto-reads at startup,
+    /// which is more reliable than --additional-mcp-config for persistent servers.
     /// </summary>
     internal static string[] GetMcpCliArgs()
     {
@@ -418,6 +418,21 @@ public partial class CopilotService : IAsyncDisposable
                 using var doc = JsonDocument.Parse(File.ReadAllText(serversPath));
                 foreach (var prop in doc.RootElement.EnumerateObject())
                     allServers[prop.Name] = prop.Value.Clone();
+            }
+
+            // mcp-config.json (wrapped format — CLI auto-reads this)
+            var configPath = Path.Combine(copilotDir, "mcp-config.json");
+            if (File.Exists(configPath))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
+                if (doc.RootElement.TryGetProperty("mcpServers", out var mcpServers))
+                {
+                    foreach (var prop in mcpServers.EnumerateObject())
+                    {
+                        if (!allServers.ContainsKey(prop.Name))
+                            allServers[prop.Name] = prop.Value.Clone();
+                    }
+                }
             }
 
             // Installed plugin .mcp.json files (wrapped format)
@@ -449,14 +464,11 @@ public partial class CopilotService : IAsyncDisposable
 
             if (allServers.Count == 0) return args.ToArray();
 
-            // Write merged config to temp file using @filepath syntax
-            var wrapped = new Dictionary<string, object> { ["mcpServers"] = allServers };
-            var json = JsonSerializer.Serialize(wrapped);
-            var tempPath = Path.Combine(copilotDir, "polypilot-mcp-servers.json");
-            File.WriteAllText(tempPath, json);
-            
-            args.Add("--additional-mcp-config");
-            args.Add($"@{tempPath}");
+            // Write merged config back to mcp-config.json so the CLI auto-reads it.
+            // This is more reliable than --additional-mcp-config for persistent servers.
+            var merged = new Dictionary<string, object> { ["mcpServers"] = allServers };
+            var json = JsonSerializer.Serialize(merged, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(configPath, json);
         }
         catch (Exception ex)
         {
