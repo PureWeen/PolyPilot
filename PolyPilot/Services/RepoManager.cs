@@ -195,11 +195,12 @@ public class RepoManager
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
 
-        // Fetch latest from origin
-        await RunGitAsync(repo.BareClonePath, ct, "fetch", "origin");
+        // Fetch latest from origin (prune to clean up deleted remote branches)
+        await RunGitAsync(repo.BareClonePath, ct, "fetch", "--prune", "origin");
 
         // Determine base ref
         var baseRef = baseBranch ?? await GetDefaultBranch(repo.BareClonePath, ct);
+        Console.WriteLine($"[RepoManager] Creating worktree from base ref: {baseRef}");
 
         Directory.CreateDirectory(WorktreesDir);
         var worktreeId = Guid.NewGuid().ToString()[..8];
@@ -354,7 +355,7 @@ public class RepoManager
         EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
-        await RunGitAsync(repo.BareClonePath, ct, "fetch", "origin");
+        await RunGitAsync(repo.BareClonePath, ct, "fetch", "--prune", "origin");
     }
 
     /// <summary>
@@ -380,20 +381,31 @@ public class RepoManager
             var headRef = await RunGitAsync(barePath, ct, "symbolic-ref", "HEAD");
             var branchName = headRef.Trim().Replace("refs/heads/", "");
 
-            // Use origin's latest for the base ref (local refs may be stale)
+            // Always prefer origin's latest for the base ref (local refs may be stale in bare repos)
             try
             {
                 var originRef = (await RunGitAsync(barePath, ct,
                     "rev-parse", "--verify", $"refs/remotes/origin/{branchName}")).Trim();
                 if (!string.IsNullOrEmpty(originRef))
+                {
+                    Console.WriteLine($"[RepoManager] Using origin ref: refs/remotes/origin/{branchName} (SHA: {originRef[..7]})");
                     return $"refs/remotes/origin/{branchName}";
+                }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // Origin ref doesn't exist or git command failed
+                Console.WriteLine($"[RepoManager] Could not resolve refs/remotes/origin/{branchName}: {ex.Message}");
+            }
 
+            // Fallback to local ref (may be stale)
+            Console.WriteLine($"[RepoManager] Falling back to local ref: refs/heads/{branchName}");
             return $"refs/heads/{branchName}";
         }
         catch
         {
+            // If we can't determine the default branch, try origin/main as last resort
+            Console.WriteLine("[RepoManager] Could not determine default branch, using origin/main");
             return "origin/main";
         }
     }

@@ -31,7 +31,7 @@ else
                         }
                         else
                         {
-                            <button class="ns-option-btn" @onclick="() => showWorktreePicker = !showWorktreePicker">
+                            <button class="ns-option-btn" @onclick="ToggleWorktreePicker">
                                 @(showWorktreePicker ? "▾ Select worktree" : "▸ Select worktree")
                             </button>
                         }
@@ -40,6 +40,9 @@ else
                             <div class="ns-wt-picker">
                                 @foreach (var repo in RepoManager.Repositories)
                                 {
+                                    // If filtering to a specific repo, skip others
+                                    if (filterRepoId != null && repo.Id != filterRepoId) continue;
+
                                     var repoId = repo.Id;
                                     var repoWorktrees = RepoManager.Worktrees.Where(w => w.RepoId == repo.Id).ToList();
                                     <div class="wt-repo-name">@repo.Name</div>
@@ -94,14 +97,17 @@ else
                         }
                     </div>
                 }
-                <div class="ns-option-group">
-                    <label class="ns-label">Directory</label>
-                    <div class="ns-dir-row">
-                        <input type="text" @bind="sessionDirectory" placeholder="Working directory..."
-                               class="ns-dir-input" />
-                        <button class="ns-dir-browse" @onclick="BrowseDirectory">…</button>
+                @if (filterRepoId == null)
+                {
+                    <div class="ns-option-group">
+                        <label class="ns-label">Directory</label>
+                        <div class="ns-dir-row">
+                            <input type="text" @bind="sessionDirectory" placeholder="Working directory..."
+                                   class="ns-dir-input" />
+                            <button class="ns-dir-browse" @onclick="BrowseDirectory">…</button>
+                        </div>
                     </div>
-                </div>
+                }
             </div>
         }
 
@@ -141,6 +147,7 @@ else
     private bool isExpanded = false;
     private bool showOptions = false;
     private bool showWorktreePicker = false;
+    private string? filterRepoId; // Filter worktree picker to a specific repo
     private string initialPrompt = "";
     private string sessionDirectory = "";
     private string? selectedWorktreePath;
@@ -160,23 +167,22 @@ else
         isExpanded = true;
         showOptions = true;
         worktreeError = null;
+        filterRepoId = repoId; // Filter to this repo only
+        showWorktreePicker = true;
 
-        // If worktrees exist for this repo, auto-select the first one
+        // Always expand the new worktree form for this repo
+        newWorktreeRepoId = repoId;
+        newWorktreeBranch = "main";
+        newWorktreePr = "";
+        newWorktreeMode = "branch";
+
+        // If worktrees exist for this repo, also auto-select the first one
         var existingWorktrees = RepoManager.Worktrees.Where(w => w.RepoId == repoId).ToList();
         if (existingWorktrees.Count > 0)
         {
             SelectWorktree(existingWorktrees[0]);
-            showWorktreePicker = true;
         }
-        else
-        {
-            // No worktrees yet — open new worktree form prefilled with "main"
-            showWorktreePicker = true;
-            newWorktreeRepoId = repoId;
-            newWorktreeBranch = "main";
-            newWorktreePr = "";
-            newWorktreeMode = "branch";
-        }
+
         StateHasChanged();
     }
     private void Collapse()
@@ -185,11 +191,19 @@ else
         showOptions = false;
         showWorktreePicker = false;
         newWorktreeRepoId = null;
+        filterRepoId = null; // Clear repo filter
     }
 
     private void SetWorktreeMode(string mode) => newWorktreeMode = mode;
     private void SetModeBranch() => newWorktreeMode = "branch";
     private void SetModePr() => newWorktreeMode = "pr";
+
+    private void ToggleWorktreePicker()
+    {
+        showWorktreePicker = !showWorktreePicker;
+        // When manually toggling picker, clear the filter to show all repos
+        if (showWorktreePicker) filterRepoId = null;
+    }
 
     private async Task OnNameInput(ChangeEventArgs e)
     {
@@ -268,6 +282,8 @@ else
             {
                 var wt = await RepoManager.CreateWorktreeAsync(newWorktreeRepoId, newWorktreeBranch.Trim());
                 SelectWorktree(wt);
+                if (string.IsNullOrWhiteSpace(SessionName))
+                { SessionName = wt.Branch; await SessionNameChanged.InvokeAsync(SessionName); }
             }
             catch (Exception ex) { worktreeError = ex.Message; }
             finally { isCreatingWorktree = false; }
