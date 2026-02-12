@@ -273,7 +273,7 @@ else
                                 <span class="session-name persisted-name">@(persisted.Title ?? "Untitled")</span>
                                 <div class="session-meta-row">
                                     <div class="session-meta-left">
-                                        <span class="session-meta-time">@persisted.LastModified.ToString("MMM dd h:mm tt")</span>
+                                        <span class="session-meta-time">@persisted.LastModified.ToString("MMM dd") @persisted.LastModified.ToShortTimeString()</span>
                                         @if (!string.IsNullOrEmpty(persisted.WorkingDirectory))
                                         {
                                             <span class="session-meta-dir">@GetShortPath(persisted.WorkingDirectory)</span>
