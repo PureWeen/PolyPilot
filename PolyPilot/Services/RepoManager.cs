@@ -107,8 +107,10 @@ public class RepoManager
         var existing = _state.Repositories.FirstOrDefault(r => r.Id == id);
         if (existing != null)
         {
-            // Fetch latest
-            await RunGitAsync(existing.BareClonePath, ct, "fetch", "--all", "--prune");
+            // Fetch latest and ensure refspec is set
+            try { await RunGitAsync(existing.BareClonePath, ct, "config", "remote.origin.fetch",
+                "+refs/heads/*:refs/remotes/origin/*"); } catch { }
+            await RunGitAsync(existing.BareClonePath, ct, "fetch", "origin");
             return existing;
         }
 
@@ -116,6 +118,12 @@ public class RepoManager
         var barePath = Path.Combine(ReposDir, $"{id}.git");
 
         await RunGitAsync(null, ct, "clone", "--bare", url, barePath);
+
+        // Set fetch refspec so `git fetch` updates remote-tracking refs
+        // (bare clones don't set this by default)
+        await RunGitAsync(barePath, ct, "config", "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*");
+        await RunGitAsync(barePath, ct, "fetch", "origin");
 
         var repo = new RepositoryInfo
         {
@@ -153,8 +161,8 @@ public class RepoManager
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
 
-        // Fetch latest
-        await RunGitAsync(repo.BareClonePath, ct, "fetch", "--all", "--prune");
+        // Fetch latest from origin
+        await RunGitAsync(repo.BareClonePath, ct, "fetch", "origin");
 
         // Determine base ref
         var baseRef = baseBranch ?? await GetDefaultBranch(repo.BareClonePath, ct);
@@ -283,7 +291,7 @@ public class RepoManager
         EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
-        await RunGitAsync(repo.BareClonePath, ct, "fetch", "--all", "--prune");
+        await RunGitAsync(repo.BareClonePath, ct, "fetch", "origin");
     }
 
     /// <summary>
@@ -305,13 +313,25 @@ public class RepoManager
     {
         try
         {
-            // In bare repos, HEAD points directly to the default branch
-            var output = await RunGitAsync(barePath, ct, "symbolic-ref", "HEAD");
-            return output.Trim(); // e.g. refs/heads/main
+            // Get the default branch name (e.g. "main")
+            var headRef = await RunGitAsync(barePath, ct, "symbolic-ref", "HEAD");
+            var branchName = headRef.Trim().Replace("refs/heads/", "");
+
+            // Use origin's latest for the base ref (local refs may be stale)
+            try
+            {
+                var originRef = (await RunGitAsync(barePath, ct,
+                    "rev-parse", "--verify", $"refs/remotes/origin/{branchName}")).Trim();
+                if (!string.IsNullOrEmpty(originRef))
+                    return $"refs/remotes/origin/{branchName}";
+            }
+            catch { }
+
+            return $"refs/heads/{branchName}";
         }
         catch
         {
-            return "main";
+            return "origin/main";
         }
     }
 
