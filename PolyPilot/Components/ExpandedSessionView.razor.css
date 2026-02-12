@@ -25,6 +25,7 @@
 .chat-header-context { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .context-badge { font-size: var(--type-caption1, 0.6rem); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
 .branch-badge { color: var(--accent-primary); font-weight: 500; }
+.premium-badge { color: #e0a040; font-weight: 500; }
 .model-badge { padding: 0.2rem 0.5rem; background: var(--hover-bg); border: 1px solid var(--border-accent); border-radius: 4px; font-size: var(--type-body); color: var(--accent-primary); line-height: 1.2; }
 .session-id-badge { padding: 0.2rem 0.5rem; background: rgba(251,191,36,0.2); border: 1px solid rgba(251,191,36,0.3); border-radius: 4px; font-size: var(--type-body); color: #fbbf24; font-family: monospace; cursor: pointer; }
 .session-id-badge:hover { background: rgba(251,191,36,0.3); }
