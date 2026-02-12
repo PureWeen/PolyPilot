@@ -254,10 +254,6 @@
             var uiState = CopilotService.LoadUiState();
             if (uiState != null)
             {
-                // Restore active session
-                if (!string.IsNullOrEmpty(uiState.ActiveSession))
-                    CopilotService.SetActiveSession(uiState.ActiveSession);
-                
                 // Restore font size
                 if (uiState.FontSize >= 12 && uiState.FontSize <= 24)
                     fontSize = uiState.FontSize;
@@ -271,12 +267,14 @@
                     expandedSession = uiState.ExpandedSession;
                     _explicitlyCollapsed = false;
                     _initialGridSet = true; // Prevent RefreshState from overriding
+                    CopilotService.SetActiveSession(uiState.ExpandedSession);
                 }
                 else if (uiState.CurrentPage == "/dashboard" || uiState.CurrentPage == "/")
                 {
                     // User was in grid view, don't auto-expand
                     _explicitlyCollapsed = true;
                     _initialGridSet = true; // Prevent RefreshState from overriding
+                    CopilotService.SetActiveSession(null); // Clear any auto-set active session
                 }
             }
 
@@ -598,6 +596,7 @@
                 expandedSession = active;
                 _focusedInputId = $"input-{active.Replace(" ", "-")}";
                 _needsScrollToBottom = true;
+                CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: expandedGrid);
             }
             // Clear sidebar highlight when showing grid view
             // Clear stale streaming content for sessions that finished
