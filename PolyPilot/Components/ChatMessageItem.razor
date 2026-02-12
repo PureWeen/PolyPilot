@@ -28,7 +28,7 @@
                 <div class="chat-msg-text">@((MarkupString)ChatMessageList.FormatUserMessage(Message.Content))</div>
                 @if (!Compact)
                 {
-                    <div class="chat-msg-time">@Message.Timestamp.ToString("HH:mm")</div>
+                    <div class="chat-msg-time">@Message.Timestamp.ToShortTimeString()</div>
                 }
             </div>
         </div>
@@ -48,7 +48,7 @@
                 <div class="chat-msg-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content))</div>
                 @if (!Compact && !IsStreaming)
                 {
-                    <div class="chat-msg-time">@Message.Timestamp.ToString("HH:mm")</div>
+                    <div class="chat-msg-time">@Message.Timestamp.ToShortTimeString()</div>
                 }
             </div>
         </div>

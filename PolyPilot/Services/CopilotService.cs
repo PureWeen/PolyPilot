@@ -509,7 +509,7 @@ public partial class CopilotService : IAsyncDisposable
         }
 
         // Add reconnection indicator with status context
-        var reconnectMsg = $"🔄 Session reconnected at {DateTime.Now:h:mm tt}";
+        var reconnectMsg = $"🔄 Session reconnected at {DateTime.Now.ToShortTimeString()}";
         var isStillProcessing = IsSessionStillProcessing(sessionId);
         if (isStillProcessing)
         {
