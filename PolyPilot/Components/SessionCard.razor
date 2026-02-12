@@ -24,10 +24,12 @@
                 <h3>@Session.Name</h3>
             }
         </div>
-        <button class="card-more-btn" @onclick="ToggleMenu" @onclick:stopPropagation="true" title="More actions">⋯</button>
-        @if (IsMenuOpen)
-        {
-            <div class="card-menu" @onclick:stopPropagation="true">
+        <div class="card-more-wrapper">
+            <button class="card-more-btn" @onclick="ToggleMenu" @onclick:stopPropagation="true" title="More actions">⋯</button>
+            @if (IsMenuOpen)
+            {
+                <div class="menu-overlay" @onclick="() => OnCloseMenu.InvokeAsync()" @onclick:stopPropagation="true"></div>
+                <div class="card-menu" @onclick:stopPropagation="true">
                 <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnStartRename.InvokeAsync(); }">
                     ✏️ Rename
                 </button>
@@ -48,7 +50,8 @@
                     🗑 Close Session
                 </button>
             </div>
-        }
+            }
+        </div>
         @if (Session.IsProcessing)
         {
             <button class="card-stop" @onclick="() => CopilotService.AbortSessionAsync(Session.Name)" title="Stop">■</button>

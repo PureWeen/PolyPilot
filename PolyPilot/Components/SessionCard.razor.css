@@ -122,10 +122,24 @@
 }
 .card-more-btn:hover { color: var(--text-on-surface); background: var(--hover-bg); }
 
+.card-more-wrapper {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.menu-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 99;
+}
+
 .card-menu {
     position: absolute;
-    right: 0.75rem;
-    top: 2.5rem;
+    right: 0;
+    top: 100%;
     z-index: 100;
     min-width: 160px;
     background: var(--bg-tertiary);

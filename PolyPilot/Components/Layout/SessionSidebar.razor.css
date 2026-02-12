@@ -170,6 +170,7 @@
     align-items: center;
     gap: 0.4rem;
     padding: 0.35rem 0.75rem;
+    flex-wrap: wrap;
 }
 
 .sort-select {

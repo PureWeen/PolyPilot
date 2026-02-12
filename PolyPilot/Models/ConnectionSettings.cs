@@ -40,6 +40,8 @@ public class ConnectionSettings
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
     public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
     public bool AutoUpdateFromMain { get; set; } = false;
+    public List<string> DisabledMcpServers { get; set; } = new();
+    public List<string> DisabledPlugins { get; set; } = new();
 
     [JsonIgnore]
     public string CliUrl => Mode == ConnectionMode.Remote && !string.IsNullOrEmpty(RemoteUrl)

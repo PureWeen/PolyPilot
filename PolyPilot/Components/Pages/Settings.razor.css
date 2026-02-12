@@ -5,6 +5,8 @@
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .settings-search {
@@ -105,6 +107,8 @@
     border-radius: 12px;
     padding: 1.25rem;
     margin-bottom: 1rem;
+    overflow: hidden;
+    word-break: break-word;
 }
 
 .settings-section h3 {
@@ -171,6 +175,7 @@
     align-items: center;
     gap: 0.75rem;
     margin-bottom: 0.75rem;
+    flex-wrap: wrap;
 }
 
 .form-row label {
@@ -182,6 +187,7 @@
 .form-input {
     flex: 1;
     max-width: 250px;
+    min-width: 0;
     padding: 0.4rem 0.6rem;
     border: 1px solid var(--control-border);
     border-radius: 6px;
@@ -393,6 +399,7 @@
 .server-buttons {
     display: flex;
     gap: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .start-btn, .stop-btn {
@@ -661,7 +668,7 @@
     border-radius: 8px;
     padding: 0.75rem;
     z-index: 100;
-    min-width: 320px;
+    min-width: min(320px, 90vw);
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 
@@ -843,7 +850,8 @@
 }
 
 .layout-cards {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
     gap: 0.75rem;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -856,7 +864,7 @@
     cursor: pointer;
     transition: all 0.2s ease;
     text-align: center;
-    min-width: 100px;
+    min-width: 0;
 }
 
 .layout-card:hover {
