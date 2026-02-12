@@ -101,8 +101,8 @@
                     {
                         <button class="grid-density-btn" @onclick="() => { isAddingDashGroup = true; }" title="New group">+ Group</button>
                     }
-                    <button class="grid-density-btn" @onclick="ToggleGridDensity" title="@(expandedGrid ? "Compact grid" : "Expanded grid")">
-                        @(expandedGrid ? "▦ Compact" : "▤ Expanded")
+                    <button class="grid-density-btn" @onclick="ToggleGridDensity" title="@(isCompactGrid ? "Expanded grid" : "Compact grid")">
+                        @(isCompactGrid ? "▤ Expanded" : "▦ Compact")
                     </button>
                     <span class="font-size-controls">
                         <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)" title="Decrease font size (⌘−)">A−</button>
@@ -137,7 +137,7 @@
 
             @if (!group.IsCollapsed || !showGroupHeaders)
             {
-                <div class="session-grid @(expandedGrid ? "expanded-grid" : "")">
+                <div class="session-grid @(isCompactGrid ? "" : "expanded-grid")">
                 @foreach (var session in groupSessions)
                 {
                     var isCompleted = completedSessions.Contains(session.Name);
@@ -258,8 +258,8 @@
                 if (uiState.FontSize >= 12 && uiState.FontSize <= 24)
                     fontSize = uiState.FontSize;
                 
-                // Restore expanded grid state
-                expandedGrid = uiState.ExpandedGrid;
+                // Restore expanded grid state (inverted: isCompactGrid)
+                isCompactGrid = !uiState.ExpandedGrid;
                 
                 // Restore expanded session state
                 if (!string.IsNullOrEmpty(uiState.ExpandedSession))
@@ -596,7 +596,7 @@
                 expandedSession = active;
                 _focusedInputId = $"input-{active.Replace(" ", "-")}";
                 _needsScrollToBottom = true;
-                CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: expandedGrid);
+                CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid);
             }
             // Clear sidebar highlight when showing grid view
             // Clear stale streaming content for sessions that finished
@@ -1418,7 +1418,7 @@
         expandedSession = sessionName;
         _needsScrollToBottom = true;
         CopilotService.SwitchSession(sessionName);
-        CopilotService.SaveUiState("/dashboard", activeSession: sessionName, expandedSession: sessionName, expandedGrid: expandedGrid);
+        CopilotService.SaveUiState("/dashboard", activeSession: sessionName, expandedSession: sessionName, expandedGrid: !isCompactGrid);
     }
 
     private async Task CollapseExpanded()
@@ -1429,13 +1429,13 @@
         _lastActiveSession = null;
         _explicitlyCollapsed = true;
         CopilotService.SetActiveSession(null);
-        CopilotService.SaveUiState("/dashboard", activeSession: null, expandedSession: null, expandedGrid: expandedGrid);
+        CopilotService.SaveUiState("/dashboard", activeSession: null, expandedSession: null, expandedGrid: !isCompactGrid);
     }
 
     private void ToggleGridDensity()
     {
-        expandedGrid = !expandedGrid;
-        CopilotService.SaveUiState("/dashboard", expandedGrid: expandedGrid, expandedSession: expandedSession);
+        isCompactGrid = !isCompactGrid;
+        CopilotService.SaveUiState("/dashboard", expandedGrid: !isCompactGrid, expandedSession: expandedSession);
     }
 
     private void ToggleCardMenu(string sessionName)
