@@ -29,6 +29,11 @@
             {
                 <span class="context-badge branch-badge"> @Session.GitBranch</span>
             }
+            @if (UsageInfo?.PremiumQuota != null)
+            {
+                var q = UsageInfo.PremiumQuota;
+                <span class="context-badge premium-badge" title="@(q.IsUnlimited ? "Unlimited premium requests" : $"{q.EntitlementRequests - q.UsedRequests} of {q.EntitlementRequests} remaining (resets {q.ResetDate?[..10]})")">⚡ @(q.IsUnlimited ? "∞" : $"{q.EntitlementRequests - q.UsedRequests}/{q.EntitlementRequests}") premium</span>
+            }
             <button class="collapse-card-btn" @onclick="OnCollapse" title="Back to grid (Esc / ⌘E)">⊟ Grid</button>
         </div>
     </div>

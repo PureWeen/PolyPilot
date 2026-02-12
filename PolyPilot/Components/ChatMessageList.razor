@@ -10,7 +10,7 @@
     }
     else
     {
-        @foreach (var msg in Messages)
+        @foreach (var msg in Messages.ToList())
         {
             <ChatMessageItem Message="msg" Compact="Compact" UserAvatarUrl="@UserAvatarUrl" />
         }

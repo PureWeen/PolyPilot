@@ -165,26 +165,42 @@ public partial class CopilotService
 
             case SessionUsageInfoEvent usageInfo:
                 var uData = usageInfo.Data;
-                var uModel = uData?.GetType().GetProperty("Model")?.GetValue(uData)?.ToString();
-                var uCurrentTokens = uData?.GetType().GetProperty("CurrentTokens")?.GetValue(uData) as int?;
-                var uTokenLimit = uData?.GetType().GetProperty("TokenLimit")?.GetValue(uData) as int?;
-                var uInputTokens = uData?.GetType().GetProperty("InputTokens")?.GetValue(uData) as int?;
-                var uOutputTokens = uData?.GetType().GetProperty("OutputTokens")?.GetValue(uData) as int?;
-                if (!string.IsNullOrEmpty(uModel))
-                    state.Info.Model = uModel;
-                Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(uModel, uCurrentTokens, uTokenLimit, uInputTokens, uOutputTokens)));
+                var uCurrentTokensRaw = uData?.GetType().GetProperty("CurrentTokens")?.GetValue(uData);
+                var uTokenLimitRaw = uData?.GetType().GetProperty("TokenLimit")?.GetValue(uData);
+                var uCurrentTokens = uCurrentTokensRaw != null ? (int?)Convert.ToInt32(uCurrentTokensRaw) : null;
+                var uTokenLimit = uTokenLimitRaw != null ? (int?)Convert.ToInt32(uTokenLimitRaw) : null;
+                Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(null, uCurrentTokens, uTokenLimit, null, null)));
                 break;
 
             case AssistantUsageEvent assistantUsage:
                 var aData = assistantUsage.Data;
                 var aModel = aData?.GetType().GetProperty("Model")?.GetValue(aData)?.ToString();
-                var aInput = aData?.GetType().GetProperty("InputTokens")?.GetValue(aData) as int?;
-                var aOutput = aData?.GetType().GetProperty("OutputTokens")?.GetValue(aData) as int?;
+                var aInputRaw = aData?.GetType().GetProperty("InputTokens")?.GetValue(aData);
+                var aOutputRaw = aData?.GetType().GetProperty("OutputTokens")?.GetValue(aData);
+                var aInput = aInputRaw != null ? (int?)Convert.ToInt32(aInputRaw) : null;
+                var aOutput = aOutputRaw != null ? (int?)Convert.ToInt32(aOutputRaw) : null;
+                QuotaInfo? aPremiumQuota = null;
+                try
+                {
+                    var quotaSnapshots = aData?.GetType().GetProperty("QuotaSnapshots")?.GetValue(aData);
+                    if (quotaSnapshots is Dictionary<string, object> qs &&
+                        qs.TryGetValue("premium_interactions", out var premiumObj) &&
+                        premiumObj is System.Text.Json.JsonElement je)
+                    {
+                        var isUnlimited = je.TryGetProperty("isUnlimitedEntitlement", out var u) && u.GetBoolean();
+                        var entitlement = je.TryGetProperty("entitlementRequests", out var e) ? e.GetInt32() : -1;
+                        var used = je.TryGetProperty("usedRequests", out var ur) ? ur.GetInt32() : 0;
+                        var remaining = je.TryGetProperty("remainingPercentage", out var rp) ? rp.GetInt32() : 100;
+                        var resetDate = je.TryGetProperty("resetDate", out var rd) ? rd.GetString() : null;
+                        aPremiumQuota = new QuotaInfo(isUnlimited, entitlement, used, remaining, resetDate);
+                    }
+                }
+                catch { }
                 if (!string.IsNullOrEmpty(aModel))
                     state.Info.Model = aModel;
-                if (aInput.HasValue || aOutput.HasValue)
+                if (aInput.HasValue || aOutput.HasValue || aPremiumQuota != null)
                 {
-                    Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(aModel, null, null, aInput, aOutput)));
+                    Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(aModel, null, null, aInput, aOutput, aPremiumQuota)));
                 }
                 break;
 

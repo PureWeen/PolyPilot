@@ -1031,5 +1031,14 @@ public record SessionUsageInfo(
     int? CurrentTokens,
     int? TokenLimit,
     int? InputTokens,
-    int? OutputTokens
+    int? OutputTokens,
+    QuotaInfo? PremiumQuota = null
+);
+
+public record QuotaInfo(
+    bool IsUnlimited,
+    int EntitlementRequests,
+    int UsedRequests,
+    int RemainingPercentage,
+    string? ResetDate
 );
