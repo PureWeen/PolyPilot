@@ -375,14 +375,18 @@ public partial class CopilotService : IAsyncDisposable
 
     private CopilotClient CreateClient(ConnectionSettings settings)
     {
-        // Both Embedded and Persistent modes use the default SDK client (stdio).
-        // Persistent mode differs only in that sessions are saved/restored from disk.
-        // Remote mode is handled by InitializeRemoteAsync, not here.
-        var options = new CopilotClientOptions
+        // Remote mode is handled by InitializeRemoteAsync, not here
+        var options = new CopilotClientOptions { Cwd = ProjectDir };
+
+        // The SDK resolves a bundled CLI path internally via GetBundledCliPath().
+        // If the bundled binary doesn't exist (e.g. no runtime package installed),
+        // fall back to the system-installed 'copilot' on PATH.
+        var bundledPath = GetBundledCliPath();
+        if (bundledPath == null || !File.Exists(bundledPath))
         {
-            CliPath = "copilot",
-            Cwd = ProjectDir
-        };
+            Debug($"Bundled CLI not found, falling back to system 'copilot'");
+            options.CliPath = "copilot";
+        }
 
         // Pass additional MCP server configs via CLI args.
         // The CLI auto-reads ~/.copilot/mcp-config.json, but mcp-servers.json
@@ -392,6 +396,22 @@ public partial class CopilotService : IAsyncDisposable
             options.CliArgs = mcpArgs;
 
         return new CopilotClient(options);
+    }
+
+    /// <summary>
+    /// Resolves the path where the SDK expects a bundled copilot binary.
+    /// Pattern: {assembly-dir}/runtimes/{rid}/native/copilot
+    /// </summary>
+    private static string? GetBundledCliPath()
+    {
+        try
+        {
+            var assemblyDir = Path.GetDirectoryName(typeof(CopilotClient).Assembly.Location);
+            if (assemblyDir == null) return null;
+            var rid = System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier;
+            return Path.Combine(assemblyDir, "runtimes", rid, "native", "copilot");
+        }
+        catch { return null; }
     }
 
     /// <summary>
