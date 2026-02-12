@@ -237,20 +237,7 @@
         initError = null;
         try
         {
-            await CopilotService.InitializeAsync();
-
-            // Wait for sessions to arrive (remote mode needs time to sync)
-            if (!CopilotService.GetAllSessions().Any())
-            {
-                await Task.Delay(2000);
-            }
-            sessions = CopilotService.GetAllSessions().ToList();
-
-            if (CopilotService.NeedsConfiguration)
-            {
-                // Stay on dashboard, user can navigate to settings manually
-            }
-
+            // Load UI state FIRST, before initializing (which triggers RefreshState)
             var uiState = CopilotService.LoadUiState();
             if (uiState != null)
             {
@@ -270,21 +257,47 @@
                     expandedSession = uiState.ExpandedSession;
                     _explicitlyCollapsed = false;
                     _initialGridSet = true; // Prevent RefreshState from overriding
-                    CopilotService.SetActiveSession(uiState.ExpandedSession);
-                    Console.WriteLine($"[Dashboard] Restored to expanded session: {uiState.ExpandedSession}");
+                    // Don't set active session yet - will do after Initialize
+                    Console.WriteLine($"[Dashboard] Will restore to expanded session: {uiState.ExpandedSession}");
                 }
                 else if (uiState.CurrentPage == "/dashboard" || uiState.CurrentPage == "/")
                 {
                     // User was in grid view, don't auto-expand
                     _explicitlyCollapsed = true;
                     _initialGridSet = true; // Prevent RefreshState from overriding
-                    CopilotService.SetActiveSession(null); // Clear any auto-set active session
-                    Console.WriteLine($"[Dashboard] Restored to grid view (no expanded session)");
+                    Console.WriteLine($"[Dashboard] Will restore to grid view (no expanded session)");
                 }
             }
             else
             {
                 Console.WriteLine("[Dashboard] No UI state found to restore");
+            }
+
+            await CopilotService.InitializeAsync();
+
+            // Wait for sessions to arrive (remote mode needs time to sync)
+            if (!CopilotService.GetAllSessions().Any())
+            {
+                await Task.Delay(2000);
+            }
+            sessions = CopilotService.GetAllSessions().ToList();
+
+            if (CopilotService.NeedsConfiguration)
+            {
+                // Stay on dashboard, user can navigate to settings manually
+            }
+
+            // Now set the active session after initialization
+            if (uiState != null)
+            {
+                if (!string.IsNullOrEmpty(uiState.ExpandedSession))
+                {
+                    CopilotService.SetActiveSession(uiState.ExpandedSession);
+                }
+                else if (uiState.CurrentPage == "/dashboard" || uiState.CurrentPage == "/")
+                {
+                    CopilotService.SetActiveSession(null); // Clear any auto-set active session
+                }
             }
 
             // When multiple sessions exist and no saved state, start on grid view
