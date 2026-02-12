@@ -392,6 +392,7 @@
 .server-buttons {
     display: flex;
     gap: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .start-btn, .stop-btn {
@@ -840,6 +841,7 @@
 .layout-cards {
     display: flex;
     gap: 0.75rem;
+    flex-wrap: wrap;
 }
 
 .layout-card {
@@ -849,7 +851,8 @@
     cursor: pointer;
     transition: all 0.2s ease;
     text-align: center;
-    min-width: 100px;
+    min-width: 80px;
+    flex: 1 1 80px;
 }
 
 .layout-card:hover {
