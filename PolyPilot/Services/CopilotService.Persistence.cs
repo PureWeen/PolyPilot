@@ -114,8 +114,13 @@ public partial class CopilotService
             };
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);
+            Console.WriteLine($"[CopilotService] Saved UI state: Page={currentPage}, ExpandedSession={state.ExpandedSession}, ExpandedGrid={state.ExpandedGrid}, isCompactGrid={!state.ExpandedGrid}");
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CopilotService] Failed to save UI state: {ex.Message}");
+        }
+    }
     }
 
     public UiState? LoadUiState()
