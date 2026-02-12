@@ -2,6 +2,7 @@
 @using PolyPilot.Services
 @using PolyPilot.Components
 @using Microsoft.JSInterop
+@inject IJSRuntime JS
 
 @switch (Message.MessageType)
 {
@@ -48,7 +49,12 @@
                 <div class="chat-msg-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content))</div>
                 @if (!Compact && !IsStreaming)
                 {
-                    <div class="chat-msg-time">@Message.Timestamp.ToShortTimeString()</div>
+                    <div class="chat-msg-footer">
+                        <span class="chat-msg-time">@Message.Timestamp.ToShortTimeString()</span>
+                        <button class="copy-msg-btn" @onclick="CopyMessage" @onclick:stopPropagation="true" title="Copy message">
+                            @(_copied ? "✓" : "📋")
+                        </button>
+                    </div>
                 }
             </div>
         </div>
@@ -183,4 +189,20 @@
     [Parameter] public bool Compact { get; set; }
     [Parameter] public bool IsStreaming { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
+
+    private bool _copied;
+
+    private async Task CopyMessage()
+    {
+        try
+        {
+            await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(Message.Content);
+            _copied = true;
+            StateHasChanged();
+            await Task.Delay(1500);
+            _copied = false;
+            StateHasChanged();
+        }
+        catch { }
+    }
 }

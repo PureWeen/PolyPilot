@@ -171,6 +171,33 @@
     margin-top: 0.05rem;
 }
 
+.chat-message-list.full ::deep .chat-msg-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.05rem;
+}
+
+.chat-message-list.full ::deep .copy-msg-btn {
+    all: unset;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.1rem 0.25rem;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.chat-message-list.full ::deep .chat-msg:hover .copy-msg-btn {
+    opacity: 1;
+}
+
+.chat-message-list.full ::deep .copy-msg-btn:hover {
+    background: var(--hover-bg);
+    color: var(--text-on-surface);
+}
+
 .chat-message-list.full ::deep .chat-msg.system {
     justify-content: flex-start;
 }
