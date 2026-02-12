@@ -1,0 +1,166 @@
+@using PolyPilot.Models
+@using PolyPilot.Services
+
+<div class="dir-picker-overlay" @onclick="Cancel">
+    <div class="dir-picker" @onclick:stopPropagation="true">
+        <div class="dir-picker-header">
+            <h3>Browse Remote Directory</h3>
+            <button class="dir-close-btn" @onclick="Cancel">✕</button>
+        </div>
+
+        <div class="dir-breadcrumb">
+            @if (pathSegments.Count > 0)
+            {
+                <button class="crumb" @onclick='() => NavigateTo(pathRoot)'>@pathRoot</button>
+                @foreach (var (segment, fullPath) in pathSegments)
+                {
+                    <span class="crumb-sep">/</span>
+                    <button class="crumb" @onclick="() => NavigateTo(fullPath)">@segment</button>
+                }
+            }
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="dir-loading">Loading…</div>
+        }
+        else if (error != null)
+        {
+            <div class="dir-error">@error</div>
+        }
+        else
+        {
+            <div class="dir-list">
+                @if (currentPath != pathRoot)
+                {
+                    <button class="dir-item" @onclick="NavigateUp">
+                        <span class="dir-icon">📁</span>
+                        <span class="dir-name">..</span>
+                    </button>
+                }
+                @if (directories.Count == 0)
+                {
+                    <div class="dir-empty">No subdirectories</div>
+                }
+                @foreach (var dir in directories)
+                {
+                    <button class="dir-item @(dir.IsGitRepo ? "git-repo" : "")" @onclick="() => NavigateTo(CombinePath(currentPath, dir.Name))">
+                        <span class="dir-icon">@(dir.IsGitRepo ? "📦" : "📁")</span>
+                        <span class="dir-name">@dir.Name</span>
+                        @if (dir.IsGitRepo)
+                        {
+                            <span class="dir-badge">repo</span>
+                        }
+                    </button>
+                }
+            </div>
+        }
+
+        <div class="dir-picker-footer">
+            <div class="dir-selected-path">@currentPath</div>
+            <div class="dir-actions">
+                <button class="dir-cancel-btn" @onclick="Cancel">Cancel</button>
+                <button class="dir-select-btn" @onclick="Select" disabled="@isLoading">Select</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback<string> OnSelected { get; set; }
+    [Parameter] public EventCallback OnCancelled { get; set; }
+    [Inject] private CopilotService CopilotService { get; set; } = default!;
+
+    private string currentPath = "";
+    private string pathRoot = "/";
+    private List<(string segment, string fullPath)> pathSegments = new();
+    private List<DirectoryEntry> directories = new();
+    private bool isLoading;
+    private string? error;
+    private bool isCurrentGitRepo;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await NavigateTo(null);
+    }
+
+    private async Task NavigateTo(string? path)
+    {
+        isLoading = true;
+        error = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await CopilotService.ListRemoteDirectoriesAsync(path);
+            if (result == null)
+            {
+                error = "Not connected to remote server";
+            }
+            else if (result.Error != null)
+            {
+                error = result.Error;
+            }
+            else
+            {
+                currentPath = result.Path;
+                directories = result.Directories;
+                isCurrentGitRepo = result.IsGitRepo;
+                BuildBreadcrumb();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            error = "Request timed out";
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private void BuildBreadcrumb()
+    {
+        pathSegments.Clear();
+        if (string.IsNullOrEmpty(currentPath)) return;
+
+        // Determine root (e.g., "/" on Unix, "C:\" on Windows)
+        pathRoot = Path.GetPathRoot(currentPath) ?? "/";
+
+        var relative = currentPath[pathRoot.Length..];
+        if (string.IsNullOrEmpty(relative)) return;
+
+        var parts = relative.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+        var accumulated = pathRoot;
+        foreach (var part in parts)
+        {
+            accumulated = CombinePath(accumulated, part);
+            pathSegments.Add((part, accumulated));
+        }
+    }
+
+    private async Task NavigateUp()
+    {
+        var parent = Path.GetDirectoryName(currentPath);
+        if (!string.IsNullOrEmpty(parent))
+            await NavigateTo(parent);
+    }
+
+    private static string CombinePath(string basePath, string child)
+    {
+        return Path.Combine(basePath, child);
+    }
+
+    private async Task Select()
+    {
+        await OnSelected.InvokeAsync(currentPath);
+    }
+
+    private async Task Cancel()
+    {
+        await OnCancelled.InvokeAsync();
+    }
+}

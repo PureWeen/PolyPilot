@@ -47,6 +47,7 @@ public class RemoteModeTests
             BridgeMessageTypes.CloseSession,
             BridgeMessageTypes.AbortSession,
             BridgeMessageTypes.OrganizationCommand,
+            BridgeMessageTypes.ListDirectories,
         };
         Assert.Equal(types.Length, types.Distinct().Count());
     }
@@ -71,6 +72,7 @@ public class RemoteModeTests
             BridgeMessageTypes.TurnEnd,
             BridgeMessageTypes.SessionComplete,
             BridgeMessageTypes.ErrorEvent,
+            BridgeMessageTypes.DirectoriesList,
         };
         Assert.Equal(types.Length, types.Distinct().Count());
     }

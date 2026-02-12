@@ -433,6 +433,50 @@ public class WsBridgeServer : IDisposable
                         BroadcastOrganizationState();
                     }
                     break;
+
+                case BridgeMessageTypes.ListDirectories:
+                    var dirReq = msg.GetPayload<ListDirectoriesPayload>();
+                    var dirPath = dirReq?.Path;
+                    if (string.IsNullOrWhiteSpace(dirPath))
+                        dirPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+                    var dirResult = new DirectoriesListPayload { Path = dirPath! };
+                    try
+                    {
+                        if (!Path.IsPathRooted(dirPath!) || dirPath!.Contains(".."))
+                        {
+                            dirResult.Error = "Invalid path";
+                        }
+                        else if (!Directory.Exists(dirPath))
+                        {
+                            dirResult.Error = "Directory not found";
+                        }
+                        else
+                        {
+                            dirResult.IsGitRepo = Directory.Exists(Path.Combine(dirPath, ".git"));
+                            dirResult.Directories = Directory.GetDirectories(dirPath)
+                                .Select(d => new DirectoryInfo(d))
+                                .Where(d => !d.Name.StartsWith('.'))
+                                .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+                                .Select(d => new DirectoryEntry
+                                {
+                                    Name = d.Name,
+                                    IsGitRepo = Directory.Exists(Path.Combine(d.FullName, ".git"))
+                                })
+                                .ToList();
+                        }
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        dirResult.Error = "Access denied";
+                    }
+                    catch (Exception ex)
+                    {
+                        dirResult.Error = ex.Message;
+                    }
+                    await SendToClientAsync(clientId, ws,
+                        BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, dirResult), ct);
+                    break;
             }
         }
         catch (Exception ex)

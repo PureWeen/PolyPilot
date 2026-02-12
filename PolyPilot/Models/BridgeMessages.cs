@@ -79,6 +79,10 @@ public static class BridgeMessageTypes
     public const string CloseSession = "close_session";
     public const string AbortSession = "abort_session";
     public const string OrganizationCommand = "organization_command";
+    public const string ListDirectories = "list_directories";
+
+    // Server → Client (response)
+    public const string DirectoriesList = "directories_list";
 }
 
 // --- Server → Client payloads ---
@@ -230,4 +234,25 @@ public class OrganizationCommandPayload
     public string? GroupId { get; set; }
     public string? Name { get; set; }
     public string? SortMode { get; set; }
+}
+
+// --- Directory browsing payloads ---
+
+public class ListDirectoriesPayload
+{
+    public string? Path { get; set; }
+}
+
+public class DirectoriesListPayload
+{
+    public string Path { get; set; } = "";
+    public List<DirectoryEntry> Directories { get; set; } = new();
+    public bool IsGitRepo { get; set; }
+    public string? Error { get; set; }
+}
+
+public class DirectoryEntry
+{
+    public string Name { get; set; } = "";
+    public bool IsGitRepo { get; set; }
 }

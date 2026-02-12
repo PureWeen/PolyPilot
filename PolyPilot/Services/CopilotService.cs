@@ -1102,6 +1102,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         OnStateChanged?.Invoke();
     }
 
+    public async Task<DirectoriesListPayload?> ListRemoteDirectoriesAsync(string? path = null, CancellationToken ct = default)
+    {
+        if (!IsRemoteMode || !_bridgeClient.IsConnected)
+            return null;
+        return await _bridgeClient.ListDirectoriesAsync(path, ct);
+    }
+
     public void RemoveQueuedMessage(string sessionName, int index)
     {
         if (!_sessions.TryGetValue(sessionName, out var state))

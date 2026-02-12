@@ -192,6 +192,19 @@ public class WsBridgeClient : IDisposable
     public async Task SendOrganizationCommandAsync(OrganizationCommandPayload cmd, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.OrganizationCommand, cmd), ct);
 
+    private TaskCompletionSource<DirectoriesListPayload>? _dirListTcs;
+
+    public async Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
+    {
+        _dirListTcs = new TaskCompletionSource<DirectoriesListPayload>();
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ListDirectories,
+            new ListDirectoriesPayload { Path = path }), ct);
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+        linked.Token.Register(() => _dirListTcs.TrySetCanceled());
+        return await _dirListTcs.Task;
+    }
+
     // --- Receive loop ---
 
     private async Task ReceiveLoopAsync(CancellationToken ct)
@@ -422,6 +435,12 @@ public class WsBridgeClient : IDisposable
                 var orgState = msg.GetPayload<OrganizationState>();
                 if (orgState != null)
                     OnOrganizationStateReceived?.Invoke(orgState);
+                break;
+
+            case BridgeMessageTypes.DirectoriesList:
+                var dirList = msg.GetPayload<DirectoriesListPayload>();
+                if (dirList != null)
+                    _dirListTcs?.TrySetResult(dirList);
                 break;
         }
     }
