@@ -565,6 +565,38 @@ public partial class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
+    /// Discover skill directories from installed plugins for SessionConfig.SkillDirectories.
+    /// Scans ~/.copilot/installed-plugins/ for plugins containing a skills/ subdirectory.
+    /// </summary>
+    internal static List<string>? LoadSkillDirectories(IReadOnlyCollection<string>? disabledPlugins = null)
+    {
+        var dirs = new List<string>();
+        try
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var pluginsDir = Path.Combine(home, ".copilot", "installed-plugins");
+            if (!Directory.Exists(pluginsDir)) return null;
+
+            foreach (var marketDir in Directory.GetDirectories(pluginsDir))
+            {
+                foreach (var pluginDir in Directory.GetDirectories(marketDir))
+                {
+                    var pluginName = Path.GetFileName(pluginDir);
+                    if (disabledPlugins?.Contains(pluginName) == true) continue;
+                    var skillsDir = Path.Combine(pluginDir, "skills");
+                    if (Directory.Exists(skillsDir))
+                        dirs.Add(skillsDir);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Skills] Failed to scan plugin skill directories: {ex.Message}");
+        }
+        return dirs.Count > 0 ? dirs : null;
+    }
+
+    /// <summary>
     /// Parse a JSON element into a McpLocalServerConfig so the SDK serializes it correctly.
     /// </summary>
     private static McpLocalServerConfig ParseMcpServerConfig(JsonElement element)
@@ -786,11 +818,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         var settings = ConnectionSettings.Load();
         var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+        var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
         var config = new SessionConfig
         {
             Model = sessionModel,
             WorkingDirectory = sessionDir,
             McpServers = mcpServers,
+            SkillDirectories = skillDirs,
             SystemMessage = new SystemMessageConfig
             {
                 Mode = SystemMessageMode.Append,
@@ -799,6 +833,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         };
         if (mcpServers != null)
             Debug($"Session config includes {mcpServers.Count} MCP server(s): {string.Join(", ", mcpServers.Keys)}");
+        if (skillDirs != null)
+            Debug($"Session config includes {skillDirs.Count} skill dir(s): {string.Join(", ", skillDirs)}");
 
         var copilotSession = await _client.CreateSessionAsync(config, cancellationToken);
 
