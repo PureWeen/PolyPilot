@@ -59,6 +59,7 @@
                 @onclick="() => OnToggleMenu.InvokeAsync()" title="More actions">⋯</button>
         @if (IsMenuOpen)
         {
+            <div class="menu-overlay" @onclick="() => OnCloseMenu.InvokeAsync()" @onclick:stopPropagation="true"></div>
             <div class="session-menu" @onclick:stopPropagation="true">
                 <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnStartRename.InvokeAsync(); }">
                     ✏️ Rename

@@ -122,6 +122,7 @@
 }
 
 .session-actions {
+    position: relative;
     display: flex;
     align-items: center;
     flex-shrink: 0;
@@ -139,6 +140,15 @@
     letter-spacing: 0.1em;
 }
 .more-btn:hover { color: var(--text-on-surface); background: var(--hover-bg); }
+
+.menu-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 99;
+}
 
 .session-menu {
     position: absolute;
