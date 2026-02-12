@@ -202,10 +202,6 @@ public partial class CopilotService : IAsyncDisposable
     {
         if (IsInitialized) return;
 
-        // Ensure required directories exist
-        Directory.CreateDirectory(CopilotBaseDir);
-        Directory.CreateDirectory(PolyPilotDir);
-
         // Capture the sync context for marshaling events back to UI thread
         _syncContext = SynchronizationContext.Current;
         Debug($"SyncContext captured: {_syncContext?.GetType().Name ?? "null"}");
@@ -413,7 +409,7 @@ public partial class CopilotService : IAsyncDisposable
         // Remote mode is handled by InitializeRemoteAsync, not here.
         var options = new CopilotClientOptions
         {
-            CliPath = ServerManager.FindCopilotCliPath(),
+            CliPath = "copilot",
             Cwd = ProjectDir
         };
 
