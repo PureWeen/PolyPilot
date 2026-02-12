@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
 using PolyPilot.Models;
 using GitHub.Copilot.SDK;
 
@@ -16,16 +15,12 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ServerManager _serverManager;
     private readonly WsBridgeClient _bridgeClient;
     private readonly DemoService _demoService;
-    private readonly ILogger<CopilotService> _logger;
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
     
     private static string? _copilotBaseDir;
     private static string CopilotBaseDir => _copilotBaseDir ??= GetCopilotBaseDir();
-
-    private static string? _polyPilotDir;
-    private static string PolyPilotDir => _polyPilotDir ??= GetPolyPilotDir();
 
     private static string GetCopilotBaseDir()
     {
@@ -53,46 +48,20 @@ public partial class CopilotService : IAsyncDisposable
         }
     }
 
-    private static string GetPolyPilotDir()
-    {
-        try
-        {
-#if ANDROID
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (string.IsNullOrEmpty(home))
-                home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-            if (string.IsNullOrEmpty(home))
-                home = Android.App.Application.Context.FilesDir?.AbsolutePath ?? Path.GetTempPath();
-            return Path.Combine(home, ".polypilot");
-#else
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (string.IsNullOrEmpty(home))
-                home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (string.IsNullOrEmpty(home))
-                home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-            return Path.Combine(home, ".polypilot");
-#endif
-        }
-        catch
-        {
-            return Path.Combine(Path.GetTempPath(), ".polypilot");
-        }
-    }
-
     private static string? _sessionStatePath;
     private static string SessionStatePath => _sessionStatePath ??= Path.Combine(CopilotBaseDir, "session-state");
 
     private static string? _activeSessionsFile;
-    private static string ActiveSessionsFile => _activeSessionsFile ??= Path.Combine(PolyPilotDir, "active-sessions.json");
+    private static string ActiveSessionsFile => _activeSessionsFile ??= Path.Combine(CopilotBaseDir, "PolyPilot-active-sessions.json");
 
     private static string? _sessionAliasesFile;
-    private static string SessionAliasesFile => _sessionAliasesFile ??= Path.Combine(PolyPilotDir, "session-aliases.json");
+    private static string SessionAliasesFile => _sessionAliasesFile ??= Path.Combine(CopilotBaseDir, "PolyPilot-session-aliases.json");
 
     private static string? _uiStateFile;
-    private static string UiStateFile => _uiStateFile ??= Path.Combine(PolyPilotDir, "ui-state.json");
+    private static string UiStateFile => _uiStateFile ??= Path.Combine(CopilotBaseDir, "PolyPilot-ui-state.json");
 
     private static string? _organizationFile;
-    private static string OrganizationFile => _organizationFile ??= Path.Combine(PolyPilotDir, "organization.json");
+    private static string OrganizationFile => _organizationFile ??= Path.Combine(CopilotBaseDir, "PolyPilot-organization.json");
 
     private static string? _projectDir;
     private static string ProjectDir => _projectDir ??= FindProjectDir();
@@ -131,13 +100,12 @@ public partial class CopilotService : IAsyncDisposable
     public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
     public List<string> AvailableModels { get; private set; } = new();
 
-    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient, ILogger<CopilotService> logger)
+    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient)
     {
         _chatDb = chatDb;
         _serverManager = serverManager;
         _bridgeClient = bridgeClient;
         _demoService = new DemoService();
-        _logger = logger;
     }
 
     // Debug info
@@ -186,7 +154,6 @@ public partial class CopilotService : IAsyncDisposable
     {
         LastDebugMessage = message;
         Console.WriteLine($"[DEBUG] {message}");
-        _logger.LogInformation("[CopilotService] {Message}", message);
         OnDebug?.Invoke(message);
     }
 
@@ -244,27 +211,32 @@ public partial class CopilotService : IAsyncDisposable
         }
         Debug($"Android: connecting to remote server at {settings.CliUrl}");
 #endif
-        // Persistent mode on desktop uses the same embedded SDK client as Embedded mode,
-        // but sessions are persisted to disk and restored on app restart.
-        // The headless server (CliUrl) approach has protocol compatibility issues
-        // with the current SDK version, so we use embedded mode universally on desktop.
-        Debug($"Creating CopilotClient for mode={settings.Mode}...");
-        _client = CreateClient(settings);
-        Debug("CopilotClient created successfully, calling StartAsync...");
+        // In Persistent mode, auto-start the server if not already running
+        if (settings.Mode == ConnectionMode.Persistent)
+        {
+            if (!_serverManager.CheckServerRunning("localhost", settings.Port))
+            {
+                Debug($"Persistent server not running, auto-starting on port {settings.Port}...");
+                var started = await _serverManager.StartServerAsync(settings.Port);
+                if (!started)
+                {
+                    Debug("Failed to auto-start server, falling back to Embedded mode");
+                    settings.Mode = ConnectionMode.Embedded;
+                    CurrentMode = ConnectionMode.Embedded;
+                }
+            }
+            else
+            {
+                Debug($"Persistent server already running on port {settings.Port}");
+            }
+        }
 
-        try
-        {
-            await _client.StartAsync(cancellationToken);
-            IsInitialized = true;
-            NeedsConfiguration = false;
-            Debug($"Copilot client started in {settings.Mode} mode");
-        }
-        catch (Exception ex)
-        {
-            Debug($"CopilotClient.StartAsync FAILED: {ex.GetType().Name}: {ex.Message}");
-            _logger.LogError(ex, "CopilotClient.StartAsync failed");
-            throw;
-        }
+        _client = CreateClient(settings);
+
+        await _client.StartAsync(cancellationToken);
+        IsInitialized = true;
+        NeedsConfiguration = false;
+        Debug($"Copilot client started in {settings.Mode} mode");
 
         // Load default system instructions from the project's copilot-instructions.md
         var instructionsPath = Path.Combine(ProjectDir, ".github", "copilot-instructions.md");
@@ -404,13 +376,15 @@ public partial class CopilotService : IAsyncDisposable
 
     private CopilotClient CreateClient(ConnectionSettings settings)
     {
-        // Both Embedded and Persistent modes use the default SDK client (stdio).
-        // Persistent mode differs only in that sessions are saved/restored from disk.
-        // Remote mode is handled by InitializeRemoteAsync, not here.
-        var options = new CopilotClientOptions
+        // Remote mode is handled by InitializeRemoteAsync, not here
+        var options = settings.Mode switch
         {
-            CliPath = "copilot",
-            Cwd = ProjectDir
+            ConnectionMode.Persistent => new CopilotClientOptions
+            {
+                CliUrl = settings.CliUrl,
+                UseStdio = false
+            },
+            _ => new CopilotClientOptions()
         };
 
         // Pass additional MCP server configs via CLI args.
@@ -434,76 +408,29 @@ public partial class CopilotService : IAsyncDisposable
         try
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var copilotDir = Path.Combine(home, ".copilot");
-            var merged = new Dictionary<string, JsonElement>();
+            var serversPath = Path.Combine(home, ".copilot", "mcp-servers.json");
+            if (!File.Exists(serversPath)) return args.ToArray();
 
-            // Read ~/.copilot/mcp-servers.json (simple format without mcpServers wrapper)
-            try
-            {
-                var serversPath = Path.Combine(copilotDir, "mcp-servers.json");
-                if (File.Exists(serversPath))
-                {
-                    using var doc = JsonDocument.Parse(File.ReadAllText(serversPath));
-                    foreach (var prop in doc.RootElement.EnumerateObject())
-                        merged[prop.Name] = prop.Value.Clone();
-                }
-            }
-            catch { }
-
-            // Read plugin .mcp.json files (mcpServers wrapped format)
-            try
-            {
-                var pluginsDir = Path.Combine(copilotDir, "installed-plugins");
-                if (Directory.Exists(pluginsDir))
-                {
-                    foreach (var marketDir in Directory.GetDirectories(pluginsDir))
-                    {
-                        foreach (var pluginDir in Directory.GetDirectories(marketDir))
-                        {
-                            var mcpFile = Path.Combine(pluginDir, ".mcp.json");
-                            if (!File.Exists(mcpFile)) continue;
-                            try
-                            {
-                                using var doc = JsonDocument.Parse(File.ReadAllText(mcpFile));
-                                if (doc.RootElement.TryGetProperty("mcpServers", out var servers))
-                                {
-                                    foreach (var prop in servers.EnumerateObject())
-                                        merged.TryAdd(prop.Name, prop.Value.Clone());
-                                }
-                            }
-                            catch { }
-                        }
-                    }
-                }
-            }
-            catch { }
-
-            if (merged.Count == 0) return args.ToArray();
-
-            // Write single merged file with mcpServers envelope
-            var tempPath = Path.Combine(copilotDir, "polypilot-mcp-servers.json");
-            using var stream = File.Create(tempPath);
-            using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
-            writer.WriteStartObject();
-            writer.WritePropertyName("mcpServers");
-            writer.WriteStartObject();
-            foreach (var (name, value) in merged)
-            {
-                writer.WritePropertyName(name);
-                value.WriteTo(writer);
-            }
-            writer.WriteEndObject();
-            writer.WriteEndObject();
-            writer.Flush();
-
+            // mcp-servers.json is { "name": { "command": "...", "args": [...], "env": {...} } }
+            // CLI expects { "mcpServers": { "name": { ... } } }
+            var raw = File.ReadAllText(serversPath);
+            using var doc = JsonDocument.Parse(raw);
+            
+            // Wrap in mcpServers envelope and write to a temp file.
+            // Inline JSON loses quotes when passed via ProcessStartInfo,
+            // so use the @filepath syntax the CLI supports.
+            var wrapped = new Dictionary<string, object> { ["mcpServers"] = JsonSerializer.Deserialize<object>(raw)! };
+            var json = JsonSerializer.Serialize(wrapped);
+            var tempPath = Path.Combine(home, ".copilot", "polypilot-mcp-servers.json");
+            File.WriteAllText(tempPath, json);
+            
             args.Add("--additional-mcp-config");
             args.Add($"@{tempPath}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[MCP] Failed to build MCP config: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[MCP] Failed to read mcp-servers.json: {ex.Message}");
         }
-
         return args.ToArray();
     }
 
