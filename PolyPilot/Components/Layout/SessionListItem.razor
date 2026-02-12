@@ -1,9 +1,12 @@
 @using PolyPilot.Services
 @using PolyPilot.Models
+@using System.Diagnostics
 @inject CopilotService CopilotService
+@inject RepoManager RepoManager
 
 @{
     var isPinned = Meta?.IsPinned ?? false;
+    var sessionDir = GetSessionDirectory();
     var cssClass = IsActive ? "active" : 
                    IsCompleted ? "completed" :
                    Session.IsProcessing ? "busy" : "";
@@ -73,6 +76,16 @@
                     </button>
                 }
                 <div class="menu-separator"></div>
+                @if (!string.IsNullOrEmpty(sessionDir))
+                {
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInTerminal(); }">
+                        >_ Terminal
+                    </button>
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInVSCode(); }">
+                        ⌨ VS Code
+                    </button>
+                    <div class="menu-separator"></div>
+                }
                 <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnClose.InvokeAsync(); }">
                     🗑 Close Session
                 </button>
@@ -111,5 +124,50 @@
         var parts = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (parts.Length <= 2) return path;
         return "…/" + parts[^1];
+    }
+
+    private string? GetSessionDirectory()
+    {
+        if (!string.IsNullOrEmpty(Session.WorkingDirectory))
+            return Session.WorkingDirectory;
+        // Fallback: resolve from worktree metadata
+        if (Meta?.WorktreeId != null)
+        {
+            var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == Meta.WorktreeId);
+            if (wt != null) return wt.Path;
+        }
+        return null;
+    }
+
+    private void OpenInTerminal()
+    {
+        var dir = GetSessionDirectory();
+        if (string.IsNullOrEmpty(dir)) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "open",
+                ArgumentList = { "-a", "Terminal", dir },
+                UseShellExecute = false
+            });
+        }
+        catch { }
+    }
+
+    private void OpenInVSCode()
+    {
+        var dir = GetSessionDirectory();
+        if (string.IsNullOrEmpty(dir)) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "code",
+                ArgumentList = { dir },
+                UseShellExecute = false
+            });
+        }
+        catch { }
     }
 }

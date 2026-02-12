@@ -608,7 +608,7 @@ public partial class CopilotService : IAsyncDisposable
             throw new InvalidOperationException($"Session '{name}' already exists.");
 
         var sessionModel = model ?? DefaultModel;
-        var sessionDir = workingDirectory ?? ProjectDir;
+        var sessionDir = string.IsNullOrWhiteSpace(workingDirectory) ? ProjectDir : workingDirectory;
 
         // Build system message with critical relaunch instructions
         var systemContent = new StringBuilder();

@@ -155,6 +155,30 @@ else
     private bool isCreatingWorktree;
 
     private void Expand() => isExpanded = true;
+    public void ExpandForRepo(string repoId)
+    {
+        isExpanded = true;
+        showOptions = true;
+        worktreeError = null;
+
+        // If worktrees exist for this repo, auto-select the first one
+        var existingWorktrees = RepoManager.Worktrees.Where(w => w.RepoId == repoId).ToList();
+        if (existingWorktrees.Count > 0)
+        {
+            SelectWorktree(existingWorktrees[0]);
+            showWorktreePicker = true;
+        }
+        else
+        {
+            // No worktrees yet — open new worktree form prefilled with "main"
+            showWorktreePicker = true;
+            newWorktreeRepoId = repoId;
+            newWorktreeBranch = "main";
+            newWorktreePr = "";
+            newWorktreeMode = "branch";
+        }
+        StateHasChanged();
+    }
     private void Collapse()
     {
         isExpanded = false;
@@ -187,6 +211,12 @@ else
         selectedWorktreeBranch = wt.Branch;
         showWorktreePicker = false;
         newWorktreeRepoId = null;
+
+        if (string.IsNullOrWhiteSpace(SessionName))
+        {
+            SessionName = wt.Branch;
+            _ = SessionNameChanged.InvokeAsync(SessionName);
+        }
     }
 
     private void ClearWorktree()

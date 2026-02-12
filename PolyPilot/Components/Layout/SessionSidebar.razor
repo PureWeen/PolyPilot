@@ -30,7 +30,7 @@ else if (IsFlyoutPanel)
         </div>
 
         <div class="new-session-wrapper">
-            <CreateSessionForm @bind-SessionName="newSessionName"
+            <CreateSessionForm @ref="createSessionFormRef" @bind-SessionName="newSessionName"
                                @bind-SelectedModel="selectedModel"
                                AvailableModels="availableModels.ToList()"
                                IsCreating="isCreating"
@@ -65,7 +65,7 @@ else
         </div>
 
         <div class="new-session-wrapper">
-            <CreateSessionForm @bind-SessionName="newSessionName"
+            <CreateSessionForm @ref="createSessionFormRef" @bind-SessionName="newSessionName"
                                @bind-SelectedModel="selectedModel"
                                AvailableModels="availableModels.ToList()"
                                IsCreating="isCreating"
@@ -114,13 +114,30 @@ else
         @if (showAddRepo)
         {
             <div class="add-repo-form">
-                <input type="text" @bind="newRepoUrl" placeholder="Repository URL (https://github.com/...)" class="repo-url-input" />
-                <div class="add-repo-actions">
-                    <button class="btn-repo-add" @onclick="AddRepository" disabled="@(isAddingRepo || string.IsNullOrWhiteSpace(newRepoUrl))">
-                        @(isAddingRepo ? "Cloning..." : "Add")
-                    </button>
-                    <button class="btn-repo-cancel" @onclick="() => { showAddRepo = false; addRepoError = null; }">Cancel</button>
-                </div>
+                <input type="text" @bind="newRepoUrl" placeholder="owner/repo or full URL" class="repo-url-input" />
+                @if (confirmRepoReplace)
+                {
+                    <div class="repo-confirm">
+                        <span>@confirmRepoName already exists. Re-fetch?</span>
+                        <div class="repo-confirm-actions">
+                            <button class="btn-repo-add" @onclick="ConfirmAddRepository">Yes</button>
+                            <button class="btn-repo-cancel" @onclick="() => { confirmRepoReplace = false; confirmRepoName = null; }">No</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="add-repo-actions">
+                        <button class="btn-repo-add" @onclick="AddRepository" disabled="@(isAddingRepo || string.IsNullOrWhiteSpace(newRepoUrl))">
+                            @(isAddingRepo ? "Cloning..." : "Add")
+                        </button>
+                        <button class="btn-repo-cancel" @onclick="() => { showAddRepo = false; addRepoError = null; }">Cancel</button>
+                    </div>
+                }
+                @if (isAddingRepo && !string.IsNullOrEmpty(addRepoProgress))
+                {
+                    <div class="repo-progress">@addRepoProgress</div>
+                }
                 @if (!string.IsNullOrEmpty(addRepoError))
                 {
                     <div class="repo-error">⚠ @addRepoError</div>
@@ -135,12 +152,13 @@ else
                 var sessionIndex = 0;
             }
 
-            @if (!sessions.Any())
+            @if (!sessions.Any() && !CopilotService.HasMultipleGroups)
             {
                 <div class="section-header"><span class="section-header-label">Active Sessions</span></div>
                 <p class="no-sessions">No active sessions.<br/>Create one above or resume below.</p>
             }
-            else
+
+            @if (sessions.Any() || CopilotService.HasMultipleGroups)
             {
                 @if (!showGroupHeaders)
                 {
@@ -152,7 +170,10 @@ else
                     @if (showGroupHeaders)
                     {
                         var isRepoGroup = !string.IsNullOrEmpty(group.RepoId);
+                        var repoForGroup = isRepoGroup ? RepoManager.Repositories.FirstOrDefault(r => r.Id == group.RepoId) : null;
+                        var groupTitle = repoForGroup != null ? $"{repoForGroup.Url}\n{repoForGroup.BareClonePath}" : "";
                         <div class="group-header @(group.IsCollapsed ? "collapsed" : "") @(isRepoGroup ? "repo-group" : "")"
+                             title="@groupTitle"
                              @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
                             <span class="group-chevron">@(group.IsCollapsed ? "▶" : "▼")</span>
                             @if (isRepoGroup)
@@ -167,9 +188,33 @@ else
                             }
                             @if (group.Id != SessionGroup.DefaultId)
                             {
-                                <button class="group-delete-btn" title="Delete group"
-                                        @onclick="() => CopilotService.DeleteGroup(group.Id)"
-                                        @onclick:stopPropagation="true">×</button>
+                                @if (isRepoGroup && confirmRemoveRepoId == group.RepoId)
+                                {
+                                    var rId = group.RepoId!;
+                                    var gId = group.Id;
+                                    <span class="repo-remove-confirm" @onclick:stopPropagation="true">
+                                        <span class="repo-remove-label">Delete folder?</span>
+                                        <button class="btn-repo-rm" @onclick="() => RemoveRepo(rId, gId, true)">Yes</button>
+                                        <button class="btn-repo-rm" @onclick="() => RemoveRepo(rId, gId, false)">No</button>
+                                        <button class="btn-repo-rm cancel" @onclick="() => { confirmRemoveRepoId = null; }">Cancel</button>
+                                    </span>
+                                }
+                                else if (isRepoGroup)
+                                {
+                                    var rId = group.RepoId!;
+                                    <button class="group-add-btn" title="New session for this repo"
+                                            @onclick="() => createSessionFormRef?.ExpandForRepo(rId)"
+                                            @onclick:stopPropagation="true">+</button>
+                                    <button class="group-delete-btn" title="Remove repository"
+                                            @onclick="() => { confirmRemoveRepoId = rId; }"
+                                            @onclick:stopPropagation="true">×</button>
+                                }
+                                else
+                                {
+                                    <button class="group-delete-btn" title="Delete group"
+                                            @onclick="() => CopilotService.DeleteGroup(group.Id)"
+                                            @onclick:stopPropagation="true">×</button>
+                                }
                             }
                         </div>
                     }
@@ -278,12 +323,17 @@ else
     private string currentPage = "/";
     private bool isAddingGroup = false;
     private string? openMenuSession = null;
+    private CreateSessionForm? createSessionFormRef;
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
     private bool showAddRepo = false;
     private string newRepoUrl = "";
     private string? addRepoError = null;
     private bool isAddingRepo = false;
+    private string? addRepoProgress = null;
+    private bool confirmRepoReplace = false;
+    private string? confirmRepoName = null;
+    private string? confirmRemoveRepoId = null;
 
     private async Task ToggleFlyout()
     {
@@ -646,11 +696,40 @@ else
     private async Task AddRepository()
     {
         if (isAddingRepo || string.IsNullOrWhiteSpace(newRepoUrl)) return;
-        isAddingRepo = true;
         addRepoError = null;
+
+        // Check if repo already exists
+        var normalizedUrl = RepoManager.NormalizeRepoUrl(newRepoUrl.Trim());
+        var id = RepoManager.RepoIdFromUrl(normalizedUrl);
+        var existing = RepoManager.Repositories.FirstOrDefault(r => r.Id == id);
+        if (existing != null)
+        {
+            confirmRepoReplace = true;
+            confirmRepoName = existing.Name;
+            return;
+        }
+
+        await DoAddRepository();
+    }
+
+    private async Task ConfirmAddRepository()
+    {
+        confirmRepoReplace = false;
+        confirmRepoName = null;
+        await DoAddRepository();
+    }
+
+    private async Task DoAddRepository()
+    {
+        isAddingRepo = true;
+        addRepoProgress = null;
         try
         {
-            var repo = await RepoManager.AddRepositoryAsync(newRepoUrl.Trim());
+            var repo = await RepoManager.AddRepositoryAsync(newRepoUrl.Trim(), progress =>
+            {
+                addRepoProgress = progress;
+                InvokeAsync(StateHasChanged);
+            });
             CopilotService.GetOrCreateRepoGroup(repo.Id, repo.Name);
             showAddRepo = false;
             newRepoUrl = "";
@@ -662,6 +741,21 @@ else
         finally
         {
             isAddingRepo = false;
+            addRepoProgress = null;
+        }
+    }
+
+    private async Task RemoveRepo(string repoId, string groupId, bool deleteFromDisk)
+    {
+        confirmRemoveRepoId = null;
+        try
+        {
+            await RepoManager.RemoveRepositoryAsync(repoId, deleteFromDisk);
+            CopilotService.DeleteGroup(groupId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error removing repo: {ex.Message}");
         }
     }
 
