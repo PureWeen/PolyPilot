@@ -413,7 +413,7 @@ public partial class CopilotService : IAsyncDisposable
         // Remote mode is handled by InitializeRemoteAsync, not here.
         var options = new CopilotClientOptions
         {
-            CliPath = "copilot",
+            CliPath = ServerManager.FindCopilotCliPath(),
             Cwd = ProjectDir
         };
 
