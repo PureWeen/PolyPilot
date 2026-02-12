@@ -190,6 +190,35 @@
     outline: none;
 }
 
+/* === Context bar === */
+.context-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.15rem;
+}
+
+.context-bar-track {
+    flex: 1;
+    height: 4px;
+    background: var(--control-bg);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.context-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.context-bar-label {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
 /* === Mobile responsive === */
 @media (max-width: 640px) {
     .session-item {

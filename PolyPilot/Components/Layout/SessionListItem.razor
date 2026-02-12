@@ -10,6 +10,14 @@
     var cssClass = IsActive ? "active" : 
                    IsCompleted ? "completed" :
                    Session.IsProcessing ? "busy" : "";
+    // Prefer SDK-reported context window; fall back to accumulated totals
+    var hasContextWindow = Session.ContextCurrentTokens > 0 && Session.ContextTokenLimit > 0;
+    var totalTokens = Session.TotalInputTokens + Session.TotalOutputTokens;
+    var hasTokens = hasContextWindow || totalTokens > 0;
+    var contextPct = hasContextWindow 
+        ? Math.Min(100.0, (double)Session.ContextCurrentTokens!.Value / Session.ContextTokenLimit!.Value * 100) 
+        : 0;
+    var contextColor = contextPct > 85 ? "var(--accent-primary)" : contextPct > 60 ? "#fbbf24" : "var(--accent-success)";
 }
 <div class="session-item @cssClass @(isPinned ? "pinned" : "")"
      @onclick="() => OnSelect.InvokeAsync()">
@@ -53,6 +61,21 @@
                 }
             </span>
         </div>
+        @if (hasContextWindow)
+        {
+            <div class="context-bar-row">
+                <div class="context-bar-track">
+                    <div class="context-bar-fill" style="width: @($"{contextPct:F0}")%; background: @contextColor;"></div>
+                </div>
+                <span class="context-bar-label">@FormatTokenCount(Session.ContextCurrentTokens!.Value)/@FormatTokenCount(Session.ContextTokenLimit!.Value)</span>
+            </div>
+        }
+        else if (hasTokens)
+        {
+            <div class="context-bar-row">
+                <span class="context-bar-label">↑@FormatTokenCount(Session.TotalInputTokens) ↓@FormatTokenCount(Session.TotalOutputTokens)</span>
+            </div>
+        }
     </div>
     <div class="session-actions">
         <button class="more-btn" @onclick:stopPropagation="true"
@@ -103,6 +126,7 @@
     [Parameter] public bool IsMenuOpen { get; set; }
     [Parameter] public int ShortcutIndex { get; set; }
     [Parameter] public List<SessionGroup>? Groups { get; set; }
+    [Parameter] public SessionUsageInfo? UsageInfo { get; set; }
 
     [Parameter] public EventCallback OnSelect { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
@@ -170,4 +194,7 @@
         }
         catch { }
     }
+
+    private static string FormatTokenCount(int count) =>
+        count >= 1000 ? $"{count / 1000}k" : count.ToString();
 }
