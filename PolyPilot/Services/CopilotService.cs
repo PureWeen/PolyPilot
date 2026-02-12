@@ -399,8 +399,8 @@ public partial class CopilotService : IAsyncDisposable
 
     /// <summary>
     /// Build CLI args to pass additional MCP server configs.
-    /// Reads ~/.copilot/mcp-servers.json (simple format) and converts
-    /// to the --additional-mcp-config format the CLI expects.
+    /// Merges all sources (mcp-servers.json, installed plugins) into a single
+    /// --additional-mcp-config arg. mcp-config.json is auto-read by the CLI.
     /// </summary>
     internal static string[] GetMcpCliArgs()
     {
@@ -408,20 +408,51 @@ public partial class CopilotService : IAsyncDisposable
         try
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var serversPath = Path.Combine(home, ".copilot", "mcp-servers.json");
-            if (!File.Exists(serversPath)) return args.ToArray();
+            var copilotDir = Path.Combine(home, ".copilot");
+            var allServers = new Dictionary<string, JsonElement>();
 
-            // mcp-servers.json is { "name": { "command": "...", "args": [...], "env": {...} } }
-            // CLI expects { "mcpServers": { "name": { ... } } }
-            var raw = File.ReadAllText(serversPath);
-            using var doc = JsonDocument.Parse(raw);
-            
-            // Wrap in mcpServers envelope and write to a temp file.
-            // Inline JSON loses quotes when passed via ProcessStartInfo,
-            // so use the @filepath syntax the CLI supports.
-            var wrapped = new Dictionary<string, object> { ["mcpServers"] = JsonSerializer.Deserialize<object>(raw)! };
+            // mcp-servers.json (flat format: { "name": { "command": ..., "args": [...] } })
+            var serversPath = Path.Combine(copilotDir, "mcp-servers.json");
+            if (File.Exists(serversPath))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(serversPath));
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                    allServers[prop.Name] = prop.Value.Clone();
+            }
+
+            // Installed plugin .mcp.json files (wrapped format)
+            var pluginsDir = Path.Combine(copilotDir, "installed-plugins");
+            if (Directory.Exists(pluginsDir))
+            {
+                foreach (var marketDir in Directory.GetDirectories(pluginsDir))
+                {
+                    foreach (var pluginDir in Directory.GetDirectories(marketDir))
+                    {
+                        var mcpFile = Path.Combine(pluginDir, ".mcp.json");
+                        if (!File.Exists(mcpFile)) continue;
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(File.ReadAllText(mcpFile));
+                            if (doc.RootElement.TryGetProperty("mcpServers", out var mcpServers))
+                            {
+                                foreach (var prop in mcpServers.EnumerateObject())
+                                {
+                                    if (!allServers.ContainsKey(prop.Name))
+                                        allServers[prop.Name] = prop.Value.Clone();
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+
+            if (allServers.Count == 0) return args.ToArray();
+
+            // Write merged config to temp file using @filepath syntax
+            var wrapped = new Dictionary<string, object> { ["mcpServers"] = allServers };
             var json = JsonSerializer.Serialize(wrapped);
-            var tempPath = Path.Combine(home, ".copilot", "polypilot-mcp-servers.json");
+            var tempPath = Path.Combine(copilotDir, "polypilot-mcp-servers.json");
             File.WriteAllText(tempPath, json);
             
             args.Add("--additional-mcp-config");
@@ -429,9 +460,119 @@ public partial class CopilotService : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[MCP] Failed to read mcp-servers.json: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[MCP] Failed to build MCP CLI args: {ex.Message}");
         }
         return args.ToArray();
+    }
+
+    /// <summary>
+    /// Load MCP server configurations for per-session registration via SessionConfig.McpServers.
+    /// Merges servers from ~/.copilot/mcp-servers.json, ~/.copilot/mcp-config.json, and installed plugins.
+    /// Returns McpLocalServerConfig objects that the SDK can serialize properly.
+    /// Skips servers in the disabled list.
+    /// </summary>
+    internal static Dictionary<string, object>? LoadMcpServers(IReadOnlyCollection<string>? disabledServers = null, IReadOnlyCollection<string>? disabledPlugins = null)
+    {
+        var servers = new Dictionary<string, object>();
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var copilotDir = Path.Combine(home, ".copilot");
+        var disabled = disabledServers ?? Array.Empty<string>();
+
+        void AddServersFromJson(JsonElement root, bool isWrapped)
+        {
+            var element = isWrapped && root.TryGetProperty("mcpServers", out var inner) ? inner : root;
+            if (element.ValueKind != JsonValueKind.Object) return;
+            foreach (var prop in element.EnumerateObject())
+            {
+                if (servers.ContainsKey(prop.Name)) continue;
+                if (disabled.Contains(prop.Name)) continue;
+                servers[prop.Name] = ParseMcpServerConfig(prop.Value);
+            }
+        }
+
+        // Read ~/.copilot/mcp-servers.json (flat format)
+        try
+        {
+            var path = Path.Combine(copilotDir, "mcp-servers.json");
+            if (File.Exists(path))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(path));
+                AddServersFromJson(doc.RootElement, isWrapped: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MCP] Failed to read mcp-servers.json: {ex.Message}");
+        }
+
+        // Read ~/.copilot/mcp-config.json (wrapped format)
+        try
+        {
+            var path = Path.Combine(copilotDir, "mcp-config.json");
+            if (File.Exists(path))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(path));
+                AddServersFromJson(doc.RootElement, isWrapped: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MCP] Failed to read mcp-config.json: {ex.Message}");
+        }
+
+        // Read plugin .mcp.json files from ~/.copilot/installed-plugins/
+        try
+        {
+            var pluginsDir = Path.Combine(copilotDir, "installed-plugins");
+            if (Directory.Exists(pluginsDir))
+            {
+                foreach (var marketDir in Directory.GetDirectories(pluginsDir))
+                {
+                    foreach (var pluginDir in Directory.GetDirectories(marketDir))
+                    {
+                        var pluginName = Path.GetFileName(pluginDir);
+                        if (disabledPlugins?.Contains(pluginName) == true) continue;
+                        var mcpFile = Path.Combine(pluginDir, ".mcp.json");
+                        if (!File.Exists(mcpFile)) continue;
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(File.ReadAllText(mcpFile));
+                            AddServersFromJson(doc.RootElement, isWrapped: true);
+                        }
+                        catch { }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MCP] Failed to read plugin .mcp.json files: {ex.Message}");
+        }
+
+        return servers.Count > 0 ? servers : null;
+    }
+
+    /// <summary>
+    /// Parse a JSON element into a McpLocalServerConfig so the SDK serializes it correctly.
+    /// </summary>
+    private static McpLocalServerConfig ParseMcpServerConfig(JsonElement element)
+    {
+        var config = new McpLocalServerConfig();
+        if (element.TryGetProperty("command", out var cmd))
+            config.Command = cmd.GetString();
+        if (element.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Array)
+            config.Args = args.EnumerateArray().Select(a => a.GetString() ?? "").ToList();
+        if (element.TryGetProperty("env", out var env) && env.ValueKind == JsonValueKind.Object)
+            config.Env = env.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString() ?? "");
+        if (element.TryGetProperty("cwd", out var cwd))
+            config.Cwd = cwd.GetString();
+        if (element.TryGetProperty("type", out var type))
+            config.Type = type.GetString();
+        if (element.TryGetProperty("tools", out var tools) && tools.ValueKind == JsonValueKind.Array)
+            config.Tools = tools.EnumerateArray().Select(t => t.GetString() ?? "").ToList();
+        if (element.TryGetProperty("timeout", out var timeout) && timeout.TryGetInt32(out var tv))
+            config.Timeout = tv;
+        return config;
     }
 
     /// <summary>
@@ -631,16 +772,21 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             systemContent.AppendLine(SystemInstructions);
         }
 
+        var settings = ConnectionSettings.Load();
+        var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
         var config = new SessionConfig
         {
             Model = sessionModel,
             WorkingDirectory = sessionDir,
+            McpServers = mcpServers,
             SystemMessage = new SystemMessageConfig
             {
                 Mode = SystemMessageMode.Append,
                 Content = systemContent.ToString()
             }
         };
+        if (mcpServers != null)
+            Debug($"Session config includes {mcpServers.Count} MCP server(s): {string.Join(", ", mcpServers.Keys)}");
 
         var copilotSession = await _client.CreateSessionAsync(config, cancellationToken);
 
