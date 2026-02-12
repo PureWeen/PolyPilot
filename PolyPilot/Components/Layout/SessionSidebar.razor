@@ -235,6 +235,7 @@ else
                                              IsMenuOpen="@(openMenuSession == session.Name)"
                                              ShortcutIndex="idx"
                                              Groups="CopilotService.Organization.Groups"
+                                             UsageInfo="@(usageBySession.TryGetValue(session.Name, out var usg) ? usg : null)"
                                              OnSelect="() => SelectSession(sName)"
                                              OnClose="() => CloseSession(sName)"
                                              OnPin="(pinned) => { CopilotService.PinSession(sName, pinned); }"
@@ -379,6 +380,7 @@ else
         Nav.LocationChanged += (_, e) => { currentPage = new Uri(e.Location).AbsolutePath; InvokeAsync(StateHasChanged); };
         CopilotService.OnStateChanged += RefreshSessions;
         CopilotService.OnSessionComplete += HandleSessionComplete;
+        CopilotService.OnUsageInfoChanged += HandleUsageInfoChanged;
         RepoManager.Load();
         RefreshSessions();
         LoadPersistedSessions();
@@ -395,6 +397,25 @@ else
     }
 
     private HashSet<string> completedSessions = new();
+    private Dictionary<string, SessionUsageInfo> usageBySession = new();
+
+    private void HandleUsageInfoChanged(string sessionName, SessionUsageInfo info)
+    {
+        if (usageBySession.TryGetValue(sessionName, out var current))
+        {
+            usageBySession[sessionName] = new SessionUsageInfo(
+                info.Model ?? current.Model,
+                info.CurrentTokens ?? current.CurrentTokens,
+                info.TokenLimit ?? current.TokenLimit,
+                info.InputTokens ?? current.InputTokens,
+                info.OutputTokens ?? current.OutputTokens);
+        }
+        else
+        {
+            usageBySession[sessionName] = info;
+        }
+        InvokeAsync(StateHasChanged);
+    }
 
     private void HandleSessionComplete(string sessionName, string summary)
     {
@@ -763,5 +784,6 @@ else
     {
         CopilotService.OnStateChanged -= RefreshSessions;
         CopilotService.OnSessionComplete -= HandleSessionComplete;
+        CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;
     }
 }

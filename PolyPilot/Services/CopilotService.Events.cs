@@ -165,11 +165,28 @@ public partial class CopilotService
 
             case SessionUsageInfoEvent usageInfo:
                 var uData = usageInfo.Data;
+                if (uData != null)
+                {
+                    var uProps = string.Join(", ", uData.GetType().GetProperties().Select(p => $"{p.Name}={p.GetValue(uData)}({p.PropertyType.Name})"));
+                    Debug($"[UsageInfo] '{sessionName}' all props: {uProps}");
+                }
+                var uModel = uData?.GetType().GetProperty("Model")?.GetValue(uData)?.ToString();
                 var uCurrentTokensRaw = uData?.GetType().GetProperty("CurrentTokens")?.GetValue(uData);
                 var uTokenLimitRaw = uData?.GetType().GetProperty("TokenLimit")?.GetValue(uData);
+                var uInputTokensRaw = uData?.GetType().GetProperty("InputTokens")?.GetValue(uData);
+                var uOutputTokensRaw = uData?.GetType().GetProperty("OutputTokens")?.GetValue(uData);
+                Debug($"[UsageInfo] '{sessionName}' raw: CurrentTokens={uCurrentTokensRaw} ({uCurrentTokensRaw?.GetType().Name}), TokenLimit={uTokenLimitRaw} ({uTokenLimitRaw?.GetType().Name}), InputTokens={uInputTokensRaw}, OutputTokens={uOutputTokensRaw}");
                 var uCurrentTokens = uCurrentTokensRaw != null ? (int?)Convert.ToInt32(uCurrentTokensRaw) : null;
                 var uTokenLimit = uTokenLimitRaw != null ? (int?)Convert.ToInt32(uTokenLimitRaw) : null;
-                Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(null, uCurrentTokens, uTokenLimit, null, null)));
+                var uInputTokens = uInputTokensRaw != null ? (int?)Convert.ToInt32(uInputTokensRaw) : null;
+                var uOutputTokens = uOutputTokensRaw != null ? (int?)Convert.ToInt32(uOutputTokensRaw) : null;
+                if (!string.IsNullOrEmpty(uModel))
+                    state.Info.Model = uModel;
+                if (uCurrentTokens.HasValue) state.Info.ContextCurrentTokens = uCurrentTokens;
+                if (uTokenLimit.HasValue) state.Info.ContextTokenLimit = uTokenLimit;
+                if (uInputTokens.HasValue) state.Info.TotalInputTokens += uInputTokens.Value;
+                if (uOutputTokens.HasValue) state.Info.TotalOutputTokens += uOutputTokens.Value;
+                Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(uModel, uCurrentTokens, uTokenLimit, uInputTokens, uOutputTokens)));
                 break;
 
             case AssistantUsageEvent assistantUsage:
@@ -198,6 +215,8 @@ public partial class CopilotService
                 catch { }
                 if (!string.IsNullOrEmpty(aModel))
                     state.Info.Model = aModel;
+                if (aInput.HasValue) state.Info.TotalInputTokens += aInput.Value;
+                if (aOutput.HasValue) state.Info.TotalOutputTokens += aOutput.Value;
                 if (aInput.HasValue || aOutput.HasValue || aPremiumQuota != null)
                 {
                     Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(aModel, null, null, aInput, aOutput, aPremiumQuota)));
