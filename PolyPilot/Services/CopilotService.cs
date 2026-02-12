@@ -387,6 +387,12 @@ public partial class CopilotService : IAsyncDisposable
             _ => new CopilotClientOptions()
         };
 
+        // Point the SDK at the resolved copilot binary so it doesn't rely on
+        // the default bundled-path resolution (which expects runtimes/maccatalyst-arm64/native/copilot).
+        var cliPath = ServerManager.FindCopilotBinary();
+        if (File.Exists(cliPath))
+            options.CliPath = cliPath;
+
         // Pass additional MCP server configs via CLI args.
         // The CLI auto-reads ~/.copilot/mcp-config.json, but mcp-servers.json
         // uses a different format that needs to be passed explicitly.

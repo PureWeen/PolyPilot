@@ -78,6 +78,66 @@
         </div>
     }
 
+    <div class="settings-section @(SectionVisible("copilot cli binary download install version path") ? "" : "search-hidden")">
+        <h3>Copilot CLI</h3>
+        <div class="server-controls">
+            <div class="server-status">
+                <span class="status-dot @(copilotInstalled ? "alive" : "dead")"></span>
+                <span>
+                    @if (copilotInstalled)
+                    {
+                        @:Installed @(copilotVersion ?? "")
+                    }
+                    else
+                    {
+                        @:Not found
+                    }
+                </span>
+            </div>
+            @if (copilotInstalled)
+            {
+                <div class="tunnel-url-section" style="margin-top: 6px;">
+                    <div class="tunnel-url">
+                        <label style="color: var(--text-secondary); font-size: 0.8rem; margin-right: 6px;">Path:</label>
+                        <code style="font-size: 0.75rem;">@copilotPath</code>
+                    </div>
+                    @if (ServerManager.HasEmbeddedBinary)
+                    {
+                        <div class="tunnel-url">
+                            <label style="color: var(--text-secondary); font-size: 0.8rem; margin-right: 6px;">Source:</label>
+                            <span style="font-size: 0.8rem;">Downloaded (managed by PolyPilot)</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="tunnel-url">
+                            <label style="color: var(--text-secondary); font-size: 0.8rem; margin-right: 6px;">Source:</label>
+                            <span style="font-size: 0.8rem;">System install</span>
+                        </div>
+                    }
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(downloadStatus))
+            {
+                <p class="mode-hint">@downloadStatus</p>
+            }
+            <div class="server-buttons">
+                <button class="start-btn" @onclick="DownloadCopilotCli" disabled="@downloading">
+                    @if (downloading)
+                    {
+                        <svg class="icon spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                        <text> @downloadStatus</text>
+                    }
+                    else
+                    {
+                        <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        <text> @(copilotInstalled ? "Update" : "Download") Copilot CLI</text>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+
     @if (settings.Mode == ConnectionMode.Persistent)
     {
         <div class="settings-section @(SectionVisible("persistent server port start stop pid") ? "" : "search-hidden")">
@@ -331,6 +391,11 @@
     private CancellationTokenSource? _statusCts;
     private string searchQuery = "";
     private DotNetObjectReference<Settings>? _selfRef;
+    private bool copilotInstalled;
+    private string? copilotVersion;
+    private string? copilotPath;
+    private bool downloading;
+    private string? downloadStatus;
 
     [JSInvokable]
     public void JsUpdateSearch(string query)
@@ -361,7 +426,7 @@
         // Also check all section keywords within the group
         return groupKeyword switch
         {
-            "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect"),
+            "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect copilot cli binary download install version"),
             "ui" => SectionVisible("chat message layout default reversed both left theme"),
             "developer" => SectionVisible("auto update main git watch relaunch rebuild"),
             _ => true
@@ -394,6 +459,10 @@
         if (devTunnelAvailable)
             tunnelLoggedIn = await DevTunnelService.IsLoggedInAsync();
 
+        copilotInstalled = ServerManager.HasAnyCopilotBinary;
+        copilotVersion = ServerManager.GetEmbeddedVersion();
+        copilotPath = ServerManager.FindCopilotBinary();
+
         DevTunnelService.OnStateChanged += OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
 
@@ -422,6 +491,59 @@
                         }, 150);
                     });
                 })()");
+        }
+    }
+
+    private async Task DownloadCopilotCli()
+    {
+        downloading = true;
+        downloadStatus = "Fetching latest version...";
+        StateHasChanged();
+
+        void OnProgress(string msg)
+        {
+            InvokeAsync(() => { downloadStatus = msg; StateHasChanged(); });
+        }
+
+        ServerManager.OnDownloadProgress += OnProgress;
+
+        try
+        {
+            var version = await ServerManager.GetLatestReleaseVersionAsync();
+            if (version == null)
+            {
+                downloadStatus = "Could not determine latest version";
+                downloading = false;
+                StateHasChanged();
+                return;
+            }
+
+            downloadStatus = $"Downloading v{version}...";
+            StateHasChanged();
+
+            var success = await ServerManager.DownloadCopilotBinaryAsync(version);
+            if (success)
+            {
+                copilotInstalled = true;
+                copilotVersion = ServerManager.GetEmbeddedVersion();
+                copilotPath = ServerManager.FindCopilotBinary();
+                ShowStatus("Copilot CLI installed!", "success");
+            }
+            else
+            {
+                ShowStatus("Download failed", "error", 5000);
+            }
+        }
+        catch (Exception ex)
+        {
+            downloadStatus = $"Error: {ex.Message}";
+            ShowStatus($"Download failed: {ex.Message}", "error", 5000);
+        }
+        finally
+        {
+            ServerManager.OnDownloadProgress -= OnProgress;
+            downloading = false;
+            StateHasChanged();
         }
     }
 
