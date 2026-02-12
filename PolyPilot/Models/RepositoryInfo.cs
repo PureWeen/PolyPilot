@@ -26,6 +26,8 @@ public class WorktreeInfo
     public string Path { get; set; } = "";
     /// <summary>Session name using this worktree as CWD, if any.</summary>
     public string? SessionName { get; set; }
+    /// <summary>GitHub PR number if this worktree was created from a PR.</summary>
+    public int? PrNumber { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
