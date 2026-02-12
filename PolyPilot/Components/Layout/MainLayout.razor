@@ -9,7 +9,7 @@
     </div>
 
     <div class="mobile-top-bar mobile-only">
-        <SessionSidebar IsMobileTopBar="true" OnToggleFlyout="ToggleFlyout" />
+        <SessionSidebar IsMobileTopBar="true" OnToggleFlyout="ToggleFlyout" FontSize="fontSize" OnFontSizeChange="HandleFontSizeChange" />
     </div>
 
     <main>
@@ -26,6 +26,7 @@
 
 @code {
     private bool flyoutOpen;
+    private int fontSize = 20;
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private CopilotService CopilotService { get; set; } = default!;
@@ -43,7 +44,28 @@
                 _ => ""
             };
             await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
+
+            // Load saved font size
+            var uiState = CopilotService.LoadUiState();
+            if (uiState?.FontSize > 0)
+            {
+                fontSize = uiState.FontSize;
+                await ApplyFontSize();
+                StateHasChanged();
+            }
         }
+    }
+
+    private async Task HandleFontSizeChange(int delta)
+    {
+        fontSize = Math.Clamp(fontSize + delta, 12, 24);
+        await ApplyFontSize();
+        CopilotService.SaveUiState("/", fontSize: fontSize);
+    }
+
+    private async Task ApplyFontSize()
+    {
+        await JS.InvokeVoidAsync("eval", $"document.documentElement.style.setProperty('--app-font-size', '{fontSize}px')");
     }
 
     private async Task StartResize(MouseEventArgs e)

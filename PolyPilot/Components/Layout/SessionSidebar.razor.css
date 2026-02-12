@@ -947,6 +947,38 @@
     font-weight: 600;
 }
 
+/* Mobile font size controls */
+.mobile-font-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-left: auto;
+    margin-right: 0.5rem;
+}
+
+.mobile-font-btn {
+    background: var(--hover-bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--type-subhead);
+    font-weight: 600;
+    padding: 0.25rem 0.5rem;
+    line-height: 1;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-font-btn:active:not(:disabled) {
+    background: var(--control-bg);
+    color: var(--accent-primary);
+}
+
+.mobile-font-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
 /* Flyout panel content */
 .flyout-content {
     height: 100%;
