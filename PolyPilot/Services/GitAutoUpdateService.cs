@@ -47,8 +47,9 @@ public class GitAutoUpdateService : IDisposable
             {
                 dir = Path.GetDirectoryName(dir);
                 if (dir == null) break;
-                if (File.Exists(Path.Combine(dir, "relaunch.sh")) &&
-                    File.Exists(Path.Combine(dir, "PolyPilot.csproj")))
+                if (File.Exists(Path.Combine(dir, "PolyPilot.csproj")) &&
+                    (File.Exists(Path.Combine(dir, "relaunch.sh")) ||
+                     File.Exists(Path.Combine(dir, "relaunch.ps1"))))
                 {
                     _projectDir = dir;
                     var gitRoot = Path.GetDirectoryName(dir);
@@ -180,28 +181,77 @@ public class GitAutoUpdateService : IDisposable
 
     private Task Relaunch()
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "/bin/bash",
-            Arguments = "relaunch.sh",
-            WorkingDirectory = _projectDir,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-        SetPath(psi);
+        ProcessStartInfo psi;
 
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows: use PowerShell script or dotnet build + restart
+            var ps1 = Path.Combine(_projectDir!, "relaunch.ps1");
+            if (File.Exists(ps1))
+            {
+                psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-ExecutionPolicy Bypass -File \"{ps1}\"",
+                    WorkingDirectory = _projectDir,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+            }
+            else
+            {
+                // Fallback: rebuild and restart via dotnet run
+                psi = new ProcessStartInfo
+                {
+                    FileName = "dotnet",
+                    Arguments = "build -f net10.0-windows10.0.19041.0",
+                    WorkingDirectory = _projectDir,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+            }
+        }
+        else
+        {
+            psi = new ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                Arguments = "relaunch.sh",
+                WorkingDirectory = _projectDir,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+        }
+
+        SetPath(psi);
         Process.Start(psi);
         return Task.CompletedTask;
     }
 
     private static void SetPath(ProcessStartInfo psi)
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        psi.Environment["PATH"] =
-            $"{home}/.dotnet:/usr/local/share/dotnet:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-        psi.Environment["HOME"] = home;
+        if (OperatingSystem.IsWindows())
+        {
+            // On Windows, inherit the existing PATH — just ensure dotnet is available
+            var existing = Environment.GetEnvironmentVariable("PATH") ?? "";
+            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            var dotnetPath = Path.Combine(programFiles, "dotnet");
+            if (!existing.Contains(dotnetPath, StringComparison.OrdinalIgnoreCase))
+                psi.Environment["PATH"] = $"{dotnetPath};{existing}";
+        }
+        else
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            psi.Environment["PATH"] =
+                $"{home}/.dotnet:/usr/local/share/dotnet:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+            psi.Environment["HOME"] = home;
+        }
     }
 
     private void NotifyChanged()
