@@ -4,6 +4,7 @@
     background: var(--bg-primary);
     height: 100%;
     overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .settings-search {
