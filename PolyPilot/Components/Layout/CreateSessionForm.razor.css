@@ -1,113 +1,138 @@
-.new-session {
-    display: flex;
-    gap: 0.5rem;
-    padding: 1rem;
-    flex-wrap: wrap;
+/* === New Session Button (collapsed state) === */
+.new-session-btn {
+    width: 100%;
+    padding: 0.6rem 1rem;
+    border: 1px dashed var(--control-border);
+    border-radius: 8px;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: var(--type-body);
+    font-weight: 500;
+    transition: all 0.15s;
 }
 
-.new-session input {
-    flex: 1;
-    min-width: 100px;
-    padding: 0.5rem;
+.new-session-btn:hover {
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+    background: rgba(59, 130, 246, 0.05);
+}
+
+/* === Expanded Form === */
+.new-session-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border: 1px solid var(--control-border);
+    border-radius: 8px;
+    background: var(--surface-secondary);
+}
+
+.ns-name {
+    width: 100%;
+    padding: 0.45rem 0.6rem;
     border: 1px solid var(--control-border);
     border-radius: 6px;
     background: var(--control-bg);
     color: var(--text-primary);
-    font-size: var(--type-title3);
+    font-size: var(--type-body);
+    box-sizing: border-box;
 }
 
-
-
-.new-session input::placeholder {
-    color: var(--text-dim);
-}
-
-.new-session input:focus {
+.ns-name:focus {
     outline: none;
     border-color: var(--accent-primary);
 }
 
-.new-session button {
-    padding: 0.5rem 0.75rem;
-    border: none;
+.ns-name::placeholder {
+    color: var(--text-dim);
+}
+
+.ns-prompt {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--control-border);
     border-radius: 6px;
     background: var(--control-bg);
     color: var(--text-primary);
+    font-size: var(--type-footnote);
+    font-family: inherit;
+    resize: vertical;
+    min-height: 2.2rem;
+    max-height: 6rem;
+    box-sizing: border-box;
+}
+
+.ns-prompt:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.ns-prompt::placeholder {
+    color: var(--text-dim);
+}
+
+/* === Options Panel === */
+.ns-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-top: 0.25rem;
+    border-top: 1px solid var(--control-border);
+}
+
+.ns-option-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.ns-label {
+    font-size: var(--type-caption2);
+    color: var(--text-dim);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.ns-option-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
     cursor: pointer;
-    font-size: var(--type-title3);
-    font-weight: bold;
-    flex-shrink: 0;
+    font-size: var(--type-footnote);
+    text-align: left;
+    padding: 0.2rem 0;
 }
 
-.new-session button:hover:not(:disabled) {
-    background: var(--hover-bg);
-}
-
-.new-session button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.session-options-row > button:last-child {
-    background: var(--accent-primary);
-}
-
-.session-options-row > button:last-child:hover:not(:disabled) {
-    background: var(--accent-primary);
-    filter: brightness(1.1);
-}
-
-.session-options-row {
-    display: flex;
-    gap: 0.5rem;
-    width: 100%;
-}
-
-.session-options-row ::deep .model-select-wrapper {
-    flex: 1;
-    min-width: 0;
-}
-
-.dir-toggle-btn {
-    padding: 0.3rem 0.5rem !important;
-    background: var(--control-bg) !important;
-    border: 1px solid var(--control-border) !important;
-    font-size: var(--type-subhead) !important;
-    font-weight: normal !important;
-}
-
-.dir-toggle-btn:hover:not(:disabled) {
-    background: var(--hover-bg) !important;
-}
-
-.dir-input-row {
-    display: flex;
-    gap: 0.5rem;
-    width: 100%;
-}
-
-.dir-input {
-    font-size: var(--type-body) !important;
-}
-
-.dir-browse-btn {
-    padding: 0.5rem 0.6rem !important;
-    background: var(--control-bg) !important;
-    border: 1px solid var(--control-border) !important;
-    border-radius: 6px;
-    font-size: var(--type-body) !important;
-    font-weight: normal !important;
+.ns-option-btn:hover {
     color: var(--text-primary);
+}
+
+.ns-wt-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: var(--type-footnote);
+    color: var(--accent-primary);
+}
+
+.ns-badge-clear {
+    background: none;
+    border: none;
+    color: var(--text-dim);
     cursor: pointer;
+    font-size: var(--type-caption2);
+    padding: 0 0.2rem;
 }
 
-.dir-browse-btn:hover {
-    background: var(--hover-bg) !important;
+.ns-badge-clear:hover {
+    color: var(--text-primary);
 }
 
-.worktree-picker {
-    width: 100%;
-    background: var(--surface-secondary);
+.ns-wt-picker {
+    background: var(--control-bg);
     border: 1px solid var(--control-border);
     border-radius: 6px;
     overflow: hidden;
@@ -115,6 +140,111 @@
     overflow-y: auto;
 }
 
+.ns-dir-row {
+    display: flex;
+    gap: 0.3rem;
+}
+
+.ns-dir-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--control-border);
+    border-radius: 4px;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    font-size: var(--type-footnote);
+}
+
+.ns-dir-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.ns-dir-browse {
+    padding: 0.3rem 0.5rem;
+    background: var(--control-bg);
+    border: 1px solid var(--control-border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: var(--type-footnote);
+}
+
+.ns-dir-browse:hover {
+    background: var(--hover-bg);
+}
+
+/* === Footer === */
+.ns-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.ns-footer ::deep .ns-model {
+    flex: 1;
+    min-width: 0;
+}
+
+.ns-options-toggle {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: var(--type-caption2);
+    padding: 0.2rem 0;
+    white-space: nowrap;
+}
+
+.ns-options-toggle:hover {
+    color: var(--text-primary);
+}
+
+.ns-footer-actions {
+    display: flex;
+    gap: 0.3rem;
+    margin-left: auto;
+}
+
+.ns-cancel {
+    padding: 0.3rem 0.5rem;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: var(--type-footnote);
+}
+
+.ns-cancel:hover {
+    color: var(--text-primary);
+}
+
+.ns-create {
+    padding: 0.3rem 0.6rem;
+    border: none;
+    border-radius: 4px;
+    background: var(--accent-primary);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: var(--type-footnote);
+    font-weight: 600;
+}
+
+.ns-create:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.ns-error {
+    color: #ff6b6b;
+    font-size: var(--type-caption2);
+    padding: 0.1rem 0;
+}
+
+/* === Worktree picker items (reused from before) === */
 .wt-repo-name {
     font-size: var(--type-caption2);
     color: var(--text-dim);
@@ -122,6 +252,16 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;
+}
+
+.wt-option-row {
+    display: flex;
+    align-items: center;
+}
+
+.wt-option-row .wt-option {
+    flex: 1;
+    min-width: 0;
 }
 
 .wt-option {
@@ -142,77 +282,6 @@
     background: var(--hover-bg);
 }
 
-.wt-branch {
-    font-weight: 500;
-}
-
-.wt-selected {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    width: 100%;
-    font-size: var(--type-footnote);
-    color: var(--text-dim);
-    padding: 0.1rem 0;
-}
-
-.wt-clear {
-    background: none;
-    border: none;
-    color: var(--text-dim);
-    cursor: pointer;
-    font-size: var(--type-footnote);
-    padding: 0 0.2rem;
-}
-
-.wt-clear:hover {
-    color: var(--text-primary);
-}
-
-.wt-new-form {
-    display: flex;
-    gap: 0.3rem;
-    padding: 0.25rem 0.5rem;
-}
-
-.wt-branch-input {
-    flex: 1;
-    min-width: 0;
-    padding: 0.25rem 0.4rem;
-    border: 1px solid var(--control-border);
-    border-radius: 4px;
-    background: var(--surface-secondary);
-    color: var(--text-primary);
-    font-size: var(--type-footnote);
-}
-
-.wt-branch-input:focus {
-    outline: none;
-    border-color: var(--accent-primary);
-}
-
-.wt-create-btn {
-    padding: 0.25rem 0.5rem;
-    border: none;
-    border-radius: 4px;
-    background: var(--accent-primary);
-    color: var(--text-primary);
-    cursor: pointer;
-    font-size: var(--type-footnote);
-    font-weight: bold;
-}
-
-.wt-create-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.wt-error {
-    color: #ff6b6b;
-    font-size: var(--type-caption2);
-    padding: 0.15rem 0.5rem;
-}
-
 .wt-option.selected {
     background: var(--hover-bg);
 }
@@ -220,20 +289,6 @@
 .wt-option.wt-new {
     color: var(--accent-primary);
     font-size: var(--type-footnote);
-}
-
-.dir-toggle-btn.active {
-    border-color: var(--accent-primary) !important;
-}
-
-.wt-option-row {
-    display: flex;
-    align-items: center;
-}
-
-.wt-option-row .wt-option {
-    flex: 1;
-    min-width: 0;
 }
 
 .wt-delete-btn {
@@ -294,54 +349,63 @@
     border-color: var(--accent-primary);
 }
 
-.initial-prompt-input {
-    width: 100%;
-    padding: 0.35rem 0.5rem;
+.wt-new-form {
+    display: flex;
+    gap: 0.3rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.wt-branch-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.25rem 0.4rem;
     border: 1px solid var(--control-border);
-    border-radius: 6px;
-    background: var(--control-bg);
+    border-radius: 4px;
+    background: var(--surface-secondary);
     color: var(--text-primary);
     font-size: var(--type-footnote);
-    font-family: inherit;
-    resize: vertical;
-    min-height: 2.5rem;
-    max-height: 6rem;
 }
 
-.initial-prompt-input::placeholder {
-    color: var(--text-dim);
-}
-
-.initial-prompt-input:focus {
+.wt-branch-input:focus {
     outline: none;
     border-color: var(--accent-primary);
 }
 
-/* === Mobile responsive === */
+.wt-create-btn {
+    padding: 0.25rem 0.5rem;
+    border: none;
+    border-radius: 4px;
+    background: var(--accent-primary);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: var(--type-footnote);
+    font-weight: bold;
+}
+
+.wt-create-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.wt-error {
+    color: #ff6b6b;
+    font-size: var(--type-caption2);
+    padding: 0.15rem 0.5rem;
+}
+
+/* === Mobile === */
 @media (max-width: 640px) {
-    .new-session {
-        padding: 0.6rem 0.75rem;
+    .new-session-btn {
+        padding: 0.5rem 0.75rem;
+        font-size: var(--type-callout);
+    }
+
+    .new-session-form {
+        padding: 0.6rem;
         gap: 0.4rem;
     }
 
-    .new-session input {
-        padding: 0.4rem 0.5rem;
+    .ns-name {
         font-size: var(--type-callout);
-        border-radius: 6px;
-    }
-
-    .model-select-wrapper {
-        padding: 0.35rem 0.4rem;
-        font-size: var(--type-callout);
-    }
-
-    .new-session button {
-        padding: 0.4rem 0.6rem;
-        font-size: var(--type-callout);
-    }
-
-    .dir-toggle-btn {
-        font-size: var(--type-footnote) !important;
-        padding: 0.2rem 0.4rem !important;
     }
 }
