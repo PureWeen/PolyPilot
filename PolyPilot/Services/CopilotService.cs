@@ -1265,6 +1265,8 @@ public class UiState
     public string? ActiveSession { get; set; }
     public int FontSize { get; set; } = 20;
     public string? SelectedModel { get; set; }
+    public bool ExpandedGrid { get; set; }
+    public string? ExpandedSession { get; set; }
 }
 
 public class ActiveSessionEntry

@@ -161,7 +161,11 @@ else
     private string? worktreeError;
     private bool isCreatingWorktree;
 
-    private void Expand() => isExpanded = true;
+    private void Expand()
+    {
+        isExpanded = true;
+        filterRepoId = null; // Clear any repo filter when manually expanding
+    }
     public void ExpandForRepo(string repoId)
     {
         isExpanded = true;
@@ -169,18 +173,23 @@ else
         worktreeError = null;
         filterRepoId = repoId; // Filter to this repo only
         showWorktreePicker = true;
+        newWorktreeRepoId = null; // Clear any open form so the button shows
 
-        // Always expand the new worktree form for this repo
-        newWorktreeRepoId = repoId;
-        newWorktreeBranch = "main";
-        newWorktreePr = "";
-        newWorktreeMode = "branch";
-
-        // If worktrees exist for this repo, also auto-select the first one
+        // If worktrees exist for this repo, auto-select the first one but keep picker open
         var existingWorktrees = RepoManager.Worktrees.Where(w => w.RepoId == repoId).ToList();
         if (existingWorktrees.Count > 0)
         {
-            SelectWorktree(existingWorktrees[0]);
+            var wt = existingWorktrees[0];
+            sessionDirectory = wt.Path;
+            selectedWorktreePath = wt.Path;
+            selectedWorktreeId = wt.Id;
+            selectedWorktreeBranch = wt.Branch;
+            // Don't close the picker - we want to show the "+ New worktree..." button
+            if (string.IsNullOrWhiteSpace(SessionName))
+            {
+                SessionName = wt.Branch;
+                _ = SessionNameChanged.InvokeAsync(SessionName);
+            }
         }
 
         StateHasChanged();

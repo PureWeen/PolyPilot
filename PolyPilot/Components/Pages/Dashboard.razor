@@ -254,15 +254,32 @@
             var uiState = CopilotService.LoadUiState();
             if (uiState != null)
             {
-                if (!string.IsNullOrEmpty(uiState.ActiveSession) && sessions.Count <= 1)
+                // Restore active session
+                if (!string.IsNullOrEmpty(uiState.ActiveSession))
                     CopilotService.SetActiveSession(uiState.ActiveSession);
+                
+                // Restore font size
                 if (uiState.FontSize >= 12 && uiState.FontSize <= 24)
                     fontSize = uiState.FontSize;
+                
+                // Restore expanded grid state
+                expandedGrid = uiState.ExpandedGrid;
+                
+                // Restore expanded session state
+                if (!string.IsNullOrEmpty(uiState.ExpandedSession))
+                {
+                    expandedSession = uiState.ExpandedSession;
+                    _explicitlyCollapsed = false;
+                }
+                else if (uiState.CurrentPage == "/dashboard" || uiState.CurrentPage == "/")
+                {
+                    // User was in grid view, don't auto-expand
+                    _explicitlyCollapsed = true;
+                }
             }
 
-            // When multiple sessions exist, start on grid view
-            // (actual expand logic handled in RefreshState's _initialGridSet block)
-            if (sessions.Count > 1 && CopilotService.ActiveSessionName == null)
+            // When multiple sessions exist and no saved state, start on grid view
+            if (sessions.Count > 1 && CopilotService.ActiveSessionName == null && uiState == null)
             {
                 _explicitlyCollapsed = true;
             }
@@ -1400,6 +1417,7 @@
         expandedSession = sessionName;
         _needsScrollToBottom = true;
         CopilotService.SwitchSession(sessionName);
+        CopilotService.SaveUiState("/dashboard", activeSession: sessionName, expandedSession: sessionName, expandedGrid: expandedGrid);
     }
 
     private async Task CollapseExpanded()
@@ -1410,11 +1428,13 @@
         _lastActiveSession = null;
         _explicitlyCollapsed = true;
         CopilotService.SetActiveSession(null);
+        CopilotService.SaveUiState("/dashboard", activeSession: null, expandedSession: null, expandedGrid: expandedGrid);
     }
 
     private void ToggleGridDensity()
     {
         expandedGrid = !expandedGrid;
+        CopilotService.SaveUiState("/dashboard", expandedGrid: expandedGrid, expandedSession: expandedSession);
     }
 
     private void ToggleCardMenu(string sessionName)
