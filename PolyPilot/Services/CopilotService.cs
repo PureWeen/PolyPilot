@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
 using PolyPilot.Models;
 using GitHub.Copilot.SDK;
 
@@ -16,7 +15,6 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ServerManager _serverManager;
     private readonly WsBridgeClient _bridgeClient;
     private readonly DemoService _demoService;
-    private readonly ILogger<CopilotService> _logger;
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
@@ -102,13 +100,12 @@ public partial class CopilotService : IAsyncDisposable
     public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
     public List<string> AvailableModels { get; private set; } = new();
 
-    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient, ILogger<CopilotService> logger)
+    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient)
     {
         _chatDb = chatDb;
         _serverManager = serverManager;
         _bridgeClient = bridgeClient;
         _demoService = new DemoService();
-        _logger = logger;
     }
 
     // Debug info
@@ -157,7 +154,6 @@ public partial class CopilotService : IAsyncDisposable
     {
         LastDebugMessage = message;
         Console.WriteLine($"[DEBUG] {message}");
-        _logger.LogInformation("[CopilotService] {Message}", message);
         OnDebug?.Invoke(message);
     }
 
@@ -215,27 +211,32 @@ public partial class CopilotService : IAsyncDisposable
         }
         Debug($"Android: connecting to remote server at {settings.CliUrl}");
 #endif
-        // Persistent mode on desktop uses the same embedded SDK client as Embedded mode,
-        // but sessions are persisted to disk and restored on app restart.
-        // The headless server (CliUrl) approach has protocol compatibility issues
-        // with the current SDK version, so we use embedded mode universally on desktop.
-        Debug($"Creating CopilotClient for mode={settings.Mode}...");
-        _client = CreateClient(settings);
-        Debug("CopilotClient created successfully, calling StartAsync...");
+        // In Persistent mode, auto-start the server if not already running
+        if (settings.Mode == ConnectionMode.Persistent)
+        {
+            if (!_serverManager.CheckServerRunning("localhost", settings.Port))
+            {
+                Debug($"Persistent server not running, auto-starting on port {settings.Port}...");
+                var started = await _serverManager.StartServerAsync(settings.Port);
+                if (!started)
+                {
+                    Debug("Failed to auto-start server, falling back to Embedded mode");
+                    settings.Mode = ConnectionMode.Embedded;
+                    CurrentMode = ConnectionMode.Embedded;
+                }
+            }
+            else
+            {
+                Debug($"Persistent server already running on port {settings.Port}");
+            }
+        }
 
-        try
-        {
-            await _client.StartAsync(cancellationToken);
-            IsInitialized = true;
-            NeedsConfiguration = false;
-            Debug($"Copilot client started in {settings.Mode} mode");
-        }
-        catch (Exception ex)
-        {
-            Debug($"CopilotClient.StartAsync FAILED: {ex.GetType().Name}: {ex.Message}");
-            _logger.LogError(ex, "CopilotClient.StartAsync failed");
-            throw;
-        }
+        _client = CreateClient(settings);
+
+        await _client.StartAsync(cancellationToken);
+        IsInitialized = true;
+        NeedsConfiguration = false;
+        Debug($"Copilot client started in {settings.Mode} mode");
 
         // Load default system instructions from the project's copilot-instructions.md
         var instructionsPath = Path.Combine(ProjectDir, ".github", "copilot-instructions.md");
@@ -425,76 +426,29 @@ public partial class CopilotService : IAsyncDisposable
         try
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var copilotDir = Path.Combine(home, ".copilot");
-            var merged = new Dictionary<string, JsonElement>();
+            var serversPath = Path.Combine(home, ".copilot", "mcp-servers.json");
+            if (!File.Exists(serversPath)) return args.ToArray();
 
-            // Read ~/.copilot/mcp-servers.json (simple format without mcpServers wrapper)
-            try
-            {
-                var serversPath = Path.Combine(copilotDir, "mcp-servers.json");
-                if (File.Exists(serversPath))
-                {
-                    using var doc = JsonDocument.Parse(File.ReadAllText(serversPath));
-                    foreach (var prop in doc.RootElement.EnumerateObject())
-                        merged[prop.Name] = prop.Value.Clone();
-                }
-            }
-            catch { }
-
-            // Read plugin .mcp.json files (mcpServers wrapped format)
-            try
-            {
-                var pluginsDir = Path.Combine(copilotDir, "installed-plugins");
-                if (Directory.Exists(pluginsDir))
-                {
-                    foreach (var marketDir in Directory.GetDirectories(pluginsDir))
-                    {
-                        foreach (var pluginDir in Directory.GetDirectories(marketDir))
-                        {
-                            var mcpFile = Path.Combine(pluginDir, ".mcp.json");
-                            if (!File.Exists(mcpFile)) continue;
-                            try
-                            {
-                                using var doc = JsonDocument.Parse(File.ReadAllText(mcpFile));
-                                if (doc.RootElement.TryGetProperty("mcpServers", out var servers))
-                                {
-                                    foreach (var prop in servers.EnumerateObject())
-                                        merged.TryAdd(prop.Name, prop.Value.Clone());
-                                }
-                            }
-                            catch { }
-                        }
-                    }
-                }
-            }
-            catch { }
-
-            if (merged.Count == 0) return args.ToArray();
-
-            // Write single merged file with mcpServers envelope
-            var tempPath = Path.Combine(copilotDir, "polypilot-mcp-servers.json");
-            using var stream = File.Create(tempPath);
-            using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
-            writer.WriteStartObject();
-            writer.WritePropertyName("mcpServers");
-            writer.WriteStartObject();
-            foreach (var (name, value) in merged)
-            {
-                writer.WritePropertyName(name);
-                value.WriteTo(writer);
-            }
-            writer.WriteEndObject();
-            writer.WriteEndObject();
-            writer.Flush();
-
+            // mcp-servers.json is { "name": { "command": "...", "args": [...], "env": {...} } }
+            // CLI expects { "mcpServers": { "name": { ... } } }
+            var raw = File.ReadAllText(serversPath);
+            using var doc = JsonDocument.Parse(raw);
+            
+            // Wrap in mcpServers envelope and write to a temp file.
+            // Inline JSON loses quotes when passed via ProcessStartInfo,
+            // so use the @filepath syntax the CLI supports.
+            var wrapped = new Dictionary<string, object> { ["mcpServers"] = JsonSerializer.Deserialize<object>(raw)! };
+            var json = JsonSerializer.Serialize(wrapped);
+            var tempPath = Path.Combine(home, ".copilot", "polypilot-mcp-servers.json");
+            File.WriteAllText(tempPath, json);
+            
             args.Add("--additional-mcp-config");
             args.Add($"@{tempPath}");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[MCP] Failed to build MCP config: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[MCP] Failed to read mcp-servers.json: {ex.Message}");
         }
-
         return args.ToArray();
     }
 
@@ -650,7 +604,10 @@ public partial class CopilotService : IAsyncDisposable
             // Set up optimistic state BEFORE sending bridge message to prevent race with SyncRemoteSessions
             _pendingRemoteSessions[name] = 0;
             _sessions[name] = new SessionState { Session = null!, Info = remoteInfo };
-            if (!Organization.Sessions.Any(m => m.SessionName == name))
+            var existingMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
+            if (existingMeta != null)
+                existingMeta.IsPinned = false;
+            else
                 Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
             _activeSessionName = name;
             OnStateChanged?.Invoke();
@@ -669,7 +626,7 @@ public partial class CopilotService : IAsyncDisposable
             throw new InvalidOperationException($"Session '{name}' already exists.");
 
         var sessionModel = model ?? DefaultModel;
-        var sessionDir = workingDirectory ?? ProjectDir;
+        var sessionDir = string.IsNullOrWhiteSpace(workingDirectory) ? ProjectDir : workingDirectory;
 
         // Build system message with critical relaunch instructions
         var systemContent = new StringBuilder();
@@ -736,6 +693,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
 
         _activeSessionName ??= name;
+
+        // Reset stale pin from a previous session with the same name
+        var staleMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
+        if (staleMeta != null)
+            staleMeta.IsPinned = false;
+
         SaveActiveSessionsToDisk();
         ReconcileOrganization();
         OnStateChanged?.Invoke();
@@ -1095,5 +1058,14 @@ public record SessionUsageInfo(
     int? CurrentTokens,
     int? TokenLimit,
     int? InputTokens,
-    int? OutputTokens
+    int? OutputTokens,
+    QuotaInfo? PremiumQuota = null
+);
+
+public record QuotaInfo(
+    bool IsUnlimited,
+    int EntitlementRequests,
+    int UsedRequests,
+    int RemainingPercentage,
+    string? ResetDate
 );

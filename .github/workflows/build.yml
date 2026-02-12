@@ -109,15 +109,19 @@ jobs:
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
 
-          # Install provisioning profile
+          # Install provisioning profile (.provisionprofile for Mac Catalyst/macOS)
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "$APPLE_PROVISIONING_PROFILE" | base64 --decode > $RUNNER_TEMP/profile.mobileprovision
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $RUNNER_TEMP/profile.mobileprovision))
-          cp $RUNNER_TEMP/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
+          printenv APPLE_PROVISIONING_PROFILE | openssl base64 -d -A > $RUNNER_TEMP/profile.provisionprofile
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(security cms -D -i $RUNNER_TEMP/profile.provisionprofile))
+          cp $RUNNER_TEMP/profile.provisionprofile ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.provisionprofile
           echo "Installed profile with UUID: $PROFILE_UUID"
 
           # Create keychain and import certificate
-          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          printenv APPLE_CERTIFICATE_P12 | openssl base64 -d -A > $RUNNER_TEMP/certificate.p12
+          if [ ! -s $RUNNER_TEMP/certificate.p12 ]; then
+            echo "::error::Failed to decode APPLE_CERTIFICATE_P12 — check that the secret is valid base64"
+            exit 1
+          fi
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -168,6 +172,18 @@ jobs:
           APP_PATH=$(find ./artifacts/maccatalyst -name "*.app" -type d | head -1)
           if [ -n "$APP_PATH" ]; then
             echo "Re-signing with hardened runtime: $APP_PATH"
+            # Sign all nested dylibs/frameworks first (inside-out)
+            find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.so" \) | while read f; do
+              echo "  Signing: $f"
+              codesign --force --options runtime --timestamp \
+                --sign "$APPLE_CODESIGN_IDENTITY" "$f"
+            done
+            find "$APP_PATH" -type d -name "*.framework" | while read f; do
+              echo "  Signing: $f"
+              codesign --force --options runtime --timestamp \
+                --sign "$APPLE_CODESIGN_IDENTITY" "$f"
+            done
+            # Sign the top-level app bundle
             codesign --force --options runtime --timestamp \
               --entitlements PolyPilot/Platforms/MacCatalyst/Entitlements.plist \
               --sign "$APPLE_CODESIGN_IDENTITY" \
@@ -249,7 +265,7 @@ jobs:
         if: always()
         run: |
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
-          rm -f $RUNNER_TEMP/certificate.p12 $RUNNER_TEMP/profile.mobileprovision || true
+          rm -f $RUNNER_TEMP/certificate.p12 $RUNNER_TEMP/profile.provisionprofile || true
 
   notarize-maccatalyst:
     name: Notarize Mac Catalyst App

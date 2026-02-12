@@ -10,7 +10,7 @@
     }
     else
     {
-        @foreach (var msg in Messages)
+        @foreach (var msg in Messages.ToList())
         {
             <ChatMessageItem Message="msg" Compact="Compact" UserAvatarUrl="@UserAvatarUrl" />
         }
@@ -58,8 +58,8 @@
             }
         }
 
-        @* Streaming content *@
-        @if (!string.IsNullOrEmpty(StreamingContent))
+        @* Streaming content — only show while actively processing to avoid overlap with finalized History *@
+        @if (!string.IsNullOrEmpty(StreamingContent) && IsProcessing)
         {
             <div class="chat-msg assistant streaming">
                 @if (!Compact)
@@ -118,7 +118,7 @@
 
     private IEnumerable<ToolActivity> GetNewActivities()
     {
-        var historyCallIds = Messages.Where(m => m.ToolCallId != null).Select(m => m.ToolCallId).ToHashSet();
+        var historyCallIds = Messages.ToList().Where(m => m.ToolCallId != null).Select(m => m.ToolCallId).ToHashSet();
         return ToolActivities.Where(a => !historyCallIds.Contains(a.CallId));
     }
 

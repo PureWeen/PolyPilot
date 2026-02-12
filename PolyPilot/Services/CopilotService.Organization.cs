@@ -264,5 +264,26 @@ public partial class CopilotService
     public SessionMeta? GetSessionMeta(string sessionName) =>
         Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
 
+    /// <summary>
+    /// Get or create a SessionGroup that auto-tracks a repository.
+    /// </summary>
+    public SessionGroup GetOrCreateRepoGroup(string repoId, string repoName)
+    {
+        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId);
+        if (existing != null) return existing;
+
+        var group = new SessionGroup
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = repoName,
+            RepoId = repoId,
+            SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
+        };
+        Organization.Groups.Add(group);
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+        return group;
+    }
+
     #endregion
 }

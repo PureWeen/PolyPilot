@@ -7,7 +7,6 @@
 @inject NavigationManager Nav
 @inject DevTunnelService DevTunnelService
 @inject GitAutoUpdateService GitAutoUpdate
-@inject WsBridgeServer WsBridgeServer
 @implements IAsyncDisposable
 
 <div class="dashboard @(expandedSession != null ? "expanded-mode" : "")">
@@ -578,6 +577,7 @@
                 _lastActiveSession = active;
                 expandedSession = active;
                 _focusedInputId = $"input-{active.Replace(" ", "-")}";
+                _needsScrollToBottom = true;
             }
             // Clear sidebar highlight when showing grid view
             // Clear stale streaming content for sessions that finished
@@ -672,7 +672,8 @@
                 info.CurrentTokens ?? current.CurrentTokens,
                 info.TokenLimit ?? current.TokenLimit,
                 info.InputTokens ?? current.InputTokens,
-                info.OutputTokens ?? current.OutputTokens);
+                info.OutputTokens ?? current.OutputTokens,
+                info.PremiumQuota ?? current.PremiumQuota);
         }
         else
         {

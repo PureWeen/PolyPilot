@@ -33,7 +33,7 @@
         <ApplicationTitle>PolyPilot</ApplicationTitle>
 
         <!-- App Identifier -->
-        <ApplicationId>com.companyname.PolyPilot</ApplicationId>
+        <ApplicationId>com.microsoft.PolyPilot</ApplicationId>
 
         <!-- Versions -->
         <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>

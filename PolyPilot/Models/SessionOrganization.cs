@@ -11,6 +11,8 @@ public class SessionGroup
     public string Name { get; set; } = "";
     public int SortOrder { get; set; }
     public bool IsCollapsed { get; set; }
+    /// <summary>If set, this group auto-tracks a repository managed by RepoManager.</summary>
+    public string? RepoId { get; set; }
 }
 
 public class SessionMeta
@@ -19,6 +21,8 @@ public class SessionMeta
     public string GroupId { get; set; } = SessionGroup.DefaultId;
     public bool IsPinned { get; set; }
     public int ManualOrder { get; set; }
+    /// <summary>Worktree ID if this session was created from a worktree.</summary>
+    public string? WorktreeId { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

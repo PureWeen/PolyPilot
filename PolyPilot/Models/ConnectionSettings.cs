@@ -37,8 +37,6 @@ public class ConnectionSettings
     public string? RemoteToken { get; set; }
     public string? TunnelId { get; set; }
     public bool AutoStartTunnel { get; set; } = false;
-    public string? ServerPassword { get; set; }
-    public bool DirectSharingEnabled { get; set; } = false;
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
     public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
     public bool AutoUpdateFromMain { get; set; } = false;
@@ -50,27 +48,27 @@ public class ConnectionSettings
 
     private static string? _settingsPath;
     private static string SettingsPath => _settingsPath ??= Path.Combine(
-        GetCopilotDir(), "PolyPilot-settings.json");
+        GetPolyPilotDir(), "settings.json");
 
-    private static string GetCopilotDir()
+    private static string GetPolyPilotDir()
     {
 #if IOS || ANDROID
         try
         {
-            return Path.Combine(FileSystem.AppDataDirectory, ".copilot");
+            return Path.Combine(FileSystem.AppDataDirectory, ".polypilot");
         }
         catch
         {
             var fallback = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             if (string.IsNullOrEmpty(fallback))
                 fallback = Path.GetTempPath();
-            return Path.Combine(fallback, ".copilot");
+            return Path.Combine(fallback, ".polypilot");
         }
 #else
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (string.IsNullOrEmpty(home))
             home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(home, ".copilot");
+        return Path.Combine(home, ".polypilot");
 #endif
     }
 

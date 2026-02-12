@@ -1,30 +1,130 @@
 @using PolyPilot.Services
 @using PolyPilot.Models
 @inject IJSRuntime JS
+@inject RepoManager RepoManager
 
-<div class="new-session">
-    <input type="text" value="@SessionName" @oninput="OnNameInput" @onkeydown="HandleKeyDown" placeholder="Session name..." />
-    <div class="session-options-row">
-        <ModelSelector Value="@SelectedModel" ValueChanged="OnModelSelected" Models="AvailableModels" CssClass="model-select-wrapper" />
-        <button class="dir-toggle-btn" @onclick="() => showDirectoryInput = !showDirectoryInput" title="Set working directory">⋯</button>
-        <button @onclick="TriggerCreate" disabled="@(IsCreating || string.IsNullOrWhiteSpace(SessionName))" title="Create new session">
-            @(IsCreating ? "..." : "+")
-        </button>
-    </div>
-    @if (showDirectoryInput)
-    {
-        <div class="dir-input-row">
-            <input type="text" @bind="sessionDirectory"
-                   placeholder="Working directory (default: PolyPilot)" 
-                   class="dir-input" />
-            <button class="dir-browse-btn" @onclick="BrowseDirectory" title="Browse folders">…</button>
+@if (!isExpanded)
+{
+    <button class="new-session-btn" @onclick="Expand">+ New Session</button>
+}
+else
+{
+    <div class="new-session-form">
+        <input type="text" value="@SessionName" @oninput="OnNameInput" @onkeydown="HandleKeyDown"
+               placeholder="Session name..." class="ns-name" />
+        <textarea @bind="initialPrompt" placeholder="What should this session do? (optional)"
+                  class="ns-prompt" rows="2"></textarea>
+
+        @if (showOptions)
+        {
+            <div class="ns-options">
+                @if (RepoManager.Repositories.Count > 0)
+                {
+                    <div class="ns-option-group">
+                        <label class="ns-label">Worktree</label>
+                        @if (selectedWorktreeBranch != null)
+                        {
+                            <div class="ns-wt-badge">
+                                ⑂ @selectedWorktreeBranch
+                                <button class="ns-badge-clear" @onclick="ClearWorktree">✕</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <button class="ns-option-btn" @onclick="() => showWorktreePicker = !showWorktreePicker">
+                                @(showWorktreePicker ? "▾ Select worktree" : "▸ Select worktree")
+                            </button>
+                        }
+                        @if (showWorktreePicker)
+                        {
+                            <div class="ns-wt-picker">
+                                @foreach (var repo in RepoManager.Repositories)
+                                {
+                                    var repoId = repo.Id;
+                                    var repoWorktrees = RepoManager.Worktrees.Where(w => w.RepoId == repo.Id).ToList();
+                                    <div class="wt-repo-name">@repo.Name</div>
+                                    @foreach (var wt in repoWorktrees)
+                                    {
+                                        var wtId = wt.Id;
+                                        <div class="wt-option-row">
+                                            <button class="wt-option @(selectedWorktreeId == wt.Id ? "selected" : "")" @onclick="() => SelectWorktree(wt)">
+                                                ⑂ @wt.Branch
+                                                @if (wt.PrNumber.HasValue) { <span class="wt-pr-badge">#@wt.PrNumber</span> }
+                                            </button>
+                                            <button class="wt-delete-btn" @onclick="() => RemoveWorktree(wtId)">×</button>
+                                        </div>
+                                    }
+                                    @if (newWorktreeRepoId == repoId)
+                                    {
+                                        <div class="wt-mode-toggle">
+                                            <button class="wt-mode @(newWorktreeMode == "branch" ? "active" : "")"
+                                                    @onclick="SetModeBranch">Branch</button>
+                                            <button class="wt-mode @(newWorktreeMode == "pr" ? "active" : "")"
+                                                    @onclick="SetModePr">PR</button>
+                                        </div>
+                                        <div class="wt-new-form">
+                                            @if (newWorktreeMode == "branch")
+                                            {
+                                                <input type="text" @bind="newWorktreeBranch" placeholder="branch-name"
+                                                       class="wt-branch-input" @onkeydown="HandleNewWorktreeKeyDown" />
+                                            }
+                                            else
+                                            {
+                                                <input type="text" @bind="newWorktreePr" placeholder="PR #"
+                                                       class="wt-branch-input" @onkeydown="HandleNewWorktreeKeyDown" />
+                                            }
+                                            <button class="wt-create-btn" @onclick="CreateAndSelectWorktree"
+                                                    disabled="@(isCreatingWorktree || (newWorktreeMode == "branch" ? string.IsNullOrWhiteSpace(newWorktreeBranch) : string.IsNullOrWhiteSpace(newWorktreePr)))">
+                                                @(isCreatingWorktree ? "…" : "⑂")
+                                            </button>
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(worktreeError))
+                                        {
+                                            <div class="wt-error">⚠ @worktreeError</div>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <button class="wt-option wt-new" @onclick="() => StartNewWorktreeForm(repoId)">
+                                            + New worktree…
+                                        </button>
+                                    }
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+                <div class="ns-option-group">
+                    <label class="ns-label">Directory</label>
+                    <div class="ns-dir-row">
+                        <input type="text" @bind="sessionDirectory" placeholder="Working directory..."
+                               class="ns-dir-input" />
+                        <button class="ns-dir-browse" @onclick="BrowseDirectory">…</button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="ns-footer">
+            <ModelSelector Value="@SelectedModel" ValueChanged="OnModelSelected" Models="AvailableModels" CssClass="ns-model" />
+            <button class="ns-options-toggle" @onclick="() => showOptions = !showOptions">
+                @(showOptions ? "▾ Options" : "▸ Options")
+            </button>
+            <div class="ns-footer-actions">
+                <button class="ns-cancel" @onclick="Collapse">Cancel</button>
+                <button class="ns-create" @onclick="TriggerCreate"
+                        disabled="@(IsCreating || isCreatingWorktree || string.IsNullOrWhiteSpace(SessionName))">
+                    @(IsCreating ? "..." : "Create")
+                </button>
+            </div>
         </div>
-    }
-    @if (!string.IsNullOrEmpty(CreateError))
-    {
-        <div style="color:#ff6b6b;font-size:0.75rem;padding:2px 4px;">⚠ @CreateError</div>
-    }
-</div>
+
+        @if (!string.IsNullOrEmpty(CreateError))
+        {
+            <div class="ns-error">⚠ @CreateError</div>
+        }
+    </div>
+}
 
 @code {
     [Parameter] public bool IsCreating { get; set; }
@@ -32,27 +132,69 @@
     [Parameter] public List<string> AvailableModels { get; set; } = new();
     [Parameter] public string SelectedModel { get; set; } = "claude-opus-4.6";
     [Parameter] public EventCallback<string> SelectedModelChanged { get; set; }
-    
-    [Parameter] public EventCallback<(string Name, string Model, string Directory)> OnCreate { get; set; }
-    [Parameter] public EventCallback OnBrowseDirectory { get; set; } // If we want parent to handle browse dialog (e.g. using Maui essentials) or we can do it here if we inject service?
-    // SessionSidebar uses Electron-like dialog or something?
-    // Let's look at SessionSidebar.BrowseDirectory. 
-    // It's likely platform specific. If I can't move the logic easily, I'll callback.
+
+    [Parameter] public EventCallback<(string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt)> OnCreate { get; set; }
+    [Parameter] public EventCallback OnBrowseDirectory { get; set; }
     [Parameter] public string SessionName { get; set; } = "";
     [Parameter] public EventCallback<string> SessionNameChanged { get; set; }
-    
+
+    private bool isExpanded = false;
+    private bool showOptions = false;
+    private bool showWorktreePicker = false;
+    private string initialPrompt = "";
     private string sessionDirectory = "";
-    private bool showDirectoryInput = false;
+    private string? selectedWorktreePath;
+    private string? selectedWorktreeId;
+    private string? selectedWorktreeBranch;
+
+    private string? newWorktreeRepoId;
+    private string newWorktreeBranch = "";
+    private string newWorktreePr = "";
+    private string newWorktreeMode = "branch";
+    private string? worktreeError;
+    private bool isCreatingWorktree;
+
+    private void Expand() => isExpanded = true;
+    public void ExpandForRepo(string repoId)
+    {
+        isExpanded = true;
+        showOptions = true;
+        worktreeError = null;
+
+        // If worktrees exist for this repo, auto-select the first one
+        var existingWorktrees = RepoManager.Worktrees.Where(w => w.RepoId == repoId).ToList();
+        if (existingWorktrees.Count > 0)
+        {
+            SelectWorktree(existingWorktrees[0]);
+            showWorktreePicker = true;
+        }
+        else
+        {
+            // No worktrees yet — open new worktree form prefilled with "main"
+            showWorktreePicker = true;
+            newWorktreeRepoId = repoId;
+            newWorktreeBranch = "main";
+            newWorktreePr = "";
+            newWorktreeMode = "branch";
+        }
+        StateHasChanged();
+    }
+    private void Collapse()
+    {
+        isExpanded = false;
+        showOptions = false;
+        showWorktreePicker = false;
+        newWorktreeRepoId = null;
+    }
+
+    private void SetWorktreeMode(string mode) => newWorktreeMode = mode;
+    private void SetModeBranch() => newWorktreeMode = "branch";
+    private void SetModePr() => newWorktreeMode = "pr";
 
     private async Task OnNameInput(ChangeEventArgs e)
     {
         SessionName = e.Value?.ToString() ?? "";
         await SessionNameChanged.InvokeAsync(SessionName);
-    }
-
-    private async Task OnModelChanged()
-    {
-        await SelectedModelChanged.InvokeAsync(SelectedModel);
     }
 
     private async Task OnModelSelected(string model)
@@ -61,22 +203,101 @@
         await SelectedModelChanged.InvokeAsync(model);
     }
 
+    private void SelectWorktree(WorktreeInfo wt)
+    {
+        sessionDirectory = wt.Path;
+        selectedWorktreePath = wt.Path;
+        selectedWorktreeId = wt.Id;
+        selectedWorktreeBranch = wt.Branch;
+        showWorktreePicker = false;
+        newWorktreeRepoId = null;
+
+        if (string.IsNullOrWhiteSpace(SessionName))
+        {
+            SessionName = wt.Branch;
+            _ = SessionNameChanged.InvokeAsync(SessionName);
+        }
+    }
+
+    private void ClearWorktree()
+    {
+        selectedWorktreePath = null;
+        selectedWorktreeId = null;
+        selectedWorktreeBranch = null;
+        sessionDirectory = "";
+    }
+
+    private void StartNewWorktreeForm(string repoId)
+    {
+        newWorktreeRepoId = repoId;
+        newWorktreeBranch = "";
+        newWorktreePr = "";
+        newWorktreeMode = "branch";
+        worktreeError = null;
+    }
+
+    private async Task HandleNewWorktreeKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await CreateAndSelectWorktree();
+        else if (e.Key == "Escape") newWorktreeRepoId = null;
+    }
+
+    private async Task CreateAndSelectWorktree()
+    {
+        if (isCreatingWorktree || newWorktreeRepoId == null) return;
+        if (newWorktreeMode == "pr")
+        {
+            if (!int.TryParse(newWorktreePr.Trim().TrimStart('#'), out var prNum) || prNum <= 0)
+            { worktreeError = "Enter a valid PR number"; return; }
+            isCreatingWorktree = true; worktreeError = null;
+            try
+            {
+                var wt = await RepoManager.CreateWorktreeFromPrAsync(newWorktreeRepoId, prNum);
+                SelectWorktree(wt);
+                if (string.IsNullOrWhiteSpace(SessionName))
+                { SessionName = $"PR #{prNum}"; await SessionNameChanged.InvokeAsync(SessionName); }
+            }
+            catch (Exception ex) { worktreeError = ex.Message; }
+            finally { isCreatingWorktree = false; }
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(newWorktreeBranch)) return;
+            isCreatingWorktree = true; worktreeError = null;
+            try
+            {
+                var wt = await RepoManager.CreateWorktreeAsync(newWorktreeRepoId, newWorktreeBranch.Trim());
+                SelectWorktree(wt);
+            }
+            catch (Exception ex) { worktreeError = ex.Message; }
+            finally { isCreatingWorktree = false; }
+        }
+    }
+
+    private async Task RemoveWorktree(string worktreeId)
+    {
+        try
+        { if (selectedWorktreeId == worktreeId) ClearWorktree(); await RepoManager.RemoveWorktreeAsync(worktreeId); }
+        catch (Exception ex) { worktreeError = ex.Message; }
+    }
+
     private async Task TriggerCreate()
     {
         if (!string.IsNullOrWhiteSpace(SessionName))
         {
-            await OnCreate.InvokeAsync((SessionName, SelectedModel, sessionDirectory));
+            var prompt = string.IsNullOrWhiteSpace(initialPrompt) ? null : initialPrompt.Trim();
+            await OnCreate.InvokeAsync((SessionName, SelectedModel, sessionDirectory, selectedWorktreeId, prompt));
+            selectedWorktreePath = null; selectedWorktreeId = null; selectedWorktreeBranch = null;
+            sessionDirectory = ""; initialPrompt = "";
+            isExpanded = false; showOptions = false;
         }
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter")
-        {
-            await TriggerCreate();
-        }
+        if (e.Key == "Escape") Collapse();
     }
-    
+
     private async Task BrowseDirectory()
     {
 #if MACCATALYST || WINDOWS
@@ -84,23 +305,17 @@
         {
             var dir = await FolderPickerService.PickFolderAsync();
             if (!string.IsNullOrEmpty(dir))
-            {
-                sessionDirectory = dir;
-                StateHasChanged();
-            }
+            { sessionDirectory = dir; selectedWorktreePath = null; selectedWorktreeId = null; selectedWorktreeBranch = null; StateHasChanged(); }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Folder picker error: {ex.Message}");
-        }
+        catch (Exception ex) { Console.WriteLine($"Folder picker error: {ex.Message}"); }
 #else
         await OnBrowseDirectory.InvokeAsync();
 #endif
     }
-    
+
     public void SetDirectory(string path)
     {
-        sessionDirectory = path;
+        sessionDirectory = path; selectedWorktreePath = null; selectedWorktreeId = null; selectedWorktreeBranch = null;
         StateHasChanged();
     }
 }

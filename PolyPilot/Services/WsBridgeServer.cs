@@ -28,12 +28,6 @@ public class WsBridgeServer : IDisposable
     /// </summary>
     public string? AccessToken { get; set; }
 
-    /// <summary>
-    /// User-configured password for direct (non-DevTunnel) connections.
-    /// Accepted alongside AccessToken for non-loopback connections.
-    /// </summary>
-    public string? ServerPassword { get; set; }
-
     public event Action? OnStateChanged;
 
     /// <summary>
@@ -203,39 +197,28 @@ public class WsBridgeServer : IDisposable
     /// </summary>
     private bool ValidateClientToken(HttpListenerRequest request)
     {
-        var hasAccessToken = !string.IsNullOrEmpty(AccessToken);
-        var hasServerPassword = !string.IsNullOrEmpty(ServerPassword);
-
-        if (!hasAccessToken && !hasServerPassword)
-            return true; // No auth configured — local-only mode, allow all
+        if (string.IsNullOrEmpty(AccessToken))
+            return true; // No token configured — local-only mode, allow all
 
         // Loopback connections are trusted — DevTunnel proxies appear as localhost
         if (IsLoopbackRequest(request))
             return true;
 
-        // Extract the client-supplied credential from header or query param
-        string? clientToken = null;
-
         // Check X-Tunnel-Authorization header: "tunnel <token>"
         var authHeader = request.Headers["X-Tunnel-Authorization"];
         if (!string.IsNullOrEmpty(authHeader))
         {
-            clientToken = authHeader.StartsWith("tunnel ", StringComparison.OrdinalIgnoreCase)
-                ? authHeader["tunnel ".Length..].Trim()
-                : authHeader.Trim();
+            var token = authHeader.StartsWith("tunnel ", StringComparison.OrdinalIgnoreCase)
+                ? authHeader["tunnel ".Length..]
+                : authHeader;
+            if (string.Equals(token.Trim(), AccessToken, StringComparison.Ordinal))
+                return true;
         }
 
         // Check query string: ?token=<token>
-        if (clientToken == null)
-            clientToken = request.QueryString["token"];
-
-        if (string.IsNullOrEmpty(clientToken))
-            return false;
-
-        // Accept if it matches either the DevTunnel access token or the server password
-        if (hasAccessToken && string.Equals(clientToken, AccessToken, StringComparison.Ordinal))
-            return true;
-        if (hasServerPassword && string.Equals(clientToken, ServerPassword, StringComparison.Ordinal))
+        var queryToken = request.QueryString["token"];
+        if (!string.IsNullOrEmpty(queryToken) &&
+            string.Equals(queryToken, AccessToken, StringComparison.Ordinal))
             return true;
 
         return false;
