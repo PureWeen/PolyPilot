@@ -97,33 +97,67 @@ public class RepoManager
     }
 
     /// <summary>
+    /// Normalizes a repository input. Accepts full URLs, SSH paths, or GitHub shorthand (e.g. "dotnet/maui").
+    /// </summary>
+    public static string NormalizeRepoUrl(string input)
+    {
+        input = input.Trim();
+        // Already a full URL or SSH path
+        if (input.StartsWith("http://") || input.StartsWith("https://") || input.Contains("@"))
+            return input;
+        // GitHub shorthand: owner/repo (no dots, no colons, exactly one slash)
+        var parts = input.Split('/');
+        if (parts.Length == 2 && !input.Contains('.') && !input.Contains(':')
+            && !string.IsNullOrWhiteSpace(parts[0]) && !string.IsNullOrWhiteSpace(parts[1]))
+            return $"https://github.com/{input}";
+        return input;
+    }
+
+    /// <summary>
     /// Clone a repository as bare. Returns the RepositoryInfo.
     /// If already tracked, returns existing entry.
     /// </summary>
-    public async Task<RepositoryInfo> AddRepositoryAsync(string url, CancellationToken ct = default)
+    public Task<RepositoryInfo> AddRepositoryAsync(string url, CancellationToken ct = default)
+        => AddRepositoryAsync(url, null, ct);
+
+    public async Task<RepositoryInfo> AddRepositoryAsync(string url, Action<string>? onProgress, CancellationToken ct = default)
     {
+        url = NormalizeRepoUrl(url);
         EnsureLoaded();
         var id = RepoIdFromUrl(url);
         var existing = _state.Repositories.FirstOrDefault(r => r.Id == id);
         if (existing != null)
         {
-            // Fetch latest and ensure refspec is set
+            onProgress?.Invoke($"Fetching {id}…");
             try { await RunGitAsync(existing.BareClonePath, ct, "config", "remote.origin.fetch",
                 "+refs/heads/*:refs/remotes/origin/*"); } catch { }
-            await RunGitAsync(existing.BareClonePath, ct, "fetch", "origin");
+            await RunGitWithProgressAsync(existing.BareClonePath, onProgress, ct, "fetch", "--progress", "origin");
             return existing;
         }
 
         Directory.CreateDirectory(ReposDir);
         var barePath = Path.Combine(ReposDir, $"{id}.git");
 
-        await RunGitAsync(null, ct, "clone", "--bare", url, barePath);
+        if (Directory.Exists(barePath))
+        {
+            // Directory exists but not tracked in state — re-use it via fetch
+            onProgress?.Invoke($"Fetching {id}…");
+            try { await RunGitAsync(barePath, ct, "config", "remote.origin.fetch",
+                "+refs/heads/*:refs/remotes/origin/*"); } catch { }
+            await RunGitWithProgressAsync(barePath, onProgress, ct, "fetch", "--progress", "origin");
+        }
+        else
+        {
+            onProgress?.Invoke($"Cloning {url}…");
+            await RunGitWithProgressAsync(null, onProgress, ct, "clone", "--bare", "--progress", url, barePath);
 
-        // Set fetch refspec so `git fetch` updates remote-tracking refs
-        // (bare clones don't set this by default)
-        await RunGitAsync(barePath, ct, "config", "remote.origin.fetch",
-            "+refs/heads/*:refs/remotes/origin/*");
-        await RunGitAsync(barePath, ct, "fetch", "origin");
+            // Set fetch refspec so `git fetch` updates remote-tracking refs
+            // (bare clones don't set this by default)
+            await RunGitAsync(barePath, ct, "config", "remote.origin.fetch",
+                "+refs/heads/*:refs/remotes/origin/*");
+            onProgress?.Invoke($"Fetching refs…");
+            await RunGitWithProgressAsync(barePath, onProgress, ct, "fetch", "--progress", "origin");
+        }
 
         var repo = new RepositoryInfo
         {
@@ -259,6 +293,35 @@ public class RepoManager
         => _state.Worktrees.Where(w => w.RepoId == repoId);
 
     /// <summary>
+    /// Remove a tracked repository and optionally delete its bare clone from disk.
+    /// Also removes all associated worktrees.
+    /// </summary>
+    public async Task RemoveRepositoryAsync(string repoId, bool deleteFromDisk, CancellationToken ct = default)
+    {
+        EnsureLoaded();
+        var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId);
+        if (repo == null) return;
+
+        // Remove all worktrees for this repo
+        var worktrees = _state.Worktrees.Where(w => w.RepoId == repoId).ToList();
+        foreach (var wt in worktrees)
+        {
+            try { await RemoveWorktreeAsync(wt.Id, ct); } catch { }
+        }
+
+        _state.Repositories.RemoveAll(r => r.Id == repoId);
+        _state.Worktrees.RemoveAll(w => w.RepoId == repoId);
+        Save();
+
+        if (deleteFromDisk && Directory.Exists(repo.BareClonePath))
+        {
+            try { Directory.Delete(repo.BareClonePath, recursive: true); } catch { }
+        }
+
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
     /// Find which repository a session's working directory belongs to, if any.
     /// </summary>
     public RepositoryInfo? FindRepoForPath(string workingDirectory)
@@ -337,6 +400,11 @@ public class RepoManager
 
     private static async Task<string> RunGitAsync(string? workDir, CancellationToken ct, params string[] args)
     {
+        return await RunGitWithProgressAsync(workDir, null, ct, args);
+    }
+
+    private static async Task<string> RunGitWithProgressAsync(string? workDir, Action<string>? onProgress, CancellationToken ct, params string[] args)
+    {
         var psi = new ProcessStartInfo("git")
         {
             RedirectStandardOutput = true,
@@ -352,12 +420,43 @@ public class RepoManager
         using var proc = Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start git process.");
 
-        var output = await proc.StandardOutput.ReadToEndAsync(ct);
-        var error = await proc.StandardError.ReadToEndAsync(ct);
+        var outputTask = proc.StandardOutput.ReadToEndAsync(ct);
+
+        // Stream stderr for progress reporting
+        var errorLines = new System.Text.StringBuilder();
+        var stderrTask = Task.Run(async () =>
+        {
+            var buffer = new char[256];
+            int read;
+            var lineBuf = new System.Text.StringBuilder();
+            while ((read = await proc.StandardError.ReadAsync(buffer, ct)) > 0)
+            {
+                errorLines.Append(buffer, 0, read);
+                if (onProgress != null)
+                {
+                    lineBuf.Append(buffer, 0, read);
+                    var text = lineBuf.ToString();
+                    // Git progress uses \r for in-place updates
+                    var lastNewline = Math.Max(text.LastIndexOf('\r'), text.LastIndexOf('\n'));
+                    if (lastNewline >= 0)
+                    {
+                        var line = text[..lastNewline].Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+                        if (!string.IsNullOrWhiteSpace(line))
+                            onProgress(line.Trim());
+                        lineBuf.Clear();
+                        if (lastNewline + 1 < text.Length)
+                            lineBuf.Append(text[(lastNewline + 1)..]);
+                    }
+                }
+            }
+        }, ct);
+
+        var output = await outputTask;
+        await stderrTask;
         await proc.WaitForExitAsync(ct);
 
         if (proc.ExitCode != 0)
-            throw new InvalidOperationException($"git {string.Join(' ', args)} failed: {error}");
+            throw new InvalidOperationException($"git {string.Join(' ', args)} failed: {errorLines}");
 
         return output;
     }
