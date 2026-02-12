@@ -69,25 +69,37 @@ public class ChatMessageEntity
 public class ChatDatabase
 {
     private SQLiteAsyncConnection? _db;
-    private readonly string _dbPath;
+    private static string? _dbPath;
+    private static string DbPath => _dbPath ??= GetDbPath();
+
+    private static string GetDbPath()
+    {
+        try
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (string.IsNullOrEmpty(home))
+                home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            return Path.Combine(home, ".polypilot", "chat_history.db");
+        }
+        catch
+        {
+            return Path.Combine(Path.GetTempPath(), ".polypilot", "chat_history.db");
+        }
+    }
 
     public ChatDatabase()
     {
-        _dbPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PolyPilot",
-            "chat_history.db");
     }
 
     private async Task<SQLiteAsyncConnection> GetConnectionAsync()
     {
         if (_db != null) return _db;
 
-        var dir = Path.GetDirectoryName(_dbPath)!;
+        var dir = Path.GetDirectoryName(DbPath)!;
         if (!Directory.Exists(dir))
             Directory.CreateDirectory(dir);
 
-        _db = new SQLiteAsyncConnection(_dbPath);
+        _db = new SQLiteAsyncConnection(DbPath);
         await _db.CreateTableAsync<ChatMessageEntity>();
 
         // Create index for fast session + order lookups

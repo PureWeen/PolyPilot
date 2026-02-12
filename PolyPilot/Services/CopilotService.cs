@@ -659,7 +659,10 @@ public partial class CopilotService : IAsyncDisposable
             // Set up optimistic state BEFORE sending bridge message to prevent race with SyncRemoteSessions
             _pendingRemoteSessions[name] = 0;
             _sessions[name] = new SessionState { Session = null!, Info = remoteInfo };
-            if (!Organization.Sessions.Any(m => m.SessionName == name))
+            var existingMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
+            if (existingMeta != null)
+                existingMeta.IsPinned = false;
+            else
                 Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
             _activeSessionName = name;
             OnStateChanged?.Invoke();
@@ -745,6 +748,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
 
         _activeSessionName ??= name;
+
+        // Reset stale pin from a previous session with the same name
+        var staleMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
+        if (staleMeta != null)
+            staleMeta.IsPinned = false;
+
         SaveActiveSessionsToDisk();
         ReconcileOrganization();
         OnStateChanged?.Invoke();
