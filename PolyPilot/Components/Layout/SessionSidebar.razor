@@ -414,7 +414,7 @@ else
         showPersistedSessions = !showPersistedSessions;
     }
 
-    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId) args)
+    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt) args)
     {
         if (isCreating) return;
         isCreating = true;
@@ -445,6 +445,12 @@ else
 
             CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
             await OnSessionSelected.InvokeAsync();
+
+            // Send initial prompt after session is ready
+            if (!string.IsNullOrEmpty(args.InitialPrompt))
+            {
+                _ = CopilotService.SendPromptAsync(sessionInfo.Name, args.InitialPrompt);
+            }
         }
         catch (Exception ex)
         {

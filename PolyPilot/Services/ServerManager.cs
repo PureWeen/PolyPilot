@@ -67,7 +67,7 @@ public class ServerManager
         try
         {
             // Use the native binary directly for better detachment
-            var copilotPath = FindCopilotCliPath();
+            var copilotPath = FindCopilotBinary();
             var psi = new ProcessStartInfo
             {
                 FileName = copilotPath,
@@ -211,7 +211,7 @@ public class ServerManager
         try { File.Delete(PidFilePath); } catch { }
     }
 
-    internal static string FindCopilotCliPath()
+    private static string FindCopilotBinary()
     {
         // Try platform-specific native binaries first (faster startup, better detachment)
         var nativePaths = new List<string>();

@@ -226,6 +226,97 @@
     border-color: var(--accent-primary) !important;
 }
 
+.wt-option-row {
+    display: flex;
+    align-items: center;
+}
+
+.wt-option-row .wt-option {
+    flex: 1;
+    min-width: 0;
+}
+
+.wt-delete-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: var(--type-footnote);
+    padding: 0.2rem 0.4rem;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.wt-option-row:hover .wt-delete-btn {
+    opacity: 1;
+}
+
+.wt-delete-btn:hover {
+    color: #ff6b6b;
+}
+
+.wt-pr-badge {
+    font-size: var(--type-caption2);
+    color: var(--accent-primary);
+    margin-left: auto;
+}
+
+.wt-mode-toggle {
+    display: flex;
+    padding: 0.2rem 0.5rem;
+    gap: 0;
+}
+
+.wt-mode {
+    flex: 1;
+    padding: 0.2rem 0;
+    border: 1px solid var(--control-border);
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: var(--type-caption2);
+    font-weight: 600;
+    text-align: center;
+}
+
+.wt-mode:first-child {
+    border-radius: 4px 0 0 4px;
+}
+
+.wt-mode:last-child {
+    border-radius: 0 4px 4px 0;
+    border-left: none;
+}
+
+.wt-mode.active {
+    background: var(--control-bg);
+    color: var(--text-primary);
+    border-color: var(--accent-primary);
+}
+
+.initial-prompt-input {
+    width: 100%;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    font-size: var(--type-footnote);
+    font-family: inherit;
+    resize: vertical;
+    min-height: 2.5rem;
+    max-height: 6rem;
+}
+
+.initial-prompt-input::placeholder {
+    color: var(--text-dim);
+}
+
+.initial-prompt-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
 /* === Mobile responsive === */
 @media (max-width: 640px) {
     .new-session {

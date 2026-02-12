@@ -180,6 +180,41 @@ public class RepoManager
     }
 
     /// <summary>
+    /// Create a worktree by checking out a GitHub PR's branch.
+    /// Fetches the PR ref and creates a worktree on that branch.
+    /// </summary>
+    public async Task<WorktreeInfo> CreateWorktreeFromPrAsync(string repoId, int prNumber, CancellationToken ct = default)
+    {
+        EnsureLoaded();
+        var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
+            ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
+
+        // Fetch the PR ref
+        await RunGitAsync(repo.BareClonePath, ct, "fetch", "origin", $"pull/{prNumber}/head:pr-{prNumber}");
+
+        Directory.CreateDirectory(WorktreesDir);
+        var worktreeId = Guid.NewGuid().ToString()[..8];
+        var worktreePath = Path.Combine(WorktreesDir, $"{repoId}-{worktreeId}");
+        var branchName = $"pr-{prNumber}";
+
+        await RunGitAsync(repo.BareClonePath, ct, "worktree", "add", worktreePath, branchName);
+
+        var wt = new WorktreeInfo
+        {
+            Id = worktreeId,
+            RepoId = repoId,
+            Branch = branchName,
+            Path = worktreePath,
+            PrNumber = prNumber,
+            CreatedAt = DateTime.UtcNow
+        };
+        _state.Worktrees.Add(wt);
+        Save();
+        OnStateChanged?.Invoke();
+        return wt;
+    }
+
+    /// <summary>
     /// Remove a worktree and clean up.
     /// </summary>
     public async Task RemoveWorktreeAsync(string worktreeId, CancellationToken ct = default)

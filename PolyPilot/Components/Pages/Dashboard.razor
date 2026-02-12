@@ -272,29 +272,21 @@
             {
                 _ = Task.Run(async () =>
                 {
-                    try
-                    {
-                        var success = await DevTunnelService.HostAsync(connSettings.Port);
-                        if (!success)
-                        {
-                            Console.WriteLine("[AutoStart] Tunnel failed, falling back to direct sharing");
-                            StartDirectSharingIfEnabled(connSettings);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[AutoStart] Tunnel error: {ex.Message}");
-                        StartDirectSharingIfEnabled(connSettings);
-                    }
+                    try { await DevTunnelService.HostAsync(connSettings.Port); }
+                    catch (Exception ex) { Console.WriteLine($"[AutoStart] Tunnel failed: {ex.Message}"); }
                 });
-            }
-            else
-            {
-                // No tunnel auto-start — try direct sharing
-                StartDirectSharingIfEnabled(connSettings);
             }
 
             GitAutoUpdate.Initialize();
+
+            // Auto-start direct sharing if previously enabled
+            if (connSettings.DirectSharingEnabled && !string.IsNullOrEmpty(connSettings.ServerPassword)
+                && !WsBridgeServer.IsRunning && DevTunnelService.State != TunnelState.Running)
+            {
+                WsBridgeServer.ServerPassword = connSettings.ServerPassword;
+                WsBridgeServer.SetCopilotService(CopilotService);
+                WsBridgeServer.Start(DevTunnelService.BridgePort, connSettings.Port);
+            }
         }
         catch (Exception ex)
         {
@@ -303,17 +295,6 @@
         }
 
         RefreshState();
-    }
-
-    private void StartDirectSharingIfEnabled(ConnectionSettings connSettings)
-    {
-        if (connSettings.DirectSharingEnabled && !string.IsNullOrEmpty(connSettings.ServerPassword)
-            && !WsBridgeServer.IsRunning && DevTunnelService.State != TunnelState.Running)
-        {
-            WsBridgeServer.ServerPassword = connSettings.ServerPassword;
-            WsBridgeServer.SetCopilotService(CopilotService);
-            WsBridgeServer.Start(DevTunnelService.BridgePort, connSettings.Port);
-        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
