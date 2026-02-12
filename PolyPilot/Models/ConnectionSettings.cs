@@ -37,6 +37,8 @@ public class ConnectionSettings
     public string? RemoteToken { get; set; }
     public string? TunnelId { get; set; }
     public bool AutoStartTunnel { get; set; } = false;
+    public string? ServerPassword { get; set; }
+    public bool DirectSharingEnabled { get; set; } = false;
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
     public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
     public bool AutoUpdateFromMain { get; set; } = false;

@@ -28,6 +28,11 @@ public class WsBridgeServer : IDisposable
     /// </summary>
     public string? AccessToken { get; set; }
 
+    /// <summary>
+    /// Server password for direct connection (LAN/Tailscale/VPN) auth.
+    /// </summary>
+    public string? ServerPassword { get; set; }
+
     public event Action? OnStateChanged;
 
     /// <summary>
@@ -197,28 +202,32 @@ public class WsBridgeServer : IDisposable
     /// </summary>
     private bool ValidateClientToken(HttpListenerRequest request)
     {
-        if (string.IsNullOrEmpty(AccessToken))
-            return true; // No token configured — local-only mode, allow all
+        // If neither token nor password is configured, allow all (local-only mode)
+        if (string.IsNullOrEmpty(AccessToken) && string.IsNullOrEmpty(ServerPassword))
+            return true;
 
         // Loopback connections are trusted — DevTunnel proxies appear as localhost
         if (IsLoopbackRequest(request))
             return true;
 
-        // Check X-Tunnel-Authorization header: "tunnel <token>"
+        // Extract token from header or query string
+        string? providedToken = null;
         var authHeader = request.Headers["X-Tunnel-Authorization"];
         if (!string.IsNullOrEmpty(authHeader))
         {
-            var token = authHeader.StartsWith("tunnel ", StringComparison.OrdinalIgnoreCase)
-                ? authHeader["tunnel ".Length..]
-                : authHeader;
-            if (string.Equals(token.Trim(), AccessToken, StringComparison.Ordinal))
-                return true;
+            providedToken = authHeader.StartsWith("tunnel ", StringComparison.OrdinalIgnoreCase)
+                ? authHeader["tunnel ".Length..].Trim()
+                : authHeader.Trim();
         }
+        providedToken ??= request.QueryString["token"];
 
-        // Check query string: ?token=<token>
-        var queryToken = request.QueryString["token"];
-        if (!string.IsNullOrEmpty(queryToken) &&
-            string.Equals(queryToken, AccessToken, StringComparison.Ordinal))
+        if (string.IsNullOrEmpty(providedToken))
+            return false;
+
+        // Accept if it matches either the tunnel access token or the server password
+        if (!string.IsNullOrEmpty(AccessToken) && string.Equals(providedToken, AccessToken, StringComparison.Ordinal))
+            return true;
+        if (!string.IsNullOrEmpty(ServerPassword) && string.Equals(providedToken, ServerPassword, StringComparison.Ordinal))
             return true;
 
         return false;

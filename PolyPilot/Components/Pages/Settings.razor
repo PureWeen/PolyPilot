@@ -4,6 +4,8 @@
 @inject CopilotService CopilotService
 @inject ServerManager ServerManager
 @inject DevTunnelService DevTunnelService
+@inject WsBridgeServer WsBridgeServer
+@inject TailscaleService TailscaleService
 @inject QrScannerService QrScanner
 @inject GitAutoUpdateService GitAutoUpdate
 @inject NavigationManager Nav
@@ -390,6 +392,8 @@
     private bool tunnelBusy;
     private bool showToken;
     private string? qrCodeDataUri;
+    private string? directQrCodeDataUri;
+    private List<string> localIps = new();
     private CancellationTokenSource? _statusCts;
     private string searchQuery = "";
     private DotNetObjectReference<Settings>? _selfRef;
@@ -461,6 +465,12 @@
 
         if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
             GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
+
+        // Detect Tailscale and local IPs for direct sharing
+        await TailscaleService.DetectAsync();
+        DiscoverLocalIps();
+        if (WsBridgeServer.IsRunning)
+            GenerateDirectQrCode();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -767,5 +777,72 @@
         {
             ShowStatus($"Connection failed: {ex.Message}", "error", 8000);
         }
+    }
+
+    // --- Direct Connection Sharing ---
+
+    private void StartDirectSharing()
+    {
+        if (string.IsNullOrWhiteSpace(settings.ServerPassword)) return;
+        WsBridgeServer.ServerPassword = settings.ServerPassword;
+        WsBridgeServer.SetCopilotService(CopilotService);
+        WsBridgeServer.Start(DevTunnelService.BridgePort, settings.Port);
+        settings.DirectSharingEnabled = true;
+        settings.Save();
+        GenerateDirectQrCode();
+        StateHasChanged();
+    }
+
+    private void StopDirectSharing()
+    {
+        WsBridgeServer.Stop();
+        settings.DirectSharingEnabled = false;
+        settings.Save();
+        directQrCodeDataUri = null;
+        StateHasChanged();
+    }
+
+    private async Task CopyDirectUrl()
+    {
+        var host = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp ?? localIps.FirstOrDefault() ?? "localhost";
+        var url = $"http://{host}:{DevTunnelService.BridgePort}";
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", url);
+        ShowStatus("URL copied!", "success", 2000);
+    }
+
+    private void DiscoverLocalIps()
+    {
+        localIps.Clear();
+        try
+        {
+            foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback) continue;
+                foreach (var addr in ni.GetIPProperties().UnicastAddresses)
+                {
+                    if (addr.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                        localIps.Add(addr.Address.ToString());
+                }
+            }
+        }
+        catch { }
+    }
+
+    private void GenerateDirectQrCode()
+    {
+        var host = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp ?? localIps.FirstOrDefault();
+        if (host == null) return;
+        var url = $"http://{host}:{DevTunnelService.BridgePort}";
+        var connectUrl = $"polypilot://connect?url={Uri.EscapeDataString(url)}&token={Uri.EscapeDataString(settings.ServerPassword ?? "")}";
+        try
+        {
+            using var qr = new QRCoder.QRCodeGenerator();
+            using var data = qr.CreateQrCode(connectUrl, QRCoder.QRCodeGenerator.ECCLevel.M);
+            using var png = new QRCoder.PngByteQRCode(data);
+            var bytes = png.GetGraphic(8, new byte[] { 255, 255, 255 }, new byte[] { 30, 30, 30 });
+            directQrCodeDataUri = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
+        }
+        catch { }
     }
 }
