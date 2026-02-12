@@ -1622,7 +1622,10 @@
     {
         await CopilotService.CloseSessionAsync(sessionName);
         if (expandedSession == sessionName)
+        {
             expandedSession = null;
+            CopilotService.SaveUiState("/dashboard", activeSession: null, expandedSession: null, expandedGrid: !isCompactGrid);
+        }
     }
 
     private void ClearQueue(string sessionName)
@@ -1682,6 +1685,7 @@
         _lastActiveSession = null;
         _explicitlyCollapsed = true;
         CopilotService.SetActiveSession(null);
+        CopilotService.SaveUiState("/dashboard", activeSession: null, expandedSession: null, expandedGrid: !isCompactGrid);
         StateHasChanged();
     }
 
