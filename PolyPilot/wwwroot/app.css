@@ -293,6 +293,7 @@ html, body {
     font-size: var(--app-font-size, 20px);
     color: var(--text-primary);
     background: var(--bg-primary);
+    overflow-x: hidden;
 }
 
 /* Expanded chat title — global override to prevent truncation */

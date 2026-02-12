@@ -737,6 +737,10 @@
         margin-bottom: 0.75rem;
     }
 
+    .header-right {
+        flex-wrap: wrap;
+    }
+
     .connection-badge {
         font-size: var(--type-footnote);
         padding: 0.25rem 0.6rem;
@@ -841,6 +845,8 @@
 .layout-cards {
     display: flex;
     gap: 0.75rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .layout-card {
