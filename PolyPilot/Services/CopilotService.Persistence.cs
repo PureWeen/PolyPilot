@@ -98,7 +98,7 @@ public partial class CopilotService
 
     }
 
-    public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null, bool? expandedGrid = null, string? expandedSession = null)
+    public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null, bool? expandedGrid = null, string? expandedSession = "<<unspecified>>")
     {
         try
         {
@@ -110,7 +110,7 @@ public partial class CopilotService
                 FontSize = fontSize ?? existing?.FontSize ?? 20,
                 SelectedModel = selectedModel ?? existing?.SelectedModel,
                 ExpandedGrid = expandedGrid ?? existing?.ExpandedGrid ?? false,
-                ExpandedSession = expandedSession ?? existing?.ExpandedSession
+                ExpandedSession = expandedSession == "<<unspecified>>" ? existing?.ExpandedSession : expandedSession
             };
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);
