@@ -178,4 +178,99 @@ public class EventsJsonlParsingTests
 
         Assert.Equal("Build a REST API", firstUserContent);
     }
+
+    [Fact]
+    public void ParseSessionStart_ExtractsSelectedModel()
+    {
+        var line = """{"type":"session.start","data":{"selectedModel":"Claude Opus 4.6 (fast mode)","context":{"cwd":"/tmp"}}}""";
+        var model = ExtractModelFromSessionStart(line);
+        Assert.Equal("Claude Opus 4.6 (fast mode)", model);
+    }
+
+    [Fact]
+    public void ParseSessionStart_MissingSelectedModel_ReturnsNull()
+    {
+        var line = """{"type":"session.start","data":{"context":{"cwd":"/tmp"}}}""";
+        var model = ExtractModelFromSessionStart(line);
+        Assert.Null(model);
+    }
+
+    [Fact]
+    public void ParseSessionStart_ExtractsModel_FromMultipleEvents()
+    {
+        // Mirrors GetSessionModelFromDisk: scan first few lines for session.start
+        var lines = new[]
+        {
+            """{"type":"session.start","data":{"sessionId":"abc-123","selectedModel":"claude-sonnet-4","context":{"cwd":"/tmp"}}}""",
+            """{"type":"user.message","data":{"content":"hello"}}""",
+            """{"type":"assistant.turn_start","data":{}}"""
+        };
+
+        string? model = null;
+        foreach (var line in lines.Take(5))
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("type", out var t) || t.GetString() != "session.start") continue;
+            if (root.TryGetProperty("data", out var data) &&
+                data.TryGetProperty("selectedModel", out var m))
+                model = m.GetString();
+        }
+
+        Assert.Equal("claude-sonnet-4", model);
+    }
+
+    [Fact]
+    public void ParseSessionStart_NoSessionStartEvent_ReturnsNull()
+    {
+        var lines = new[]
+        {
+            """{"type":"user.message","data":{"content":"hello"}}""",
+            """{"type":"assistant.message","data":{"content":"hi"}}"""
+        };
+
+        string? model = null;
+        foreach (var line in lines.Take(5))
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("type", out var t) || t.GetString() != "session.start") continue;
+            if (root.TryGetProperty("data", out var data) &&
+                data.TryGetProperty("selectedModel", out var m))
+                model = m.GetString();
+        }
+
+        Assert.Null(model);
+    }
+
+    [Fact]
+    public void ResumedSession_ModelShouldNotBe_ResumedPlaceholder()
+    {
+        // Regression test: previously ResumeSessionAsync set Model = "resumed"
+        // which caused GetSessionModel to fall through to the first available model.
+        // The model from session.start should be used instead.
+        var sessionStartLine = """{"type":"session.start","data":{"selectedModel":"gpt-5.1-codex","context":{"cwd":"/tmp"}}}""";
+        var model = ExtractModelFromSessionStart(sessionStartLine);
+
+        Assert.NotNull(model);
+        Assert.NotEqual("resumed", model);
+        Assert.Equal("gpt-5.1-codex", model);
+    }
+
+    /// <summary>
+    /// Mirrors the GetSessionModelFromDisk parsing logic from CopilotService.Utilities.cs
+    /// </summary>
+    private static string? ExtractModelFromSessionStart(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return null;
+        using var doc = JsonDocument.Parse(line);
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("type", out var t) || t.GetString() != "session.start") return null;
+        if (root.TryGetProperty("data", out var data) &&
+            data.TryGetProperty("selectedModel", out var model))
+            return model.GetString();
+        return null;
+    }
 }

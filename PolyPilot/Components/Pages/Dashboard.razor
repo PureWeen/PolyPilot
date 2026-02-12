@@ -1774,7 +1774,7 @@
     {
         if (string.IsNullOrEmpty(model)) return;
         modelOverrideBySession[session.Name] = model;
-        if (session.Model != "resumed") session.Model = model;
+        session.Model = model;
     }
 
     private void SetPlanMode(string sessionName, bool enabled) => planModeBySession[sessionName] = enabled;

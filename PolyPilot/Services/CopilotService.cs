@@ -627,7 +627,7 @@ public partial class CopilotService : IAsyncDisposable
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
         {
-            var remoteInfo = new AgentSessionInfo { Name = displayName, SessionId = sessionId, Model = "resumed" };
+            var remoteInfo = new AgentSessionInfo { Name = displayName, SessionId = sessionId, Model = GetSessionModelFromDisk(sessionId) ?? DefaultModel };
             // Set up optimistic state BEFORE sending bridge message to prevent race with SyncRemoteSessions
             _pendingRemoteSessions[displayName] = 0;
             _sessions[displayName] = new SessionState { Session = null!, Info = remoteInfo };
@@ -667,7 +667,7 @@ public partial class CopilotService : IAsyncDisposable
         var info = new AgentSessionInfo
         {
             Name = displayName,
-            Model = "resumed", // Model info may not be immediately available
+            Model = GetSessionModelFromDisk(sessionId) ?? DefaultModel,
             CreatedAt = DateTime.Now,
             SessionId = sessionId,
             IsResumed = true,

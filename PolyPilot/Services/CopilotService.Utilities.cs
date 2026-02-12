@@ -59,6 +59,27 @@ public partial class CopilotService
         return null;
     }
 
+    private string? GetSessionModelFromDisk(string sessionId)
+    {
+        try
+        {
+            var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+            if (!File.Exists(eventsFile)) return null;
+            foreach (var line in File.ReadLines(eventsFile).Take(5))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("type", out var t) || t.GetString() != "session.start") continue;
+                if (root.TryGetProperty("data", out var data) &&
+                    data.TryGetProperty("selectedModel", out var model))
+                    return model.GetString();
+            }
+        }
+        catch { }
+        return null;
+    }
+
     /// <summary>
     /// Check if a session was still processing when the app last closed
     /// </summary>
