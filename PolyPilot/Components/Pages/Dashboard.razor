@@ -611,8 +611,9 @@
                 CopilotService.SwitchSession(sessions[0].Name);
             }
             // Detect sidebar-initiated session switch — expand to chat view
+            // BUT: Don't auto-expand during initial load if we have saved state
             var active = CopilotService.ActiveSessionName;
-            if (active != null && active != _lastActiveSession && sessions.Any(s => s.Name == active))
+            if (active != null && active != _lastActiveSession && sessions.Any(s => s.Name == active) && _initialGridSet)
             {
                 _lastActiveSession = active;
                 expandedSession = active;
