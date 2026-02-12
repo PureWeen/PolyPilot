@@ -254,12 +254,15 @@
             var uiState = CopilotService.LoadUiState();
             if (uiState != null)
             {
+                Console.WriteLine($"[Dashboard] Restoring UI state: ExpandedSession={uiState.ExpandedSession}, ExpandedGrid={uiState.ExpandedGrid}, CurrentPage={uiState.CurrentPage}");
+                
                 // Restore font size
                 if (uiState.FontSize >= 12 && uiState.FontSize <= 24)
                     fontSize = uiState.FontSize;
                 
                 // Restore expanded grid state (inverted: isCompactGrid)
                 isCompactGrid = !uiState.ExpandedGrid;
+                Console.WriteLine($"[Dashboard] Set isCompactGrid = {isCompactGrid} (from ExpandedGrid={uiState.ExpandedGrid})");
                 
                 // Restore expanded session state
                 if (!string.IsNullOrEmpty(uiState.ExpandedSession))
@@ -268,6 +271,7 @@
                     _explicitlyCollapsed = false;
                     _initialGridSet = true; // Prevent RefreshState from overriding
                     CopilotService.SetActiveSession(uiState.ExpandedSession);
+                    Console.WriteLine($"[Dashboard] Restored to expanded session: {uiState.ExpandedSession}");
                 }
                 else if (uiState.CurrentPage == "/dashboard" || uiState.CurrentPage == "/")
                 {
@@ -275,7 +279,12 @@
                     _explicitlyCollapsed = true;
                     _initialGridSet = true; // Prevent RefreshState from overriding
                     CopilotService.SetActiveSession(null); // Clear any auto-set active session
+                    Console.WriteLine($"[Dashboard] Restored to grid view (no expanded session)");
                 }
+            }
+            else
+            {
+                Console.WriteLine("[Dashboard] No UI state found to restore");
             }
 
             // When multiple sessions exist and no saved state, start on grid view
