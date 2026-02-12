@@ -270,11 +270,13 @@
                 {
                     expandedSession = uiState.ExpandedSession;
                     _explicitlyCollapsed = false;
+                    _initialGridSet = true; // Prevent RefreshState from overriding
                 }
                 else if (uiState.CurrentPage == "/dashboard" || uiState.CurrentPage == "/")
                 {
                     // User was in grid view, don't auto-expand
                     _explicitlyCollapsed = true;
+                    _initialGridSet = true; // Prevent RefreshState from overriding
                 }
             }
 

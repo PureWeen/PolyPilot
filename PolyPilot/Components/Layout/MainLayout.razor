@@ -30,6 +30,7 @@
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private CopilotService CopilotService { get; set; } = default!;
+    [Inject] private NavigationManager NavManager { get; set; } = default!;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -45,12 +46,24 @@
             };
             await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
 
-            // Load saved font size
+            // Load saved font size and navigate to last page
             var uiState = CopilotService.LoadUiState();
-            if (uiState?.FontSize > 0)
+            if (uiState != null)
             {
-                fontSize = uiState.FontSize;
-                await ApplyFontSize();
+                if (uiState.FontSize > 0)
+                {
+                    fontSize = uiState.FontSize;
+                    await ApplyFontSize();
+                }
+                
+                // Navigate to the last page if not already there
+                var currentUri = new Uri(NavManager.Uri);
+                var currentPath = currentUri.LocalPath;
+                if (currentPath == "/" && !string.IsNullOrEmpty(uiState.CurrentPage) && uiState.CurrentPage != "/" && uiState.CurrentPage != "/dashboard")
+                {
+                    NavManager.NavigateTo(uiState.CurrentPage);
+                }
+                
                 StateHasChanged();
             }
         }
