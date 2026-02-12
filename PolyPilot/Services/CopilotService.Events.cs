@@ -160,6 +160,12 @@ public partial class CopilotService
             case SessionStartEvent start:
                 state.Info.SessionId = start.Data.SessionId;
                 Debug($"Session ID assigned: {start.Data.SessionId}");
+                var startModel = start.Data?.GetType().GetProperty("SelectedModel")?.GetValue(start.Data)?.ToString();
+                if (!string.IsNullOrEmpty(startModel))
+                {
+                    state.Info.Model = startModel;
+                    Debug($"Session model from start event: {startModel}");
+                }
                 SaveActiveSessionsToDisk();
                 break;
 
