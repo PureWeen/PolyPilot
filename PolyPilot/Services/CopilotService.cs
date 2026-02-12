@@ -379,15 +379,14 @@ public partial class CopilotService : IAsyncDisposable
         // Remote mode is handled by InitializeRemoteAsync, not here
         var options = new CopilotClientOptions { Cwd = ProjectDir };
 
-        // The SDK resolves a bundled CLI path internally via GetBundledCliPath().
-        // If the bundled binary doesn't exist (e.g. no runtime package installed),
-        // fall back to the system-installed 'copilot' on PATH.
-        var bundledPath = GetBundledCliPath();
-        if (bundledPath == null || !File.Exists(bundledPath))
-        {
-            Debug($"Bundled CLI not found, falling back to system 'copilot'");
-            options.CliPath = "copilot";
-        }
+        // Resolve the copilot CLI path with fallback chain:
+        // 1. SDK bundled path (runtimes/{rid}/native/copilot)
+        // 2. MonoBundle/copilot (MAUI flattens runtimes/ into MonoBundle)
+        // 3. System-installed native binary (homebrew/npm)
+        // 4. Bare "copilot" on PATH
+        var cliPath = ResolveCopilotCliPath();
+        if (cliPath != null)
+            options.CliPath = cliPath;
 
         // Pass additional MCP server configs via CLI args.
         // The CLI auto-reads ~/.copilot/mcp-config.json, but mcp-servers.json
@@ -397,6 +396,44 @@ public partial class CopilotService : IAsyncDisposable
             options.CliArgs = mcpArgs;
 
         return new CopilotClient(options);
+    }
+
+    /// <summary>
+    /// Resolves the copilot CLI path with fallback chain.
+    /// </summary>
+    private static string? ResolveCopilotCliPath()
+    {
+        // 1. SDK bundled path (runtimes/{rid}/native/copilot)
+        var bundledPath = GetBundledCliPath();
+        if (bundledPath != null && File.Exists(bundledPath))
+            return bundledPath;
+
+        // 2. MonoBundle/copilot (MAUI flattens runtimes/ into MonoBundle on Mac Catalyst)
+        try
+        {
+            var assemblyDir = Path.GetDirectoryName(typeof(CopilotClient).Assembly.Location);
+            if (assemblyDir != null)
+            {
+                var monoBundlePath = Path.Combine(assemblyDir, "copilot");
+                if (File.Exists(monoBundlePath))
+                    return monoBundlePath;
+            }
+        }
+        catch { }
+
+        // 3. System-installed native binary (homebrew/npm)
+        var systemPaths = new[]
+        {
+            "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+            "/usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+        };
+        foreach (var path in systemPaths)
+        {
+            if (File.Exists(path)) return path;
+        }
+
+        // 4. Bare "copilot" — relies on PATH
+        return null;
     }
 
     /// <summary>

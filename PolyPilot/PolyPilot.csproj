@@ -86,4 +86,53 @@
         <TrimmerRootAssembly Include="GitHub.Copilot.SDK" />
     </ItemGroup>
 
+    <!-- The SDK only maps standard RIDs (osx-arm64, etc.) to download the copilot CLI.
+         Mac Catalyst uses maccatalyst-arm64 which the SDK doesn't recognize, so the
+         download is silently skipped. Map it to the darwin-arm64 npm package. -->
+    <Target Name="_FixCopilotRidForMacCatalyst" BeforeTargets="_DownloadCopilotCli">
+        <PropertyGroup Condition="'$(_CopilotPlatform)' == '' And $(_CopilotRid.StartsWith('maccatalyst-arm64'))">
+            <_CopilotPlatform>darwin-arm64</_CopilotPlatform>
+            <_CopilotBinary>copilot</_CopilotBinary>
+            <_CopilotOriginalRid>$(_CopilotRid)</_CopilotOriginalRid>
+            <_CopilotRid>osx-arm64</_CopilotRid>
+        </PropertyGroup>
+        <PropertyGroup Condition="'$(_CopilotPlatform)' == '' And '$(_CopilotRid)' == 'maccatalyst-x64'">
+            <_CopilotPlatform>darwin-x64</_CopilotPlatform>
+            <_CopilotBinary>copilot</_CopilotBinary>
+            <_CopilotOriginalRid>$(_CopilotRid)</_CopilotOriginalRid>
+            <_CopilotRid>osx-x64</_CopilotRid>
+        </PropertyGroup>
+    </Target>
+
+    <!-- The SDK at runtime uses RuntimeInformation.RuntimeIdentifier (maccatalyst-arm64)
+         to locate the binary, so also copy it to that path. -->
+    <Target Name="_CopyCopilotCliForMacCatalyst" AfterTargets="_CopyCopilotCliToOutput"
+            Condition="'$(_CopilotOriginalRid)' != ''">
+        <PropertyGroup>
+            <_CopilotMacCatalystOutputDir>$(OutDir)runtimes/$(_CopilotOriginalRid)/native</_CopilotMacCatalystOutputDir>
+            <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
+        </PropertyGroup>
+        <MakeDir Directories="$(_CopilotMacCatalystOutputDir)" />
+        <Copy SourceFiles="$(_CopilotCacheDir)/$(_CopilotBinary)"
+              DestinationFolder="$(_CopilotMacCatalystOutputDir)"
+              SkipUnchangedFiles="true" />
+    </Target>
+
+    <!-- Ensure the copilot CLI binary is included in the Mac Catalyst .app bundle.
+         MAUI flattens everything into MonoBundle, so runtimes/ paths don't work.
+         Copy the binary directly into the .app bundle's MonoBundle. -->
+    <Target Name="_IncludeCopilotCliInBundle" AfterTargets="Build"
+            Condition="'$(_CopilotOriginalRid)' != ''">
+        <PropertyGroup>
+            <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
+            <_AppBundleMonoBundle>$(OutDir)PolyPilot.app/Contents/MonoBundle</_AppBundleMonoBundle>
+        </PropertyGroup>
+        <Copy SourceFiles="$(_CopilotCacheDir)/$(_CopilotBinary)"
+              DestinationFolder="$(_AppBundleMonoBundle)"
+              SkipUnchangedFiles="true"
+              Condition="Exists('$(_AppBundleMonoBundle)')" />
+        <Message Importance="high" Text="Copied copilot CLI binary to app bundle MonoBundle"
+                 Condition="Exists('$(_AppBundleMonoBundle)')" />
+    </Target>
+
 </Project>
