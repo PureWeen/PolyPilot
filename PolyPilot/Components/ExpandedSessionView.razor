@@ -23,7 +23,7 @@
             }
             @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
             {
-                <span class="context-badge dir-badge" title="@Session.WorkingDirectory">📁 @ShortenPath(Session.WorkingDirectory)</span>
+                <span class="context-badge dir-badge" title="@Session.WorkingDirectory">@ShortenPath(Session.WorkingDirectory)</span>
             }
             @if (!string.IsNullOrEmpty(Session.GitBranch))
             {

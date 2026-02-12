@@ -443,7 +443,7 @@
 .session-id-badge { padding: 0.2rem 0.5rem; background: rgba(251,191,36,0.2); border: 1px solid rgba(251,191,36,0.3); border-radius: 4px; font-size: var(--type-body); color: #fbbf24; font-family: monospace; cursor: pointer; }
 .session-id-badge:hover { background: rgba(251,191,36,0.3); }
 .folder-btn { background: var(--hover-bg); border: 1px solid var(--hover-bg); border-radius: 6px; color: var(--text-secondary); cursor: pointer; padding: 0.2rem 0.4rem; display: flex; align-items: center; transition: all 0.15s; }
-.folder-btn:hover { background: var(--hover-bg); color: var(--text-primary); }
+.folder-btn:hover { background: var(--active-bg); color: var(--text-primary); border-color: var(--active-bg); }
 .processing-dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,0.6); animation: pulse-glow 1.5s ease-in-out infinite; flex-shrink: 0; }
 @keyframes pulse-glow { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
@@ -717,8 +717,9 @@
 }
 
 .collapse-card-btn:hover {
-    background: var(--hover-bg);
+    background: var(--active-bg);
     color: var(--accent-primary);
+    border-color: var(--active-bg);
 }
 
 .card-title {
