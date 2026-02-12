@@ -148,6 +148,13 @@ public class BridgeMessageTypesTests
         Assert.Equal("queue_message", BridgeMessageTypes.QueueMessage);
         Assert.Equal("close_session", BridgeMessageTypes.CloseSession);
         Assert.Equal("abort_session", BridgeMessageTypes.AbortSession);
+        Assert.Equal("list_directories", BridgeMessageTypes.ListDirectories);
+    }
+
+    [Fact]
+    public void DirectoriesList_TypeConstant_IsCorrect()
+    {
+        Assert.Equal("directories_list", BridgeMessageTypes.DirectoriesList);
     }
 }
 
@@ -314,5 +321,68 @@ public class BridgePayloadTests
         Assert.Single(restored!.Sessions);
         Assert.Equal("First session", restored.Sessions[0].Title);
         Assert.Equal("/Users/test/project", restored.Sessions[0].WorkingDirectory);
+    }
+
+    [Fact]
+    public void ListDirectoriesPayload_RoundTrip()
+    {
+        var payload = new ListDirectoriesPayload { Path = "/Users/test" };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.ListDirectories, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<ListDirectoriesPayload>();
+
+        Assert.Equal("/Users/test", restored!.Path);
+    }
+
+    [Fact]
+    public void ListDirectoriesPayload_NullPath_RoundTrip()
+    {
+        var payload = new ListDirectoriesPayload { Path = null };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.ListDirectories, payload);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<ListDirectoriesPayload>();
+
+        Assert.Null(restored!.Path);
+    }
+
+    [Fact]
+    public void DirectoriesListPayload_RoundTrip()
+    {
+        var payload = new DirectoriesListPayload
+        {
+            Path = "/Users/test",
+            IsGitRepo = false,
+            Directories = new List<DirectoryEntry>
+            {
+                new() { Name = "work", IsGitRepo = false },
+                new() { Name = "my-project", IsGitRepo = true }
+            }
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, payload);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<DirectoriesListPayload>();
+
+        Assert.Equal("/Users/test", restored!.Path);
+        Assert.False(restored.IsGitRepo);
+        Assert.Null(restored.Error);
+        Assert.Equal(2, restored.Directories.Count);
+        Assert.Equal("work", restored.Directories[0].Name);
+        Assert.False(restored.Directories[0].IsGitRepo);
+        Assert.Equal("my-project", restored.Directories[1].Name);
+        Assert.True(restored.Directories[1].IsGitRepo);
+    }
+
+    [Fact]
+    public void DirectoriesListPayload_WithError_RoundTrip()
+    {
+        var payload = new DirectoriesListPayload
+        {
+            Path = "/nonexistent",
+            Error = "Directory not found"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, payload);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<DirectoriesListPayload>();
+
+        Assert.Equal("/nonexistent", restored!.Path);
+        Assert.Equal("Directory not found", restored.Error);
+        Assert.Empty(restored.Directories);
     }
 }

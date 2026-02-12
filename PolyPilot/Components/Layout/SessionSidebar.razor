@@ -35,7 +35,8 @@ else if (IsFlyoutPanel)
                                AvailableModels="availableModels.ToList()"
                                IsCreating="isCreating"
                                CreateError="@createError"
-                               OnCreate="HandleCreateSession" />
+                               OnCreate="HandleCreateSession"
+                               OnBrowseDirectory="OpenDirectoryPicker" />
         </div>
 
         <div class="sidebar-divider"></div>
@@ -70,13 +71,19 @@ else
                                AvailableModels="availableModels.ToList()"
                                IsCreating="isCreating"
                                CreateError="@createError"
-                               OnCreate="HandleCreateSession" />
+                               OnCreate="HandleCreateSession"
+                               OnBrowseDirectory="OpenDirectoryPicker" />
         </div>
 
         <div class="sidebar-divider"></div>
         @RenderSortToolbar
         @RenderSessionList
     </div>
+}
+
+@if (showDirectoryPicker)
+{
+    <RemoteDirectoryPicker OnSelected="OnDirectorySelected" OnCancelled="OnDirectoryPickerCancelled" />
 }
 
 @code {
@@ -325,6 +332,7 @@ else
     private bool isAddingGroup = false;
     private string? openMenuSession = null;
     private CreateSessionForm? createSessionFormRef;
+    private bool showDirectoryPicker;
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
     private bool showAddRepo = false;
@@ -778,6 +786,25 @@ else
         {
             Console.WriteLine($"Error removing repo: {ex.Message}");
         }
+    }
+
+    private void OpenDirectoryPicker()
+    {
+        showDirectoryPicker = true;
+        StateHasChanged();
+    }
+
+    private void OnDirectorySelected(string path)
+    {
+        showDirectoryPicker = false;
+        createSessionFormRef?.SetDirectory(path);
+        StateHasChanged();
+    }
+
+    private void OnDirectoryPickerCancelled()
+    {
+        showDirectoryPicker = false;
+        StateHasChanged();
     }
 
     public void Dispose()
