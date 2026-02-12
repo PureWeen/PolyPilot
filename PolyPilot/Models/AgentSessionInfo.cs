@@ -19,4 +19,10 @@ public class AgentSessionInfo
     
     // Timestamp of last state change (message received, turn end, etc.)
     public DateTime LastUpdatedAt { get; set; } = DateTime.Now;
+    
+    // Accumulated token usage across all turns
+    public int TotalInputTokens { get; set; }
+    public int TotalOutputTokens { get; set; }
+    public int? ContextCurrentTokens { get; set; }
+    public int? ContextTokenLimit { get; set; }
 }

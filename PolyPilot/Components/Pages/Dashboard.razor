@@ -917,8 +917,8 @@
                     "- `/version` — Show version info\n" +
                     "- `/diff [args]` — Show git diff\n" +
                     "- `/status` — Show git status\n" +
-                    "- `/mcp` — List connected MCP servers\n" +
-                    "- `/plugin` — List installed plugins\n" +
+                    "- `/mcp` — List MCP servers (enable/disable with `/mcp enable|disable <name>`)\n" +
+                    "- `/plugin` — List installed plugins (enable/disable with `/plugin enable|disable <name>`)\n" +
                     "- `!<command>` — Run a shell command"));
                 break;
 
@@ -1031,14 +1031,12 @@
                 return;
 
             case "mcp":
-                var mcpInfo = GetMcpServerInfo();
-                session.History.Add(ChatMessage.SystemMessage(mcpInfo));
+                HandleMcpCommand(session, arg);
                 break;
 
             case "plugin":
             case "plugins":
-                var pluginInfo = GetPluginInfo();
-                session.History.Add(ChatMessage.SystemMessage(pluginInfo));
+                HandlePluginCommand(session, arg);
                 break;
 
             default:
@@ -1103,6 +1101,94 @@
         session.MessageCount = session.History.Count;
         _needsScrollToBottom = true;
         await InvokeAsync(SafeRefreshAsync);
+    }
+
+    private void HandleMcpCommand(AgentSessionInfo session, string arg)
+    {
+        var parts = arg.Split(' ', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var subcommand = parts.Length > 0 ? parts[0].ToLowerInvariant() : "";
+        var target = parts.Length > 1 ? parts[1] : "";
+
+        switch (subcommand)
+        {
+            case "enable":
+                if (string.IsNullOrEmpty(target))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/mcp enable <server-name>`"));
+                    return;
+                }
+                ToggleMcpServer(target, enabled: true);
+                session.History.Add(ChatMessage.SystemMessage($"✅ MCP server **{target}** enabled. Create a new session to pick up the change."));
+                break;
+
+            case "disable":
+                if (string.IsNullOrEmpty(target))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/mcp disable <server-name>`"));
+                    return;
+                }
+                ToggleMcpServer(target, enabled: false);
+                session.History.Add(ChatMessage.SystemMessage($"🚫 MCP server **{target}** disabled. Create a new session to pick up the change."));
+                break;
+
+            default:
+                session.History.Add(ChatMessage.SystemMessage(GetMcpServerInfo()));
+                break;
+        }
+    }
+
+    private void HandlePluginCommand(AgentSessionInfo session, string arg)
+    {
+        var parts = arg.Split(' ', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var subcommand = parts.Length > 0 ? parts[0].ToLowerInvariant() : "";
+        var target = parts.Length > 1 ? parts[1] : "";
+
+        switch (subcommand)
+        {
+            case "enable":
+                if (string.IsNullOrEmpty(target))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/plugin enable <plugin-name>`"));
+                    return;
+                }
+                TogglePlugin(target, enabled: true);
+                session.History.Add(ChatMessage.SystemMessage($"✅ Plugin **{target}** enabled. Create a new session to pick up the change."));
+                break;
+
+            case "disable":
+                if (string.IsNullOrEmpty(target))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/plugin disable <plugin-name>`"));
+                    return;
+                }
+                TogglePlugin(target, enabled: false);
+                session.History.Add(ChatMessage.SystemMessage($"🚫 Plugin **{target}** disabled. Create a new session to pick up the change."));
+                break;
+
+            default:
+                session.History.Add(ChatMessage.SystemMessage(GetPluginInfo()));
+                break;
+        }
+    }
+
+    private void ToggleMcpServer(string name, bool enabled)
+    {
+        var settings = ConnectionSettings.Load();
+        if (enabled)
+            settings.DisabledMcpServers.Remove(name);
+        else if (!settings.DisabledMcpServers.Contains(name))
+            settings.DisabledMcpServers.Add(name);
+        settings.Save();
+    }
+
+    private void TogglePlugin(string name, bool enabled)
+    {
+        var settings = ConnectionSettings.Load();
+        if (enabled)
+            settings.DisabledPlugins.Remove(name);
+        else if (!settings.DisabledPlugins.Contains(name))
+            settings.DisabledPlugins.Add(name);
+        settings.Save();
     }
 
     private string GetMcpServerInfo()
@@ -1192,14 +1278,21 @@
         if (servers.Count == 0)
             return "**No MCP servers configured.**\n\nAdd servers to `~/.copilot/mcp-servers.json` or `~/.copilot/mcp-config.json`.";
 
-        sb.AppendLine($"**{servers.Count} MCP server{(servers.Count != 1 ? "s" : "")}:**\n");
+        var settings = ConnectionSettings.Load();
+        var disabledCount = servers.Count(s => settings.DisabledMcpServers.Contains(s.name));
+        var enabledCount = servers.Count - disabledCount;
+        sb.AppendLine($"**{servers.Count} MCP server{(servers.Count != 1 ? "s" : "")}** ({enabledCount} enabled):\n");
         foreach (var (name, command, args) in servers)
         {
             var lastArg = args.LastOrDefault() ?? "";
             var script = Path.GetFileName(lastArg);
             var display = !string.IsNullOrEmpty(script) ? $"`{command} {script}`" : $"`{command}`";
-            sb.AppendLine($"- **{name}** — {display}");
+            var isDisabled = settings.DisabledMcpServers.Contains(name);
+            var status = isDisabled ? "🚫" : "✅";
+            sb.AppendLine($"- {status} **{name}** — {display}");
         }
+        sb.AppendLine();
+        sb.AppendLine("Use `/mcp enable <name>` or `/mcp disable <name>` to toggle.");
 
         return sb.ToString().TrimEnd();
     }
@@ -1267,13 +1360,20 @@
         if (plugins.Count == 0)
             return "**No plugins installed.**\n\nInstall plugins with `copilot plugin install <source>`.";
 
-        sb.AppendLine($"**{plugins.Count} plugin{(plugins.Count != 1 ? "s" : "")} installed:**\n");
+        var settings = ConnectionSettings.Load();
+        var disabledCount = plugins.Count(p => settings.DisabledPlugins.Contains(p.name));
+        var enabledCount = plugins.Count - disabledCount;
+        sb.AppendLine($"**{plugins.Count} plugin{(plugins.Count != 1 ? "s" : "")} installed** ({enabledCount} enabled):\n");
         foreach (var (name, marketplace, type, detail) in plugins)
         {
             var badge = type switch { "mcp" => "🔌", "skills" => "🛠️", "mcp+skills" => "🔌🛠️", _ => "📦" };
+            var isDisabled = settings.DisabledPlugins.Contains(name);
+            var status = isDisabled ? "🚫" : "✅";
             var detailStr = !string.IsNullOrEmpty(detail) ? $" — {detail}" : "";
-            sb.AppendLine($"- {badge} **{name}** `{marketplace}`{detailStr}");
+            sb.AppendLine($"- {status} {badge} **{name}** `{marketplace}`{detailStr}");
         }
+        sb.AppendLine();
+        sb.AppendLine("Use `/plugin enable <name>` or `/plugin disable <name>` to toggle.");
 
         return sb.ToString().TrimEnd();
     }

@@ -451,6 +451,7 @@
 .expanded-card .messages {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 0.75rem 0.25rem;
     display: flex;
     flex-direction: column;
@@ -519,6 +520,7 @@
     flex-direction: column;
     gap: 0.4rem;
     padding: 0.5rem 0.75rem;
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
     background: rgba(var(--accent-rgb, 78,168,209),0.06);
     border-top: 1px solid var(--control-border);
     flex-shrink: 0;
