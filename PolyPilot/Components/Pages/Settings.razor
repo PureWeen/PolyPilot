@@ -452,49 +452,60 @@
         }
     }
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
         settings = ConnectionSettings.Load();
-        serverAlive = ServerManager.CheckServerRunning("localhost", settings.Port);
-        devTunnelAvailable = DevTunnelService.IsCliAvailable();
-        if (devTunnelAvailable)
-            tunnelLoggedIn = await DevTunnelService.IsLoggedInAsync();
-
         DevTunnelService.OnStateChanged += OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
 
         if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
             GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
 
-        // Detect Tailscale and local IPs for direct sharing
-        await TailscaleService.DetectAsync();
-        DiscoverLocalIps();
         if (WsBridgeServer.IsRunning)
             GenerateDirectQrCode();
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override void OnAfterRender(bool firstRender)
     {
         if (firstRender)
         {
-            _selfRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("eval", "window.__setSettingsRef = function(ref) { window.__settingsRef = ref; };");
-            await JS.InvokeVoidAsync("__setSettingsRef", _selfRef);
-            await JS.InvokeVoidAsync("eval", @"
-                (function() {
-                    var el = document.getElementById('settings-search');
-                    if (!el || el.__searchWired) return;
-                    el.__searchWired = true;
-                    var timer = null;
-                    el.addEventListener('input', function() {
-                        clearTimeout(timer);
-                        var val = el.value;
-                        timer = setTimeout(function() {
-                            if (window.__settingsRef) window.__settingsRef.invokeMethodAsync('JsUpdateSearch', val);
-                        }, 150);
-                    });
-                })()");
+            // Fire and forget all slow initialization
+            _ = InitializeAfterRenderAsync();
         }
+    }
+
+    private async Task InitializeAfterRenderAsync()
+    {
+        _selfRef = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("eval", "window.__setSettingsRef = function(ref) { window.__settingsRef = ref; };");
+        await JS.InvokeVoidAsync("__setSettingsRef", _selfRef);
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var el = document.getElementById('settings-search');
+                if (!el || el.__searchWired) return;
+                el.__searchWired = true;
+                var timer = null;
+                el.addEventListener('input', function() {
+                    clearTimeout(timer);
+                    var val = el.value;
+                    timer = setTimeout(function() {
+                        if (window.__settingsRef) window.__settingsRef.invokeMethodAsync('JsUpdateSearch', val);
+                    }, 150);
+                });
+            })()");
+
+        // Run slow detection tasks in parallel
+        var tasks = new List<Task>();
+        tasks.Add(Task.Run(() => { serverAlive = ServerManager.CheckServerRunning("localhost", settings.Port); }));
+        tasks.Add(Task.Run(() => { devTunnelAvailable = DevTunnelService.IsCliAvailable(); }));
+        tasks.Add(Task.Run(() => { DiscoverLocalIps(); }));
+        tasks.Add(TailscaleService.DetectAsync());
+        await Task.WhenAll(tasks);
+
+        if (devTunnelAvailable)
+            tunnelLoggedIn = await DevTunnelService.IsLoggedInAsync();
+
+        await InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()
