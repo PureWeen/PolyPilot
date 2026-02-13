@@ -51,12 +51,7 @@
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
 	</PropertyGroup>
 
-	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
-		<PublishSingleFile>true</PublishSingleFile>
-		<SelfContained>true</SelfContained>
-		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-		<EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-	</PropertyGroup>
+
 
 	<ItemGroup>
 		<!-- App Icon -->
