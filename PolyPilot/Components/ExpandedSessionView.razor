@@ -3,6 +3,7 @@
 @using static PolyPilot.Components.Pages.Dashboard
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
+@implements IDisposable
 
 @{
     var isCompleted = IsCompleted;
@@ -246,4 +247,19 @@
 
     private static string TruncateFileName(string name, int maxLen) =>
         name.Length <= maxLen ? name : name[..maxLen] + "…";
+
+    protected override void OnInitialized()
+    {
+        CopilotService.OnStateChanged += HandleStateChanged;
+    }
+
+    private void HandleStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        CopilotService.OnStateChanged -= HandleStateChanged;
+    }
 }
