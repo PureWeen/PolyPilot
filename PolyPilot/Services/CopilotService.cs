@@ -1023,15 +1023,30 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Prompt = prompt
             };
             
+            // TEST: Try setting model on session
+            try
+            {
+                var setModelMethod = state.Session.GetType().GetMethod("SetModel");
+                if (setModelMethod != null)
+                {
+                    Console.WriteLine($"[MODEL-SWITCH] Found SetModel method! Calling with: {state.Info.Model}");
+                    setModelMethod.Invoke(state.Session, new object[] { state.Info.Model });
+                }
+                else
+                {
+                    Console.WriteLine($"[MODEL-SWITCH] No SetModel method found on CopilotSession");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[MODEL-SWITCH] Error: {ex.Message}");
+            }
+            
             // Attach images via SDK if available
             if (imagePaths != null && imagePaths.Count > 0)
             {
                 TryAttachImages(messageOptions, imagePaths);
             }
-            
-            // Note: Model is set at session creation time via SessionConfig.
-            // Changing session.Model at runtime only updates the UI display.
-            // To actually switch models, the session would need to be recreated.
             
             await state.Session.SendAsync(messageOptions, cancellationToken);
         }
