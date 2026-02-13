@@ -220,7 +220,12 @@
             .Replace("claude-", "Claude ")
             .Replace("gpt-", "GPT-")
             .Replace("gemini-", "Gemini ");
-        return string.Join(' ', display.Split(' ').Select(s =>
+        // Replace remaining hyphens with spaces (e.g. "opus-4.5" → "opus 4.5")
+        // but preserve hyphens within the GPT- prefix (already handled above)
+        display = display.Replace("-", " ");
+        // Re-insert hyphen for GPT prefix
+        display = display.Replace("GPT ", "GPT-");
+        return string.Join(' ', display.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(s =>
             s.Length > 0 ? char.ToUpper(s[0]) + s[1..] : s));
     }
 
