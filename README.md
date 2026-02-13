@@ -1,54 +1,69 @@
-# PolyPilot
+<p align="center">
+  <img src="PolyPilot/wwwroot/PolyPilot_logo_lg.png" alt="PolyPilot Logo" width="200">
+</p>
 
-A .NET MAUI Blazor hybrid desktop app that manages multiple GitHub Copilot CLI sessions. PolyPilot provides a native GUI for creating, orchestrating, and interacting with parallel Copilot agent sessions — acting as a multi-agent control plane.
+<h1 align="center">PolyPilot</h1>
 
-## What Problem It Solves
+<p align="center">
+  <strong>Your AI Fleet Commander — Run an army of GitHub Copilot agents from a single app.</strong>
+</p>
 
-Working with GitHub Copilot CLI is powerful, but limited to a single terminal session at a time. PolyPilot lets you:
+<p align="center">
+  <em>Multi-agent orchestration • Real-time streaming • Cross-platform • Remote access from your phone</em>
+</p>
 
-- Run **multiple Copilot sessions in parallel**, each with its own model, working directory, and conversation history
-- **Orchestrate agents** from a dashboard — broadcast the same prompt to all sessions at once
-- **Resume sessions** across app restarts — sessions persist to disk and can be picked up later
-- **Choose connection modes** — from simple embedded stdio to a persistent server that outlives the app
+---
 
-## Features
+## What is PolyPilot?
 
-### Multi-Session Management
-Create named sessions with different models and working directories. Sessions appear in a sidebar and can be switched between instantly. Each session maintains its own conversation history and processing state.
+PolyPilot is a **multi-agent control plane for GitHub Copilot**. It's a cross-platform native app (macOS, Windows, Android, iOS) built with .NET MAUI and Blazor that lets you spin up, orchestrate, and monitor **dozens of parallel Copilot coding agents** — each with its own model, working directory, and conversation — all from one dashboard.
 
-### Chat Interface
-Full chat UI with streaming responses, real-time activity logging, Markdown rendering (code blocks, inline code, bold), and auto-scrolling. Shows typing indicators and tool execution status as Copilot works.
+Think of it as **mission control for AI-powered development**: you launch agents, assign them tasks across different repos, watch them work in real time, and manage everything from a single pane of glass — or from your phone while you're away from your desk.
 
-### Session Orchestrator Dashboard
-A grid view of all active sessions showing their last messages, streaming output, and processing state. Includes per-card message input and a **Broadcast to All** feature to send the same prompt to every idle session simultaneously.
+### Why PolyPilot?
 
-### Real-Time Activity Log
-During processing, the UI displays a live activity feed showing Copilot's intent (`💭 Thinking...`), tool calls (`🔧 Running bash...`), and completion status (`✅ Tool completed`). This gives full visibility into multi-step agent workflows.
+The Copilot CLI is powerful, but it's one agent in one terminal. What if you could:
 
-### Session Persistence & Resume
-- **Active sessions** are saved to `~/.copilot/PolyPilot-active-sessions.json` and automatically restored on app relaunch
-- **All Copilot sessions** persisted in `~/.copilot/session-state/` can be browsed and resumed from the sidebar's "Saved Sessions" panel
-- Conversation history is reconstructed from the SDK's `events.jsonl` files on resume
-- Sessions display their first user message as a title for easy identification
+- 🚀 **Run 10+ Copilot agents simultaneously**, each working on a different task or repo
+- 📡 **Broadcast a single prompt to all agents at once** and watch them fan out in parallel
+- 🔄 **Resume any session** across app restarts — your agents never lose context
+- 📱 **Monitor and control everything from your phone** via secure WebSocket bridge and DevTunnel
+- 🧠 **Mix and match models** — Claude, GPT, Gemini — in the same workspace
+- 🏗️ **Organize agents into groups**, pin favorites, and sort by activity
 
-### UI State Persistence
-The app remembers which page you were on (Chat, Dashboard, or Settings) and which session was active, restoring both on relaunch via `~/.copilot/PolyPilot-ui-state.json`.
+That's PolyPilot.
 
-### Auto-Reconnect
-If a session disconnects during a prompt, the service automatically attempts to resume the session by its GUID and retry the message.
+## ✨ Key Features
 
-### Per-Session Working Directory
-Each session can target a different directory on disk. A native folder picker is available on macOS (via `UIDocumentPickerViewController`) and Windows (via WinRT `FolderPicker`).
+### 🎛️ Multi-Session Orchestrator Dashboard
+A real-time grid view of all active agents. Each card shows streaming output, tool execution status, token usage, and queue depth. Send targeted prompts to individual agents or **Broadcast to All** to fan out work across your entire fleet.
 
-### Model Selection
-Sessions can be created with any of the supported models:
-`claude-opus-4.6`, `claude-sonnet-4.5`, `claude-sonnet-4`, `claude-haiku-4.5`, `gpt-5.2`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gemini-3-pro-preview`
+### 💬 Rich Chat Interface
+Full-featured chat UI with streaming responses, Markdown rendering (code blocks, inline code, bold), real-time activity indicators, and auto-scrolling. See exactly what each agent is thinking and doing — including tool calls, reasoning blocks, and intent changes.
 
-### System Instructions
-Automatically loads project-level instructions from `.github/copilot-instructions.md` and appends them to every session's system message. When a session targets the PolyPilot project directory, it also injects build/relaunch instructions.
+### 🔧 Live Agent Activity Feed
+Watch your agents work in real time: `💭 Thinking...` → `🔧 Running bash...` → `✅ Tool completed`. Full visibility into multi-step agentic workflows with tool execution tracking and reasoning transparency.
 
-### Crash Logging
-Unhandled exceptions and unobserved task failures are caught globally and written to `~/.copilot/PolyPilot-crash.log`.
+### 💾 Session Persistence & Resume
+Sessions survive app restarts. Active sessions are automatically saved and restored. Conversation history is reconstructed from event logs. Browse and resume any previously saved session from the sidebar — agents never lose their place.
+
+### 📱 Remote Access from Your Phone
+Run agents on your desktop, monitor from your phone. PolyPilot's WebSocket bridge server + Azure DevTunnel integration creates a secure tunnel so you can watch agents work, send prompts, and manage sessions from anywhere. Just scan a QR code to connect.
+
+### 🧠 Multi-Model Support
+Create sessions with different AI models and compare results side by side. Assign Claude to one task, GPT to another, and Gemini to a third — all running in parallel in the same workspace.
+
+### 📂 Per-Session Working Directories
+Point each agent at a different repo or directory. Native folder pickers on macOS and Windows. Manage worktrees for parallel git operations across agents.
+
+### 🏗️ Session Organization
+Groups, pinning, and multiple sort modes (Last Active, Created, A–Z, Manual) let you manage large fleets of agents without losing track. Collapsible groups keep things tidy.
+
+### 🔌 Flexible Connection Modes
+From embedded stdio for quick single-machine use, to a persistent server that survives app restarts, to remote mode for mobile access — pick the transport that fits your workflow.
+
+### 🛡️ Auto-Reconnect
+If an agent's underlying process dies mid-conversation, PolyPilot automatically resumes the session and retries — transparent to you.
 
 ## Connection Modes
 
@@ -56,61 +71,59 @@ PolyPilot supports three transport modes, configurable from the Settings page:
 
 | Mode | Transport | Lifecycle | Best For |
 |------|-----------|-----------|----------|
-| **Embedded** (default) | stdio | Dies with app | Simple single-machine use |
-| **TCP Server** | SDK-managed TCP | Dies with app | More stable long sessions |
-| **Persistent Server** | Detached TCP server | Survives app restarts | Session continuity across relaunches |
+| **Embedded** (default) | stdio | Dies with app | Quick single-machine use |
+| **TCP Server** | SDK-managed TCP | Dies with app | Stable long sessions |
+| **Persistent Server** | Detached TCP server | Survives app restarts | Always-on agent fleet |
 
-### Embedded (stdio)
-The SDK spawns a Copilot CLI process and communicates via stdin/stdout. Simplest setup — no port configuration needed. The process terminates when the app closes.
+**Embedded** — Zero-config. The SDK spawns Copilot CLI via stdin/stdout. Process dies with the app.
 
-### TCP Server
-The SDK spawns and manages a Copilot CLI process using TCP transport internally. More stable for long-running sessions, but the server still dies when the app exits.
+**TCP Server** — More stable for long-running sessions. SDK manages the TCP lifecycle internally.
 
-### Persistent Server
-The app spawns a **detached** Copilot CLI server process (`copilot --headless --port 4321`) that runs independently. The server's PID and port are tracked in `~/.copilot/PolyPilot-server.pid`. On relaunch, the app detects the existing server and reconnects. You can start/stop the server from the Settings page.
+**Persistent Server** — The app spawns a detached Copilot CLI server (`copilot --headless`) that runs independently and survives app restarts. On relaunch, PolyPilot detects the existing server and reconnects automatically.
 
 ## Architecture
 
+PolyPilot is a three-layer stack: **Blazor UI** → **Service Layer** → **Copilot SDK**, built to handle real-time streaming from multiple concurrent agent sessions.
+
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    PolyPilot                        │
-│              (.NET MAUI Blazor Hybrid)                  │
+│                      PolyPilot                          │
+│              (.NET MAUI Blazor Hybrid)                   │
 │                                                         │
-│  ┌──────────────┐  ┌────────────┐  ┌────────────────┐  │
-│  │ SessionSidebar│  │  Home.razor│  │ Dashboard.razor│  │
-│  │  (create/     │  │  (chat UI) │  │ (orchestrator) │  │
-│  │   resume)     │  │            │  │                │  │
-│  └──────┬───────┘  └─────┬──────┘  └───────┬────────┘  │
-│         │                │                  │           │
-│         └────────────────┼──────────────────┘           │
-│                          │                              │
-│                ┌─────────▼──────────┐                   │
-│                │   CopilotService   │ (singleton)       │
-│                │ ┌───────────────┐  │                   │
-│                │ │ SessionState  │  │ ConcurrentDict    │
-│                │ │  ├─ Session   │  │ of named sessions │
-│                │ │  ├─ Info      │  │                   │
-│                │ │  └─ Response  │  │                   │
-│                │ └───────────────┘  │                   │
-│                └─────────┬──────────┘                   │
-│                          │                              │
-│                ┌─────────▼──────────┐                   │
-│                │   CopilotClient   │ (GitHub.Copilot.SDK)│
-│                └─────────┬──────────┘                   │
-│                          │                              │
-│         ┌────────────────┼────────────────┐             │
-│         │ stdio          │ TCP            │ TCP (remote)│
-│         ▼                ▼                ▼             │
-│   ┌──────────┐    ┌──────────┐    ┌──────────────┐     │
-│   │ copilot  │    │ copilot  │    │  Persistent  │     │
-│   │ (child)  │    │ (child)  │    │  Server      │     │
-│   └──────────┘    └──────────┘    │  (detached)  │     │
-│                                   └──────────────┘     │
-│                                         ▲              │
-│                          ┌──────────────┘              │
-│                   ┌──────┴────────┐                    │
-│                   │ ServerManager │ (PID file tracking) │
-│                   └───────────────┘                    │
+│  ┌──────────────┐  ┌─────────────────┐  ┌───────────┐  │
+│  │SessionSidebar│  │ Dashboard.razor  │  │ Settings  │  │
+│  │  (create/    │  │ (orchestrator +  │  │  .razor   │  │
+│  │   resume)    │  │   chat UI)       │  │           │  │
+│  └──────┬───────┘  └───────┬─────────┘  └─────┬─────┘  │
+│         │                  │                   │        │
+│         └──────────────────┼───────────────────┘        │
+│                            │                            │
+│                  ┌─────────▼──────────┐                 │
+│                  │   CopilotService   │ (singleton)     │
+│                  │ ┌───────────────┐  │                 │
+│                  │ │ SessionState  │  │ ConcurrentDict  │
+│                  │ │  ├─ Session   │  │ of named        │
+│                  │ │  ├─ Info      │  │ sessions        │
+│                  │ │  └─ Response  │  │                 │
+│                  │ └───────────────┘  │                 │
+│                  └─────────┬──────────┘                 │
+│                            │                            │
+│                  ┌─────────▼──────────┐                 │
+│                  │   CopilotClient   │ (Copilot SDK)    │
+│                  └─────────┬──────────┘                 │
+│                            │                            │
+│         ┌──────────────────┼──────────────────┐         │
+│         │ stdio            │ TCP              │ TCP     │
+│         ▼                  ▼                  ▼         │
+│   ┌──────────┐       ┌──────────┐      ┌───────────┐   │
+│   │ copilot  │       │ copilot  │      │ Persistent│   │
+│   │ (child)  │       │ (child)  │      │  Server   │   │
+│   └──────────┘       └──────────┘      │ (detached)│   │
+│                                        └─────┬─────┘   │
+│                            ┌─────────────────┘         │
+│                     ┌──────┴────────┐                   │
+│                     │ ServerManager │ (PID tracking)    │
+│                     └───────────────┘                   │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -135,41 +148,49 @@ When a prompt is sent, the SDK emits events processed by `HandleSessionEvent`:
 
 ```
 PolyPilot/
-├── PolyPilot.csproj        # Project config, SDK reference, trimmer settings
+├── PolyPilot.csproj            # Project config, SDK reference, trimmer settings
 ├── MauiProgram.cs              # App bootstrap, DI registration, crash logging
-├── relaunch.sh                 # Build + seamless relaunch script (macOS)
-├── .github/
-│   └── copilot-instructions.md # System instructions loaded into every session
+├── relaunch.sh                 # Build + seamless hot-relaunch script (macOS)
 ├── Models/
 │   ├── AgentSessionInfo.cs     # Session metadata (name, model, history, state)
 │   ├── ChatMessage.cs          # Chat message record (role, content, timestamp)
 │   ├── ConnectionSettings.cs   # Connection mode enum + serializable settings
-│   └── PlatformHelper.cs       # Platform detection (IsDesktop, IsMobile, defaults)
+│   ├── SessionOrganization.cs  # Groups, pins, sort mode for session management
+│   ├── BridgeMessages.cs       # WebSocket bridge protocol (19 message types)
+│   ├── RepositoryInfo.cs       # Managed repository metadata
+│   ├── DiffParser.cs           # Git diff parsing for inline display
+│   └── PlatformHelper.cs       # Platform detection (IsDesktop, IsMobile)
 ├── Services/
 │   ├── CopilotService.cs       # Core service: session CRUD, events, persistence
+│   ├── CopilotService.*.cs     # Partial classes: Events, Bridge, Persistence, Organization, Utilities
+│   ├── ChatDatabase.cs         # SQLite chat history persistence
 │   ├── ServerManager.cs        # Persistent server lifecycle + PID tracking
-│   ├── DevTunnelService.cs     # DevTunnel CLI wrapper for remote sharing
+│   ├── DevTunnelService.cs     # Azure DevTunnel CLI wrapper for remote sharing
 │   ├── WsBridgeServer.cs       # WebSocket bridge server (desktop → mobile)
 │   ├── WsBridgeClient.cs       # WebSocket bridge client (mobile → desktop)
-│   └── QrScannerService.cs     # QR code scanning for mobile connection setup
+│   ├── RepoManager.cs          # Git repo cloning, worktree management
+│   ├── DemoService.cs          # Offline demo mode for testing UI
+│   ├── QrScannerService.cs     # QR code scanning for mobile connection setup
+│   └── TailscaleService.cs     # Tailscale VPN integration for LAN sharing
 ├── Components/
 │   ├── Layout/
 │   │   ├── MainLayout.razor    # App shell with sidebar + content area
-│   │   ├── SessionSidebar.razor# Session list, create/resume, model picker
+│   │   ├── SessionSidebar.razor# Session list, create/resume, groups, sorting
+│   │   ├── SessionListItem.razor # Individual session row with status
+│   │   ├── CreateSessionForm.razor # New session form (model, dir, name)
 │   │   └── NavMenu.razor       # Top navigation bar
-│   └── Pages/
-│       ├── Home.razor          # Chat UI with streaming + activity log
-│       ├── Dashboard.razor     # Multi-session orchestrator grid
-│       └── Settings.razor      # Connection mode selector, server controls
+│   ├── Pages/
+│   │   ├── Dashboard.razor     # Multi-session orchestrator grid + chat UI
+│   │   └── Settings.razor      # Connection mode, server controls, tunnel setup
+│   ├── SessionCard.razor       # Dashboard grid card with streaming output
+│   ├── ExpandedSessionView.razor # Full-screen single-session chat view
+│   ├── ChatMessageList.razor   # Message list with Markdown rendering
+│   ├── DiffView.razor          # Inline git diff viewer
+│   ├── ModelSelector.razor     # Model picker dropdown
+│   └── RemoteDirectoryPicker.razor # Remote directory browser for mobile
 ├── Platforms/
-│   ├── MacCatalyst/
-│   │   ├── Entitlements.plist  # Sandbox disabled, network access enabled
-│   │   ├── FolderPickerService.cs # Native macOS folder picker
-│   │   └── Program.cs          # Mac Catalyst entry point
-│   ├── Windows/
-│   │   ├── App.xaml.cs         # WinUI application entry point
-│   │   ├── FolderPickerService.cs # WinRT folder picker
-│   │   └── app.manifest        # DPI awareness, long path support
+│   ├── MacCatalyst/            # Mac Catalyst entitlements, folder picker
+│   ├── Windows/                # WinUI entry point, folder picker
 │   ├── Android/                # Android platform bootstrapping
 │   └── iOS/                    # iOS platform bootstrapping
 └── wwwroot/
@@ -178,12 +199,16 @@ PolyPilot/
 
 ## Supported Platforms
 
+One codebase, four platforms:
+
 | Platform | Target Framework | Status |
 |----------|-----------------|--------|
 | **macOS** (Mac Catalyst) | `net10.0-maccatalyst` | ✅ Primary development target |
 | **Windows** | `net10.0-windows10.0.19041.0` | ✅ Supported |
-| **Android** | `net10.0-android` | ✅ Supported (Remote mode only) |
-| **iOS** | `net10.0-ios` | ✅ Supported (Remote mode only) |
+| **Android** | `net10.0-android` | ✅ Supported (Remote mode) |
+| **iOS** | `net10.0-ios` | ✅ Supported (Remote mode) |
+
+Mobile devices connect to a desktop instance via WebSocket bridge — run your agent fleet on your workstation, control it from your pocket.
 
 ## Prerequisites
 
@@ -238,9 +263,9 @@ dotnet build PolyPilot.csproj -f net10.0-android -t:Install   # Build + deploy t
 adb shell am start -n com.companyname.PolyPilot/crc645dd8ecec3b5d9ba6.MainActivity
 ```
 
-## Connecting Mobile Devices via DevTunnel
+## 📱 Remote Access via DevTunnel
 
-Mobile devices (Android/iOS) can't run the Copilot CLI locally — they connect to a desktop instance over the network using [Azure DevTunnels](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/). This creates a secure, publicly-accessible tunnel URL that the mobile app connects to.
+Mobile devices (Android/iOS) connect to a desktop instance over the network using [Azure DevTunnels](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/). This creates a secure, publicly-accessible tunnel so you can control your agent fleet from anywhere.
 
 ### Step 1: Install the DevTunnel CLI (on your desktop)
 
@@ -282,7 +307,7 @@ brew install --cask devtunnel
 3. Enter the tunnel URL and access token from the desktop
 4. Tap **Save & Reconnect**
 
-### How it works under the hood
+### Under the hood
 
 ```
 ┌─────────────────┐         DevTunnel          ┌──────────────────┐
@@ -303,18 +328,22 @@ The tunnel URL and ID are persisted across restarts — stopping and restarting 
 
 ## Configuration
 
-### Settings files (all in `~/.copilot/`)
+### Settings files (stored in `~/.polypilot/`)
 
 | File | Purpose |
 |------|---------|
-| `PolyPilot-settings.json` | Connection mode, host, port, auto-start preference |
-| `PolyPilot-active-sessions.json` | List of active sessions (session ID, display name, model) for restore on relaunch |
-| `PolyPilot-ui-state.json` | Last active page and session name |
-| `PolyPilot-server.pid` | PID and port of the persistent Copilot server |
-| `PolyPilot-crash.log` | Unhandled exception log |
-| `session-state/<guid>/events.jsonl` | Per-session event history (managed by Copilot SDK) |
+| `settings.json` | Connection mode, host, port, auto-start preference |
+| `active-sessions.json` | Active sessions for restore on relaunch |
+| `ui-state.json` | Last active page and session name |
+| `organization.json` | Session groups, pins, sort preferences |
+| `server.pid` | PID and port of the persistent Copilot server |
+| `crash.log` | Unhandled exception log |
+| `repos.json` | Managed repository list |
+| `repos/` | Bare git clones for managed repos |
+| `worktrees/` | Git worktrees for parallel agent work |
+| `chat_history.db` | SQLite database of chat history |
 
-### Example `PolyPilot-settings.json`
+### Example `settings.json`
 
 ```json
 {
@@ -327,7 +356,7 @@ The tunnel URL and ID are persisted across restarts — stopping and restarting 
 
 Mode values: `0` = Embedded, `1` = Server, `2` = Persistent.
 
-## How It Works
+## How It All Comes Together
 
 ### Session Lifecycle
 
@@ -355,11 +384,21 @@ On startup in Persistent mode, `ServerManager.DetectExistingServer()` reads `Pol
 
 ## NuGet Dependencies
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `GitHub.Copilot.SDK` | 0.1.22 | Copilot CLI client (ACP protocol) |
-| `Microsoft.Maui.Controls` | (MAUI SDK) | .NET MAUI framework |
-| `Microsoft.AspNetCore.Components.WebView.Maui` | (MAUI SDK) | Blazor WebView for MAUI |
-| `Microsoft.Extensions.Logging.Debug` | 10.0.0 | Debug logging |
+| Package | Purpose |
+|---------|---------|
+| `GitHub.Copilot.SDK` | Copilot CLI client (ACP protocol) |
+| `Microsoft.Maui.Controls` | .NET MAUI framework |
+| `Microsoft.AspNetCore.Components.WebView.Maui` | Blazor WebView for MAUI |
+| `Markdig` | Markdown parsing & rendering |
+| `sqlite-net-pcl` | Chat history persistence |
+| `QRCoder` | QR code generation for remote setup |
+| `ZXing.Net.Maui.Controls` | QR code scanning on mobile |
 
 > **Note**: The csproj includes `<TrimmerRootAssembly Include="GitHub.Copilot.SDK" />` to prevent the linker from stripping SDK event types needed for runtime pattern matching. Do not remove this.
+
+---
+
+<p align="center">
+  <strong>Built with 🤖 by AI agents, for AI agents.</strong><br>
+  <em>Most of PolyPilot's features were built by GitHub Copilot coding agents — orchestrated from within PolyPilot itself.</em>
+</p>
