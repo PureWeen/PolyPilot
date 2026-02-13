@@ -257,6 +257,22 @@ public class RemoteModeTests
     }
 
     [Fact]
+    public void ReasoningCompletePayload_RoundTrip()
+    {
+        var payload = new ReasoningCompletePayload
+        {
+            SessionName = "s1",
+            ReasoningId = "r-42"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.ReasoningComplete, payload);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!
+            .GetPayload<ReasoningCompletePayload>();
+
+        Assert.Equal("s1", restored!.SessionName);
+        Assert.Equal("r-42", restored.ReasoningId);
+    }
+
+    [Fact]
     public void IntentChangedPayload_RoundTrip()
     {
         var payload = new IntentChangedPayload

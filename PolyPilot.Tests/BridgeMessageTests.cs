@@ -216,6 +216,17 @@ public class BridgePayloadTests
     }
 
     [Fact]
+    public void ReasoningCompletePayload_RoundTrip()
+    {
+        var payload = new ReasoningCompletePayload { SessionName = "s1", ReasoningId = "r-7" };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.ReasoningComplete, payload);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<ReasoningCompletePayload>();
+
+        Assert.Equal("s1", restored!.SessionName);
+        Assert.Equal("r-7", restored.ReasoningId);
+    }
+
+    [Fact]
     public void ToolStartedPayload_RoundTrip()
     {
         var payload = new ToolStartedPayload { SessionName = "s1", ToolName = "bash", CallId = "c-1" };
