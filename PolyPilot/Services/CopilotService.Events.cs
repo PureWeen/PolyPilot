@@ -77,7 +77,21 @@ public partial class CopilotService
                             state.Info.SkillArgsFound++;
                             state.Info.ArgsTypeName = argsObj.GetType().FullName;
                             
-                            if (argsObj is Dictionary<string, object> args)
+                            // Handle JsonElement (SDK serializes arguments as JSON)
+                            if (argsObj is JsonElement jsonArgs)
+                            {
+                                state.Info.SkillDictCast++;
+                                if (jsonArgs.TryGetProperty("skill", out var skillElement))
+                                {
+                                    state.Info.SkillValueFound++;
+                                    var skillName = skillElement.GetString();
+                                    state.Info.LastSkillUsed = skillName;
+                                    state.Info.SkillSetSuccess++;
+                                    Invoke(() => OnStateChanged?.Invoke());
+                                }
+                            }
+                            // Fallback: try Dictionary<string, object> for compatibility
+                            else if (argsObj is Dictionary<string, object> args)
                             {
                                 state.Info.SkillDictCast++;
                                 if (args.TryGetValue("skill", out var skillValue))
