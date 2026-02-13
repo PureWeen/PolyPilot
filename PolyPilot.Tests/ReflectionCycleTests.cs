@@ -75,41 +75,62 @@ public class ReflectionCycleTests
     }
 
     [Fact]
-    public void ShouldContinue_ActiveCycle_NoGoalMet_ReturnsTrue()
+    public void Advance_ActiveCycle_NoGoalMet_ReturnsTrue()
     {
         var cycle = ReflectionCycle.Create("Test goal", maxIterations: 3);
 
-        Assert.True(cycle.ShouldContinue("Working on it..."));
+        Assert.True(cycle.Advance("Working on it..."));
+        Assert.Equal(1, cycle.CurrentIteration);
     }
 
     [Fact]
-    public void ShouldContinue_GoalMet_ReturnsFalse()
+    public void Advance_GoalMet_ReturnsFalse()
     {
         var cycle = ReflectionCycle.Create("Test goal");
 
-        Assert.False(cycle.ShouldContinue("✅ Goal complete"));
+        Assert.False(cycle.Advance("✅ Goal complete"));
         Assert.True(cycle.GoalMet);
         Assert.False(cycle.IsActive);
+        Assert.Equal(1, cycle.CurrentIteration);
     }
 
     [Fact]
-    public void ShouldContinue_MaxIterationsReached_ReturnsFalse()
+    public void Advance_MaxIterationsReached_ReturnsFalse()
     {
-        var cycle = ReflectionCycle.Create("Test goal", maxIterations: 3);
-        cycle.CurrentIteration = 3;
+        var cycle = ReflectionCycle.Create("Test goal", maxIterations: 2);
 
-        Assert.False(cycle.ShouldContinue("Still going..."));
+        // First advance: iteration becomes 1, still under max
+        Assert.True(cycle.Advance("Trying..."));
+        // Second advance: iteration becomes 2, hits max
+        Assert.False(cycle.Advance("Still going..."));
         Assert.False(cycle.IsActive);
         Assert.False(cycle.GoalMet);
+        Assert.Equal(2, cycle.CurrentIteration);
     }
 
     [Fact]
-    public void ShouldContinue_InactiveCycle_ReturnsFalse()
+    public void Advance_InactiveCycle_ReturnsFalse()
     {
         var cycle = ReflectionCycle.Create("Test goal");
         cycle.IsActive = false;
 
-        Assert.False(cycle.ShouldContinue("Any response"));
+        Assert.False(cycle.Advance("Any response"));
+        Assert.Equal(0, cycle.CurrentIteration);
+    }
+
+    [Fact]
+    public void Advance_IncrementsIteration()
+    {
+        var cycle = ReflectionCycle.Create("Goal", maxIterations: 10);
+
+        cycle.Advance("response 1");
+        Assert.Equal(1, cycle.CurrentIteration);
+
+        cycle.Advance("response 2");
+        Assert.Equal(2, cycle.CurrentIteration);
+
+        cycle.Advance("response 3");
+        Assert.Equal(3, cycle.CurrentIteration);
     }
 
     [Fact]
@@ -153,13 +174,13 @@ public class ReflectionCycleTests
         var cycle = ReflectionCycle.Create("Fix the issue", maxIterations: 5);
 
         // First iteration: goal not met
-        cycle.CurrentIteration++;
-        Assert.True(cycle.ShouldContinue("Still working..."));
+        Assert.True(cycle.Advance("Still working..."));
+        Assert.Equal(1, cycle.CurrentIteration);
         Assert.True(cycle.IsActive);
 
         // Second iteration: goal met
-        cycle.CurrentIteration++;
-        Assert.False(cycle.ShouldContinue("✅ Goal complete - issue resolved"));
+        Assert.False(cycle.Advance("✅ Goal complete - issue resolved"));
+        Assert.Equal(2, cycle.CurrentIteration);
         Assert.True(cycle.GoalMet);
         Assert.False(cycle.IsActive);
     }
@@ -170,12 +191,12 @@ public class ReflectionCycleTests
         var cycle = ReflectionCycle.Create("Impossible goal", maxIterations: 2);
 
         // First iteration
-        cycle.CurrentIteration++;
-        Assert.True(cycle.ShouldContinue("Trying..."));
+        Assert.True(cycle.Advance("Trying..."));
+        Assert.Equal(1, cycle.CurrentIteration);
 
         // Second iteration - hits max
-        cycle.CurrentIteration++;
-        Assert.False(cycle.ShouldContinue("Still trying..."));
+        Assert.False(cycle.Advance("Still trying..."));
+        Assert.Equal(2, cycle.CurrentIteration);
         Assert.False(cycle.GoalMet);
         Assert.False(cycle.IsActive);
     }
