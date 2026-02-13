@@ -23,9 +23,12 @@ The test project lives at `../PolyPilot.Tests/` (sibling directory). It includes
 ```bash
 dotnet build -f net10.0-android                  # Build only
 dotnet build -f net10.0-android -t:Install       # Build + deploy to connected device (use this, not bare `adb install`)
-adb shell am start -n com.companyname.PolyPilot/crc645dd8ecec3b5d9ba6.MainActivity   # Launch
+adb shell am start -n com.microsoft.PolyPilot/crc64ef8e1bf56c865459.MainActivity   # Launch
 ```
 Fast Deployment requires `dotnet build -t:Install` — it pushes assemblies to `.__override__` on device.
+
+**Package name**: `com.microsoft.PolyPilot` (not `com.companyname.PolyPilot`)  
+**Launch activity**: `crc64ef8e1bf56c865459.MainActivity`
 
 ### iOS (physical device)
 ```bash
@@ -117,6 +120,20 @@ When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in
 4. `ToolExecutionStartEvent` / `ToolExecutionCompleteEvent` → tool activity
 5. `AssistantIntentEvent` → intent/plan updates
 6. `SessionIdleEvent` → turn complete, response finalized
+
+### Model Selection
+The model is set at **session creation time** via `SessionConfig.Model`. The SDK does **not** support changing models per-message or mid-session — `MessageOptions` has no `Model` property. 
+
+When a user changes the model via the UI dropdown:
+- `session.Model` is updated locally (affects UI display only)
+- The SDK continues using the original model from session creation
+- To truly switch models, the session must be destroyed and recreated
+
+### SDK Data Types
+- `AssistantUsageData` properties (`InputTokens`, `OutputTokens`, etc.) are `Double?` not `int?`
+- Use `Convert.ToInt32(value)` for conversion, not `value as int?`
+- `QuotaSnapshots` is `Dictionary<string, object>` with `JsonElement` values
+- Premium quota fields: `isUnlimitedEntitlement`, `entitlementRequests`, `usedRequests`, `remainingPercentage`, `resetDate`
 
 ### Blazor Input Performance
 Avoid `@bind:event="oninput"` — causes round-trip lag per keystroke. Use plain HTML inputs with JS event listeners and read values via `JS.InvokeAsync<string>("eval", "document.getElementById('id')?.value")` on submit.
