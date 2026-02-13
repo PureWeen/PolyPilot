@@ -1066,6 +1066,64 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         return await CreateSessionAsync(name, newModel, workingDir);
     }
 
+    /// <summary>
+    /// Switch the model for an active session by resuming it with a new ResumeSessionConfig.
+    /// The session history is preserved server-side (same session ID); we just reconnect
+    /// asking for a different model.
+    /// </summary>
+    public async Task<bool> ChangeModelAsync(string sessionName, string newModel, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state)) return false;
+        if (state.Info.IsProcessing) return false;
+        if (string.IsNullOrEmpty(state.Info.SessionId)) return false;
+
+        var normalizedModel = Models.ModelHelper.NormalizeToSlug(newModel);
+        if (string.IsNullOrEmpty(normalizedModel)) return false;
+
+        // Already on this model — no-op
+        if (state.Info.Model == normalizedModel) return true;
+
+        Debug($"Switching model for '{sessionName}': {state.Info.Model} → {normalizedModel}");
+
+        try
+        {
+            // Dispose old session connection
+            await state.Session.DisposeAsync();
+
+            if (_client == null)
+                throw new InvalidOperationException("Client is not initialized");
+
+            // Resume the same session ID with the new model
+            var resumeConfig = new ResumeSessionConfig
+            {
+                Model = normalizedModel,
+                WorkingDirectory = state.Info.WorkingDirectory
+            };
+            var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, cancellationToken);
+
+            // Build replacement state, preserving info/history
+            state.Info.Model = normalizedModel;
+            var newState = new SessionState
+            {
+                Session = newSession,
+                Info = state.Info
+            };
+            newSession.On(evt => HandleSessionEvent(newState, evt));
+            _sessions[sessionName] = newState;
+
+            Debug($"Model switched for '{sessionName}' to {normalizedModel}");
+            SaveActiveSessionsToDisk();
+            OnStateChanged?.Invoke();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to switch model for '{sessionName}': {ex.Message}");
+            OnError?.Invoke(sessionName, $"Failed to switch model: {ex.Message}");
+            return false;
+        }
+    }
+
     public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default)
     {
         // In demo mode, simulate a response locally
