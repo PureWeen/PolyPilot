@@ -21,6 +21,9 @@ public partial class CopilotService : IAsyncDisposable
     
     private static string? _copilotBaseDir;
     private static string CopilotBaseDir => _copilotBaseDir ??= GetCopilotBaseDir();
+    
+    private static string? _polyPilotBaseDir;
+    private static string PolyPilotBaseDir => _polyPilotBaseDir ??= GetPolyPilotBaseDir();
 
     private static string GetCopilotBaseDir()
     {
@@ -47,21 +50,47 @@ public partial class CopilotService : IAsyncDisposable
             return Path.Combine(Path.GetTempPath(), ".copilot");
         }
     }
+    
+    private static string GetPolyPilotBaseDir()
+    {
+        try
+        {
+#if ANDROID
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrEmpty(home))
+                home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            if (string.IsNullOrEmpty(home))
+                home = Android.App.Application.Context.FilesDir?.AbsolutePath ?? Path.GetTempPath();
+            return Path.Combine(home, ".polypilot");
+#else
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (string.IsNullOrEmpty(home))
+                home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrEmpty(home))
+                home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            return Path.Combine(home, ".polypilot");
+#endif
+        }
+        catch
+        {
+            return Path.Combine(Path.GetTempPath(), ".polypilot");
+        }
+    }
 
     private static string? _sessionStatePath;
     private static string SessionStatePath => _sessionStatePath ??= Path.Combine(CopilotBaseDir, "session-state");
 
     private static string? _activeSessionsFile;
-    private static string ActiveSessionsFile => _activeSessionsFile ??= Path.Combine(CopilotBaseDir, "PolyPilot-active-sessions.json");
+    private static string ActiveSessionsFile => _activeSessionsFile ??= Path.Combine(PolyPilotBaseDir, "active-sessions.json");
 
     private static string? _sessionAliasesFile;
-    private static string SessionAliasesFile => _sessionAliasesFile ??= Path.Combine(CopilotBaseDir, "PolyPilot-session-aliases.json");
+    private static string SessionAliasesFile => _sessionAliasesFile ??= Path.Combine(PolyPilotBaseDir, "session-aliases.json");
 
     private static string? _uiStateFile;
-    private static string UiStateFile => _uiStateFile ??= Path.Combine(CopilotBaseDir, "PolyPilot-ui-state.json");
+    private static string UiStateFile => _uiStateFile ??= Path.Combine(PolyPilotBaseDir, "ui-state.json");
 
     private static string? _organizationFile;
-    private static string OrganizationFile => _organizationFile ??= Path.Combine(CopilotBaseDir, "PolyPilot-organization.json");
+    private static string OrganizationFile => _organizationFile ??= Path.Combine(PolyPilotBaseDir, "organization.json");
 
     private static string? _projectDir;
     private static string ProjectDir => _projectDir ??= FindProjectDir();
