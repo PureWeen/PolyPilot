@@ -16,25 +16,30 @@
             {
                 <span class="processing-dot"></span>
             }
-            <span class="model-badge">@CurrentModel</span>
-            @if (Session.SessionId != null && PlatformHelper.IsDesktop)
-            {
-                <button class="folder-btn" title="Open session folder" @onclick="() => OpenSessionFolder(Session.SessionId)" @onclick:stopPropagation="true">📂</button>
-            }
-            @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
-            {
-                <span class="context-badge dir-badge" title="@Session.WorkingDirectory">@ShortenPath(Session.WorkingDirectory)</span>
-            }
-            @if (!string.IsNullOrEmpty(Session.GitBranch))
-            {
-                <span class="context-badge branch-badge"> @Session.GitBranch</span>
-            }
-            @if (UsageInfo?.PremiumQuota != null)
-            {
-                var q = UsageInfo.PremiumQuota;
-                <span class="context-badge premium-badge" title="@(q.IsUnlimited ? "Unlimited premium requests" : $"{q.EntitlementRequests - q.UsedRequests} of {q.EntitlementRequests} remaining (resets {q.ResetDate?[..10]})")">⚡ @(q.IsUnlimited ? "∞" : $"{q.EntitlementRequests - q.UsedRequests}/{q.EntitlementRequests}") premium</span>
-            }
-            <button class="collapse-card-btn" @onclick="OnCollapse" title="Back to grid (Esc / ⌘E)">⊟ Grid</button>
+            <div class="info-popover">
+                <span class="info-trigger">ℹ︎</span>
+                <div class="info-panel">
+                    <div class="info-row"><span class="info-label">Model</span><span class="info-value">@CurrentModel</span></div>
+                    @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
+                    {
+                        <div class="info-row"><span class="info-label">Directory</span><span class="info-value">@Session.WorkingDirectory</span></div>
+                    }
+                    @if (!string.IsNullOrEmpty(Session.GitBranch))
+                    {
+                        <div class="info-row"><span class="info-label">Branch</span><span class="info-value">@Session.GitBranch</span></div>
+                    }
+                    @if (UsageInfo?.PremiumQuota != null)
+                    {
+                        var q = UsageInfo.PremiumQuota;
+                        <div class="info-row"><span class="info-label">Premium</span><span class="info-value">@(q.IsUnlimited ? "Unlimited" : $"{q.EntitlementRequests - q.UsedRequests}/{q.EntitlementRequests} remaining")</span></div>
+                    }
+                    @if (Session.SessionId != null && PlatformHelper.IsDesktop)
+                    {
+                        <button class="info-action" @onclick="() => OpenSessionFolder(Session.SessionId)" @onclick:stopPropagation="true">📂 Open session folder</button>
+                    }
+                </div>
+            </div>
+            <button class="icon-badge collapse-card-btn" data-tooltip="Back to grid (Esc / ⌘E)" @onclick="OnCollapse">⊟</button>
         </div>
     </div>
 

@@ -1,8 +1,8 @@
 /* === New Session Button (collapsed state) === */
 .new-session-btn {
     width: 100%;
-    padding: 0.6rem 1rem;
-    border: 1px dashed var(--control-border);
+    padding: 0.5rem 1rem;
+    border: none;
     border-radius: 8px;
     background: none;
     color: var(--text-dim);
@@ -13,31 +13,31 @@
 }
 
 .new-session-btn:hover {
-    border-color: var(--accent-primary);
     color: var(--text-primary);
-    background: rgba(59, 130, 246, 0.05);
+    background: var(--hover-bg);
 }
 
 /* === Expanded Form === */
 .new-session-form {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.6rem;
     padding: 0.75rem;
-    border: 1px solid var(--control-border);
-    border-radius: 8px;
+    border: none;
+    border-radius: 10px;
     background: var(--surface-secondary);
 }
 
 .ns-name {
     width: 100%;
-    padding: 0.45rem 0.6rem;
-    border: 1px solid var(--control-border);
+    padding: 0.5rem 0.65rem;
+    border: 1px solid transparent;
     border-radius: 6px;
     background: var(--control-bg);
     color: var(--text-primary);
     font-size: var(--type-body);
     box-sizing: border-box;
+    transition: border-color 0.15s;
 }
 
 .ns-name:focus {
@@ -51,8 +51,8 @@
 
 .ns-prompt {
     width: 100%;
-    padding: 0.4rem 0.6rem;
-    border: 1px solid var(--control-border);
+    padding: 0.45rem 0.65rem;
+    border: 1px solid transparent;
     border-radius: 6px;
     background: var(--control-bg);
     color: var(--text-primary);
@@ -62,6 +62,7 @@
     min-height: 2.2rem;
     max-height: 6rem;
     box-sizing: border-box;
+    transition: border-color 0.15s;
 }
 
 .ns-prompt:focus {
@@ -179,12 +180,13 @@
 .ns-footer {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.5rem;
+    padding-top: 0.15rem;
     flex-wrap: wrap;
 }
 
 .ns-footer ::deep .ns-model {
-    flex: 1;
+    flex-shrink: 1;
     min-width: 0;
 }
 
@@ -193,49 +195,59 @@
     border: none;
     color: var(--text-dim);
     cursor: pointer;
-    font-size: var(--type-caption2);
-    padding: 0.2rem 0;
+    font-size: var(--type-caption1);
+    padding: 0.25rem 0.35rem;
     white-space: nowrap;
+    border-radius: 4px;
+    transition: all 0.15s;
 }
 
 .ns-options-toggle:hover {
     color: var(--text-primary);
+    background: var(--hover-bg);
 }
 
 .ns-footer-actions {
     display: flex;
-    gap: 0.3rem;
-    margin-left: auto;
+    gap: 0.35rem;
 }
 
 .ns-cancel {
-    padding: 0.3rem 0.5rem;
+    padding: 0.35rem 0.6rem;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     background: none;
     color: var(--text-dim);
     cursor: pointer;
     font-size: var(--type-footnote);
+    transition: all 0.15s;
 }
 
 .ns-cancel:hover {
     color: var(--text-primary);
+    background: var(--hover-bg);
 }
 
 .ns-create {
-    padding: 0.3rem 0.6rem;
+    padding: 0.35rem 0.75rem;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     background: var(--accent-primary);
-    color: var(--text-primary);
+    color: #fff;
     cursor: pointer;
     font-size: var(--type-footnote);
     font-weight: 600;
+    transition: all 0.15s;
+}
+
+.ns-create:hover {
+    filter: brightness(1.1);
 }
 
 .ns-create:disabled {
-    opacity: 0.5;
+    opacity: 0.4;
     cursor: not-allowed;
+    filter: none;
 }
 
 .ns-error {
