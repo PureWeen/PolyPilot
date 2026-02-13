@@ -1,7 +1,15 @@
 #!/bin/bash
 # Builds PolyPilot, launches a new instance, waits for it to be ready,
 # then kills the old instance(s) for a seamless handoff.
-set -e
+# 
+# IMPORTANT: ONLY launches if build succeeds. If build fails:
+#   - Shows clear error messages with line numbers and error codes
+#   - Does NOT launch old/stale binary
+#   - Exits with code 1
+#   - Old app instance remains running
+#
+# This prevents the common issue where build errors go unnoticed and agents
+# keep testing against stale code.
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$PROJECT_DIR/bin/Debug/net10.0-maccatalyst/maccatalyst-arm64"
@@ -13,7 +21,24 @@ OLD_PIDS=$(ps -eo pid,comm | grep "PolyPilot" | grep -v grep | grep -v "PolyPilo
 
 echo "🔨 Building..."
 cd "$PROJECT_DIR"
-dotnet build PolyPilot.csproj -f net10.0-maccatalyst 2>&1 | tail -8
+
+# Capture full build output to check for errors
+BUILD_OUTPUT=$(dotnet build PolyPilot.csproj -f net10.0-maccatalyst 2>&1)
+BUILD_EXIT_CODE=$?
+
+if [ $BUILD_EXIT_CODE -ne 0 ]; then
+    echo "❌ BUILD FAILED!"
+    echo ""
+    echo "Error details:"
+    echo "$BUILD_OUTPUT" | grep -A 5 "error CS" || echo "$BUILD_OUTPUT" | tail -30
+    echo ""
+    echo "To fix: Check the error messages above and correct the code issues."
+    echo "Old app instance remains running."
+    exit 1
+fi
+
+# Build succeeded, show brief success message
+echo "$BUILD_OUTPUT" | tail -3
 
 echo "📦 Copying to staging..."
 rm -rf "$STAGING_DIR/$APP_NAME"
