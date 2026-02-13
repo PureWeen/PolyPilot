@@ -214,6 +214,7 @@
     private int _cursorEnd;
     private DotNetObjectReference<Dashboard>? _dotNetRef;
     private string? initError;
+    private bool _initializationComplete = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -334,11 +335,14 @@
             }
 
             GitAutoUpdate.Initialize();
+            
+            _initializationComplete = true; // Allow RefreshState to process changes now
         }
         catch (Exception ex)
         {
             initError = ex.Message;
             Console.WriteLine($"Init error: {ex}");
+            _initializationComplete = true; // Even on error, allow normal operation
         }
 
         RefreshState();
@@ -576,6 +580,7 @@
     private void RefreshState()
     {
         if (_refreshing) return;
+        if (!_initializationComplete) return; // Don't process state changes until initialization is done
         _refreshing = true;
         try
         {
