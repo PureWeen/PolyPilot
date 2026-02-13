@@ -406,12 +406,8 @@ public partial class CopilotService : IAsyncDisposable
         // Note: Don't set Cwd here - each session sets its own WorkingDirectory in SessionConfig
         var options = new CopilotClientOptions();
 
-        // Resolve the copilot CLI path with fallback chain:
-        // 1. SDK bundled path (runtimes/{rid}/native/copilot)
-        // 2. MonoBundle/copilot (MAUI flattens runtimes/ into MonoBundle)
-        // 3. System-installed native binary (homebrew/npm)
-        // 4. Bare "copilot" on PATH
-        var cliPath = ResolveCopilotCliPath();
+        // Resolve the copilot CLI path based on user preference:
+        var cliPath = ResolveCopilotCliPath(settings.CliSource);
         if (cliPath != null)
             options.CliPath = cliPath;
 
@@ -426,9 +422,30 @@ public partial class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Resolves the copilot CLI path with fallback chain.
+    /// Resolves the copilot CLI path based on user preference.
+    /// BuiltIn: bundled binary first, then system fallback.
+    /// System: system-installed binary first, then bundled fallback.
     /// </summary>
-    private static string? ResolveCopilotCliPath()
+    private static string? ResolveCopilotCliPath(CliSourceMode source = CliSourceMode.BuiltIn)
+    {
+        if (source == CliSourceMode.System)
+        {
+            // Prefer system CLI, fall back to built-in
+            var systemPath = ResolveSystemCliPath();
+            if (systemPath != null) return systemPath;
+            return ResolveBundledCliPath();
+        }
+
+        // Default: prefer built-in, fall back to system
+        var bundledPath = ResolveBundledCliPath();
+        if (bundledPath != null) return bundledPath;
+        return ResolveSystemCliPath();
+    }
+
+    /// <summary>
+    /// Resolves the bundled CLI path (shipped with the app).
+    /// </summary>
+    private static string? ResolveBundledCliPath()
     {
         // 1. SDK bundled path (runtimes/{rid}/native/copilot)
         var bundledPath = GetBundledCliPath();
@@ -448,18 +465,38 @@ public partial class CopilotService : IAsyncDisposable
         }
         catch { }
 
-        // 3. System-installed native binary (homebrew/npm)
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves a system-installed CLI (PATH, homebrew, npm).
+    /// </summary>
+    private static string? ResolveSystemCliPath()
+    {
+        // 1. Check well-known system install paths
         var systemPaths = new[]
         {
             "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
             "/usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+            "/usr/local/bin/copilot",
         };
         foreach (var path in systemPaths)
         {
             if (File.Exists(path)) return path;
         }
 
-        // 4. Bare "copilot" — relies on PATH
+        // 2. Try to find "copilot" on PATH
+        try
+        {
+            var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
+            foreach (var dir in pathEnv.Split(':'))
+            {
+                var candidate = Path.Combine(dir, "copilot");
+                if (File.Exists(candidate)) return candidate;
+            }
+        }
+        catch { }
+
         return null;
     }
 
@@ -477,6 +514,44 @@ public partial class CopilotService : IAsyncDisposable
             return Path.Combine(assemblyDir, "runtimes", rid, "native", "copilot");
         }
         catch { return null; }
+    }
+
+    /// <summary>
+    /// Gets version string from a CLI binary by running --version.
+    /// </summary>
+    public static string? GetCliVersion(string? cliPath)
+    {
+        if (cliPath == null || !File.Exists(cliPath)) return null;
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(cliPath, "--version")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc == null) return null;
+            var output = proc.StandardOutput.ReadToEnd().Trim();
+            proc.WaitForExit(3000);
+            // Extract version number from output like "GitHub Copilot CLI 0.0.409."
+            var match = System.Text.RegularExpressions.Regex.Match(output, @"(\d+\.\d+\.\d+)");
+            return match.Success ? match.Groups[1].Value : output;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Gets info about available CLI sources for display in settings.
+    /// </summary>
+    public static (string? builtInPath, string? builtInVersion, string? systemPath, string? systemVersion) GetCliSourceInfo()
+    {
+        var builtInPath = ResolveBundledCliPath();
+        var systemPath = ResolveSystemCliPath();
+        return (
+            builtInPath, GetCliVersion(builtInPath),
+            systemPath, GetCliVersion(systemPath)
+        );
     }
 
     /// <summary>

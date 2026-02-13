@@ -277,6 +277,41 @@
     </div>
     </div>
 
+    @if (settings.Mode != ConnectionMode.Remote && settings.Mode != ConnectionMode.Demo)
+    {
+    <div class="settings-group @(GroupVisible("cli copilot") ? "" : "search-hidden")">
+        <h2 class="group-title">Copilot CLI</h2>
+        <div class="settings-section @(SectionVisible("cli source built-in system version binary copilot") ? "" : "search-hidden")">
+            <div class="cli-cards">
+                <div class="cli-card @(settings.CliSource == CliSourceMode.BuiltIn ? "selected" : "") @(cliInfo.builtInPath == null ? "disabled" : "")"
+                     @onclick="() => SetCliSource(CliSourceMode.BuiltIn)">
+                    <div class="cli-card-icon">📦</div>
+                    <div class="cli-card-label">Built-in</div>
+                    <div class="cli-card-ver">v@(cliInfo.builtInVersion ?? "—")</div>
+                </div>
+                <div class="cli-card @(settings.CliSource == CliSourceMode.System ? "selected" : "") @(cliInfo.systemPath == null ? "disabled" : "")"
+                     @onclick="() => SetCliSource(CliSourceMode.System)">
+                    <div class="cli-card-icon">💻</div>
+                    <div class="cli-card-label">System</div>
+                    <div class="cli-card-ver">v@(cliInfo.systemVersion ?? "—")</div>
+                </div>
+            </div>
+            @if (cliSourceChanged)
+            {
+                <div class="cli-restart-hint">⟳ Restart the app to apply the change</div>
+            }
+            @if (settings.CliSource == CliSourceMode.System && cliInfo.systemPath != null)
+            {
+                <div class="cli-path-info" title="@cliInfo.systemPath">@ShortenPath(cliInfo.systemPath)</div>
+            }
+            @if (settings.CliSource == CliSourceMode.System && cliInfo.systemPath == null)
+            {
+                <div class="cli-path-warn">⚠ No system CLI found — will fall back to built-in</div>
+            }
+        </div>
+    </div>
+    }
+
     <div class="settings-group @(GroupVisible("ui") ? "" : "search-hidden")">
         <h2 class="group-title">UI</h2>
 
@@ -383,6 +418,9 @@
     private CancellationTokenSource? _statusCts;
     private string searchQuery = "";
     private DotNetObjectReference<Settings>? _selfRef;
+    private (string? builtInPath, string? builtInVersion, string? systemPath, string? systemVersion) cliInfo;
+    private CliSourceMode _initialCliSource;
+    private bool cliSourceChanged;
 
     [JSInvokable]
     public void JsUpdateSearch(string query)
@@ -441,6 +479,10 @@
     protected override void OnInitialized()
     {
         settings = ConnectionSettings.Load();
+        cliInfo = CopilotService.GetCliSourceInfo();
+        _initialCliSource = settings.CliSource;
+        serverAlive = ServerManager.CheckServerRunning("localhost", settings.Port);
+        devTunnelAvailable = DevTunnelService.IsCliAvailable();
         DevTunnelService.OnStateChanged += OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
 
@@ -462,6 +504,11 @@
 
     private async Task InitializeAfterRenderAsync()
     {
+        if (devTunnelAvailable)
+        {
+            tunnelLoggedIn = await DevTunnelService.IsLoggedInAsync();
+            await InvokeAsync(StateHasChanged);
+        }
         _selfRef = DotNetObjectReference.Create(this);
         await JS.InvokeVoidAsync("eval", "window.__setSettingsRef = function(ref) { window.__settingsRef = ref; };");
         await JS.InvokeVoidAsync("__setSettingsRef", _selfRef);
@@ -567,6 +614,22 @@
     private void SetMode(ConnectionMode mode)
     {
         settings.Mode = mode;
+    }
+
+    private void SetCliSource(CliSourceMode source)
+    {
+        if (source == CliSourceMode.BuiltIn && cliInfo.builtInPath == null) return;
+        if (source == CliSourceMode.System && cliInfo.systemPath == null) return;
+        settings.CliSource = source;
+        cliSourceChanged = source != _initialCliSource;
+        settings.Save();
+    }
+
+    private static string ShortenPath(string path)
+    {
+        // Show just the last 2-3 segments for readability
+        var parts = path.Split('/');
+        return parts.Length > 3 ? "…/" + string.Join("/", parts[^3..]) : path;
     }
 
     private async Task ScanQrCode()

@@ -456,15 +456,16 @@
                     });
                 }
             ");
-            var dotNetRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("eval", "window.__dashRef = null;");
-            // Store .NET ref so keydown handler can call back
-            _dotNetRef = dotNetRef;
-            await JS.InvokeVoidAsync("eval", "void 0"); // no-op to sync
-            // We need to pass the ref via a named function
-            await JS.InvokeVoidAsync("eval", "window.__setDashRef = function(ref) { window.__dashRef = ref; };");
-            await JS.InvokeVoidAsync("__setDashRef", _dotNetRef);
-            await JS.InvokeVoidAsync("eval", @"
+            try
+            {
+                var dotNetRef = DotNetObjectReference.Create(this);
+                if (_disposed) { dotNetRef.Dispose(); return; }
+                await JS.InvokeVoidAsync("eval", "window.__dashRef = null;");
+                _dotNetRef = dotNetRef;
+                await JS.InvokeVoidAsync("eval", "window.__setDashRef = function(ref) { window.__dashRef = ref; };");
+                if (_disposed) return;
+                await JS.InvokeVoidAsync("__setDashRef", _dotNetRef);
+                await JS.InvokeVoidAsync("eval", @"
                 if (!window.__textareaAutoResize) {
                     window.__textareaAutoResize = true;
                     document.addEventListener('input', function(e) {
@@ -475,6 +476,8 @@
                     });
                 }
             ");
+            }
+            catch (ObjectDisposedException) { }
         }
 
         // Auto-scroll all card message containers to bottom
@@ -1930,8 +1933,11 @@
         try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); } catch { }
     }
 
+    private bool _disposed;
+
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         CopilotService.OnStateChanged -= RefreshState;
         CopilotService.OnSessionComplete -= HandleComplete;
         CopilotService.OnContentReceived -= HandleContent;

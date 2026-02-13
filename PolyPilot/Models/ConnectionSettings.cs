@@ -27,6 +27,12 @@ public enum UiTheme
     SolarizedLight   // Solarized light
 }
 
+public enum CliSourceMode
+{
+    BuiltIn,   // Use the CLI bundled with the app
+    System     // Use the CLI installed on the system (PATH, homebrew, npm)
+}
+
 public class ConnectionSettings
 {
     public ConnectionMode Mode { get; set; } = PlatformHelper.DefaultMode;
@@ -42,6 +48,7 @@ public class ConnectionSettings
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
     public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
     public bool AutoUpdateFromMain { get; set; } = false;
+    public CliSourceMode CliSource { get; set; } = CliSourceMode.BuiltIn;
     public List<string> DisabledMcpServers { get; set; } = new();
     public List<string> DisabledPlugins { get; set; } = new();
 
