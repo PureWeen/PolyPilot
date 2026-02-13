@@ -785,6 +785,10 @@
         flex-wrap: wrap;
     }
 
+    .shortcuts-popover-wrap {
+        display: none;
+    }
+
     .connection-badge {
         font-size: var(--type-footnote);
         padding: 0.25rem 0.6rem;

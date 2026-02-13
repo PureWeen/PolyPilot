@@ -419,6 +419,6 @@
     .expanded-card .chat-header { padding: 0.4rem 0.5rem; gap: 0.35rem; }
     .chat-header-title { font-size: var(--type-body); }
     .chat-header-badges { gap: 0.3rem; }
-    .expanded-card .input-area textarea { font-size: var(--type-callout, 0.8rem); }
+    .expanded-card .input-area textarea { font-size: var(--type-callout, 0.8rem); max-height: 30dvh; }
     .input-status-bar { gap: 0.4rem; }
 }

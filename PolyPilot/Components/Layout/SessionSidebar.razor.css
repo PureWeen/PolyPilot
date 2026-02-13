@@ -1084,3 +1084,34 @@
         padding: 0.5rem 0.25rem;
     }
 }
+
+/* Touch devices: show action buttons always, increase tap targets, add active states */
+@media (hover: none) {
+    .close-btn, .resume-btn, .rename-btn {
+        opacity: 1;
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .close-btn:active {
+        background: rgba(239, 68, 68, 0.3);
+        color: var(--accent-primary);
+    }
+
+    .rename-btn:active,
+    .resume-btn:active {
+        background: rgba(59, 130, 246, 0.3);
+        color: var(--accent-primary);
+    }
+
+    .session-item:active {
+        background: var(--hover-bg);
+    }
+
+    .hamburger-btn:active {
+        background: var(--hover-bg);
+    }
+}
