@@ -162,7 +162,7 @@
                 @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
                 {
                     <span class="status-sep">·</span>
-                    <span class="status-cwd" title="@Session.WorkingDirectory">📁 @GetShortPath(Session.WorkingDirectory)</span>
+                    <span class="status-cwd" title="@GetDirectoryTooltip(Session.WorkingDirectory)">📁 @GetShortPath(Session.WorkingDirectory)</span>
                 }
                 <span class="status-sep">·</span>
                 <span class="font-size-controls">
@@ -253,6 +253,53 @@
         
         // Show ~/.../<parent>/<dir>
         return string.Join("/", parts.Take(1).Concat(new[] { "…" }).Concat(parts.TakeLast(2)));
+    }
+
+    private string GetDirectoryTooltip(string? workingDir)
+    {
+        if (string.IsNullOrEmpty(workingDir)) return "";
+        
+        var lines = new List<string>();
+        lines.Add($"Working Directory: {workingDir}");
+        lines.Add("");
+        
+        // Check for copilot-instructions.md
+        var instructionsPath = Path.Combine(workingDir, ".github", "copilot-instructions.md");
+        if (File.Exists(instructionsPath))
+        {
+            try
+            {
+                var firstLine = File.ReadLines(instructionsPath)
+                    .FirstOrDefault(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith("---"))?.Trim();
+                if (!string.IsNullOrEmpty(firstLine))
+                {
+                    lines.Add("Instructions Found:");
+                    lines.Add($"  {(firstLine.Length > 60 ? firstLine[..60] + "..." : firstLine)}");
+                }
+            }
+            catch { }
+        }
+        else
+        {
+            lines.Add("⚠️ No copilot-instructions.md found");
+        }
+        
+        // Check for skills
+        var skillsPath = Path.Combine(workingDir, ".github", "skills");
+        if (Directory.Exists(skillsPath))
+        {
+            try
+            {
+                var skillCount = Directory.GetDirectories(skillsPath).Length;
+                if (skillCount > 0)
+                {
+                    lines.Add($"Skills: {skillCount} available");
+                }
+            }
+            catch { }
+        }
+        
+        return string.Join("\n", lines);
     }
 
     private static string FormatTokenCount(int count) =>

@@ -393,6 +393,28 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     cursor: help;
+    position: relative;
+}
+
+.status-cwd:hover::after {
+    content: attr(title);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-elevated, #1e1e2e);
+    border: 1px solid var(--control-border, #45475a);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.7rem;
+    white-space: pre-line;
+    min-width: 280px;
+    max-width: 400px;
+    z-index: 1000;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    pointer-events: none;
+    text-align: left;
+    line-height: 1.4;
 }
 
 .mode-switcher { display: flex; background: var(--control-bg); border: 1px solid var(--control-border); border-radius: 6px; overflow: hidden; }
