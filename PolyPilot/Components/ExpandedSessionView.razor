@@ -159,10 +159,10 @@
                 }
                 <span class="status-sep">·</span>
                 <span class="status-msgs">@Session.History.Count msgs</span>
-                @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
+                @if (!string.IsNullOrEmpty(Session.LastSkillUsed))
                 {
                     <span class="status-sep">·</span>
-                    <span class="status-cwd" title="@GetDirectoryTooltip(Session.WorkingDirectory)">📁 @GetShortPath(Session.WorkingDirectory)</span>
+                    <span class="status-skill" title="Last skill invoked">🔧 @Session.LastSkillUsed</span>
                 }
                 <span class="status-sep">·</span>
                 <span class="font-size-controls">
@@ -237,67 +237,6 @@
         var parts = path.Split(Path.DirectorySeparatorChar);
         if (parts.Length <= 2) return path;
         return "…/" + string.Join("/", parts[^2..]);
-    }
-
-    private string GetShortPath(string path)
-    {
-        // Show last 2-3 segments of path for readability
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (path.StartsWith(home))
-        {
-            path = "~" + path[home.Length..];
-        }
-        
-        var parts = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (parts.Length <= 3) return path;
-        
-        // Show ~/.../<parent>/<dir>
-        return string.Join("/", parts.Take(1).Concat(new[] { "…" }).Concat(parts.TakeLast(2)));
-    }
-
-    private string GetDirectoryTooltip(string? workingDir)
-    {
-        if (string.IsNullOrEmpty(workingDir)) return "";
-        
-        var lines = new List<string>();
-        lines.Add("CWD: " + GetShortPath(workingDir));
-        
-        // Check for copilot-instructions.md
-        var instructionsPath = Path.Combine(workingDir, ".github", "copilot-instructions.md");
-        if (File.Exists(instructionsPath))
-        {
-            lines.Add("✓ Instructions: .github/copilot-instructions.md");
-        }
-        else
-        {
-            lines.Add("✗ No copilot-instructions.md");
-        }
-        
-        // List a few skills
-        var skillsPath = Path.Combine(workingDir, ".github", "skills");
-        if (Directory.Exists(skillsPath))
-        {
-            try
-            {
-                var skills = Directory.GetDirectories(skillsPath)
-                    .Select(Path.GetFileName)
-                    .Take(3)
-                    .ToList();
-                if (skills.Any())
-                {
-                    lines.Add($"Skills: {string.Join(", ", skills)}");
-                    var totalCount = Directory.GetDirectories(skillsPath).Length;
-                    if (totalCount > 3)
-                        lines.Add($"  (+{totalCount - 3} more)");
-                }
-            }
-            catch { }
-        }
-        
-        lines.Add("");
-        lines.Add("⚠️ Shows files in CWD, not what SDK loaded");
-        
-        return string.Join("\n", lines);
     }
 
     private static string FormatTokenCount(int count) =>

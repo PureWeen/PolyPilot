@@ -62,6 +62,21 @@ public partial class CopilotService
                 var startToolName = toolStart.Data.ToolName ?? "unknown";
                 var startCallId = toolStart.Data.ToolCallId ?? "";
                 var toolInput = ExtractToolInput(toolStart.Data);
+                
+                // Track skill invocations
+                if (startToolName == "skill" && toolStart.Data.Arguments != null)
+                {
+                    try
+                    {
+                        if (toolStart.Data.Arguments.TryGetValue("skill", out var skillValue))
+                        {
+                            state.Info.LastSkillUsed = skillValue?.ToString();
+                            Invoke(() => OnStateChanged?.Invoke());
+                        }
+                    }
+                    catch { }
+                }
+                
                 if (!FilteredTools.Contains(startToolName))
                 {
                     // Deduplicate: SDK replays events on resume/reconnect — update existing

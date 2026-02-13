@@ -20,6 +20,9 @@ public class AgentSessionInfo
     // Timestamp of last state change (message received, turn end, etc.)
     public DateTime LastUpdatedAt { get; set; } = DateTime.Now;
     
+    // Track last skill used for display
+    public string? LastSkillUsed { get; set; }
+    
     // Accumulated token usage across all turns
     public int TotalInputTokens { get; set; }
     public int TotalOutputTokens { get; set; }
