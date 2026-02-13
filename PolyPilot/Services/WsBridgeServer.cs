@@ -392,7 +392,7 @@ public class WsBridgeServer : IDisposable
                         var displayName = resumeReq.DisplayName ?? "Resumed";
                         try
                         {
-                            await _copilot.ResumeSessionAsync(resumeReq.SessionId, displayName, ct);
+                            await _copilot.ResumeSessionAsync(resumeReq.SessionId, displayName, workingDirectory: null, cancellationToken: ct);
                             Console.WriteLine($"[WsBridge] Session resumed successfully, broadcasting updated list");
                             BroadcastSessionsList();
                             BroadcastOrganizationState();
