@@ -63,17 +63,47 @@ public partial class CopilotService
         var activeNames = _sessions.Keys.ToHashSet();
         bool changed = false;
 
-        // Add missing sessions to default group
+        // Add missing sessions to default group and link to worktrees
         foreach (var name in activeNames)
         {
-            if (!Organization.Sessions.Any(m => m.SessionName == name))
+            var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
+            if (meta == null)
             {
-                Organization.Sessions.Add(new SessionMeta
+                meta = new SessionMeta
                 {
                     SessionName = name,
                     GroupId = SessionGroup.DefaultId
-                });
+                };
+                Organization.Sessions.Add(meta);
                 changed = true;
+            }
+            
+            // Auto-link session to worktree if working directory matches
+            if (meta.WorktreeId == null && _sessions.TryGetValue(name, out var sessionState))
+            {
+                var workingDir = sessionState.Info.WorkingDirectory;
+                if (!string.IsNullOrEmpty(workingDir))
+                {
+                    var worktree = _repoManager.Worktrees.FirstOrDefault(w => 
+                        workingDir.StartsWith(w.Path, StringComparison.OrdinalIgnoreCase));
+                    if (worktree != null)
+                    {
+                        meta.WorktreeId = worktree.Id;
+                        _repoManager.LinkSessionToWorktree(worktree.Id, name);
+                        
+                        // Move session to repo's group
+                        var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
+                        if (repo != null)
+                        {
+                            var repoGroup = Organization.Groups.FirstOrDefault(g => g.RepoId == repo.Id);
+                            if (repoGroup != null)
+                            {
+                                meta.GroupId = repoGroup.Id;
+                            }
+                        }
+                        changed = true;
+                    }
+                }
             }
         }
 
