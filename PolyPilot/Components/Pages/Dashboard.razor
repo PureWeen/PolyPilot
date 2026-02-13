@@ -1867,6 +1867,7 @@
         if (string.IsNullOrEmpty(model)) return;
         modelOverrideBySession[session.Name] = model;
         session.Model = model;
+        StateHasChanged(); // Trigger Blazor re-render
     }
 
     private void SetPlanMode(string sessionName, bool enabled) => planModeBySession[sessionName] = enabled;
