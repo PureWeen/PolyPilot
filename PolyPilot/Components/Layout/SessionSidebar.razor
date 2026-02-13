@@ -228,21 +228,37 @@ else
                                         <button class="btn-repo-rm cancel" @onclick="() => { confirmRemoveRepoId = null; }">Cancel</button>
                                     </span>
                                 }
-                                else if (isRepoGroup)
-                                {
-                                    var rId = group.RepoId!;
-                                    <button class="group-add-btn" title="New session for this repo"
-                                            @onclick="() => createSessionFormRef?.ExpandForRepo(rId)"
-                                            @onclick:stopPropagation="true">+</button>
-                                    <button class="group-delete-btn" title="Remove repository"
-                                            @onclick="() => { confirmRemoveRepoId = rId; }"
-                                            @onclick:stopPropagation="true">×</button>
-                                }
                                 else
                                 {
-                                    <button class="group-delete-btn" title="Delete group"
-                                            @onclick="() => CopilotService.DeleteGroup(group.Id)"
-                                            @onclick:stopPropagation="true">×</button>
+                                    var gId = group.Id;
+                                    <div class="group-menu-wrapper">
+                                        <button class="group-more-btn" title="More actions"
+                                                @onclick="() => { openGroupMenuId = openGroupMenuId == gId ? null : gId; }"
+                                                @onclick:stopPropagation="true">…</button>
+                                        @if (openGroupMenuId == group.Id)
+                                        {
+                                            <div class="group-menu-overlay" @onclick="() => { openGroupMenuId = null; }" @onclick:stopPropagation="true"></div>
+                                            <div class="group-menu" @onclick:stopPropagation="true">
+                                                @if (isRepoGroup)
+                                                {
+                                                    var rId = group.RepoId!;
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; createSessionFormRef?.ExpandForRepo(rId); }">
+                                                        ➕ New Session
+                                                    </button>
+                                                    <div class="group-menu-separator"></div>
+                                                    <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; confirmRemoveRepoId = rId; }">
+                                                        🗑 Remove Repo
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
+                                                        🗑 Delete Group
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
                                 }
                             }
                         </div>
@@ -353,6 +369,7 @@ else
     private string currentPage = "/";
     private bool isAddingGroup = false;
     private string? openMenuSession = null;
+    private string? openGroupMenuId = null;
     private CreateSessionForm? createSessionFormRef;
     private bool showDirectoryPicker;
     private List<AgentSessionInfo> sessions = new();
