@@ -22,7 +22,7 @@ feedback loop: **build → deploy → inspect → fix → rebuild**.
 Install (or update) the CLI tool and ensure it's the latest version:
 
 ```bash
-dotnet tool install --global Redth.MauiDevFlow.CLI || dotnet tool update --global Redth.MauiDevFlow.CLI
+dotnet tool install --global Redth.MauiDevFlow.CLI --version 0.8.0 || dotnet tool update --global Redth.MauiDevFlow.CLI --version 0.8.0
 ```
 
 For platform-specific tools: `dotnet tool install --global androidsdk.tool` (Android)
@@ -50,7 +50,7 @@ dotnet tool search Redth.MauiDevFlow.CLI | head -5
 
 If a newer version is available, suggest the user update:
 ```bash
-dotnet tool update --global Redth.MauiDevFlow.CLI
+dotnet tool update --global Redth.MauiDevFlow.CLI --version 0.8.0
 ```
 
 ### 2. Update the skill
@@ -74,8 +74,8 @@ grep -i 'Redth.MauiDevFlow' *.csproj Directory.Build.props Directory.Packages.pr
 
 If packages are outdated, suggest updating them:
 ```bash
-dotnet add package Redth.MauiDevFlow.Agent
-dotnet add package Redth.MauiDevFlow.Blazor    # only if Blazor Hybrid
+dotnet add package Redth.MauiDevFlow.Agent --version 0.8.0
+dotnet add package Redth.MauiDevFlow.Blazor --version 0.8.0    # only if Blazor Hybrid
 ```
 
 ### 4. Re-run setup verification

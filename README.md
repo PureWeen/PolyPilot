@@ -33,6 +33,12 @@ The Copilot CLI is powerful, but it's one agent in one terminal. What if you cou
 
 That's PolyPilot.
 
+## 🗺️ Active Planning Doc
+
+Current Copilot SDK event/chat-fidelity planning work is tracked in:
+
+- [`COPILOT-SDK-CHAT-FIDELITY-PLAN.md`](COPILOT-SDK-CHAT-FIDELITY-PLAN.md)
+
 ## ✨ Key Features
 
 ### 🎛️ Multi-Session Orchestrator Dashboard
