@@ -207,6 +207,72 @@
     color: var(--text-dim);
 }
 
+/* CLI source selector */
+.cli-cards {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.cli-card {
+    border: 2px solid var(--control-border);
+    border-radius: 10px;
+    padding: 0.75rem 1.25rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    min-width: 120px;
+}
+
+.cli-card:hover:not(.disabled) {
+    border-color: var(--text-dim);
+    background: var(--bg-input);
+}
+
+.cli-card.selected {
+    border-color: var(--accent-primary);
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.cli-card.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.cli-card-icon {
+    font-size: 1.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.cli-card-label {
+    font-size: var(--type-body);
+    font-weight: 600;
+    margin-bottom: 0.15rem;
+}
+
+.cli-card-ver {
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+    font-family: monospace;
+}
+
+.cli-path-info {
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+    font-family: monospace;
+}
+
+.cli-path-warn {
+    font-size: var(--type-footnote);
+    color: #e5a100;
+}
+
+.cli-restart-hint {
+    font-size: var(--type-footnote);
+    color: var(--accent-primary);
+    margin-top: 0.25rem;
+}
+
 .form-row {
     display: flex;
     align-items: center;
