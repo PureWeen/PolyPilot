@@ -25,4 +25,7 @@ public class AgentSessionInfo
     public int TotalOutputTokens { get; set; }
     public int? ContextCurrentTokens { get; set; }
     public int? ContextTokenLimit { get; set; }
+
+    // Reflection cycle for iterative goal-driven refinement
+    public ReflectionCycle? ReflectionCycle { get; set; }
 }

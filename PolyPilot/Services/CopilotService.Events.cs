@@ -372,6 +372,24 @@ public partial class CopilotService
         OnSessionComplete?.Invoke(state.Info.Name, summary);
         IncrementBadge();
 
+        // Reflection cycle: evaluate response and enqueue follow-up if goal not yet met
+        var cycle = state.Info.ReflectionCycle;
+        if (cycle != null && cycle.IsActive && !string.IsNullOrEmpty(response))
+        {
+            if (cycle.Advance(response))
+            {
+                var followUp = cycle.BuildFollowUpPrompt(response);
+                Debug($"Reflection cycle iteration {cycle.CurrentIteration}/{cycle.MaxIterations} for '{state.Info.Name}'");
+                state.Info.MessageQueue.Insert(0, followUp);
+                OnStateChanged?.Invoke();
+            }
+            else
+            {
+                var reason = cycle.GoalMet ? "goal met" : "max iterations reached";
+                Debug($"Reflection cycle ended for '{state.Info.Name}': {reason}");
+            }
+        }
+
         // Auto-dispatch next queued message
         if (state.Info.MessageQueue.Count > 0)
         {
