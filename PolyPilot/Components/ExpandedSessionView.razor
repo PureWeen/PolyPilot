@@ -11,7 +11,12 @@
 }
 <div class="expanded-card @cardClass" data-session="@Session.Name">
     <div class="chat-header">
-        <h2 class="chat-header-title">@Session.Name</h2>
+        <h2 class="chat-header-title">@Session.Name 
+            @if (!string.IsNullOrEmpty(Session.LastSkillUsed))
+            {
+                <span style="font-size:0.6em; color: #888;">| Skill: @Session.LastSkillUsed</span>
+            }
+        </h2>
         <div class="chat-header-badges">
             @if (Session.IsProcessing)
             {
@@ -250,19 +255,19 @@
 
     protected override void OnInitialized()
     {
-        Console.WriteLine($"[ExpandedSessionView] OnInitialized for session {Session.Id}");
+        Console.WriteLine($"[ExpandedSessionView] OnInitialized for session {Session.Name}");
         CopilotService.OnStateChanged += HandleStateChanged;
     }
 
     private void HandleStateChanged()
     {
-        Console.WriteLine($"[ExpandedSessionView] HandleStateChanged called for session {Session.Id}, LastSkillUsed = {Session.LastSkillUsed}");
+        Console.WriteLine($"[ExpandedSessionView] HandleStateChanged called for session {Session.Name}, LastSkillUsed = {Session.LastSkillUsed}");
         InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()
     {
-        Console.WriteLine($"[ExpandedSessionView] Dispose for session {Session.Id}");
+        Console.WriteLine($"[ExpandedSessionView] Dispose for session {Session.Name}");
         CopilotService.OnStateChanged -= HandleStateChanged;
     }
 }
