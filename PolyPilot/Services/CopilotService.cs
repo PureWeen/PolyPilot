@@ -129,11 +129,14 @@ public partial class CopilotService : IAsyncDisposable
     public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
     public List<string> AvailableModels { get; private set; } = new();
 
-    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient)
+    private readonly RepoManager _repoManager;
+    
+    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient, RepoManager repoManager)
     {
         _chatDb = chatDb;
         _serverManager = serverManager;
         _bridgeClient = bridgeClient;
+        _repoManager = repoManager;
         _demoService = new DemoService();
     }
 
