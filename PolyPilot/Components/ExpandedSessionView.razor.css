@@ -384,6 +384,17 @@
 }
 .status-sep { color: var(--hover-bg); user-select: none; }
 
+.status-cwd {
+    color: var(--text-secondary);
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Roboto Mono', monospace;
+    font-size: 0.7rem;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: help;
+}
+
 .mode-switcher { display: flex; background: var(--control-bg); border: 1px solid var(--control-border); border-radius: 6px; overflow: hidden; }
 .mode-btn { all: unset; display: flex; align-items: center; gap: 0.2rem; padding: 0.1rem 0.35rem; font-size: 0.7rem; color: var(--text-dim); cursor: pointer; transition: all 0.15s ease; }
 .mode-btn:hover { color: var(--text-secondary); background: var(--hover-bg); }

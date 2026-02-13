@@ -159,6 +159,11 @@
                 }
                 <span class="status-sep">·</span>
                 <span class="status-msgs">@Session.History.Count msgs</span>
+                @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
+                {
+                    <span class="status-sep">·</span>
+                    <span class="status-cwd" title="@Session.WorkingDirectory">📁 @GetShortPath(Session.WorkingDirectory)</span>
+                }
                 <span class="status-sep">·</span>
                 <span class="font-size-controls">
                     <button class="font-size-btn" @onclick="() => OnFontSizeChange.InvokeAsync(-2)" disabled="@(FontSize <= 12)">A−</button>
@@ -232,6 +237,22 @@
         var parts = path.Split(Path.DirectorySeparatorChar);
         if (parts.Length <= 2) return path;
         return "…/" + string.Join("/", parts[^2..]);
+    }
+
+    private string GetShortPath(string path)
+    {
+        // Show last 2-3 segments of path for readability
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (path.StartsWith(home))
+        {
+            path = "~" + path[home.Length..];
+        }
+        
+        var parts = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (parts.Length <= 3) return path;
+        
+        // Show ~/.../<parent>/<dir>
+        return string.Join("/", parts.Take(1).Concat(new[] { "…" }).Concat(parts.TakeLast(2)));
     }
 
     private static string FormatTokenCount(int count) =>
