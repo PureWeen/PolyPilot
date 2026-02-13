@@ -51,7 +51,13 @@ else
 {
     <div class="sidebar-content">
         <div class="sidebar-header">
-            <h3><img src="PolyPilot_text.png" height="44" style="vertical-align:middle" /></h3>
+            <div class="sidebar-header-row">
+                <a href="/" class="header-logo-link" @onclick="DashboardClicked" @onclick:preventDefault="true"><img src="PolyPilot_text.png" class="header-logo-img" style="vertical-align:middle" /></a>
+                <div class="header-actions">
+                    <a href="/" class="header-icon-btn @(currentPage == "/" || currentPage == "/dashboard" ? "active" : "")" title="Dashboard" @onclick="DashboardClicked" @onclick:preventDefault="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg></a>
+                    <a href="/settings" class="header-icon-btn @(currentPage == "/settings" ? "active" : "")" title="Settings" @onclick='() => { CopilotService.SaveUiState("/settings"); currentPage = "/settings"; }'><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
+                </div>
+            </div>
             <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")" style="font-size:0.8rem">
                 @if (CopilotService.IsInitialized)
                 {
@@ -62,10 +68,6 @@ else
                     <text>○ Disconnected</text>
                 }
             </p>
-            <div class="nav-tabs">
-                <a href="/" class="nav-tab @(currentPage == "/" || currentPage == "/dashboard" ? "active" : "")" @onclick="DashboardClicked" @onclick:preventDefault="true"><svg style="vertical-align:middle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg> Dashboard</a>
-                <a href="/settings" class="nav-tab @(currentPage == "/settings" ? "active" : "")" @onclick='() => { CopilotService.SaveUiState("/settings"); currentPage = "/settings"; }'><svg style="vertical-align:middle" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
-            </div>
         </div>
 
         <div class="new-session-wrapper">
@@ -107,8 +109,8 @@ else
     {
         <div class="sidebar-toolbar">
             <select class="sort-select" title="Sort sessions" @onchange="OnSortModeChanged">
-                <option value="LastActive" selected="@(CopilotService.Organization.SortMode == SessionSortMode.LastActive)">↕ Last Active</option>
-                <option value="CreatedAt" selected="@(CopilotService.Organization.SortMode == SessionSortMode.CreatedAt)">↕ Created</option>
+                <option value="LastActive" selected="@(CopilotService.Organization.SortMode == SessionSortMode.LastActive)">↕ Active</option>
+                <option value="CreatedAt" selected="@(CopilotService.Organization.SortMode == SessionSortMode.CreatedAt)">↕ New</option>
                 <option value="Alphabetical" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Alphabetical)">↕ A–Z</option>
                 <option value="Manual" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Manual)">↕ Manual</option>
             </select>
@@ -121,8 +123,10 @@ else
             }
             else
             {
-                <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
-                <button class="new-group-btn" @onclick="() => showAddRepo = true" title="Add repository">+ Repo</button>
+                <div class="toolbar-actions">
+                    <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
+                    <button class="new-group-btn" @onclick="() => showAddRepo = true" title="Add repository">+ Repo</button>
+                </div>
             }
         </div>
     };

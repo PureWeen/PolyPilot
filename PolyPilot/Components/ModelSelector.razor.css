@@ -8,13 +8,13 @@
 .model-selector-display {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.5rem 0.5rem;
+    gap: 0.3rem;
+    padding: 0.3rem 0.4rem;
     border: 1px solid var(--control-border);
     border-radius: 6px;
     background: var(--control-bg);
     color: var(--text-primary);
-    font-size: var(--type-body);
+    font-size: var(--type-footnote);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
