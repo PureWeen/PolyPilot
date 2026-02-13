@@ -400,5 +400,5 @@ On startup in Persistent mode, `ServerManager.DetectExistingServer()` reads `Pol
 
 <p align="center">
   <strong>Built with 🤖 by AI agents, for AI agents.</strong><br>
-  <em>PolyPilot was built almost entirely by GitHub Copilot coding agents running inside PolyPilot itself.</em>
+  <em>Most of PolyPilot's features were built by GitHub Copilot coding agents — orchestrated from within PolyPilot itself.</em>
 </p>
