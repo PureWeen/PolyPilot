@@ -45,6 +45,8 @@ public partial class CopilotService
     {
         try
         {
+            // Ensure directory exists (required on iOS where it may not exist by default)
+            Directory.CreateDirectory(PolyPilotBaseDir);
             var json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(OrganizationFile, json);
         }

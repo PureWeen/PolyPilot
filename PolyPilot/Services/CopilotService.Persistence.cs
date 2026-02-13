@@ -12,6 +12,9 @@ public partial class CopilotService
     {
         try
         {
+            // Ensure directory exists (required on iOS where it may not exist by default)
+            Directory.CreateDirectory(PolyPilotBaseDir);
+            
             var entries = _sessions.Values
                 .Where(s => s.Info.SessionId != null)
                 .Select(s => new ActiveSessionEntry
@@ -103,9 +106,12 @@ public partial class CopilotService
     {
         try
         {
+            // Ensure directory exists (required on iOS where it may not exist by default)
+            Directory.CreateDirectory(PolyPilotBaseDir);
+            
             var logMsg = $"[{DateTime.Now:HH:mm:ss}] SaveUiState called: expandedSession param = '{expandedSession ?? "NULL"}'";
             Console.WriteLine(logMsg);
-            File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), logMsg + "\n");
+            try { File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), logMsg + "\n"); } catch { }
             
             var existing = LoadUiState();
             var state = new UiState
@@ -122,13 +128,13 @@ public partial class CopilotService
             
             var saveMsg = $"[{DateTime.Now:HH:mm:ss}] Saved UI state: Page={currentPage}, ExpandedSession={state.ExpandedSession ?? "NULL"}, ExpandedGrid={state.ExpandedGrid}";
             Console.WriteLine(saveMsg);
-            File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), saveMsg + "\n");
+            try { File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), saveMsg + "\n"); } catch { }
         }
         catch (Exception ex)
         {
             var errMsg = $"[{DateTime.Now:HH:mm:ss}] Failed to save UI state: {ex.Message}";
             Console.WriteLine(errMsg);
-            File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), errMsg + "\n");
+            try { File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), errMsg + "\n"); } catch { }
         }
     }
 
@@ -184,6 +190,8 @@ public partial class CopilotService
         _aliasCache = aliases;
         try
         {
+            // Ensure directory exists (required on iOS where it may not exist by default)
+            Directory.CreateDirectory(PolyPilotBaseDir);
             var json = JsonSerializer.Serialize(aliases, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(SessionAliasesFile, json);
         }
