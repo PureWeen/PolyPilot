@@ -260,44 +260,42 @@
         if (string.IsNullOrEmpty(workingDir)) return "";
         
         var lines = new List<string>();
-        lines.Add($"Working Directory: {workingDir}");
-        lines.Add("");
+        lines.Add("CWD: " + GetShortPath(workingDir));
         
         // Check for copilot-instructions.md
         var instructionsPath = Path.Combine(workingDir, ".github", "copilot-instructions.md");
         if (File.Exists(instructionsPath))
         {
-            try
-            {
-                var firstLine = File.ReadLines(instructionsPath)
-                    .FirstOrDefault(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith("---"))?.Trim();
-                if (!string.IsNullOrEmpty(firstLine))
-                {
-                    lines.Add("Instructions Found:");
-                    lines.Add($"  {(firstLine.Length > 60 ? firstLine[..60] + "..." : firstLine)}");
-                }
-            }
-            catch { }
+            lines.Add("✓ Instructions: .github/copilot-instructions.md");
         }
         else
         {
-            lines.Add("⚠️ No copilot-instructions.md found");
+            lines.Add("✗ No copilot-instructions.md");
         }
         
-        // Check for skills
+        // List a few skills
         var skillsPath = Path.Combine(workingDir, ".github", "skills");
         if (Directory.Exists(skillsPath))
         {
             try
             {
-                var skillCount = Directory.GetDirectories(skillsPath).Length;
-                if (skillCount > 0)
+                var skills = Directory.GetDirectories(skillsPath)
+                    .Select(Path.GetFileName)
+                    .Take(3)
+                    .ToList();
+                if (skills.Any())
                 {
-                    lines.Add($"Skills: {skillCount} available");
+                    lines.Add($"Skills: {string.Join(", ", skills)}");
+                    var totalCount = Directory.GetDirectories(skillsPath).Length;
+                    if (totalCount > 3)
+                        lines.Add($"  (+{totalCount - 3} more)");
                 }
             }
             catch { }
         }
+        
+        lines.Add("");
+        lines.Add("⚠️ Shows files in CWD, not what SDK loaded");
         
         return string.Join("\n", lines);
     }
