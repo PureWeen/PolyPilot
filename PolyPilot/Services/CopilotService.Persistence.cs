@@ -102,6 +102,7 @@ public partial class CopilotService
     {
         try
         {
+            Console.WriteLine($"[CopilotService] SaveUiState called: expandedSession param = '{expandedSession ?? "NULL"}'");
             var existing = LoadUiState();
             var state = new UiState
             {
@@ -114,7 +115,7 @@ public partial class CopilotService
             };
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);
-            Console.WriteLine($"[CopilotService] Saved UI state: Page={currentPage}, ExpandedSession={state.ExpandedSession}, ExpandedGrid={state.ExpandedGrid}, isCompactGrid={!state.ExpandedGrid}");
+            Console.WriteLine($"[CopilotService] Saved UI state: Page={currentPage}, ExpandedSession={state.ExpandedSession ?? "NULL"}, ExpandedGrid={state.ExpandedGrid}, isCompactGrid={!state.ExpandedGrid}");
         }
         catch (Exception ex)
         {
