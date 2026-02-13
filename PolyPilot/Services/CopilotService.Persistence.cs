@@ -215,8 +215,80 @@ public partial class CopilotService
         return Directory.GetDirectories(SessionStatePath)
             .Select(dir => new DirectoryInfo(dir))
             .Where(di => Guid.TryParse(di.Name, out _))
+            .Where(IsResumableSessionDirectory)
             .Select(di => CreatePersistedSessionInfo(di))
             .OrderByDescending(s => s.LastModified);
+    }
+
+    private static bool IsResumableSessionDirectory(DirectoryInfo di)
+    {
+        var eventsFile = Path.Combine(di.FullName, "events.jsonl");
+        var workspaceFile = Path.Combine(di.FullName, "workspace.yaml");
+
+        if (!File.Exists(eventsFile) || !File.Exists(workspaceFile))
+            return false;
+
+        try
+        {
+            var headerLines = File.ReadLines(workspaceFile).Take(20).ToList();
+            var idLine = headerLines.FirstOrDefault(l => l.StartsWith("id:", StringComparison.OrdinalIgnoreCase));
+            var cwdLine = headerLines.FirstOrDefault(l => l.StartsWith("cwd:", StringComparison.OrdinalIgnoreCase));
+            if (idLine == null || cwdLine == null)
+                return false;
+
+            var parsedId = idLine["id:".Length..].Trim().Trim('"', '\'');
+            return string.Equals(parsedId, di.Name, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public bool DeletePersistedSession(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || !Guid.TryParse(sessionId, out _))
+            return false;
+
+        var deleted = false;
+
+        try
+        {
+            var sessionDir = Path.Combine(SessionStatePath, sessionId);
+            if (Directory.Exists(sessionDir))
+            {
+                Directory.Delete(sessionDir, recursive: true);
+                deleted = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to delete persisted session directory '{sessionId}': {ex.Message}");
+        }
+
+        try
+        {
+            if (File.Exists(ActiveSessionsFile))
+            {
+                var json = File.ReadAllText(ActiveSessionsFile);
+                var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json) ?? new();
+                var kept = entries
+                    .Where(e => !string.Equals(e.SessionId, sessionId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (kept.Count != entries.Count)
+                {
+                    var updatedJson = JsonSerializer.Serialize(kept, new JsonSerializerOptions { WriteIndented = true });
+                    File.WriteAllText(ActiveSessionsFile, updatedJson);
+                    deleted = true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to prune active session entry '{sessionId}': {ex.Message}");
+        }
+
+        return deleted;
     }
 
     private PersistedSessionInfo CreatePersistedSessionInfo(DirectoryInfo di)
