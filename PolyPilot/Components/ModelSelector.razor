@@ -73,9 +73,13 @@
             .Replace("claude-", "Claude ")
             .Replace("gpt-", "GPT-")
             .Replace("gemini-", "Gemini ");
+        // Replace remaining hyphens with spaces (e.g. "opus-4.5" → "opus 4.5")
+        display = display.Replace("-", " ");
+        // Re-insert hyphen for GPT prefix
+        display = display.Replace("GPT ", "GPT-");
 
         // Capitalize segments
-        display = string.Join(' ', display.Split(' ').Select(s =>
+        display = string.Join(' ', display.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(s =>
             s.Length > 0 ? char.ToUpper(s[0]) + s[1..] : s));
 
         return new ModelDisplayInfo(display, icon);

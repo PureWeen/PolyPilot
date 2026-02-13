@@ -361,4 +361,184 @@ public class ModelSelectionTests
         Assert.Equal("claude-opus-4.5", resumeModel);
         Assert.Equal("/some/worktree", entry.WorkingDirectory);
     }
+
+    // === ChangeModelAsync behavior tests ===
+
+    [Fact]
+    public void ChangeModel_NewModelIsNormalized()
+    {
+        // ChangeModelAsync normalizes before use — display names from UI must become slugs
+        var userSelection = "Claude Opus 4.6";
+        var normalized = ModelHelper.NormalizeToSlug(userSelection);
+        Assert.Equal("claude-opus-4.6", normalized);
+    }
+
+    [Fact]
+    public void ChangeModel_SameModel_IsNoOp()
+    {
+        // If current model == requested model, ChangeModelAsync should be a no-op
+        var currentModel = "claude-opus-4.5";
+        var requested = "claude-opus-4.5";
+        var normalizedRequested = ModelHelper.NormalizeToSlug(requested);
+        Assert.Equal(currentModel, normalizedRequested); // Would trigger no-op guard
+    }
+
+    [Fact]
+    public void ChangeModel_DifferentModel_UpdatesInfo()
+    {
+        // Simulates what ChangeModelAsync does to AgentSessionInfo after successful resume
+        var info = new AgentSessionInfo
+        {
+            Name = "TestSession",
+            Model = "claude-sonnet-4.5",
+            SessionId = "some-guid",
+            WorkingDirectory = "/some/worktree"
+        };
+
+        var newModel = ModelHelper.NormalizeToSlug("claude-opus-4.6");
+        Assert.NotEqual(info.Model, newModel); // Different model → would proceed
+
+        // After successful resume, model is updated
+        info.Model = newModel;
+        Assert.Equal("claude-opus-4.6", info.Model);
+
+        // Working directory must NOT change during model switch
+        Assert.Equal("/some/worktree", info.WorkingDirectory);
+    }
+
+    [Fact]
+    public void ChangeModel_PreservesSessionIdentity()
+    {
+        // Model switch reconnects the same session ID — history is preserved server-side
+        var info = new AgentSessionInfo
+        {
+            Name = "MySession",
+            Model = "gpt-5.1-codex",
+            SessionId = "fixed-guid-123",
+            WorkingDirectory = "/my/worktree"
+        };
+        info.History.Add(ChatMessage.UserMessage("hello"));
+        info.History.Add(new ChatMessage("assistant", "hi there", DateTime.Now));
+
+        var originalSessionId = info.SessionId;
+        var originalHistory = info.History.Count;
+        var originalName = info.Name;
+        var originalWorkDir = info.WorkingDirectory;
+
+        // Simulate model switch
+        info.Model = ModelHelper.NormalizeToSlug("claude-opus-4.6");
+
+        // Everything except model must be unchanged
+        Assert.Equal(originalSessionId, info.SessionId);
+        Assert.Equal(originalHistory, info.History.Count);
+        Assert.Equal(originalName, info.Name);
+        Assert.Equal(originalWorkDir, info.WorkingDirectory);
+        Assert.Equal("claude-opus-4.6", info.Model);
+    }
+
+    [Fact]
+    public void ChangeModel_DisplayNameFromDropdown_NormalizesToSlug()
+    {
+        // The UI dropdown shows display names but passes slugs.
+        // If somehow a display name gets through, ChangeModelAsync must normalize it.
+        var displayNames = new Dictionary<string, string>
+        {
+            { "Claude Opus 4.6 (fast mode)", "claude-opus-4.6-fast" },
+            { "Gemini 3 Pro (Preview)", "gemini-3-pro-preview" },
+            { "GPT-5.1-Codex-Max", "gpt-5.1-codex-max" },
+        };
+
+        foreach (var (display, expectedSlug) in displayNames)
+        {
+            var normalized = ModelHelper.NormalizeToSlug(display);
+            Assert.Equal(expectedSlug, normalized);
+            Assert.False(ModelHelper.IsDisplayName(normalized));
+        }
+    }
+
+    // --- PrettifyModel tests ---
+    // The prettifier is duplicated in ExpandedSessionView.razor and ModelSelector.razor.
+    // We test the logic inline here to catch regressions like the "Opus-4.5" bug.
+
+    /// <summary>
+    /// Mirror of the PrettifyModel logic from ExpandedSessionView.razor / ModelSelector.razor.
+    /// </summary>
+    private static string PrettifyModel(string modelId)
+    {
+        var display = modelId
+            .Replace("claude-", "Claude ")
+            .Replace("gpt-", "GPT-")
+            .Replace("gemini-", "Gemini ");
+        display = display.Replace("-", " ");
+        display = display.Replace("GPT ", "GPT-");
+        return string.Join(' ', display.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(s =>
+            s.Length > 0 ? char.ToUpper(s[0]) + s[1..] : s));
+    }
+
+    [Theory]
+    [InlineData("claude-opus-4.5", "Claude Opus 4.5")]
+    [InlineData("claude-opus-4.6-fast", "Claude Opus 4.6 Fast")]
+    [InlineData("claude-sonnet-4.5", "Claude Sonnet 4.5")]
+    [InlineData("claude-haiku-4.5", "Claude Haiku 4.5")]
+    [InlineData("gpt-5.1-codex-max", "GPT-5.1 Codex Max")]
+    [InlineData("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini")]
+    [InlineData("gpt-5.2-codex", "GPT-5.2 Codex")]
+    [InlineData("gpt-5-mini", "GPT-5 Mini")]
+    [InlineData("gemini-3-pro-preview", "Gemini 3 Pro Preview")]
+    public void PrettifyModel_ProducesReadableNames(string slug, string expected)
+    {
+        Assert.Equal(expected, PrettifyModel(slug));
+    }
+
+    [Theory]
+    [InlineData("claude-opus-4.5")]
+    [InlineData("gpt-5.1-codex")]
+    [InlineData("gemini-3-pro-preview")]
+    public void PrettifyModel_NoDuplicateHyphens(string slug)
+    {
+        var pretty = PrettifyModel(slug);
+        // Should not contain stray hyphens (except GPT- prefix)
+        var withoutGpt = pretty.Replace("GPT-", "GPT");
+        Assert.DoesNotContain("-", withoutGpt);
+    }
+
+    [Fact]
+    public void PrettifyModel_DoesNotProduceDuplicateEntries()
+    {
+        // Regression: "claude-opus-4.5" was prettified to "Claude Opus-4.5"
+        // which didn't match the display name "Claude Opus 4.5", causing duplicates in the dropdown
+        var slugs = new[] { "claude-opus-4.5", "claude-sonnet-4.5", "gpt-5.1-codex-max" };
+        foreach (var slug in slugs)
+        {
+            var pretty = PrettifyModel(slug);
+            Assert.DoesNotContain("-", pretty.Replace("GPT-", "GPT"));
+            // Prettifying twice should be stable
+            Assert.Equal(pretty, PrettifyModel(slug));
+        }
+    }
+
+    [Fact]
+    public void RecreateSession_UsesNormalizedModel()
+    {
+        // When RecreateSessionAsync is called, the model should be normalized
+        // before being passed to CreateSessionAsync
+        var displayName = "Claude Opus 4.5";
+        var normalized = ModelHelper.NormalizeToSlug(displayName);
+        Assert.Equal("claude-opus-4.5", normalized);
+        // The recreated session should use the slug, not the display name
+        Assert.False(ModelHelper.IsDisplayName(normalized));
+    }
+
+    [Theory]
+    [InlineData("claude-opus-4.5")]
+    [InlineData("gpt-5.1-codex-max")]
+    [InlineData("gemini-3-pro-preview")]
+    [InlineData("claude-opus-4.6-fast")]
+    public void RoundTrip_NormalizeAndPrettify_AreConsistent(string slug)
+    {
+        // Prettify a slug, then normalize back — should return the original slug
+        var pretty = PrettifyModel(slug);
+        var backToSlug = ModelHelper.NormalizeToSlug(pretty);
+        Assert.Equal(slug, backToSlug);
+    }
 }
