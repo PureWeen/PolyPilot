@@ -611,15 +611,21 @@
                 CopilotService.SwitchSession(sessions[0].Name);
             }
             // Detect sidebar-initiated session switch — expand to chat view
-            // BUT: Don't auto-expand during initial load if we have saved state
+            // Skip during initial load (_lastActiveSession will be set below)
             var active = CopilotService.ActiveSessionName;
-            if (active != null && active != _lastActiveSession && sessions.Any(s => s.Name == active) && _initialGridSet)
+            if (active != null && active != _lastActiveSession && sessions.Any(s => s.Name == active) && _lastActiveSession != null)
             {
                 _lastActiveSession = active;
                 expandedSession = active;
                 _focusedInputId = $"input-{active.Replace(" ", "-")}";
                 _needsScrollToBottom = true;
                 CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid);
+            }
+            
+            // Set _lastActiveSession during initial load to prevent auto-expand above
+            if (_lastActiveSession == null && active != null)
+            {
+                _lastActiveSession = active;
             }
             // Clear sidebar highlight when showing grid view
             // Clear stale streaming content for sessions that finished
