@@ -8,6 +8,9 @@ namespace PolyPilot.Models;
 /// </summary>
 public class ReflectionCycle
 {
+    private const string CompletionMarker = "Goal complete";
+    private const string CompletionMarkerWithEmoji = "✅ Goal complete";
+
     /// <summary>
     /// The high-level goal or acceptance criteria that the cycle is working toward.
     /// Used to construct evaluation prompts between iterations.
@@ -54,7 +57,7 @@ public class ReflectionCycle
         return $"[Reflection cycle iteration {CurrentIteration + 1}/{MaxIterations}]\n\n"
              + $"{evaluation}\n\n"
              + "Review your previous response and continue working toward the goal. "
-             + "If the goal is fully met, state \"✅ Goal complete\" at the start of your response. "
+             + $"If the goal is fully met, state \"{CompletionMarkerWithEmoji}\" at the start of your response. "
              + "Otherwise, continue making progress.";
     }
 
@@ -66,17 +69,20 @@ public class ReflectionCycle
     {
         if (string.IsNullOrWhiteSpace(response)) return false;
 
-        return response.Contains("✅ Goal complete", StringComparison.OrdinalIgnoreCase)
-            || response.Contains("Goal complete", StringComparison.OrdinalIgnoreCase);
+        return response.Contains(CompletionMarker, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
-    /// Determines whether the cycle should continue after receiving a response.
-    /// Returns false if the goal is met, max iterations reached, or cycle is inactive.
+    /// Advances the cycle by one iteration, evaluates the response, and determines
+    /// whether the cycle should continue. Increments CurrentIteration, checks for
+    /// goal completion, and deactivates the cycle if done.
+    /// Returns true if the cycle should send another follow-up prompt.
     /// </summary>
-    public bool ShouldContinue(string response)
+    public bool Advance(string response)
     {
         if (!IsActive) return false;
+
+        CurrentIteration++;
 
         if (IsGoalMet(response))
         {

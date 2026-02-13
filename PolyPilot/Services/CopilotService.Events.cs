@@ -584,8 +584,7 @@ public partial class CopilotService
         var cycle = state.Info.ReflectionCycle;
         if (cycle != null && cycle.IsActive && !string.IsNullOrEmpty(response))
         {
-            cycle.CurrentIteration++;
-            if (cycle.ShouldContinue(response))
+            if (cycle.Advance(response))
             {
                 var followUp = cycle.BuildFollowUpPrompt(response);
                 Debug($"Reflection cycle iteration {cycle.CurrentIteration}/{cycle.MaxIterations} for '{state.Info.Name}'");
