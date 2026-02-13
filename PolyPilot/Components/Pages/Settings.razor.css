@@ -1,5 +1,6 @@
 .settings-page {
     padding: 1.5rem;
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
     color: var(--text-primary);
     background: var(--bg-primary);
     height: 100%;

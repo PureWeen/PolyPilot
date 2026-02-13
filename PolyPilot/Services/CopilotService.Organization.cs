@@ -45,6 +45,7 @@ public partial class CopilotService
     {
         try
         {
+            Directory.CreateDirectory(PolyPilotBaseDir);
             var json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(OrganizationFile, json);
         }
