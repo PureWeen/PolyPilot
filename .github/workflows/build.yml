@@ -332,87 +332,88 @@ jobs:
           overwrite: true
           retention-days: 30
 
-  # publish-windows:
-  #   name: Publish Windows App
-  #   runs-on: windows-latest
-  #   needs: build-test
-  #   if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-  #   permissions:
-  #     statuses: write
+  publish-windows:
+    name: Publish Windows App
+    runs-on: windows-latest
+    needs: build-test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      statuses: write
 
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  #     - name: Setup .NET
-  #       uses: actions/setup-dotnet@v4
-  #       with:
-  #         dotnet-version: '10.0.x'
-  #         dotnet-quality: 'preview'
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
 
-  #     - name: Install MAUI workload
-  #       run: dotnet workload install maui
+      - name: Install MAUI workload
+        run: dotnet workload install maui
 
-  #     - name: Determine version
-  #       id: version
-  #       shell: bash
-  #       run: |
-  #         SHA="${GITHUB_SHA::8}"
-  #         if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-  #           VER="${GITHUB_REF#refs/tags/v}"
-  #         else
-  #           VER="1.0"
-  #         fi
-  #         echo "app_version=$VER" >> $GITHUB_OUTPUT
-  #         echo "commit_sha=$SHA" >> $GITHUB_OUTPUT
-  #         echo "Version: $VER+$SHA"
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          SHA="${GITHUB_SHA::8}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF#refs/tags/v}"
+          else
+            VER="1.0"
+          fi
+          echo "app_version=$VER" >> $GITHUB_OUTPUT
+          echo "commit_sha=$SHA" >> $GITHUB_OUTPUT
+          echo "Version: $VER+$SHA"
 
-  #     - name: Publish Windows App
-  #       run: |
-  #         dotnet publish PolyPilot/PolyPilot.csproj `
-  #           -f net10.0-windows10.0.19041.0 `
-  #           -c Release `
-  #           -p:WindowsPackageType=None `
-  #           -p:ApplicationDisplayVersion=${{ steps.version.outputs.app_version }} `
-  #           -o ./publish/windows
+      - name: Publish Windows App
+        run: |
+          dotnet publish PolyPilot/PolyPilot.csproj `
+            -f net10.0-windows10.0.19041.0 `
+            -c Release `
+            -p:WindowsPackageType=None `
+            -p:ApplicationDisplayVersion=${{ steps.version.outputs.app_version }} `
+            -o ./publish/windows
 
-  #     - name: Create ZIP archive
-  #       run: |
-  #         Compress-Archive -Path ./publish/windows/* -DestinationPath ./artifacts/PolyPilot-Windows.zip
-  #         Write-Host "Created archive: ./artifacts/PolyPilot-Windows.zip"
-  #         Get-Item ./artifacts/PolyPilot-Windows.zip | Select-Object Name, Length
+      - name: Create ZIP archive
+        run: |
+          New-Item -ItemType Directory -Force -Path ./artifacts | Out-Null
+          Compress-Archive -Path ./publish/windows/* -DestinationPath ./artifacts/PolyPilot-Windows.zip
+          Write-Host "Created archive: ./artifacts/PolyPilot-Windows.zip"
+          Get-Item ./artifacts/PolyPilot-Windows.zip | Select-Object Name, Length
 
-  #     - name: Upload Windows App
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: PolyPilot-Windows
-  #         path: ./artifacts/PolyPilot-Windows.zip
-  #         retention-days: 30
+      - name: Upload Windows App
+        uses: actions/upload-artifact@v4
+        with:
+          name: PolyPilot-Windows
+          path: ./artifacts/PolyPilot-Windows.zip
+          retention-days: 30
 
-  #     - name: Set commit status with artifact link
-  #       if: always()
-  #       shell: bash
-  #       env:
-  #         GH_TOKEN: ${{ github.token }}
-  #       run: |
-  #         ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-  #         if [ -f "./artifacts/PolyPilot-Windows.zip" ]; then
-  #           STATE="success"
-  #           DESC="PolyPilot Windows built successfully"
-  #         else
-  #           STATE="failure"
-  #           DESC="PolyPilot Windows build failed"
-  #         fi
-  #         gh api repos/${{ github.repository }}/statuses/${{ github.sha }} \
-  #           -f state="$STATE" \
-  #           -f target_url="$ARTIFACT_URL" \
-  #           -f description="$DESC" \
-  #           -f context="PolyPilot / Download Windows App"
+      - name: Set commit status with artifact link
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f "./artifacts/PolyPilot-Windows.zip" ]; then
+            STATE="success"
+            DESC="PolyPilot Windows built successfully"
+          else
+            STATE="failure"
+            DESC="PolyPilot Windows build failed"
+          fi
+          gh api repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$STATE" \
+            -f target_url="$ARTIFACT_URL" \
+            -f description="$DESC" \
+            -f context="PolyPilot / Download Windows App"
 
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [notarize-maccatalyst]
+    needs: [notarize-maccatalyst, publish-windows]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -424,17 +425,18 @@ jobs:
           name: PolyPilot.app
           path: ./release
 
-      # - name: Download Windows artifact
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: PolyPilot-Windows
-      #     path: ./release
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: PolyPilot-Windows
+          path: ./release
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             ./release/PolyPilot.zip
+            ./release/PolyPilot-Windows.zip
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
