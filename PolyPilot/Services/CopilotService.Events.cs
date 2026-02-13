@@ -68,6 +68,7 @@ public partial class CopilotService
                 // Track skill invocations
                 if (startToolName == "skill")
                 {
+                    state.Info.SkillTrackingAttempts++;
                     try
                     {
                         var argsObj = toolStart.Data.GetType().GetProperty("Arguments")?.GetValue(toolStart.Data);
