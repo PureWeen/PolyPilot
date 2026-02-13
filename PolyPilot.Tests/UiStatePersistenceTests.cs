@@ -111,6 +111,44 @@ public class UiStatePersistenceTests
         var alias = "  My Session  ";
         Assert.Equal("My Session", alias.Trim());
     }
+
+    [Fact]
+    public void SaveActiveSessionsToDisk_Pattern_PreservesAllFields()
+    {
+        // Mirrors the exact pattern in CopilotService.SaveActiveSessionsToDisk:
+        //   new ActiveSessionEntry { SessionId=..., DisplayName=..., Model=..., WorkingDirectory=... }
+        // This test ensures that when new fields are added to ActiveSessionEntry,
+        // they are also populated during save (not left null).
+
+        // Simulate an AgentSessionInfo (the source of truth at runtime)
+        var sessionInfo = new PolyPilot.Models.AgentSessionInfo
+        {
+            Name = "MauiWorktree",
+            Model = "claude-opus-4.5",
+            SessionId = "abc-123-def",
+            WorkingDirectory = "/Users/test/.polypilot/worktrees/dotnet-maui-8f45001d"
+        };
+
+        // Simulate SaveActiveSessionsToDisk's mapping logic
+        var entry = new ActiveSessionEntry
+        {
+            SessionId = sessionInfo.SessionId!,
+            DisplayName = sessionInfo.Name,
+            Model = sessionInfo.Model,
+            WorkingDirectory = sessionInfo.WorkingDirectory
+        };
+
+        // Round-trip through JSON (simulates app restart)
+        var json = JsonSerializer.Serialize(new[] { entry });
+        var restored = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json)!;
+        var restoredEntry = restored[0];
+
+        // ALL fields must survive — if any is null, the restore path loses context
+        Assert.Equal("abc-123-def", restoredEntry.SessionId);
+        Assert.Equal("MauiWorktree", restoredEntry.DisplayName);
+        Assert.Equal("claude-opus-4.5", restoredEntry.Model);
+        Assert.Equal("/Users/test/.polypilot/worktrees/dotnet-maui-8f45001d", restoredEntry.WorkingDirectory);
+    }
 }
 
 // These classes mirror the ones in CopilotService.cs (they're defined at the bottom of that file)

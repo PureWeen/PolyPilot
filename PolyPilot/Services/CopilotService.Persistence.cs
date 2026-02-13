@@ -18,7 +18,8 @@ public partial class CopilotService
                 {
                     SessionId = s.Info.SessionId!,
                     DisplayName = s.Info.Name,
-                    Model = s.Info.Model
+                    Model = s.Info.Model,
+                    WorkingDirectory = s.Info.WorkingDirectory
                 })
                 .ToList();
             
