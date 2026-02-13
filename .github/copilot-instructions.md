@@ -52,7 +52,7 @@ maui-devflow MAUI tree             # Visual tree
 maui-devflow cdp snapshot          # DOM snapshot (best for AI)
 maui-devflow MAUI logs             # Application ILogger output
 ```
-For Android, always run `adb reverse tcp:9223 tcp:9223 && adb reverse tcp:9222 tcp:9222` after deploy.
+For Android, always run `adb reverse tcp:9223 tcp:9223` after deploy.
 
 ## Architecture
 

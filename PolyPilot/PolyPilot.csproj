@@ -77,8 +77,8 @@
         <PackageReference Include="SQLitePCLRaw.bundle_green" Version="*" />
         <PackageReference Include="QRCoder" Version="*" />
         <PackageReference Include="ZXing.Net.Maui.Controls" Version="*" />
-        <PackageReference Include="Redth.MauiDevFlow.Agent" Version="*" />
-        <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="*" />
+        <PackageReference Include="Redth.MauiDevFlow.Agent" Version="0.8.0" />
+        <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.8.0" />
     </ItemGroup>
 
     <!-- Prevent linker from trimming SDK event types needed for pattern matching -->

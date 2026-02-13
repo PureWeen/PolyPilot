@@ -389,9 +389,16 @@ public class WsBridgeClient : IDisposable
                 break;
 
             case BridgeMessageTypes.ReasoningComplete:
-                var reasonDone = msg.GetPayload<SessionNamePayload>();
+                var reasonDone = msg.GetPayload<ReasoningCompletePayload>();
                 if (reasonDone != null)
-                    OnReasoningComplete?.Invoke(reasonDone.SessionName, "");
+                    OnReasoningComplete?.Invoke(reasonDone.SessionName, reasonDone.ReasoningId);
+                else
+                {
+                    // Back-compat with older servers that only sent SessionNamePayload.
+                    var legacyReasonDone = msg.GetPayload<SessionNamePayload>();
+                    if (legacyReasonDone != null)
+                        OnReasoningComplete?.Invoke(legacyReasonDone.SessionName, "");
+                }
                 break;
 
             case BridgeMessageTypes.IntentChanged:

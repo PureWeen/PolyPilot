@@ -142,6 +142,12 @@ public class ReasoningDeltaPayload
     public string Content { get; set; } = "";
 }
 
+public class ReasoningCompletePayload
+{
+    public string SessionName { get; set; } = "";
+    public string ReasoningId { get; set; } = "";
+}
+
 public class SessionNamePayload
 {
     public string SessionName { get; set; } = "";

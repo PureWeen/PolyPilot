@@ -101,46 +101,50 @@
         }
         else
         {
-            <div class="action-item @(ChatMessageList.GetActionLabel(Message.ToolName ?? "").CssClass) @(Message.IsComplete ? (Message.IsSuccess ? "done" : "failed") : "running")" @onclick="() => Message.IsCollapsed = !Message.IsCollapsed">
-                <span class="action-dot"></span>
-                <span class="action-label">@(ChatMessageList.GetActionLabel(Message.ToolName ?? "").Label)</span>
-                <span class="action-desc">@ChatMessageList.FormatActionDescription(Message.ToolName ?? "", Message.ToolInput, Message.Content, Message.IsComplete)</span>
-                @if (Message.IsComplete && !string.IsNullOrEmpty(Message.Content) && !ChatMessageList.IsUnusableResult(Message.Content))
+            @* Unified command box: header + input always visible, output collapsible *@
+            <div class="action-box @(ChatMessageList.GetActionLabel(Message.ToolName ?? "").CssClass) @(Message.IsComplete ? (Message.IsSuccess ? "done" : "failed") : "running")">
+                <div class="action-header">
+                    <span class="action-dot"></span>
+                    <span class="action-label">@(ChatMessageList.GetActionLabel(Message.ToolName ?? "").Label)</span>
+                    <span class="action-desc">@ChatMessageList.FormatActionDescription(Message.ToolName ?? "", Message.ToolInput, Message.Content, Message.IsComplete)</span>
+                </div>
+                @if (!string.IsNullOrEmpty(Message.ToolInput) && Message.ToolName != "bash")
                 {
-                    @if (ChatMessageList.GetImagePath(Message.Content) is string imgPath)
-                    {
-                        <span class="action-detail-hint">🖼</span>
-                    }
-                    else if (ChatMessageList.LineCount(Message.Content) > 0)
-                    {
-                        <span class="action-detail-hint">↳ @ChatMessageList.LineCount(Message.Content) line@(ChatMessageList.LineCount(Message.Content) != 1 ? "s" : "")</span>
-                    }
-                }
-            </div>
-            @if (!Message.IsCollapsed)
-            {
-                @if (!string.IsNullOrEmpty(Message.ToolInput))
-                {
-                    <div class="action-expanded-input">
+                    <div class="action-input">
                         <pre>@ChatMessageList.FormatToolInputExpanded(Message.ToolName ?? "", Message.ToolInput)</pre>
                     </div>
                 }
                 @if (Message.IsComplete && !string.IsNullOrEmpty(Message.Content) && !ChatMessageList.IsUnusableResult(Message.Content))
                 {
-                    @if (ChatMessageList.GetImagePath(Message.Content) is string imgPath2 && ChatMessageList.FileToDataUri(imgPath2) is string dataUri2)
+                    <div class="action-output-toggle" @onclick="() => Message.IsCollapsed = !Message.IsCollapsed" @onclick:stopPropagation="true">
+                        <span class="toggle-icon">@(Message.IsCollapsed ? "▶" : "▼")</span>
+                        <span class="toggle-label">Output</span>
+                        @if (ChatMessageList.GetImagePath(Message.Content) is string imgPath)
+                        {
+                            <span class="output-hint">🖼 image</span>
+                        }
+                        else
+                        {
+                            <span class="output-hint">@ChatMessageList.LineCount(Message.Content) line@(ChatMessageList.LineCount(Message.Content) != 1 ? "s" : "")</span>
+                        }
+                    </div>
+                    @if (!Message.IsCollapsed)
                     {
-                        <div class="action-expanded-result">
-                            <img src="@dataUri2" alt="@System.IO.Path.GetFileName(imgPath2)" />
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="action-expanded-result">
-                            <pre>@ChatMessageList.TruncateResult(Message.Content)</pre>
-                        </div>
+                        @if (ChatMessageList.GetImagePath(Message.Content) is string imgPath2 && ChatMessageList.FileToDataUri(imgPath2) is string dataUri2)
+                        {
+                            <div class="action-output">
+                                <img src="@dataUri2" alt="@System.IO.Path.GetFileName(imgPath2)" />
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="action-output">
+                                <pre>@ChatMessageList.TruncateResult(Message.Content)</pre>
+                            </div>
+                        }
                     }
                 }
-            }
+            </div>
         }
         break;
 

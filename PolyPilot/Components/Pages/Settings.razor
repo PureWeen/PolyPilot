@@ -486,10 +486,7 @@
     protected override void OnInitialized()
     {
         settings = ConnectionSettings.Load();
-        cliInfo = CopilotService.GetCliSourceInfo();
         _initialCliSource = settings.CliSource;
-        serverAlive = ServerManager.CheckServerRunning("localhost", settings.Port);
-        devTunnelAvailable = DevTunnelService.IsCliAvailable();
         DevTunnelService.OnStateChanged += OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
 
@@ -511,11 +508,6 @@
 
     private async Task InitializeAfterRenderAsync()
     {
-        if (devTunnelAvailable)
-        {
-            tunnelLoggedIn = await DevTunnelService.IsLoggedInAsync();
-            await InvokeAsync(StateHasChanged);
-        }
         _selfRef = DotNetObjectReference.Create(this);
         await JS.InvokeVoidAsync("eval", "window.__setSettingsRef = function(ref) { window.__settingsRef = ref; };");
         await JS.InvokeVoidAsync("__setSettingsRef", _selfRef);
@@ -534,13 +526,15 @@
                 });
             })()");
 
-        // Run slow detection tasks in parallel
+        // Run slow detection tasks in parallel (after first paint)
+        var cliInfoTask = Task.Run(CopilotService.GetCliSourceInfo);
         var tasks = new List<Task>();
         tasks.Add(Task.Run(() => { serverAlive = ServerManager.CheckServerRunning("localhost", settings.Port); }));
         tasks.Add(Task.Run(() => { devTunnelAvailable = DevTunnelService.IsCliAvailable(); }));
         tasks.Add(Task.Run(() => { DiscoverLocalIps(); }));
         tasks.Add(TailscaleService.DetectAsync());
         await Task.WhenAll(tasks);
+        cliInfo = await cliInfoTask;
 
         if (devTunnelAvailable)
             tunnelLoggedIn = await DevTunnelService.IsLoggedInAsync();

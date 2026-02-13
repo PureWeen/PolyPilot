@@ -103,19 +103,8 @@ public static class MauiProgram
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
 		builder.Logging.AddDebug();
-#if MACCATALYST
-		// Mac server app: Agent=9233, CDP=9232
-		builder.AddMauiDevFlowAgent(options => { options.Port = 9233; });
+		builder.AddMauiDevFlowAgent();
 		builder.AddMauiBlazorDevFlowTools();
-#elif WINDOWS
-		// Windows desktop: Agent=9253
-		builder.AddMauiDevFlowAgent(options => { options.Port = 9253; });
-		builder.AddMauiBlazorDevFlowTools();
-#else
-		// Mobile client apps: Agent=9243, CDP=9242
-		builder.AddMauiDevFlowAgent(options => { options.Port = 9243; });
-		builder.AddMauiBlazorDevFlowTools();
-#endif
 #endif
 
 		return builder.Build();

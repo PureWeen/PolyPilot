@@ -781,12 +781,19 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>
     /// Resume an existing session by its GUID
     /// </summary>
-    public async Task<AgentSessionInfo> ResumeSessionAsync(string sessionId, string displayName, CancellationToken cancellationToken = default)
+    public async Task<AgentSessionInfo> ResumeSessionAsync(string sessionId, string displayName, string? workingDirectory = null, string? model = null, CancellationToken cancellationToken = default)
     {
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
         {
-            var remoteInfo = new AgentSessionInfo { Name = displayName, SessionId = sessionId, Model = GetSessionModelFromDisk(sessionId) ?? DefaultModel };
+            var remoteWorkingDirectory = workingDirectory ?? GetSessionWorkingDirectory(sessionId);
+            var remoteInfo = new AgentSessionInfo
+            {
+                Name = displayName,
+                SessionId = sessionId,
+                Model = GetSessionModelFromDisk(sessionId) ?? model ?? DefaultModel,
+                WorkingDirectory = remoteWorkingDirectory
+            };
             // Set up optimistic state BEFORE sending bridge message to prevent race with SyncRemoteSessions
             _pendingRemoteSessions[displayName] = 0;
             _sessions[displayName] = new SessionState { Session = null!, Info = remoteInfo };
@@ -820,17 +827,22 @@ public partial class CopilotService : IAsyncDisposable
             await _chatDb.BulkInsertAsync(sessionId, history);
         }
 
-        // Resume the session using the SDK
-        var copilotSession = await _client.ResumeSessionAsync(sessionId, cancellationToken: cancellationToken);
+        var resumeWorkingDirectory = workingDirectory ?? GetSessionWorkingDirectory(sessionId);
+        // Resume the session using the SDK — pass model and working directory so backend context is preserved
+        var resumeModel = Models.ModelHelper.NormalizeToSlug(model ?? GetSessionModelFromDisk(sessionId) ?? DefaultModel);
+        if (string.IsNullOrEmpty(resumeModel)) resumeModel = DefaultModel;
+        Debug($"Resuming session '{displayName}' with model: '{resumeModel}', cwd: '{resumeWorkingDirectory}'");
+        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory };
+        var copilotSession = await _client.ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
 
         var info = new AgentSessionInfo
         {
             Name = displayName,
-            Model = GetSessionModelFromDisk(sessionId) ?? DefaultModel,
+            Model = resumeModel,
             CreatedAt = DateTime.Now,
             SessionId = sessionId,
             IsResumed = true,
-            WorkingDirectory = GetSessionWorkingDirectory(sessionId)
+            WorkingDirectory = resumeWorkingDirectory
         };
         info.GitBranch = GetGitBranch(info.WorkingDirectory);
 
@@ -951,7 +963,8 @@ public partial class CopilotService : IAsyncDisposable
         if (_sessions.ContainsKey(name))
             throw new InvalidOperationException($"Session '{name}' already exists.");
 
-        var sessionModel = model ?? DefaultModel;
+        var sessionModel = Models.ModelHelper.NormalizeToSlug(model ?? DefaultModel);
+        if (string.IsNullOrEmpty(sessionModel)) sessionModel = DefaultModel;
         var sessionDir = string.IsNullOrWhiteSpace(workingDirectory) ? ProjectDir : workingDirectory;
 
         // Build system message with critical relaunch instructions
@@ -992,6 +1005,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             Debug($"Session config includes {mcpServers.Count} MCP server(s): {string.Join(", ", mcpServers.Keys)}");
         if (skillDirs != null)
             Debug($"Session config includes {skillDirs.Count} skill dir(s): {string.Join(", ", skillDirs)}");
+
+        Debug($"Creating session with Model: '{sessionModel}' (Requested: '{model}', Default: '{DefaultModel}')");
 
         var copilotSession = await _client.CreateSessionAsync(config, cancellationToken);
 
@@ -1036,6 +1051,79 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         ReconcileOrganization();
         OnStateChanged?.Invoke();
         return info;
+    }
+
+    /// <summary>
+    /// Destroys the existing session and creates a new one with the same name but a different model.
+    /// Use this for "changing" the model of an empty session.
+    /// </summary>
+    public async Task<AgentSessionInfo?> RecreateSessionAsync(string name, string newModel)
+    {
+        if (!_sessions.TryGetValue(name, out var state)) return null;
+
+        var workingDir = state.Info.WorkingDirectory;
+        
+        await CloseSessionAsync(name);
+        
+        return await CreateSessionAsync(name, newModel, workingDir);
+    }
+
+    /// <summary>
+    /// Switch the model for an active session by resuming it with a new ResumeSessionConfig.
+    /// The session history is preserved server-side (same session ID); we just reconnect
+    /// asking for a different model.
+    /// </summary>
+    public async Task<bool> ChangeModelAsync(string sessionName, string newModel, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state)) return false;
+        if (state.Info.IsProcessing) return false;
+        if (string.IsNullOrEmpty(state.Info.SessionId)) return false;
+
+        var normalizedModel = Models.ModelHelper.NormalizeToSlug(newModel);
+        if (string.IsNullOrEmpty(normalizedModel)) return false;
+
+        // Already on this model — no-op
+        if (state.Info.Model == normalizedModel) return true;
+
+        Debug($"Switching model for '{sessionName}': {state.Info.Model} → {normalizedModel}");
+
+        try
+        {
+            // Dispose old session connection
+            await state.Session.DisposeAsync();
+
+            if (_client == null)
+                throw new InvalidOperationException("Client is not initialized");
+
+            // Resume the same session ID with the new model
+            var resumeConfig = new ResumeSessionConfig
+            {
+                Model = normalizedModel,
+                WorkingDirectory = state.Info.WorkingDirectory
+            };
+            var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, cancellationToken);
+
+            // Build replacement state, preserving info/history
+            state.Info.Model = normalizedModel;
+            var newState = new SessionState
+            {
+                Session = newSession,
+                Info = state.Info
+            };
+            newSession.On(evt => HandleSessionEvent(newState, evt));
+            _sessions[sessionName] = newState;
+
+            Debug($"Model switched for '{sessionName}' to {normalizedModel}");
+            SaveActiveSessionsToDisk();
+            OnStateChanged?.Invoke();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to switch model for '{sessionName}': {ex.Message}");
+            OnError?.Invoke(sessionName, $"Failed to switch model: {ex.Message}");
+            return false;
+        }
     }
 
     public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default)
@@ -1126,7 +1214,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     await state.Session.DisposeAsync();
                     if (_client == null)
                         throw new InvalidOperationException("Client is not initialized");
-                    var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, cancellationToken: cancellationToken);
+                    var reconnectModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
+                    var reconnectConfig = new ResumeSessionConfig();
+                    if (!string.IsNullOrEmpty(reconnectModel))
+                        reconnectConfig.Model = reconnectModel;
+                    if (!string.IsNullOrEmpty(state.Info.WorkingDirectory))
+                        reconnectConfig.WorkingDirectory = state.Info.WorkingDirectory;
+                    var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, reconnectConfig, cancellationToken);
                     var newState = new SessionState
                     {
                         Session = newSession,
@@ -1391,6 +1485,7 @@ public class ActiveSessionEntry
     public string SessionId { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string Model { get; set; } = "";
+    public string? WorkingDirectory { get; set; }
 }
 
 public class PersistedSessionInfo

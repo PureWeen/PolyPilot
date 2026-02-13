@@ -195,7 +195,6 @@
     private Dictionary<string, string> errorBySession = new();
     private Dictionary<string, SessionUsageInfo> usageBySession = new();
     private Dictionary<string, bool> planModeBySession = new();
-    private Dictionary<string, string> modelOverrideBySession = new();
     private Dictionary<string, List<PendingImage>> pendingImagesBySession = new();
     private Dictionary<string, string> shellCwdBySession = new();
     private Dictionary<string, List<string>> commandHistoryBySession = new();
@@ -224,6 +223,8 @@
         CopilotService.OnActivity += HandleActivity;
         CopilotService.OnToolStarted += HandleToolStarted;
         CopilotService.OnToolCompleted += HandleToolCompleted;
+        CopilotService.OnReasoningReceived += HandleReasoningReceived;
+        CopilotService.OnReasoningComplete += HandleReasoningComplete;
         CopilotService.OnIntentChanged += HandleIntentChanged;
         CopilotService.OnUsageInfoChanged += HandleUsageInfoChanged;
         CopilotService.OnError += HandleError;
@@ -678,6 +679,9 @@
 
     private void HandleToolStarted(string sessionName, string toolName, string callId, string? inputSummary)
     {
+        // Clear streaming content when tool starts - the text was flushed to history
+        streamingBySession.Remove(sessionName);
+        
         currentToolBySession[sessionName] = toolName;
         if (!toolActivitiesBySession.ContainsKey(sessionName))
             toolActivitiesBySession[sessionName] = new();
@@ -721,6 +725,20 @@
         InvokeAsync(SafeRefreshAsync);
     }
 
+    private void HandleReasoningReceived(string sessionName, string reasoningId, string content)
+    {
+        if (!string.IsNullOrEmpty(sessionName) && !string.IsNullOrEmpty(content))
+            _needsScrollToBottom = true;
+        InvokeAsync(SafeRefreshAsync);
+    }
+
+    private void HandleReasoningComplete(string sessionName, string reasoningId)
+    {
+        if (!string.IsNullOrEmpty(sessionName) && !string.IsNullOrEmpty(reasoningId))
+            _needsScrollToBottom = true;
+        InvokeAsync(SafeRefreshAsync);
+    }
+
     private void HandleUsageInfoChanged(string sessionName, SessionUsageInfo info)
     {
         if (usageBySession.TryGetValue(sessionName, out var current))
@@ -749,6 +767,8 @@
 
     private void HandleTurnStart(string sessionName)
     {
+        // Clear streaming content from previous turn
+        streamingBySession.Remove(sessionName);
         currentToolBySession.Remove(sessionName);
         toolActivitiesBySession[sessionName] = new();
         InvokeAsync(SafeRefreshAsync);
@@ -1850,13 +1870,14 @@
 
     private string GetSessionModel(AgentSessionInfo session)
     {
-        // Priority: 1) actual model from usage events, 2) user override, 3) session config, 4) first available
+        // Priority: 1) Usage info (TRUTH) - what the backend is actually using
         if (usageBySession.TryGetValue(session.Name, out var u) && !string.IsNullOrEmpty(u.Model))
             return u.Model;
-        if (modelOverrideBySession.TryGetValue(session.Name, out var m))
-            return m;
+
+        // Priority: 2) Session model property (initial configuration)
         if (!string.IsNullOrEmpty(session.Model) && session.Model != "resumed")
             return session.Model;
+
         return availableModels[0];
     }
 
@@ -1865,11 +1886,26 @@
         return GetSessionModel(session);
     }
 
-    private void SetExpandedModel(AgentSessionInfo session, string? model)
+    private async Task SetExpandedModel(AgentSessionInfo session, string? model)
     {
         if (string.IsNullOrEmpty(model)) return;
-        modelOverrideBySession[session.Name] = model;
-        session.Model = model;
+
+        // If the session has no history, recreate it to "switch" the model effectively
+        if (session.History.Count == 0)
+        {
+            await CopilotService.RecreateSessionAsync(session.Name, model);
+            sessions = CopilotService.GetAllSessions().ToList();
+            await InvokeAsync(SafeRefreshAsync);
+            return;
+        }
+
+        // For active sessions with history, resume with the new model
+        var success = await CopilotService.ChangeModelAsync(session.Name, model);
+        if (success)
+        {
+            sessions = CopilotService.GetAllSessions().ToList();
+            await InvokeAsync(SafeRefreshAsync);
+        }
     }
 
     private void SetPlanMode(string sessionName, bool enabled) => planModeBySession[sessionName] = enabled;
@@ -1944,6 +1980,8 @@
         CopilotService.OnActivity -= HandleActivity;
         CopilotService.OnToolStarted -= HandleToolStarted;
         CopilotService.OnToolCompleted -= HandleToolCompleted;
+        CopilotService.OnReasoningReceived -= HandleReasoningReceived;
+        CopilotService.OnReasoningComplete -= HandleReasoningComplete;
         CopilotService.OnIntentChanged -= HandleIntentChanged;
         CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;
         CopilotService.OnError -= HandleError;

@@ -136,9 +136,10 @@
 
         window.smartScrollToBottom = function(element) {
             if (!element) return;
-            var threshold = 150;
-            var isAtBottom = (element.scrollHeight - element.scrollTop - element.clientHeight) < threshold;
-            if (isAtBottom) {
+            var threshold = 300;
+            var distFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+            var isNearBottom = distFromBottom < threshold;
+            if (isNearBottom || element.__wasAtBottom) {
                 requestAnimationFrame(function() {
                     element.scrollTop = element.scrollHeight;
                 });
@@ -147,7 +148,7 @@
 
         window.isScrolledToBottom = function(element) {
             if (!element) return true;
-            return (element.scrollHeight - element.scrollTop - element.clientHeight) < 150;
+            return (element.scrollHeight - element.scrollTop - element.clientHeight) < 300;
         };
 
         window.inspectMessages = function() {
@@ -325,17 +326,39 @@
                 document.querySelectorAll('.card-messages, .messages').forEach(function(el) {
                     if (!el.__scrollInit) {
                         el.__scrollInit = true;
+                        el.__wasAtBottom = true;
                         el.scrollTop = el.scrollHeight;
                         return;
                     }
-                    var atBottom = forceScroll || (el.scrollHeight - el.scrollTop - el.clientHeight) < 120;
-                    if (atBottom) el.scrollTop = el.scrollHeight;
+                    // Use larger threshold (300px) for better tracking during rapid updates
+                    var threshold = 300;
+                    var distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                    var isNearBottom = distFromBottom < threshold;
+                    
+                    // Track if user was at bottom - reset when they scroll back down
+                    if (isNearBottom) {
+                        el.__wasAtBottom = true;
+                    }
+                    // Only stop following if user actively scrolled up significantly
+                    if (distFromBottom > 500) {
+                        el.__wasAtBottom = false;
+                    }
+                    
+                    // Scroll if: forced, near bottom, or was at bottom when content started arriving
+                    if (forceScroll || isNearBottom || el.__wasAtBottom) {
+                        el.scrollTop = el.scrollHeight;
+                    }
                 });
             }
             doScroll();
+            // Multiple delayed scrolls to catch content that renders asynchronously
             if (forceScroll) {
                 setTimeout(doScroll, 50);
-                setTimeout(doScroll, 200);
+                setTimeout(doScroll, 150);
+                setTimeout(doScroll, 300);
+            } else {
+                // Even without force, do a follow-up scroll for async content
+                requestAnimationFrame(doScroll);
             }
             var drafts = JSON.parse(draftsJson || '{}');
             for (var id in drafts) {

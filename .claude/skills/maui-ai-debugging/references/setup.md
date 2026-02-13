@@ -5,7 +5,7 @@ Complete guide for integrating MauiDevFlow into a .NET MAUI app.
 ## 1. Install CLI Tools
 
 ```bash
-dotnet tool install --global Redth.MauiDevFlow.CLI    # maui-devflow
+dotnet tool install --global Redth.MauiDevFlow.CLI --version 0.8.0    # maui-devflow
 dotnet tool install --global androidsdk.tool           # android (Android only)
 dotnet tool install --global appledev.tools            # apple (iOS/Mac only)
 ```
@@ -18,9 +18,9 @@ Add to your MAUI app's `.csproj`:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Redth.MauiDevFlow.Agent" Version="*" />
+  <PackageReference Include="Redth.MauiDevFlow.Agent" Version="0.8.0" />
   <!-- Blazor Hybrid apps also need: -->
-  <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="*" />
+  <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.8.0" />
 </ItemGroup>
 ```
 

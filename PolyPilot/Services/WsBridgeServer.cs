@@ -98,7 +98,7 @@ public class WsBridgeServer : IDisposable
                 new ReasoningDeltaPayload { SessionName = session, ReasoningId = reasoningId, Content = content }));
         _copilot.OnReasoningComplete += (session, reasoningId) =>
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ReasoningComplete,
-                new SessionNamePayload { SessionName = session }));
+                new ReasoningCompletePayload { SessionName = session, ReasoningId = reasoningId }));
         _copilot.OnIntentChanged += (session, intent) =>
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.IntentChanged,
                 new IntentChangedPayload { SessionName = session, Intent = intent }));
@@ -399,7 +399,7 @@ public class WsBridgeServer : IDisposable
                         var displayName = resumeReq.DisplayName ?? "Resumed";
                         try
                         {
-                            await _copilot.ResumeSessionAsync(resumeReq.SessionId, displayName, ct);
+                            await _copilot.ResumeSessionAsync(resumeReq.SessionId, displayName, workingDirectory: null, model: null, cancellationToken: ct);
                             Console.WriteLine($"[WsBridge] Session resumed successfully, broadcasting updated list");
                             BroadcastSessionsList();
                             BroadcastOrganizationState();
