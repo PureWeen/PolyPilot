@@ -49,4 +49,7 @@ public class AgentSessionInfo
             }
         }
     }
+
+    // Reflection cycle for iterative goal-driven refinement
+    public ReflectionCycle? ReflectionCycle { get; set; }
 }

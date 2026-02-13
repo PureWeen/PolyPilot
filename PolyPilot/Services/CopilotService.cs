@@ -1581,6 +1581,37 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
+    /// <summary>
+    /// Starts a reflection cycle on the specified session. The cycle will evaluate
+    /// each response against the goal and automatically send follow-up prompts
+    /// until the goal is met or max iterations are reached.
+    /// </summary>
+    public void StartReflectionCycle(string sessionName, string goal, int maxIterations = 5, string? evaluationPrompt = null)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state))
+            throw new InvalidOperationException($"Session '{sessionName}' not found.");
+
+        state.Info.ReflectionCycle = ReflectionCycle.Create(goal, maxIterations, evaluationPrompt);
+        Debug($"Reflection cycle started for '{sessionName}': goal='{goal}', maxIterations={maxIterations}");
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Stops the active reflection cycle on the specified session, if any.
+    /// </summary>
+    public void StopReflectionCycle(string sessionName)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state))
+            return;
+
+        if (state.Info.ReflectionCycle is { IsActive: true })
+        {
+            state.Info.ReflectionCycle.IsActive = false;
+            Debug($"Reflection cycle stopped for '{sessionName}'");
+            OnStateChanged?.Invoke();
+        }
+    }
+
     public AgentSessionInfo? GetSession(string name)
     {
         return _sessions.TryGetValue(name, out var state) ? state.Info : null;
