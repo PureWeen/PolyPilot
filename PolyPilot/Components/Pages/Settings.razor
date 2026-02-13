@@ -51,7 +51,7 @@
 
     @if (PlatformHelper.AvailableModes.Length > 1)
     {
-        <div class="settings-section @(SectionVisible("transport mode embedded persistent remote") ? "" : "search-hidden")">
+        <div class="settings-section @(SectionVisible("transport mode embedded persistent remote") ? "" : "search-hidden") @((settings.Mode == ConnectionMode.Remote || (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || settings.Mode == ConnectionMode.Persistent))) ? "mode-linked-root" : "")">
             <h3>Transport Mode</h3>
             <div class="mode-cards">
                 @foreach (var mode in PlatformHelper.AvailableModes)
@@ -69,7 +69,7 @@
 
     @if (settings.Mode == ConnectionMode.Persistent)
     {
-        <div class="settings-section @(SectionVisible("persistent server port start stop pid") ? "" : "search-hidden")">
+        <div class="mode-linked-panel @(SectionVisible("persistent server port start stop pid") ? "" : "search-hidden")">
             <h3>Persistent Server</h3>
             <div class="server-controls">
                 <div class="server-status">
@@ -103,7 +103,7 @@
 
     @if (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || settings.Mode == ConnectionMode.Persistent))
     {
-        <div class="settings-section @(SectionVisible("devtunnel share tunnel remote mobile qr") ? "" : "search-hidden")">
+        <div class="mode-linked-panel @(SectionVisible("devtunnel share tunnel remote mobile qr") ? "" : "search-hidden")">
             <h3>Share via DevTunnel</h3>
                 @if (!devTunnelAvailable)
                 {
@@ -182,7 +182,7 @@
 
     @if (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || settings.Mode == ConnectionMode.Persistent))
     {
-        <div class="settings-section @(SectionVisible("direct connection sharing tailscale lan password qr") ? "" : "search-hidden")">
+        <div class="mode-linked-panel mode-linked-last @(SectionVisible("direct connection sharing tailscale lan password qr") ? "" : "search-hidden")">
             <h3>Direct Connection</h3>
             <div class="tunnel-controls">
                 <p class="mode-hint">Share your server directly over LAN, Tailscale, or VPN — no DevTunnel needed.</p>
@@ -244,7 +244,7 @@
 
     @if (settings.Mode == ConnectionMode.Remote)
     {
-        <div class="settings-section @(SectionVisible("remote server url token connect") ? "" : "search-hidden")">
+        <div class="mode-linked-panel mode-linked-last @(SectionVisible("remote server url token connect") ? "" : "search-hidden")">
             <h3>Remote Server</h3>
             <div class="remote-controls">
                 <p class="mode-hint">Connect to a Copilot server running on another machine (via DevTunnel URL).</p>
