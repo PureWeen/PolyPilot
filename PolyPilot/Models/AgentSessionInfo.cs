@@ -27,6 +27,7 @@ public class AgentSessionInfo
     public int SkillDictCast { get; set; } // DEBUG: cast to Dictionary succeeded
     public int SkillValueFound { get; set; } // DEBUG: skill value extracted
     public int SkillSetSuccess { get; set; } // DEBUG: LastSkillUsed set successfully
+    public string? ArgsTypeName { get; set; } // DEBUG: actual type of Arguments
     
     // Accumulated token usage across all turns
     public int TotalInputTokens { get; set; }

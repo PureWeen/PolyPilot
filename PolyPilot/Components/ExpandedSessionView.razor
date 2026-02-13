@@ -17,6 +17,10 @@
                 <span style="font-size:0.6em; color: #888;">| Skill: @Session.LastSkillUsed</span>
             }
             <span style="font-size:0.5em; color: #666;">| @Session.SkillTrackingAttempts/@Session.SkillArgsFound/@Session.SkillDictCast/@Session.SkillValueFound/@Session.SkillSetSuccess</span>
+            @if (!string.IsNullOrEmpty(Session.ArgsTypeName))
+            {
+                <span style="font-size:0.45em; color: #666;"> (@Session.ArgsTypeName)</span>
+            }
         </h2>
         <div class="chat-header-badges">
             @if (Session.IsProcessing)

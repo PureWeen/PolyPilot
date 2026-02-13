@@ -75,6 +75,8 @@ public partial class CopilotService
                         if (argsObj != null)
                         {
                             state.Info.SkillArgsFound++;
+                            state.Info.ArgsTypeName = argsObj.GetType().FullName;
+                            
                             if (argsObj is Dictionary<string, object> args)
                             {
                                 state.Info.SkillDictCast++;
