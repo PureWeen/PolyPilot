@@ -102,7 +102,10 @@ public partial class CopilotService
     {
         try
         {
-            Console.WriteLine($"[CopilotService] SaveUiState called: expandedSession param = '{expandedSession ?? "NULL"}'");
+            var logMsg = $"[{DateTime.Now:HH:mm:ss}] SaveUiState called: expandedSession param = '{expandedSession ?? "NULL"}'";
+            Console.WriteLine(logMsg);
+            File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), logMsg + "\n");
+            
             var existing = LoadUiState();
             var state = new UiState
             {
@@ -115,11 +118,16 @@ public partial class CopilotService
             };
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);
-            Console.WriteLine($"[CopilotService] Saved UI state: Page={currentPage}, ExpandedSession={state.ExpandedSession ?? "NULL"}, ExpandedGrid={state.ExpandedGrid}, isCompactGrid={!state.ExpandedGrid}");
+            
+            var saveMsg = $"[{DateTime.Now:HH:mm:ss}] Saved UI state: Page={currentPage}, ExpandedSession={state.ExpandedSession ?? "NULL"}, ExpandedGrid={state.ExpandedGrid}";
+            Console.WriteLine(saveMsg);
+            File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), saveMsg + "\n");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[CopilotService] Failed to save UI state: {ex.Message}");
+            var errMsg = $"[{DateTime.Now:HH:mm:ss}] Failed to save UI state: {ex.Message}";
+            Console.WriteLine(errMsg);
+            File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), errMsg + "\n");
         }
     }
 
