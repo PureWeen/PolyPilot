@@ -704,7 +704,7 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>
     /// Resume an existing session by its GUID
     /// </summary>
-    public async Task<AgentSessionInfo> ResumeSessionAsync(string sessionId, string displayName, CancellationToken cancellationToken = default)
+    public async Task<AgentSessionInfo> ResumeSessionAsync(string sessionId, string displayName, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
@@ -753,7 +753,7 @@ public partial class CopilotService : IAsyncDisposable
             CreatedAt = DateTime.Now,
             SessionId = sessionId,
             IsResumed = true,
-            WorkingDirectory = GetSessionWorkingDirectory(sessionId)
+            WorkingDirectory = workingDirectory ?? GetSessionWorkingDirectory(sessionId)
         };
         info.GitBranch = GetGitBranch(info.WorkingDirectory);
 
@@ -1314,6 +1314,7 @@ public class ActiveSessionEntry
     public string SessionId { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string Model { get; set; } = "";
+    public string? WorkingDirectory { get; set; }
 }
 
 public class PersistedSessionInfo

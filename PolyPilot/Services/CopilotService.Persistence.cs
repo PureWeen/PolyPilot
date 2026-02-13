@@ -18,7 +18,8 @@ public partial class CopilotService
                 {
                     SessionId = s.Info.SessionId!,
                     DisplayName = s.Info.Name,
-                    Model = s.Info.Model
+                    Model = s.Info.Model,
+                    WorkingDirectory = s.Info.WorkingDirectory
                 })
                 .ToList();
             
@@ -57,7 +58,7 @@ public partial class CopilotService
                             var sessionDir = Path.Combine(SessionStatePath, entry.SessionId);
                             if (!Directory.Exists(sessionDir)) continue;
 
-                            await ResumeSessionAsync(entry.SessionId, entry.DisplayName, cancellationToken);
+                            await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, cancellationToken);
                             Debug($"Restored session: {entry.DisplayName}");
                         }
                         catch (Exception ex)
