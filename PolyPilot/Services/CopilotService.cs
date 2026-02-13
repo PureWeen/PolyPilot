@@ -403,7 +403,8 @@ public partial class CopilotService : IAsyncDisposable
     private CopilotClient CreateClient(ConnectionSettings settings)
     {
         // Remote mode is handled by InitializeRemoteAsync, not here
-        var options = new CopilotClientOptions { Cwd = ProjectDir };
+        // Note: Don't set Cwd here - each session sets its own WorkingDirectory in SessionConfig
+        var options = new CopilotClientOptions();
 
         // Resolve the copilot CLI path with fallback chain:
         // 1. SDK bundled path (runtimes/{rid}/native/copilot)
