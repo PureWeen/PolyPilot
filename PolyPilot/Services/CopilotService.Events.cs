@@ -1,4 +1,5 @@
 using System.Text;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using PolyPilot.Models;
 using GitHub.Copilot.SDK;
@@ -8,6 +9,189 @@ namespace PolyPilot.Services;
 public partial class CopilotService
 {
     private static readonly HashSet<string> FilteredTools = new() { "report_intent", "skill", "store_memory" };
+    private readonly ConcurrentDictionary<string, byte> _loggedUnhandledSessionEvents = new(StringComparer.Ordinal);
+
+    private enum EventVisibility
+    {
+        Ignore,
+        TimelineOnly,
+        ChatVisible
+    }
+
+    private static readonly IReadOnlyDictionary<string, EventVisibility> SdkEventMatrix = new Dictionary<string, EventVisibility>(StringComparer.Ordinal)
+    {
+        // Core chat projection
+        ["UserMessageEvent"] = EventVisibility.ChatVisible,
+        [nameof(AssistantTurnStartEvent)] = EventVisibility.ChatVisible,
+        [nameof(AssistantReasoningEvent)] = EventVisibility.ChatVisible,
+        [nameof(AssistantReasoningDeltaEvent)] = EventVisibility.ChatVisible,
+        [nameof(AssistantMessageDeltaEvent)] = EventVisibility.ChatVisible,
+        [nameof(AssistantMessageEvent)] = EventVisibility.ChatVisible,
+        [nameof(ToolExecutionStartEvent)] = EventVisibility.ChatVisible,
+        [nameof(ToolExecutionProgressEvent)] = EventVisibility.ChatVisible,
+        [nameof(ToolExecutionCompleteEvent)] = EventVisibility.ChatVisible,
+        [nameof(AssistantIntentEvent)] = EventVisibility.ChatVisible,
+        [nameof(AssistantTurnEndEvent)] = EventVisibility.ChatVisible,
+        [nameof(SessionIdleEvent)] = EventVisibility.ChatVisible,
+        [nameof(SessionErrorEvent)] = EventVisibility.ChatVisible,
+        ["SystemMessageEvent"] = EventVisibility.ChatVisible,
+        ["ToolExecutionPartialResultEvent"] = EventVisibility.ChatVisible,
+        ["AbortEvent"] = EventVisibility.ChatVisible,
+
+        // Session state / metadata timeline
+        [nameof(SessionStartEvent)] = EventVisibility.TimelineOnly,
+        [nameof(SessionModelChangeEvent)] = EventVisibility.TimelineOnly,
+        [nameof(SessionUsageInfoEvent)] = EventVisibility.TimelineOnly,
+        [nameof(AssistantUsageEvent)] = EventVisibility.TimelineOnly,
+        ["SessionInfoEvent"] = EventVisibility.TimelineOnly,
+        ["SessionResumeEvent"] = EventVisibility.TimelineOnly,
+        ["SessionHandoffEvent"] = EventVisibility.TimelineOnly,
+        ["SessionShutdownEvent"] = EventVisibility.TimelineOnly,
+        ["SessionSnapshotRewindEvent"] = EventVisibility.TimelineOnly,
+        ["SessionTruncationEvent"] = EventVisibility.TimelineOnly,
+        ["SessionCompactionStartEvent"] = EventVisibility.TimelineOnly,
+        ["SessionCompactionCompleteEvent"] = EventVisibility.TimelineOnly,
+        ["PendingMessagesModifiedEvent"] = EventVisibility.TimelineOnly,
+        ["ToolUserRequestedEvent"] = EventVisibility.TimelineOnly,
+        ["SkillInvokedEvent"] = EventVisibility.TimelineOnly,
+        ["SubagentSelectedEvent"] = EventVisibility.TimelineOnly,
+        ["SubagentStartedEvent"] = EventVisibility.TimelineOnly,
+        ["SubagentCompletedEvent"] = EventVisibility.TimelineOnly,
+        ["SubagentFailedEvent"] = EventVisibility.TimelineOnly,
+
+        // Currently noisy internal events
+        ["SessionLifecycleEvent"] = EventVisibility.Ignore,
+        ["HookStartEvent"] = EventVisibility.Ignore,
+        ["HookEndEvent"] = EventVisibility.Ignore,
+    };
+
+    private static EventVisibility ClassifySessionEvent(SessionEvent evt)
+    {
+        var eventTypeName = evt.GetType().Name;
+        return SdkEventMatrix.TryGetValue(eventTypeName, out var classification)
+            ? classification
+            : EventVisibility.TimelineOnly;
+    }
+
+    private void LogUnhandledSessionEvent(string sessionName, SessionEvent evt)
+    {
+        var eventTypeName = evt.GetType().Name;
+        if (!_loggedUnhandledSessionEvents.TryAdd(eventTypeName, 0)) return;
+        var classification = ClassifySessionEvent(evt);
+        Debug($"[EventMatrix] Unhandled {eventTypeName} ({classification}) for '{sessionName}'");
+    }
+
+    private static ChatMessage? FindReasoningMessage(AgentSessionInfo info, string reasoningId)
+    {
+        // Exact ID match first, then most recent incomplete reasoning message.
+        if (!string.IsNullOrEmpty(reasoningId))
+        {
+            var exact = info.History.LastOrDefault(m =>
+                m.MessageType == ChatMessageType.Reasoning &&
+                string.Equals(m.ReasoningId, reasoningId, StringComparison.Ordinal));
+            if (exact != null) return exact;
+        }
+
+        return info.History.LastOrDefault(m =>
+            m.MessageType == ChatMessageType.Reasoning &&
+            !m.IsComplete);
+    }
+
+    private static string ResolveReasoningId(AgentSessionInfo info, string? reasoningId)
+    {
+        if (!string.IsNullOrWhiteSpace(reasoningId)) return reasoningId;
+
+        var existing = info.History.LastOrDefault(m =>
+            m.MessageType == ChatMessageType.Reasoning &&
+            !m.IsComplete &&
+            !string.IsNullOrEmpty(m.ReasoningId));
+        return existing?.ReasoningId ?? $"reasoning-{Guid.NewGuid():N}";
+    }
+
+    private static void MergeReasoningContent(ChatMessage message, string content, bool isDelta)
+    {
+        if (string.IsNullOrEmpty(content)) return;
+
+        if (isDelta)
+        {
+            message.Content += content;
+            return;
+        }
+
+        // AssistantReasoningEvent can arrive as full snapshots or chunks depending on SDK version.
+        if (string.IsNullOrEmpty(message.Content) ||
+            content.Length >= message.Content.Length ||
+            content.StartsWith(message.Content, StringComparison.Ordinal))
+        {
+            message.Content = content;
+        }
+        else if (!message.Content.EndsWith(content, StringComparison.Ordinal))
+        {
+            message.Content += content;
+        }
+    }
+
+    private void ApplyReasoningUpdate(SessionState state, string sessionName, string? reasoningId, string? content, bool isDelta)
+    {
+        if (string.IsNullOrEmpty(content)) return;
+
+        var normalizedReasoningId = ResolveReasoningId(state.Info, reasoningId);
+        var reasoningMsg = FindReasoningMessage(state.Info, normalizedReasoningId);
+        var isNew = false;
+        if (reasoningMsg == null)
+        {
+            reasoningMsg = ChatMessage.ReasoningMessage(normalizedReasoningId);
+            state.Info.History.Add(reasoningMsg);
+            state.Info.MessageCount = state.Info.History.Count;
+            isNew = true;
+        }
+
+        reasoningMsg.ReasoningId = normalizedReasoningId;
+        reasoningMsg.IsComplete = false;
+        reasoningMsg.IsCollapsed = false;
+        reasoningMsg.Timestamp = DateTime.Now;
+        MergeReasoningContent(reasoningMsg, content, isDelta);
+        state.Info.LastUpdatedAt = DateTime.Now;
+
+        if (!string.IsNullOrEmpty(state.Info.SessionId))
+        {
+            if (isNew)
+                _ = _chatDb.AddMessageAsync(state.Info.SessionId, reasoningMsg);
+            else
+                _ = _chatDb.UpdateReasoningContentAsync(state.Info.SessionId, normalizedReasoningId, reasoningMsg.Content, false);
+        }
+
+        InvokeOnUI(() => OnReasoningReceived?.Invoke(sessionName, normalizedReasoningId, content));
+    }
+
+    private void CompleteReasoningMessages(SessionState state, string sessionName)
+    {
+        var openReasoningMessages = state.Info.History
+            .Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete)
+            .ToList();
+        if (openReasoningMessages.Count == 0) return;
+
+        var completedIds = new List<string>();
+        foreach (var msg in openReasoningMessages)
+        {
+            msg.IsComplete = true;
+            msg.IsCollapsed = true;
+            msg.Timestamp = DateTime.Now;
+            if (!string.IsNullOrEmpty(msg.ReasoningId))
+            {
+                completedIds.Add(msg.ReasoningId);
+                if (!string.IsNullOrEmpty(state.Info.SessionId))
+                    _ = _chatDb.UpdateReasoningContentAsync(state.Info.SessionId, msg.ReasoningId, msg.Content, true);
+            }
+        }
+
+        state.Info.LastUpdatedAt = DateTime.Now;
+        InvokeOnUI(() =>
+        {
+            foreach (var reasoningId in completedIds)
+                OnReasoningComplete?.Invoke(sessionName, reasoningId);
+        });
+    }
 
     private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
@@ -24,17 +208,11 @@ public partial class CopilotService
         switch (evt)
         {
             case AssistantReasoningEvent reasoning:
-                Invoke(() =>
-                {
-                    OnReasoningReceived?.Invoke(sessionName, reasoning.Data.ReasoningId ?? "", reasoning.Data.Content ?? "");
-                });
+                ApplyReasoningUpdate(state, sessionName, reasoning.Data.ReasoningId, reasoning.Data.Content, isDelta: false);
                 break;
 
             case AssistantReasoningDeltaEvent reasoningDelta:
-                Invoke(() =>
-                {
-                    OnReasoningReceived?.Invoke(sessionName, reasoningDelta.Data.ReasoningId ?? "", reasoningDelta.Data.DeltaContent ?? "");
-                });
+                ApplyReasoningUpdate(state, sessionName, reasoningDelta.Data.ReasoningId, reasoningDelta.Data.DeltaContent, isDelta: true);
                 break;
 
             case AssistantMessageDeltaEvent delta:
@@ -144,6 +322,7 @@ public partial class CopilotService
                 break;
 
             case AssistantTurnEndEvent:
+                CompleteReasoningMessages(state, sessionName);
                 Invoke(() =>
                 {
                     OnTurnEnd?.Invoke(sessionName);
@@ -152,6 +331,7 @@ public partial class CopilotService
                 break;
 
             case SessionIdleEvent:
+                CompleteReasoningMessages(state, sessionName);
                 CompleteResponse(state);
                 // Refresh git branch — agent may have switched branches
                 state.Info.GitBranch = GetGitBranch(state.Info.WorkingDirectory);
@@ -255,6 +435,7 @@ public partial class CopilotService
                 break;
                 
             default:
+                LogUnhandledSessionEvent(sessionName, evt);
                 break;
         }
     }

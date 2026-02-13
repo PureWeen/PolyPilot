@@ -57,8 +57,51 @@ public partial class CopilotService
             }
             InvokeOnUI(() => OnToolCompleted?.Invoke(s, id, result, success));
         };
-        _bridgeClient.OnReasoningReceived += (s, rid, c) => InvokeOnUI(() => OnReasoningReceived?.Invoke(s, rid, c));
-        _bridgeClient.OnReasoningComplete += (s, rid) => InvokeOnUI(() => OnReasoningComplete?.Invoke(s, rid));
+        _bridgeClient.OnReasoningReceived += (s, rid, c) =>
+        {
+            var emittedReasoningId = rid;
+            var session = GetRemoteSession(s);
+            if (session != null && !string.IsNullOrEmpty(c))
+            {
+                var normalizedReasoningId = ResolveReasoningId(session, rid);
+                emittedReasoningId = normalizedReasoningId;
+                var reasoningMsg = FindReasoningMessage(session, normalizedReasoningId);
+                if (reasoningMsg == null)
+                {
+                    reasoningMsg = ChatMessage.ReasoningMessage(normalizedReasoningId);
+                    session.History.Add(reasoningMsg);
+                    session.MessageCount = session.History.Count;
+                }
+                reasoningMsg.ReasoningId = normalizedReasoningId;
+                reasoningMsg.IsComplete = false;
+                reasoningMsg.IsCollapsed = false;
+                reasoningMsg.Timestamp = DateTime.Now;
+                MergeReasoningContent(reasoningMsg, c, isDelta: true);
+                session.LastUpdatedAt = DateTime.Now;
+            }
+            InvokeOnUI(() => OnReasoningReceived?.Invoke(s, emittedReasoningId, c));
+        };
+        _bridgeClient.OnReasoningComplete += (s, rid) =>
+        {
+            var session = GetRemoteSession(s);
+            if (session != null)
+            {
+                var targets = session.History
+                    .Where(m => m.MessageType == ChatMessageType.Reasoning &&
+                        !m.IsComplete &&
+                        (string.IsNullOrEmpty(rid) || string.Equals(m.ReasoningId, rid, StringComparison.Ordinal)))
+                    .ToList();
+                foreach (var msg in targets)
+                {
+                    msg.IsComplete = true;
+                    msg.IsCollapsed = true;
+                    msg.Timestamp = DateTime.Now;
+                }
+                if (targets.Count > 0)
+                    session.LastUpdatedAt = DateTime.Now;
+            }
+            InvokeOnUI(() => OnReasoningComplete?.Invoke(s, rid));
+        };
         _bridgeClient.OnIntentChanged += (s, i) => InvokeOnUI(() => OnIntentChanged?.Invoke(s, i));
         _bridgeClient.OnUsageInfoChanged += (s, u) => InvokeOnUI(() => OnUsageInfoChanged?.Invoke(s, u));
         _bridgeClient.OnTurnStart += (s) =>
