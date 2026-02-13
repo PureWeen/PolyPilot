@@ -294,6 +294,8 @@
                 if (!string.IsNullOrEmpty(uiState.ExpandedSession))
                 {
                     CopilotService.SetActiveSession(uiState.ExpandedSession);
+                    _focusedInputId = $"input-{uiState.ExpandedSession.Replace(" ", "-")}";
+                    _needsScrollToBottom = true;
                 }
                 else if (uiState.CurrentPage == "/dashboard" || uiState.CurrentPage == "/")
                 {
