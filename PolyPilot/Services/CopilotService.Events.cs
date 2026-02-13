@@ -63,46 +63,16 @@ public partial class CopilotService
                 var startCallId = toolStart.Data.ToolCallId ?? "";
                 var toolInput = ExtractToolInput(toolStart.Data);
                 
-                Console.WriteLine($"[ToolEvent] '{sessionName}' Tool: {startToolName}, ID: {startCallId}");
-                
                 // Track skill invocations
                 if (startToolName == "skill")
                 {
-                    state.Info.SkillTrackingAttempts++;
                     try
                     {
                         var argsObj = toolStart.Data.GetType().GetProperty("Arguments")?.GetValue(toolStart.Data);
-                        if (argsObj != null)
+                        if (argsObj is JsonElement jsonArgs && jsonArgs.TryGetProperty("skill", out var skillElement))
                         {
-                            state.Info.SkillArgsFound++;
-                            state.Info.ArgsTypeName = argsObj.GetType().FullName;
-                            
-                            // Handle JsonElement (SDK serializes arguments as JSON)
-                            if (argsObj is JsonElement jsonArgs)
-                            {
-                                state.Info.SkillDictCast++;
-                                if (jsonArgs.TryGetProperty("skill", out var skillElement))
-                                {
-                                    state.Info.SkillValueFound++;
-                                    var skillName = skillElement.GetString();
-                                    state.Info.LastSkillUsed = skillName;
-                                    state.Info.SkillSetSuccess++;
-                                    Invoke(() => OnStateChanged?.Invoke());
-                                }
-                            }
-                            // Fallback: try Dictionary<string, object> for compatibility
-                            else if (argsObj is Dictionary<string, object> args)
-                            {
-                                state.Info.SkillDictCast++;
-                                if (args.TryGetValue("skill", out var skillValue))
-                                {
-                                    state.Info.SkillValueFound++;
-                                    var skillName = skillValue?.ToString();
-                                    state.Info.LastSkillUsed = skillName;
-                                    state.Info.SkillSetSuccess++;
-                                    Invoke(() => OnStateChanged?.Invoke());
-                                }
-                            }
+                            state.Info.LastSkillUsed = skillElement.GetString();
+                            Invoke(() => OnStateChanged?.Invoke());
                         }
                     }
                     catch { }
