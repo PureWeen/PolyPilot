@@ -264,6 +264,13 @@
                     <label>Token:</label>
                     <input type="password" @bind="settings.RemoteToken" placeholder="Tunnel access token" class="form-input wide" />
                 </div>
+                <div class="notifications-toggle">
+                    <label class="toggle-label">
+                        <input type="checkbox" @bind="settings.EnableSessionNotifications" />
+                        <span class="toggle-text">🔔 Notify when sessions need attention</span>
+                    </label>
+                    <p class="toggle-hint">Get notified when a session completes, errors, or needs input</p>
+                </div>
             </div>
         </div>
     }

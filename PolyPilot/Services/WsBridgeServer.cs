@@ -117,11 +117,18 @@ public class WsBridgeServer : IDisposable
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.TurnEnd,
                 new SessionNamePayload { SessionName = session }));
         _copilot.OnSessionComplete += (session, summary) =>
+        {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.SessionComplete,
                 new SessionCompletePayload { SessionName = session, Summary = summary }));
+            // Only notify when session is truly complete and waiting for user input
+            BroadcastAttentionNeeded(session, AttentionReason.ReadyForMore, TruncateSummary(summary));
+        };
         _copilot.OnError += (session, error) =>
+        {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
                 new ErrorPayload { SessionName = session, Error = error }));
+            BroadcastAttentionNeeded(session, AttentionReason.Error, TruncateSummary(error));
+        };
     }
 
     public void Stop()
@@ -663,5 +670,27 @@ public class WsBridgeServer : IDisposable
         Stop();
         _cts?.Dispose();
         GC.SuppressFinalize(this);
+    }
+
+    private void BroadcastAttentionNeeded(string sessionName, AttentionReason reason, string summary)
+    {
+        if (_clients.IsEmpty) return;
+        
+        var sessionInfo = _copilot?.GetSession(sessionName);
+        var payload = new AttentionNeededPayload
+        {
+            SessionName = sessionName,
+            SessionId = sessionInfo?.SessionId,
+            Reason = reason,
+            Summary = summary
+        };
+        Broadcast(BridgeMessage.Create(BridgeMessageTypes.AttentionNeeded, payload));
+    }
+
+    private static string TruncateSummary(string text, int maxLength = 100)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        text = text.Replace("\n", " ").Replace("\r", "").Trim();
+        return text.Length <= maxLength ? text : text[..(maxLength - 3)] + "...";
     }
 }

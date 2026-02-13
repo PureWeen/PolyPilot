@@ -98,6 +98,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<KeyCommandService>();
 	builder.Services.AddSingleton<GitAutoUpdateService>();
 	builder.Services.AddSingleton<RepoManager>();
+	builder.Services.AddSingleton<INotificationManagerService, NotificationManagerService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

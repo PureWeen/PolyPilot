@@ -889,6 +889,7 @@
 .header-actions {
     display: flex;
     gap: 0.2rem;
+    flex-shrink: 0;
 }
 
 .header-icon-btn {
@@ -928,6 +929,8 @@
     gap: 0.5rem;
     padding: calc(env(safe-area-inset-top, 0px) + 0.6rem) 0.75rem 0.6rem;
     color: var(--text-primary);
+    overflow: hidden;
+    max-width: 100vw;
 }
 
 .hamburger-btn {
@@ -960,6 +963,7 @@
     background: var(--hover-bg);
     border-radius: 8px;
     padding: 0.15rem;
+    flex-shrink: 0;
 }
 
 .mobile-tab {
@@ -985,8 +989,7 @@
     display: flex;
     align-items: center;
     gap: 0.2rem;
-    margin-left: auto;
-    margin-right: 0.5rem;
+    flex-shrink: 0;
 }
 
 .mobile-font-btn {

@@ -133,6 +133,7 @@ public class BridgeMessageTypesTests
         Assert.Equal("session_complete", BridgeMessageTypes.SessionComplete);
         Assert.Equal("error", BridgeMessageTypes.ErrorEvent);
         Assert.Equal("persisted_sessions", BridgeMessageTypes.PersistedSessionsList);
+        Assert.Equal("attention_needed", BridgeMessageTypes.AttentionNeeded);
     }
 
     [Fact]
@@ -395,5 +396,44 @@ public class BridgePayloadTests
         Assert.Equal("/nonexistent", restored!.Path);
         Assert.Equal("Directory not found", restored.Error);
         Assert.Empty(restored.Directories);
+    }
+
+    [Fact]
+    public void AttentionNeededPayload_RoundTrip()
+    {
+        var payload = new AttentionNeededPayload
+        {
+            SessionName = "test-session",
+            SessionId = "abc-123",
+            Reason = AttentionReason.Completed,
+            Summary = "Task completed successfully"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.AttentionNeeded, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<AttentionNeededPayload>();
+
+        Assert.Equal("test-session", restored!.SessionName);
+        Assert.Equal("abc-123", restored.SessionId);
+        Assert.Equal(AttentionReason.Completed, restored.Reason);
+        Assert.Equal("Task completed successfully", restored.Summary);
+    }
+
+    [Theory]
+    [InlineData(AttentionReason.Completed)]
+    [InlineData(AttentionReason.Error)]
+    [InlineData(AttentionReason.NeedsInteraction)]
+    [InlineData(AttentionReason.ReadyForMore)]
+    public void AttentionNeededPayload_AllReasons_RoundTrip(AttentionReason reason)
+    {
+        var payload = new AttentionNeededPayload
+        {
+            SessionName = "s1",
+            Reason = reason,
+            Summary = "test"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.AttentionNeeded, payload);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<AttentionNeededPayload>();
+
+        Assert.Equal(reason, restored!.Reason);
     }
 }

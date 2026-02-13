@@ -66,6 +66,7 @@ public static class BridgeMessageTypes
     public const string TurnEnd = "turn_end";
     public const string SessionComplete = "session_complete";
     public const string ErrorEvent = "error";
+    public const string AttentionNeeded = "attention_needed";
 
     // Client → Server
     public const string GetSessions = "get_sessions";
@@ -261,4 +262,22 @@ public class DirectoryEntry
 {
     public string Name { get; set; } = "";
     public bool IsGitRepo { get; set; }
+}
+
+// --- Attention/Notification payloads ---
+
+public enum AttentionReason
+{
+    Completed,        // Session finished responding
+    Error,            // Session encountered an error
+    NeedsInteraction, // Tool/approval needs user input
+    ReadyForMore      // Session is idle, ready for next prompt
+}
+
+public class AttentionNeededPayload
+{
+    public string SessionName { get; set; } = "";
+    public string? SessionId { get; set; }
+    public AttentionReason Reason { get; set; }
+    public string Summary { get; set; } = "";
 }

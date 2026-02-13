@@ -41,6 +41,7 @@ public class WsBridgeClient : IDisposable
     public event Action<string, string>? OnSessionComplete;
     public event Action<string, string>? OnError;
     public event Action<OrganizationState>? OnOrganizationStateReceived;
+    public event Action<AttentionNeededPayload>? OnAttentionNeeded;
 
     /// <summary>
     /// Connect to the remote WsBridgeServer.
@@ -448,6 +449,15 @@ public class WsBridgeClient : IDisposable
                 var dirList = msg.GetPayload<DirectoriesListPayload>();
                 if (dirList != null)
                     _dirListTcs?.TrySetResult(dirList);
+                break;
+
+            case BridgeMessageTypes.AttentionNeeded:
+                var attention = msg.GetPayload<AttentionNeededPayload>();
+                if (attention != null)
+                {
+                    Console.WriteLine($"[WsBridgeClient] Attention needed: {attention.SessionName} - {attention.Reason}");
+                    OnAttentionNeeded?.Invoke(attention);
+                }
                 break;
         }
     }

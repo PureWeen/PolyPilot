@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using PolyPilot.Models;
 
 namespace PolyPilot.Services;
@@ -128,6 +129,33 @@ public partial class CopilotService
         {
             Organization = org;
             InvokeOnUI(() => OnStateChanged?.Invoke());
+        };
+        _bridgeClient.OnAttentionNeeded += (payload) =>
+        {
+            // Fire and forget - don't await to avoid blocking the event handler
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Check if notifications are enabled in settings (load fresh each time)
+                    var currentSettings = ConnectionSettings.Load();
+                    if (!currentSettings.EnableSessionNotifications)
+                        return;
+                    
+                    var notificationService = _serviceProvider?.GetService<INotificationManagerService>();
+                    if (notificationService != null)
+                    {
+                        var (title, body) = NotificationMessageBuilder.BuildMessage(payload);
+                        await notificationService.SendNotificationAsync(title, body, payload.SessionId);
+                        Debug($"Sent notification for session '{payload.SessionName}': {payload.Reason}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug($"Failed to send notification: {ex.Message}");
+                    Console.WriteLine($"[Notification] Error: {ex}");
+                }
+            });
         };
 
         await _bridgeClient.ConnectAsync(wsUrl, settings.RemoteToken, ct);

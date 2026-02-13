@@ -51,6 +51,7 @@ public class ConnectionSettings
     public CliSourceMode CliSource { get; set; } = CliSourceMode.BuiltIn;
     public List<string> DisabledMcpServers { get; set; } = new();
     public List<string> DisabledPlugins { get; set; } = new();
+    public bool EnableSessionNotifications { get; set; } = false;
 
     [JsonIgnore]
     public string CliUrl => Mode == ConnectionMode.Remote && !string.IsNullOrEmpty(RemoteUrl)

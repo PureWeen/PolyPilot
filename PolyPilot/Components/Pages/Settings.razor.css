@@ -736,6 +736,37 @@
     max-width: none;
 }
 
+.notifications-toggle {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--control-border);
+}
+
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.toggle-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent-primary);
+    cursor: pointer;
+}
+
+.toggle-text {
+    color: var(--text-primary);
+    font-size: var(--type-body);
+}
+
+.toggle-hint {
+    color: var(--text-dim);
+    font-size: var(--type-callout);
+    margin: 0.25rem 0 0 1.6rem;
+}
+
 .tunnel-status-text {
     color: var(--text-dim);
     font-size: var(--type-body);
