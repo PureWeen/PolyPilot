@@ -73,7 +73,11 @@ public partial class CopilotService
                 if (!root.TryGetProperty("type", out var t) || t.GetString() != "session.start") continue;
                 if (root.TryGetProperty("data", out var data) &&
                     data.TryGetProperty("selectedModel", out var model))
-                    return model.GetString();
+                {
+                    var modelStr = model.GetString();
+                    // Normalize display names to slugs
+                    return string.IsNullOrEmpty(modelStr) ? null : Models.ModelHelper.NormalizeToSlug(modelStr);
+                }
             }
         }
         catch { }

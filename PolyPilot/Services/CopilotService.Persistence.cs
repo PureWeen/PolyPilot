@@ -57,7 +57,7 @@ public partial class CopilotService
                             var sessionDir = Path.Combine(SessionStatePath, entry.SessionId);
                             if (!Directory.Exists(sessionDir)) continue;
 
-                            await ResumeSessionAsync(entry.SessionId, entry.DisplayName, cancellationToken);
+                            await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken);
                             Debug($"Restored session: {entry.DisplayName}");
                         }
                         catch (Exception ex)
@@ -137,7 +137,11 @@ public partial class CopilotService
         {
             if (!File.Exists(UiStateFile)) return null;
             var json = File.ReadAllText(UiStateFile);
-            return JsonSerializer.Deserialize<UiState>(json);
+            var state = JsonSerializer.Deserialize<UiState>(json);
+            // Normalize model slug — UI state may have display names from CLI sessions
+            if (state != null && Models.ModelHelper.IsDisplayName(state.SelectedModel))
+                state.SelectedModel = Models.ModelHelper.NormalizeToSlug(state.SelectedModel);
+            return state;
         }
         catch { return null; }
     }

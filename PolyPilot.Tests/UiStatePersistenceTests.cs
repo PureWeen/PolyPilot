@@ -52,8 +52,8 @@ public class UiStatePersistenceTests
     {
         var entries = new List<ActiveSessionEntry>
         {
-            new() { SessionId = "guid-1", DisplayName = "Agent 1", Model = "claude-opus-4.6" },
-            new() { SessionId = "guid-2", DisplayName = "Agent 2", Model = "gpt-5" }
+            new() { SessionId = "guid-1", DisplayName = "Agent 1", Model = "claude-opus-4.6", WorkingDirectory = "/tmp/worktree-a" },
+            new() { SessionId = "guid-2", DisplayName = "Agent 2", Model = "gpt-5", WorkingDirectory = "/tmp/worktree-b" }
         };
 
         var json = JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true });
@@ -64,7 +64,9 @@ public class UiStatePersistenceTests
         Assert.Equal("guid-1", restored[0].SessionId);
         Assert.Equal("Agent 1", restored[0].DisplayName);
         Assert.Equal("claude-opus-4.6", restored[0].Model);
+        Assert.Equal("/tmp/worktree-a", restored[0].WorkingDirectory);
         Assert.Equal("gpt-5", restored[1].Model);
+        Assert.Equal("/tmp/worktree-b", restored[1].WorkingDirectory);
     }
 
     [Fact]
@@ -74,6 +76,7 @@ public class UiStatePersistenceTests
         Assert.Equal("", entry.SessionId);
         Assert.Equal("", entry.DisplayName);
         Assert.Equal("", entry.Model);
+        Assert.Null(entry.WorkingDirectory);
     }
 
     [Fact]
@@ -124,4 +127,5 @@ public class ActiveSessionEntry
     public string SessionId { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string Model { get; set; } = "";
+    public string? WorkingDirectory { get; set; }
 }

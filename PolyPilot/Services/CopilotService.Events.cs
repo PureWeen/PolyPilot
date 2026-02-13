@@ -163,8 +163,9 @@ public partial class CopilotService
                 var startModel = start.Data?.GetType().GetProperty("SelectedModel")?.GetValue(start.Data)?.ToString();
                 if (!string.IsNullOrEmpty(startModel))
                 {
-                    state.Info.Model = startModel;
-                    Debug($"Session model from start event: {startModel}");
+                    var normalizedStartModel = Models.ModelHelper.NormalizeToSlug(startModel);
+                    state.Info.Model = normalizedStartModel;
+                    Debug($"Session model from start event: {startModel} → {normalizedStartModel}");
                 }
                 SaveActiveSessionsToDisk();
                 break;
@@ -187,7 +188,11 @@ public partial class CopilotService
                 var uInputTokens = uInputTokensRaw != null ? (int?)Convert.ToInt32(uInputTokensRaw) : null;
                 var uOutputTokens = uOutputTokensRaw != null ? (int?)Convert.ToInt32(uOutputTokensRaw) : null;
                 if (!string.IsNullOrEmpty(uModel))
-                    state.Info.Model = uModel;
+                {
+                    var normalizedUModel = Models.ModelHelper.NormalizeToSlug(uModel);
+                    Debug($"[UsageInfo] Updating model from event: {state.Info.Model} -> {normalizedUModel}");
+                    state.Info.Model = normalizedUModel;
+                }
                 if (uCurrentTokens.HasValue) state.Info.ContextCurrentTokens = uCurrentTokens;
                 if (uTokenLimit.HasValue) state.Info.ContextTokenLimit = uTokenLimit;
                 if (uInputTokens.HasValue) state.Info.TotalInputTokens += uInputTokens.Value;
@@ -220,7 +225,7 @@ public partial class CopilotService
                 }
                 catch { }
                 if (!string.IsNullOrEmpty(aModel))
-                    state.Info.Model = aModel;
+                    state.Info.Model = Models.ModelHelper.NormalizeToSlug(aModel);
                 if (aInput.HasValue) state.Info.TotalInputTokens += aInput.Value;
                 if (aOutput.HasValue) state.Info.TotalOutputTokens += aOutput.Value;
                 if (aInput.HasValue || aOutput.HasValue || aPremiumQuota != null)
@@ -241,6 +246,7 @@ public partial class CopilotService
                 var newModel = modelChange.Data?.NewModel;
                 if (!string.IsNullOrEmpty(newModel))
                 {
+                    newModel = Models.ModelHelper.NormalizeToSlug(newModel);
                     state.Info.Model = newModel;
                     Debug($"Session '{sessionName}' model changed to: {newModel}");
                     Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(newModel, null, null, null, null)));

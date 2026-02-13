@@ -133,7 +133,7 @@
                 <button class="mode-btn @(PlanMode ? "active" : "")" @onclick="() => OnSetPlanMode.InvokeAsync(true)">Plan</button>
             </div>
             <span class="status-sep">·</span>
-            <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())">
+            <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@(Session.History.Count > 0)" title="@(Session.History.Count > 0 ? "Model cannot be changed during an active session" : "Select model")">
                 @if (!AvailableModels.Contains(CurrentModel))
                 {
                     <option value="@CurrentModel">@CurrentModel</option>
