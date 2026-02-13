@@ -117,7 +117,6 @@ public partial class CopilotService : IAsyncDisposable
     }
 
     public string DefaultModel { get; set; } = "claude-opus-4.6";
-    public string? SystemInstructions { get; set; }
     public bool IsInitialized { get; private set; }
     public bool IsRestoring { get; private set; }
     public bool NeedsConfiguration { get; private set; }
@@ -269,14 +268,9 @@ public partial class CopilotService : IAsyncDisposable
         IsInitialized = true;
         NeedsConfiguration = false;
         Debug($"Copilot client started in {settings.Mode} mode");
-
-        // Load default system instructions from the project's copilot-instructions.md
-        var instructionsPath = Path.Combine(ProjectDir, ".github", "copilot-instructions.md");
-        if (File.Exists(instructionsPath) && string.IsNullOrEmpty(SystemInstructions))
-        {
-            SystemInstructions = await File.ReadAllTextAsync(instructionsPath, cancellationToken);
-            Debug("Loaded system instructions from copilot-instructions.md");
-        }
+        
+        // Note: copilot-instructions.md is automatically loaded by the CLI from .github/ in the working directory.
+        // We don't need to manually load and inject it here.
 
         OnStateChanged?.Invoke();
 
@@ -883,8 +877,10 @@ public partial class CopilotService : IAsyncDisposable
         var sessionDir = string.IsNullOrWhiteSpace(workingDirectory) ? ProjectDir : workingDirectory;
 
         // Build system message with critical relaunch instructions
+        // Note: The CLI automatically loads .github/copilot-instructions.md from the working directory,
+        // so we only inject the dynamic relaunch warning here (not the full instructions file).
         var systemContent = new StringBuilder();
-        // Only include relaunch instructions AND copilot-instructions.md when targeting the PolyPilot directory
+        // Only include relaunch instructions when targeting the PolyPilot directory
         if (string.Equals(sessionDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
         {
             systemContent.AppendLine($@"
@@ -897,12 +893,6 @@ This script builds the app, launches a new instance, waits for it to start, then
 NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
 ALWAYS run the relaunch script as the final step after making changes to this project.
 ");
-            
-            // Only inject PolyPilot-specific instructions when working in PolyPilot directory
-            if (!string.IsNullOrEmpty(SystemInstructions))
-            {
-                systemContent.AppendLine(SystemInstructions);
-            }
         }
 
         var settings = ConnectionSettings.Load();
