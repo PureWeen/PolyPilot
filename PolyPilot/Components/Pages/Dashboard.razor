@@ -1868,6 +1868,7 @@
     private async Task SetExpandedModel(AgentSessionInfo session, string? model)
     {
         if (string.IsNullOrEmpty(model)) return;
+
         // If the session has no history, recreate it to "switch" the model effectively
         if (session.History.Count == 0)
         {
@@ -1877,8 +1878,13 @@
             return;
         }
 
-        // SDK doesn't support changing model mid-session; update local state only.
-        session.Model = model;
+        // For active sessions with history, resume with the new model
+        var success = await CopilotService.ChangeModelAsync(session.Name, model);
+        if (success)
+        {
+            sessions = CopilotService.GetAllSessions().ToList();
+            await InvokeAsync(SafeRefreshAsync);
+        }
     }
 
     private void SetPlanMode(string sessionName, bool enabled) => planModeBySession[sessionName] = enabled;
