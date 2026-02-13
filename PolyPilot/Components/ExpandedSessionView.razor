@@ -208,7 +208,7 @@
     {
         var history = Session.History;
         if (history.Count <= MessageWindowSize)
-            return history;
+            return history.ToList();
         return history.Skip(history.Count - MessageWindowSize).ToList();
     }
 

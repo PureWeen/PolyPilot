@@ -607,7 +607,19 @@ else
         }
         catch (Exception ex)
         {
-            resumeError = FriendlyResumeError(ex.Message);
+            if (IsCorruptSessionError(ex.Message))
+            {
+                var deleted = CopilotService.DeletePersistedSession(persisted.SessionId);
+                LoadPersistedSessions();
+                confirmResumeId = deleted ? null : persisted.SessionId;
+                resumeError = deleted
+                    ? "Saved session was corrupted and has been removed."
+                    : "Saved session is corrupted. Delete it from ~/.copilot/session-state and try again.";
+            }
+            else
+            {
+                resumeError = FriendlyResumeError(ex.Message);
+            }
             Console.WriteLine($"Error resuming session: {ex.Message}");
         }
         finally
@@ -615,6 +627,11 @@ else
             isCreating = false;
         }
     }
+
+    private static bool IsCorruptSessionError(string message) =>
+        message.Contains("session file is corrupted", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("session file", StringComparison.OrdinalIgnoreCase) &&
+        message.Contains("corrupt", StringComparison.OrdinalIgnoreCase);
 
     private string FriendlyResumeError(string message)
     {

@@ -229,7 +229,7 @@
     {
         // Logic from Dashboard.razor
         // Take last N messages
-        if (history.Count <= MessageCount) return history;
+        if (history.Count <= MessageCount) return history.ToList();
         return history.Skip(history.Count - MessageCount).ToList();
     }
 
