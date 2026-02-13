@@ -64,11 +64,12 @@ public partial class CopilotService
                 var toolInput = ExtractToolInput(toolStart.Data);
                 
                 // Track skill invocations
-                if (startToolName == "skill" && toolStart.Data.Arguments != null)
+                if (startToolName == "skill")
                 {
                     try
                     {
-                        if (toolStart.Data.Arguments.TryGetValue("skill", out var skillValue))
+                        var argsObj = toolStart.Data.GetType().GetProperty("Arguments")?.GetValue(toolStart.Data);
+                        if (argsObj is Dictionary<string, object> args && args.TryGetValue("skill", out var skillValue))
                         {
                             state.Info.LastSkillUsed = skillValue?.ToString();
                             Invoke(() => OnStateChanged?.Invoke());
