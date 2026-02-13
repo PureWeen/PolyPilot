@@ -69,22 +69,22 @@ public partial class CopilotService
                     try
                     {
                         var argsObj = toolStart.Data.GetType().GetProperty("Arguments")?.GetValue(toolStart.Data);
-                        Debug($"[SkillTrack] '{sessionName}' Arguments type: {argsObj?.GetType().Name}, value: {argsObj}");
+                        Console.WriteLine($"[SkillTrack] '{sessionName}' Arguments type: {argsObj?.GetType().Name}, value: {argsObj}");
                         if (argsObj is Dictionary<string, object> args && args.TryGetValue("skill", out var skillValue))
                         {
                             var skillName = skillValue?.ToString();
-                            Debug($"[SkillTrack] '{sessionName}' Extracted skill name: {skillName}");
+                            Console.WriteLine($"[SkillTrack] '{sessionName}' ✅ Extracted skill name: {skillName}");
                             state.Info.LastSkillUsed = skillName;
                             Invoke(() => OnStateChanged?.Invoke());
                         }
                         else
                         {
-                            Debug($"[SkillTrack] '{sessionName}' Failed to extract skill from args");
+                            Console.WriteLine($"[SkillTrack] '{sessionName}' ❌ Failed to extract skill from args");
                         }
                     }
                     catch (Exception ex)
                     {
-                        Debug($"[SkillTrack] '{sessionName}' Exception: {ex.Message}");
+                        Console.WriteLine($"[SkillTrack] '{sessionName}' ⚠️ Exception: {ex.Message}");
                     }
                 }
                 
