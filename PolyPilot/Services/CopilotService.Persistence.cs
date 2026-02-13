@@ -121,7 +121,6 @@ public partial class CopilotService
             Console.WriteLine($"[CopilotService] Failed to save UI state: {ex.Message}");
         }
     }
-    }
 
     public UiState? LoadUiState()
     {
