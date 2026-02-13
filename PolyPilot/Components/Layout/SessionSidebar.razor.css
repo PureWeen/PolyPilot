@@ -258,34 +258,71 @@
 }
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-.group-delete-btn {
-    all: unset;
+/* Group menu */
+.group-menu-wrapper {
+    position: relative;
     margin-left: auto;
-    font-size: var(--type-callout);
+}
+
+.group-more-btn {
+    all: unset;
+    font-size: var(--type-body);
     color: var(--control-border);
     cursor: pointer;
     padding: 0 0.3rem;
     border-radius: 3px;
     opacity: 0;
     transition: opacity 0.15s;
+    line-height: 1;
+}
+.group-header:hover .group-more-btn { opacity: 1; }
+.group-more-btn:hover { color: var(--text-on-surface); background: var(--hover-bg); }
+
+.group-menu-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 99;
 }
 
-.group-add-btn {
+.group-menu {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    z-index: 100;
+    min-width: 140px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--hover-bg);
+    border-radius: 8px;
+    padding: 0.25rem 0;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    display: flex;
+    flex-direction: column;
+}
+
+.group-menu-item {
     all: unset;
-    margin-left: auto;
+    display: block;
+    width: 100%;
+    padding: 0.35rem 0.65rem;
     font-size: var(--type-callout);
-    color: var(--control-border);
+    color: var(--text-on-surface);
     cursor: pointer;
-    padding: 0 0.3rem;
-    border-radius: 3px;
-    opacity: 0;
-    transition: opacity 0.15s;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+.group-menu-item:hover { background: var(--control-border); color: #fff; }
+
+.group-menu-separator {
+    height: 1px;
+    background: var(--hover-bg);
+    margin: 0.2rem 0.5rem;
 }
 
-.group-header:hover .group-add-btn { opacity: 1; }
-.group-add-btn:hover { color: var(--accent-primary); background: var(--control-border); }
-.group-header:hover .group-delete-btn { opacity: 1; }
-.group-delete-btn:hover { color: var(--accent-primary); background: var(--control-border); }
+.group-menu-item.destructive { color: var(--accent-primary); }
+.group-menu-item.destructive:hover { background: var(--control-border); color: var(--accent-primary); }
 
 .repo-remove-confirm {
     display: flex;
