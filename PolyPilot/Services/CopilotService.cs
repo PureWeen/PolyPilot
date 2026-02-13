@@ -15,6 +15,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ServerManager _serverManager;
     private readonly WsBridgeClient _bridgeClient;
     private readonly DemoService _demoService;
+    private readonly IServiceProvider? _serviceProvider;
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
@@ -130,12 +131,13 @@ public partial class CopilotService : IAsyncDisposable
 
     private readonly RepoManager _repoManager;
     
-    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient, RepoManager repoManager)
+    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider)
     {
         _chatDb = chatDb;
         _serverManager = serverManager;
         _bridgeClient = bridgeClient;
         _repoManager = repoManager;
+        _serviceProvider = serviceProvider;
         _demoService = new DemoService();
     }
 
