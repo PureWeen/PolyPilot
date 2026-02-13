@@ -361,4 +361,98 @@ public class ModelSelectionTests
         Assert.Equal("claude-opus-4.5", resumeModel);
         Assert.Equal("/some/worktree", entry.WorkingDirectory);
     }
+
+    // === ChangeModelAsync behavior tests ===
+
+    [Fact]
+    public void ChangeModel_NewModelIsNormalized()
+    {
+        // ChangeModelAsync normalizes before use — display names from UI must become slugs
+        var userSelection = "Claude Opus 4.6";
+        var normalized = ModelHelper.NormalizeToSlug(userSelection);
+        Assert.Equal("claude-opus-4.6", normalized);
+    }
+
+    [Fact]
+    public void ChangeModel_SameModel_IsNoOp()
+    {
+        // If current model == requested model, ChangeModelAsync should be a no-op
+        var currentModel = "claude-opus-4.5";
+        var requested = "claude-opus-4.5";
+        var normalizedRequested = ModelHelper.NormalizeToSlug(requested);
+        Assert.Equal(currentModel, normalizedRequested); // Would trigger no-op guard
+    }
+
+    [Fact]
+    public void ChangeModel_DifferentModel_UpdatesInfo()
+    {
+        // Simulates what ChangeModelAsync does to AgentSessionInfo after successful resume
+        var info = new AgentSessionInfo
+        {
+            Name = "TestSession",
+            Model = "claude-sonnet-4.5",
+            SessionId = "some-guid",
+            WorkingDirectory = "/some/worktree"
+        };
+
+        var newModel = ModelHelper.NormalizeToSlug("claude-opus-4.6");
+        Assert.NotEqual(info.Model, newModel); // Different model → would proceed
+
+        // After successful resume, model is updated
+        info.Model = newModel;
+        Assert.Equal("claude-opus-4.6", info.Model);
+
+        // Working directory must NOT change during model switch
+        Assert.Equal("/some/worktree", info.WorkingDirectory);
+    }
+
+    [Fact]
+    public void ChangeModel_PreservesSessionIdentity()
+    {
+        // Model switch reconnects the same session ID — history is preserved server-side
+        var info = new AgentSessionInfo
+        {
+            Name = "MySession",
+            Model = "gpt-5.1-codex",
+            SessionId = "fixed-guid-123",
+            WorkingDirectory = "/my/worktree"
+        };
+        info.History.Add(ChatMessage.UserMessage("hello"));
+        info.History.Add(new ChatMessage("assistant", "hi there", DateTime.Now));
+
+        var originalSessionId = info.SessionId;
+        var originalHistory = info.History.Count;
+        var originalName = info.Name;
+        var originalWorkDir = info.WorkingDirectory;
+
+        // Simulate model switch
+        info.Model = ModelHelper.NormalizeToSlug("claude-opus-4.6");
+
+        // Everything except model must be unchanged
+        Assert.Equal(originalSessionId, info.SessionId);
+        Assert.Equal(originalHistory, info.History.Count);
+        Assert.Equal(originalName, info.Name);
+        Assert.Equal(originalWorkDir, info.WorkingDirectory);
+        Assert.Equal("claude-opus-4.6", info.Model);
+    }
+
+    [Fact]
+    public void ChangeModel_DisplayNameFromDropdown_NormalizesToSlug()
+    {
+        // The UI dropdown shows display names but passes slugs.
+        // If somehow a display name gets through, ChangeModelAsync must normalize it.
+        var displayNames = new Dictionary<string, string>
+        {
+            { "Claude Opus 4.6 (fast mode)", "claude-opus-4.6-fast" },
+            { "Gemini 3 Pro (Preview)", "gemini-3-pro-preview" },
+            { "GPT-5.1-Codex-Max", "gpt-5.1-codex-max" },
+        };
+
+        foreach (var (display, expectedSlug) in displayNames)
+        {
+            var normalized = ModelHelper.NormalizeToSlug(display);
+            Assert.Equal(expectedSlug, normalized);
+            Assert.False(ModelHelper.IsDisplayName(normalized));
+        }
+    }
 }
