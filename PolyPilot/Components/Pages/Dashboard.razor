@@ -1448,6 +1448,7 @@
 
     private async Task ExpandSession(string sessionName)
     {
+        try { File.AppendAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot/ui-state-debug.log"), $"[{DateTime.Now:HH:mm:ss}] ExpandSession called for {sessionName}\n"); } catch { }
         await SaveDraftsAndCursor();
         expandedSession = sessionName;
         _needsScrollToBottom = true;
@@ -1457,6 +1458,7 @@
 
     private async Task CollapseExpanded()
     {
+        try { File.AppendAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot/ui-state-debug.log"), $"[{DateTime.Now:HH:mm:ss}] CollapseExpanded called\n"); } catch { }
         await SaveDraftsAndCursor();
         expandedSession = null;
         _needsScrollToBottom = true;
