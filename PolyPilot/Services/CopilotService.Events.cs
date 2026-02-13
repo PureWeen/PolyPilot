@@ -63,19 +63,25 @@ public partial class CopilotService
                 var startCallId = toolStart.Data.ToolCallId ?? "";
                 var toolInput = ExtractToolInput(toolStart.Data);
                 
+                Console.WriteLine($"[ToolEvent] '{sessionName}' Tool: {startToolName}, ID: {startCallId}");
+                
                 // Track skill invocations
                 if (startToolName == "skill")
                 {
                     try
                     {
                         var argsObj = toolStart.Data.GetType().GetProperty("Arguments")?.GetValue(toolStart.Data);
-                        Console.WriteLine($"[SkillTrack] '{sessionName}' Arguments type: {argsObj?.GetType().Name}, value: {argsObj}");
+                        Console.WriteLine($"[SkillTrack] '{sessionName}' Arguments type: {argsObj?.GetType().Name}");
                         if (argsObj is Dictionary<string, object> args && args.TryGetValue("skill", out var skillValue))
                         {
                             var skillName = skillValue?.ToString();
-                            Console.WriteLine($"[SkillTrack] '{sessionName}' ✅ Extracted skill name: {skillName}");
+                            Console.WriteLine($"[SkillTrack] '{sessionName}' ✅ Setting LastSkillUsed = {skillName}");
+                            Console.WriteLine($"[SkillTrack] '{sessionName}' Before: LastSkillUsed = {state.Info.LastSkillUsed}");
                             state.Info.LastSkillUsed = skillName;
+                            Console.WriteLine($"[SkillTrack] '{sessionName}' After: LastSkillUsed = {state.Info.LastSkillUsed}");
+                            Console.WriteLine($"[SkillTrack] '{sessionName}' Invoking OnStateChanged...");
                             Invoke(() => OnStateChanged?.Invoke());
+                            Console.WriteLine($"[SkillTrack] '{sessionName}' OnStateChanged invoked");
                         }
                         else
                         {

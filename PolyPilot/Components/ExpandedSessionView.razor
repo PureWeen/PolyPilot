@@ -250,16 +250,19 @@
 
     protected override void OnInitialized()
     {
+        Console.WriteLine($"[ExpandedSessionView] OnInitialized for session {Session.Id}");
         CopilotService.OnStateChanged += HandleStateChanged;
     }
 
     private void HandleStateChanged()
     {
+        Console.WriteLine($"[ExpandedSessionView] HandleStateChanged called for session {Session.Id}, LastSkillUsed = {Session.LastSkillUsed}");
         InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()
     {
+        Console.WriteLine($"[ExpandedSessionView] Dispose for session {Session.Id}");
         CopilotService.OnStateChanged -= HandleStateChanged;
     }
 }
