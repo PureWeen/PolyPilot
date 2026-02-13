@@ -72,27 +72,24 @@ public partial class CopilotService
                     try
                     {
                         var argsObj = toolStart.Data.GetType().GetProperty("Arguments")?.GetValue(toolStart.Data);
-                        Console.WriteLine($"[SkillTrack] '{sessionName}' Arguments type: {argsObj?.GetType().Name}");
-                        if (argsObj is Dictionary<string, object> args && args.TryGetValue("skill", out var skillValue))
+                        if (argsObj != null)
                         {
-                            var skillName = skillValue?.ToString();
-                            Console.WriteLine($"[SkillTrack] '{sessionName}' ✅ Setting LastSkillUsed = {skillName}");
-                            Console.WriteLine($"[SkillTrack] '{sessionName}' Before: LastSkillUsed = {state.Info.LastSkillUsed}");
-                            state.Info.LastSkillUsed = skillName;
-                            Console.WriteLine($"[SkillTrack] '{sessionName}' After: LastSkillUsed = {state.Info.LastSkillUsed}");
-                            Console.WriteLine($"[SkillTrack] '{sessionName}' Invoking OnStateChanged...");
-                            Invoke(() => OnStateChanged?.Invoke());
-                            Console.WriteLine($"[SkillTrack] '{sessionName}' OnStateChanged invoked");
-                        }
-                        else
-                        {
-                            Console.WriteLine($"[SkillTrack] '{sessionName}' ❌ Failed to extract skill from args");
+                            state.Info.SkillArgsFound++;
+                            if (argsObj is Dictionary<string, object> args)
+                            {
+                                state.Info.SkillDictCast++;
+                                if (args.TryGetValue("skill", out var skillValue))
+                                {
+                                    state.Info.SkillValueFound++;
+                                    var skillName = skillValue?.ToString();
+                                    state.Info.LastSkillUsed = skillName;
+                                    state.Info.SkillSetSuccess++;
+                                    Invoke(() => OnStateChanged?.Invoke());
+                                }
+                            }
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[SkillTrack] '{sessionName}' ⚠️ Exception: {ex.Message}");
-                    }
+                    catch { }
                 }
                 
                 if (!FilteredTools.Contains(startToolName))

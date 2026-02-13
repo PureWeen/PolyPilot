@@ -23,6 +23,10 @@ public class AgentSessionInfo
     // Track last skill used for display
     public string? LastSkillUsed { get; set; }
     public int SkillTrackingAttempts { get; set; } // DEBUG: count how many times we try to track
+    public int SkillArgsFound { get; set; } // DEBUG: args object found
+    public int SkillDictCast { get; set; } // DEBUG: cast to Dictionary succeeded
+    public int SkillValueFound { get; set; } // DEBUG: skill value extracted
+    public int SkillSetSuccess { get; set; } // DEBUG: LastSkillUsed set successfully
     
     // Accumulated token usage across all turns
     public int TotalInputTokens { get; set; }
