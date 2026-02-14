@@ -203,6 +203,11 @@ public class SendMessagePayload
 {
     public string SessionName { get; set; } = "";
     public string Message { get; set; } = "";
+    /// <summary>
+    /// Optional message mode. Set to "delegate" to hand off the prompt to the CCA cloud agent
+    /// instead of executing locally. This is the SDK equivalent of the CLI's /delegate command.
+    /// </summary>
+    public string? Mode { get; set; }
 }
 
 public class CreateSessionPayload

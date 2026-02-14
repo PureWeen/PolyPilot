@@ -342,8 +342,8 @@ public class WsBridgeServer : IDisposable
                     var sendReq = msg.GetPayload<SendMessagePayload>();
                     if (sendReq != null && !string.IsNullOrWhiteSpace(sendReq.SessionName) && !string.IsNullOrWhiteSpace(sendReq.Message))
                     {
-                        Console.WriteLine($"[WsBridge] Client sending message to '{sendReq.SessionName}'");
-                        await _copilot.SendPromptAsync(sendReq.SessionName, sendReq.Message, cancellationToken: ct);
+                        Console.WriteLine($"[WsBridge] Client sending message to '{sendReq.SessionName}'{(sendReq.Mode != null ? $" (mode={sendReq.Mode})" : "")}");
+                        await _copilot.SendPromptAsync(sendReq.SessionName, sendReq.Message, mode: sendReq.Mode, cancellationToken: ct);
                     }
                     break;
 
