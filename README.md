@@ -141,6 +141,7 @@ This means an agent working inside PolyPilot can edit code, run `./relaunch.sh`,
 | **Windows** | ✅ Supported |
 | **Android** | ✅ Supported (Remote mode) |
 | **iOS** | ✅ Supported (Remote mode) |
+| **Linux** (GTK head) | 🧪 Experimental (`PolyPilot.Gtk`) |
 
 Mobile devices connect to a desktop instance via WebSocket bridge — run your agent fleet on your workstation, control it from your pocket.
 
@@ -170,6 +171,10 @@ dotnet build -f net10.0-windows10.0.19041.0
 
 # Android (deploy to connected device)
 dotnet build -f net10.0-android -t:Install
+
+# Linux (GTK head)
+dotnet build PolyPilot.Gtk/PolyPilot.Gtk.csproj
+dotnet run --project PolyPilot.Gtk/PolyPilot.Gtk.csproj
 ```
 
 ## 🧪 Testing
