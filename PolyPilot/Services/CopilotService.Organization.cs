@@ -333,7 +333,7 @@ public partial class CopilotService
             IsMultiAgent = true,
             OrchestratorMode = mode,
             OrchestratorPrompt = orchestratorPrompt,
-            SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
+            SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
         };
         Organization.Groups.Add(group);
 
@@ -494,16 +494,19 @@ public partial class CopilotService
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
 
         // Build the orchestrator prompt with context about available workers
-        var orchestratorPrompt = $"""
-            You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available: {string.Join(", ", workerNames.Select(w => $"'{w}'"))}.
-
-            The user's request is:
-            {prompt}
-
-            {(group?.OrchestratorPrompt != null ? $"Additional orchestration instructions: {group.OrchestratorPrompt}" : "")}
-
-            Analyze the request and respond with your plan. The user will manually delegate specific tasks to the worker sessions based on your plan.
-            """;
+        var promptBuilder = new System.Text.StringBuilder();
+        promptBuilder.AppendLine($"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available: {string.Join(", ", workerNames.Select(w => $"'{w}'"))}.");
+        promptBuilder.AppendLine();
+        promptBuilder.AppendLine($"The user's request is:");
+        promptBuilder.AppendLine(prompt);
+        if (!string.IsNullOrEmpty(group?.OrchestratorPrompt))
+        {
+            promptBuilder.AppendLine();
+            promptBuilder.AppendLine($"Additional orchestration instructions: {group.OrchestratorPrompt}");
+        }
+        promptBuilder.AppendLine();
+        promptBuilder.AppendLine("Analyze the request and respond with your plan. The user will manually delegate specific tasks to the worker sessions based on your plan.");
+        var orchestratorPrompt = promptBuilder.ToString();
 
         var orchestratorSession = GetSession(orchestratorName);
         if (orchestratorSession == null) return;

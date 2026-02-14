@@ -193,6 +193,14 @@ public class WsBridgeClient : IDisposable
     public async Task SendOrganizationCommandAsync(OrganizationCommandPayload cmd, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.OrganizationCommand, cmd), ct);
 
+    public async Task SendMultiAgentBroadcastAsync(string groupId, string message, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.MultiAgentBroadcast,
+            new MultiAgentBroadcastPayload { GroupId = groupId, Message = message }), ct);
+
+    public async Task CreateMultiAgentGroupAsync(string name, string mode = "Broadcast", string? orchestratorPrompt = null, List<string>? sessionNames = null, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.MultiAgentCreateGroup,
+            new MultiAgentCreateGroupPayload { Name = name, Mode = mode, OrchestratorPrompt = orchestratorPrompt, SessionNames = sessionNames }), ct);
+
     private TaskCompletionSource<DirectoriesListPayload>? _dirListTcs;
 
     public async Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
