@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using PolyPilot.Models;
 
 namespace PolyPilot.Services;
@@ -20,6 +21,8 @@ public sealed class FiestaCoordinatorService : IDisposable
     private readonly ConcurrentDictionary<string, string> _trustedOrganizers = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _stateLock = new(1, 1);
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
+    private static readonly Regex MentionRegex = new(@"(?:^|\s)@([A-Za-z0-9._-]+)", RegexOptions.Compiled);
+    private const int MaxTranscriptEntries = 500;
 
     private ConnectionSettings _settings = new();
     private FiestaOrganizationState _organization = new();
@@ -111,7 +114,9 @@ public sealed class FiestaCoordinatorService : IDisposable
         _settings = ConnectionSettings.Load();
         await DetectAndApplyTailscaleDefaultsAsync();
         LoadState();
+        EnsureLocalHostWorkerDefaults();
         ReconcileOrganization();
+        SaveState();
 
         await EnsureWorkerModeHostingAsync();
         ApplyDiscoveryMode();
@@ -134,6 +139,7 @@ public sealed class FiestaCoordinatorService : IDisposable
         ApplyDiscoveryMode();
         _settings.Save();
 
+        EnsureLocalHostWorkerDefaults();
         SaveState();
         OnStateChanged?.Invoke();
     }
@@ -143,6 +149,7 @@ public sealed class FiestaCoordinatorService : IDisposable
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Room name is required.", nameof(name));
 
+        var hostWorker = EnsureLocalHostWorkerRegistered();
         var room = new FiestaRoom
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -150,6 +157,7 @@ public sealed class FiestaCoordinatorService : IDisposable
             CreatedAt = DateTime.UtcNow,
             OrganizerInstanceId = InstanceId,
             OrganizerMachineName = MachineName,
+            HostWorkingDirectory = ResolveDefaultHostWorkingDirectory(),
             LastActivityAt = DateTime.UtcNow,
             Members = new List<FiestaMember>
             {
@@ -168,6 +176,7 @@ public sealed class FiestaCoordinatorService : IDisposable
 
         _rooms[room.Id] = room;
         _roomAssignments.GetOrAdd(room.Id, _ => new ConcurrentDictionary<string, byte>(StringComparer.Ordinal));
+        AssignWorkerMembership(room, hostWorker, shouldPersist: false);
         EnsureRoomMeta(room.Id);
         SaveState();
         OnStatusMessage?.Invoke($"Fiesta '{room.Name}' created.");
@@ -372,9 +381,50 @@ public sealed class FiestaCoordinatorService : IDisposable
             return;
 
         room.SessionName = sessionName.Trim();
+        var selected = _copilotService.GetSession(room.SessionName);
+        if (!string.IsNullOrWhiteSpace(selected?.WorkingDirectory))
+            room.HostWorkingDirectory = selected.WorkingDirectory;
         room.LastActivityAt = DateTime.UtcNow;
         SaveState();
         OnStateChanged?.Invoke();
+    }
+
+    public void SetRoomHostWorkingDirectory(string roomId, string? workingDirectory)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room))
+            return;
+
+        room.HostWorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory)
+            ? null
+            : workingDirectory.Trim();
+        room.LastActivityAt = DateTime.UtcNow;
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
+
+    public IReadOnlyList<FiestaTranscriptEntry> GetRoomTranscript(string roomId, string? viewerInstanceId = null)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room))
+            return Array.Empty<FiestaTranscriptEntry>();
+
+        var viewerId = string.IsNullOrWhiteSpace(viewerInstanceId) ? InstanceId : viewerInstanceId.Trim();
+        var includeAll = string.Equals(viewerId, room.OrganizerInstanceId, StringComparison.Ordinal);
+        lock (room.Transcript)
+        {
+            var snapshot = room.Transcript
+                .Select(CloneTranscriptEntry)
+                .OrderBy(e => e.CreatedAt)
+                .ToList();
+
+            if (includeAll)
+                return snapshot;
+
+            return snapshot
+                .Where(e =>
+                    string.Equals(e.SenderInstanceId, viewerId, StringComparison.Ordinal) ||
+                    e.TargetInstanceIds.Contains(viewerId, StringComparer.Ordinal))
+                .ToList();
+        }
     }
 
     public bool ValidateJoinCode(string? code)
@@ -562,6 +612,12 @@ public sealed class FiestaCoordinatorService : IDisposable
 
     public void RemoveRegisteredWorker(string workerInstanceId)
     {
+        if (string.Equals(workerInstanceId, InstanceId, StringComparison.Ordinal))
+        {
+            OnStatusMessage?.Invoke("Host worker is managed automatically and cannot be removed.");
+            return;
+        }
+
         if (!_registeredWorkers.TryRemove(workerInstanceId, out var worker)) return;
 
         if (_workerConnections.TryRemove(workerInstanceId, out var connection))
@@ -675,32 +731,73 @@ public sealed class FiestaCoordinatorService : IDisposable
 
         var effectiveSession = string.IsNullOrWhiteSpace(sessionName) ? room.SessionName : sessionName.Trim();
         room.SessionName = effectiveSession;
+        var effectiveWorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? room.HostWorkingDirectory : workingDirectory;
+        var targetWorkerIds = ResolveMentionTargets(room, prompt);
+        if (targetWorkerIds.Count == 0)
+            throw new InvalidOperationException("Prompt must target at least one assigned worker.");
 
-        var connections = GetRoomWorkerConnections(roomId);
-        if (connections.Count == 0)
-            throw new InvalidOperationException("No connected workers in this fiesta.");
+        var requestId = Guid.NewGuid().ToString("N");
+        AppendPromptTranscript(room, requestId, prompt, targetWorkerIds);
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
 
-        var tasks = new List<Task>();
-        foreach (var worker in connections)
+        var sendTasks = new List<Task>();
+        var dispatchedCount = 0;
+        foreach (var workerId in targetWorkerIds)
         {
+            if (string.Equals(workerId, InstanceId, StringComparison.Ordinal))
+            {
+                dispatchedCount++;
+                sendTasks.Add(DispatchLocalPromptAsync(room, requestId, effectiveSession, prompt, model, effectiveWorkingDirectory, timeoutCts.Token));
+                continue;
+            }
+
+            if (!_workerConnections.TryGetValue(workerId, out var connection) || !connection.Client.IsConnected)
+            {
+                var failedMachineName = _registeredWorkers.TryGetValue(workerId, out var failedWorker)
+                    ? failedWorker.MachineName
+                    : workerId;
+                HandleWorkerDispatchResult(new FiestaDispatchResultPayload
+                {
+                    RequestId = requestId,
+                    FiestaId = roomId,
+                    WorkerInstanceId = workerId,
+                    WorkerMachineName = failedMachineName,
+                    SessionName = effectiveSession,
+                    Success = false,
+                    Error = "Worker is not connected.",
+                    Summary = "Prompt failed: worker is offline."
+                });
+                continue;
+            }
+
             var request = new FiestaDispatchPromptPayload
             {
-                RequestId = Guid.NewGuid().ToString("N"),
+                RequestId = requestId,
                 FiestaId = roomId,
                 SessionName = effectiveSession,
                 Message = prompt,
+                SenderInstanceId = InstanceId,
+                SenderMachineName = MachineName,
+                TargetInstanceIds = new List<string> { workerId },
                 Model = model,
-                WorkingDirectory = workingDirectory,
+                WorkingDirectory = effectiveWorkingDirectory,
                 CreateSessionIfMissing = true
             };
-            tasks.Add(worker.Client.SendFiestaDispatchPromptAsync(request, roomId, timeoutCts.Token));
+            sendTasks.Add(connection.Client.SendFiestaDispatchPromptAsync(request, roomId, timeoutCts.Token));
+            dispatchedCount++;
         }
 
-        await Task.WhenAll(tasks);
-        TouchRoomActivity(roomId, $"Broadcasted prompt to {tasks.Count} worker(s).");
+        if (sendTasks.Count > 0)
+            await Task.WhenAll(sendTasks);
+        if (dispatchedCount == 0)
+        {
+            RemovePromptTranscript(roomId, requestId);
+            throw new InvalidOperationException("No connected workers matched the @mention targets.");
+        }
+
+        TouchRoomActivity(roomId, $"Dispatched prompt to {dispatchedCount} worker(s).");
     }
 
     public async Task SendSessionCommandAsync(string roomId, string command, string sessionName, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
@@ -712,31 +809,58 @@ public sealed class FiestaCoordinatorService : IDisposable
 
         var effectiveSession = string.IsNullOrWhiteSpace(sessionName) ? room.SessionName : sessionName.Trim();
         room.SessionName = effectiveSession;
-
-        var connections = GetRoomWorkerConnections(roomId);
-        if (connections.Count == 0)
-            throw new InvalidOperationException("No connected workers in this fiesta.");
+        var effectiveWorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? room.HostWorkingDirectory : workingDirectory;
+        if (!_roomAssignments.TryGetValue(roomId, out var assignedWorkers) || assignedWorkers.Count == 0)
+            throw new InvalidOperationException("No workers assigned to this fiesta.");
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
 
         var tasks = new List<Task>();
-        foreach (var worker in connections)
+        var dispatchedCount = 0;
+        var requestId = Guid.NewGuid().ToString("N");
+        foreach (var workerId in assignedWorkers.Keys)
         {
+            if (string.Equals(workerId, InstanceId, StringComparison.Ordinal))
+            {
+                tasks.Add(ExecuteLocalSessionCommandAsync(roomId, requestId, command, effectiveSession, model, effectiveWorkingDirectory, cancellationToken));
+                dispatchedCount++;
+                continue;
+            }
+
+            if (!_workerConnections.TryGetValue(workerId, out var connection) || !connection.Client.IsConnected)
+            {
+                HandleWorkerSessionCommandResult(new FiestaSessionCommandResultPayload
+                {
+                    RequestId = requestId,
+                    FiestaId = roomId,
+                    WorkerInstanceId = workerId,
+                    WorkerMachineName = _registeredWorkers.TryGetValue(workerId, out var failedWorker) ? failedWorker.MachineName : workerId,
+                    Command = command,
+                    SessionName = effectiveSession,
+                    Success = false,
+                    Error = "Worker is not connected."
+                });
+                continue;
+            }
+
             var request = new FiestaSessionCommandPayload
             {
-                RequestId = Guid.NewGuid().ToString("N"),
+                RequestId = requestId,
                 FiestaId = roomId,
                 Command = command,
                 SessionName = effectiveSession,
                 Model = model,
-                WorkingDirectory = workingDirectory
+                WorkingDirectory = effectiveWorkingDirectory
             };
-            tasks.Add(worker.Client.SendFiestaSessionCommandAsync(request, roomId, timeoutCts.Token));
+            tasks.Add(connection.Client.SendFiestaSessionCommandAsync(request, roomId, timeoutCts.Token));
+            dispatchedCount++;
         }
 
+        if (dispatchedCount == 0)
+            throw new InvalidOperationException("No connected workers available for session command.");
         await Task.WhenAll(tasks);
-        TouchRoomActivity(roomId, $"Sent '{command}' command to {tasks.Count} worker(s).");
+        TouchRoomActivity(roomId, $"Sent '{command}' command to {dispatchedCount} worker(s).");
     }
 
     public async Task StartHostingAsync()
@@ -843,6 +967,22 @@ public sealed class FiestaCoordinatorService : IDisposable
     {
         if (!_registeredWorkers.TryGetValue(workerInstanceId, out var worker))
             throw new InvalidOperationException("Worker is not registered.");
+
+        if (string.Equals(worker.InstanceId, InstanceId, StringComparison.Ordinal))
+        {
+            worker.IsConnected = true;
+            worker.LastConnectedAt = DateTime.UtcNow;
+            worker.LastUpdatedAt = DateTime.UtcNow;
+            AssignWorkerMembership(room, worker);
+            return new FiestaJoinStatusPayload
+            {
+                RequestId = Guid.NewGuid().ToString("N"),
+                FiestaId = room.Id,
+                Status = FiestaJoinState.Approved,
+                WorkerInstanceId = worker.InstanceId,
+                WorkerMachineName = worker.MachineName
+            };
+        }
         if (string.IsNullOrWhiteSpace(worker.PairingToken))
             worker.PairingToken = GeneratePairingToken();
 
@@ -969,7 +1109,7 @@ public sealed class FiestaCoordinatorService : IDisposable
         }
     }
 
-    private void AssignWorkerMembership(FiestaRoom room, FiestaRegisteredWorker worker)
+    private void AssignWorkerMembership(FiestaRoom room, FiestaRegisteredWorker worker, bool shouldPersist = true)
     {
         var assigned = _roomAssignments.GetOrAdd(room.Id, _ => new ConcurrentDictionary<string, byte>(StringComparer.Ordinal));
         assigned[worker.InstanceId] = 0;
@@ -996,8 +1136,11 @@ public sealed class FiestaCoordinatorService : IDisposable
             member.Port = worker.Port;
         }
 
-        SaveState();
-        OnStateChanged?.Invoke();
+        if (shouldPersist)
+        {
+            SaveState();
+            OnStateChanged?.Invoke();
+        }
     }
 
     private async Task EnsureWorkerConnectedAsync(FiestaRegisteredWorker worker, CancellationToken cancellationToken)
@@ -1086,6 +1229,19 @@ public sealed class FiestaCoordinatorService : IDisposable
         if (string.IsNullOrWhiteSpace(summary))
             summary = payload.Success ? "Prompt completed." : payload.Error ?? "Prompt failed.";
 
+        AppendTranscriptEntry(payload.FiestaId, new FiestaTranscriptEntry
+        {
+            RequestId = payload.RequestId,
+            FiestaId = payload.FiestaId,
+            EntryType = FiestaTranscriptEntryType.Response,
+            CreatedAt = DateTime.UtcNow,
+            SenderInstanceId = payload.WorkerInstanceId,
+            SenderMachineName = payload.WorkerMachineName,
+            Content = string.IsNullOrWhiteSpace(payload.ResponseContent) ? summary : payload.ResponseContent!,
+            TargetInstanceIds = new List<string> { payload.WorkerInstanceId },
+            Success = payload.Success,
+            Error = payload.Error
+        });
         TouchRoomActivity(payload.FiestaId, $"[{payload.WorkerMachineName}] {summary}");
         OnStatusMessage?.Invoke($"[{payload.WorkerMachineName}] {summary}");
     }
@@ -1108,6 +1264,307 @@ public sealed class FiestaCoordinatorService : IDisposable
         }
         SaveState();
         OnStateChanged?.Invoke();
+    }
+
+    private void EnsureLocalHostWorkerDefaults()
+    {
+        var hostWorker = EnsureLocalHostWorkerRegistered();
+        foreach (var room in _rooms.Values)
+        {
+            if (!string.Equals(room.OrganizerInstanceId, InstanceId, StringComparison.Ordinal))
+                continue;
+
+            var assigned = _roomAssignments.GetOrAdd(room.Id, _ => new ConcurrentDictionary<string, byte>(StringComparer.Ordinal));
+            assigned[hostWorker.InstanceId] = 0;
+
+            lock (room.Members)
+            {
+                var organizer = room.Members.FirstOrDefault(m =>
+                    string.Equals(m.InstanceId, InstanceId, StringComparison.Ordinal) &&
+                    m.Role == FiestaMemberRole.Organizer);
+                if (organizer == null)
+                {
+                    room.Members.Add(new FiestaMember
+                    {
+                        InstanceId = InstanceId,
+                        MachineName = MachineName,
+                        Host = hostWorker.Host,
+                        Port = hostWorker.Port,
+                        Role = FiestaMemberRole.Organizer,
+                        IsConnected = true,
+                        LastUpdatedAt = DateTime.UtcNow
+                    });
+                }
+
+                var workerMember = room.Members.FirstOrDefault(m =>
+                    string.Equals(m.InstanceId, hostWorker.InstanceId, StringComparison.Ordinal) &&
+                    m.Role == FiestaMemberRole.Worker);
+                if (workerMember == null)
+                {
+                    room.Members.Add(new FiestaMember
+                    {
+                        InstanceId = hostWorker.InstanceId,
+                        MachineName = hostWorker.MachineName,
+                        Host = hostWorker.Host,
+                        Port = hostWorker.Port,
+                        Role = FiestaMemberRole.Worker,
+                        IsConnected = true,
+                        LastUpdatedAt = DateTime.UtcNow
+                    });
+                }
+                else
+                {
+                    workerMember.MachineName = hostWorker.MachineName;
+                    workerMember.Host = hostWorker.Host;
+                    workerMember.Port = hostWorker.Port;
+                    workerMember.IsConnected = true;
+                    workerMember.LastUpdatedAt = DateTime.UtcNow;
+                }
+            }
+
+            room.HostWorkingDirectory ??= ResolveDefaultHostWorkingDirectory();
+        }
+    }
+
+    private FiestaRegisteredWorker EnsureLocalHostWorkerRegistered()
+    {
+        var worker = _registeredWorkers.GetOrAdd(InstanceId, _ => new FiestaRegisteredWorker
+        {
+            InstanceId = InstanceId,
+            MachineName = MachineName,
+            Host = FiestaDiscoveryService.ResolveBestLanAddress(),
+            Port = DevTunnelService.BridgePort,
+            Platform = GetPlatformLabel(),
+            PairingToken = GeneratePairingToken(),
+            JoinCode = "",
+            IsConnected = true,
+            LastConnectedAt = DateTime.UtcNow,
+            LastUpdatedAt = DateTime.UtcNow
+        });
+
+        worker.MachineName = MachineName;
+        worker.Host = FiestaDiscoveryService.ResolveBestLanAddress();
+        worker.Port = DevTunnelService.BridgePort;
+        worker.Platform = GetPlatformLabel();
+        worker.IsConnected = true;
+        worker.LastConnectedAt = DateTime.UtcNow;
+        worker.LastUpdatedAt = DateTime.UtcNow;
+        if (string.IsNullOrWhiteSpace(worker.PairingToken))
+            worker.PairingToken = GeneratePairingToken();
+        return worker;
+    }
+
+    private string? ResolveDefaultHostWorkingDirectory()
+    {
+        var active = _copilotService.GetActiveSession();
+        if (!string.IsNullOrWhiteSpace(active?.WorkingDirectory))
+            return active.WorkingDirectory;
+        return null;
+    }
+
+    private List<string> ResolveMentionTargets(FiestaRoom room, string prompt)
+    {
+        var mentions = MentionRegex.Matches(prompt)
+            .Select(m => m.Groups[1].Value)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (mentions.Count == 0)
+            throw new InvalidOperationException("Prompt must include an explicit @mention (for example @all or @worker-name).");
+
+        var assignedWorkers = GetAssignedWorkers(room.Id);
+        var mentionMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var worker in assignedWorkers)
+        {
+            var normalizedMachine = NormalizeMentionToken(worker.MachineName);
+            if (!string.IsNullOrWhiteSpace(normalizedMachine) && !mentionMap.ContainsKey(normalizedMachine))
+                mentionMap[normalizedMachine] = worker.InstanceId;
+
+            var normalizedInstance = NormalizeMentionToken(worker.InstanceId);
+            if (!string.IsNullOrWhiteSpace(normalizedInstance) && !mentionMap.ContainsKey(normalizedInstance))
+                mentionMap[normalizedInstance] = worker.InstanceId;
+        }
+
+        var targets = new HashSet<string>(StringComparer.Ordinal);
+        var unknown = new List<string>();
+        foreach (var mention in mentions)
+        {
+            if (string.Equals(mention, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var worker in assignedWorkers)
+                    targets.Add(worker.InstanceId);
+                continue;
+            }
+
+            var normalized = NormalizeMentionToken(mention);
+            if (mentionMap.TryGetValue(normalized, out var workerId))
+                targets.Add(workerId);
+            else
+                unknown.Add(mention);
+        }
+
+        if (unknown.Count > 0)
+        {
+            var unknownList = string.Join(", ", unknown.Select(v => $"@{v}"));
+            throw new InvalidOperationException($"Unknown @mention target(s): {unknownList}.");
+        }
+
+        if (targets.Count == 0)
+            throw new InvalidOperationException("No assigned workers matched the @mention target(s).");
+
+        return targets.ToList();
+    }
+
+    private static string NormalizeMentionToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        var chars = value.Trim()
+            .Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '.')
+            .ToArray();
+        return new string(chars).ToLowerInvariant();
+    }
+
+    private void AppendPromptTranscript(FiestaRoom room, string requestId, string prompt, IReadOnlyCollection<string> targetWorkerIds)
+    {
+        AppendTranscriptEntry(room.Id, new FiestaTranscriptEntry
+        {
+            RequestId = requestId,
+            FiestaId = room.Id,
+            EntryType = FiestaTranscriptEntryType.Prompt,
+            CreatedAt = DateTime.UtcNow,
+            SenderInstanceId = InstanceId,
+            SenderMachineName = MachineName,
+            Content = prompt,
+            TargetInstanceIds = targetWorkerIds.ToList()
+        });
+    }
+
+    private void AppendTranscriptEntry(string roomId, FiestaTranscriptEntry entry)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room))
+            return;
+
+        lock (room.Transcript)
+        {
+            room.Transcript.Add(entry);
+            if (room.Transcript.Count > MaxTranscriptEntries)
+            {
+                var removeCount = room.Transcript.Count - MaxTranscriptEntries;
+                room.Transcript.RemoveRange(0, removeCount);
+            }
+        }
+    }
+
+    private void RemovePromptTranscript(string roomId, string requestId)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room))
+            return;
+
+        lock (room.Transcript)
+        {
+            room.Transcript.RemoveAll(e =>
+                string.Equals(e.RequestId, requestId, StringComparison.Ordinal) &&
+                e.EntryType == FiestaTranscriptEntryType.Prompt);
+        }
+    }
+
+    private async Task DispatchLocalPromptAsync(
+        FiestaRoom room,
+        string requestId,
+        string sessionName,
+        string prompt,
+        string? model,
+        string? workingDirectory,
+        CancellationToken cancellationToken)
+    {
+        var result = new FiestaDispatchResultPayload
+        {
+            RequestId = requestId,
+            FiestaId = room.Id,
+            WorkerInstanceId = InstanceId,
+            WorkerMachineName = MachineName,
+            SessionName = sessionName
+        };
+
+        try
+        {
+            if (_copilotService.GetSession(sessionName) == null)
+                await _copilotService.CreateSessionAsync(sessionName, model, workingDirectory, cancellationToken);
+
+            var response = await _copilotService.SendPromptAsync(sessionName, prompt, cancellationToken: cancellationToken);
+            result.Success = true;
+            result.ResponseContent = response;
+            if (string.IsNullOrWhiteSpace(response))
+            {
+                result.Summary = "Prompt completed.";
+            }
+            else
+            {
+                var firstLine = response
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .FirstOrDefault();
+                result.Summary = string.IsNullOrWhiteSpace(firstLine) ? "Prompt completed." : firstLine;
+            }
+        }
+        catch (Exception ex)
+        {
+            result.Success = false;
+            result.Error = ex.Message;
+            result.Summary = "Prompt failed.";
+        }
+
+        HandleWorkerDispatchResult(result);
+    }
+
+    private async Task ExecuteLocalSessionCommandAsync(
+        string roomId,
+        string requestId,
+        string command,
+        string sessionName,
+        string? model,
+        string? workingDirectory,
+        CancellationToken cancellationToken)
+    {
+        var result = new FiestaSessionCommandResultPayload
+        {
+            RequestId = requestId,
+            FiestaId = roomId,
+            WorkerInstanceId = InstanceId,
+            WorkerMachineName = MachineName,
+            Command = command,
+            SessionName = sessionName
+        };
+
+        try
+        {
+            switch (command.Trim().ToLowerInvariant())
+            {
+                case "create":
+                    if (_copilotService.GetSession(sessionName) == null)
+                        await _copilotService.CreateSessionAsync(sessionName, model, workingDirectory, cancellationToken);
+                    break;
+                case "close":
+                    await _copilotService.CloseSessionAsync(sessionName);
+                    break;
+                case "switch":
+                    _copilotService.SwitchSession(sessionName);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unsupported fiesta session command '{command}'.");
+            }
+            result.Success = true;
+        }
+        catch (Exception ex)
+        {
+            result.Success = false;
+            result.Error = ex.Message;
+        }
+
+        HandleWorkerSessionCommandResult(result);
     }
 
     private object ApplyRoomSort(FiestaRoom room, Dictionary<string, FiestaRoomMeta> roomMetaMap)
@@ -1173,7 +1630,11 @@ public sealed class FiestaCoordinatorService : IDisposable
             if (state.Rooms != null)
             {
                 foreach (var room in state.Rooms)
+                {
+                    room.Members ??= new List<FiestaMember>();
+                    room.Transcript ??= new List<FiestaTranscriptEntry>();
                     _rooms[room.Id] = room;
+                }
             }
 
             if (state.RegisteredWorkers != null)
@@ -1312,6 +1773,13 @@ public sealed class FiestaCoordinatorService : IDisposable
                 LastUpdatedAt = m.LastUpdatedAt
             }).ToList();
         }
+        List<FiestaTranscriptEntry> transcript;
+        lock (room.Transcript)
+        {
+            transcript = room.Transcript
+                .Select(CloneTranscriptEntry)
+                .ToList();
+        }
 
         return new FiestaRoom
         {
@@ -1322,8 +1790,28 @@ public sealed class FiestaCoordinatorService : IDisposable
             OrganizerMachineName = room.OrganizerMachineName,
             Members = members,
             SessionName = room.SessionName,
+            HostWorkingDirectory = room.HostWorkingDirectory,
             LastActivityAt = room.LastActivityAt,
-            LastSummary = room.LastSummary
+            LastSummary = room.LastSummary,
+            Transcript = transcript
+        };
+    }
+
+    private static FiestaTranscriptEntry CloneTranscriptEntry(FiestaTranscriptEntry entry)
+    {
+        return new FiestaTranscriptEntry
+        {
+            Id = entry.Id,
+            RequestId = entry.RequestId,
+            FiestaId = entry.FiestaId,
+            EntryType = entry.EntryType,
+            CreatedAt = entry.CreatedAt,
+            SenderInstanceId = entry.SenderInstanceId,
+            SenderMachineName = entry.SenderMachineName,
+            Content = entry.Content,
+            TargetInstanceIds = entry.TargetInstanceIds.ToList(),
+            Success = entry.Success,
+            Error = entry.Error
         };
     }
 

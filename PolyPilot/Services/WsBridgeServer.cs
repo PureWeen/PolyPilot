@@ -887,6 +887,15 @@ public class WsBridgeServer : IDisposable
             SessionName = payload.SessionName
         };
 
+        if (payload.TargetInstanceIds is { Count: > 0 } &&
+            !payload.TargetInstanceIds.Contains(workerId, StringComparer.Ordinal))
+        {
+            result.Success = false;
+            result.Error = "Worker was not targeted by this request.";
+            await SendToClientAsync(clientId, ws, BridgeMessage.Create(BridgeMessageTypes.FiestaDispatchResult, result, payload.FiestaId), ct);
+            return;
+        }
+
         try
         {
             if (payload.CreateSessionIfMissing && _copilot.GetSession(payload.SessionName) == null)
@@ -894,9 +903,20 @@ public class WsBridgeServer : IDisposable
                 await _copilot.CreateSessionAsync(payload.SessionName, payload.Model, payload.WorkingDirectory, ct);
             }
 
-            await _copilot.SendPromptAsync(payload.SessionName, payload.Message, cancellationToken: ct);
+            var response = await _copilot.SendPromptAsync(payload.SessionName, payload.Message, cancellationToken: ct);
             result.Success = true;
-            result.Summary = "Prompt completed";
+            result.ResponseContent = response;
+            if (string.IsNullOrWhiteSpace(response))
+            {
+                result.Summary = "Prompt completed";
+            }
+            else
+            {
+                var firstLine = response
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .FirstOrDefault();
+                result.Summary = string.IsNullOrWhiteSpace(firstLine) ? "Prompt completed" : firstLine;
+            }
         }
         catch (Exception ex)
         {

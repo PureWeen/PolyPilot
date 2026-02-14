@@ -461,7 +461,8 @@ public class BridgePayloadTests
             WorkerMachineName = "Win-Worker",
             SessionName = "maui-fix",
             Success = true,
-            Summary = "Prompt completed"
+            Summary = "Prompt completed",
+            ResponseContent = "Here is the worker response."
         };
 
         var msg = BridgeMessage.Create(BridgeMessageTypes.FiestaDispatchResult, payload, payload.FiestaId);
@@ -470,6 +471,32 @@ public class BridgePayloadTests
         Assert.True(restored!.Success);
         Assert.Equal("Win-Worker", restored.WorkerMachineName);
         Assert.Equal("Prompt completed", restored.Summary);
+        Assert.Equal("Here is the worker response.", restored.ResponseContent);
+    }
+
+    [Fact]
+    public void FiestaDispatchPromptPayload_RoundTrip()
+    {
+        var payload = new FiestaDispatchPromptPayload
+        {
+            RequestId = "dispatch-1",
+            FiestaId = "fiesta-3",
+            SessionName = "fiesta-session",
+            Message = "@all investigate this",
+            SenderInstanceId = "host-1",
+            SenderMachineName = "Host-Mac",
+            TargetInstanceIds = new List<string> { "worker-1", "worker-2" },
+            WorkingDirectory = "/Users/dev/repo"
+        };
+
+        var msg = BridgeMessage.Create(BridgeMessageTypes.FiestaDispatchPrompt, payload, payload.FiestaId);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<FiestaDispatchPromptPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("host-1", restored!.SenderInstanceId);
+        Assert.Equal("Host-Mac", restored.SenderMachineName);
+        Assert.Equal(2, restored.TargetInstanceIds.Count);
+        Assert.Equal("/Users/dev/repo", restored.WorkingDirectory);
     }
 
     [Fact]

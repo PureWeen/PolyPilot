@@ -314,6 +314,9 @@ public class FiestaDispatchPromptPayload
     public string FiestaId { get; set; } = "";
     public string SessionName { get; set; } = "";
     public string Message { get; set; } = "";
+    public string SenderInstanceId { get; set; } = "";
+    public string SenderMachineName { get; set; } = "";
+    public List<string> TargetInstanceIds { get; set; } = new();
     public bool CreateSessionIfMissing { get; set; } = true;
     public string? Model { get; set; }
     public string? WorkingDirectory { get; set; }
@@ -329,6 +332,7 @@ public class FiestaDispatchResultPayload
     public bool Success { get; set; }
     public string? Error { get; set; }
     public string? Summary { get; set; }
+    public string? ResponseContent { get; set; }
 }
 
 public class FiestaSessionCommandPayload

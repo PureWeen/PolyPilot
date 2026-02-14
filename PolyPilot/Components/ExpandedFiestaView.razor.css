@@ -33,6 +33,10 @@
     align-items: center;
 }
 
+.workspace-input {
+    min-width: 280px;
+}
+
 .expanded-fiesta-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -83,6 +87,67 @@
     font-size: var(--type-caption1);
     border-top: 1px solid var(--control-bg);
     padding-top: 0.5rem;
+}
+
+.mention-hints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.mention-pill {
+    font-size: var(--type-caption1);
+    padding: 0.2rem 0.45rem;
+}
+
+.expanded-transcript {
+    border: 1px solid var(--control-border);
+    border-radius: 10px;
+    padding: 0.75rem;
+    background: var(--bg-input);
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-height: 200px;
+    max-height: 45vh;
+    overflow-y: auto;
+}
+
+.expanded-transcript h3 {
+    margin: 0;
+    font-size: var(--type-title2);
+}
+
+.transcript-entry {
+    border: 1px solid var(--control-bg);
+    border-radius: 8px;
+    padding: 0.5rem 0.6rem;
+    background: var(--bg-primary);
+}
+
+.transcript-entry.response {
+    border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--control-bg));
+}
+
+.transcript-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-bottom: 0.3rem;
+}
+
+.speaker {
+    font-weight: 600;
+}
+
+.targets {
+    margin-left: auto;
+}
+
+.transcript-content {
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .chip-dot {

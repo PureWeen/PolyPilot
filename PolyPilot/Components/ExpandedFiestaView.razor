@@ -22,6 +22,8 @@
         </select>
         <input class="fiesta-input" value="@sessionName" @oninput="(e) => sessionName = e.Value?.ToString() ?? string.Empty" placeholder="Session name" />
         <button class="fiesta-btn" @onclick="() => OnSetSessionName.InvokeAsync(sessionName)">Set Session</button>
+        <input class="fiesta-input workspace-input" value="@workspaceDirectory" @oninput="(e) => workspaceDirectory = e.Value?.ToString() ?? string.Empty" placeholder="Host workspace path" />
+        <button class="fiesta-btn" @onclick="() => OnSetWorkspace.InvokeAsync(workspaceDirectory)">Set Workspace</button>
     </div>
 
     <div class="expanded-fiesta-grid">
@@ -62,8 +64,19 @@
     </div>
 
     <div class="expanded-prompt">
-        <textarea class="fiesta-textarea" @bind="promptText" placeholder="Broadcast prompt to assigned workers"></textarea>
-        <button class="fiesta-btn primary" @onclick="SendPrompt" disabled="@string.IsNullOrWhiteSpace(promptText)">Broadcast</button>
+        <textarea class="fiesta-textarea" @bind="promptText" placeholder="Use @@worker or @@all to dispatch work"></textarea>
+        <button class="fiesta-btn primary" @onclick="SendPrompt" disabled="@string.IsNullOrWhiteSpace(promptText)">Send</button>
+    </div>
+
+    <div class="mention-hints">
+        <span class="fiesta-muted">Mentions:</span>
+        <button class="fiesta-btn mention-pill" @onclick='@(() => InsertMention("all"))'>@("@all")</button>
+        @foreach (var worker in AssignedWorkers)
+        {
+            <button class="fiesta-btn mention-pill" @onclick="@(() => InsertMention(GetMentionHandle(worker.MachineName)))">
+                @($"@{GetMentionHandle(worker.MachineName)}")
+            </button>
+        }
     </div>
 
     <div class="expanded-command-row">
@@ -72,10 +85,30 @@
         <button class="fiesta-btn danger" @onclick="SendCloseCommand">Close Session</button>
     </div>
 
-    @if (!string.IsNullOrWhiteSpace(Room.LastSummary))
-    {
-        <div class="expanded-last-summary">@Room.LastSummary</div>
-    }
+    <div class="expanded-transcript">
+        <h3>Group Transcript</h3>
+        @if (Transcript.Count == 0)
+        {
+            <p class="fiesta-muted">No messages yet. Send a prompt with an explicit @@mention.</p>
+        }
+        else
+        {
+            @foreach (var entry in Transcript.OrderBy(t => t.CreatedAt))
+            {
+                <div class="transcript-entry @(entry.EntryType == FiestaTranscriptEntryType.Response ? "response" : "prompt")">
+                    <div class="transcript-meta">
+                        <span class="speaker">@entry.SenderMachineName</span>
+                        <span class="fiesta-muted">@entry.CreatedAt.ToLocalTime().ToString("HH:mm:ss")</span>
+                        @if (entry.EntryType == FiestaTranscriptEntryType.Prompt && entry.TargetInstanceIds.Count > 0)
+                        {
+                            <span class="fiesta-muted targets">to @GetTargetsLabel(entry.TargetInstanceIds)</span>
+                        }
+                    </div>
+                    <div class="transcript-content">@entry.Content</div>
+                </div>
+            }
+        }
+    </div>
 </div>
 
 @code {
@@ -84,10 +117,12 @@
     [Parameter] public IReadOnlyList<FiestaGroup> Groups { get; set; } = Array.Empty<FiestaGroup>();
     [Parameter] public IReadOnlyList<FiestaRegisteredWorker> AssignedWorkers { get; set; } = Array.Empty<FiestaRegisteredWorker>();
     [Parameter] public IReadOnlyList<FiestaRegisteredWorker> RegisteredWorkers { get; set; } = Array.Empty<FiestaRegisteredWorker>();
+    [Parameter] public IReadOnlyList<FiestaTranscriptEntry> Transcript { get; set; } = Array.Empty<FiestaTranscriptEntry>();
 
     [Parameter] public EventCallback OnCollapse { get; set; }
     [Parameter] public EventCallback<string> OnPrompt { get; set; }
     [Parameter] public EventCallback<string> OnSetSessionName { get; set; }
+    [Parameter] public EventCallback<string> OnSetWorkspace { get; set; }
     [Parameter] public EventCallback<string> OnCommand { get; set; }
     [Parameter] public EventCallback<string> OnAssignWorker { get; set; }
     [Parameter] public EventCallback<string> OnUnassignWorker { get; set; }
@@ -98,7 +133,9 @@
     private string promptText = "";
     private string selectedWorkerId = "";
     private string sessionName = "fiesta-session";
+    private string workspaceDirectory = "";
     private string? lastSessionNameFromRoom;
+    private string? lastWorkspaceFromRoom;
 
     protected override void OnParametersSet()
     {
@@ -106,6 +143,11 @@
         if (lastSessionNameFromRoom == null || string.Equals(sessionName, lastSessionNameFromRoom, StringComparison.Ordinal))
             sessionName = incoming;
         lastSessionNameFromRoom = incoming;
+
+        var incomingWorkspace = Room.HostWorkingDirectory ?? "";
+        if (lastWorkspaceFromRoom == null || string.Equals(workspaceDirectory, lastWorkspaceFromRoom, StringComparison.Ordinal))
+            workspaceDirectory = incomingWorkspace;
+        lastWorkspaceFromRoom = incomingWorkspace;
     }
 
     private async Task SendPrompt()
@@ -124,6 +166,40 @@
     private Task SendCreateCommand() => OnCommand.InvokeAsync("create");
     private Task SendSwitchCommand() => OnCommand.InvokeAsync("switch");
     private Task SendCloseCommand() => OnCommand.InvokeAsync("close");
+
+    private void InsertMention(string handle)
+    {
+        var mention = $"@{handle}";
+        if (string.IsNullOrWhiteSpace(promptText))
+        {
+            promptText = $"{mention} ";
+            return;
+        }
+
+        if (!promptText.EndsWith(' '))
+            promptText += " ";
+
+        promptText += $"{mention} ";
+    }
+
+    private static string GetMentionHandle(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "worker";
+
+        var chars = value
+            .Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '.')
+            .ToArray();
+        var normalized = new string(chars).ToLowerInvariant();
+        return string.IsNullOrWhiteSpace(normalized) ? "worker" : normalized;
+    }
+
+    private string GetTargetsLabel(IReadOnlyList<string> targetIds)
+    {
+        var labels = targetIds.Select(id =>
+            AssignedWorkers.FirstOrDefault(w => string.Equals(w.InstanceId, id, StringComparison.Ordinal))?.MachineName ?? id);
+        return string.Join(", ", labels);
+    }
 
     private Task OnGroupChanged(ChangeEventArgs e)
     {

@@ -63,7 +63,7 @@
     </div>
 
     <div class="fiesta-card-prompt">
-        <textarea class="fiesta-textarea" @bind="promptText" placeholder="Broadcast prompt"></textarea>
+        <textarea class="fiesta-textarea" @bind="promptText" placeholder="Use @@worker or @@all"></textarea>
         <button class="fiesta-btn primary" @onclick="SendPrompt" disabled="@string.IsNullOrWhiteSpace(promptText)">Send</button>
     </div>
 

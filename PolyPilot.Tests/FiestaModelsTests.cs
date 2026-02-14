@@ -78,4 +78,57 @@ public class FiestaModelsTests
         Assert.Equal("org-1", record.OrganizerInstanceId);
         Assert.Equal("token-1", record.TrustToken);
     }
+
+    [Fact]
+    public void FiestaRoom_TranscriptAndWorkspace_RoundTrip()
+    {
+        var state = new FiestaStateStore
+        {
+            Rooms = new List<FiestaRoom>
+            {
+                new()
+                {
+                    Id = "room-1",
+                    Name = "Transcript Fiesta",
+                    OrganizerInstanceId = "host-1",
+                    OrganizerMachineName = "Host-Mac",
+                    HostWorkingDirectory = "/Users/dev/project",
+                    Transcript = new List<FiestaTranscriptEntry>
+                    {
+                        new()
+                        {
+                            RequestId = "req-1",
+                            FiestaId = "room-1",
+                            EntryType = FiestaTranscriptEntryType.Prompt,
+                            SenderInstanceId = "host-1",
+                            SenderMachineName = "Host-Mac",
+                            Content = "@worker check this",
+                            TargetInstanceIds = new List<string> { "worker-1" }
+                        },
+                        new()
+                        {
+                            RequestId = "req-1",
+                            FiestaId = "room-1",
+                            EntryType = FiestaTranscriptEntryType.Response,
+                            SenderInstanceId = "worker-1",
+                            SenderMachineName = "Worker-Win",
+                            Content = "Done",
+                            TargetInstanceIds = new List<string> { "worker-1" },
+                            Success = true
+                        }
+                    }
+                }
+            }
+        };
+
+        var json = JsonSerializer.Serialize(state);
+        var restored = JsonSerializer.Deserialize<FiestaStateStore>(json);
+
+        Assert.NotNull(restored);
+        var room = Assert.Single(restored!.Rooms);
+        Assert.Equal("/Users/dev/project", room.HostWorkingDirectory);
+        Assert.Equal(2, room.Transcript.Count);
+        Assert.Equal(FiestaTranscriptEntryType.Prompt, room.Transcript[0].EntryType);
+        Assert.True(room.Transcript[1].Success);
+    }
 }

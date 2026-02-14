@@ -26,9 +26,11 @@
                            Groups="groups"
                            AssignedWorkers="GetAssignedWorkers(expandedRoom.Id)"
                            RegisteredWorkers="registeredWorkers"
+                           Transcript="GetTranscript(expandedRoom.Id)"
                            OnCollapse="CollapseExpanded"
                            OnPrompt="(prompt) => BroadcastPrompt(expandedRoom.Id, prompt)"
                            OnSetSessionName="(name) => SetSessionName(expandedRoom.Id, name)"
+                           OnSetWorkspace="(path) => SetHostWorkspace(expandedRoom.Id, path)"
                            OnCommand="(command) => SendCommand(expandedRoom.Id, command)"
                            OnAssignWorker="(workerId) => AssignWorker(expandedRoom.Id, workerId)"
                            OnUnassignWorker="(workerId) => UnassignWorker(expandedRoom.Id, workerId)"
@@ -157,6 +159,9 @@
     private IReadOnlyList<FiestaRegisteredWorker> GetAssignedWorkers(string roomId) =>
         FiestaCoordinator.GetAssignedWorkers(roomId);
 
+    private IReadOnlyList<FiestaTranscriptEntry> GetTranscript(string roomId) =>
+        FiestaCoordinator.GetRoomTranscript(roomId);
+
     private void CreateRoom()
     {
         if (string.IsNullOrWhiteSpace(newRoomName)) return;
@@ -235,6 +240,12 @@
     private void SetSessionName(string roomId, string sessionName)
     {
         FiestaCoordinator.SetRoomSessionName(roomId, sessionName);
+        RefreshState();
+    }
+
+    private void SetHostWorkspace(string roomId, string workspacePath)
+    {
+        FiestaCoordinator.SetRoomHostWorkingDirectory(roomId, workspacePath);
         RefreshState();
     }
 

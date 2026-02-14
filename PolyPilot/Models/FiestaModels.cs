@@ -67,8 +67,33 @@ public class FiestaRoom
     public string OrganizerMachineName { get; set; } = "";
     public List<FiestaMember> Members { get; set; } = new();
     public string SessionName { get; set; } = "fiesta-session";
+    public string? HostWorkingDirectory { get; set; }
     public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
     public string? LastSummary { get; set; }
+    public List<FiestaTranscriptEntry> Transcript { get; set; } = new();
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum FiestaTranscriptEntryType
+{
+    Prompt,
+    Response,
+    System
+}
+
+public class FiestaTranscriptEntry
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string RequestId { get; set; } = "";
+    public string FiestaId { get; set; } = "";
+    public FiestaTranscriptEntryType EntryType { get; set; } = FiestaTranscriptEntryType.Prompt;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string SenderInstanceId { get; set; } = "";
+    public string SenderMachineName { get; set; } = "";
+    public string Content { get; set; } = "";
+    public List<string> TargetInstanceIds { get; set; } = new();
+    public bool? Success { get; set; }
+    public string? Error { get; set; }
 }
 
 public class FiestaJoinRequest
