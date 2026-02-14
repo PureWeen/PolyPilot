@@ -372,6 +372,83 @@
     color: var(--text-muted);
 }
 
+/* Multi-agent group styles */
+.group-divider.multi-agent-group {
+    border-bottom-color: rgba(99, 102, 241, 0.3);
+    background: linear-gradient(90deg, rgba(99, 102, 241, 0.05) 0%, transparent 100%);
+}
+.group-divider.multi-agent-group:hover {
+    border-bottom-color: rgba(99, 102, 241, 0.5);
+}
+.group-divider-badge {
+    font-size: var(--type-callout);
+    flex-shrink: 0;
+}
+.group-divider-mode {
+    flex-shrink: 0;
+}
+.ma-mode-select {
+    background: var(--control-bg);
+    color: var(--text-dim);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: var(--type-caption1);
+    padding: 0.15rem 0.35rem;
+    cursor: pointer;
+}
+.group-divider-progress {
+    font-size: var(--type-caption1);
+    color: rgba(99, 102, 241, 0.8);
+    font-weight: 500;
+}
+.multi-agent-input-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    padding: 0.5rem 0.25rem;
+    margin-bottom: 0.5rem;
+}
+.ma-broadcast-input {
+    flex: 1;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-size: var(--type-body);
+    font-family: inherit;
+    resize: none;
+    min-height: 2.2rem;
+    line-height: 1.4;
+}
+.ma-broadcast-input:focus {
+    outline: none;
+    border-color: rgba(99, 102, 241, 0.6);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+.ma-broadcast-input::placeholder {
+    color: var(--text-muted);
+}
+.ma-send-btn {
+    background: rgba(99, 102, 241, 0.15);
+    color: rgba(99, 102, 241, 0.9);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 8px;
+    padding: 0.45rem 0.85rem;
+    font-size: var(--type-callout);
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+.ma-send-btn:hover {
+    background: rgba(99, 102, 241, 0.25);
+    border-color: rgba(99, 102, 241, 0.5);
+}
+.multi-agent-btn {
+    color: rgba(99, 102, 241, 0.9) !important;
+}
+
 /* Pinned card styles */
 .session-card.pinned {
     border-color: rgba(251,191,36,0.25);

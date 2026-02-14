@@ -81,9 +81,12 @@ public static class BridgeMessageTypes
     public const string AbortSession = "abort_session";
     public const string OrganizationCommand = "organization_command";
     public const string ListDirectories = "list_directories";
+    public const string MultiAgentBroadcast = "multi_agent_broadcast";
+    public const string MultiAgentCreateGroup = "multi_agent_create_group";
 
     // Server → Client (response)
     public const string DirectoriesList = "directories_list";
+    public const string MultiAgentProgress = "multi_agent_progress";
 }
 
 // --- Server → Client payloads ---
@@ -280,4 +283,29 @@ public class AttentionNeededPayload
     public string? SessionId { get; set; }
     public AttentionReason Reason { get; set; }
     public string Summary { get; set; } = "";
+}
+
+// --- Multi-agent orchestration payloads ---
+
+public class MultiAgentBroadcastPayload
+{
+    public string GroupId { get; set; } = "";
+    public string Message { get; set; } = "";
+}
+
+public class MultiAgentCreateGroupPayload
+{
+    public string Name { get; set; } = "";
+    public string Mode { get; set; } = "Broadcast";
+    public string? OrchestratorPrompt { get; set; }
+    public List<string>? SessionNames { get; set; }
+}
+
+public class MultiAgentProgressPayload
+{
+    public string GroupId { get; set; } = "";
+    public int TotalSessions { get; set; }
+    public int CompletedSessions { get; set; }
+    public int ProcessingSessions { get; set; }
+    public List<string> CompletedSessionNames { get; set; } = new();
 }

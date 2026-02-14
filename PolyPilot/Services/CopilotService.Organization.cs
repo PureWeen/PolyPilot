@@ -318,4 +318,228 @@ public partial class CopilotService
     }
 
     #endregion
+
+    #region Multi-Agent Orchestration
+
+    /// <summary>
+    /// Create a multi-agent group and optionally move existing sessions into it.
+    /// </summary>
+    public SessionGroup CreateMultiAgentGroup(string name, MultiAgentMode mode = MultiAgentMode.Broadcast, string? orchestratorPrompt = null, List<string>? sessionNames = null)
+    {
+        var group = new SessionGroup
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = name,
+            IsMultiAgent = true,
+            OrchestratorMode = mode,
+            OrchestratorPrompt = orchestratorPrompt,
+            SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
+        };
+        Organization.Groups.Add(group);
+
+        if (sessionNames != null)
+        {
+            foreach (var sessionName in sessionNames)
+            {
+                var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+                if (meta != null)
+                {
+                    meta.GroupId = group.Id;
+                }
+            }
+        }
+
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+        return group;
+    }
+
+    /// <summary>
+    /// Set the orchestration mode for a multi-agent group.
+    /// </summary>
+    public void SetMultiAgentMode(string groupId, MultiAgentMode mode)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group != null && group.IsMultiAgent)
+        {
+            group.OrchestratorMode = mode;
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// Set the role of a session within a multi-agent group.
+    /// </summary>
+    public void SetSessionRole(string sessionName, MultiAgentRole role)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta != null)
+        {
+            meta.Role = role;
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// Get all session names in a multi-agent group.
+    /// </summary>
+    public List<string> GetMultiAgentGroupMembers(string groupId)
+    {
+        return Organization.Sessions
+            .Where(m => m.GroupId == groupId)
+            .Select(m => m.SessionName)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Get the orchestrator session name for an orchestrator-mode group, if any.
+    /// </summary>
+    public string? GetOrchestratorSession(string groupId)
+    {
+        return Organization.Sessions
+            .FirstOrDefault(m => m.GroupId == groupId && m.Role == MultiAgentRole.Orchestrator)
+            ?.SessionName;
+    }
+
+    /// <summary>
+    /// Send a prompt to all sessions in a multi-agent group based on its orchestration mode.
+    /// </summary>
+    public async Task SendToMultiAgentGroupAsync(string groupId, string prompt, CancellationToken cancellationToken = default)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
+        if (group == null) return;
+
+        var members = GetMultiAgentGroupMembers(groupId);
+        if (members.Count == 0) return;
+
+        switch (group.OrchestratorMode)
+        {
+            case MultiAgentMode.Broadcast:
+                await SendBroadcastAsync(members, prompt, cancellationToken);
+                break;
+
+            case MultiAgentMode.Sequential:
+                await SendSequentialAsync(members, prompt, cancellationToken);
+                break;
+
+            case MultiAgentMode.Orchestrator:
+                await SendViaOrchestratorAsync(groupId, members, prompt, cancellationToken);
+                break;
+        }
+    }
+
+    private async Task SendBroadcastAsync(List<string> sessionNames, string prompt, CancellationToken cancellationToken)
+    {
+        var tasks = sessionNames.Select(name =>
+        {
+            var session = GetSession(name);
+            if (session == null) return Task.CompletedTask;
+
+            if (session.IsProcessing)
+            {
+                EnqueueMessage(name, prompt);
+                return Task.CompletedTask;
+            }
+
+            return SendPromptAsync(name, prompt, cancellationToken: cancellationToken)
+                .ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                        Debug($"Broadcast send failed for '{name}': {t.Exception?.InnerException?.Message}");
+                }, TaskScheduler.Default);
+        });
+
+        await Task.WhenAll(tasks);
+    }
+
+    private async Task SendSequentialAsync(List<string> sessionNames, string prompt, CancellationToken cancellationToken)
+    {
+        foreach (var name in sessionNames)
+        {
+            if (cancellationToken.IsCancellationRequested) break;
+
+            var session = GetSession(name);
+            if (session == null) continue;
+
+            if (session.IsProcessing)
+            {
+                EnqueueMessage(name, prompt);
+                continue;
+            }
+
+            try
+            {
+                await SendPromptAsync(name, prompt, cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Debug($"Sequential send failed for '{name}': {ex.Message}");
+            }
+        }
+    }
+
+    private async Task SendViaOrchestratorAsync(string groupId, List<string> members, string prompt, CancellationToken cancellationToken)
+    {
+        var orchestratorName = GetOrchestratorSession(groupId);
+        if (orchestratorName == null)
+        {
+            // Fall back to broadcast if no orchestrator is designated
+            await SendBroadcastAsync(members, prompt, cancellationToken);
+            return;
+        }
+
+        var workerNames = members.Where(m => m != orchestratorName).ToList();
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+
+        // Build the orchestrator prompt with context about available workers
+        var orchestratorPrompt = $"""
+            You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available: {string.Join(", ", workerNames.Select(w => $"'{w}'"))}.
+
+            The user's request is:
+            {prompt}
+
+            {(group?.OrchestratorPrompt != null ? $"Additional orchestration instructions: {group.OrchestratorPrompt}" : "")}
+
+            Analyze the request and respond with your plan. The user will manually delegate specific tasks to the worker sessions based on your plan.
+            """;
+
+        var orchestratorSession = GetSession(orchestratorName);
+        if (orchestratorSession == null) return;
+
+        try
+        {
+            await SendPromptAsync(orchestratorName, orchestratorPrompt, cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Debug($"Orchestrator send failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Get the progress of a multi-agent group (how many sessions have completed their current turn).
+    /// </summary>
+    public (int Total, int Completed, int Processing, List<string> CompletedNames) GetMultiAgentProgress(string groupId)
+    {
+        var members = GetMultiAgentGroupMembers(groupId);
+        var completed = new List<string>();
+        int processing = 0;
+
+        foreach (var name in members)
+        {
+            var session = GetSession(name);
+            if (session == null) continue;
+
+            if (session.IsProcessing)
+                processing++;
+            else
+                completed.Add(name);
+        }
+
+        return (members.Count, completed.Count, processing, completed);
+    }
+
+    #endregion
 }
