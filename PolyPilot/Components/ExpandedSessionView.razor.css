@@ -392,6 +392,7 @@
 .inline-model-select:hover { color: var(--accent-primary); }
 .inline-model-select option { background: var(--bg-tertiary); color: var(--text-primary); }
 .status-extra { display: contents; }
+.status-spacer { flex: 1; }
 
 .font-size-controls { display: inline-flex; align-items: center; gap: 0.15rem; }
 .font-size-btn { background: var(--hover-bg); border: 1px solid var(--hover-bg); border-radius: 4px; color: var(--text-secondary); cursor: pointer; font-size: 0.65rem; font-weight: 600; padding: 0.1rem 0.3rem; line-height: 1; }

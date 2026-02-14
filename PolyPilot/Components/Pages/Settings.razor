@@ -10,6 +10,7 @@
 @inject GitAutoUpdateService GitAutoUpdate
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject IServiceProvider ServiceProvider
 @implements IDisposable
 
 <div class="settings-page">
@@ -390,6 +391,17 @@
                 <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)">A‒</button>
                 <span class="font-size-value">@fontSize px</span>
                 <button class="font-size-btn" @onclick="IncreaseFontSize" disabled="@(fontSize >= 24)">A+</button>
+            </div>
+        </div>
+
+        <div class="settings-section @(SectionVisible("notifications alert sound badge") ? "" : "search-hidden")">
+            <h3>Notifications</h3>
+            <div class="notifications-toggle">
+                <label class="toggle-label">
+                    <input type="checkbox" checked="@settings.EnableSessionNotifications" @onchange="ToggleNotifications" />
+                    <span class="toggle-text">🔔 Notify when sessions complete</span>
+                </label>
+                <p class="toggle-hint">Get a system notification when an agent finishes responding</p>
             </div>
         </div>
     </div>
@@ -776,6 +788,18 @@
     {
         await JS.InvokeVoidAsync("eval", $"document.documentElement.style.setProperty('--app-font-size', '{fontSize}px')");
         CopilotService.SaveUiState("/settings", fontSize: fontSize);
+    }
+
+    private async Task ToggleNotifications(ChangeEventArgs e)
+    {
+        settings.EnableSessionNotifications = e.Value is true;
+        settings.Save();
+        if (settings.EnableSessionNotifications)
+        {
+            var notifService = ServiceProvider.GetService<INotificationManagerService>();
+            if (notifService != null && !notifService.HasPermission)
+                await notifService.InitializeAsync();
+        }
     }
 
     private void ToggleAutoUpdate()

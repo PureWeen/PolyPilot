@@ -1553,6 +1553,9 @@
         expandedSession = sessionName;
         _needsScrollToBottom = true;
         CopilotService.SwitchSession(sessionName);
+        // Mark messages as read
+        var session = CopilotService.GetSession(sessionName);
+        if (session != null) session.LastReadMessageCount = session.History.Count;
         CopilotService.SaveUiState("/dashboard", activeSession: sessionName, expandedSession: sessionName, expandedGrid: !isCompactGrid);
     }
 
@@ -1801,6 +1804,8 @@
         await SaveDraftsAndCursor();
         expandedSession = sessionName;
         CopilotService.SwitchSession(sessionName);
+        var s = CopilotService.GetSession(sessionName);
+        if (s != null) s.LastReadMessageCount = s.History.Count;
         StateHasChanged();
     }
 
@@ -1826,6 +1831,8 @@
         idx = reverse ? (idx - 1 + sessions.Count) % sessions.Count : (idx + 1) % sessions.Count;
         expandedSession = sessions[idx].Name;
         CopilotService.SwitchSession(expandedSession);
+        var cs = CopilotService.GetSession(expandedSession);
+        if (cs != null) cs.LastReadMessageCount = cs.History.Count;
         _focusedInputId = $"input-{expandedSession.Replace(" ", "-")}";
         _cursorStart = 0;
         _cursorEnd = 0;

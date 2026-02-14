@@ -157,12 +157,12 @@
                     <option value="@m">@PrettifyModel(m)</option>
                 }
             </select>
+            <div class="status-spacer"></div>
             <span class="status-extra">
                 @if (UsageInfo != null)
                 {
                     @if (UsageInfo.InputTokens.HasValue || UsageInfo.OutputTokens.HasValue)
                     {
-                        <span class="status-sep">·</span>
                         <span class="status-tokens">↑@FormatTokenCount(UsageInfo.InputTokens ?? 0) ↓@FormatTokenCount(UsageInfo.OutputTokens ?? 0)</span>
                     }
                     @if (UsageInfo.CurrentTokens.HasValue && UsageInfo.TokenLimit.HasValue)
