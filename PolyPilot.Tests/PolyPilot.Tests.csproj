@@ -27,6 +27,8 @@
     <Compile Include="../PolyPilot/Models/PlatformHelper.cs" Link="Shared/PlatformHelper.cs" />
     <Compile Include="../PolyPilot/Models/SessionOrganization.cs" Link="Shared/SessionOrganization.cs" />
     <Compile Include="../PolyPilot/Models/ModelHelper.cs" Link="Shared/ModelHelper.cs" />
+    <Compile Include="../PolyPilot/Models/PromptLibrary.cs" Link="Shared/PromptLibrary.cs" />
+    <Compile Include="../PolyPilot/Services/PromptLibraryService.cs" Link="Shared/PromptLibraryService.cs" />
     <Compile Include="../PolyPilot/Services/NotificationMessageBuilder.cs" Link="Shared/NotificationMessageBuilder.cs" />
   </ItemGroup>
 
