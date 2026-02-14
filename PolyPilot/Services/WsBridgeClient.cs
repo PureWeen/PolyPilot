@@ -24,6 +24,7 @@ public class WsBridgeClient : IDisposable
     public string? ActiveSessionName { get; private set; }
     public Dictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
     public List<PersistedSessionSummary> PersistedSessions { get; private set; } = new();
+    public List<CcaSessionSummary> CcaSessions { get; private set; } = new();
     public string? GitHubAvatarUrl { get; private set; }
     public string? GitHubLogin { get; private set; }
 
@@ -192,6 +193,9 @@ public class WsBridgeClient : IDisposable
 
     public async Task SendOrganizationCommandAsync(OrganizationCommandPayload cmd, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.OrganizationCommand, cmd), ct);
+
+    public async Task RequestCcaSessionsAsync(CancellationToken ct = default) =>
+        await SendAsync(new BridgeMessage { Type = BridgeMessageTypes.GetCcaSessions }, ct);
 
     private TaskCompletionSource<DirectoriesListPayload>? _dirListTcs;
 
@@ -366,6 +370,16 @@ public class WsBridgeClient : IDisposable
                 {
                     PersistedSessions = persisted.Sessions;
                     Console.WriteLine($"[WsBridgeClient] Got {PersistedSessions.Count} persisted sessions");
+                    OnStateChanged?.Invoke();
+                }
+                break;
+
+            case BridgeMessageTypes.CcaSessionsList:
+                var ccaSessions = msg.GetPayload<CcaSessionsPayload>();
+                if (ccaSessions != null)
+                {
+                    CcaSessions = ccaSessions.Sessions;
+                    Console.WriteLine($"[WsBridgeClient] Got {CcaSessions.Count} CCA sessions");
                     OnStateChanged?.Invoke();
                 }
                 break;
