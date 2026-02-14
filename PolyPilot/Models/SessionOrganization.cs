@@ -13,6 +13,15 @@ public class SessionGroup
     public bool IsCollapsed { get; set; }
     /// <summary>If set, this group auto-tracks a repository managed by RepoManager.</summary>
     public string? RepoId { get; set; }
+
+    /// <summary>When true, this group operates as a multi-agent orchestration group.</summary>
+    public bool IsMultiAgent { get; set; }
+
+    /// <summary>The orchestration mode for multi-agent groups.</summary>
+    public MultiAgentMode OrchestratorMode { get; set; } = MultiAgentMode.Broadcast;
+
+    /// <summary>Optional system prompt appended to all sessions in this multi-agent group.</summary>
+    public string? OrchestratorPrompt { get; set; }
 }
 
 public class SessionMeta
@@ -23,6 +32,9 @@ public class SessionMeta
     public int ManualOrder { get; set; }
     /// <summary>Worktree ID if this session was created from a worktree.</summary>
     public string? WorktreeId { get; set; }
+
+    /// <summary>Role of this session within a multi-agent group.</summary>
+    public MultiAgentRole Role { get; set; } = MultiAgentRole.Worker;
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -32,6 +44,28 @@ public enum SessionSortMode
     CreatedAt,
     Alphabetical,
     Manual
+}
+
+/// <summary>How prompts are distributed in a multi-agent group.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum MultiAgentMode
+{
+    /// <summary>Send the same prompt to all sessions simultaneously.</summary>
+    Broadcast,
+    /// <summary>Send the prompt to sessions one at a time in order.</summary>
+    Sequential,
+    /// <summary>An orchestrator session decides how to delegate work to other sessions.</summary>
+    Orchestrator
+}
+
+/// <summary>Role of a session within a multi-agent group.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum MultiAgentRole
+{
+    /// <summary>Regular worker session that receives prompts.</summary>
+    Worker,
+    /// <summary>Orchestrator session that delegates work (used in Orchestrator mode).</summary>
+    Orchestrator
 }
 
 public class OrganizationState

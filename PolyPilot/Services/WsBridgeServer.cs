@@ -484,6 +484,23 @@ public class WsBridgeServer : IDisposable
                     await SendToClientAsync(clientId, ws,
                         BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, dirResult), ct);
                     break;
+
+                case BridgeMessageTypes.MultiAgentBroadcast:
+                    var maReq = msg.GetPayload<MultiAgentBroadcastPayload>();
+                    if (maReq != null && _copilotService != null)
+                    {
+                        _ = _copilotService.SendToMultiAgentGroupAsync(maReq.GroupId, maReq.Message, ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.MultiAgentCreateGroup:
+                    var maCreateReq = msg.GetPayload<MultiAgentCreateGroupPayload>();
+                    if (maCreateReq != null && _copilotService != null)
+                    {
+                        var mode = Enum.TryParse<MultiAgentMode>(maCreateReq.Mode, out var m) ? m : MultiAgentMode.Broadcast;
+                        _copilotService.CreateMultiAgentGroup(maCreateReq.Name, mode, maCreateReq.OrchestratorPrompt, maCreateReq.SessionNames);
+                    }
+                    break;
             }
         }
         catch (Exception ex)

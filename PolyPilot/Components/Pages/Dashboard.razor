@@ -113,9 +113,17 @@
                                @onblur="CommitDashGroup"
                                @onkeydown="HandleDashGroupKeyDown" />
                     }
+                    else if (isAddingMultiAgentGroup)
+                    {
+                        <input type="text" class="new-group-input" id="dashNewMultiAgentGroupInput"
+                               placeholder="Multi-agent group name..."
+                               @onblur="CommitMultiAgentGroup"
+                               @onkeydown="HandleMultiAgentGroupKeyDown" />
+                    }
                     else
                     {
                         <button class="grid-density-btn" @onclick="() => { isAddingDashGroup = true; }" title="New group">+ Group</button>
+                        <button class="grid-density-btn multi-agent-btn" @onclick="() => { isAddingMultiAgentGroup = true; }" title="New multi-agent group">🤖 + Multi-Agent</button>
                     }
                     <button class="grid-density-btn" @onclick="ToggleGridDensity" title="@(isCompactGrid ? "Expanded grid" : "Compact grid")">
                         @(isCompactGrid ? "▤ Expanded" : "▦ Compact")
@@ -139,13 +147,37 @@
             var showGroupHeaders = CopilotService.HasMultipleGroups;
             @if (showGroupHeaders)
             {
-                <div class="group-divider @(group.IsCollapsed ? "collapsed" : "")"
+                <div class="group-divider @(group.IsCollapsed ? "collapsed" : "") @(group.IsMultiAgent ? "multi-agent-group" : "")"
                      @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
+                    @if (group.IsMultiAgent)
+                    {
+                        <span class="group-divider-badge">🤖</span>
+                    }
                     <span class="group-divider-name">@group.Name</span>
+                    @if (group.IsMultiAgent)
+                    {
+                        <span class="group-divider-mode" @onclick:stopPropagation="true">
+                            <select class="ma-mode-select" @onchange="(e) => OnMultiAgentModeChanged(group.Id, e)" value="@group.OrchestratorMode.ToString()">
+                                <option value="Broadcast">📡 Broadcast</option>
+                                <option value="Sequential">⏩ Sequential</option>
+                                <option value="Orchestrator">🎯 Orchestrator</option>
+                            </select>
+                        </span>
+                    }
                     <span class="group-divider-count">@groupSessions.Count sessions</span>
                     @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
                     {
                         <span class="group-divider-busy">● working</span>
+                    }
+                    @if (group.IsMultiAgent && !group.IsCollapsed)
+                    {
+                        var progress = CopilotService.GetMultiAgentProgress(group.Id);
+                        @if (progress.Processing > 0)
+                        {
+                            <span class="group-divider-progress">
+                                @progress.Completed/@progress.Total done
+                            </span>
+                        }
                     }
                     <span class="group-divider-chevron">@(group.IsCollapsed ? "▶" : "▼")</span>
                 </div>
@@ -153,6 +185,16 @@
 
             @if (!group.IsCollapsed || !showGroupHeaders)
             {
+                @if (group.IsMultiAgent && showGroupHeaders)
+                {
+                    <div class="multi-agent-input-bar" @onclick:stopPropagation="true">
+                        <textarea id="ma-input-@group.Id" class="ma-broadcast-input" placeholder="Send to all sessions in this group..."
+                                  rows="1"></textarea>
+                        <button class="ma-send-btn" @onclick="() => SendToMultiAgentGroup(group.Id)" title="Send to all sessions">
+                            📡 Send All
+                        </button>
+                    </div>
+                }
                 <div class="session-grid @(isCompactGrid ? "" : "expanded-grid")">
                 @foreach (var session in groupSessions)
                 {
@@ -227,6 +269,7 @@
     private string? cardMenuSession;
     private string? cardRenamingSession;
     private bool isAddingDashGroup;
+    private bool isAddingMultiAgentGroup;
     private string? _focusedInputId;
     private string? _lastActiveSession;
     private int _cursorStart;
@@ -1637,6 +1680,57 @@
     {
         if (e.Key == "Enter") await CommitDashGroup();
         else if (e.Key == "Escape") isAddingDashGroup = false;
+    }
+
+    private async Task CommitMultiAgentGroup()
+    {
+        var name = await JS.InvokeAsync<string>("getElementValue", "dashNewMultiAgentGroupInput");
+        isAddingMultiAgentGroup = false;
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            CopilotService.CreateMultiAgentGroup(name.Trim());
+        }
+    }
+
+    private async Task HandleMultiAgentGroupKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await CommitMultiAgentGroup();
+        else if (e.Key == "Escape") isAddingMultiAgentGroup = false;
+    }
+
+    private void OnMultiAgentModeChanged(string groupId, ChangeEventArgs e)
+    {
+        if (e.Value is string val && Enum.TryParse<MultiAgentMode>(val, out var mode))
+        {
+            CopilotService.SetMultiAgentMode(groupId, mode);
+        }
+    }
+
+    private async Task SendToMultiAgentGroup(string groupId)
+    {
+        var inputId = $"ma-input-{groupId}";
+        var prompt = await JS.InvokeAsync<string>("getElementValue", inputId);
+        if (string.IsNullOrWhiteSpace(prompt)) return;
+
+        await JS.InvokeVoidAsync("clearElementValue", inputId);
+
+        try
+        {
+            _ = CopilotService.SendToMultiAgentGroupAsync(groupId, prompt.Trim()).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    InvokeAsync(() =>
+                    {
+                        Console.WriteLine($"Error sending to multi-agent group: {t.Exception?.InnerException?.Message}");
+                    });
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error sending to multi-agent group: {ex.Message}");
+        }
     }
 
     private async Task SaveDraftsAndCursor()

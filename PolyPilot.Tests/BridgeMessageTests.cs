@@ -436,4 +436,74 @@ public class BridgePayloadTests
 
         Assert.Equal(reason, restored!.Reason);
     }
+
+    [Fact]
+    public void MultiAgentBroadcastPayload_RoundTrips()
+    {
+        var payload = new MultiAgentBroadcastPayload
+        {
+            GroupId = "group-123",
+            Message = "Build the feature"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.MultiAgentBroadcast, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<MultiAgentBroadcastPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("group-123", restored!.GroupId);
+        Assert.Equal("Build the feature", restored.Message);
+    }
+
+    [Fact]
+    public void MultiAgentCreateGroupPayload_RoundTrips()
+    {
+        var payload = new MultiAgentCreateGroupPayload
+        {
+            Name = "Dev Team",
+            Mode = "Orchestrator",
+            OrchestratorPrompt = "Coordinate the workers",
+            SessionNames = new List<string> { "session-1", "session-2" }
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.MultiAgentCreateGroup, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<MultiAgentCreateGroupPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("Dev Team", restored!.Name);
+        Assert.Equal("Orchestrator", restored.Mode);
+        Assert.Equal("Coordinate the workers", restored.OrchestratorPrompt);
+        Assert.Equal(2, restored.SessionNames!.Count);
+        Assert.Contains("session-1", restored.SessionNames);
+    }
+
+    [Fact]
+    public void MultiAgentProgressPayload_RoundTrips()
+    {
+        var payload = new MultiAgentProgressPayload
+        {
+            GroupId = "group-1",
+            TotalSessions = 3,
+            CompletedSessions = 1,
+            ProcessingSessions = 2,
+            CompletedSessionNames = new List<string> { "worker-1" }
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.MultiAgentProgress, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<MultiAgentProgressPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("group-1", restored!.GroupId);
+        Assert.Equal(3, restored.TotalSessions);
+        Assert.Equal(1, restored.CompletedSessions);
+        Assert.Equal(2, restored.ProcessingSessions);
+        Assert.Single(restored.CompletedSessionNames);
+    }
+
+    [Fact]
+    public void MultiAgentMessageTypes_AreCorrectStrings()
+    {
+        Assert.Equal("multi_agent_broadcast", BridgeMessageTypes.MultiAgentBroadcast);
+        Assert.Equal("multi_agent_create_group", BridgeMessageTypes.MultiAgentCreateGroup);
+        Assert.Equal("multi_agent_progress", BridgeMessageTypes.MultiAgentProgress);
+    }
 }

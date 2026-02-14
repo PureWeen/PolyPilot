@@ -115,4 +115,146 @@ public class SessionOrganizationTests
         Assert.Equal("pin", deserialized!.Command);
         Assert.Equal("test-session", deserialized.SessionName);
     }
+
+    [Fact]
+    public void SessionGroup_MultiAgent_DefaultsToFalse()
+    {
+        var group = new SessionGroup { Name = "Test" };
+        Assert.False(group.IsMultiAgent);
+        Assert.Equal(MultiAgentMode.Broadcast, group.OrchestratorMode);
+        Assert.Null(group.OrchestratorPrompt);
+    }
+
+    [Fact]
+    public void SessionGroup_MultiAgent_Serializes()
+    {
+        var group = new SessionGroup
+        {
+            Name = "Multi-Agent Team",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.Orchestrator,
+            OrchestratorPrompt = "You are the lead coordinator."
+        };
+
+        var json = JsonSerializer.Serialize(group);
+        var deserialized = JsonSerializer.Deserialize<SessionGroup>(json);
+
+        Assert.NotNull(deserialized);
+        Assert.True(deserialized!.IsMultiAgent);
+        Assert.Equal(MultiAgentMode.Orchestrator, deserialized.OrchestratorMode);
+        Assert.Equal("You are the lead coordinator.", deserialized.OrchestratorPrompt);
+    }
+
+    [Fact]
+    public void SessionMeta_Role_DefaultsToWorker()
+    {
+        var meta = new SessionMeta { SessionName = "test" };
+        Assert.Equal(MultiAgentRole.Worker, meta.Role);
+    }
+
+    [Fact]
+    public void SessionMeta_Role_SerializesAsString()
+    {
+        var meta = new SessionMeta
+        {
+            SessionName = "leader",
+            Role = MultiAgentRole.Orchestrator
+        };
+        var json = JsonSerializer.Serialize(meta);
+        Assert.Contains("\"Orchestrator\"", json);
+
+        var deserialized = JsonSerializer.Deserialize<SessionMeta>(json);
+        Assert.NotNull(deserialized);
+        Assert.Equal(MultiAgentRole.Orchestrator, deserialized!.Role);
+    }
+
+    [Fact]
+    public void MultiAgentMode_AllValues()
+    {
+        Assert.Equal(3, Enum.GetValues<MultiAgentMode>().Length);
+        Assert.True(Enum.IsDefined(MultiAgentMode.Broadcast));
+        Assert.True(Enum.IsDefined(MultiAgentMode.Sequential));
+        Assert.True(Enum.IsDefined(MultiAgentMode.Orchestrator));
+    }
+
+    [Fact]
+    public void MultiAgentMode_SerializesAsString()
+    {
+        var group = new SessionGroup
+        {
+            Name = "test",
+            OrchestratorMode = MultiAgentMode.Sequential
+        };
+        var json = JsonSerializer.Serialize(group);
+        Assert.Contains("\"Sequential\"", json);
+    }
+
+    [Fact]
+    public void OrganizationState_MultiAgentGroup_RoundTrips()
+    {
+        var state = new OrganizationState();
+        var maGroup = new SessionGroup
+        {
+            Id = "ma-group-1",
+            Name = "Dev Team",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.Orchestrator,
+            OrchestratorPrompt = "Coordinate the workers",
+            SortOrder = 1
+        };
+        state.Groups.Add(maGroup);
+        state.Sessions.Add(new SessionMeta
+        {
+            SessionName = "orchestrator-session",
+            GroupId = "ma-group-1",
+            Role = MultiAgentRole.Orchestrator
+        });
+        state.Sessions.Add(new SessionMeta
+        {
+            SessionName = "worker-1",
+            GroupId = "ma-group-1",
+            Role = MultiAgentRole.Worker
+        });
+
+        var json = JsonSerializer.Serialize(state);
+        var deserialized = JsonSerializer.Deserialize<OrganizationState>(json);
+
+        Assert.NotNull(deserialized);
+        var group = deserialized!.Groups.Find(g => g.Id == "ma-group-1");
+        Assert.NotNull(group);
+        Assert.True(group!.IsMultiAgent);
+        Assert.Equal(MultiAgentMode.Orchestrator, group.OrchestratorMode);
+        Assert.Equal("Coordinate the workers", group.OrchestratorPrompt);
+
+        var orchSession = deserialized.Sessions.Find(s => s.SessionName == "orchestrator-session");
+        Assert.NotNull(orchSession);
+        Assert.Equal(MultiAgentRole.Orchestrator, orchSession!.Role);
+
+        var workerSession = deserialized.Sessions.Find(s => s.SessionName == "worker-1");
+        Assert.NotNull(workerSession);
+        Assert.Equal(MultiAgentRole.Worker, workerSession!.Role);
+    }
+
+    [Fact]
+    public void LegacyState_WithoutMultiAgent_DeserializesGracefully()
+    {
+        // Simulates loading organization.json from before multi-agent was added
+        var json = """
+        {
+            "Groups": [
+                {"Id": "_default", "Name": "Sessions", "SortOrder": 0}
+            ],
+            "Sessions": [
+                {"SessionName": "old-session", "GroupId": "_default", "IsPinned": false}
+            ],
+            "SortMode": "LastActive"
+        }
+        """;
+        var state = JsonSerializer.Deserialize<OrganizationState>(json);
+        Assert.NotNull(state);
+        Assert.False(state!.Groups[0].IsMultiAgent);
+        Assert.Equal(MultiAgentMode.Broadcast, state.Groups[0].OrchestratorMode);
+        Assert.Null(state.Groups[0].OrchestratorPrompt);
+        Assert.Equal(MultiAgentRole.Worker, state.Sessions[0].Role);
+    }
 }
