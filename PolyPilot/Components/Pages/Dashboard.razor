@@ -163,6 +163,7 @@
                     <SessionCard Session="session"
                                  Meta="meta"
                                  IsCompleted="isCompleted"
+                                 MessageCount="@(cardMessageCounts.TryGetValue(session.Name, out var mc) ? mc : DefaultCardMessageWindow)"
                                  StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s) ? s : "")"
                                  ActivityText="@(activityBySession.TryGetValue(session.Name, out var a) ? a : "")"
                                  CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t) ? t : "")"
@@ -579,7 +580,7 @@
 
         await JS.InvokeVoidAsync("restoreDraftsAndFocus", draftsJson, focusId, selStart, selEnd, forceScroll);
 
-        // Auto-load more messages when scrolled to top (IntersectionObserver on load-more buttons)
+        // Auto-load more messages when scrolled to top (expanded view only, not grid cards)
         await JS.InvokeVoidAsync("eval", @"
             if (!window.__loadMoreObserver) {
                 window.__loadMoreObserver = new IntersectionObserver(function(entries) {
@@ -588,7 +589,7 @@
                     });
                 }, { threshold: 0.1 });
             }
-            document.querySelectorAll('.load-more-btn').forEach(function(btn) {
+            document.querySelectorAll('.messages .load-more-btn').forEach(function(btn) {
                 if (!btn.__observed) { btn.__observed = true; window.__loadMoreObserver.observe(btn); }
             });
         ");

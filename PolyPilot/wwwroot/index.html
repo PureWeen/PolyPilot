@@ -323,29 +323,33 @@
 
         window.restoreDraftsAndFocus = function(draftsJson, focusId, selStart, selEnd, forceScroll) {
             function doScroll() {
-                document.querySelectorAll('.card-messages, .messages').forEach(function(el) {
+                // Expanded chat: auto-follow with near-bottom tracking
+                document.querySelectorAll('.messages').forEach(function(el) {
                     if (!el.__scrollInit) {
                         el.__scrollInit = true;
                         el.__wasAtBottom = true;
                         el.scrollTop = el.scrollHeight;
                         return;
                     }
-                    // Use larger threshold (300px) for better tracking during rapid updates
                     var threshold = 300;
                     var distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
                     var isNearBottom = distFromBottom < threshold;
                     
-                    // Track if user was at bottom - reset when they scroll back down
                     if (isNearBottom) {
                         el.__wasAtBottom = true;
                     }
-                    // Only stop following if user actively scrolled up significantly
                     if (distFromBottom > 500) {
                         el.__wasAtBottom = false;
                     }
                     
-                    // Scroll if: forced, near bottom, or was at bottom when content started arriving
                     if (forceScroll || isNearBottom || el.__wasAtBottom) {
+                        el.scrollTop = el.scrollHeight;
+                    }
+                });
+                // Grid cards: only scroll to bottom on init, never fight user scrolling
+                document.querySelectorAll('.card-messages').forEach(function(el) {
+                    if (!el.__scrollInit) {
+                        el.__scrollInit = true;
                         el.scrollTop = el.scrollHeight;
                     }
                 });
