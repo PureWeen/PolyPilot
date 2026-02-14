@@ -235,6 +235,12 @@
     color: var(--text-dim);
 }
 
+.inline-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
 /* CLI source selector */
 .cli-cards {
     display: flex;

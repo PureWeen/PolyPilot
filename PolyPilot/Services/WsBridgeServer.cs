@@ -19,6 +19,18 @@ public class WsBridgeServer : IDisposable
     private CopilotService? _copilot;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _clientFiestaAuthorizations = new();
+    private readonly ConcurrentDictionary<string, ClientAuthScope> _clientAuthScopes = new();
+    private readonly ConcurrentDictionary<string, string> _pendingFiestaClientIds = new();
+    private readonly ConcurrentDictionary<string, string> _pendingFiestaIds = new();
+    private FiestaCoordinatorService? _fiestaCoordinator;
+
+    private enum ClientAuthScope
+    {
+        None,
+        FiestaOnly,
+        Full
+    }
 
     public int BridgePort => _bridgePort;
     public bool IsRunning => _listener?.IsListening == true;
@@ -124,6 +136,15 @@ public class WsBridgeServer : IDisposable
                 new ErrorPayload { SessionName = session, Error = error }));
     }
 
+    public void SetFiestaCoordinator(FiestaCoordinatorService coordinator)
+    {
+        if (_fiestaCoordinator == coordinator) return;
+        if (_fiestaCoordinator != null)
+            _fiestaCoordinator.OnJoinRequestResolved -= HandleJoinRequestResolved;
+        _fiestaCoordinator = coordinator;
+        _fiestaCoordinator.OnJoinRequestResolved += HandleJoinRequestResolved;
+    }
+
     public void Stop()
     {
         _cts?.Cancel();
@@ -136,6 +157,10 @@ public class WsBridgeServer : IDisposable
         _clients.Clear();
         foreach (var kvp in _clientSendLocks) kvp.Value.Dispose();
         _clientSendLocks.Clear();
+        _clientFiestaAuthorizations.Clear();
+        _clientAuthScopes.Clear();
+        _pendingFiestaClientIds.Clear();
+        _pendingFiestaIds.Clear();
         try { _listener?.Stop(); } catch { }
         _listener = null;
         Console.WriteLine("[WsBridge] Stopped");
@@ -202,15 +227,37 @@ public class WsBridgeServer : IDisposable
     /// </summary>
     private bool ValidateClientToken(HttpListenerRequest request)
     {
-        // If neither token nor password is configured, allow all (local-only mode)
-        if (string.IsNullOrEmpty(AccessToken) && string.IsNullOrEmpty(ServerPassword))
-            return true;
+        return ResolveClientAuthScope(request) != ClientAuthScope.None;
+    }
+
+    private ClientAuthScope ResolveClientAuthScope(HttpListenerRequest request)
+    {
+        // If no tokens are configured at all, keep existing local-mode behavior
+        if (string.IsNullOrEmpty(AccessToken) &&
+            string.IsNullOrEmpty(ServerPassword) &&
+            string.IsNullOrEmpty(_fiestaCoordinator?.CurrentJoinCode))
+            return ClientAuthScope.Full;
 
         // Loopback connections are trusted — DevTunnel proxies appear as localhost
         if (IsLoopbackRequest(request))
-            return true;
+            return ClientAuthScope.Full;
 
-        // Extract token from header or query string
+        var providedToken = ExtractProvidedToken(request);
+        if (string.IsNullOrEmpty(providedToken))
+            return ClientAuthScope.None;
+
+        if (!string.IsNullOrEmpty(AccessToken) && string.Equals(providedToken, AccessToken, StringComparison.Ordinal))
+            return ClientAuthScope.Full;
+        if (!string.IsNullOrEmpty(ServerPassword) && string.Equals(providedToken, ServerPassword, StringComparison.Ordinal))
+            return ClientAuthScope.Full;
+        if (!string.IsNullOrEmpty(_fiestaCoordinator?.CurrentJoinCode) && string.Equals(providedToken, _fiestaCoordinator.CurrentJoinCode, StringComparison.Ordinal))
+            return ClientAuthScope.FiestaOnly;
+
+        return ClientAuthScope.None;
+    }
+
+    private static string? ExtractProvidedToken(HttpListenerRequest request)
+    {
         string? providedToken = null;
         var authHeader = request.Headers["X-Tunnel-Authorization"];
         if (!string.IsNullOrEmpty(authHeader))
@@ -219,18 +266,9 @@ public class WsBridgeServer : IDisposable
                 ? authHeader["tunnel ".Length..].Trim()
                 : authHeader.Trim();
         }
+
         providedToken ??= request.QueryString["token"];
-
-        if (string.IsNullOrEmpty(providedToken))
-            return false;
-
-        // Accept if it matches either the tunnel access token or the server password
-        if (!string.IsNullOrEmpty(AccessToken) && string.Equals(providedToken, AccessToken, StringComparison.Ordinal))
-            return true;
-        if (!string.IsNullOrEmpty(ServerPassword) && string.Equals(providedToken, ServerPassword, StringComparison.Ordinal))
-            return true;
-
-        return false;
+        return providedToken;
     }
 
     private static bool IsLoopbackRequest(HttpListenerRequest request)
@@ -243,6 +281,7 @@ public class WsBridgeServer : IDisposable
     {
         WebSocket? ws = null;
         var clientId = Guid.NewGuid().ToString("N")[..8];
+        var authScope = ResolveClientAuthScope(httpContext.Request);
 
         try
         {
@@ -250,21 +289,25 @@ public class WsBridgeServer : IDisposable
             ws = wsContext.WebSocket;
             _clients[clientId] = ws;
             _clientSendLocks[clientId] = new SemaphoreSlim(1, 1);
+            _clientAuthScopes[clientId] = authScope;
             Console.WriteLine($"[WsBridge] Client {clientId} connected ({_clients.Count} total)");
 
-            // Send initial state
-            await SendToClientAsync(clientId, ws,
-                BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
-            await SendToClientAsync(clientId, ws,
-                BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot?.Organization ?? new OrganizationState()), ct);
-            await SendPersistedToClient(clientId, ws, ct);
-
-            // Send active session history
-            if (_copilot != null)
+            // Send initial state only to full-access clients.
+            if (authScope == ClientAuthScope.Full)
             {
-                var active = _copilot.GetActiveSession();
-                if (active != null)
-                    await SendSessionHistoryToClient(clientId, ws, active.Name, ct);
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot?.Organization ?? new OrganizationState()), ct);
+                await SendPersistedToClient(clientId, ws, ct);
+
+                // Send active session history
+                if (_copilot != null)
+                {
+                    var active = _copilot.GetActiveSession();
+                    if (active != null)
+                        await SendSessionHistoryToClient(clientId, ws, active.Name, ct);
+                }
             }
 
             // Read client commands (with fragmentation support)
@@ -295,6 +338,13 @@ public class WsBridgeServer : IDisposable
         {
             _clients.TryRemove(clientId, out _);
             if (_clientSendLocks.TryRemove(clientId, out var lk)) lk.Dispose();
+            _clientFiestaAuthorizations.TryRemove(clientId, out _);
+            _clientAuthScopes.TryRemove(clientId, out _);
+            foreach (var pending in _pendingFiestaClientIds.Where(kvp => kvp.Value == clientId).ToList())
+            {
+                _pendingFiestaClientIds.TryRemove(pending.Key, out _);
+                _pendingFiestaIds.TryRemove(pending.Key, out _);
+            }
             if (ws?.State == WebSocketState.Open)
             {
                 try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None); }
@@ -308,10 +358,27 @@ public class WsBridgeServer : IDisposable
     private async Task HandleClientMessage(string clientId, WebSocket ws, string json, CancellationToken ct)
     {
         var msg = BridgeMessage.Deserialize(json);
-        if (msg == null || _copilot == null) return;
+        if (msg == null) return;
+
+        if (_clientAuthScopes.TryGetValue(clientId, out var scope) &&
+            scope == ClientAuthScope.FiestaOnly &&
+            !IsFiestaMessageType(msg.Type))
+        {
+            await SendToClientAsync(clientId, ws,
+                BridgeMessage.Create(BridgeMessageTypes.ErrorEvent, new ErrorPayload
+                {
+                    SessionName = "",
+                    Error = "Fiesta join code clients can only use Fiesta commands."
+                }), ct);
+            return;
+        }
 
         try
         {
+            var copilot = _copilot;
+            if (copilot == null && !IsFiestaMessageType(msg.Type))
+                return;
+
             switch (msg.Type)
             {
                 case BridgeMessageTypes.GetSessions:
@@ -330,7 +397,7 @@ public class WsBridgeServer : IDisposable
                     if (sendReq != null && !string.IsNullOrWhiteSpace(sendReq.SessionName) && !string.IsNullOrWhiteSpace(sendReq.Message))
                     {
                         Console.WriteLine($"[WsBridge] Client sending message to '{sendReq.SessionName}'");
-                        await _copilot.SendPromptAsync(sendReq.SessionName, sendReq.Message, cancellationToken: ct);
+                        await copilot!.SendPromptAsync(sendReq.SessionName, sendReq.Message, cancellationToken: ct);
                     }
                     break;
 
@@ -350,7 +417,7 @@ public class WsBridgeServer : IDisposable
                             }
                         }
                         Console.WriteLine($"[WsBridge] Client creating session '{createReq.Name}'");
-                        await _copilot.CreateSessionAsync(createReq.Name, createReq.Model, createReq.WorkingDirectory, ct);
+                        await copilot!.CreateSessionAsync(createReq.Name, createReq.Model, createReq.WorkingDirectory, ct);
                         BroadcastSessionsList();
                         BroadcastOrganizationState();
                     }
@@ -360,7 +427,7 @@ public class WsBridgeServer : IDisposable
                     var switchReq = msg.GetPayload<SwitchSessionPayload>();
                     if (switchReq != null)
                     {
-                        _copilot.SetActiveSession(switchReq.SessionName);
+                        copilot!.SetActiveSession(switchReq.SessionName);
                         await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, ct);
                     }
                     break;
@@ -368,7 +435,7 @@ public class WsBridgeServer : IDisposable
                 case BridgeMessageTypes.QueueMessage:
                     var queueReq = msg.GetPayload<QueueMessagePayload>();
                     if (queueReq != null && !string.IsNullOrWhiteSpace(queueReq.SessionName) && !string.IsNullOrWhiteSpace(queueReq.Message))
-                        _copilot.EnqueueMessage(queueReq.SessionName, queueReq.Message);
+                        copilot!.EnqueueMessage(queueReq.SessionName, queueReq.Message);
                     break;
 
                 case BridgeMessageTypes.GetPersistedSessions:
@@ -392,7 +459,7 @@ public class WsBridgeServer : IDisposable
                         var displayName = resumeReq.DisplayName ?? "Resumed";
                         try
                         {
-                            await _copilot.ResumeSessionAsync(resumeReq.SessionId, displayName, workingDirectory: null, model: null, cancellationToken: ct);
+                            await copilot!.ResumeSessionAsync(resumeReq.SessionId, displayName, workingDirectory: null, model: null, cancellationToken: ct);
                             Console.WriteLine($"[WsBridge] Session resumed successfully, broadcasting updated list");
                             BroadcastSessionsList();
                             BroadcastOrganizationState();
@@ -412,7 +479,7 @@ public class WsBridgeServer : IDisposable
                     if (closeReq != null)
                     {
                         Console.WriteLine($"[WsBridge] Client closing session '{closeReq.SessionName}'");
-                        await _copilot.CloseSessionAsync(closeReq.SessionName);
+                        await copilot!.CloseSessionAsync(closeReq.SessionName);
                     }
                     break;
 
@@ -421,7 +488,7 @@ public class WsBridgeServer : IDisposable
                     if (abortReq != null && !string.IsNullOrWhiteSpace(abortReq.SessionName))
                     {
                         Console.WriteLine($"[WsBridge] Client aborting session '{abortReq.SessionName}'");
-                        await _copilot.AbortSessionAsync(abortReq.SessionName);
+                        await copilot!.AbortSessionAsync(abortReq.SessionName);
                     }
                     break;
 
@@ -431,6 +498,30 @@ public class WsBridgeServer : IDisposable
                     {
                         HandleOrganizationCommand(orgCmd);
                         BroadcastOrganizationState();
+                    }
+                    break;
+
+                case BridgeMessageTypes.FiestaJoinRequest:
+                    var fiestaJoin = msg.GetPayload<FiestaJoinRequestPayload>();
+                    if (fiestaJoin != null)
+                    {
+                        await HandleFiestaJoinRequestAsync(clientId, ws, fiestaJoin, ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.FiestaDispatchPrompt:
+                    var fiestaDispatch = msg.GetPayload<FiestaDispatchPromptPayload>();
+                    if (fiestaDispatch != null)
+                    {
+                        await HandleFiestaDispatchPromptAsync(clientId, ws, fiestaDispatch, ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.FiestaSessionCommand:
+                    var fiestaCommand = msg.GetPayload<FiestaSessionCommandPayload>();
+                    if (fiestaCommand != null)
+                    {
+                        await HandleFiestaSessionCommandAsync(clientId, ws, fiestaCommand, ct);
                     }
                     break;
 
@@ -617,6 +708,292 @@ public class WsBridgeServer : IDisposable
         }
     }
 
+    private async Task HandleFiestaJoinRequestAsync(string clientId, WebSocket ws, FiestaJoinRequestPayload payload, CancellationToken ct)
+    {
+        var workerId = _fiestaCoordinator?.InstanceId ?? "";
+        var workerName = _fiestaCoordinator?.MachineName ?? Environment.MachineName;
+
+        if (_fiestaCoordinator == null)
+        {
+            await SendToClientAsync(clientId, ws,
+                BridgeMessage.Create(BridgeMessageTypes.FiestaJoinStatus, new FiestaJoinStatusPayload
+                {
+                    RequestId = payload.RequestId,
+                    FiestaId = payload.FiestaId,
+                    Status = FiestaJoinState.Rejected,
+                    WorkerInstanceId = workerId,
+                    WorkerMachineName = workerName,
+                    Reason = "Fiesta coordinator is not available"
+                }, payload.FiestaId), ct);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.RequestId) || string.IsNullOrWhiteSpace(payload.FiestaId))
+        {
+            await SendToClientAsync(clientId, ws,
+                BridgeMessage.Create(BridgeMessageTypes.FiestaJoinStatus, new FiestaJoinStatusPayload
+                {
+                    RequestId = payload.RequestId,
+                    FiestaId = payload.FiestaId,
+                    Status = FiestaJoinState.Rejected,
+                    WorkerInstanceId = workerId,
+                    WorkerMachineName = workerName,
+                    Reason = "Invalid fiesta join payload"
+                }, payload.FiestaId), ct);
+            return;
+        }
+
+        if (!_fiestaCoordinator.ValidateJoinCode(payload.JoinCode))
+        {
+            await SendToClientAsync(clientId, ws,
+                BridgeMessage.Create(BridgeMessageTypes.FiestaJoinStatus, new FiestaJoinStatusPayload
+                {
+                    RequestId = payload.RequestId,
+                    FiestaId = payload.FiestaId,
+                    Status = FiestaJoinState.Rejected,
+                    WorkerInstanceId = workerId,
+                    WorkerMachineName = workerName,
+                    Reason = "Invalid join code"
+                }, payload.FiestaId), ct);
+            return;
+        }
+
+        _pendingFiestaClientIds[payload.RequestId] = clientId;
+        _pendingFiestaIds[payload.RequestId] = payload.FiestaId;
+
+        _fiestaCoordinator.RegisterIncomingJoinRequest(payload, null);
+
+        await SendToClientAsync(clientId, ws,
+            BridgeMessage.Create(BridgeMessageTypes.FiestaJoinStatus, new FiestaJoinStatusPayload
+            {
+                RequestId = payload.RequestId,
+                FiestaId = payload.FiestaId,
+                Status = FiestaJoinState.Pending,
+                WorkerInstanceId = workerId,
+                WorkerMachineName = workerName
+            }, payload.FiestaId), ct);
+    }
+
+    private async Task HandleFiestaDispatchPromptAsync(string clientId, WebSocket ws, FiestaDispatchPromptPayload payload, CancellationToken ct)
+    {
+        if (_copilot == null)
+        {
+            await SendToClientAsync(clientId, ws,
+                BridgeMessage.Create(BridgeMessageTypes.FiestaDispatchResult, new FiestaDispatchResultPayload
+                {
+                    RequestId = payload.RequestId,
+                    FiestaId = payload.FiestaId,
+                    WorkerInstanceId = _fiestaCoordinator?.InstanceId ?? "",
+                    WorkerMachineName = _fiestaCoordinator?.MachineName ?? Environment.MachineName,
+                    SessionName = payload.SessionName,
+                    Success = false,
+                    Error = "Copilot service is not available"
+                }, payload.FiestaId), ct);
+            return;
+        }
+
+        if (!IsClientAuthorizedForFiesta(clientId, payload.FiestaId))
+        {
+            var unauthorizedDispatch = new FiestaDispatchResultPayload
+            {
+                RequestId = payload.RequestId,
+                FiestaId = payload.FiestaId,
+                WorkerInstanceId = _fiestaCoordinator?.InstanceId ?? "",
+                WorkerMachineName = _fiestaCoordinator?.MachineName ?? Environment.MachineName,
+                SessionName = payload.SessionName,
+                Success = false,
+                Error = "Client is not authorized for this fiesta"
+            };
+            await SendToClientAsync(clientId, ws, BridgeMessage.Create(BridgeMessageTypes.FiestaDispatchResult, unauthorizedDispatch, payload.FiestaId), ct);
+            return;
+        }
+
+        var workerId = _fiestaCoordinator?.InstanceId ?? "";
+        var workerName = _fiestaCoordinator?.MachineName ?? Environment.MachineName;
+
+        var result = new FiestaDispatchResultPayload
+        {
+            RequestId = payload.RequestId,
+            FiestaId = payload.FiestaId,
+            WorkerInstanceId = workerId,
+            WorkerMachineName = workerName,
+            SessionName = payload.SessionName
+        };
+
+        try
+        {
+            if (payload.CreateSessionIfMissing && _copilot.GetSession(payload.SessionName) == null)
+            {
+                await _copilot.CreateSessionAsync(payload.SessionName, payload.Model, payload.WorkingDirectory, ct);
+            }
+
+            await _copilot.SendPromptAsync(payload.SessionName, payload.Message, cancellationToken: ct);
+            result.Success = true;
+            result.Summary = "Prompt completed";
+        }
+        catch (Exception ex)
+        {
+            result.Success = false;
+            result.Error = ex.Message;
+        }
+
+        await SendToClientAsync(clientId, ws, BridgeMessage.Create(BridgeMessageTypes.FiestaDispatchResult, result, payload.FiestaId), ct);
+    }
+
+    private async Task HandleFiestaSessionCommandAsync(string clientId, WebSocket ws, FiestaSessionCommandPayload payload, CancellationToken ct)
+    {
+        if (_copilot == null)
+        {
+            await SendToClientAsync(clientId, ws,
+                BridgeMessage.Create(BridgeMessageTypes.FiestaSessionCommandResult, new FiestaSessionCommandResultPayload
+                {
+                    RequestId = payload.RequestId,
+                    FiestaId = payload.FiestaId,
+                    WorkerInstanceId = _fiestaCoordinator?.InstanceId ?? "",
+                    WorkerMachineName = _fiestaCoordinator?.MachineName ?? Environment.MachineName,
+                    Command = payload.Command,
+                    SessionName = payload.SessionName,
+                    Success = false,
+                    Error = "Copilot service is not available"
+                }, payload.FiestaId), ct);
+            return;
+        }
+
+        if (!IsClientAuthorizedForFiesta(clientId, payload.FiestaId))
+        {
+            await SendUnauthorizedFiestaResultAsync(clientId, ws, payload.RequestId, payload.FiestaId, payload.Command, payload.SessionName, ct);
+            return;
+        }
+
+        var workerId = _fiestaCoordinator?.InstanceId ?? "";
+        var workerName = _fiestaCoordinator?.MachineName ?? Environment.MachineName;
+
+        var result = new FiestaSessionCommandResultPayload
+        {
+            RequestId = payload.RequestId,
+            FiestaId = payload.FiestaId,
+            WorkerInstanceId = workerId,
+            WorkerMachineName = workerName,
+            Command = payload.Command,
+            SessionName = payload.SessionName
+        };
+
+        try
+        {
+            switch (payload.Command?.Trim().ToLowerInvariant())
+            {
+                case "create":
+                    if (_copilot.GetSession(payload.SessionName) == null)
+                        await _copilot.CreateSessionAsync(payload.SessionName, payload.Model, payload.WorkingDirectory, ct);
+                    break;
+                case "close":
+                    await _copilot.CloseSessionAsync(payload.SessionName);
+                    break;
+                case "switch":
+                    _copilot.SwitchSession(payload.SessionName);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unsupported fiesta session command '{payload.Command}'.");
+            }
+
+            result.Success = true;
+        }
+        catch (Exception ex)
+        {
+            result.Success = false;
+            result.Error = ex.Message;
+        }
+
+        await SendToClientAsync(clientId, ws, BridgeMessage.Create(BridgeMessageTypes.FiestaSessionCommandResult, result, payload.FiestaId), ct);
+    }
+
+    private async Task SendUnauthorizedFiestaResultAsync(string clientId, WebSocket ws, string requestId, string fiestaId, string command, string sessionName, CancellationToken ct)
+    {
+        var workerId = _fiestaCoordinator?.InstanceId ?? "";
+        var workerName = _fiestaCoordinator?.MachineName ?? Environment.MachineName;
+        var result = new FiestaSessionCommandResultPayload
+        {
+            RequestId = requestId,
+            FiestaId = fiestaId,
+            WorkerInstanceId = workerId,
+            WorkerMachineName = workerName,
+            Command = command,
+            SessionName = sessionName,
+            Success = false,
+            Error = "Client is not authorized for this fiesta"
+        };
+        await SendToClientAsync(clientId, ws, BridgeMessage.Create(BridgeMessageTypes.FiestaSessionCommandResult, result, fiestaId), ct);
+    }
+
+    private bool IsClientAuthorizedForFiesta(string clientId, string fiestaId)
+    {
+        if (string.IsNullOrWhiteSpace(fiestaId)) return false;
+        if (!_clientFiestaAuthorizations.TryGetValue(clientId, out var rooms)) return false;
+        return rooms.ContainsKey(fiestaId);
+    }
+
+    private static bool IsFiestaMessageType(string type) =>
+        type == BridgeMessageTypes.FiestaJoinRequest ||
+        type == BridgeMessageTypes.FiestaDispatchPrompt ||
+        type == BridgeMessageTypes.FiestaSessionCommand;
+
+    private void HandleJoinRequestResolved(FiestaJoinRequest request)
+    {
+        if (!_pendingFiestaClientIds.TryRemove(request.RequestId, out var clientId))
+            return;
+
+        _pendingFiestaIds.TryRemove(request.RequestId, out _);
+
+        if (!_clients.TryGetValue(clientId, out var ws) || ws.State != WebSocketState.Open)
+            return;
+
+        if (request.Status == FiestaJoinState.Approved)
+        {
+            var roomAuth = _clientFiestaAuthorizations.GetOrAdd(clientId, _ => new ConcurrentDictionary<string, byte>(StringComparer.Ordinal));
+            roomAuth[request.FiestaId] = 0;
+        }
+
+        var payload = new FiestaJoinStatusPayload
+        {
+            RequestId = request.RequestId,
+            FiestaId = request.FiestaId,
+            Status = request.Status,
+            WorkerInstanceId = _fiestaCoordinator?.InstanceId ?? "",
+            WorkerMachineName = _fiestaCoordinator?.MachineName ?? Environment.MachineName,
+            Reason = request.Reason
+        };
+
+        var message = BridgeMessage.Create(BridgeMessageTypes.FiestaJoinStatus, payload, request.FiestaId);
+        _ = Task.Run(async () =>
+        {
+            if (_clientSendLocks.TryGetValue(clientId, out var sendLock))
+            {
+                try
+                {
+                    var token = _cts?.Token ?? CancellationToken.None;
+                    await sendLock.WaitAsync(token);
+                    try
+                    {
+                        if (ws.State == WebSocketState.Open)
+                        {
+                            var bytes = Encoding.UTF8.GetBytes(message.Serialize());
+                            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token);
+                        }
+                    }
+                    finally
+                    {
+                        sendLock.Release();
+                    }
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[WsBridge] Failed to send fiesta join resolution to client {clientId}: {ex.Message}");
+                }
+            }
+        });
+    }
+
     // --- Broadcast/Send ---
 
     private void Broadcast(BridgeMessage msg)
@@ -660,6 +1037,8 @@ public class WsBridgeServer : IDisposable
 
     public void Dispose()
     {
+        if (_fiestaCoordinator != null)
+            _fiestaCoordinator.OnJoinRequestResolved -= HandleJoinRequestResolved;
         Stop();
         _cts?.Dispose();
         GC.SuppressFinalize(this);

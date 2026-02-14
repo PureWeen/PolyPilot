@@ -1,0 +1,225 @@
+@using PolyPilot.Models
+@using PolyPilot.Services
+@inject FiestaCoordinatorService FiestaCoordinator
+@implements IDisposable
+
+<div class="fiesta-panel">
+    <div class="fiesta-header">
+        <h3>Fiesta</h3>
+        <span class="fiesta-sub">Cross-machine orchestration</span>
+    </div>
+
+    <div class="fiesta-row">
+        <input class="fiesta-input" @bind="newRoomName" placeholder="New fiesta name" />
+        <button class="fiesta-btn" @onclick="CreateRoom">Start Fiesta</button>
+        <select class="fiesta-select" @bind="selectedRoomId">
+            <option value="">Select fiesta...</option>
+            @foreach (var room in rooms)
+            {
+                <option value="@room.Id">@room.Name (@GetWorkerCount(room) workers)</option>
+            }
+        </select>
+        <button class="fiesta-btn danger" @onclick="CloseRoom" disabled="@(selectedRoom == null)">Close</button>
+    </div>
+
+    <div class="fiesta-row">
+        <input class="fiesta-input" @bind="sessionName" placeholder="Session name for worker commands" />
+        <button class="fiesta-btn" @onclick="CreateSessionOnWorkers" disabled="@(selectedRoom == null)">Create Session</button>
+        <button class="fiesta-btn" @onclick="SwitchSessionOnWorkers" disabled="@(selectedRoom == null)">Switch Session</button>
+        <button class="fiesta-btn danger" @onclick="CloseSessionOnWorkers" disabled="@(selectedRoom == null)">Close Session</button>
+    </div>
+
+    <div class="fiesta-row">
+        <textarea class="fiesta-textarea" @bind="promptText" placeholder="Broadcast prompt to all workers in selected fiesta"></textarea>
+        <button class="fiesta-btn primary" @onclick="BroadcastPrompt" disabled="@(selectedRoom == null || string.IsNullOrWhiteSpace(promptText))">Broadcast Prompt</button>
+    </div>
+
+    <details class="fiesta-section" open>
+        <summary>Discovered PolyPilot instances (@peers.Count)</summary>
+        @if (peers.Count == 0)
+        {
+            <p class="fiesta-muted">No LAN peers discovered yet.</p>
+        }
+        else
+        {
+            @foreach (var peer in peers)
+            {
+                <div class="fiesta-peer">
+                    <div>
+                        <strong>@peer.MachineName</strong>
+                        <span class="fiesta-muted">@peer.Host:@peer.Port</span>
+                    </div>
+                    <input class="fiesta-input small" value="@GetJoinCode(peer.InstanceId)" @oninput="(e) => SetJoinCode(peer.InstanceId, e.Value?.ToString())" placeholder="Join code" />
+                    <button class="fiesta-btn" @onclick="() => AddPeerToRoom(peer.InstanceId)" disabled="@(selectedRoom == null)">Add to Fiesta</button>
+                </div>
+            }
+        }
+    </details>
+
+    @if (selectedRoom != null)
+    {
+        <details class="fiesta-section" open>
+            <summary>Workers in @selectedRoom.Name</summary>
+            @foreach (var member in GetWorkers(selectedRoom))
+            {
+                <div class="fiesta-peer">
+                    <div>
+                        <strong>@member.MachineName</strong>
+                        <span class="fiesta-muted">@member.Host:@member.Port</span>
+                    </div>
+                    <span class="fiesta-status-dot @(member.IsConnected ? "ok" : "bad")"></span>
+                </div>
+            }
+            @if (GetWorkerCount(selectedRoom) == 0)
+            {
+                <p class="fiesta-muted">No workers connected yet.</p>
+            }
+        </details>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="fiesta-status">@statusMessage</div>
+    }
+</div>
+
+@code {
+    private List<FiestaRoom> rooms = new();
+    private List<FiestaPeerInfo> peers = new();
+    private string? selectedRoomId;
+    private string newRoomName = "";
+    private string sessionName = "fiesta-session";
+    private string promptText = "";
+    private string? statusMessage;
+    private readonly Dictionary<string, string> joinCodes = new(StringComparer.Ordinal);
+
+    private FiestaRoom? selectedRoom => selectedRoomId == null ? null : rooms.FirstOrDefault(r => r.Id == selectedRoomId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        FiestaCoordinator.OnStateChanged += HandleStateChanged;
+        FiestaCoordinator.OnStatusMessage += HandleStatusMessage;
+        await FiestaCoordinator.InitializeAsync();
+        RefreshState();
+    }
+
+    private void HandleStateChanged() => InvokeAsync(() =>
+    {
+        RefreshState();
+        StateHasChanged();
+    });
+
+    private void HandleStatusMessage(string message) => InvokeAsync(() =>
+    {
+        statusMessage = message;
+        StateHasChanged();
+    });
+
+    private void RefreshState()
+    {
+        rooms = FiestaCoordinator.Rooms.ToList();
+        peers = FiestaCoordinator.DiscoveredPeers.ToList();
+        if (selectedRoomId != null && rooms.All(r => r.Id != selectedRoomId))
+            selectedRoomId = null;
+    }
+
+    private int GetWorkerCount(FiestaRoom room)
+    {
+        lock (room.Members)
+        {
+            return room.Members.Count(m => m.Role == FiestaMemberRole.Worker);
+        }
+    }
+
+    private List<FiestaMember> GetWorkers(FiestaRoom room)
+    {
+        lock (room.Members)
+        {
+            return room.Members.Where(m => m.Role == FiestaMemberRole.Worker).ToList();
+        }
+    }
+
+    private void CreateRoom()
+    {
+        if (string.IsNullOrWhiteSpace(newRoomName)) return;
+        var room = FiestaCoordinator.CreateRoom(newRoomName);
+        selectedRoomId = room.Id;
+        newRoomName = "";
+        RefreshState();
+    }
+
+    private void CloseRoom()
+    {
+        if (selectedRoom == null) return;
+        FiestaCoordinator.RemoveRoom(selectedRoom.Id);
+        selectedRoomId = null;
+        RefreshState();
+    }
+
+    private async Task AddPeerToRoom(string peerInstanceId)
+    {
+        if (selectedRoom == null) return;
+        var code = GetJoinCode(peerInstanceId);
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            statusMessage = "Enter join code for selected worker.";
+            return;
+        }
+
+        try
+        {
+            var result = await FiestaCoordinator.AddPeerToRoomAsync(selectedRoom.Id, peerInstanceId, code.Trim());
+            statusMessage = result.Status == FiestaJoinState.Approved
+                ? $"Worker {result.WorkerMachineName} joined."
+                : $"Join {result.Status.ToString().ToLowerInvariant()}: {result.Reason}";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Join failed: {ex.Message}";
+        }
+    }
+
+    private async Task BroadcastPrompt()
+    {
+        if (selectedRoom == null || string.IsNullOrWhiteSpace(promptText)) return;
+        try
+        {
+            await FiestaCoordinator.BroadcastPromptAsync(selectedRoom.Id, sessionName.Trim(), promptText.Trim());
+            statusMessage = "Prompt broadcasted.";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Broadcast failed: {ex.Message}";
+        }
+    }
+
+    private Task CreateSessionOnWorkers() => SendSessionCommand("create");
+    private Task SwitchSessionOnWorkers() => SendSessionCommand("switch");
+    private Task CloseSessionOnWorkers() => SendSessionCommand("close");
+
+    private async Task SendSessionCommand(string command)
+    {
+        if (selectedRoom == null || string.IsNullOrWhiteSpace(sessionName)) return;
+        try
+        {
+            await FiestaCoordinator.SendSessionCommandAsync(selectedRoom.Id, command, sessionName.Trim());
+            statusMessage = $"Sent '{command}' command.";
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Command failed: {ex.Message}";
+        }
+    }
+
+    private string GetJoinCode(string peerInstanceId)
+        => joinCodes.TryGetValue(peerInstanceId, out var value) ? value : "";
+
+    private void SetJoinCode(string peerInstanceId, string? value)
+        => joinCodes[peerInstanceId] = value ?? "";
+
+    public void Dispose()
+    {
+        FiestaCoordinator.OnStateChanged -= HandleStateChanged;
+        FiestaCoordinator.OnStatusMessage -= HandleStatusMessage;
+    }
+}

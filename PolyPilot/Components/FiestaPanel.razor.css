@@ -1,0 +1,119 @@
+.fiesta-panel {
+    border: 1px solid var(--control-border);
+    border-radius: 10px;
+    background: var(--bg-input);
+    padding: 0.9rem;
+    margin-bottom: 0.9rem;
+}
+
+.fiesta-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin-bottom: 0.65rem;
+}
+
+.fiesta-header h3 {
+    margin: 0;
+    font-size: var(--type-title2);
+}
+
+.fiesta-sub {
+    color: var(--text-dim);
+    font-size: var(--type-body);
+}
+
+.fiesta-row {
+    display: flex;
+    gap: 0.45rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.fiesta-input,
+.fiesta-select,
+.fiesta-textarea {
+    border: 1px solid var(--control-border);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 0.42rem 0.5rem;
+}
+
+.fiesta-input {
+    min-width: 180px;
+}
+
+.fiesta-input.small {
+    min-width: 120px;
+    width: 120px;
+}
+
+.fiesta-select {
+    min-width: 180px;
+}
+
+.fiesta-textarea {
+    min-height: 70px;
+    min-width: 320px;
+    flex: 1;
+}
+
+.fiesta-btn {
+    border: 1px solid var(--control-border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 0.38rem 0.62rem;
+}
+
+.fiesta-btn.primary {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: white;
+}
+
+.fiesta-btn.danger {
+    border-color: #b45309;
+    color: #f59e0b;
+}
+
+.fiesta-section {
+    margin-top: 0.5rem;
+}
+
+.fiesta-peer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--control-bg);
+    padding: 0.38rem 0;
+}
+
+.fiesta-muted {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+}
+
+.fiesta-status {
+    margin-top: 0.45rem;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+}
+
+.fiesta-status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.fiesta-status-dot.ok {
+    background: #4ade80;
+}
+
+.fiesta-status-dot.bad {
+    background: #f87171;
+}

@@ -8,6 +8,7 @@
 @inject TailscaleService TailscaleService
 @inject QrScannerService QrScanner
 @inject GitAutoUpdateService GitAutoUpdate
+@inject FiestaCoordinatorService FiestaCoordinator
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @implements IDisposable
@@ -268,6 +269,80 @@
         </div>
     }
 
+    <div class="settings-section @(SectionVisible("fiesta machine name discovery join code approval workers lan") ? "" : "search-hidden")">
+        <h3>Fiesta (LAN Collaboration)</h3>
+        <div class="url-input">
+            <label>Machine Name:</label>
+            <input type="text" @bind="settings.MachineName" placeholder="How this machine appears to others" class="form-input wide" />
+        </div>
+        <div class="server-status">
+            <label class="inline-toggle">
+                <input type="checkbox" @bind="settings.FiestaDiscoveryEnabled" />
+                <span>Enable LAN discovery</span>
+            </label>
+        </div>
+        <div class="server-status">
+            <span class="status-dot @(FiestaCoordinator.IsHosting ? "alive" : "dead")"></span>
+            <span>@(FiestaCoordinator.IsHosting ? $"Hosting Fiesta endpoint on port {DevTunnelService.BridgePort}" : "Fiesta hosting is off")</span>
+        </div>
+        <div class="server-buttons">
+            @if (!FiestaCoordinator.IsHosting)
+            {
+                <button class="start-btn" @onclick="StartFiestaHosting">
+                    <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    Start Fiesta Hosting
+                </button>
+            }
+            else
+            {
+                <button class="stop-btn" @onclick="StopFiestaHosting">
+                    <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+                    Stop Fiesta Hosting
+                </button>
+            }
+        </div>
+        @if (!string.IsNullOrWhiteSpace(settings.FiestaJoinCode))
+        {
+            <div class="tunnel-token">
+                <label>Join code:</label>
+                <code>@settings.FiestaJoinCode</code>
+                <button class="copy-btn" @onclick="CopyFiestaJoinCode" title="Copy join code"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+            </div>
+        }
+        <div class="url-input">
+            <label>Pending join requests:</label>
+            @if (fiestaPendingRequests.Count == 0)
+            {
+                <p class="hint">No pending requests.</p>
+            }
+            else
+            {
+                @foreach (var request in fiestaPendingRequests)
+                {
+                    <div class="server-status">
+                        <span>@request.OrganizerMachineName wants to join fiesta <code>@request.FiestaId</code></span>
+                        <div class="server-buttons">
+                            <button class="start-btn" @onclick="() => ApproveFiestaJoin(request.RequestId)">Approve</button>
+                            <button class="stop-btn" @onclick="() => RejectFiestaJoin(request.RequestId)">Reject</button>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+        @if (fiestaDiscoveredPeers.Count > 0)
+        {
+            <div class="url-input">
+                <label>Discovered instances:</label>
+                @foreach (var peer in fiestaDiscoveredPeers)
+                {
+                    <div class="server-status">
+                        <span>@peer.MachineName (@peer.Host:@peer.Port)</span>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
     <div class="settings-section">
         <div class="save-row">
             <button class="save-btn" @onclick="SaveAndApply">
@@ -421,6 +496,8 @@
     private (string? builtInPath, string? builtInVersion, string? systemPath, string? systemVersion) cliInfo;
     private CliSourceMode _initialCliSource;
     private bool cliSourceChanged;
+    private List<FiestaJoinRequest> fiestaPendingRequests = new();
+    private List<FiestaPeerInfo> fiestaDiscoveredPeers = new();
 
     [JSInvokable]
     public void JsUpdateSearch(string query)
@@ -451,7 +528,7 @@
         // Also check all section keywords within the group
         return groupKeyword switch
         {
-            "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect"),
+            "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect fiesta machine name discovery join code approval workers lan"),
             "ui" => SectionVisible("chat message layout default reversed both left theme"),
             "developer" => SectionVisible("auto update main git watch relaunch rebuild"),
             _ => true
@@ -482,12 +559,16 @@
         _initialCliSource = settings.CliSource;
         DevTunnelService.OnStateChanged += OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
+        FiestaCoordinator.OnStateChanged += OnFiestaStateChanged;
+        FiestaCoordinator.OnStatusMessage += OnFiestaStatusMessage;
 
         if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
             GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
 
         if (WsBridgeServer.IsRunning)
             GenerateDirectQrCode();
+
+        RefreshFiestaState();
     }
 
     protected override void OnAfterRender(bool firstRender)
@@ -526,12 +607,14 @@
         tasks.Add(Task.Run(() => { devTunnelAvailable = DevTunnelService.IsCliAvailable(); }));
         tasks.Add(Task.Run(() => { DiscoverLocalIps(); }));
         tasks.Add(TailscaleService.DetectAsync());
+        tasks.Add(FiestaCoordinator.InitializeAsync());
         await Task.WhenAll(tasks);
         cliInfo = await cliInfoTask;
 
         if (devTunnelAvailable)
             tunnelLoggedIn = await DevTunnelService.IsLoggedInAsync();
 
+        RefreshFiestaState();
         await InvokeAsync(StateHasChanged);
     }
 
@@ -539,6 +622,8 @@
     {
         DevTunnelService.OnStateChanged -= OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged -= OnAutoUpdateStateChanged;
+        FiestaCoordinator.OnStateChanged -= OnFiestaStateChanged;
+        FiestaCoordinator.OnStatusMessage -= OnFiestaStatusMessage;
         _ = JS.InvokeVoidAsync("eval", "window.__settingsRef = null;");
         _selfRef?.Dispose();
     }
@@ -553,6 +638,69 @@
                 qrCodeDataUri = null;
             StateHasChanged();
         });
+    }
+
+    private void OnFiestaStateChanged()
+    {
+        InvokeAsync(() =>
+        {
+            RefreshFiestaState();
+            StateHasChanged();
+        });
+    }
+
+    private void OnFiestaStatusMessage(string message)
+    {
+        InvokeAsync(() =>
+        {
+            ShowStatus(message, "success", 3500);
+        });
+    }
+
+    private void RefreshFiestaState()
+    {
+        fiestaPendingRequests = FiestaCoordinator.PendingJoinRequests.ToList();
+        fiestaDiscoveredPeers = FiestaCoordinator.DiscoveredPeers.ToList();
+        if (string.IsNullOrWhiteSpace(settings.FiestaJoinCode) && !string.IsNullOrWhiteSpace(FiestaCoordinator.CurrentJoinCode))
+            settings.FiestaJoinCode = FiestaCoordinator.CurrentJoinCode;
+    }
+
+    private async Task StartFiestaHosting()
+    {
+        await FiestaCoordinator.ApplySettingsAsync(settings);
+        await FiestaCoordinator.StartHostingAsync();
+        settings = ConnectionSettings.Load();
+        RefreshFiestaState();
+        ShowStatus("Fiesta hosting started", "success");
+    }
+
+    private void StopFiestaHosting()
+    {
+        FiestaCoordinator.StopHosting();
+        settings = ConnectionSettings.Load();
+        RefreshFiestaState();
+        ShowStatus("Fiesta hosting stopped", "success");
+    }
+
+    private void ApproveFiestaJoin(string requestId)
+    {
+        FiestaCoordinator.ResolveJoinRequest(requestId, approved: true);
+        RefreshFiestaState();
+        ShowStatus("Join request approved", "success");
+    }
+
+    private void RejectFiestaJoin(string requestId)
+    {
+        FiestaCoordinator.ResolveJoinRequest(requestId, approved: false, reason: "Rejected by user");
+        RefreshFiestaState();
+        ShowStatus("Join request rejected", "success");
+    }
+
+    private async Task CopyFiestaJoinCode()
+    {
+        if (string.IsNullOrWhiteSpace(settings.FiestaJoinCode)) return;
+        await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(settings.FiestaJoinCode);
+        ShowStatus("Join code copied!", "success");
     }
 
     private void GenerateQrCode(string url, string? token)
@@ -819,6 +967,7 @@
         }
 
         settings.Save();
+        await FiestaCoordinator.ApplySettingsAsync(settings);
         ShowStatus("Settings saved. Reconnecting...", "", 0);
 
         try
@@ -840,10 +989,12 @@
         if (string.IsNullOrWhiteSpace(settings.ServerPassword)) return;
         WsBridgeServer.ServerPassword = settings.ServerPassword;
         WsBridgeServer.SetCopilotService(CopilotService);
+        WsBridgeServer.SetFiestaCoordinator(FiestaCoordinator);
         WsBridgeServer.Start(DevTunnelService.BridgePort, settings.Port);
         settings.DirectSharingEnabled = true;
         settings.Save();
         GenerateDirectQrCode();
+        _ = FiestaCoordinator.ApplySettingsAsync(settings);
         StateHasChanged();
     }
 
@@ -852,6 +1003,7 @@
         WsBridgeServer.Stop();
         settings.DirectSharingEnabled = false;
         settings.Save();
+        _ = FiestaCoordinator.ApplySettingsAsync(settings);
         directQrCodeDataUri = null;
         StateHasChanged();
     }

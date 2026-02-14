@@ -48,6 +48,9 @@ public class RemoteModeTests
             BridgeMessageTypes.AbortSession,
             BridgeMessageTypes.OrganizationCommand,
             BridgeMessageTypes.ListDirectories,
+            BridgeMessageTypes.FiestaJoinRequest,
+            BridgeMessageTypes.FiestaDispatchPrompt,
+            BridgeMessageTypes.FiestaSessionCommand,
         };
         Assert.Equal(types.Length, types.Distinct().Count());
     }
@@ -73,6 +76,9 @@ public class RemoteModeTests
             BridgeMessageTypes.SessionComplete,
             BridgeMessageTypes.ErrorEvent,
             BridgeMessageTypes.DirectoriesList,
+            BridgeMessageTypes.FiestaJoinStatus,
+            BridgeMessageTypes.FiestaDispatchResult,
+            BridgeMessageTypes.FiestaSessionCommandResult,
         };
         Assert.Equal(types.Length, types.Distinct().Count());
     }

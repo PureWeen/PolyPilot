@@ -1,0 +1,18 @@
+.fiesta-dashboard-page {
+    padding: 1rem;
+}
+
+.fiesta-dashboard-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.fiesta-dashboard-header h2 {
+    margin: 0;
+}
+
+.fiesta-dashboard-header span {
+    color: var(--text-dim);
+}

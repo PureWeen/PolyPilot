@@ -94,10 +94,12 @@ public static class MauiProgram
 		builder.Services.AddSingleton<WsBridgeServer>();
 		builder.Services.AddSingleton<TailscaleService>();
 		builder.Services.AddSingleton<WsBridgeClient>();
+		builder.Services.AddSingleton<FiestaDiscoveryService>();
+		builder.Services.AddSingleton<FiestaCoordinatorService>();
 		builder.Services.AddSingleton<QrScannerService>();
 		builder.Services.AddSingleton<KeyCommandService>();
-	builder.Services.AddSingleton<GitAutoUpdateService>();
-	builder.Services.AddSingleton<RepoManager>();
+		builder.Services.AddSingleton<GitAutoUpdateService>();
+		builder.Services.AddSingleton<RepoManager>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

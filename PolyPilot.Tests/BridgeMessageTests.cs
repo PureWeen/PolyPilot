@@ -133,6 +133,9 @@ public class BridgeMessageTypesTests
         Assert.Equal("session_complete", BridgeMessageTypes.SessionComplete);
         Assert.Equal("error", BridgeMessageTypes.ErrorEvent);
         Assert.Equal("persisted_sessions", BridgeMessageTypes.PersistedSessionsList);
+        Assert.Equal("fiesta_join_status", BridgeMessageTypes.FiestaJoinStatus);
+        Assert.Equal("fiesta_dispatch_result", BridgeMessageTypes.FiestaDispatchResult);
+        Assert.Equal("fiesta_session_command_result", BridgeMessageTypes.FiestaSessionCommandResult);
     }
 
     [Fact]
@@ -149,6 +152,9 @@ public class BridgeMessageTypesTests
         Assert.Equal("close_session", BridgeMessageTypes.CloseSession);
         Assert.Equal("abort_session", BridgeMessageTypes.AbortSession);
         Assert.Equal("list_directories", BridgeMessageTypes.ListDirectories);
+        Assert.Equal("fiesta_join_request", BridgeMessageTypes.FiestaJoinRequest);
+        Assert.Equal("fiesta_dispatch_prompt", BridgeMessageTypes.FiestaDispatchPrompt);
+        Assert.Equal("fiesta_session_command", BridgeMessageTypes.FiestaSessionCommand);
     }
 
     [Fact]
@@ -395,5 +401,47 @@ public class BridgePayloadTests
         Assert.Equal("/nonexistent", restored!.Path);
         Assert.Equal("Directory not found", restored.Error);
         Assert.Empty(restored.Directories);
+    }
+
+    [Fact]
+    public void FiestaJoinRequestPayload_RoundTrip()
+    {
+        var payload = new FiestaJoinRequestPayload
+        {
+            RequestId = "req-1",
+            FiestaId = "fiesta-1",
+            OrganizerInstanceId = "inst-a",
+            OrganizerMachineName = "Mac-Organizer",
+            JoinCode = "123456"
+        };
+
+        var msg = BridgeMessage.Create(BridgeMessageTypes.FiestaJoinRequest, payload, payload.FiestaId);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<FiestaJoinRequestPayload>();
+
+        Assert.Equal("req-1", restored!.RequestId);
+        Assert.Equal("fiesta-1", restored.FiestaId);
+        Assert.Equal("123456", restored.JoinCode);
+    }
+
+    [Fact]
+    public void FiestaDispatchResultPayload_RoundTrip()
+    {
+        var payload = new FiestaDispatchResultPayload
+        {
+            RequestId = "req-2",
+            FiestaId = "fiesta-2",
+            WorkerInstanceId = "worker-a",
+            WorkerMachineName = "Win-Worker",
+            SessionName = "maui-fix",
+            Success = true,
+            Summary = "Prompt completed"
+        };
+
+        var msg = BridgeMessage.Create(BridgeMessageTypes.FiestaDispatchResult, payload, payload.FiestaId);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<FiestaDispatchResultPayload>();
+
+        Assert.True(restored!.Success);
+        Assert.Equal("Win-Worker", restored.WorkerMachineName);
+        Assert.Equal("Prompt completed", restored.Summary);
     }
 }

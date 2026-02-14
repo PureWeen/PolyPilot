@@ -8,6 +8,7 @@
 @inject DevTunnelService DevTunnelService
 @inject WsBridgeServer WsBridgeServer
 @inject GitAutoUpdateService GitAutoUpdate
+@inject FiestaCoordinatorService FiestaCoordinator
 @implements IAsyncDisposable
 
 <div class="dashboard @(expandedSession != null ? "expanded-mode" : "")">
@@ -311,6 +312,8 @@
             }
 
             var connSettings = ConnectionSettings.Load();
+            await FiestaCoordinator.InitializeAsync();
+            await FiestaCoordinator.ApplySettingsAsync(connSettings);
             if (connSettings.AutoStartTunnel && DevTunnelService.State == TunnelState.NotStarted)
             {
                 _ = Task.Run(async () =>
@@ -358,7 +361,9 @@
         {
             WsBridgeServer.ServerPassword = connSettings.ServerPassword;
             WsBridgeServer.SetCopilotService(CopilotService);
+            WsBridgeServer.SetFiestaCoordinator(FiestaCoordinator);
             WsBridgeServer.Start(DevTunnelService.BridgePort, connSettings.Port);
+            _ = FiestaCoordinator.ApplySettingsAsync(connSettings);
         }
     }
 

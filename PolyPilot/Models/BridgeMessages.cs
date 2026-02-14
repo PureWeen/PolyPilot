@@ -12,16 +12,24 @@ namespace PolyPilot.Models;
 
 public class BridgeMessage
 {
+    public const int LatestProtocolVersion = 2;
+
     [JsonPropertyName("type")]
     public string Type { get; set; } = "";
 
     [JsonPropertyName("payload")]
     public JsonElement? Payload { get; set; }
 
-    public static BridgeMessage Create<T>(string type, T payload)
+    [JsonPropertyName("protocolVersion")]
+    public int ProtocolVersion { get; set; } = 1;
+
+    [JsonPropertyName("fiestaId")]
+    public string? FiestaId { get; set; }
+
+    public static BridgeMessage Create<T>(string type, T payload, string? fiestaId = null)
     {
         var json = JsonSerializer.SerializeToElement(payload, BridgeJson.Options);
-        return new BridgeMessage { Type = type, Payload = json };
+        return new BridgeMessage { Type = type, Payload = json, FiestaId = fiestaId, ProtocolVersion = LatestProtocolVersion };
     }
 
     public T? GetPayload<T>() =>
@@ -66,6 +74,9 @@ public static class BridgeMessageTypes
     public const string TurnEnd = "turn_end";
     public const string SessionComplete = "session_complete";
     public const string ErrorEvent = "error";
+    public const string FiestaJoinStatus = "fiesta_join_status";
+    public const string FiestaDispatchResult = "fiesta_dispatch_result";
+    public const string FiestaSessionCommandResult = "fiesta_session_command_result";
 
     // Client → Server
     public const string GetSessions = "get_sessions";
@@ -80,6 +91,9 @@ public static class BridgeMessageTypes
     public const string AbortSession = "abort_session";
     public const string OrganizationCommand = "organization_command";
     public const string ListDirectories = "list_directories";
+    public const string FiestaJoinRequest = "fiesta_join_request";
+    public const string FiestaDispatchPrompt = "fiesta_dispatch_prompt";
+    public const string FiestaSessionCommand = "fiesta_session_command";
 
     // Server → Client (response)
     public const string DirectoriesList = "directories_list";
@@ -261,4 +275,78 @@ public class DirectoryEntry
 {
     public string Name { get; set; } = "";
     public bool IsGitRepo { get; set; }
+}
+
+// --- Fiesta payloads ---
+
+public enum FiestaJoinState
+{
+    Pending,
+    Approved,
+    Rejected
+}
+
+public class FiestaJoinRequestPayload
+{
+    public string RequestId { get; set; } = "";
+    public string FiestaId { get; set; } = "";
+    public string OrganizerInstanceId { get; set; } = "";
+    public string OrganizerMachineName { get; set; } = "";
+    public string JoinCode { get; set; } = "";
+    public DateTime RequestedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class FiestaJoinStatusPayload
+{
+    public string RequestId { get; set; } = "";
+    public string FiestaId { get; set; } = "";
+    public FiestaJoinState Status { get; set; } = FiestaJoinState.Pending;
+    public string WorkerInstanceId { get; set; } = "";
+    public string WorkerMachineName { get; set; } = "";
+    public string? Reason { get; set; }
+}
+
+public class FiestaDispatchPromptPayload
+{
+    public string RequestId { get; set; } = "";
+    public string FiestaId { get; set; } = "";
+    public string SessionName { get; set; } = "";
+    public string Message { get; set; } = "";
+    public bool CreateSessionIfMissing { get; set; } = true;
+    public string? Model { get; set; }
+    public string? WorkingDirectory { get; set; }
+}
+
+public class FiestaDispatchResultPayload
+{
+    public string RequestId { get; set; } = "";
+    public string FiestaId { get; set; } = "";
+    public string WorkerInstanceId { get; set; } = "";
+    public string WorkerMachineName { get; set; } = "";
+    public string SessionName { get; set; } = "";
+    public bool Success { get; set; }
+    public string? Error { get; set; }
+    public string? Summary { get; set; }
+}
+
+public class FiestaSessionCommandPayload
+{
+    public string RequestId { get; set; } = "";
+    public string FiestaId { get; set; } = "";
+    public string Command { get; set; } = ""; // create | close | switch
+    public string SessionName { get; set; } = "";
+    public string? Model { get; set; }
+    public string? WorkingDirectory { get; set; }
+}
+
+public class FiestaSessionCommandResultPayload
+{
+    public string RequestId { get; set; } = "";
+    public string FiestaId { get; set; } = "";
+    public string WorkerInstanceId { get; set; } = "";
+    public string WorkerMachineName { get; set; } = "";
+    public string Command { get; set; } = "";
+    public string SessionName { get; set; } = "";
+    public bool Success { get; set; }
+    public string? Error { get; set; }
 }

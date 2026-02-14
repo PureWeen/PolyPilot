@@ -41,6 +41,9 @@ public class WsBridgeClient : IDisposable
     public event Action<string, string>? OnSessionComplete;
     public event Action<string, string>? OnError;
     public event Action<OrganizationState>? OnOrganizationStateReceived;
+    public event Action<FiestaJoinStatusPayload>? OnFiestaJoinStatus;
+    public event Action<FiestaDispatchResultPayload>? OnFiestaDispatchResult;
+    public event Action<FiestaSessionCommandResultPayload>? OnFiestaSessionCommandResult;
 
     /// <summary>
     /// Connect to the remote WsBridgeServer.
@@ -191,6 +194,18 @@ public class WsBridgeClient : IDisposable
 
     public async Task SendOrganizationCommandAsync(OrganizationCommandPayload cmd, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.OrganizationCommand, cmd), ct);
+
+    public async Task SendBridgeMessageAsync(BridgeMessage msg, CancellationToken ct = default) =>
+        await SendAsync(msg, ct);
+
+    public async Task SendFiestaJoinRequestAsync(FiestaJoinRequestPayload request, string? fiestaId = null, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.FiestaJoinRequest, request, fiestaId ?? request.FiestaId), ct);
+
+    public async Task SendFiestaDispatchPromptAsync(FiestaDispatchPromptPayload request, string? fiestaId = null, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.FiestaDispatchPrompt, request, fiestaId ?? request.FiestaId), ct);
+
+    public async Task SendFiestaSessionCommandAsync(FiestaSessionCommandPayload request, string? fiestaId = null, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.FiestaSessionCommand, request, fiestaId ?? request.FiestaId), ct);
 
     private TaskCompletionSource<DirectoriesListPayload>? _dirListTcs;
 
@@ -448,6 +463,24 @@ public class WsBridgeClient : IDisposable
                 var dirList = msg.GetPayload<DirectoriesListPayload>();
                 if (dirList != null)
                     _dirListTcs?.TrySetResult(dirList);
+                break;
+
+            case BridgeMessageTypes.FiestaJoinStatus:
+                var joinStatus = msg.GetPayload<FiestaJoinStatusPayload>();
+                if (joinStatus != null)
+                    OnFiestaJoinStatus?.Invoke(joinStatus);
+                break;
+
+            case BridgeMessageTypes.FiestaDispatchResult:
+                var dispatchResult = msg.GetPayload<FiestaDispatchResultPayload>();
+                if (dispatchResult != null)
+                    OnFiestaDispatchResult?.Invoke(dispatchResult);
+                break;
+
+            case BridgeMessageTypes.FiestaSessionCommandResult:
+                var sessionCommandResult = msg.GetPayload<FiestaSessionCommandResultPayload>();
+                if (sessionCommandResult != null)
+                    OnFiestaSessionCommandResult?.Invoke(sessionCommandResult);
                 break;
         }
     }

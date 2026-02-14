@@ -78,6 +78,9 @@ public class ConnectionSettingsTests
         Assert.Null(settings.RemoteToken);
         Assert.Null(settings.TunnelId);
         Assert.False(settings.AutoStartTunnel);
+        Assert.True(settings.FiestaDiscoveryEnabled);
+        Assert.False(string.IsNullOrWhiteSpace(settings.MachineName));
+        Assert.True(string.IsNullOrWhiteSpace(settings.InstanceId));
     }
 
     [Fact]
@@ -95,7 +98,11 @@ public class ConnectionSettingsTests
             RemoteToken = "token123",
             TunnelId = "tunnel-abc",
             AutoStartTunnel = true,
-            AutoStartServer = true
+            AutoStartServer = true,
+            MachineName = "My-Mac",
+            InstanceId = "instance-123",
+            FiestaDiscoveryEnabled = false,
+            FiestaJoinCode = "654321"
         };
 
         var json = JsonSerializer.Serialize(original, new JsonSerializerOptions { WriteIndented = true });
@@ -114,6 +121,10 @@ public class ConnectionSettingsTests
         Assert.Equal("tunnel-abc", loaded.TunnelId);
         Assert.True(loaded.AutoStartTunnel);
         Assert.True(loaded.AutoStartServer);
+        Assert.Equal("My-Mac", loaded.MachineName);
+        Assert.Equal("instance-123", loaded.InstanceId);
+        Assert.False(loaded.FiestaDiscoveryEnabled);
+        Assert.Equal("654321", loaded.FiestaJoinCode);
     }
 
     [Fact]

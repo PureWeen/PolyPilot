@@ -51,6 +51,10 @@ public class ConnectionSettings
     public CliSourceMode CliSource { get; set; } = CliSourceMode.BuiltIn;
     public List<string> DisabledMcpServers { get; set; } = new();
     public List<string> DisabledPlugins { get; set; } = new();
+    public string? MachineName { get; set; } = DefaultMachineName;
+    public string InstanceId { get; set; } = "";
+    public bool FiestaDiscoveryEnabled { get; set; } = true;
+    public string? FiestaJoinCode { get; set; }
 
     [JsonIgnore]
     public string CliUrl => Mode == ConnectionMode.Remote && !string.IsNullOrEmpty(RemoteUrl)
@@ -60,6 +64,8 @@ public class ConnectionSettings
     private static string? _settingsPath;
     private static string SettingsPath => _settingsPath ??= Path.Combine(
         GetPolyPilotDir(), "settings.json");
+    private static string? _defaultMachineName;
+    public static string DefaultMachineName => _defaultMachineName ??= ResolveDefaultMachineName();
 
     private static string GetPolyPilotDir()
     {
@@ -86,6 +92,7 @@ public class ConnectionSettings
     public static ConnectionSettings Load()
     {
         ConnectionSettings settings;
+        var shouldSave = false;
         try
         {
             if (File.Exists(SettingsPath))
@@ -103,6 +110,21 @@ public class ConnectionSettings
         // Ensure loaded mode is valid for this platform
         if (!PlatformHelper.AvailableModes.Contains(settings.Mode))
             settings.Mode = PlatformHelper.DefaultMode;
+
+        if (string.IsNullOrWhiteSpace(settings.MachineName))
+        {
+            settings.MachineName = DefaultMachineName;
+            shouldSave = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.InstanceId))
+        {
+            settings.InstanceId = Guid.NewGuid().ToString("N");
+            shouldSave = true;
+        }
+
+        if (shouldSave)
+            settings.Save();
 
         return settings;
     }
@@ -127,11 +149,29 @@ public class ConnectionSettings
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(MachineName))
+                MachineName = DefaultMachineName;
+            if (string.IsNullOrWhiteSpace(InstanceId))
+                InstanceId = Guid.NewGuid().ToString("N");
+
             var dir = Path.GetDirectoryName(SettingsPath)!;
             Directory.CreateDirectory(dir);
             var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(SettingsPath, json);
         }
         catch { }
+    }
+
+    private static string ResolveDefaultMachineName()
+    {
+        try
+        {
+            var host = Environment.MachineName;
+            if (!string.IsNullOrWhiteSpace(host))
+                return host.Trim();
+        }
+        catch { }
+
+        return $"PolyPilot-{Guid.NewGuid():N}"[..16];
     }
 }
