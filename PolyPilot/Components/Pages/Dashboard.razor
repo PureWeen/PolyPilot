@@ -1783,7 +1783,7 @@
                 }
                 else
                 {
-                    // Save the last user message as a prompt
+                    // No content provided — save the last user message as the prompt
                     var lastUser = session.History.LastOrDefault(m => m.Role == "user");
                     if (lastUser == null)
                     {
