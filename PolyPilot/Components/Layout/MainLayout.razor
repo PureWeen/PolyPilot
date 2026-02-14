@@ -22,6 +22,8 @@
     <div class="flyout-panel mobile-only @(flyoutOpen ? "open" : "")">
         <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" />
     </div>
+
+    <FiestaPairingPrompt />
 </div>
 
 @code {

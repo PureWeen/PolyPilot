@@ -79,6 +79,11 @@ public class ConnectionSettingsTests
         Assert.Null(settings.TunnelId);
         Assert.False(settings.AutoStartTunnel);
         Assert.True(settings.FiestaDiscoveryEnabled);
+        Assert.True(settings.FiestaTailscaleDiscoveryEnabled);
+        Assert.False(settings.FiestaTailscaleDiscoveryConfigured);
+        Assert.True(settings.FiestaTailnetBroadcastEnabled);
+        Assert.False(settings.FiestaOfferAsWorker);
+        Assert.True(settings.FiestaAutoStartWorkerHosting);
         Assert.False(string.IsNullOrWhiteSpace(settings.MachineName));
         Assert.True(string.IsNullOrWhiteSpace(settings.InstanceId));
     }
@@ -102,6 +107,11 @@ public class ConnectionSettingsTests
             MachineName = "My-Mac",
             InstanceId = "instance-123",
             FiestaDiscoveryEnabled = false,
+            FiestaTailscaleDiscoveryEnabled = false,
+            FiestaTailscaleDiscoveryConfigured = true,
+            FiestaTailnetBroadcastEnabled = false,
+            FiestaOfferAsWorker = true,
+            FiestaAutoStartWorkerHosting = false,
             FiestaJoinCode = "654321"
         };
 
@@ -124,6 +134,11 @@ public class ConnectionSettingsTests
         Assert.Equal("My-Mac", loaded.MachineName);
         Assert.Equal("instance-123", loaded.InstanceId);
         Assert.False(loaded.FiestaDiscoveryEnabled);
+        Assert.False(loaded.FiestaTailscaleDiscoveryEnabled);
+        Assert.True(loaded.FiestaTailscaleDiscoveryConfigured);
+        Assert.False(loaded.FiestaTailnetBroadcastEnabled);
+        Assert.True(loaded.FiestaOfferAsWorker);
+        Assert.False(loaded.FiestaAutoStartWorkerHosting);
         Assert.Equal("654321", loaded.FiestaJoinCode);
     }
 

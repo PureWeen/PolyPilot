@@ -1,10 +1,283 @@
 @page "/fiesta"
+@using PolyPilot.Models
+@using PolyPilot.Services
+@inject FiestaCoordinatorService FiestaCoordinator
+@implements IDisposable
 
-<div class="fiesta-dashboard-page">
-    <div class="fiesta-dashboard-header">
-        <h2>Fiesta Dashboard</h2>
-        <span>Cross-machine orchestration</span>
-    </div>
+<div class="dashboard @(expandedRoomId != null ? "expanded-mode" : "")">
+    @if (!rooms.Any())
+    {
+        <div class="no-sessions-dash">
+            <p class="welcome-title">No active fiestas</p>
+            <div class="fiesta-create-row">
+                <input class="fiesta-input" @bind="newRoomName" placeholder="New fiesta name" />
+                <button class="fiesta-btn primary" @onclick="CreateRoom" disabled="@string.IsNullOrWhiteSpace(newRoomName)">Create Fiesta</button>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(statusMessage))
+            {
+                <p class="fiesta-status">@statusMessage</p>
+            }
+        </div>
+    }
+    else if (expandedRoom != null)
+    {
+        <ExpandedFiestaView Room="expandedRoom"
+                           Meta="GetRoomMeta(expandedRoom.Id)"
+                           Groups="groups"
+                           AssignedWorkers="GetAssignedWorkers(expandedRoom.Id)"
+                           RegisteredWorkers="registeredWorkers"
+                           OnCollapse="CollapseExpanded"
+                           OnPrompt="(prompt) => BroadcastPrompt(expandedRoom.Id, prompt)"
+                           OnSetSessionName="(name) => SetSessionName(expandedRoom.Id, name)"
+                           OnCommand="(command) => SendCommand(expandedRoom.Id, command)"
+                           OnAssignWorker="(workerId) => AssignWorker(expandedRoom.Id, workerId)"
+                           OnUnassignWorker="(workerId) => UnassignWorker(expandedRoom.Id, workerId)"
+                           OnPin="(pinned) => PinRoom(expandedRoom.Id, pinned)"
+                           OnMoveGroup="(groupId) => MoveRoom(expandedRoom.Id, groupId)"
+                           OnClose="() => CloseRoom(expandedRoom.Id)" />
+    }
+    else
+    {
+        <div class="dashboard-header">
+            <h2>Fiesta Orchestrator</h2>
+            <span class="session-count">@rooms.Count active fiestas</span>
+            <div class="toolbar-actions">
+                @if (isAddingGroup)
+                {
+                    <input class="new-group-input" @bind="newGroupName" @onkeydown="HandleNewGroupKeyDown" @onblur="CommitGroup" placeholder="Group name..." />
+                }
+                else
+                {
+                    <button class="grid-density-btn" @onclick="() => isAddingGroup = true">+ Group</button>
+                }
+                <button class="grid-density-btn" @onclick="() => isCompactGrid = !isCompactGrid">
+                    @(isCompactGrid ? "▤ Expanded" : "▦ Compact")
+                </button>
+                <select class="sort-select" @onchange="OnSortModeChanged">
+                    <option value="LastActivity" selected="@(sortMode == FiestaSortMode.LastActivity)">↕ Last Active</option>
+                    <option value="CreatedAt" selected="@(sortMode == FiestaSortMode.CreatedAt)">↕ Created</option>
+                    <option value="Alphabetical" selected="@(sortMode == FiestaSortMode.Alphabetical)">↕ A–Z</option>
+                    <option value="Manual" selected="@(sortMode == FiestaSortMode.Manual)">↕ Manual</option>
+                </select>
+                <input class="fiesta-input" @bind="newRoomName" placeholder="New fiesta name" />
+                <button class="fiesta-btn primary" @onclick="CreateRoom" disabled="@string.IsNullOrWhiteSpace(newRoomName)">Create</button>
+            </div>
+        </div>
 
-    <FiestaPanel />
+        @foreach (var (group, groupRooms) in organizedRooms)
+        {
+            @if (FiestaCoordinator.HasMultipleGroups)
+            {
+                <div class="group-divider @(group.IsCollapsed ? "collapsed" : "")" @onclick="() => FiestaCoordinator.ToggleGroupCollapsed(group.Id)">
+                    <span class="group-divider-name">@group.Name</span>
+                    <span class="group-divider-count">@groupRooms.Count fiestas</span>
+                    <span class="group-divider-chevron">@(group.IsCollapsed ? "▶" : "▼")</span>
+                </div>
+            }
+
+            @if (!group.IsCollapsed || !FiestaCoordinator.HasMultipleGroups)
+            {
+                <div class="session-grid @(isCompactGrid ? "" : "expanded-grid")">
+                    @foreach (var room in groupRooms)
+                    {
+                        <FiestaCard Room="room"
+                                   Meta="GetRoomMeta(room.Id)"
+                                   Groups="groups"
+                                   AssignedWorkers="GetAssignedWorkers(room.Id)"
+                                   RegisteredWorkers="registeredWorkers"
+                                   OnExpand="() => ExpandRoom(room.Id)"
+                                   OnPrompt="(prompt) => BroadcastPrompt(room.Id, prompt)"
+                                   OnSetSessionName="(name) => SetSessionName(room.Id, name)"
+                                   OnCommand="(command) => SendCommand(room.Id, command)"
+                                   OnAssignWorker="(workerId) => AssignWorker(room.Id, workerId)"
+                                   OnUnassignWorker="(workerId) => UnassignWorker(room.Id, workerId)"
+                                   OnPin="(pinned) => PinRoom(room.Id, pinned)"
+                                   OnMoveGroup="(groupId) => MoveRoom(room.Id, groupId)"
+                                   OnClose="() => CloseRoom(room.Id)" />
+                    }
+                </div>
+            }
+        }
+
+        @if (!string.IsNullOrWhiteSpace(statusMessage))
+        {
+            <div class="fiesta-status-toast">@statusMessage</div>
+        }
+    }
 </div>
+
+@code {
+    private List<FiestaRoom> rooms = new();
+    private List<FiestaRegisteredWorker> registeredWorkers = new();
+    private List<FiestaGroup> groups = new();
+    private List<(FiestaGroup Group, List<FiestaRoom> Rooms)> organizedRooms = new();
+    private FiestaSortMode sortMode = FiestaSortMode.LastActivity;
+    private string newRoomName = "";
+    private string newGroupName = "";
+    private bool isAddingGroup;
+    private bool isCompactGrid = true;
+    private string? expandedRoomId;
+    private string? statusMessage;
+
+    private FiestaRoom? expandedRoom => expandedRoomId == null ? null : rooms.FirstOrDefault(r => r.Id == expandedRoomId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        FiestaCoordinator.OnStateChanged += HandleStateChanged;
+        FiestaCoordinator.OnStatusMessage += HandleStatusMessage;
+        await FiestaCoordinator.InitializeAsync();
+        RefreshState();
+    }
+
+    private void HandleStateChanged() => InvokeAsync(() =>
+    {
+        RefreshState();
+        StateHasChanged();
+    });
+
+    private void HandleStatusMessage(string message) => InvokeAsync(() =>
+    {
+        statusMessage = message;
+        StateHasChanged();
+    });
+
+    private void RefreshState()
+    {
+        rooms = FiestaCoordinator.Rooms.ToList();
+        registeredWorkers = FiestaCoordinator.RegisteredWorkers.ToList();
+        groups = FiestaCoordinator.Groups.ToList();
+        organizedRooms = FiestaCoordinator.GetOrganizedRooms().ToList();
+        sortMode = FiestaCoordinator.GetOrganizationState().SortMode;
+        if (expandedRoomId != null && rooms.All(r => r.Id != expandedRoomId))
+            expandedRoomId = null;
+    }
+
+    private FiestaRoomMeta? GetRoomMeta(string roomId) => FiestaCoordinator.GetRoomMeta(roomId);
+
+    private IReadOnlyList<FiestaRegisteredWorker> GetAssignedWorkers(string roomId) =>
+        FiestaCoordinator.GetAssignedWorkers(roomId);
+
+    private void CreateRoom()
+    {
+        if (string.IsNullOrWhiteSpace(newRoomName)) return;
+        var room = FiestaCoordinator.CreateRoom(newRoomName);
+        newRoomName = "";
+        expandedRoomId = room.Id;
+        RefreshState();
+    }
+
+    private void CloseRoom(string roomId)
+    {
+        FiestaCoordinator.RemoveRoom(roomId);
+        if (expandedRoomId == roomId)
+            expandedRoomId = null;
+        RefreshState();
+    }
+
+    private async Task BroadcastPrompt(string roomId, string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt)) return;
+        var session = rooms.FirstOrDefault(r => r.Id == roomId)?.SessionName ?? "fiesta-session";
+        try
+        {
+            await FiestaCoordinator.BroadcastPromptAsync(roomId, session, prompt);
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Broadcast failed: {ex.Message}";
+        }
+    }
+
+    private async Task SendCommand(string roomId, string command)
+    {
+        var session = rooms.FirstOrDefault(r => r.Id == roomId)?.SessionName ?? "fiesta-session";
+        try
+        {
+            await FiestaCoordinator.SendSessionCommandAsync(roomId, command, session);
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Command failed: {ex.Message}";
+        }
+    }
+
+    private async Task AssignWorker(string roomId, string workerId)
+    {
+        try
+        {
+            await FiestaCoordinator.AssignWorkerToRoomAsync(roomId, workerId);
+            RefreshState();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Assign failed: {ex.Message}";
+        }
+    }
+
+    private void UnassignWorker(string roomId, string workerId)
+    {
+        FiestaCoordinator.UnassignWorkerFromRoom(roomId, workerId);
+        RefreshState();
+    }
+
+    private void PinRoom(string roomId, bool pinned)
+    {
+        FiestaCoordinator.PinRoom(roomId, pinned);
+        RefreshState();
+    }
+
+    private void MoveRoom(string roomId, string groupId)
+    {
+        FiestaCoordinator.MoveRoom(roomId, groupId);
+        RefreshState();
+    }
+
+    private void SetSessionName(string roomId, string sessionName)
+    {
+        FiestaCoordinator.SetRoomSessionName(roomId, sessionName);
+        RefreshState();
+    }
+
+    private void ExpandRoom(string roomId) => expandedRoomId = roomId;
+
+    private void CollapseExpanded() => expandedRoomId = null;
+
+    private Task OnSortModeChanged(ChangeEventArgs e)
+    {
+        if (e.Value is string val && Enum.TryParse<FiestaSortMode>(val, out var mode))
+        {
+            FiestaCoordinator.SetSortMode(mode);
+            RefreshState();
+        }
+        return Task.CompletedTask;
+    }
+
+    private Task HandleNewGroupKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            return CommitGroup();
+
+        if (e.Key == "Escape")
+            isAddingGroup = false;
+
+        return Task.CompletedTask;
+    }
+
+    private Task CommitGroup()
+    {
+        isAddingGroup = false;
+        if (!string.IsNullOrWhiteSpace(newGroupName))
+        {
+            FiestaCoordinator.CreateGroup(newGroupName);
+            newGroupName = "";
+            RefreshState();
+        }
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        FiestaCoordinator.OnStateChanged -= HandleStateChanged;
+        FiestaCoordinator.OnStatusMessage -= HandleStatusMessage;
+    }
+}

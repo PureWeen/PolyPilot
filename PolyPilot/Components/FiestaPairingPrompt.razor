@@ -1,0 +1,73 @@
+@using PolyPilot.Models
+@using PolyPilot.Services
+@inject FiestaCoordinatorService FiestaCoordinator
+@inject NavigationManager Navigation
+@implements IDisposable
+
+@if (activeRequest != null)
+{
+    <div class="fiesta-pairing-toast">
+        <div class="fiesta-pairing-title">🎉 Pairing request</div>
+        <div class="fiesta-pairing-body">
+            <strong>@activeRequest.OrganizerMachineName</strong> wants to pair for fiesta <code>@activeRequest.FiestaId</code>.
+        </div>
+        <div class="fiesta-pairing-hint">Approving remembers this organizer for future auto-approval.</div>
+        @if (pendingCount > 1)
+        {
+            <div class="fiesta-pairing-hint">+ @(pendingCount - 1) more pending request(s)</div>
+        }
+        <div class="fiesta-pairing-actions">
+            <button class="fiesta-action approve" @onclick="Approve">Approve</button>
+            <button class="fiesta-action reject" @onclick="Reject">Reject</button>
+            <button class="fiesta-action neutral" @onclick="OpenSettings">Settings</button>
+        </div>
+    </div>
+}
+
+@code {
+    private FiestaJoinRequest? activeRequest;
+    private int pendingCount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        FiestaCoordinator.OnStateChanged += HandleCoordinatorStateChanged;
+        await FiestaCoordinator.InitializeAsync();
+        RefreshState();
+    }
+
+    private void HandleCoordinatorStateChanged() => InvokeAsync(() =>
+    {
+        RefreshState();
+        StateHasChanged();
+    });
+
+    private void RefreshState()
+    {
+        var pending = FiestaCoordinator.PendingJoinRequests
+            .OrderBy(r => r.RequestedAt)
+            .ToList();
+        pendingCount = pending.Count;
+        activeRequest = pending.FirstOrDefault();
+    }
+
+    private void Approve()
+    {
+        if (activeRequest == null) return;
+        FiestaCoordinator.ResolveJoinRequest(activeRequest.RequestId, approved: true);
+        RefreshState();
+    }
+
+    private void Reject()
+    {
+        if (activeRequest == null) return;
+        FiestaCoordinator.ResolveJoinRequest(activeRequest.RequestId, approved: false, reason: "Rejected by user");
+        RefreshState();
+    }
+
+    private void OpenSettings() => Navigation.NavigateTo("/settings");
+
+    public void Dispose()
+    {
+        FiestaCoordinator.OnStateChanged -= HandleCoordinatorStateChanged;
+    }
+}

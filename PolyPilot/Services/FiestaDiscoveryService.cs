@@ -9,8 +9,9 @@ using PolyPilot.Models;
 namespace PolyPilot.Services;
 
 /// <summary>
-/// Lightweight LAN discovery using multicast announcements.
-/// Uses Bonjour-style service metadata, without external dependencies.
+/// Lightweight peer discovery for Fiesta workers/organizers.
+/// Combines LAN multicast discovery with optional Tailscale peer polling
+/// and tailnet unicast announcement forwarding.
 /// </summary>
 public sealed class FiestaDiscoveryService : IDisposable
 {
@@ -21,29 +22,49 @@ public sealed class FiestaDiscoveryService : IDisposable
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private readonly ConcurrentDictionary<string, FiestaPeerInfo> _peers = new(StringComparer.Ordinal);
+    private readonly TailscaleService _tailscale;
+
     private CancellationTokenSource? _cts;
     private Task? _announceTask;
     private Task? _receiveTask;
     private Task? _cleanupTask;
+    private Task? _tailscaleBrowseTask;
+    private Task? _tailnetAnnounceTask;
     private UdpClient? _announceClient;
     private UdpClient? _receiveClient;
     private FiestaPeerInfo? _localPeer;
     private bool _isBrowsing;
+    private bool _tailscaleBrowsingEnabled;
+    private bool _tailnetBroadcastEnabled;
 
     public event Action? OnPeersChanged;
 
     public bool IsRunning => _cts is { IsCancellationRequested: false };
     public bool IsAdvertising { get; private set; }
     public bool IsBrowsing => _isBrowsing;
+    public bool IsTailscaleBrowsing => _tailscaleBrowsingEnabled;
+    public bool IsTailnetBroadcastEnabled => _tailnetBroadcastEnabled;
     public IReadOnlyList<FiestaPeerInfo> Peers => _peers.Values
         .OrderByDescending(p => p.LastSeenAt)
         .ThenBy(p => p.MachineName, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
-    public void Start(FiestaPeerInfo localPeer, bool advertise, bool browse)
+    public FiestaDiscoveryService(TailscaleService tailscale)
+    {
+        _tailscale = tailscale;
+    }
+
+    public void Start(
+        FiestaPeerInfo localPeer,
+        bool advertise,
+        bool browse,
+        bool tailscaleBrowse = false,
+        bool tailnetBroadcast = false)
     {
         _localPeer = localPeer;
         _isBrowsing = browse;
+        _tailscaleBrowsingEnabled = tailscaleBrowse;
+        _tailnetBroadcastEnabled = tailnetBroadcast;
         IsAdvertising = advertise;
 
         if (IsRunning) return;
@@ -62,13 +83,22 @@ public sealed class FiestaDiscoveryService : IDisposable
         _announceTask = Task.Run(() => AnnounceLoopAsync(_cts.Token));
         _receiveTask = Task.Run(() => ReceiveLoopAsync(_cts.Token));
         _cleanupTask = Task.Run(() => CleanupLoopAsync(_cts.Token));
+        _tailscaleBrowseTask = Task.Run(() => TailscaleBrowseLoopAsync(_cts.Token));
+        _tailnetAnnounceTask = Task.Run(() => TailnetAnnounceLoopAsync(_cts.Token));
     }
 
-    public void UpdateMode(bool advertise, bool browse)
+    public void UpdateMode(
+        bool advertise,
+        bool browse,
+        bool tailscaleBrowse = false,
+        bool tailnetBroadcast = false)
     {
         IsAdvertising = advertise;
         _isBrowsing = browse;
-        if (!browse)
+        _tailscaleBrowsingEnabled = tailscaleBrowse;
+        _tailnetBroadcastEnabled = tailnetBroadcast;
+
+        if (!browse && !tailscaleBrowse && !tailnetBroadcast)
         {
             _peers.Clear();
             OnPeersChanged?.Invoke();
@@ -92,6 +122,8 @@ public sealed class FiestaDiscoveryService : IDisposable
         _announceTask = null;
         _receiveTask = null;
         _cleanupTask = null;
+        _tailscaleBrowseTask = null;
+        _tailnetAnnounceTask = null;
         _peers.Clear();
         OnPeersChanged?.Invoke();
     }
@@ -105,17 +137,7 @@ public sealed class FiestaDiscoveryService : IDisposable
             {
                 if (IsAdvertising && _localPeer != null && _announceClient != null)
                 {
-                    var payload = new AnnouncementPayload
-                    {
-                        Tag = ServiceTag,
-                        InstanceId = _localPeer.InstanceId,
-                        MachineName = _localPeer.MachineName,
-                        Host = _localPeer.Host,
-                        Port = _localPeer.Port,
-                        Platform = _localPeer.Platform,
-                        SentAtUtc = DateTime.UtcNow
-                    };
-                    var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, JsonOptions));
+                    var bytes = BuildAnnouncementBytes(_localPeer, isTailnetAnnouncement: false);
                     await _announceClient.SendAsync(bytes, bytes.Length, endpoint);
                 }
             }
@@ -126,13 +148,142 @@ public sealed class FiestaDiscoveryService : IDisposable
         }
     }
 
+    private async Task TailnetAnnounceLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                if (IsAdvertising && _tailnetBroadcastEnabled && _localPeer != null && _announceClient != null)
+                {
+                    await _tailscale.DetectAsync();
+                    if (_tailscale.IsRunning && _tailscale.Peers.Count > 0)
+                    {
+                        var bytes = BuildAnnouncementBytes(_localPeer, isTailnetAnnouncement: true);
+                        foreach (var peer in _tailscale.Peers.Where(p => p.Online && !string.IsNullOrWhiteSpace(p.TailscaleIp)))
+                        {
+                            if (!string.IsNullOrWhiteSpace(_tailscale.TailscaleIp) &&
+                                string.Equals(peer.TailscaleIp, _tailscale.TailscaleIp, StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            try
+                            {
+                                await _announceClient.SendAsync(bytes, bytes.Length, new IPEndPoint(IPAddress.Parse(peer.TailscaleIp), MulticastPort));
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            try { await Task.Delay(TimeSpan.FromSeconds(5), ct); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    private async Task TailscaleBrowseLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                if (!_tailscaleBrowsingEnabled)
+                {
+                    await Task.Delay(2000, ct);
+                    continue;
+                }
+
+                await _tailscale.DetectAsync();
+                if (!_tailscale.IsRunning)
+                {
+                    await RemoveTailscalePolledPeersAsync();
+                    await Task.Delay(4000, ct);
+                    continue;
+                }
+
+                var now = DateTime.UtcNow;
+                var seenIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var tsPeer in _tailscale.Peers.Where(p => p.Online && !string.IsNullOrWhiteSpace(p.TailscaleIp)))
+                {
+                    if (!string.IsNullOrWhiteSpace(_tailscale.TailscaleIp) &&
+                        string.Equals(tsPeer.TailscaleIp, _tailscale.TailscaleIp, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var id = $"ts:{(tsPeer.MagicDnsName ?? tsPeer.TailscaleIp)}";
+                    seenIds.Add(id);
+
+                    var peer = new FiestaPeerInfo
+                    {
+                        InstanceId = id,
+                        MachineName = string.IsNullOrWhiteSpace(tsPeer.HostName) ? tsPeer.TailscaleIp : tsPeer.HostName,
+                        Host = tsPeer.MagicDnsName ?? tsPeer.TailscaleIp,
+                        Port = _localPeer?.Port ?? DevTunnelService.BridgePort,
+                        Platform = tsPeer.OS,
+                        LastSeenAt = now,
+                        DiscoverySource = FiestaDiscoverySource.TailscalePoll,
+                        IsWorkerAvailable = true,
+                        IsTailscale = true,
+                        TailnetHost = tsPeer.MagicDnsName ?? tsPeer.TailscaleIp,
+                    };
+
+                    _peers.AddOrUpdate(id, peer, (_, existing) =>
+                    {
+                        existing.MachineName = peer.MachineName;
+                        existing.Host = peer.Host;
+                        existing.Port = peer.Port;
+                        existing.Platform = peer.Platform;
+                        existing.LastSeenAt = peer.LastSeenAt;
+                        existing.IsWorkerAvailable = true;
+                        existing.IsTailscale = true;
+                        existing.TailnetHost = peer.TailnetHost;
+                        if (existing.DiscoverySource == FiestaDiscoverySource.TailscalePoll)
+                            existing.DiscoverySource = FiestaDiscoverySource.TailscalePoll;
+                        return existing;
+                    });
+                }
+
+                var removed = false;
+                foreach (var existing in _peers.Where(p => p.Value.DiscoverySource == FiestaDiscoverySource.TailscalePoll).ToList())
+                {
+                    if (!seenIds.Contains(existing.Key))
+                    {
+                        _peers.TryRemove(existing.Key, out _);
+                        removed = true;
+                    }
+                }
+
+                if (seenIds.Count > 0 || removed)
+                    OnPeersChanged?.Invoke();
+            }
+            catch (OperationCanceledException) { break; }
+            catch { }
+
+            try { await Task.Delay(TimeSpan.FromSeconds(10), ct); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    private async Task RemoveTailscalePolledPeersAsync()
+    {
+        var removed = false;
+        foreach (var existing in _peers.Where(p => p.Value.DiscoverySource == FiestaDiscoverySource.TailscalePoll).ToList())
+        {
+            _peers.TryRemove(existing.Key, out _);
+            removed = true;
+        }
+
+        if (removed)
+            await Task.Run(() => OnPeersChanged?.Invoke());
+    }
+
     private async Task ReceiveLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                if (!_isBrowsing || _receiveClient == null)
+                if ((!_isBrowsing && !_tailscaleBrowsingEnabled && !_tailnetBroadcastEnabled) || _receiveClient == null)
                 {
                     await Task.Delay(400, ct);
                     continue;
@@ -149,6 +300,10 @@ public sealed class FiestaDiscoveryService : IDisposable
                 if (string.IsNullOrWhiteSpace(host))
                     host = result.RemoteEndPoint.Address.ToString();
 
+                var source = payload.IsTailnetAnnouncement || IsTailscaleIp(result.RemoteEndPoint.Address)
+                    ? FiestaDiscoverySource.TailnetAnnouncement
+                    : FiestaDiscoverySource.LanMulticast;
+
                 var peer = new FiestaPeerInfo
                 {
                     InstanceId = payload.InstanceId,
@@ -156,7 +311,12 @@ public sealed class FiestaDiscoveryService : IDisposable
                     Host = host,
                     Port = payload.Port,
                     Platform = payload.Platform ?? "",
-                    LastSeenAt = DateTime.UtcNow
+                    LastSeenAt = DateTime.UtcNow,
+                    DiscoverySource = source,
+                    IsWorkerAvailable = payload.IsWorkerAvailable,
+                    IsTailscale = source != FiestaDiscoverySource.LanMulticast,
+                    TailnetHost = payload.TailnetHost,
+                    AdvertisedJoinCode = payload.JoinCode
                 };
 
                 _peers.AddOrUpdate(peer.InstanceId, peer, (_, existing) =>
@@ -166,6 +326,11 @@ public sealed class FiestaDiscoveryService : IDisposable
                     existing.Port = peer.Port;
                     existing.Platform = peer.Platform;
                     existing.LastSeenAt = peer.LastSeenAt;
+                    existing.IsWorkerAvailable = peer.IsWorkerAvailable;
+                    existing.IsTailscale = existing.IsTailscale || peer.IsTailscale;
+                    existing.TailnetHost = string.IsNullOrWhiteSpace(peer.TailnetHost) ? existing.TailnetHost : peer.TailnetHost;
+                    existing.AdvertisedJoinCode = string.IsNullOrWhiteSpace(peer.AdvertisedJoinCode) ? existing.AdvertisedJoinCode : peer.AdvertisedJoinCode;
+                    existing.DiscoverySource = peer.DiscoverySource;
                     return existing;
                 });
                 OnPeersChanged?.Invoke();
@@ -185,7 +350,8 @@ public sealed class FiestaDiscoveryService : IDisposable
                 var removed = false;
                 foreach (var kvp in _peers)
                 {
-                    if (kvp.Value.LastSeenAt < cutoff)
+                    if (kvp.Value.LastSeenAt < cutoff &&
+                        kvp.Value.DiscoverySource != FiestaDiscoverySource.TailscalePoll)
                     {
                         _peers.TryRemove(kvp.Key, out _);
                         removed = true;
@@ -198,6 +364,34 @@ public sealed class FiestaDiscoveryService : IDisposable
             try { await Task.Delay(TimeSpan.FromSeconds(2), ct); }
             catch (OperationCanceledException) { break; }
         }
+    }
+
+    private static bool IsTailscaleIp(IPAddress address)
+    {
+        if (address.AddressFamily != AddressFamily.InterNetwork)
+            return false;
+
+        var bytes = address.GetAddressBytes();
+        return bytes[0] == 100 && bytes[1] is >= 64 and <= 127;
+    }
+
+    private static byte[] BuildAnnouncementBytes(FiestaPeerInfo peer, bool isTailnetAnnouncement)
+    {
+        var payload = new AnnouncementPayload
+        {
+            Tag = ServiceTag,
+            InstanceId = peer.InstanceId,
+            MachineName = peer.MachineName,
+            Host = peer.Host,
+            Port = peer.Port,
+            Platform = peer.Platform,
+            IsWorkerAvailable = peer.IsWorkerAvailable,
+            JoinCode = peer.AdvertisedJoinCode,
+            TailnetHost = peer.TailnetHost,
+            IsTailnetAnnouncement = isTailnetAnnouncement,
+            SentAtUtc = DateTime.UtcNow
+        };
+        return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, JsonOptions));
     }
 
     public static string ResolveBestLanAddress()
@@ -234,6 +428,10 @@ public sealed class FiestaDiscoveryService : IDisposable
         public string Host { get; set; } = "";
         public int Port { get; set; }
         public string? Platform { get; set; }
+        public bool IsWorkerAvailable { get; set; }
+        public string? JoinCode { get; set; }
+        public string? TailnetHost { get; set; }
+        public bool IsTailnetAnnouncement { get; set; }
         public DateTime SentAtUtc { get; set; }
     }
 }

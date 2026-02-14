@@ -412,6 +412,7 @@ public class BridgePayloadTests
             FiestaId = "fiesta-1",
             OrganizerInstanceId = "inst-a",
             OrganizerMachineName = "Mac-Organizer",
+            OrganizerTrustToken = "trust-token-1",
             JoinCode = "123456"
         };
 
@@ -420,7 +421,32 @@ public class BridgePayloadTests
 
         Assert.Equal("req-1", restored!.RequestId);
         Assert.Equal("fiesta-1", restored.FiestaId);
+        Assert.Equal("trust-token-1", restored.OrganizerTrustToken);
         Assert.Equal("123456", restored.JoinCode);
+    }
+
+    [Fact]
+    public void FiestaJoinRequestPayload_AllowsMissingJoinCode()
+    {
+        const string json = """
+        {
+          "type": "fiesta_join_request",
+          "payload": {
+            "requestId": "req-no-code",
+            "fiestaId": "fiesta-1",
+            "organizerInstanceId": "inst-a",
+            "organizerMachineName": "Mac-Organizer"
+          }
+        }
+        """;
+
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<FiestaJoinRequestPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("req-no-code", restored!.RequestId);
+        Assert.Equal("fiesta-1", restored.FiestaId);
+        Assert.Equal("", restored.OrganizerTrustToken);
+        Assert.Equal("", restored.JoinCode);
     }
 
     [Fact]

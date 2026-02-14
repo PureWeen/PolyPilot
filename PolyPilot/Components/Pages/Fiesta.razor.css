@@ -1,18 +1,134 @@
-.fiesta-dashboard-page {
-    padding: 1rem;
-}
-
-.fiesta-dashboard-header {
+.dashboard {
     display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
+    flex-direction: column;
+    height: 100%;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 1.5rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
-.fiesta-dashboard-header h2 {
+.dashboard.expanded-mode {
+    padding: 0;
+    overflow: hidden;
+}
+
+.dashboard-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.dashboard-header h2 {
+    margin: 0;
+    font-size: var(--type-large-title);
+}
+
+.session-count {
+    color: var(--text-dim);
+    font-size: var(--type-title3);
+}
+
+.toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.session-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(390px, 100%), 1fr));
+    gap: 1rem;
+    margin-bottom: 1.2rem;
+}
+
+.session-grid.expanded-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(620px, 100%), 1fr));
+}
+
+.group-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0.8rem 0 0.6rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+}
+
+.group-divider-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.group-divider-count {
+    font-size: var(--type-caption1);
+}
+
+.group-divider-chevron {
+    margin-left: auto;
+}
+
+.grid-density-btn,
+.sort-select,
+.new-group-input,
+.fiesta-input {
+    border: 1px solid var(--control-border);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 0.32rem 0.5rem;
+}
+
+.fiesta-btn {
+    border: 1px solid var(--control-border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 0.35rem 0.62rem;
+}
+
+.fiesta-btn.primary {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: white;
+}
+
+.no-sessions-dash {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    text-align: center;
+    padding: 0 1.5rem 4rem;
+    gap: 0.8rem;
+}
+
+.welcome-title {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--type-title2);
+}
+
+.fiesta-create-row {
+    display: inline-flex;
+    gap: 0.5rem;
+}
+
+.fiesta-status {
+    color: var(--text-dim);
     margin: 0;
 }
 
-.fiesta-dashboard-header span {
+.fiesta-status-toast {
+    margin-top: 0.5rem;
     color: var(--text-dim);
+    font-size: var(--type-caption1);
 }

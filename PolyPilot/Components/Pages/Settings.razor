@@ -269,11 +269,24 @@
         </div>
     }
 
-    <div class="settings-section @(SectionVisible("fiesta machine name discovery join code approval workers lan") ? "" : "search-hidden")">
+    <div class="settings-section @(SectionVisible("fiesta worker pool machine name discovery tailscale tailnet join code pairing approval trusted") ? "" : "search-hidden")">
         <h3>Fiesta (LAN Collaboration)</h3>
         <div class="url-input">
             <label>Machine Name:</label>
             <input type="text" @bind="settings.MachineName" placeholder="How this machine appears to others" class="form-input wide" />
+        </div>
+
+        <div class="server-status">
+            <label class="inline-toggle">
+                <input type="checkbox" @bind="settings.FiestaOfferAsWorker" />
+                <span>Offer as Worker</span>
+            </label>
+        </div>
+        <div class="server-status">
+            <label class="inline-toggle">
+                <input type="checkbox" @bind="settings.FiestaAutoStartWorkerHosting" />
+                <span>Auto-start worker hosting on launch</span>
+            </label>
         </div>
         <div class="server-status">
             <label class="inline-toggle">
@@ -281,6 +294,23 @@
                 <span>Enable LAN discovery</span>
             </label>
         </div>
+        <div class="server-status">
+            <label class="inline-toggle">
+                <input type="checkbox" @bind="settings.FiestaTailscaleDiscoveryEnabled" disabled="@(!PlatformHelper.IsDesktop || !TailscaleService.IsRunning)" />
+                <span>Enable Tailscale discovery</span>
+            </label>
+        </div>
+        <div class="server-status">
+            <label class="inline-toggle">
+                <input type="checkbox" @bind="settings.FiestaTailnetBroadcastEnabled" disabled="@(!PlatformHelper.IsDesktop || !TailscaleService.IsRunning)" />
+                <span>Enable tailnet broadcast announcements</span>
+            </label>
+        </div>
+        @if (PlatformHelper.IsDesktop && !TailscaleService.IsRunning)
+        {
+            <p class="hint">Tailscale not detected — install/run Tailscale to enable tailnet discovery.</p>
+        }
+
         <div class="server-status">
             <span class="status-dot @(FiestaCoordinator.IsHosting ? "alive" : "dead")"></span>
             <span>@(FiestaCoordinator.IsHosting ? $"Hosting Fiesta endpoint on port {DevTunnelService.BridgePort}" : "Fiesta hosting is off")</span>
@@ -309,8 +339,9 @@
                 <button class="copy-btn" @onclick="CopyFiestaJoinCode" title="Copy join code"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
             </div>
         }
+
         <div class="url-input">
-            <label>Pending join requests:</label>
+            <label>Pending pairing requests:</label>
             @if (fiestaPendingRequests.Count == 0)
             {
                 <p class="hint">No pending requests.</p>
@@ -320,7 +351,7 @@
                 @foreach (var request in fiestaPendingRequests)
                 {
                     <div class="server-status">
-                        <span>@request.OrganizerMachineName wants to join fiesta <code>@request.FiestaId</code></span>
+                        <span>@request.OrganizerMachineName wants to pair for fiesta <code>@request.FiestaId</code></span>
                         <div class="server-buttons">
                             <button class="start-btn" @onclick="() => ApproveFiestaJoin(request.RequestId)">Approve</button>
                             <button class="stop-btn" @onclick="() => RejectFiestaJoin(request.RequestId)">Reject</button>
@@ -329,18 +360,90 @@
                 }
             }
         </div>
-        @if (fiestaDiscoveredPeers.Count > 0)
-        {
-            <div class="url-input">
-                <label>Discovered instances:</label>
+
+        <div class="url-input">
+            <label>Trusted organizers:</label>
+            @if (fiestaTrustedOrganizers.Count == 0)
+            {
+                <p class="hint">No trusted organizers yet.</p>
+            }
+            else
+            {
+                @foreach (var organizer in fiestaTrustedOrganizers)
+                {
+                    <div class="server-status">
+                        <code>@organizer</code>
+                        <button class="stop-btn" @onclick="() => RevokeTrustedOrganizer(organizer)">Revoke</button>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="url-input">
+            <label>Discovered peers:</label>
+            @if (fiestaDiscoveredPeers.Count == 0)
+            {
+                <p class="hint">No peers discovered yet.</p>
+            }
+            else
+            {
                 @foreach (var peer in fiestaDiscoveredPeers)
                 {
                     <div class="server-status">
-                        <span>@peer.MachineName (@peer.Host:@peer.Port)</span>
+                        <span>
+                            @peer.MachineName (@peer.Host:@peer.Port)
+                            @if (peer.IsTailscale)
+                            {
+                                <span class="hint"> · tailnet</span>
+                            }
+                            @if (peer.IsWorkerAvailable)
+                            {
+                                <span class="hint"> · worker available</span>
+                            }
+                        </span>
+                        <div class="server-buttons">
+                            <input class="form-input" style="width:170px" value="@GetPeerJoinCode(peer.InstanceId)" @oninput="(e) => SetPeerJoinCode(peer.InstanceId, e.Value?.ToString())" placeholder="Join code (optional)" />
+                            <button class="start-btn" @onclick="() => RegisterDiscoveredWorker(peer.InstanceId)">Pair</button>
+                        </div>
                     </div>
                 }
+            }
+        </div>
+
+        <div class="url-input">
+            <label>Registered worker pool:</label>
+            @if (fiestaRegisteredWorkers.Count == 0)
+            {
+                <p class="hint">No registered workers yet.</p>
+            }
+            else
+            {
+                @foreach (var worker in fiestaRegisteredWorkers)
+                {
+                    <div class="server-status">
+                        <span>
+                            <span class="status-dot @(worker.IsConnected ? "alive" : "dead")"></span>
+                            @worker.MachineName (@worker.Host:@worker.Port)
+                        </span>
+                        <div class="server-buttons">
+                            <button class="start-btn" @onclick="() => ReconnectWorker(worker.InstanceId)">Reconnect</button>
+                            <button class="stop-btn" @onclick="() => RemoveWorker(worker.InstanceId)">Remove</button>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="url-input">
+            <label>Manual worker fallback (no discovery):</label>
+            <div class="server-buttons">
+                <input type="text" @bind="manualWorkerName" placeholder="Name" class="form-input" style="width:120px" />
+                <input type="text" @bind="manualWorkerHost" placeholder="Host" class="form-input" style="width:140px" />
+                <input type="number" @bind="manualWorkerPort" placeholder="Port" class="form-input" style="width:90px" />
+                <input type="text" @bind="manualWorkerJoinCode" placeholder="One-time code" class="form-input" style="width:130px" />
+                <button class="start-btn" @onclick="AddManualWorker">Add Worker</button>
             </div>
-        }
+        </div>
     </div>
 
     <div class="settings-section">
@@ -498,6 +601,19 @@
     private bool cliSourceChanged;
     private List<FiestaJoinRequest> fiestaPendingRequests = new();
     private List<FiestaPeerInfo> fiestaDiscoveredPeers = new();
+    private List<FiestaRegisteredWorker> fiestaRegisteredWorkers = new();
+    private List<string> fiestaTrustedOrganizers = new();
+    private readonly Dictionary<string, string> fiestaJoinCodeInput = new(StringComparer.Ordinal);
+    private string manualWorkerName = "";
+    private string manualWorkerHost = "";
+    private int manualWorkerPort = DevTunnelService.BridgePort;
+    private string manualWorkerJoinCode = "";
+
+    private string GetPeerJoinCode(string instanceId)
+        => fiestaJoinCodeInput.TryGetValue(instanceId, out var value) ? value : "";
+
+    private void SetPeerJoinCode(string instanceId, string? value)
+        => fiestaJoinCodeInput[instanceId] = value ?? "";
 
     [JSInvokable]
     public void JsUpdateSearch(string query)
@@ -661,6 +777,15 @@
     {
         fiestaPendingRequests = FiestaCoordinator.PendingJoinRequests.ToList();
         fiestaDiscoveredPeers = FiestaCoordinator.DiscoveredPeers.ToList();
+        fiestaRegisteredWorkers = FiestaCoordinator.RegisteredWorkers.ToList();
+        fiestaTrustedOrganizers = FiestaCoordinator.TrustedOrganizers.ToList();
+        foreach (var peer in fiestaDiscoveredPeers)
+        {
+            if (!fiestaJoinCodeInput.ContainsKey(peer.InstanceId))
+                fiestaJoinCodeInput[peer.InstanceId] = peer.AdvertisedJoinCode ?? "";
+            else if (string.IsNullOrWhiteSpace(fiestaJoinCodeInput[peer.InstanceId]) && !string.IsNullOrWhiteSpace(peer.AdvertisedJoinCode))
+                fiestaJoinCodeInput[peer.InstanceId] = peer.AdvertisedJoinCode!;
+        }
         if (string.IsNullOrWhiteSpace(settings.FiestaJoinCode) && !string.IsNullOrWhiteSpace(FiestaCoordinator.CurrentJoinCode))
             settings.FiestaJoinCode = FiestaCoordinator.CurrentJoinCode;
     }
@@ -680,6 +805,72 @@
         settings = ConnectionSettings.Load();
         RefreshFiestaState();
         ShowStatus("Fiesta hosting stopped", "success");
+    }
+
+    private async Task RegisterDiscoveredWorker(string peerInstanceId)
+    {
+        try
+        {
+            fiestaJoinCodeInput.TryGetValue(peerInstanceId, out var joinCode);
+            await FiestaCoordinator.RegisterWorkerAsync(peerInstanceId, joinCode);
+            RefreshFiestaState();
+            ShowStatus("Worker registered", "success");
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Register failed: {ex.Message}", "error", 5000);
+        }
+    }
+
+    private async Task ReconnectWorker(string workerInstanceId)
+    {
+        var ok = await FiestaCoordinator.ReconnectWorkerAsync(workerInstanceId);
+        RefreshFiestaState();
+        ShowStatus(ok ? "Worker reconnected" : "Reconnect failed", ok ? "success" : "error");
+    }
+
+    private void RemoveWorker(string workerInstanceId)
+    {
+        FiestaCoordinator.RemoveRegisteredWorker(workerInstanceId);
+        RefreshFiestaState();
+        ShowStatus("Worker removed", "success");
+    }
+
+    private async Task AddManualWorker()
+    {
+        if (string.IsNullOrWhiteSpace(manualWorkerHost) ||
+            string.IsNullOrWhiteSpace(manualWorkerJoinCode) ||
+            manualWorkerPort <= 0)
+        {
+            ShowStatus("Host, port, and join code are required", "error");
+            return;
+        }
+
+        try
+        {
+            await FiestaCoordinator.RegisterManualWorkerAsync(
+                string.IsNullOrWhiteSpace(manualWorkerName) ? manualWorkerHost : manualWorkerName,
+                manualWorkerHost.Trim(),
+                manualWorkerPort,
+                manualWorkerJoinCode.Trim());
+            manualWorkerName = "";
+            manualWorkerHost = "";
+            manualWorkerPort = DevTunnelService.BridgePort;
+            manualWorkerJoinCode = "";
+            RefreshFiestaState();
+            ShowStatus("Manual worker registered", "success");
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Manual register failed: {ex.Message}", "error", 5000);
+        }
+    }
+
+    private void RevokeTrustedOrganizer(string organizerInstanceId)
+    {
+        FiestaCoordinator.UntrustOrganizer(organizerInstanceId);
+        RefreshFiestaState();
+        ShowStatus("Trusted organizer revoked", "success");
     }
 
     private void ApproveFiestaJoin(string requestId)

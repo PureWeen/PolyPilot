@@ -10,13 +10,19 @@ public sealed class FiestaCoordinatorService : IDisposable
     private readonly WsBridgeServer _bridgeServer;
     private readonly CopilotService _copilotService;
     private readonly FiestaDiscoveryService _discoveryService;
+    private readonly TailscaleService _tailscaleService;
 
     private readonly ConcurrentDictionary<string, FiestaRoom> _rooms = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, FiestaRegisteredWorker> _registeredWorkers = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, WorkerConnection> _workerConnections = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _roomAssignments = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, FiestaJoinRequest> _pendingJoinRequests = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, WorkerConnection>> _workerConnections = new(StringComparer.Ordinal);
-
+    private readonly ConcurrentDictionary<string, string> _trustedOrganizers = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _stateLock = new(1, 1);
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
+
     private ConnectionSettings _settings = new();
+    private FiestaOrganizationState _organization = new();
     private bool _initialized;
 
     private static string? _stateFilePath;
@@ -31,11 +37,22 @@ public sealed class FiestaCoordinatorService : IDisposable
     public string CurrentJoinCode => _settings.FiestaJoinCode ?? "";
     public bool IsHosting => _bridgeServer.IsRunning;
     public bool IsInitialized => _initialized;
+    public bool IsWorkerModeEnabled => _settings.FiestaOfferAsWorker;
 
     public IReadOnlyList<FiestaRoom> Rooms => _rooms.Values
         .Select(CloneRoom)
-        .OrderByDescending(r => r.CreatedAt)
+        .OrderByDescending(r => r.LastActivityAt)
         .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    public IReadOnlyList<FiestaRegisteredWorker> RegisteredWorkers => _registeredWorkers.Values
+        .Select(CloneWorker)
+        .OrderByDescending(w => w.IsConnected)
+        .ThenBy(w => w.MachineName, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    public IReadOnlyList<string> TrustedOrganizers => _trustedOrganizers.Keys
+        .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
     public IReadOnlyList<FiestaJoinRequest> PendingJoinRequests => _pendingJoinRequests.Values
@@ -45,11 +62,45 @@ public sealed class FiestaCoordinatorService : IDisposable
 
     public IReadOnlyList<FiestaPeerInfo> DiscoveredPeers => _discoveryService.Peers;
 
-    public FiestaCoordinatorService(WsBridgeServer bridgeServer, CopilotService copilotService, FiestaDiscoveryService discoveryService)
+    public IReadOnlyList<FiestaGroup> Groups
+    {
+        get
+        {
+            lock (_organization)
+            {
+                return _organization.Groups
+                    .OrderBy(g => g.SortOrder)
+                    .Select(g => new FiestaGroup
+                    {
+                        Id = g.Id,
+                        Name = g.Name,
+                        SortOrder = g.SortOrder,
+                        IsCollapsed = g.IsCollapsed
+                    })
+                    .ToList();
+            }
+        }
+    }
+
+    public bool HasMultipleGroups
+    {
+        get
+        {
+            lock (_organization)
+                return _organization.Groups.Count > 1;
+        }
+    }
+
+    public FiestaCoordinatorService(
+        WsBridgeServer bridgeServer,
+        CopilotService copilotService,
+        FiestaDiscoveryService discoveryService,
+        TailscaleService tailscaleService)
     {
         _bridgeServer = bridgeServer;
         _copilotService = copilotService;
         _discoveryService = discoveryService;
+        _tailscaleService = tailscaleService;
         _discoveryService.OnPeersChanged += () => OnStateChanged?.Invoke();
     }
 
@@ -58,15 +109,15 @@ public sealed class FiestaCoordinatorService : IDisposable
         if (_initialized) return;
 
         _settings = ConnectionSettings.Load();
+        await DetectAndApplyTailscaleDefaultsAsync();
         LoadState();
+        ReconcileOrganization();
 
-        var localPeer = BuildLocalPeer(DevTunnelService.BridgePort);
-        _discoveryService.Start(localPeer, advertise: _bridgeServer.IsRunning, browse: _settings.FiestaDiscoveryEnabled);
+        await EnsureWorkerModeHostingAsync();
+        ApplyDiscoveryMode();
 
         _bridgeServer.SetFiestaCoordinator(this);
-
         _initialized = true;
-        await Task.CompletedTask;
         OnStateChanged?.Invoke();
     }
 
@@ -78,18 +129,12 @@ public sealed class FiestaCoordinatorService : IDisposable
         if (string.IsNullOrWhiteSpace(_settings.InstanceId))
             _settings.InstanceId = Guid.NewGuid().ToString("N");
 
-        var localPeer = BuildLocalPeer(DevTunnelService.BridgePort);
-        if (_discoveryService.IsRunning)
-        {
-            _discoveryService.UpdateLocalPeer(localPeer);
-            _discoveryService.UpdateMode(advertise: _bridgeServer.IsRunning, browse: _settings.FiestaDiscoveryEnabled);
-        }
-        else
-        {
-            _discoveryService.Start(localPeer, advertise: _bridgeServer.IsRunning, browse: _settings.FiestaDiscoveryEnabled);
-        }
+        await DetectAndApplyTailscaleDefaultsAsync();
+        await EnsureWorkerModeHostingAsync();
+        ApplyDiscoveryMode();
+        _settings.Save();
 
-        await Task.CompletedTask;
+        SaveState();
         OnStateChanged?.Invoke();
     }
 
@@ -105,6 +150,7 @@ public sealed class FiestaCoordinatorService : IDisposable
             CreatedAt = DateTime.UtcNow,
             OrganizerInstanceId = InstanceId,
             OrganizerMachineName = MachineName,
+            LastActivityAt = DateTime.UtcNow,
             Members = new List<FiestaMember>
             {
                 new()
@@ -121,6 +167,8 @@ public sealed class FiestaCoordinatorService : IDisposable
         };
 
         _rooms[room.Id] = room;
+        _roomAssignments.GetOrAdd(room.Id, _ => new ConcurrentDictionary<string, byte>(StringComparer.Ordinal));
+        EnsureRoomMeta(room.Id);
         SaveState();
         OnStatusMessage?.Invoke($"Fiesta '{room.Name}' created.");
         OnStateChanged?.Invoke();
@@ -131,14 +179,201 @@ public sealed class FiestaCoordinatorService : IDisposable
     {
         if (!_rooms.TryRemove(roomId, out var room)) return;
 
-        if (_workerConnections.TryRemove(roomId, out var roomWorkers))
+        _roomAssignments.TryRemove(roomId, out _);
+        lock (_organization)
         {
-            foreach (var worker in roomWorkers.Values)
-                worker.Dispose();
+            _organization.Rooms.RemoveAll(m => m.RoomId == roomId);
         }
 
         SaveState();
         OnStatusMessage?.Invoke($"Fiesta '{room.Name}' closed.");
+        OnStateChanged?.Invoke();
+    }
+
+    public void RenameRoom(string roomId, string name)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room) || string.IsNullOrWhiteSpace(name))
+            return;
+
+        room.Name = name.Trim();
+        room.LastActivityAt = DateTime.UtcNow;
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
+
+    public FiestaOrganizationState GetOrganizationState()
+    {
+        lock (_organization)
+        {
+            return new FiestaOrganizationState
+            {
+                SortMode = _organization.SortMode,
+                Groups = _organization.Groups.Select(g => new FiestaGroup
+                {
+                    Id = g.Id,
+                    Name = g.Name,
+                    SortOrder = g.SortOrder,
+                    IsCollapsed = g.IsCollapsed
+                }).ToList(),
+                Rooms = _organization.Rooms.Select(m => new FiestaRoomMeta
+                {
+                    RoomId = m.RoomId,
+                    GroupId = m.GroupId,
+                    IsPinned = m.IsPinned,
+                    ManualOrder = m.ManualOrder
+                }).ToList()
+            };
+        }
+    }
+
+    public IEnumerable<(FiestaGroup Group, List<FiestaRoom> Rooms)> GetOrganizedRooms()
+    {
+        var roomsSnapshot = _rooms.Values.Select(CloneRoom).ToList();
+        var results = new List<(FiestaGroup Group, List<FiestaRoom> Rooms)>();
+        lock (_organization)
+        {
+            var roomMetaMap = _organization.Rooms.ToDictionary(m => m.RoomId, StringComparer.Ordinal);
+            foreach (var group in _organization.Groups.OrderBy(g => g.SortOrder))
+            {
+                var grouped = roomsSnapshot
+                    .Where(r => roomMetaMap.TryGetValue(r.Id, out var meta) && meta.GroupId == group.Id)
+                    .OrderByDescending(r => roomMetaMap.TryGetValue(r.Id, out var meta) && meta.IsPinned)
+                    .ThenBy(r => ApplyRoomSort(r, roomMetaMap))
+                    .ToList();
+
+                results.Add((new FiestaGroup
+                {
+                    Id = group.Id,
+                    Name = group.Name,
+                    SortOrder = group.SortOrder,
+                    IsCollapsed = group.IsCollapsed
+                }, grouped));
+            }
+        }
+        return results;
+    }
+
+    public FiestaRoomMeta? GetRoomMeta(string roomId)
+    {
+        lock (_organization)
+        {
+            var meta = _organization.Rooms.FirstOrDefault(m => m.RoomId == roomId);
+            if (meta == null) return null;
+            return new FiestaRoomMeta
+            {
+                RoomId = meta.RoomId,
+                GroupId = meta.GroupId,
+                IsPinned = meta.IsPinned,
+                ManualOrder = meta.ManualOrder
+            };
+        }
+    }
+
+    public FiestaGroup CreateGroup(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Group name is required.", nameof(name));
+
+        FiestaGroup group;
+        lock (_organization)
+        {
+            var nextOrder = _organization.Groups.Count == 0 ? 0 : _organization.Groups.Max(g => g.SortOrder) + 1;
+            group = new FiestaGroup { Id = Guid.NewGuid().ToString("N"), Name = name.Trim(), SortOrder = nextOrder };
+            _organization.Groups.Add(group);
+        }
+        SaveState();
+        OnStateChanged?.Invoke();
+        return group;
+    }
+
+    public void RenameGroup(string groupId, string name)
+    {
+        if (string.IsNullOrWhiteSpace(groupId) || string.IsNullOrWhiteSpace(name)) return;
+        lock (_organization)
+        {
+            var group = _organization.Groups.FirstOrDefault(g => g.Id == groupId);
+            if (group != null) group.Name = name.Trim();
+        }
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
+
+    public void DeleteGroup(string groupId)
+    {
+        if (groupId == FiestaGroup.DefaultId) return;
+        lock (_organization)
+        {
+            foreach (var room in _organization.Rooms.Where(r => r.GroupId == groupId))
+                room.GroupId = FiestaGroup.DefaultId;
+            _organization.Groups.RemoveAll(g => g.Id == groupId);
+        }
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
+
+    public void ToggleGroupCollapsed(string groupId)
+    {
+        lock (_organization)
+        {
+            var group = _organization.Groups.FirstOrDefault(g => g.Id == groupId);
+            if (group != null) group.IsCollapsed = !group.IsCollapsed;
+        }
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
+
+    public void SetSortMode(FiestaSortMode mode)
+    {
+        lock (_organization)
+            _organization.SortMode = mode;
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
+
+    public void PinRoom(string roomId, bool pinned)
+    {
+        lock (_organization)
+        {
+            EnsureRoomMeta(roomId);
+            var meta = _organization.Rooms.FirstOrDefault(r => r.RoomId == roomId);
+            if (meta != null) meta.IsPinned = pinned;
+        }
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
+
+    public void MoveRoom(string roomId, string groupId)
+    {
+        lock (_organization)
+        {
+            EnsureRoomMeta(roomId);
+            var meta = _organization.Rooms.FirstOrDefault(r => r.RoomId == roomId);
+            if (meta != null && _organization.Groups.Any(g => g.Id == groupId))
+                meta.GroupId = groupId;
+        }
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
+
+    public void SetRoomManualOrder(string roomId, int order)
+    {
+        lock (_organization)
+        {
+            EnsureRoomMeta(roomId);
+            var meta = _organization.Rooms.FirstOrDefault(r => r.RoomId == roomId);
+            if (meta != null) meta.ManualOrder = order;
+        }
+        SaveState();
+    }
+
+    public void SetRoomSessionName(string roomId, string sessionName)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room) || string.IsNullOrWhiteSpace(sessionName))
+            return;
+
+        room.SessionName = sessionName.Trim();
+        room.LastActivityAt = DateTime.UtcNow;
+        SaveState();
         OnStateChanged?.Invoke();
     }
 
@@ -148,40 +383,366 @@ public sealed class FiestaCoordinatorService : IDisposable
         return string.Equals(code.Trim(), CurrentJoinCode, StringComparison.Ordinal);
     }
 
-    public void RegisterIncomingJoinRequest(FiestaJoinRequestPayload payload, string? remoteHost)
+    public FiestaJoinRequest RegisterIncomingJoinRequest(FiestaJoinRequestPayload payload, string? remoteHost)
     {
+        var organizerInstanceId = payload.OrganizerInstanceId?.Trim() ?? "";
+        var organizerMachineName = string.IsNullOrWhiteSpace(payload.OrganizerMachineName)
+            ? organizerInstanceId
+            : payload.OrganizerMachineName.Trim();
+
         var request = new FiestaJoinRequest
         {
             RequestId = payload.RequestId,
             FiestaId = payload.FiestaId,
-            OrganizerInstanceId = payload.OrganizerInstanceId,
-            OrganizerMachineName = payload.OrganizerMachineName,
+            OrganizerInstanceId = organizerInstanceId,
+            OrganizerMachineName = organizerMachineName,
+            OrganizerTrustToken = payload.OrganizerTrustToken,
             JoinCode = payload.JoinCode,
             RemoteHost = remoteHost,
             RequestedAt = DateTime.UtcNow,
             Status = FiestaJoinState.Pending
         };
 
+        if (string.IsNullOrWhiteSpace(organizerInstanceId))
+        {
+            request.Status = FiestaJoinState.Rejected;
+            request.Reason = "Missing organizer identity";
+            OnJoinRequestResolved?.Invoke(request);
+            return request;
+        }
+
+        if (IsTrustedOrganizer(organizerInstanceId, payload.OrganizerTrustToken))
+        {
+            request.Status = FiestaJoinState.Approved;
+            request.AutoApproved = true;
+            request.Reason = "Trusted organizer";
+            OnJoinRequestResolved?.Invoke(request);
+            OnStatusMessage?.Invoke($"Auto-approved trusted organizer {request.OrganizerMachineName}.");
+            return request;
+        }
+
+        if (_pendingJoinRequests.Count >= 25)
+        {
+            request.Status = FiestaJoinState.Rejected;
+            request.Reason = "Too many pending pairing requests";
+            OnJoinRequestResolved?.Invoke(request);
+            OnStatusMessage?.Invoke("Rejected pairing request because too many are pending.");
+            return request;
+        }
+
         _pendingJoinRequests[request.RequestId] = request;
         OnStatusMessage?.Invoke($"Join request from {request.OrganizerMachineName} for fiesta {request.FiestaId}.");
         OnStateChanged?.Invoke();
+        return request;
+    }
+
+    public bool IsTrustedOrganizer(string? organizerInstanceId, string? organizerTrustToken = null)
+    {
+        if (string.IsNullOrWhiteSpace(organizerInstanceId))
+            return false;
+        if (!_trustedOrganizers.TryGetValue(organizerInstanceId, out var trustedToken))
+            return false;
+        if (string.IsNullOrWhiteSpace(trustedToken))
+            return false;
+        return string.Equals(trustedToken, organizerTrustToken ?? "", StringComparison.Ordinal);
     }
 
     public void ResolveJoinRequest(string requestId, bool approved, string? reason = null)
     {
-        if (!_pendingJoinRequests.TryGetValue(requestId, out var request)) return;
+        if (!_pendingJoinRequests.TryRemove(requestId, out var request)) return;
 
         request.Status = approved ? FiestaJoinState.Approved : FiestaJoinState.Rejected;
         request.Reason = reason;
-        OnJoinRequestResolved?.Invoke(request);
+        request.AutoApproved = false;
+        if (approved &&
+            !string.IsNullOrWhiteSpace(request.OrganizerInstanceId) &&
+            !string.IsNullOrWhiteSpace(request.OrganizerTrustToken))
+            _trustedOrganizers[request.OrganizerInstanceId] = request.OrganizerTrustToken;
 
-        _pendingJoinRequests.TryRemove(requestId, out _);
+        SaveState();
+        OnJoinRequestResolved?.Invoke(request);
         OnStateChanged?.Invoke();
+    }
+
+    public void UntrustOrganizer(string organizerInstanceId)
+    {
+        if (string.IsNullOrWhiteSpace(organizerInstanceId)) return;
+        _trustedOrganizers.TryRemove(organizerInstanceId, out _);
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
+
+    public async Task<FiestaRegisteredWorker> RegisterWorkerAsync(string peerInstanceId, string? joinCode = null, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(peerInstanceId))
+            throw new InvalidOperationException("Peer ID is required.");
+
+        var peer = _discoveryService.Peers.FirstOrDefault(p => p.InstanceId == peerInstanceId);
+        FiestaRegisteredWorker? existingWorker = null;
+        if (peer == null && !_registeredWorkers.TryGetValue(peerInstanceId, out existingWorker))
+            throw new InvalidOperationException("Peer not found. Refresh discovery and try again.");
+
+        var worker = peer == null ? CloneWorker(existingWorker!) : new FiestaRegisteredWorker
+        {
+            InstanceId = peer.InstanceId,
+            MachineName = peer.MachineName,
+            Host = peer.Host,
+            Port = peer.Port,
+            Platform = peer.Platform,
+            TailnetHost = peer.TailnetHost,
+            JoinCode = joinCode ?? peer.AdvertisedJoinCode ?? "",
+            LastUpdatedAt = DateTime.UtcNow
+        };
+
+        if (_registeredWorkers.TryGetValue(worker.InstanceId, out var persisted))
+        {
+            if (string.IsNullOrWhiteSpace(worker.JoinCode))
+                worker.JoinCode = persisted.JoinCode;
+            if (string.IsNullOrWhiteSpace(worker.TailnetHost))
+                worker.TailnetHost = persisted.TailnetHost;
+            if (string.IsNullOrWhiteSpace(worker.PairingToken))
+                worker.PairingToken = persisted.PairingToken;
+        }
+        if (string.IsNullOrWhiteSpace(worker.PairingToken))
+            worker.PairingToken = GeneratePairingToken();
+
+        var hadExisting = _registeredWorkers.TryGetValue(worker.InstanceId, out var previousWorker);
+        var previousSnapshot = hadExisting && previousWorker != null ? CloneWorker(previousWorker) : null;
+
+        _registeredWorkers[worker.InstanceId] = worker;
+        try
+        {
+            await EnsureWorkerConnectedAsync(worker, cancellationToken);
+            SaveState();
+            OnStatusMessage?.Invoke($"Registered worker {worker.MachineName}.");
+            OnStateChanged?.Invoke();
+            return CloneWorker(worker);
+        }
+        catch
+        {
+            if (previousSnapshot != null)
+                _registeredWorkers[worker.InstanceId] = previousSnapshot;
+            else
+                _registeredWorkers.TryRemove(worker.InstanceId, out _);
+            throw;
+        }
+    }
+
+    public async Task<FiestaRegisteredWorker> RegisterManualWorkerAsync(string name, string host, int port, string joinCode, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(host) || port <= 0 || string.IsNullOrWhiteSpace(joinCode))
+            throw new InvalidOperationException("Host, port, and join code are required.");
+
+        var existing = _registeredWorkers.Values.FirstOrDefault(w =>
+            string.Equals(w.Host, host, StringComparison.OrdinalIgnoreCase) && w.Port == port);
+
+        var worker = existing ?? new FiestaRegisteredWorker
+        {
+            InstanceId = $"manual:{host}:{port}",
+            MachineName = string.IsNullOrWhiteSpace(name) ? host : name.Trim(),
+            Host = host.Trim(),
+            Port = port,
+            Platform = "unknown",
+        };
+
+        worker.MachineName = string.IsNullOrWhiteSpace(name) ? worker.MachineName : name.Trim();
+        worker.Host = host.Trim();
+        worker.Port = port;
+        worker.JoinCode = joinCode.Trim();
+        if (string.IsNullOrWhiteSpace(worker.PairingToken))
+            worker.PairingToken = GeneratePairingToken();
+        worker.LastUpdatedAt = DateTime.UtcNow;
+
+        _registeredWorkers[worker.InstanceId] = worker;
+        await EnsureWorkerConnectedAsync(worker, cancellationToken);
+        SaveState();
+        OnStateChanged?.Invoke();
+        return CloneWorker(worker);
+    }
+
+    public void RemoveRegisteredWorker(string workerInstanceId)
+    {
+        if (!_registeredWorkers.TryRemove(workerInstanceId, out var worker)) return;
+
+        if (_workerConnections.TryRemove(workerInstanceId, out var connection))
+            connection.Dispose();
+
+        foreach (var assignment in _roomAssignments.Values)
+            assignment.TryRemove(workerInstanceId, out _);
+
+        foreach (var room in _rooms.Values)
+        {
+            lock (room.Members)
+            {
+                room.Members.RemoveAll(m => m.InstanceId == workerInstanceId && m.Role == FiestaMemberRole.Worker);
+            }
+        }
+
+        SaveState();
+        OnStatusMessage?.Invoke($"Removed worker {worker.MachineName}.");
+        OnStateChanged?.Invoke();
+    }
+
+    public async Task<bool> ReconnectWorkerAsync(string workerInstanceId, CancellationToken cancellationToken = default)
+    {
+        if (!_registeredWorkers.TryGetValue(workerInstanceId, out var worker))
+            return false;
+
+        try
+        {
+            await EnsureWorkerConnectedAsync(worker, cancellationToken);
+            SaveState();
+            OnStateChanged?.Invoke();
+            return true;
+        }
+        catch
+        {
+            worker.IsConnected = false;
+            worker.LastUpdatedAt = DateTime.UtcNow;
+            SaveState();
+            OnStateChanged?.Invoke();
+            return false;
+        }
+    }
+
+    public async Task<FiestaJoinStatusPayload> AddPeerToRoomAsync(string roomId, string peerInstanceId, string joinCode, CancellationToken cancellationToken = default)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room))
+            throw new InvalidOperationException($"Fiesta room '{roomId}' not found.");
+
+        var existingWorker = _registeredWorkers.TryGetValue(peerInstanceId, out var known) ? known : null;
+        var resolvedCode = string.IsNullOrWhiteSpace(joinCode)
+            ? existingWorker?.JoinCode
+            : joinCode.Trim();
+
+        if (string.IsNullOrWhiteSpace(resolvedCode))
+        {
+            var discovered = _discoveryService.Peers.FirstOrDefault(p => p.InstanceId == peerInstanceId);
+            resolvedCode = discovered?.AdvertisedJoinCode;
+        }
+
+        var worker = await RegisterWorkerAsync(peerInstanceId, resolvedCode, cancellationToken);
+        var status = await AssignWorkerToRoomInternalAsync(room, worker.InstanceId, cancellationToken);
+        return status;
+    }
+
+    public async Task AssignWorkerToRoomAsync(string roomId, string workerInstanceId, CancellationToken cancellationToken = default)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room))
+            throw new InvalidOperationException("Fiesta room not found.");
+        if (!_registeredWorkers.ContainsKey(workerInstanceId))
+            throw new InvalidOperationException("Worker is not registered.");
+
+        await AssignWorkerToRoomInternalAsync(room, workerInstanceId, cancellationToken);
+    }
+
+    public void UnassignWorkerFromRoom(string roomId, string workerInstanceId)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room)) return;
+        if (_roomAssignments.TryGetValue(roomId, out var assigned))
+            assigned.TryRemove(workerInstanceId, out _);
+
+        lock (room.Members)
+            room.Members.RemoveAll(m => m.InstanceId == workerInstanceId && m.Role == FiestaMemberRole.Worker);
+
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
+
+    public IReadOnlyList<FiestaRegisteredWorker> GetAssignedWorkers(string roomId)
+    {
+        if (!_roomAssignments.TryGetValue(roomId, out var assigned))
+            return Array.Empty<FiestaRegisteredWorker>();
+
+        var workers = new List<FiestaRegisteredWorker>();
+        foreach (var id in assigned.Keys)
+        {
+            if (_registeredWorkers.TryGetValue(id, out var worker))
+                workers.Add(CloneWorker(worker));
+        }
+        return workers
+            .OrderByDescending(w => w.IsConnected)
+            .ThenBy(w => w.MachineName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public async Task BroadcastPromptAsync(string roomId, string sessionName, string prompt, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room))
+            throw new InvalidOperationException("Fiesta room not found.");
+        if (string.IsNullOrWhiteSpace(prompt))
+            throw new ArgumentException("Prompt is required.", nameof(prompt));
+
+        var effectiveSession = string.IsNullOrWhiteSpace(sessionName) ? room.SessionName : sessionName.Trim();
+        room.SessionName = effectiveSession;
+
+        var connections = GetRoomWorkerConnections(roomId);
+        if (connections.Count == 0)
+            throw new InvalidOperationException("No connected workers in this fiesta.");
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
+
+        var tasks = new List<Task>();
+        foreach (var worker in connections)
+        {
+            var request = new FiestaDispatchPromptPayload
+            {
+                RequestId = Guid.NewGuid().ToString("N"),
+                FiestaId = roomId,
+                SessionName = effectiveSession,
+                Message = prompt,
+                Model = model,
+                WorkingDirectory = workingDirectory,
+                CreateSessionIfMissing = true
+            };
+            tasks.Add(worker.Client.SendFiestaDispatchPromptAsync(request, roomId, timeoutCts.Token));
+        }
+
+        await Task.WhenAll(tasks);
+        TouchRoomActivity(roomId, $"Broadcasted prompt to {tasks.Count} worker(s).");
+    }
+
+    public async Task SendSessionCommandAsync(string roomId, string command, string sessionName, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room))
+            throw new InvalidOperationException("Fiesta room not found.");
+        if (string.IsNullOrWhiteSpace(command))
+            throw new ArgumentException("Command is required.", nameof(command));
+
+        var effectiveSession = string.IsNullOrWhiteSpace(sessionName) ? room.SessionName : sessionName.Trim();
+        room.SessionName = effectiveSession;
+
+        var connections = GetRoomWorkerConnections(roomId);
+        if (connections.Count == 0)
+            throw new InvalidOperationException("No connected workers in this fiesta.");
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
+
+        var tasks = new List<Task>();
+        foreach (var worker in connections)
+        {
+            var request = new FiestaSessionCommandPayload
+            {
+                RequestId = Guid.NewGuid().ToString("N"),
+                FiestaId = roomId,
+                Command = command,
+                SessionName = effectiveSession,
+                Model = model,
+                WorkingDirectory = workingDirectory
+            };
+            tasks.Add(worker.Client.SendFiestaSessionCommandAsync(request, roomId, timeoutCts.Token));
+        }
+
+        await Task.WhenAll(tasks);
+        TouchRoomActivity(roomId, $"Sent '{command}' command to {tasks.Count} worker(s).");
     }
 
     public async Task StartHostingAsync()
     {
-        _settings.FiestaJoinCode = GenerateJoinCode();
+        if (string.IsNullOrWhiteSpace(_settings.FiestaJoinCode))
+            _settings.FiestaJoinCode = GenerateJoinCode();
         if (string.IsNullOrWhiteSpace(_settings.ServerPassword))
             _settings.ServerPassword = GenerateServerSecret();
 
@@ -193,17 +754,7 @@ public sealed class FiestaCoordinatorService : IDisposable
         _bridgeServer.SetFiestaCoordinator(this);
         _bridgeServer.Start(DevTunnelService.BridgePort, _settings.Port);
 
-        var localPeer = BuildLocalPeer(DevTunnelService.BridgePort);
-        if (_discoveryService.IsRunning)
-        {
-            _discoveryService.UpdateLocalPeer(localPeer);
-            _discoveryService.UpdateMode(advertise: true, browse: _settings.FiestaDiscoveryEnabled);
-        }
-        else
-        {
-            _discoveryService.Start(localPeer, advertise: true, browse: _settings.FiestaDiscoveryEnabled);
-        }
-
+        ApplyDiscoveryMode();
         OnStatusMessage?.Invoke($"Fiesta hosting started on {DevTunnelService.BridgePort}.");
         OnStateChanged?.Invoke();
         await Task.CompletedTask;
@@ -214,77 +765,132 @@ public sealed class FiestaCoordinatorService : IDisposable
         _bridgeServer.Stop();
         _settings.DirectSharingEnabled = false;
         _settings.Save();
-
-        if (_discoveryService.IsRunning)
-            _discoveryService.UpdateMode(advertise: false, browse: _settings.FiestaDiscoveryEnabled);
+        ApplyDiscoveryMode();
 
         OnStatusMessage?.Invoke("Fiesta hosting stopped.");
         OnStateChanged?.Invoke();
     }
 
-    public async Task<FiestaJoinStatusPayload> AddPeerToRoomAsync(string roomId, string peerInstanceId, string joinCode, CancellationToken cancellationToken = default)
+    private async Task EnsureWorkerModeHostingAsync()
     {
-        if (!_rooms.TryGetValue(roomId, out var room))
-            throw new InvalidOperationException($"Fiesta room '{roomId}' not found.");
+        if (!_settings.FiestaOfferAsWorker || !_settings.FiestaAutoStartWorkerHosting)
+            return;
 
-        var peer = _discoveryService.Peers.FirstOrDefault(p => p.InstanceId == peerInstanceId)
-            ?? throw new InvalidOperationException("Peer not found. Refresh discovery and try again.");
+        if (string.IsNullOrWhiteSpace(_settings.FiestaJoinCode))
+            _settings.FiestaJoinCode = GenerateJoinCode();
+        if (string.IsNullOrWhiteSpace(_settings.ServerPassword))
+            _settings.ServerPassword = GenerateServerSecret();
 
-        if (string.IsNullOrWhiteSpace(joinCode))
-            throw new InvalidOperationException("Join code is required.");
+        if (_bridgeServer.IsRunning)
+            return;
 
-        var roomWorkers = _workerConnections.GetOrAdd(roomId, _ => new ConcurrentDictionary<string, WorkerConnection>(StringComparer.Ordinal));
-        if (roomWorkers.TryGetValue(peer.InstanceId, out var existing))
+        _bridgeServer.ServerPassword = _settings.ServerPassword;
+        _bridgeServer.SetCopilotService(_copilotService);
+        _bridgeServer.SetFiestaCoordinator(this);
+        _bridgeServer.Start(DevTunnelService.BridgePort, _settings.Port);
+        _settings.Save();
+        OnStatusMessage?.Invoke("Worker mode hosting auto-started.");
+        await Task.CompletedTask;
+    }
+
+    private async Task DetectAndApplyTailscaleDefaultsAsync()
+    {
+        await _tailscaleService.DetectAsync();
+        if (_tailscaleService.IsRunning && !_settings.FiestaTailscaleDiscoveryConfigured)
         {
-            if (existing.Client.IsConnected)
+            _settings.FiestaTailscaleDiscoveryEnabled = true;
+            _settings.FiestaTailscaleDiscoveryConfigured = true;
+            _settings.Save();
+        }
+    }
+
+    private void ApplyDiscoveryMode()
+    {
+        var localPeer = BuildLocalPeer(DevTunnelService.BridgePort);
+        var tailscaleBrowse = PlatformHelper.IsDesktop && _settings.FiestaTailscaleDiscoveryEnabled;
+        var tailnetBroadcast = PlatformHelper.IsDesktop && _settings.FiestaTailnetBroadcastEnabled && _settings.FiestaOfferAsWorker;
+
+        if (_discoveryService.IsRunning)
+        {
+            _discoveryService.UpdateLocalPeer(localPeer);
+            _discoveryService.UpdateMode(advertise: _bridgeServer.IsRunning, browse: _settings.FiestaDiscoveryEnabled, tailscaleBrowse, tailnetBroadcast);
+        }
+        else
+        {
+            _discoveryService.Start(localPeer, advertise: _bridgeServer.IsRunning, browse: _settings.FiestaDiscoveryEnabled, tailscaleBrowse, tailnetBroadcast);
+        }
+    }
+
+    private FiestaPeerInfo BuildLocalPeer(int port)
+    {
+        return new FiestaPeerInfo
+        {
+            InstanceId = _settings.InstanceId,
+            MachineName = MachineName,
+            Host = FiestaDiscoveryService.ResolveBestLanAddress(),
+            Port = port,
+            Platform = GetPlatformLabel(),
+            LastSeenAt = DateTime.UtcNow,
+            DiscoverySource = FiestaDiscoverySource.LanMulticast,
+            IsWorkerAvailable = _settings.FiestaOfferAsWorker,
+            IsTailscale = _tailscaleService.IsRunning,
+            TailnetHost = _tailscaleService.MagicDnsName ?? _tailscaleService.TailscaleIp,
+            AdvertisedJoinCode = null
+        };
+    }
+
+    private async Task<FiestaJoinStatusPayload> AssignWorkerToRoomInternalAsync(FiestaRoom room, string workerInstanceId, CancellationToken cancellationToken)
+    {
+        if (!_registeredWorkers.TryGetValue(workerInstanceId, out var worker))
+            throw new InvalidOperationException("Worker is not registered.");
+        if (string.IsNullOrWhiteSpace(worker.PairingToken))
+            worker.PairingToken = GeneratePairingToken();
+
+        await EnsureWorkerConnectedAsync(worker, cancellationToken);
+        if (!_workerConnections.TryGetValue(worker.InstanceId, out var connection))
+            throw new InvalidOperationException("Worker is not connected.");
+
+        if (connection.AuthorizedFiestas.ContainsKey(room.Id))
+        {
+            AssignWorkerMembership(room, worker);
+            return new FiestaJoinStatusPayload
             {
-                return new FiestaJoinStatusPayload
-                {
-                    RequestId = Guid.NewGuid().ToString("N"),
-                    FiestaId = roomId,
-                    Status = FiestaJoinState.Approved,
-                    WorkerInstanceId = peer.InstanceId,
-                    WorkerMachineName = peer.MachineName
-                };
-            }
-            // Dispose stale connection
-            existing.Dispose();
-            roomWorkers.TryRemove(peer.InstanceId, out _);
+                RequestId = Guid.NewGuid().ToString("N"),
+                FiestaId = room.Id,
+                Status = FiestaJoinState.Approved,
+                WorkerInstanceId = worker.InstanceId,
+                WorkerMachineName = worker.MachineName
+            };
         }
 
-        var client = new WsBridgeClient();
+        var requestId = Guid.NewGuid().ToString("N");
+        var joinResult = new TaskCompletionSource<FiestaJoinStatusPayload>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void HandleJoinStatus(FiestaJoinStatusPayload payload)
+        {
+            if (!string.Equals(payload.RequestId, requestId, StringComparison.Ordinal))
+                return;
+            if (payload.Status == FiestaJoinState.Pending)
+            {
+                OnStatusMessage?.Invoke($"Join request pending approval on {worker.MachineName}...");
+                return;
+            }
+            joinResult.TrySetResult(payload);
+        }
+
+        connection.Client.OnFiestaJoinStatus += HandleJoinStatus;
         try
         {
-            var requestId = Guid.NewGuid().ToString("N");
-            var joinResult = new TaskCompletionSource<FiestaJoinStatusPayload>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            void HandleJoinStatus(FiestaJoinStatusPayload payload)
-            {
-                if (!string.Equals(payload.RequestId, requestId, StringComparison.Ordinal)) return;
-                if (payload.Status == FiestaJoinState.Pending)
-                {
-                    OnStatusMessage?.Invoke($"Join request pending approval on {peer.MachineName}...");
-                    return;
-                }
-
-                joinResult.TrySetResult(payload);
-            }
-
-            client.OnFiestaJoinStatus += HandleJoinStatus;
-            client.OnFiestaDispatchResult += payload => OnStatusMessage?.Invoke($"[{payload.WorkerMachineName}] {payload.Summary ?? (payload.Success ? "Prompt completed." : payload.Error ?? "Prompt failed.")}");
-            client.OnFiestaSessionCommandResult += payload => OnStatusMessage?.Invoke($"[{payload.WorkerMachineName}] {payload.Command} {(payload.Success ? "ok" : $"failed: {payload.Error}")}");
-
-            var wsUrl = BuildWsUrl(peer);
-            await client.ConnectAsync(wsUrl, joinCode.Trim(), cancellationToken);
-            await client.SendFiestaJoinRequestAsync(new FiestaJoinRequestPayload
+            await connection.Client.SendFiestaJoinRequestAsync(new FiestaJoinRequestPayload
             {
                 RequestId = requestId,
-                FiestaId = roomId,
+                FiestaId = room.Id,
                 OrganizerInstanceId = InstanceId,
                 OrganizerMachineName = MachineName,
-                JoinCode = joinCode.Trim(),
+                OrganizerTrustToken = worker.PairingToken,
+                JoinCode = worker.JoinCode,
                 RequestedAt = DateTime.UtcNow
-            }, roomId, cancellationToken);
+            }, room.Id, cancellationToken);
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(90));
@@ -297,165 +903,262 @@ public sealed class FiestaCoordinatorService : IDisposable
                 }
                 catch
                 {
-                    client.OnFiestaJoinStatus -= HandleJoinStatus;
-                    throw new TimeoutException($"Timed out waiting for {peer.MachineName} to approve fiesta join.");
+                    throw new TimeoutException($"Timed out waiting for {worker.MachineName} to approve fiesta join.");
                 }
 
-                if (status.Status != FiestaJoinState.Approved)
+                if (status.Status == FiestaJoinState.Approved)
                 {
-                    client.OnFiestaJoinStatus -= HandleJoinStatus;
-                    // We don't dispose here because the caller might want to know the reason?
-                    // But we return the status, so the client is useless now as it's not approved.
-                    client.Dispose();
-                    return status;
-                }
+                    var canonicalId = string.IsNullOrWhiteSpace(status.WorkerInstanceId) ? worker.InstanceId : status.WorkerInstanceId;
+                    if (!string.Equals(canonicalId, worker.InstanceId, StringComparison.Ordinal))
+                        CanonicalizeWorkerIdentity(worker.InstanceId, canonicalId, status.WorkerMachineName);
 
-                lock (room.Members)
-                {
-                    var member = room.Members.FirstOrDefault(m => m.InstanceId == peer.InstanceId);
-                    if (member == null)
-                    {
-                        member = new FiestaMember
-                        {
-                            InstanceId = peer.InstanceId,
-                            MachineName = peer.MachineName,
-                            Host = peer.Host,
-                            Port = peer.Port,
-                            Role = FiestaMemberRole.Worker,
-                            IsConnected = true,
-                            LastUpdatedAt = DateTime.UtcNow
-                        };
-                        room.Members.Add(member);
-                    }
+                    connection.AuthorizedFiestas[room.Id] = 0;
+                    if (_registeredWorkers.TryGetValue(canonicalId, out var canonicalWorker))
+                        AssignWorkerMembership(room, canonicalWorker);
                     else
-                    {
-                        member.IsConnected = true;
-                        member.LastUpdatedAt = DateTime.UtcNow;
-                        member.Host = peer.Host;
-                        member.Port = peer.Port;
-                    }
+                        AssignWorkerMembership(room, worker);
+
+                    TouchRoomActivity(room.Id, $"{status.WorkerMachineName} joined this fiesta.");
+                    SaveState();
                 }
 
-                roomWorkers[peer.InstanceId] = new WorkerConnection(peer, client);
-                SaveState();
-                OnStatusMessage?.Invoke($"{peer.MachineName} joined fiesta '{room.Name}'.");
-                OnStateChanged?.Invoke();
                 return status;
             }
         }
+        finally
+        {
+            connection.Client.OnFiestaJoinStatus -= HandleJoinStatus;
+        }
+    }
+
+    private void CanonicalizeWorkerIdentity(string fromInstanceId, string toInstanceId, string? machineNameHint)
+    {
+        if (string.Equals(fromInstanceId, toInstanceId, StringComparison.Ordinal))
+            return;
+
+        if (_registeredWorkers.TryRemove(fromInstanceId, out var worker))
+        {
+            worker.InstanceId = toInstanceId;
+            if (!string.IsNullOrWhiteSpace(machineNameHint))
+                worker.MachineName = machineNameHint;
+            _registeredWorkers[toInstanceId] = worker;
+        }
+
+        if (_workerConnections.TryRemove(fromInstanceId, out var connection))
+            _workerConnections[toInstanceId] = connection;
+
+        foreach (var assignment in _roomAssignments.Values)
+        {
+            if (assignment.TryRemove(fromInstanceId, out _))
+                assignment[toInstanceId] = 0;
+        }
+
+        foreach (var room in _rooms.Values)
+        {
+            lock (room.Members)
+            {
+                var member = room.Members.FirstOrDefault(m => m.InstanceId == fromInstanceId && m.Role == FiestaMemberRole.Worker);
+                if (member != null)
+                {
+                    member.InstanceId = toInstanceId;
+                    if (!string.IsNullOrWhiteSpace(machineNameHint))
+                        member.MachineName = machineNameHint;
+                    member.LastUpdatedAt = DateTime.UtcNow;
+                }
+            }
+        }
+    }
+
+    private void AssignWorkerMembership(FiestaRoom room, FiestaRegisteredWorker worker)
+    {
+        var assigned = _roomAssignments.GetOrAdd(room.Id, _ => new ConcurrentDictionary<string, byte>(StringComparer.Ordinal));
+        assigned[worker.InstanceId] = 0;
+
+        lock (room.Members)
+        {
+            var member = room.Members.FirstOrDefault(m => m.InstanceId == worker.InstanceId && m.Role == FiestaMemberRole.Worker);
+            if (member == null)
+            {
+                member = new FiestaMember
+                {
+                    InstanceId = worker.InstanceId,
+                    MachineName = worker.MachineName,
+                    Host = worker.Host,
+                    Port = worker.Port,
+                    Role = FiestaMemberRole.Worker
+                };
+                room.Members.Add(member);
+            }
+
+            member.IsConnected = worker.IsConnected;
+            member.LastUpdatedAt = DateTime.UtcNow;
+            member.Host = worker.Host;
+            member.Port = worker.Port;
+        }
+
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
+
+    private async Task EnsureWorkerConnectedAsync(FiestaRegisteredWorker worker, CancellationToken cancellationToken)
+    {
+        if (_workerConnections.TryGetValue(worker.InstanceId, out var existing))
+        {
+            if (existing.Client.IsConnected)
+            {
+                worker.IsConnected = true;
+                worker.LastConnectedAt = DateTime.UtcNow;
+                worker.LastUpdatedAt = DateTime.UtcNow;
+                return;
+            }
+
+            existing.Dispose();
+            _workerConnections.TryRemove(worker.InstanceId, out _);
+        }
+
+        var client = new WsBridgeClient();
+        client.OnFiestaDispatchResult += HandleWorkerDispatchResult;
+        client.OnFiestaSessionCommandResult += HandleWorkerSessionCommandResult;
+
+        try
+        {
+            var authToken = string.IsNullOrWhiteSpace(worker.JoinCode) ? null : worker.JoinCode.Trim();
+            await client.ConnectAsync(BuildWsUrl(worker), authToken, cancellationToken);
+            worker.IsConnected = true;
+            worker.LastConnectedAt = DateTime.UtcNow;
+            worker.LastUpdatedAt = DateTime.UtcNow;
+            _workerConnections[worker.InstanceId] = new WorkerConnection(worker, client);
+        }
         catch
         {
+            worker.IsConnected = false;
+            worker.LastUpdatedAt = DateTime.UtcNow;
             client.Dispose();
             throw;
         }
     }
 
-    public async Task BroadcastPromptAsync(string roomId, string sessionName, string prompt, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
+    private List<WorkerConnection> GetRoomWorkerConnections(string roomId)
     {
-        if (!_rooms.TryGetValue(roomId, out var room))
-            throw new InvalidOperationException("Fiesta room not found.");
-        if (string.IsNullOrWhiteSpace(prompt))
-            throw new ArgumentException("Prompt is required.", nameof(prompt));
-        if (string.IsNullOrWhiteSpace(sessionName))
-            throw new ArgumentException("Session name is required.", nameof(sessionName));
+        if (!_roomAssignments.TryGetValue(roomId, out var assigned))
+            return new List<WorkerConnection>();
 
-        if (!_workerConnections.TryGetValue(roomId, out var workers) || workers.Count == 0)
-            throw new InvalidOperationException("No connected workers in this fiesta.");
-
-        // Clean up disconnected workers before broadcasting
-        var disconnectedIds = workers.Where(w => !w.Value.Client.IsConnected).Select(w => w.Key).ToList();
-        foreach (var id in disconnectedIds)
+        var workers = new List<WorkerConnection>();
+        foreach (var workerId in assigned.Keys.ToList())
         {
-            if (workers.TryRemove(id, out var worker))
-                worker.Dispose();
-            
-            lock (room.Members)
+            if (_workerConnections.TryGetValue(workerId, out var connection) && connection.Client.IsConnected)
             {
-                var member = room.Members.FirstOrDefault(m => m.InstanceId == id);
-                if (member != null) member.IsConnected = false;
+                workers.Add(connection);
+                if (_registeredWorkers.TryGetValue(workerId, out var worker))
+                {
+                    worker.IsConnected = true;
+                    worker.LastUpdatedAt = DateTime.UtcNow;
+                }
+                continue;
+            }
+
+            if (_registeredWorkers.TryGetValue(workerId, out var staleWorker))
+            {
+                staleWorker.IsConnected = false;
+                staleWorker.LastUpdatedAt = DateTime.UtcNow;
+            }
+
+            if (_rooms.TryGetValue(roomId, out var room))
+            {
+                lock (room.Members)
+                {
+                    var member = room.Members.FirstOrDefault(m => m.InstanceId == workerId && m.Role == FiestaMemberRole.Worker);
+                    if (member != null)
+                    {
+                        member.IsConnected = false;
+                        member.LastUpdatedAt = DateTime.UtcNow;
+                    }
+                }
             }
         }
-        
-        if (workers.Count == 0)
-        {
-             OnStateChanged?.Invoke();
-             throw new InvalidOperationException("No connected workers in this fiesta.");
-        }
 
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
-
-        var tasks = new List<Task>();
-        foreach (var worker in workers.Values)
-        {
-            var req = new FiestaDispatchPromptPayload
-            {
-                RequestId = Guid.NewGuid().ToString("N"),
-                FiestaId = roomId,
-                SessionName = sessionName,
-                Message = prompt,
-                Model = model,
-                WorkingDirectory = workingDirectory,
-                CreateSessionIfMissing = true
-            };
-            tasks.Add(worker.Client.SendFiestaDispatchPromptAsync(req, roomId, timeoutCts.Token));
-        }
-
-        await Task.WhenAll(tasks);
-        OnStatusMessage?.Invoke($"Broadcast sent to {tasks.Count} worker(s).");
+        return workers;
     }
 
-    public async Task SendSessionCommandAsync(string roomId, string command, string sessionName, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
+    private void HandleWorkerDispatchResult(FiestaDispatchResultPayload payload)
     {
-        if (!_rooms.TryGetValue(roomId, out var room))
-            throw new InvalidOperationException("Fiesta room not found.");
-        if (!_workerConnections.TryGetValue(roomId, out var workers) || workers.Count == 0)
-            throw new InvalidOperationException("No connected workers in this fiesta.");
-        if (string.IsNullOrWhiteSpace(command))
-            throw new ArgumentException("Command is required.", nameof(command));
-        if (string.IsNullOrWhiteSpace(sessionName))
-            throw new ArgumentException("Session name is required.", nameof(sessionName));
+        var summary = payload.Summary;
+        if (string.IsNullOrWhiteSpace(summary))
+            summary = payload.Success ? "Prompt completed." : payload.Error ?? "Prompt failed.";
 
-        // Clean up disconnected workers
-        var disconnectedIds = workers.Where(w => !w.Value.Client.IsConnected).Select(w => w.Key).ToList();
-        foreach (var id in disconnectedIds)
+        TouchRoomActivity(payload.FiestaId, $"[{payload.WorkerMachineName}] {summary}");
+        OnStatusMessage?.Invoke($"[{payload.WorkerMachineName}] {summary}");
+    }
+
+    private void HandleWorkerSessionCommandResult(FiestaSessionCommandResultPayload payload)
+    {
+        var summary = payload.Success
+            ? $"[{payload.WorkerMachineName}] {payload.Command} ok"
+            : $"[{payload.WorkerMachineName}] {payload.Command} failed: {payload.Error}";
+        TouchRoomActivity(payload.FiestaId, summary);
+        OnStatusMessage?.Invoke(summary);
+    }
+
+    private void TouchRoomActivity(string roomId, string summary)
+    {
+        if (_rooms.TryGetValue(roomId, out var room))
         {
-            if (workers.TryRemove(id, out var worker))
-                worker.Dispose();
-            
-            lock (room.Members)
-            {
-                var member = room.Members.FirstOrDefault(m => m.InstanceId == id);
-                if (member != null) member.IsConnected = false;
-            }
+            room.LastActivityAt = DateTime.UtcNow;
+            room.LastSummary = summary;
         }
+        SaveState();
+        OnStateChanged?.Invoke();
+    }
 
-        if (workers.Count == 0)
+    private object ApplyRoomSort(FiestaRoom room, Dictionary<string, FiestaRoomMeta> roomMetaMap)
+    {
+        lock (_organization)
         {
-             OnStateChanged?.Invoke();
-             throw new InvalidOperationException("No connected workers in this fiesta.");
-        }
-
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
-
-        var tasks = new List<Task>();
-        foreach (var worker in workers.Values)
-        {
-            var req = new FiestaSessionCommandPayload
+            return _organization.SortMode switch
             {
-                RequestId = Guid.NewGuid().ToString("N"),
-                FiestaId = roomId,
-                Command = command,
-                SessionName = sessionName,
-                Model = model,
-                WorkingDirectory = workingDirectory
+                FiestaSortMode.LastActivity => DateTime.MaxValue - room.LastActivityAt,
+                FiestaSortMode.CreatedAt => DateTime.MaxValue - room.CreatedAt,
+                FiestaSortMode.Alphabetical => room.Name,
+                FiestaSortMode.Manual => (object)(roomMetaMap.TryGetValue(room.Id, out var m) ? m.ManualOrder : int.MaxValue),
+                _ => DateTime.MaxValue - room.LastActivityAt
             };
-            tasks.Add(worker.Client.SendFiestaSessionCommandAsync(req, roomId, timeoutCts.Token));
         }
+    }
 
-        await Task.WhenAll(tasks);
-        OnStatusMessage?.Invoke($"Session command '{command}' sent to {tasks.Count} worker(s).");
+    private void EnsureRoomMeta(string roomId)
+    {
+        lock (_organization)
+        {
+            if (_organization.Rooms.Any(r => r.RoomId == roomId))
+                return;
+
+            _organization.Rooms.Add(new FiestaRoomMeta { RoomId = roomId, GroupId = FiestaGroup.DefaultId });
+        }
+    }
+
+    private void ReconcileOrganization()
+    {
+        lock (_organization)
+        {
+            if (!_organization.Groups.Any(g => g.Id == FiestaGroup.DefaultId))
+            {
+                _organization.Groups.Insert(0, new FiestaGroup
+                {
+                    Id = FiestaGroup.DefaultId,
+                    Name = FiestaGroup.DefaultName,
+                    SortOrder = 0
+                });
+            }
+
+            foreach (var roomId in _rooms.Keys)
+            {
+                if (!_organization.Rooms.Any(r => r.RoomId == roomId))
+                    _organization.Rooms.Add(new FiestaRoomMeta { RoomId = roomId, GroupId = FiestaGroup.DefaultId });
+            }
+
+            var roomIds = _rooms.Keys.ToHashSet(StringComparer.Ordinal);
+            _organization.Rooms.RemoveAll(r => !roomIds.Contains(r.RoomId));
+        }
     }
 
     private void LoadState()
@@ -465,38 +1168,132 @@ public sealed class FiestaCoordinatorService : IDisposable
             if (!File.Exists(StateFilePath)) return;
             var json = File.ReadAllText(StateFilePath);
             var state = JsonSerializer.Deserialize<FiestaStateStore>(json);
-            if (state?.Rooms == null) return;
-            foreach (var room in state.Rooms)
-                _rooms[room.Id] = room;
+            if (state == null) return;
+
+            if (state.Rooms != null)
+            {
+                foreach (var room in state.Rooms)
+                    _rooms[room.Id] = room;
+            }
+
+            if (state.RegisteredWorkers != null)
+            {
+                foreach (var worker in state.RegisteredWorkers)
+                {
+                    if (string.IsNullOrWhiteSpace(worker.PairingToken))
+                        worker.PairingToken = GeneratePairingToken();
+                    worker.IsConnected = false;
+                    _registeredWorkers[worker.InstanceId] = worker;
+                }
+            }
+
+            if (state.TrustedOrganizers != null)
+            {
+                foreach (var organizer in state.TrustedOrganizers.Where(v => !string.IsNullOrWhiteSpace(v)))
+                    _trustedOrganizers[organizer] = "";
+            }
+
+            if (state.TrustedOrganizerRecords != null)
+            {
+                foreach (var organizer in state.TrustedOrganizerRecords.Where(v => !string.IsNullOrWhiteSpace(v.OrganizerInstanceId)))
+                    _trustedOrganizers[organizer.OrganizerInstanceId] = organizer.TrustToken ?? "";
+            }
+
+            _organization = state.Organization ?? new FiestaOrganizationState();
+
+            foreach (var room in _rooms.Values)
+            {
+                var assigned = _roomAssignments.GetOrAdd(room.Id, _ => new ConcurrentDictionary<string, byte>(StringComparer.Ordinal));
+                lock (room.Members)
+                {
+                    foreach (var member in room.Members.Where(m => m.Role == FiestaMemberRole.Worker))
+                    {
+                        assigned[member.InstanceId] = 0;
+                        if (!_registeredWorkers.ContainsKey(member.InstanceId))
+                        {
+                            _registeredWorkers[member.InstanceId] = new FiestaRegisteredWorker
+                            {
+                                InstanceId = member.InstanceId,
+                                MachineName = member.MachineName,
+                                Host = member.Host,
+                                Port = member.Port,
+                                JoinCode = "",
+                                PairingToken = GeneratePairingToken(),
+                                Platform = "",
+                                IsConnected = member.IsConnected,
+                                LastUpdatedAt = member.LastUpdatedAt
+                            };
+                        }
+                    }
+                }
+            }
         }
         catch { }
     }
 
     private void SaveState()
     {
+        _ = SaveStateAsync();
+    }
+
+    private async Task SaveStateAsync()
+    {
+        await _stateLock.WaitAsync();
         try
         {
             var dir = Path.GetDirectoryName(StateFilePath);
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
-            var state = new FiestaStateStore { Rooms = _rooms.Values.Select(CloneRoom).ToList() };
+            var workersSnapshot = _registeredWorkers.Values.Select(w =>
+            {
+                var clone = CloneWorker(w);
+                clone.IsConnected = _workerConnections.TryGetValue(w.InstanceId, out var c) && c.Client.IsConnected;
+                return clone;
+            }).ToList();
+
+            FiestaOrganizationState organizationSnapshot;
+            lock (_organization)
+            {
+                organizationSnapshot = new FiestaOrganizationState
+                {
+                    SortMode = _organization.SortMode,
+                    Groups = _organization.Groups.Select(g => new FiestaGroup
+                    {
+                        Id = g.Id,
+                        Name = g.Name,
+                        SortOrder = g.SortOrder,
+                        IsCollapsed = g.IsCollapsed
+                    }).ToList(),
+                    Rooms = _organization.Rooms.Select(m => new FiestaRoomMeta
+                    {
+                        RoomId = m.RoomId,
+                        GroupId = m.GroupId,
+                        IsPinned = m.IsPinned,
+                        ManualOrder = m.ManualOrder
+                    }).ToList()
+                };
+            }
+
+            var state = new FiestaStateStore
+            {
+                Rooms = _rooms.Values.Select(CloneRoom).ToList(),
+                RegisteredWorkers = workersSnapshot,
+                TrustedOrganizers = _trustedOrganizers.Keys.ToList(),
+                TrustedOrganizerRecords = _trustedOrganizers.Select(kvp => new FiestaTrustedOrganizer
+                {
+                    OrganizerInstanceId = kvp.Key,
+                    TrustToken = kvp.Value
+                }).ToList(),
+                Organization = organizationSnapshot
+            };
             File.WriteAllText(StateFilePath, JsonSerializer.Serialize(state, _jsonOptions));
         }
         catch { }
-    }
-
-    private FiestaPeerInfo BuildLocalPeer(int port)
-    {
-        return new FiestaPeerInfo
+        finally
         {
-            InstanceId = _settings.InstanceId,
-            MachineName = MachineName,
-            Host = FiestaDiscoveryService.ResolveBestLanAddress(),
-            Port = port,
-            Platform = GetPlatformLabel(),
-            LastSeenAt = DateTime.UtcNow
-        };
+            _stateLock.Release();
+        }
     }
 
     private static FiestaRoom CloneRoom(FiestaRoom room)
@@ -523,20 +1320,45 @@ public sealed class FiestaCoordinatorService : IDisposable
             CreatedAt = room.CreatedAt,
             OrganizerInstanceId = room.OrganizerInstanceId,
             OrganizerMachineName = room.OrganizerMachineName,
-            Members = members
+            Members = members,
+            SessionName = room.SessionName,
+            LastActivityAt = room.LastActivityAt,
+            LastSummary = room.LastSummary
         };
     }
 
-    private static string BuildWsUrl(FiestaPeerInfo peer)
+    private static FiestaRegisteredWorker CloneWorker(FiestaRegisteredWorker worker)
     {
-        if (peer.Host.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-            return peer.Host.Replace("http://", "ws://", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
-        if (peer.Host.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            return peer.Host.Replace("https://", "wss://", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
-        if (peer.Host.StartsWith("ws://", StringComparison.OrdinalIgnoreCase) ||
-            peer.Host.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
-            return peer.Host.TrimEnd('/');
-        return $"ws://{peer.Host}:{peer.Port}/";
+        return new FiestaRegisteredWorker
+        {
+            InstanceId = worker.InstanceId,
+            MachineName = worker.MachineName,
+            Host = worker.Host,
+            Port = worker.Port,
+            Platform = worker.Platform,
+            TailnetHost = worker.TailnetHost,
+            JoinCode = worker.JoinCode,
+            PairingToken = worker.PairingToken,
+            IsConnected = worker.IsConnected,
+            LastConnectedAt = worker.LastConnectedAt,
+            LastUpdatedAt = worker.LastUpdatedAt
+        };
+    }
+
+    private static string BuildWsUrl(FiestaRegisteredWorker worker)
+    {
+        var preferredHost = !string.IsNullOrWhiteSpace(worker.TailnetHost)
+            ? worker.TailnetHost!
+            : worker.Host;
+
+        if (preferredHost.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            return preferredHost.Replace("http://", "ws://", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
+        if (preferredHost.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return preferredHost.Replace("https://", "wss://", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
+        if (preferredHost.StartsWith("ws://", StringComparison.OrdinalIgnoreCase) ||
+            preferredHost.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
+            return preferredHost.TrimEnd('/');
+        return $"ws://{preferredHost}:{worker.Port}/";
     }
 
     private static string GenerateJoinCode()
@@ -547,6 +1369,13 @@ public sealed class FiestaCoordinatorService : IDisposable
     }
 
     private static string GenerateServerSecret()
+    {
+        Span<byte> bytes = stackalloc byte[16];
+        RandomNumberGenerator.Fill(bytes);
+        return Convert.ToHexString(bytes);
+    }
+
+    private static string GeneratePairingToken()
     {
         Span<byte> bytes = stackalloc byte[16];
         RandomNumberGenerator.Fill(bytes);
@@ -585,23 +1414,25 @@ public sealed class FiestaCoordinatorService : IDisposable
 
     public void Dispose()
     {
-        foreach (var roomWorkers in _workerConnections.Values)
-        {
-            foreach (var worker in roomWorkers.Values)
-                worker.Dispose();
-        }
+        foreach (var worker in _workerConnections.Values)
+            worker.Dispose();
+
         _workerConnections.Clear();
+        _roomAssignments.Clear();
+        _pendingJoinRequests.Clear();
+        _stateLock.Dispose();
         GC.SuppressFinalize(this);
     }
 
     private sealed class WorkerConnection : IDisposable
     {
-        public FiestaPeerInfo Peer { get; }
+        public FiestaRegisteredWorker Worker { get; }
         public WsBridgeClient Client { get; }
+        public ConcurrentDictionary<string, byte> AuthorizedFiestas { get; } = new(StringComparer.Ordinal);
 
-        public WorkerConnection(FiestaPeerInfo peer, WsBridgeClient client)
+        public WorkerConnection(FiestaRegisteredWorker worker, WsBridgeClient client)
         {
-            Peer = peer;
+            Worker = worker;
             Client = client;
         }
 

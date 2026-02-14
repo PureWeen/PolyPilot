@@ -1,0 +1,70 @@
+.fiesta-pairing-toast {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 0.9rem);
+    right: 1rem;
+    max-width: min(420px, calc(100vw - 2rem));
+    border: 1px solid var(--control-border);
+    border-radius: 12px;
+    background: rgba(26, 31, 46, 0.96);
+    color: var(--text-primary);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    padding: 0.8rem;
+    z-index: 1400;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.fiesta-pairing-title {
+    font-size: var(--type-callout);
+    font-weight: 700;
+}
+
+.fiesta-pairing-body {
+    font-size: var(--type-footnote);
+    line-height: 1.4;
+}
+
+.fiesta-pairing-body code {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
+    padding: 0.05rem 0.25rem;
+}
+
+.fiesta-pairing-hint {
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+}
+
+.fiesta-pairing-actions {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-top: 0.2rem;
+}
+
+.fiesta-action {
+    border: 1px solid var(--control-border);
+    border-radius: 7px;
+    padding: 0.3rem 0.55rem;
+    font-size: var(--type-footnote);
+    cursor: pointer;
+}
+
+.fiesta-action.approve {
+    border-color: rgba(72, 187, 120, 0.5);
+    color: #9ae6b4;
+    background: rgba(72, 187, 120, 0.14);
+}
+
+.fiesta-action.reject {
+    border-color: rgba(239, 68, 68, 0.45);
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.fiesta-action.neutral {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+}

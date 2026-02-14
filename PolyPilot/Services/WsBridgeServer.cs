@@ -21,6 +21,8 @@ public class WsBridgeServer : IDisposable
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _clientFiestaAuthorizations = new();
     private readonly ConcurrentDictionary<string, ClientAuthScope> _clientAuthScopes = new();
+    private readonly ConcurrentDictionary<string, string> _clientRemoteHosts = new();
+    private readonly ConcurrentDictionary<string, DateTime> _fiestaJoinLastAttemptByHost = new();
     private readonly ConcurrentDictionary<string, string> _pendingFiestaClientIds = new();
     private readonly ConcurrentDictionary<string, string> _pendingFiestaIds = new();
     private FiestaCoordinatorService? _fiestaCoordinator;
@@ -244,7 +246,11 @@ public class WsBridgeServer : IDisposable
 
         var providedToken = ExtractProvidedToken(request);
         if (string.IsNullOrEmpty(providedToken))
+        {
+            if (_fiestaCoordinator?.IsWorkerModeEnabled == true)
+                return ClientAuthScope.FiestaOnly;
             return ClientAuthScope.None;
+        }
 
         if (!string.IsNullOrEmpty(AccessToken) && string.Equals(providedToken, AccessToken, StringComparison.Ordinal))
             return ClientAuthScope.Full;
@@ -290,6 +296,7 @@ public class WsBridgeServer : IDisposable
             _clients[clientId] = ws;
             _clientSendLocks[clientId] = new SemaphoreSlim(1, 1);
             _clientAuthScopes[clientId] = authScope;
+            _clientRemoteHosts[clientId] = httpContext.Request.RemoteEndPoint?.Address.ToString() ?? "";
             Console.WriteLine($"[WsBridge] Client {clientId} connected ({_clients.Count} total)");
 
             // Send initial state only to full-access clients.
@@ -340,6 +347,7 @@ public class WsBridgeServer : IDisposable
             if (_clientSendLocks.TryRemove(clientId, out var lk)) lk.Dispose();
             _clientFiestaAuthorizations.TryRemove(clientId, out _);
             _clientAuthScopes.TryRemove(clientId, out _);
+            _clientRemoteHosts.TryRemove(clientId, out _);
             foreach (var pending in _pendingFiestaClientIds.Where(kvp => kvp.Value == clientId).ToList())
             {
                 _pendingFiestaClientIds.TryRemove(pending.Key, out _);
@@ -743,7 +751,53 @@ public class WsBridgeServer : IDisposable
             return;
         }
 
-        if (!_fiestaCoordinator.ValidateJoinCode(payload.JoinCode))
+        if (string.IsNullOrWhiteSpace(payload.OrganizerInstanceId))
+        {
+            await SendToClientAsync(clientId, ws,
+                BridgeMessage.Create(BridgeMessageTypes.FiestaJoinStatus, new FiestaJoinStatusPayload
+                {
+                    RequestId = payload.RequestId,
+                    FiestaId = payload.FiestaId,
+                    Status = FiestaJoinState.Rejected,
+                    WorkerInstanceId = workerId,
+                    WorkerMachineName = workerName,
+                    Reason = "Missing organizer identity"
+                }, payload.FiestaId), ct);
+            return;
+        }
+
+        var remoteHost = _clientRemoteHosts.TryGetValue(clientId, out var host) ? host : "";
+        if (!string.IsNullOrWhiteSpace(remoteHost))
+        {
+            var now = DateTime.UtcNow;
+            if (_fiestaJoinLastAttemptByHost.Count > 256)
+            {
+                foreach (var stale in _fiestaJoinLastAttemptByHost.Where(kvp => now - kvp.Value > TimeSpan.FromMinutes(10)).ToList())
+                    _fiestaJoinLastAttemptByHost.TryRemove(stale.Key, out _);
+            }
+
+            if (_fiestaJoinLastAttemptByHost.TryGetValue(remoteHost, out var lastAttempt) &&
+                now - lastAttempt < TimeSpan.FromSeconds(2))
+            {
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.FiestaJoinStatus, new FiestaJoinStatusPayload
+                    {
+                        RequestId = payload.RequestId,
+                        FiestaId = payload.FiestaId,
+                        Status = FiestaJoinState.Rejected,
+                        WorkerInstanceId = workerId,
+                        WorkerMachineName = workerName,
+                        Reason = "Too many join requests. Wait a moment and retry."
+                    }, payload.FiestaId), ct);
+                return;
+            }
+
+            _fiestaJoinLastAttemptByHost[remoteHost] = now;
+        }
+
+        var joinCodeProvided = !string.IsNullOrWhiteSpace(payload.JoinCode);
+        var trustedOrganizer = _fiestaCoordinator.IsTrustedOrganizer(payload.OrganizerInstanceId, payload.OrganizerTrustToken);
+        if (!trustedOrganizer && joinCodeProvided && !_fiestaCoordinator.ValidateJoinCode(payload.JoinCode))
         {
             await SendToClientAsync(clientId, ws,
                 BridgeMessage.Create(BridgeMessageTypes.FiestaJoinStatus, new FiestaJoinStatusPayload
@@ -761,7 +815,13 @@ public class WsBridgeServer : IDisposable
         _pendingFiestaClientIds[payload.RequestId] = clientId;
         _pendingFiestaIds[payload.RequestId] = payload.FiestaId;
 
-        _fiestaCoordinator.RegisterIncomingJoinRequest(payload, null);
+        var request = _fiestaCoordinator.RegisterIncomingJoinRequest(payload, remoteHost);
+        if (request.Status != FiestaJoinState.Pending)
+        {
+            _pendingFiestaClientIds.TryRemove(payload.RequestId, out _);
+            _pendingFiestaIds.TryRemove(payload.RequestId, out _);
+            return;
+        }
 
         await SendToClientAsync(clientId, ws,
             BridgeMessage.Create(BridgeMessageTypes.FiestaJoinStatus, new FiestaJoinStatusPayload

@@ -1,0 +1,197 @@
+.fiesta-card {
+    position: relative;
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    min-width: 0;
+}
+
+.fiesta-card.pinned {
+    border-color: rgba(251, 191, 36, 0.25);
+}
+
+.fiesta-card.active {
+    border-left: 4px solid var(--accent-success);
+}
+
+.fiesta-card.partial {
+    border-left: 4px solid #fbbf24;
+}
+
+.fiesta-card.offline {
+    border-left: 4px solid #f87171;
+}
+
+.fiesta-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.fiesta-card-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.fiesta-card-title h3 {
+    margin: 0;
+    font-size: var(--type-title2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.fiesta-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-dim);
+}
+
+.fiesta-status-dot.active {
+    background: var(--accent-success);
+}
+
+.fiesta-status-dot.partial {
+    background: #fbbf24;
+}
+
+.fiesta-status-dot.offline {
+    background: #f87171;
+}
+
+.fiesta-card-actions {
+    display: inline-flex;
+    gap: 0.3rem;
+}
+
+.fiesta-mini-btn {
+    all: unset;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+}
+
+.fiesta-mini-btn:hover {
+    background: var(--hover-bg);
+}
+
+.fiesta-card-context {
+    display: flex;
+    gap: 0.5rem;
+    color: var(--text-dim);
+    font-size: var(--type-caption1);
+}
+
+.fiesta-summary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.fiesta-card-controls,
+.fiesta-card-command-row {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.fiesta-workers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.fiesta-worker-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid var(--control-border);
+    border-radius: 999px;
+    padding: 0.15rem 0.5rem;
+    font-size: var(--type-caption1);
+    background: var(--bg-elevated);
+}
+
+.chip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.chip-dot.alive {
+    background: var(--accent-success);
+}
+
+.chip-dot.dead {
+    background: #f87171;
+}
+
+.fiesta-chip-remove {
+    all: unset;
+    cursor: pointer;
+    color: var(--text-dim);
+}
+
+.fiesta-input,
+.fiesta-select,
+.fiesta-textarea {
+    border: 1px solid var(--control-border);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 0.42rem 0.5rem;
+}
+
+.fiesta-input {
+    min-width: 140px;
+}
+
+.fiesta-select {
+    min-width: 150px;
+}
+
+.fiesta-card-prompt {
+    display: flex;
+    gap: 0.45rem;
+    align-items: stretch;
+}
+
+.fiesta-textarea {
+    min-height: 68px;
+    flex: 1;
+}
+
+.fiesta-btn {
+    border: 1px solid var(--control-border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 0.38rem 0.62rem;
+    white-space: nowrap;
+}
+
+.fiesta-btn.primary {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: white;
+}
+
+.fiesta-btn.danger {
+    border-color: #b45309;
+    color: #f59e0b;
+}
+
+.fiesta-muted {
+    color: var(--text-dim);
+    font-size: var(--type-caption1);
+}

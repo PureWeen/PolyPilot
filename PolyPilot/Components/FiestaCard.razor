@@ -1,0 +1,138 @@
+@using PolyPilot.Models
+
+<div class="fiesta-card @(GetCardState()) @(Meta?.IsPinned == true ? "pinned" : "")">
+    <div class="fiesta-card-header">
+        <div class="fiesta-card-title">
+            <span class="fiesta-status-dot @(GetCardState())"></span>
+            <h3>@Room.Name</h3>
+            @if (Meta?.IsPinned == true)
+            {
+                <span class="fiesta-pin">📌</span>
+            }
+        </div>
+        <div class="fiesta-card-actions">
+            <button class="fiesta-mini-btn" @onclick="() => OnPin.InvokeAsync(!(Meta?.IsPinned ?? false))" title="Pin/unpin">📌</button>
+            <button class="fiesta-mini-btn" @onclick="() => OnClose.InvokeAsync()" title="Close fiesta">🗑</button>
+            <button class="fiesta-mini-btn" @onclick="() => OnExpand.InvokeAsync()" title="Expand">⤢</button>
+        </div>
+    </div>
+
+    <div class="fiesta-card-context">
+        <span>@AssignedWorkers.Count worker(s)</span>
+        <span class="fiesta-summary" title="@Room.LastSummary">@Room.LastSummary</span>
+    </div>
+
+    <div class="fiesta-card-controls">
+        <select class="fiesta-select" value="@Meta?.GroupId" @onchange="OnGroupChanged">
+            @foreach (var group in Groups)
+            {
+                <option value="@group.Id">@group.Name</option>
+            }
+        </select>
+        <input class="fiesta-input" value="@sessionName" @oninput="(e) => sessionName = e.Value?.ToString() ?? string.Empty" placeholder="Session name" />
+        <button class="fiesta-btn" @onclick="() => OnSetSessionName.InvokeAsync(sessionName)">Set</button>
+    </div>
+
+    <div class="fiesta-workers">
+        @if (AssignedWorkers.Count == 0)
+        {
+            <span class="fiesta-muted">No workers assigned.</span>
+        }
+        else
+        {
+            @foreach (var worker in AssignedWorkers)
+            {
+                <div class="fiesta-worker-chip">
+                    <span class="chip-dot @(worker.IsConnected ? "alive" : "dead")"></span>
+                    <span>@worker.MachineName</span>
+                    <button class="fiesta-chip-remove" @onclick="() => OnUnassignWorker.InvokeAsync(worker.InstanceId)">×</button>
+                </div>
+            }
+        }
+    </div>
+
+    <div class="fiesta-card-controls">
+        <select class="fiesta-select" @bind="selectedWorkerId">
+            <option value="">Add worker...</option>
+            @foreach (var worker in RegisteredWorkers)
+            {
+                <option value="@worker.InstanceId">@worker.MachineName (@(worker.IsConnected ? "online" : "offline"))</option>
+            }
+        </select>
+        <button class="fiesta-btn" @onclick="AssignWorker" disabled="@string.IsNullOrWhiteSpace(selectedWorkerId)">Assign</button>
+    </div>
+
+    <div class="fiesta-card-prompt">
+        <textarea class="fiesta-textarea" @bind="promptText" placeholder="Broadcast prompt"></textarea>
+        <button class="fiesta-btn primary" @onclick="SendPrompt" disabled="@string.IsNullOrWhiteSpace(promptText)">Send</button>
+    </div>
+
+    <div class="fiesta-card-command-row">
+        <button class="fiesta-btn" @onclick="SendCreateCommand">Create Session</button>
+        <button class="fiesta-btn" @onclick="SendSwitchCommand">Switch Session</button>
+        <button class="fiesta-btn danger" @onclick="SendCloseCommand">Close Session</button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public FiestaRoom Room { get; set; } = default!;
+    [Parameter] public FiestaRoomMeta? Meta { get; set; }
+    [Parameter] public IReadOnlyList<FiestaGroup> Groups { get; set; } = Array.Empty<FiestaGroup>();
+    [Parameter] public IReadOnlyList<FiestaRegisteredWorker> AssignedWorkers { get; set; } = Array.Empty<FiestaRegisteredWorker>();
+    [Parameter] public IReadOnlyList<FiestaRegisteredWorker> RegisteredWorkers { get; set; } = Array.Empty<FiestaRegisteredWorker>();
+
+    [Parameter] public EventCallback OnExpand { get; set; }
+    [Parameter] public EventCallback<string> OnPrompt { get; set; }
+    [Parameter] public EventCallback<string> OnSetSessionName { get; set; }
+    [Parameter] public EventCallback<string> OnCommand { get; set; }
+    [Parameter] public EventCallback<string> OnAssignWorker { get; set; }
+    [Parameter] public EventCallback<string> OnUnassignWorker { get; set; }
+    [Parameter] public EventCallback<bool> OnPin { get; set; }
+    [Parameter] public EventCallback<string> OnMoveGroup { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string promptText = "";
+    private string selectedWorkerId = "";
+    private string sessionName = "fiesta-session";
+    private string? lastSessionNameFromRoom;
+
+    protected override void OnParametersSet()
+    {
+        var incoming = Room.SessionName;
+        if (lastSessionNameFromRoom == null || string.Equals(sessionName, lastSessionNameFromRoom, StringComparison.Ordinal))
+            sessionName = incoming;
+        lastSessionNameFromRoom = incoming;
+    }
+
+    private string GetCardState()
+    {
+        if (AssignedWorkers.Count == 0) return "idle";
+        if (AssignedWorkers.All(w => w.IsConnected)) return "active";
+        if (AssignedWorkers.Any(w => w.IsConnected)) return "partial";
+        return "offline";
+    }
+
+    private async Task SendPrompt()
+    {
+        await OnPrompt.InvokeAsync(promptText.Trim());
+        promptText = "";
+    }
+
+    private async Task AssignWorker()
+    {
+        if (string.IsNullOrWhiteSpace(selectedWorkerId)) return;
+        await OnAssignWorker.InvokeAsync(selectedWorkerId);
+        selectedWorkerId = "";
+    }
+
+    private Task SendCreateCommand() => OnCommand.InvokeAsync("create");
+    private Task SendSwitchCommand() => OnCommand.InvokeAsync("switch");
+    private Task SendCloseCommand() => OnCommand.InvokeAsync("close");
+
+    private Task OnGroupChanged(ChangeEventArgs e)
+    {
+        if (e.Value is string groupId && !string.IsNullOrWhiteSpace(groupId))
+            return OnMoveGroup.InvokeAsync(groupId);
+        return Task.CompletedTask;
+    }
+}

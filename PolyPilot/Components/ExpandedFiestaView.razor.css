@@ -1,0 +1,138 @@
+.expanded-fiesta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    padding: 1rem;
+    height: 100%;
+    background: var(--bg-primary);
+}
+
+.expanded-fiesta-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+}
+
+.expanded-fiesta-header h2 {
+    margin: 0;
+    font-size: var(--type-large-title);
+}
+
+.expanded-fiesta-header span {
+    color: var(--text-dim);
+}
+
+.expanded-fiesta-actions,
+.expanded-fiesta-toolbar,
+.expanded-command-row,
+.pool-add-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.expanded-fiesta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+}
+
+.expanded-section {
+    border: 1px solid var(--control-border);
+    border-radius: 10px;
+    padding: 0.75rem;
+    background: var(--bg-input);
+}
+
+.expanded-section h3 {
+    margin: 0 0 0.6rem 0;
+    font-size: var(--type-title2);
+}
+
+.worker-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--control-bg);
+    padding: 0.35rem 0;
+}
+
+.worker-row:last-child {
+    border-bottom: none;
+}
+
+.worker-name {
+    min-width: 120px;
+}
+
+.expanded-prompt {
+    display: flex;
+    gap: 0.6rem;
+    align-items: stretch;
+}
+
+.expanded-prompt .fiesta-textarea {
+    min-height: 90px;
+    flex: 1;
+}
+
+.expanded-last-summary {
+    color: var(--text-dim);
+    font-size: var(--type-caption1);
+    border-top: 1px solid var(--control-bg);
+    padding-top: 0.5rem;
+}
+
+.chip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.chip-dot.alive {
+    background: var(--accent-success);
+}
+
+.chip-dot.dead {
+    background: #f87171;
+}
+
+.fiesta-input,
+.fiesta-select,
+.fiesta-textarea {
+    border: 1px solid var(--control-border);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 0.42rem 0.5rem;
+}
+
+.fiesta-select {
+    min-width: 180px;
+}
+
+.fiesta-btn {
+    border: 1px solid var(--control-border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 0.38rem 0.62rem;
+}
+
+.fiesta-btn.primary {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: white;
+}
+
+.fiesta-btn.danger {
+    border-color: #b45309;
+    color: #f59e0b;
+}
+
+.fiesta-muted {
+    color: var(--text-dim);
+    font-size: var(--type-caption1);
+}

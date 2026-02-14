@@ -292,6 +292,7 @@ public class FiestaJoinRequestPayload
     public string FiestaId { get; set; } = "";
     public string OrganizerInstanceId { get; set; } = "";
     public string OrganizerMachineName { get; set; } = "";
+    public string OrganizerTrustToken { get; set; } = "";
     public string JoinCode { get; set; } = "";
     public DateTime RequestedAt { get; set; } = DateTime.UtcNow;
 }

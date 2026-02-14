@@ -54,6 +54,11 @@ public class ConnectionSettings
     public string? MachineName { get; set; } = DefaultMachineName;
     public string InstanceId { get; set; } = "";
     public bool FiestaDiscoveryEnabled { get; set; } = true;
+    public bool FiestaTailscaleDiscoveryEnabled { get; set; } = true;
+    public bool FiestaTailscaleDiscoveryConfigured { get; set; } = false;
+    public bool FiestaTailnetBroadcastEnabled { get; set; } = true;
+    public bool FiestaOfferAsWorker { get; set; } = false;
+    public bool FiestaAutoStartWorkerHosting { get; set; } = true;
     public string? FiestaJoinCode { get; set; }
 
     [JsonIgnore]

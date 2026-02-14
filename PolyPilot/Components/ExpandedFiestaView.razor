@@ -1,0 +1,134 @@
+@using PolyPilot.Models
+
+<div class="expanded-fiesta">
+    <div class="expanded-fiesta-header">
+        <div>
+            <h2>@Room.Name</h2>
+            <span>@AssignedWorkers.Count worker(s) assigned</span>
+        </div>
+        <div class="expanded-fiesta-actions">
+            <button class="fiesta-btn" @onclick="() => OnPin.InvokeAsync(!(Meta?.IsPinned ?? false))">@(Meta?.IsPinned == true ? "Unpin" : "Pin")</button>
+            <button class="fiesta-btn danger" @onclick="() => OnClose.InvokeAsync()">Close Fiesta</button>
+            <button class="fiesta-btn" @onclick="() => OnCollapse.InvokeAsync()">Collapse</button>
+        </div>
+    </div>
+
+    <div class="expanded-fiesta-toolbar">
+        <select class="fiesta-select" value="@Meta?.GroupId" @onchange="OnGroupChanged">
+            @foreach (var group in Groups)
+            {
+                <option value="@group.Id">@group.Name</option>
+            }
+        </select>
+        <input class="fiesta-input" value="@sessionName" @oninput="(e) => sessionName = e.Value?.ToString() ?? string.Empty" placeholder="Session name" />
+        <button class="fiesta-btn" @onclick="() => OnSetSessionName.InvokeAsync(sessionName)">Set Session</button>
+    </div>
+
+    <div class="expanded-fiesta-grid">
+        <div class="expanded-section">
+            <h3>Assigned Workers</h3>
+            @if (AssignedWorkers.Count == 0)
+            {
+                <p class="fiesta-muted">No workers assigned.</p>
+            }
+            else
+            {
+                @foreach (var worker in AssignedWorkers)
+                {
+                    <div class="worker-row">
+                        <span class="chip-dot @(worker.IsConnected ? "alive" : "dead")"></span>
+                        <span class="worker-name">@worker.MachineName</span>
+                        <span class="fiesta-muted">@worker.Host:@worker.Port</span>
+                        <button class="fiesta-btn danger" @onclick="() => OnUnassignWorker.InvokeAsync(worker.InstanceId)">Remove</button>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="expanded-section">
+            <h3>Worker Pool</h3>
+            <div class="pool-add-row">
+                <select class="fiesta-select" @bind="selectedWorkerId">
+                    <option value="">Select worker...</option>
+                    @foreach (var worker in RegisteredWorkers)
+                    {
+                        <option value="@worker.InstanceId">@worker.MachineName (@(worker.IsConnected ? "online" : "offline"))</option>
+                    }
+                </select>
+                <button class="fiesta-btn" @onclick="AssignWorker" disabled="@string.IsNullOrWhiteSpace(selectedWorkerId)">Assign to Fiesta</button>
+            </div>
+            <p class="fiesta-muted">Workers can be reused across multiple fiestas.</p>
+        </div>
+    </div>
+
+    <div class="expanded-prompt">
+        <textarea class="fiesta-textarea" @bind="promptText" placeholder="Broadcast prompt to assigned workers"></textarea>
+        <button class="fiesta-btn primary" @onclick="SendPrompt" disabled="@string.IsNullOrWhiteSpace(promptText)">Broadcast</button>
+    </div>
+
+    <div class="expanded-command-row">
+        <button class="fiesta-btn" @onclick="SendCreateCommand">Create Session</button>
+        <button class="fiesta-btn" @onclick="SendSwitchCommand">Switch Session</button>
+        <button class="fiesta-btn danger" @onclick="SendCloseCommand">Close Session</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Room.LastSummary))
+    {
+        <div class="expanded-last-summary">@Room.LastSummary</div>
+    }
+</div>
+
+@code {
+    [Parameter] public FiestaRoom Room { get; set; } = default!;
+    [Parameter] public FiestaRoomMeta? Meta { get; set; }
+    [Parameter] public IReadOnlyList<FiestaGroup> Groups { get; set; } = Array.Empty<FiestaGroup>();
+    [Parameter] public IReadOnlyList<FiestaRegisteredWorker> AssignedWorkers { get; set; } = Array.Empty<FiestaRegisteredWorker>();
+    [Parameter] public IReadOnlyList<FiestaRegisteredWorker> RegisteredWorkers { get; set; } = Array.Empty<FiestaRegisteredWorker>();
+
+    [Parameter] public EventCallback OnCollapse { get; set; }
+    [Parameter] public EventCallback<string> OnPrompt { get; set; }
+    [Parameter] public EventCallback<string> OnSetSessionName { get; set; }
+    [Parameter] public EventCallback<string> OnCommand { get; set; }
+    [Parameter] public EventCallback<string> OnAssignWorker { get; set; }
+    [Parameter] public EventCallback<string> OnUnassignWorker { get; set; }
+    [Parameter] public EventCallback<bool> OnPin { get; set; }
+    [Parameter] public EventCallback<string> OnMoveGroup { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string promptText = "";
+    private string selectedWorkerId = "";
+    private string sessionName = "fiesta-session";
+    private string? lastSessionNameFromRoom;
+
+    protected override void OnParametersSet()
+    {
+        var incoming = Room.SessionName;
+        if (lastSessionNameFromRoom == null || string.Equals(sessionName, lastSessionNameFromRoom, StringComparison.Ordinal))
+            sessionName = incoming;
+        lastSessionNameFromRoom = incoming;
+    }
+
+    private async Task SendPrompt()
+    {
+        await OnPrompt.InvokeAsync(promptText.Trim());
+        promptText = "";
+    }
+
+    private async Task AssignWorker()
+    {
+        if (string.IsNullOrWhiteSpace(selectedWorkerId)) return;
+        await OnAssignWorker.InvokeAsync(selectedWorkerId);
+        selectedWorkerId = "";
+    }
+
+    private Task SendCreateCommand() => OnCommand.InvokeAsync("create");
+    private Task SendSwitchCommand() => OnCommand.InvokeAsync("switch");
+    private Task SendCloseCommand() => OnCommand.InvokeAsync("close");
+
+    private Task OnGroupChanged(ChangeEventArgs e)
+    {
+        if (e.Value is string groupId && !string.IsNullOrWhiteSpace(groupId))
+            return OnMoveGroup.InvokeAsync(groupId);
+        return Task.CompletedTask;
+    }
+}
