@@ -59,7 +59,8 @@
                          IsProcessing="Session.IsProcessing"
                          Compact="false"
                          UserAvatarUrl="@UserAvatarUrl"
-                         Layout="@Layout" />
+                         Layout="@Layout"
+                         Style="@Style" />
     </div>
 
     @if (!string.IsNullOrEmpty(Error))
@@ -192,6 +193,7 @@
     [Parameter] public List<PendingImage>? PendingImages { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
+    [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
     [Parameter] public int FontSize { get; set; } = 20;
     [Parameter] public int MessageWindowSize { get; set; } = 25;
 

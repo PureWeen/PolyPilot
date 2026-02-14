@@ -84,24 +84,23 @@
 /* === Full mode (chat page) === */
 .chat-message-list.full ::deep .chat-msg {
     display: flex;
-    gap: 0.6rem;
+    gap: 0.5rem;
     flex-shrink: 0;
     max-width: 100%;
-    padding: 0.8rem 1rem;
-    align-items: flex-start;
+    padding: 0.75rem 1rem;
+    align-items: flex-end;
 }
 
 .chat-message-list.full ::deep .chat-msg.user {
-    justify-content: flex-start;
-    background: rgba(255, 255, 255, 0.03);
+    justify-content: flex-end;
 }
 
 .chat-message-list.full ::deep .chat-msg.user .chat-msg-content {
-    background: none;
-    border: none;
-    border-radius: 0;
-    padding: 0;
-    max-width: 100%;
+    background: rgba(78, 168, 209, 0.2);
+    border: 1px solid rgba(78, 168, 209, 0.3);
+    border-radius: 12px 12px 0 12px;
+    padding: 0.75rem 1rem 0.35rem;
+    max-width: 80%;
 }
 
 ::deep .chat-msg.user .chat-msg-text p {
@@ -113,11 +112,11 @@
 }
 
 .chat-message-list.full ::deep .chat-msg.assistant .chat-msg-content {
-    background: none;
-    border: none;
-    border-radius: 0;
-    padding: 0;
-    max-width: 100%;
+    background: rgba(0, 195, 91, 0.1);
+    border: 1px solid rgba(0, 195, 91, 0.2);
+    border-radius: 12px 12px 12px 0;
+    padding: 0.75rem 1rem 0.35rem;
+    max-width: 80%;
 }
 
 ::deep .chat-msg.assistant .chat-msg-text p {
@@ -129,23 +128,21 @@
 }
 
 .chat-message-list.full ::deep .chat-msg-avatar {
-    width: 24px;
-    height: 24px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    margin-top: 2px;
 }
 
 .chat-message-list.full ::deep .chat-msg.user .chat-msg-avatar {
-    order: 0;
-    background: rgba(78, 168, 209, 0.25);
-    width: 24px;
-    height: 24px;
+    order: 1;
+    background: rgba(78, 168, 209, 0.3);
+    width: 30px;
+    height: 30px;
     overflow: hidden;
-    font-size: 12px;
 }
 
 .chat-message-list.full ::deep .chat-msg.user .chat-msg-avatar .user-avatar-img {
@@ -158,8 +155,8 @@
 .chat-message-list.full ::deep .chat-msg.assistant .chat-msg-avatar {
     background: transparent;
     overflow: hidden;
-    width: 24px;
-    height: 24px;
+    width: 44px;
+    height: 44px;
 }
 
 .chat-message-list.full ::deep .chat-msg.assistant .chat-msg-avatar img {
@@ -194,23 +191,21 @@
 }
 
 .chat-message-list.full ::deep .chat-msg-time {
-    font-size: 10px;
+    font-size: var(--type-subhead);
     color: var(--text-muted);
-    margin-top: 0.1rem;
-    opacity: 0.6;
+    margin-top: 0.05rem;
 }
 
 .chat-message-list.full ::deep .chat-msg.system {
-    justify-content: center;
+    justify-content: flex-start;
 }
 
 .chat-message-list.full ::deep .system-text {
-    font-size: 12px;
+    font-size: var(--type-body);
     color: var(--text-muted);
     font-style: italic;
-    text-align: center;
-    padding: 0.2rem 0.5rem;
-    opacity: 0.7;
+    text-align: left;
+    padding: 0.5rem;
 }
 
 .chat-message-list.full ::deep .chat-msg.shell-output {
@@ -237,9 +232,9 @@
 /* Shared tool/reasoning styles for full mode */
 ::deep .reasoning-block {
     flex-shrink: 0;
-    margin: 0.15rem 1rem;
-    border-left: 1px solid rgba(168, 85, 247, 0.25);
-    padding-left: 0.6rem;
+    margin: 0.25rem 1rem;
+    border-left: 2px solid rgba(168, 85, 247, 0.3);
+    padding-left: 0.75rem;
 }
 
 ::deep .reasoning-header {
@@ -325,9 +320,9 @@
 /* === Action Box (unified command + output container) === */
 ::deep .action-box {
     flex-shrink: 0;
-    margin: 0.15rem 1rem;
+    margin: 0.25rem 1rem;
     background: var(--bg-input);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--control-bg);
     border-radius: 8px;
     overflow: hidden;
 }
@@ -735,4 +730,52 @@
 }
 .chat-message-list.full.layout-both-left ::deep .chat-msg.user .chat-msg-content {
     border-radius: 12px 12px 12px 0;
+}
+
+/* Style: Minimal — full-width, no bubbles (Claude.ai style) */
+.chat-message-list.full.style-minimal ::deep .chat-msg {
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.8rem 1rem;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.user {
+    background: rgba(255, 255, 255, 0.03);
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.user .chat-msg-avatar {
+    width: 32px;
+    height: 32px;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.user .chat-msg-content {
+    background: none;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    max-width: 100%;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.assistant .chat-msg-avatar {
+    width: 32px;
+    height: 32px;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.assistant .chat-msg-content {
+    background: none;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    max-width: 100%;
+}
+.chat-message-list.full.style-minimal ::deep .reasoning-block,
+.chat-message-list.full.style-minimal ::deep .action-box,
+.chat-message-list.full.style-minimal ::deep .task-complete-card,
+.chat-message-list.full.style-minimal ::deep .error-card {
+    margin-left: 0;
+    margin-right: 0;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.system {
+    justify-content: center;
+}
+.chat-message-list.full.style-minimal ::deep .system-text {
+    font-size: 12px;
+    text-align: center;
+    padding: 0.2rem 0.5rem;
+    opacity: 0.7;
 }

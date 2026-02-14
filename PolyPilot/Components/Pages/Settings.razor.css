@@ -1170,6 +1170,30 @@
     border: 1px solid rgba(78, 168, 209, 0.3);
 }
 
+/* Minimal layout preview: small dots + full-width lines */
+.lp-small {
+    width: 7px;
+    height: 7px;
+}
+
+.lp-row.lp-full {
+    width: 100%;
+}
+
+.lp-line {
+    height: 6px;
+    border-radius: 3px;
+    flex: 1;
+}
+
+.lp-line.lp-ai {
+    background: rgba(0, 195, 91, 0.15);
+}
+
+.lp-line.lp-you {
+    background: rgba(78, 168, 209, 0.15);
+}
+
 .layout-label {
     font-size: var(--type-footnote);
     color: var(--text-on-surface);

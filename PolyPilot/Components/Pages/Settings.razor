@@ -352,7 +352,7 @@
             </div>
         </div>
 
-        <div class="settings-section @(SectionVisible("chat message layout default reversed both left") ? "" : "search-hidden")">
+        <div class="settings-section @(SectionVisible("chat message layout style default reversed both left normal minimal") ? "" : "search-hidden")">
             <h3>Chat</h3>
             <div class="layout-option">
                 <label>Message layout:</label>
@@ -379,6 +379,31 @@
                                 }
                             </div>
                             <div class="layout-label">@GetLayoutLabel(layout)</div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="layout-option">
+                <label>Message style:</label>
+                <div class="layout-cards">
+                    @foreach (var style in Enum.GetValues<ChatStyle>())
+                    {
+                        <div class="layout-card @(settings.ChatStyle == style ? "selected" : "")"
+                             @onclick="() => SetChatStyle(style)">
+                            <div class="layout-preview">
+                                @switch (style)
+                                {
+                                    case ChatStyle.Normal:
+                                        <div class="lp-row lp-left"><span class="lp-bot"></span><span class="lp-bubble lp-ai"></span></div>
+                                        <div class="lp-row lp-right"><span class="lp-bubble lp-you"></span><span class="lp-user"></span></div>
+                                        break;
+                                    case ChatStyle.Minimal:
+                                        <div class="lp-row lp-left lp-full"><span class="lp-bot lp-small"></span><span class="lp-line lp-ai"></span></div>
+                                        <div class="lp-row lp-left lp-full"><span class="lp-user lp-small"></span><span class="lp-line lp-you"></span></div>
+                                        break;
+                                }
+                            </div>
+                            <div class="layout-label">@GetStyleLabel(style)</div>
                         </div>
                     }
                 </div>
@@ -770,6 +795,14 @@
         ShowStatus("Layout updated", "success");
     }
 
+    private void SetChatStyle(ChatStyle style)
+    {
+        settings.ChatStyle = style;
+        settings.Save();
+        CopilotService.ChatStyle = style;
+        ShowStatus("Style updated", "success");
+    }
+
     private async Task IncreaseFontSize()
     {
         if (fontSize >= 24) return;
@@ -828,6 +861,13 @@
         ChatLayout.Default => "Default",
         ChatLayout.Reversed => "Reversed",
         ChatLayout.BothLeft => "Both left",
+        _ => ""
+    };
+
+    private string GetStyleLabel(ChatStyle style) => style switch
+    {
+        ChatStyle.Normal => "Normal",
+        ChatStyle.Minimal => "Minimal",
         _ => ""
     };
 

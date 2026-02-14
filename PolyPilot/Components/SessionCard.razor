@@ -95,7 +95,8 @@
                          IsProcessing="Session.IsProcessing"
                          Compact="true"
                          UserAvatarUrl="@UserAvatarUrl"
-                         Layout="@Layout" />
+                         Layout="@Layout"
+                         Style="@Style" />
     </div>
 
     @if (!string.IsNullOrEmpty(Error))
@@ -160,6 +161,7 @@
     [Parameter] public List<PendingImage> PendingImages { get; set; } = new();
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
+    [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
     
     // State controlled by parent or callbacks
     [Parameter] public bool IsRenaming { get; set; }
