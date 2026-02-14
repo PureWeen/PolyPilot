@@ -736,3 +736,51 @@
 .chat-message-list.full.layout-both-left ::deep .chat-msg.user .chat-msg-content {
     border-radius: 12px 12px 12px 0;
 }
+
+/* Style: Minimal — full-width, no bubbles (Claude.ai style) */
+.chat-message-list.full.style-minimal ::deep .chat-msg {
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.8rem 1rem;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.user {
+    background: rgba(255, 255, 255, 0.03);
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.user .chat-msg-avatar {
+    width: 32px;
+    height: 32px;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.user .chat-msg-content {
+    background: none;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    max-width: 100%;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.assistant .chat-msg-avatar {
+    width: 32px;
+    height: 32px;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.assistant .chat-msg-content {
+    background: none;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    max-width: 100%;
+}
+.chat-message-list.full.style-minimal ::deep .reasoning-block,
+.chat-message-list.full.style-minimal ::deep .action-box,
+.chat-message-list.full.style-minimal ::deep .task-complete-card,
+.chat-message-list.full.style-minimal ::deep .error-card {
+    margin-left: 0;
+    margin-right: 0;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.system {
+    justify-content: center;
+}
+.chat-message-list.full.style-minimal ::deep .system-text {
+    font-size: 12px;
+    text-align: center;
+    padding: 0.2rem 0.5rem;
+    opacity: 0.7;
+}

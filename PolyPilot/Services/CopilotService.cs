@@ -150,6 +150,7 @@ public partial class CopilotService : IAsyncDisposable
 
     // UI preferences
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
+    public ChatStyle ChatStyle { get; set; } = ChatStyle.Normal;
     public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
 
     // Session organization (groups, pinning, sorting)
@@ -209,6 +210,7 @@ public partial class CopilotService : IAsyncDisposable
         var settings = ConnectionSettings.Load();
         CurrentMode = settings.Mode;
         ChatLayout = settings.ChatLayout;
+        ChatStyle = settings.ChatStyle;
         Theme = settings.Theme;
 
         // On mobile with Remote mode and no URL configured, skip initialization

@@ -3,7 +3,7 @@
 
 @* Shared chat message list — used by Dashboard.razor (grid=compact, expanded=full) *@
 
-<div class="chat-message-list @(Compact ? "compact" : "full") @GetLayoutClass()">
+<div class="chat-message-list @(Compact ? "compact" : "full") @GetLayoutClass() @GetStyleClass()">
     @if (!Messages.Any() && string.IsNullOrEmpty(StreamingContent))
     {
         <p class="chat-empty">@(Compact ? "No messages yet" : "Start a conversation with Copilot!")</p>
@@ -108,11 +108,18 @@
     [Parameter] public bool Compact { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
+    [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
 
     private string GetLayoutClass() => Layout switch
     {
         ChatLayout.Reversed => "layout-reversed",
         ChatLayout.BothLeft => "layout-both-left",
+        _ => ""
+    };
+
+    private string GetStyleClass() => Style switch
+    {
+        ChatStyle.Minimal => "style-minimal",
         _ => ""
     };
 
