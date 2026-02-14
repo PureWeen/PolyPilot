@@ -72,6 +72,7 @@ public static class BridgeMessageTypes
     public const string GetSessions = "get_sessions";
     public const string GetHistory = "get_history";
     public const string GetPersistedSessions = "get_persisted_sessions";
+    public const string GetCcaSessions = "get_cca_sessions";
     public const string SendMessage = "send_message";
     public const string CreateSession = "create_session";
     public const string ResumeSession = "resume_session";
@@ -84,6 +85,7 @@ public static class BridgeMessageTypes
 
     // Server → Client (response)
     public const string DirectoriesList = "directories_list";
+    public const string CcaSessionsList = "cca_sessions";
 
     // Fiesta Host ↔ Worker
     public const string FiestaAssign = "fiesta_assign";
@@ -338,4 +340,22 @@ public class FiestaPingPayload
 public class FiestaPongPayload
 {
     public string Sender { get; set; } = "";
+}
+
+// --- CCA (Copilot Coding Agent) session payloads ---
+
+public class CcaSessionsPayload
+{
+    public List<CcaSessionSummary> Sessions { get; set; } = new();
+}
+
+public class CcaSessionSummary
+{
+    public string SessionId { get; set; } = "";
+    public string? Summary { get; set; }
+    public DateTime StartTime { get; set; }
+    public DateTime ModifiedTime { get; set; }
+    public string? Repository { get; set; }
+    public string? Branch { get; set; }
+    public string? WorkingDirectory { get; set; }
 }

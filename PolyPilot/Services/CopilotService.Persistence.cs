@@ -218,6 +218,46 @@ public partial class CopilotService
             .OrderByDescending(s => s.LastModified);
     }
 
+    /// <summary>
+    /// Gets CCA (Copilot Coding Agent) sessions from the Copilot server.
+    /// These are cloud-based sessions running in GitHub Actions.
+    /// </summary>
+    public async Task<List<CcaSessionSummary>> GetCcaSessionsAsync(CancellationToken cancellationToken = default)
+    {
+        // In remote mode, return CCA sessions from the bridge
+        if (IsRemoteMode)
+        {
+            return _bridgeClient.CcaSessions;
+        }
+
+        if (!IsInitialized || _client == null)
+            return new List<CcaSessionSummary>();
+
+        try
+        {
+            var sessions = await _client.ListSessionsAsync(cancellationToken: cancellationToken);
+            return sessions
+                .Where(s => s.IsRemote)
+                .Select(s => new CcaSessionSummary
+                {
+                    SessionId = s.SessionId,
+                    Summary = s.Summary,
+                    StartTime = s.StartTime,
+                    ModifiedTime = s.ModifiedTime,
+                    Repository = s.Context?.Repository,
+                    Branch = s.Context?.Branch,
+                    WorkingDirectory = s.Context?.Cwd,
+                })
+                .OrderByDescending(s => s.ModifiedTime)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to list CCA sessions: {ex.Message}");
+            return new List<CcaSessionSummary>();
+        }
+    }
+
     private static bool IsResumableSessionDirectory(DirectoryInfo di)
     {
         var eventsFile = Path.Combine(di.FullName, "events.jsonl");
