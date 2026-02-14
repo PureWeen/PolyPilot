@@ -8,6 +8,7 @@
 @inject DevTunnelService DevTunnelService
 @inject WsBridgeServer WsBridgeServer
 @inject GitAutoUpdateService GitAutoUpdate
+@inject QrScannerService QrScanner
 @implements IAsyncDisposable
 
 <div class="dashboard @(expandedSession != null ? "expanded-mode" : "")">
@@ -23,7 +24,7 @@
                     <span>Restoring sessions…</span>
                 </div>
             }
-            @if (!string.IsNullOrEmpty(initError))
+            @if (!string.IsNullOrEmpty(initError) && !PlatformHelper.IsMobile)
             {
                 <div class="init-error-card">
                     <span class="init-error-icon">⚠️</span>
@@ -31,9 +32,24 @@
                     <button class="retry-btn" @onclick="Initialize">Retry</button>
                 </div>
             }
-            @if (PlatformHelper.IsMobile)
+            @if (PlatformHelper.IsMobile && !CopilotService.IsInitialized)
             {
-                <button class="connect-btn" @onclick='() => Nav.NavigateTo("/settings")'>Connect to Remote Server</button>
+                <div class="mobile-connect-card">
+                    <button class="scan-qr-btn" @onclick="DashboardScanQr">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        Scan QR Code
+                    </button>
+                    <div class="mobile-connect-divider"><span>or enter manually</span></div>
+                    <input type="text" class="mobile-connect-input" placeholder="Server URL" @bind="mobileRemoteUrl" />
+                    <input type="password" class="mobile-connect-input" placeholder="Token" @bind="mobileRemoteToken" />
+                    <button class="mobile-connect-go" @onclick="DashboardConnect" disabled="@mobileConnecting">
+                        @(mobileConnecting ? "Connecting…" : "Connect")
+                    </button>
+                    @if (!string.IsNullOrEmpty(mobileConnectError))
+                    {
+                        <p class="mobile-connect-error">@mobileConnectError</p>
+                    }
+                </div>
             }
         </div>
     }
@@ -201,6 +217,10 @@
     private Dictionary<string, int> historyIndexBySession = new();
     private int fontSize = 20;
     private string? expandedSession;
+    private string mobileRemoteUrl = "";
+    private string mobileRemoteToken = "";
+    private bool mobileConnecting;
+    private string? mobileConnectError;
     private bool _needsScrollToBottom;
     private bool isCompactGrid;  // true = compact cards, false = spacious cards
     private bool toolbarMenuOpen;
@@ -232,6 +252,14 @@
         CopilotService.OnTurnEnd += HandleTurnEnd;
 
         await Initialize();
+
+        // Pre-fill remote connection fields from saved settings
+        if (PlatformHelper.IsMobile)
+        {
+            var cs = ConnectionSettings.Load();
+            mobileRemoteUrl = cs.RemoteUrl ?? "";
+            mobileRemoteToken = cs.RemoteToken ?? "";
+        }
     }
 
     private async Task Initialize()
@@ -360,6 +388,53 @@
             WsBridgeServer.SetCopilotService(CopilotService);
             WsBridgeServer.Start(DevTunnelService.BridgePort, connSettings.Port);
         }
+    }
+
+    private async Task DashboardScanQr()
+    {
+        var result = await QrScanner.ScanAsync();
+        if (string.IsNullOrEmpty(result)) return;
+
+        try
+        {
+            var doc = System.Text.Json.JsonDocument.Parse(result);
+            if (doc.RootElement.TryGetProperty("url", out var urlProp))
+                mobileRemoteUrl = urlProp.GetString() ?? "";
+            if (doc.RootElement.TryGetProperty("token", out var tokenProp))
+                mobileRemoteToken = tokenProp.GetString() ?? "";
+        }
+        catch
+        {
+            mobileRemoteUrl = result;
+        }
+
+        // Auto-connect after scan
+        await DashboardConnect();
+    }
+
+    private async Task DashboardConnect()
+    {
+        if (string.IsNullOrWhiteSpace(mobileRemoteUrl)) return;
+        mobileConnecting = true;
+        mobileConnectError = null;
+        StateHasChanged();
+
+        try
+        {
+            var connSettings = ConnectionSettings.Load();
+            connSettings.Mode = ConnectionMode.Remote;
+            connSettings.RemoteUrl = mobileRemoteUrl;
+            connSettings.RemoteToken = mobileRemoteToken;
+            connSettings.Save();
+            await CopilotService.ReconnectAsync(connSettings);
+        }
+        catch (Exception ex)
+        {
+            mobileConnectError = ex.Message;
+        }
+
+        mobileConnecting = false;
+        StateHasChanged();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

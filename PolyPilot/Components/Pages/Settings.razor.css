@@ -1243,3 +1243,47 @@
     background: var(--bg-input);
     border-radius: 6px;
 }
+
+/* Font size control */
+.font-size-control {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.font-size-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--control-border);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    line-height: 1;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.font-size-btn:hover:not(:disabled) {
+    background: var(--accent-primary, #7c5cfc);
+    color: #fff;
+    border-color: var(--accent-primary, #7c5cfc);
+}
+
+.font-size-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.font-size-value {
+    min-width: 50px;
+    text-align: center;
+    font-size: var(--type-body);
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
