@@ -7,11 +7,9 @@ public class PlatformHelperTests
     [Fact]
     public void IsDesktop_OnTestHost_IsTrue()
     {
-        // Tests run on desktop (no IOS/ANDROID defines)
-        // The #if MACCATALYST || WINDOWS path won't be active either,
-        // so IsDesktop will be false on a plain net10.0 test host.
-        // This test documents the actual behavior.
-        Assert.False(PlatformHelper.IsDesktop);
+        // Tests run on desktop (no IOS/ANDROID defines).
+        // On non-mobile platforms (including Linux), IsDesktop is true.
+        Assert.True(PlatformHelper.IsDesktop);
     }
 
     [Fact]

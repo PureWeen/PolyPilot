@@ -12,6 +12,12 @@ public partial class App : Application
 
 	protected override Window CreateWindow(IActivationState? activationState)
 	{
-		return new Window(new MainPage()) { Title = "" };
+		var window = new Window(new MainPage()) { Title = "" };
+		if (OperatingSystem.IsLinux())
+		{
+			window.Width = 1400;
+			window.Height = 900;
+		}
+		return window;
 	}
 }
