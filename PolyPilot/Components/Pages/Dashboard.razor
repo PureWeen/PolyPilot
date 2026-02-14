@@ -1063,6 +1063,7 @@
                     "- `/help` — Show this help\n" +
                     "- `/clear` — Clear chat history\n" +
                     "- `/compact` — Summarize conversation and start fresh\n" +
+                    "- `/delegate <prompt>` — Delegate a task to the CCA cloud agent\n" +
                     "- `/new [name]` — Create a new session\n" +
                     "- `/sessions` — List all sessions\n" +
                     "- `/rename <name>` — Rename current session\n" +
@@ -1125,6 +1126,21 @@
                 await InvokeAsync(SafeRefreshAsync);
                 _ = CopilotService.SendPromptAsync(sessionName,
                     "Summarize our conversation so far into a concise context block, then we'll continue from there. Keep key decisions, file paths, and code snippets. Drop routine chatter.");
+                return;
+
+            case "delegate":
+                if (string.IsNullOrWhiteSpace(arg))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: /delegate <prompt>\nDelegates the task to the CCA cloud agent on the same branch/PR."));
+                }
+                else
+                {
+                    session.History.Add(ChatMessage.SystemMessage($"☁️ Delegating to CCA: {arg}"));
+                    session.MessageCount = session.History.Count;
+                    _needsScrollToBottom = true;
+                    await InvokeAsync(SafeRefreshAsync);
+                    _ = CopilotService.SendPromptAsync(sessionName, arg, mode: "delegate");
+                }
                 return;
 
             case "new":

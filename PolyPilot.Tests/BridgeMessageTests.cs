@@ -318,6 +318,40 @@ public class BridgePayloadTests
     }
 
     [Fact]
+    public void SendMessagePayload_WithDelegateMode_RoundTrip()
+    {
+        var payload = new SendMessagePayload
+        {
+            SessionName = "s1",
+            Message = "fix the login bug",
+            Mode = "delegate"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.SendMessage, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<SendMessagePayload>();
+
+        Assert.Equal("s1", restored!.SessionName);
+        Assert.Equal("fix the login bug", restored.Message);
+        Assert.Equal("delegate", restored.Mode);
+    }
+
+    [Fact]
+    public void SendMessagePayload_WithoutMode_RoundTrip()
+    {
+        var payload = new SendMessagePayload
+        {
+            SessionName = "s1",
+            Message = "hello"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.SendMessage, payload);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<SendMessagePayload>();
+
+        Assert.Equal("s1", restored!.SessionName);
+        Assert.Equal("hello", restored.Message);
+        Assert.Null(restored.Mode);
+    }
+
+    [Fact]
     public void PersistedSessionsPayload_RoundTrip()
     {
         var payload = new PersistedSessionsPayload
