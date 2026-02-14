@@ -1345,6 +1345,7 @@
                     "- `/version` — Show version info\n" +
                     "- `/diff [args]` — Show git diff\n" +
                     "- `/status` — Show git status\n" +
+                    "- `/prompt` — List saved prompts (`/prompt use|save|delete`)\n" +
                     "- `/mcp` — List MCP servers (enable/disable with `/mcp enable|disable <name>`)\n" +
                     "- `/plugin` — List installed plugins (enable/disable with `/plugin enable|disable <name>`)\n" +
                     "- `/reflect <goal>` — Start a reflection cycle (`/reflect help` for details)\n" +
@@ -1471,6 +1472,11 @@
             case "reflect":
                 await HandleReflectCommand(session, sessionName, arg);
                 break;
+
+            case "prompt":
+            case "prompts":
+                await HandlePromptCommand(sessionName, session, arg);
+                return;
 
             default:
                 // Unknown command — pass through to the SDK as a regular prompt
@@ -1734,6 +1740,107 @@
 
         // Send the goal as the initial prompt to kick off the first iteration
         _ = CopilotService.SendPromptAsync(sessionName, goal);
+    }
+
+    private async Task HandlePromptCommand(string sessionName, AgentSessionInfo session, string arg)
+    {
+        var parts = arg.Split(' ', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var subcommand = parts.Length > 0 ? parts[0].ToLowerInvariant() : "";
+        var target = parts.Length > 1 ? parts[1] : "";
+
+        switch (subcommand)
+        {
+            case "use":
+                if (string.IsNullOrEmpty(target))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt use <name>`"));
+                    break;
+                }
+                var prompt = PromptLibraryService.GetPrompt(target, session.WorkingDirectory);
+                if (prompt == null)
+                {
+                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{target}** not found."));
+                    break;
+                }
+                session.MessageCount = session.History.Count;
+                _needsScrollToBottom = true;
+                await InvokeAsync(SafeRefreshAsync);
+                _ = CopilotService.SendPromptAsync(sessionName, prompt.Content);
+                return;
+
+            case "save":
+                if (string.IsNullOrEmpty(target))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt save <name> <content>`\nOr: `/prompt save <name>` (saves last assistant message)"));
+                    break;
+                }
+                var saveParts = target.Split(' ', 2, StringSplitOptions.TrimEntries);
+                var saveName = saveParts[0];
+                string saveContent;
+                if (saveParts.Length > 1)
+                {
+                    saveContent = saveParts[1];
+                }
+                else
+                {
+                    // Save the last user message as a prompt
+                    var lastUser = session.History.LastOrDefault(m => m.Role == "user");
+                    if (lastUser == null)
+                    {
+                        session.History.Add(ChatMessage.ErrorMessage("No previous user message to save. Usage: `/prompt save <name> <content>`"));
+                        break;
+                    }
+                    saveContent = lastUser.Content;
+                }
+                PromptLibraryService.SavePrompt(saveName, saveContent);
+                session.History.Add(ChatMessage.SystemMessage($"✅ Prompt **{saveName}** saved."));
+                break;
+
+            case "delete":
+            case "remove":
+                if (string.IsNullOrEmpty(target))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt delete <name>`"));
+                    break;
+                }
+                if (PromptLibraryService.DeletePrompt(target))
+                    session.History.Add(ChatMessage.SystemMessage($"🗑️ Prompt **{target}** deleted."));
+                else
+                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{target}** not found in user prompts."));
+                break;
+
+            default:
+                // List all available prompts
+                var prompts = PromptLibraryService.DiscoverPrompts(session.WorkingDirectory);
+                if (prompts.Count == 0)
+                {
+                    session.History.Add(ChatMessage.SystemMessage(
+                        "**No prompts found.**\n\n" +
+                        "Save a prompt: `/prompt save <name> <content>`\n" +
+                        "Or add `.md` files to:\n" +
+                        "- `~/.polypilot/prompts/` (user prompts)\n" +
+                        "- `.github/prompts/` (project prompts)\n" +
+                        "- `.github/copilot-prompts/` (project prompts)\n" +
+                        "- `.copilot/prompts/` (project prompts)\n" +
+                        "- `.claude/prompts/` (project prompts)"));
+                }
+                else
+                {
+                    var listing = string.Join("\n", prompts.Select(p =>
+                    {
+                        var desc = string.IsNullOrEmpty(p.Description) ? "" : $" — {p.Description}";
+                        return $"- **{p.Name}** ({p.SourceLabel}){desc}";
+                    }));
+                    session.History.Add(ChatMessage.SystemMessage(
+                        $"**{prompts.Count} prompt{(prompts.Count != 1 ? "s" : "")} available:**\n{listing}\n\n" +
+                        "Use: `/prompt use <name>` · Save: `/prompt save <name> <content>` · Delete: `/prompt delete <name>`"));
+                }
+                break;
+        }
+
+        session.MessageCount = session.History.Count;
+        _needsScrollToBottom = true;
+        await InvokeAsync(SafeRefreshAsync);
     }
 
     private void ToggleMcpServer(string name, bool enabled)

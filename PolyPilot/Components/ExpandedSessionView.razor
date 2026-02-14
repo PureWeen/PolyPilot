@@ -234,6 +234,11 @@
                 <span class="status-sep">·</span>
                 <span class="skills-trigger" @onclick="ShowAgentsPopup">@availableAgents.Count agents</span>
             }
+            @if (availablePrompts?.Count > 0)
+            {
+                <span class="status-sep">·</span>
+                <span class="skills-trigger" @onclick="ShowPromptsPopup">@availablePrompts.Count prompts</span>
+            }
             <span class="status-sep">·</span>
             <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
                 @if (!AvailableModels.Contains(CurrentModel))
@@ -307,6 +312,7 @@
     [Parameter] public EventCallback<(string SessionName, FiestaStartRequest Request)> OnStartFiesta { get; set; }
     [Parameter] public EventCallback<string> OnStopFiesta { get; set; }
     [Parameter] public EventCallback OnStopReflection { get; set; }
+    [Parameter] public EventCallback<string> OnUsePrompt { get; set; }
 
     private bool _showFiestaPicker;
     private string _fiestaName = "";
@@ -369,6 +375,7 @@
 
     private List<SkillInfo>? availableSkills;
     private List<AgentInfo>? availableAgents;
+    private List<SavedPrompt>? availablePrompts;
     private string? _lastSkillSessionName;
 
     protected override void OnParametersSet()
@@ -376,9 +383,10 @@
         if (Session.Name != _lastSkillSessionName)
         {
             _lastSkillSessionName = Session.Name;
-            // Defer skill/agent discovery to background thread — don't block session switch
+            // Defer skill/agent/prompt discovery to background thread — don't block session switch
             availableSkills = null;
             availableAgents = null;
+            availablePrompts = null;
             _fiestaName = Session.Name;
             _selectedWorkerIds.Clear();
             foreach (var worker in FiestaWorkers)
@@ -391,6 +399,7 @@
                 {
                     var skills = CopilotService.DiscoverAvailableSkills(workDir);
                     var agents = CopilotService.DiscoverAvailableAgents(workDir);
+                    var prompts = PromptLibraryService.DiscoverPrompts(workDir);
                     InvokeAsync(() =>
                     {
                         // Only apply if we're still on the same session
@@ -398,6 +407,7 @@
                         {
                             availableSkills = skills;
                             availableAgents = agents;
+                            availablePrompts = prompts;
                             StateHasChanged();
                         }
                     });
@@ -540,6 +550,55 @@
                 popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
                 popup.innerHTML = '{headerHtml}{jsHtml}';
                 popup.onclick = function(e){{ e.stopPropagation(); }};
+                ov.appendChild(popup);
+                document.body.appendChild(ov);
+            }})()
+        ");
+    }
+
+    private async Task ShowPromptsPopup()
+    {
+        if (availablePrompts == null || availablePrompts.Count == 0) return;
+        var rows = string.Join("", availablePrompts.Select(p =>
+        {
+            var desc = string.IsNullOrWhiteSpace(p.Description) ? "" :
+                $"<div style=\"font-size:13px;color:#a6adc8;margin-top:3px;line-height:1.4\">{EscapeHtml(TruncateDesc(p.Description))}</div>";
+            return $"<div class=\"prompt-row\" data-prompt=\"{EscapeHtml(p.Name)}\" style=\"padding:8px 14px;border-bottom:1px solid #313244;cursor:pointer\" onmouseover=\"this.style.background='rgba(255,255,255,0.05)'\" onmouseout=\"this.style.background='transparent'\">" +
+                $"<div style=\"display:flex;justify-content:space-between;align-items:center;font-size:15px\">" +
+                $"<span style=\"color:#cdd6f4;font-weight:600\">{EscapeHtml(p.Name)}</span>" +
+                $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(p.SourceLabel)}</span></div>" +
+                desc + "</div>";
+        }));
+        var jsHtml = EscapeForJs(rows);
+        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Prompts (click to use)</div>");
+        await JS.InvokeVoidAsync("eval", $@"
+            (function(){{
+                var old = document.getElementById('skills-popup-overlay');
+                if(old) old.remove();
+                var triggers = document.querySelectorAll('[class*=""skills-trigger""]');
+                var el = triggers[triggers.length - 1];
+                var rect = el ? el.getBoundingClientRect() : {{left:20,bottom:60}};
+                var ov = document.createElement('div');
+                ov.id = 'skills-popup-overlay';
+                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
+                ov.onclick = function(){{ ov.remove(); }};
+                var popup = document.createElement('div');
+                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
+                var bottom = window.innerHeight - rect.top + 8;
+                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
+                popup.innerHTML = '{headerHtml}{jsHtml}';
+                popup.onclick = function(e){{
+                    var row = e.target.closest('.prompt-row');
+                    if(row){{
+                        var name = row.getAttribute('data-prompt');
+                        ov.remove();
+                        var inputEl = document.querySelector('[data-session=""{EscapeForJs(Session.Name)}""] textarea');
+                        if(inputEl){{
+                            inputEl.value = '/prompt use ' + name;
+                            inputEl.dispatchEvent(new Event('input'));
+                        }}
+                    }}
+                }};
                 ov.appendChild(popup);
                 document.body.appendChild(ov);
             }})()
