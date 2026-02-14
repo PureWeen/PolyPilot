@@ -39,14 +39,14 @@
     position: absolute;
     top: calc(100% + 4px);
     right: -0.5rem;
-    background: var(--bg-elevated, #1e1e2e);
-    border: 1px solid var(--control-border, #45475a);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--control-border);
     border-radius: 8px;
     padding: 0.5rem 0;
     min-width: 220px;
     max-width: 400px;
     z-index: 200;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
     opacity: 0;
     pointer-events: none;
     transform: translateY(-4px);
@@ -73,22 +73,22 @@
     padding: 0.3rem 0.75rem;
     font-size: 0.72rem;
 }
-.info-label { color: var(--text-muted, #6c7086); white-space: nowrap; }
-.info-value { color: var(--text-primary, #cdd6f4); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.info-label { color: var(--text-muted); white-space: nowrap; }
+.info-value { color: var(--text-primary); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
 .info-action {
     display: block;
     width: calc(100% - 1rem);
     margin: 0.3rem 0.5rem 0.15rem;
     padding: 0.3rem 0.5rem;
     font-size: 0.72rem;
-    background: var(--hover-bg, rgba(255,255,255,0.05));
+    background: var(--hover-bg);
     border: none;
     border-radius: 4px;
-    color: var(--text-secondary, #a6adc8);
+    color: var(--text-secondary);
     cursor: pointer;
     text-align: left;
 }
-.info-action:hover { background: var(--active-bg, rgba(255,255,255,0.1)); color: var(--text-primary); }
+.info-action:hover { background: var(--control-bg); color: var(--text-primary); }
 
 /* Icon-only badges with hover tooltip */
 .icon-badge {
@@ -107,9 +107,9 @@
     left: auto;
     right: 0;
     transform: none;
-    background: var(--bg-elevated, #1e1e2e);
-    color: var(--text-primary, #cdd6f4);
-    border: 1px solid var(--control-border, #45475a);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--control-border);
     border-radius: 6px;
     padding: 0.35rem 0.6rem;
     font-size: 0.7rem;
@@ -118,7 +118,7 @@
     opacity: 0;
     transition: opacity 0.15s;
     z-index: 100;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 .icon-badge:hover::after { opacity: 1; }
 .model-badge { padding: 0.2rem 0.5rem; background: var(--hover-bg); border: 1px solid var(--border-accent); border-radius: 4px; font-size: var(--type-body); color: var(--accent-primary); line-height: 1.2; }

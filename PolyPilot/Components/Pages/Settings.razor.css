@@ -87,13 +87,13 @@
     position: absolute;
     top: calc(100% + 4px);
     right: 0;
-    background: var(--bg-elevated, #1e1e2e);
-    border: 1px solid var(--control-border, #45475a);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--control-border);
     border-radius: 8px;
     padding: 0.5rem 0;
     min-width: 180px;
     z-index: 200;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
     opacity: 0;
     pointer-events: none;
     transform: translateY(-4px);
@@ -119,9 +119,9 @@
     padding: 0.3rem 0.75rem;
     font-size: 0.72rem;
 }
-.info-label { color: var(--text-muted, #6c7086); white-space: nowrap; }
-.info-value { color: var(--text-primary, #cdd6f4); }
-.info-divider { height: 1px; background: var(--control-border, #45475a); margin: 0.25rem 0.75rem; }
+.info-label { color: var(--text-muted); white-space: nowrap; }
+.info-value { color: var(--text-primary); }
+.info-divider { height: 1px; background: var(--control-border); margin: 0.25rem 0.75rem; }
 
 .badge-dot {
     width: 8px;
