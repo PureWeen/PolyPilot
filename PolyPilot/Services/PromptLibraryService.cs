@@ -1,0 +1,234 @@
+using PolyPilot.Models;
+
+namespace PolyPilot.Services;
+
+/// <summary>
+/// Discovers prompts from standard coding-agent locations and manages user-saved prompts.
+/// Standard project locations scanned:
+///   .github/copilot-prompts/, .github/prompts/, .copilot/prompts/, .claude/prompts/
+/// User prompts stored in ~/.polypilot/prompts/ as .md files.
+/// </summary>
+public class PromptLibraryService
+{
+    private static string? _userPromptsDir;
+    private static string UserPromptsDir => _userPromptsDir ??= Path.Combine(GetPolyPilotDir(), "prompts");
+
+    /// <summary>
+    /// Standard project subdirectories where coding agents store prompt files.
+    /// </summary>
+    private static readonly string[] ProjectPromptDirs = new[]
+    {
+        ".github/copilot-prompts",
+        ".github/prompts",
+        ".copilot/prompts",
+        ".claude/prompts"
+    };
+
+    private static string GetPolyPilotDir()
+    {
+#if IOS || ANDROID
+        try
+        {
+            return Path.Combine(FileSystem.AppDataDirectory, ".polypilot");
+        }
+        catch
+        {
+            var fallback = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrEmpty(fallback))
+                fallback = Path.GetTempPath();
+            return Path.Combine(fallback, ".polypilot");
+        }
+#else
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(home))
+            home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(home, ".polypilot");
+#endif
+    }
+
+    /// <summary>
+    /// Discover all available prompts from user-saved prompts and project prompt directories.
+    /// </summary>
+    public static List<SavedPrompt> DiscoverPrompts(string? workingDirectory = null)
+    {
+        var prompts = new List<SavedPrompt>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            // User-saved prompts (~/.polypilot/prompts/)
+            if (Directory.Exists(UserPromptsDir))
+                ScanPromptDirectory(UserPromptsDir, PromptSource.User, prompts, seen);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Prompts] User prompt discovery failed: {ex.Message}");
+        }
+
+        try
+        {
+            // Project-level prompts from standard coding-agent locations
+            if (!string.IsNullOrEmpty(workingDirectory))
+            {
+                foreach (var subdir in ProjectPromptDirs)
+                {
+                    var promptDir = Path.Combine(workingDirectory, subdir);
+                    if (Directory.Exists(promptDir))
+                        ScanPromptDirectory(promptDir, PromptSource.Project, prompts, seen);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Prompts] Project prompt discovery failed: {ex.Message}");
+        }
+
+        return prompts;
+    }
+
+    internal static void ScanPromptDirectory(string directory, PromptSource source, List<SavedPrompt> prompts, HashSet<string> seen)
+    {
+        foreach (var file in Directory.GetFiles(directory, "*.md"))
+        {
+            try
+            {
+                var content = File.ReadAllText(file);
+                var (name, description, body) = ParsePromptFile(content, file);
+                if (seen.Add(name))
+                {
+                    prompts.Add(new SavedPrompt
+                    {
+                        Name = name,
+                        Content = body,
+                        Description = description,
+                        Source = source,
+                        FilePath = file
+                    });
+                }
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// Parse a prompt markdown file. Supports optional YAML frontmatter with name/description fields.
+    /// Falls back to the filename (without extension) as the name.
+    /// </summary>
+    internal static (string name, string description, string body) ParsePromptFile(string content, string filePath)
+    {
+        string? name = null;
+        string? description = null;
+        var body = content;
+
+        if (content.StartsWith("---"))
+        {
+            var endIdx = content.IndexOf("---", 3, StringComparison.Ordinal);
+            if (endIdx > 0)
+            {
+                var frontmatter = content[3..endIdx];
+                body = content[(endIdx + 3)..].TrimStart('\r', '\n');
+
+                foreach (var line in frontmatter.Split('\n'))
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.StartsWith("name:"))
+                        name = trimmed[5..].Trim().Trim('"', '\'');
+                    else if (trimmed.StartsWith("description:"))
+                    {
+                        var desc = trimmed[12..].Trim();
+                        if (!desc.StartsWith(">"))
+                            description = desc.Trim('"', '\'');
+                    }
+                }
+            }
+        }
+
+        if (string.IsNullOrEmpty(name))
+            name = Path.GetFileNameWithoutExtension(filePath);
+
+        return (name!, description ?? "", body);
+    }
+
+    /// <summary>
+    /// Save a prompt to the user's prompt library (~/.polypilot/prompts/).
+    /// </summary>
+    public static SavedPrompt SavePrompt(string name, string content, string? description = null)
+    {
+        Directory.CreateDirectory(UserPromptsDir);
+
+        var safeName = SanitizeFileName(name);
+        var filePath = Path.Combine(UserPromptsDir, safeName + ".md");
+
+        var fileContent = "";
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            fileContent = $"---\nname: {name}\ndescription: {description}\n---\n{content}";
+        }
+        else
+        {
+            fileContent = $"---\nname: {name}\n---\n{content}";
+        }
+
+        File.WriteAllText(filePath, fileContent);
+
+        return new SavedPrompt
+        {
+            Name = name,
+            Content = content,
+            Description = description ?? "",
+            Source = PromptSource.User,
+            FilePath = filePath
+        };
+    }
+
+    /// <summary>
+    /// Delete a user-saved prompt by name.
+    /// </summary>
+    public static bool DeletePrompt(string name)
+    {
+        if (!Directory.Exists(UserPromptsDir))
+            return false;
+
+        foreach (var file in Directory.GetFiles(UserPromptsDir, "*.md"))
+        {
+            try
+            {
+                var content = File.ReadAllText(file);
+                var (parsedName, _, _) = ParsePromptFile(content, file);
+                if (string.Equals(parsedName, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Delete(file);
+                    return true;
+                }
+            }
+            catch { }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Get a specific prompt by name from user or project prompts.
+    /// </summary>
+    public static SavedPrompt? GetPrompt(string name, string? workingDirectory = null)
+    {
+        return DiscoverPrompts(workingDirectory)
+            .FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Sanitize a name into a safe filename (alphanumeric, hyphens, underscores).
+    /// </summary>
+    internal static string SanitizeFileName(string name)
+    {
+        var sanitized = new char[name.Length];
+        for (var i = 0; i < name.Length; i++)
+        {
+            var c = name[i];
+            sanitized[i] = char.IsLetterOrDigit(c) || c == '-' || c == '_' ? c : '-';
+        }
+
+        var result = new string(sanitized).Trim('-');
+        return string.IsNullOrEmpty(result) ? "prompt" : result;
+    }
+}
