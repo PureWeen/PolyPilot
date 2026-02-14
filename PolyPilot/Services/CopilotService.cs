@@ -848,6 +848,47 @@ public partial class CopilotService : IAsyncDisposable
         return (name, description);
     }
 
+    public List<AgentInfo> DiscoverAvailableAgents(string? workingDirectory)
+    {
+        var agents = new List<AgentInfo>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            if (!string.IsNullOrEmpty(workingDirectory))
+            {
+                foreach (var subdir in new[] { ".github/agents", ".claude/agents", ".copilot/agents" })
+                {
+                    var agentsDir = Path.Combine(workingDirectory, subdir);
+                    if (Directory.Exists(agentsDir))
+                        ScanAgentDirectory(agentsDir, "project", agents, seen);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Agents] Discovery failed: {ex.Message}");
+        }
+
+        return agents;
+    }
+
+    private static void ScanAgentDirectory(string agentsDir, string source, List<AgentInfo> agents, HashSet<string> seen)
+    {
+        foreach (var file in Directory.GetFiles(agentsDir, "*.md"))
+        {
+            try
+            {
+                var content = File.ReadAllText(file);
+                var (name, description) = ParseSkillFrontmatter(content);
+                if (string.IsNullOrEmpty(name)) name = Path.GetFileNameWithoutExtension(file);
+                if (seen.Add(name))
+                    agents.Add(new AgentInfo(name, description ?? "", source));
+            }
+            catch { }
+        }
+    }
+
     /// <summary>
     /// Parse a JSON element into a McpLocalServerConfig so the SDK serializes it correctly.
     /// </summary>
@@ -1609,3 +1650,4 @@ public record QuotaInfo(
 );
 
 public record SkillInfo(string Name, string Description, string Source);
+public record AgentInfo(string Name, string Description, string Source);
