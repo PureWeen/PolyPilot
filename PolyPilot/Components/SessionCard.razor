@@ -68,6 +68,10 @@
         {
             <span class="card-branch-sub"> @Session.GitBranch</span>
         }
+        @if (availableSkills?.Count > 0)
+        {
+            <span class="card-skills" title="@string.Join(", ", availableSkills.Select(s => s.Name))">@availableSkills.Count skill@(availableSkills.Count != 1 ? "s" : "")</span>
+        }
     </div>
 
     <div class="card-messages">
@@ -257,5 +261,18 @@
     {
         if (name.Length <= len) return name;
         return name.Substring(0, len - 3) + "...";
+    }
+
+    private List<SkillInfo>? availableSkills;
+    private string? _lastWorkDir;
+
+    protected override void OnParametersSet()
+    {
+        var wd = Session.WorkingDirectory;
+        if (wd != _lastWorkDir)
+        {
+            _lastWorkDir = wd;
+            availableSkills = CopilotService.DiscoverAvailableSkills(wd);
+        }
     }
 }

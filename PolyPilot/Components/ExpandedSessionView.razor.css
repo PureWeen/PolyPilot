@@ -378,7 +378,6 @@
     padding: 0;
     font-size: 0.75rem;
     color: var(--text-muted);
-    overflow: hidden;
     max-width: 100%;
     flex-wrap: wrap;
 }
@@ -406,6 +405,13 @@
     background: rgba(59, 130, 246, 0.15);
     border-color: rgba(59, 130, 246, 0.5);
     box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+/* Skills in status bar */
+.skills-trigger {
+    font-size: var(--type-footnote);
+    color: var(--accent-primary, #7c5cfc);
+    cursor: pointer;
 }
 
 /* === Mobile responsive === */

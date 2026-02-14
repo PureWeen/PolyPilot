@@ -756,6 +756,99 @@ public partial class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
+    /// Discover all available skills from installed plugins and project-level skill directories.
+    /// Returns a list of (Name, Description, Source) tuples.
+    /// </summary>
+    public static List<SkillInfo> DiscoverAvailableSkills(string? workingDirectory = null)
+    {
+        var skills = new List<SkillInfo>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            // Project-level skills (.claude/skills/ or .copilot/skills/)
+            if (!string.IsNullOrEmpty(workingDirectory))
+            {
+                foreach (var subdir in new[] { ".claude/skills", ".copilot/skills", ".github/skills" })
+                {
+                    var projSkillsDir = Path.Combine(workingDirectory, subdir);
+                    if (Directory.Exists(projSkillsDir))
+                        ScanSkillDirectory(projSkillsDir, "project", skills, seen);
+                }
+            }
+
+            // Plugin-level skills (~/.copilot/installed-plugins/*/skills/)
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var pluginsDir = Path.Combine(home, ".copilot", "installed-plugins");
+            if (Directory.Exists(pluginsDir))
+            {
+                foreach (var marketDir in Directory.GetDirectories(pluginsDir))
+                {
+                    foreach (var pluginDir in Directory.GetDirectories(marketDir))
+                    {
+                        var skillsDir = Path.Combine(pluginDir, "skills");
+                        if (Directory.Exists(skillsDir))
+                        {
+                            var pluginName = Path.GetFileName(pluginDir);
+                            ScanSkillDirectory(skillsDir, pluginName, skills, seen);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Skills] Discovery failed: {ex.Message}");
+        }
+
+        return skills;
+    }
+
+    private static void ScanSkillDirectory(string skillsDir, string source, List<SkillInfo> skills, HashSet<string> seen)
+    {
+        foreach (var skillDir in Directory.GetDirectories(skillsDir))
+        {
+            var skillMd = Path.Combine(skillDir, "SKILL.md");
+            if (!File.Exists(skillMd)) continue;
+
+            try
+            {
+                var content = File.ReadAllText(skillMd);
+                var (name, description) = ParseSkillFrontmatter(content);
+                if (string.IsNullOrEmpty(name)) name = Path.GetFileName(skillDir);
+                if (seen.Add(name))
+                    skills.Add(new SkillInfo(name, description ?? "", source));
+            }
+            catch { }
+        }
+    }
+
+    private static (string? name, string? description) ParseSkillFrontmatter(string content)
+    {
+        if (!content.StartsWith("---")) return (null, null);
+        var endIdx = content.IndexOf("---", 3, StringComparison.Ordinal);
+        if (endIdx < 0) return (null, null);
+
+        var frontmatter = content[3..endIdx];
+        string? name = null, description = null;
+
+        foreach (var line in frontmatter.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("name:"))
+                name = trimmed[5..].Trim().Trim('"', '\'');
+            else if (trimmed.StartsWith("description:"))
+            {
+                var desc = trimmed[12..].Trim();
+                if (desc.StartsWith(">")) continue; // multiline, skip for now
+                description = desc.Trim('"', '\'');
+            }
+        }
+
+        return (name, description);
+    }
+
+    /// <summary>
     /// Parse a JSON element into a McpLocalServerConfig so the SDK serializes it correctly.
     /// </summary>
     private static McpLocalServerConfig ParseMcpServerConfig(JsonElement element)
@@ -1514,3 +1607,5 @@ public record QuotaInfo(
     int RemainingPercentage,
     string? ResetDate
 );
+
+public record SkillInfo(string Name, string Description, string Source);
