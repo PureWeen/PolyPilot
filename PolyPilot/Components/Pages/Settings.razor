@@ -917,8 +917,9 @@
                 return;
             }
 
-            var hostName = TryExtractHost(fiestaLinkUrl) ?? fiestaLinkName;
-            FiestaService.LinkWorker(fiestaLinkName, hostName, fiestaLinkUrl, fiestaLinkToken);
+            var hostName = TryExtractHost(fiestaLinkUrl) ?? fiestaLinkName.Trim();
+            var workerName = string.IsNullOrWhiteSpace(fiestaLinkName) ? hostName : fiestaLinkName.Trim();
+            FiestaService.LinkWorker(workerName, hostName, fiestaLinkUrl, fiestaLinkToken);
             fiestaLinkName = "";
             fiestaLinkUrl = "";
             fiestaLinkToken = "";

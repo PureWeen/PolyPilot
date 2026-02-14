@@ -157,6 +157,7 @@
         <div class="input-row">
             <input type="file" id="file-@Session.Name.Replace(" ", "-")" accept="image/*" multiple style="display:none" />
             <textarea id="input-@Session.Name.Replace(" ", "-")"
+                      data-fiesta-workers="@FiestaAutocompleteWorkers"
                       placeholder="@(Session.IsProcessing ? "Message will be queued…" : PlatformHelper.IsMobile ? "Message..." : "Message... (↵ send, ⇧↵ newline)")"
                       rows="1"></textarea>
             <button class="attach-btn" @onclick="() => OnAttach.InvokeAsync()" title="Attach image">
@@ -375,6 +376,27 @@
         await OnStopFiesta.InvokeAsync();
         _showFiestaPicker = false;
     }
+
+    private string FiestaAutocompleteWorkers
+    {
+        get
+        {
+            var tokens = FiestaWorkers
+                .SelectMany(w => new[]
+                {
+                    NormalizeMentionToken(w.Hostname),
+                    NormalizeMentionToken(w.Name)
+                })
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(t => t, StringComparer.OrdinalIgnoreCase);
+
+            return string.Join(",", tokens);
+        }
+    }
+
+    private static string NormalizeMentionToken(string value) =>
+        new((value ?? "").Trim().Where(ch => char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-').ToArray());
 
     private async Task ShowSkillsPopup()
     {

@@ -236,6 +236,7 @@ public class FiestaService : IDisposable
         var targets = new Dictionary<string, FiestaLinkedWorker>(StringComparer.Ordinal);
         foreach (var mention in mentions)
         {
+            var mentionToken = NormalizeMentionToken(mention);
             if (string.Equals(mention, "all", StringComparison.OrdinalIgnoreCase))
             {
                 foreach (var worker in selectedWorkers)
@@ -245,7 +246,9 @@ public class FiestaService : IDisposable
 
             var match = selectedWorkers.FirstOrDefault(w =>
                 string.Equals(w.Name, mention, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(w.Hostname, mention, StringComparison.OrdinalIgnoreCase));
+                string.Equals(w.Hostname, mention, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(NormalizeMentionToken(w.Name), mentionToken, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(NormalizeMentionToken(w.Hostname), mentionToken, StringComparison.OrdinalIgnoreCase));
             if (match == null)
             {
                 result.UnresolvedMentions.Add(mention);
@@ -601,6 +604,18 @@ public class FiestaService : IDisposable
 
         if (safe.Length > 64) safe = safe[..64];
         return string.IsNullOrWhiteSpace(safe) ? "Fiesta" : safe;
+    }
+
+    private static string NormalizeMentionToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value.Trim())
+        {
+            if (char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-')
+                sb.Append(ch);
+        }
+        return sb.ToString();
     }
 
     private void LoadState()
