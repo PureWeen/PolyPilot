@@ -60,6 +60,7 @@ public class ConnectionSettings
     public bool FiestaOfferAsWorker { get; set; } = false;
     public bool FiestaAutoStartWorkerHosting { get; set; } = true;
     public string? FiestaJoinCode { get; set; }
+    public bool EnableSessionNotifications { get; set; } = false;
 
     [JsonIgnore]
     public string CliUrl => Mode == ConnectionMode.Remote && !string.IsNullOrEmpty(RemoteUrl)

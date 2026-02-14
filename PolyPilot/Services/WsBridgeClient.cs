@@ -44,6 +44,7 @@ public class WsBridgeClient : IDisposable
     public event Action<FiestaJoinStatusPayload>? OnFiestaJoinStatus;
     public event Action<FiestaDispatchResultPayload>? OnFiestaDispatchResult;
     public event Action<FiestaSessionCommandResultPayload>? OnFiestaSessionCommandResult;
+    public event Action<AttentionNeededPayload>? OnAttentionNeeded;
 
     /// <summary>
     /// Connect to the remote WsBridgeServer.
@@ -481,6 +482,15 @@ public class WsBridgeClient : IDisposable
                 var sessionCommandResult = msg.GetPayload<FiestaSessionCommandResultPayload>();
                 if (sessionCommandResult != null)
                     OnFiestaSessionCommandResult?.Invoke(sessionCommandResult);
+                break;
+
+            case BridgeMessageTypes.AttentionNeeded:
+                var attention = msg.GetPayload<AttentionNeededPayload>();
+                if (attention != null)
+                {
+                    Console.WriteLine($"[WsBridgeClient] Attention needed: {attention.SessionName} - {attention.Reason}");
+                    OnAttentionNeeded?.Invoke(attention);
+                }
                 break;
         }
     }

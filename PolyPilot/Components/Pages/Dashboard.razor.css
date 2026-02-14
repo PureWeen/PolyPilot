@@ -120,6 +120,81 @@
     border-color: var(--border-accent);
 }
 
+/* Mobile inline connect card */
+.mobile-connect-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    width: 100%;
+    max-width: 320px;
+    margin-top: 0.5rem;
+}
+
+.scan-qr-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.7rem 1rem;
+    border: 1px solid var(--accent-primary, #7c5cfc);
+    border-radius: 12px;
+    background: var(--accent-primary, #7c5cfc);
+    color: #fff;
+    font-size: var(--type-body);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.mobile-connect-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--text-dim, #5a6a7a);
+    font-size: 0.75rem;
+}
+.mobile-connect-divider::before,
+.mobile-connect-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--control-border, #2a2a3a);
+}
+
+.mobile-connect-input {
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--control-border, #2a2a3a);
+    border-radius: 8px;
+    background: var(--bg-input, #1a1a2e);
+    color: var(--text-primary);
+    font-size: var(--type-body);
+    outline: none;
+}
+.mobile-connect-input:focus {
+    border-color: var(--accent-primary, #7c5cfc);
+}
+
+.mobile-connect-go {
+    padding: 0.6rem 1rem;
+    border: 1px solid var(--border-accent, #7c5cfc44);
+    border-radius: 12px;
+    background: var(--hover-bg, #1a1a2e);
+    color: var(--accent-primary, #7c5cfc);
+    font-size: var(--type-body);
+    font-weight: 500;
+    cursor: pointer;
+}
+.mobile-connect-go:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.mobile-connect-error {
+    color: var(--error-text, #ff6b6b);
+    font-size: 0.8rem;
+    text-align: center;
+    margin: 0;
+}
+
 .initializing {
     display: flex;
     flex-direction: column;
@@ -1134,10 +1209,10 @@
         align-items: stretch;
         gap: 0.35rem;
         background: var(--bg-tertiary);
-        border: 1px solid var(--hover-bg);
+        border: 1px solid var(--control-border);
         border-radius: 8px;
         padding: 0.5rem;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.25);
         z-index: 100;
         min-width: 160px;
     }

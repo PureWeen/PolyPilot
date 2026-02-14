@@ -30,6 +30,9 @@ public partial class MainPage : ContentPage
 		wkWebView.Opaque = false;
 		wkWebView.BackgroundColor = UIKit.UIColor.FromRGB(0x1a, 0x1a, 0x2e);
 		wkWebView.ScrollView.BackgroundColor = UIKit.UIColor.FromRGB(0x1a, 0x1a, 0x2e);
+		wkWebView.ScrollView.ContentInsetAdjustmentBehavior = UIKit.UIScrollViewContentInsetAdjustmentBehavior.Never;
+		wkWebView.ScrollView.ContentInset = UIKit.UIEdgeInsets.Zero;
+		wkWebView.ScrollView.ScrollIndicatorInsets = UIKit.UIEdgeInsets.Zero;
 	}
 #endif
 

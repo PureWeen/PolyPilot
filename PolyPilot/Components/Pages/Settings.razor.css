@@ -87,13 +87,13 @@
     position: absolute;
     top: calc(100% + 4px);
     right: 0;
-    background: var(--bg-elevated, #1e1e2e);
-    border: 1px solid var(--control-border, #45475a);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--control-border);
     border-radius: 8px;
     padding: 0.5rem 0;
     min-width: 180px;
     z-index: 200;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
     opacity: 0;
     pointer-events: none;
     transform: translateY(-4px);
@@ -119,9 +119,9 @@
     padding: 0.3rem 0.75rem;
     font-size: 0.72rem;
 }
-.info-label { color: var(--text-muted, #6c7086); white-space: nowrap; }
-.info-value { color: var(--text-primary, #cdd6f4); }
-.info-divider { height: 1px; background: var(--control-border, #45475a); margin: 0.25rem 0.75rem; }
+.info-label { color: var(--text-muted); white-space: nowrap; }
+.info-value { color: var(--text-primary); }
+.info-divider { height: 1px; background: var(--control-border); margin: 0.25rem 0.75rem; }
 
 .badge-dot {
     width: 8px;
@@ -742,6 +742,37 @@
     max-width: none;
 }
 
+.notifications-toggle {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--control-border);
+}
+
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.toggle-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent-primary);
+    cursor: pointer;
+}
+
+.toggle-text {
+    color: var(--text-primary);
+    font-size: var(--type-body);
+}
+
+.toggle-hint {
+    color: var(--text-dim);
+    font-size: var(--type-callout);
+    margin: 0.25rem 0 0 1.6rem;
+}
+
 .tunnel-status-text {
     color: var(--text-dim);
     font-size: var(--type-body);
@@ -1217,4 +1248,48 @@
     padding: 0.2rem 0.6rem;
     background: var(--bg-input);
     border-radius: 6px;
+}
+
+/* Font size control */
+.font-size-control {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.font-size-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--control-border);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    line-height: 1;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.font-size-btn:hover:not(:disabled) {
+    background: var(--accent-primary, #7c5cfc);
+    color: #fff;
+    border-color: var(--accent-primary, #7c5cfc);
+}
+
+.font-size-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.font-size-value {
+    min-width: 50px;
+    text-align: center;
+    font-size: var(--type-body);
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
 }

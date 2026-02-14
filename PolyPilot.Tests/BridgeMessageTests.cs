@@ -136,6 +136,7 @@ public class BridgeMessageTypesTests
         Assert.Equal("fiesta_join_status", BridgeMessageTypes.FiestaJoinStatus);
         Assert.Equal("fiesta_dispatch_result", BridgeMessageTypes.FiestaDispatchResult);
         Assert.Equal("fiesta_session_command_result", BridgeMessageTypes.FiestaSessionCommandResult);
+        Assert.Equal("attention_needed", BridgeMessageTypes.AttentionNeeded);
     }
 
     [Fact]
@@ -469,5 +470,44 @@ public class BridgePayloadTests
         Assert.True(restored!.Success);
         Assert.Equal("Win-Worker", restored.WorkerMachineName);
         Assert.Equal("Prompt completed", restored.Summary);
+    }
+
+    [Fact]
+    public void AttentionNeededPayload_RoundTrip()
+    {
+        var payload = new AttentionNeededPayload
+        {
+            SessionName = "test-session",
+            SessionId = "abc-123",
+            Reason = AttentionReason.Completed,
+            Summary = "Task completed successfully"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.AttentionNeeded, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<AttentionNeededPayload>();
+
+        Assert.Equal("test-session", restored!.SessionName);
+        Assert.Equal("abc-123", restored.SessionId);
+        Assert.Equal(AttentionReason.Completed, restored.Reason);
+        Assert.Equal("Task completed successfully", restored.Summary);
+    }
+
+    [Theory]
+    [InlineData(AttentionReason.Completed)]
+    [InlineData(AttentionReason.Error)]
+    [InlineData(AttentionReason.NeedsInteraction)]
+    [InlineData(AttentionReason.ReadyForMore)]
+    public void AttentionNeededPayload_AllReasons_RoundTrip(AttentionReason reason)
+    {
+        var payload = new AttentionNeededPayload
+        {
+            SessionName = "s1",
+            Reason = reason,
+            Summary = "test"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.AttentionNeeded, payload);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<AttentionNeededPayload>();
+
+        Assert.Equal(reason, restored!.Reason);
     }
 }

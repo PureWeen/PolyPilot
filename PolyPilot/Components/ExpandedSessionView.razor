@@ -133,6 +133,20 @@
                 <button class="mode-btn @(PlanMode ? "active" : "")" @onclick="() => OnSetPlanMode.InvokeAsync(true)">Plan</button>
             </div>
             <span class="status-sep">·</span>
+            <span class="log-label" style="font-size:var(--type-footnote)">Log</span>
+            <span class="status-sep">·</span>
+            <span class="status-msgs">@Session.History.Count msgs</span>
+            @if (availableSkills?.Count > 0)
+            {
+                <span class="status-sep">·</span>
+                <span class="skills-trigger" @onclick="ShowSkillsPopup">@availableSkills.Count skills</span>
+            }
+            @if (availableAgents?.Count > 0)
+            {
+                <span class="status-sep">·</span>
+                <span class="skills-trigger" @onclick="ShowAgentsPopup">@availableAgents.Count agents</span>
+            }
+            <span class="status-sep">·</span>
             <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
                 @if (!AvailableModels.Contains(CurrentModel))
                 {
@@ -157,17 +171,7 @@
                         <span class="status-ctx">@FormatTokenCount(UsageInfo.CurrentTokens.Value)/@FormatTokenCount(UsageInfo.TokenLimit.Value) ctx</span>
                     }
                 }
-                <span class="status-sep">·</span>
-                <span class="status-msgs">@Session.History.Count msgs</span>
-                <span class="status-sep">·</span>
-                <span class="font-size-controls">
-                    <button class="font-size-btn" @onclick="() => OnFontSizeChange.InvokeAsync(-2)" disabled="@(FontSize <= 12)">A−</button>
-                    <span class="font-size-label" @onclick="() => OnFontSizeChange.InvokeAsync(0)">@(FontSize)px</span>
-                    <button class="font-size-btn" @onclick="() => OnFontSizeChange.InvokeAsync(2)" disabled="@(FontSize >= 24)">A+</button>
-                </span>
             </span>
-            <span class="status-sep log-sep">·</span>
-            <span class="log-label" style="font-size:var(--type-footnote)">Log</span>
         </div>
     </div>
 </div>
@@ -257,4 +261,106 @@
 
     private static string TruncateFileName(string name, int maxLen) =>
         name.Length <= maxLen ? name : name[..maxLen] + "…";
+
+    private List<SkillInfo>? availableSkills;
+    private List<AgentInfo>? availableAgents;
+    private string? _lastSkillSessionName;
+
+    protected override void OnParametersSet()
+    {
+        if (Session.Name != _lastSkillSessionName)
+        {
+            _lastSkillSessionName = Session.Name;
+            availableSkills = CopilotService.DiscoverAvailableSkills(Session.WorkingDirectory);
+            availableAgents = CopilotService.DiscoverAvailableAgents(Session.WorkingDirectory);
+        }
+    }
+
+    private async Task ShowSkillsPopup()
+    {
+        if (availableSkills == null || availableSkills.Count == 0) return;
+        var rows = string.Join("", availableSkills.Select(s =>
+        {
+            var desc = string.IsNullOrWhiteSpace(s.Description) ? "" :
+                $"<div style=\"font-size:13px;color:#a6adc8;margin-top:3px;line-height:1.4\">{EscapeHtml(TruncateDesc(s.Description))}</div>";
+            return $"<div style=\"padding:8px 14px;border-bottom:1px solid #313244\">" +
+                $"<div style=\"display:flex;justify-content:space-between;align-items:center;font-size:15px\">" +
+                $"<span style=\"color:#cdd6f4;font-weight:600\">{EscapeHtml(s.Name)}</span>" +
+                $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(s.Source)}</span></div>" +
+                desc + "</div>";
+        }));
+        var jsHtml = EscapeForJs(rows);
+        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Skills</div>");
+        await JS.InvokeVoidAsync("eval", $@"
+            (function(){{
+                var old = document.getElementById('skills-popup-overlay');
+                if(old) old.remove();
+                var trigger = document.querySelector('[class*=""skills-trigger""]');
+                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
+                var ov = document.createElement('div');
+                ov.id = 'skills-popup-overlay';
+                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
+                ov.onclick = function(){{ ov.remove(); }};
+                var popup = document.createElement('div');
+                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
+                var bottom = window.innerHeight - rect.top + 8;
+                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
+                popup.innerHTML = '{headerHtml}{jsHtml}';
+                popup.onclick = function(e){{ e.stopPropagation(); }};
+                ov.appendChild(popup);
+                document.body.appendChild(ov);
+            }})()
+        ");
+    }
+
+    private async Task ShowAgentsPopup()
+    {
+        if (availableAgents == null || availableAgents.Count == 0) return;
+        var rows = string.Join("", availableAgents.Select(a =>
+        {
+            var desc = string.IsNullOrWhiteSpace(a.Description) ? "" :
+                $"<div style=\"font-size:13px;color:#a6adc8;margin-top:3px;line-height:1.4\">{EscapeHtml(TruncateDesc(a.Description))}</div>";
+            return $"<div style=\"padding:8px 14px;border-bottom:1px solid #313244\">" +
+                $"<div style=\"display:flex;justify-content:space-between;align-items:center;font-size:15px\">" +
+                $"<span style=\"color:#cdd6f4;font-weight:600\">{EscapeHtml(a.Name)}</span>" +
+                $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(a.Source)}</span></div>" +
+                desc + "</div>";
+        }));
+        var jsHtml = EscapeForJs(rows);
+        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Agents</div>");
+        await JS.InvokeVoidAsync("eval", $@"
+            (function(){{
+                var old = document.getElementById('skills-popup-overlay');
+                if(old) old.remove();
+                var trigger = document.querySelectorAll('[class*=""skills-trigger""]');
+                var el = trigger.length > 1 ? trigger[1] : trigger[0];
+                var rect = el ? el.getBoundingClientRect() : {{left:20,bottom:60}};
+                var ov = document.createElement('div');
+                ov.id = 'skills-popup-overlay';
+                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
+                ov.onclick = function(){{ ov.remove(); }};
+                var popup = document.createElement('div');
+                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
+                var bottom = window.innerHeight - rect.top + 8;
+                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
+                popup.innerHTML = '{headerHtml}{jsHtml}';
+                popup.onclick = function(e){{ e.stopPropagation(); }};
+                ov.appendChild(popup);
+                document.body.appendChild(ov);
+            }})()
+        ");
+    }
+
+    private static string EscapeHtml(string s) =>
+        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
+
+    private static string EscapeForJs(string s) =>
+        s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "");
+
+    private static string TruncateDesc(string desc)
+    {
+        desc = desc.Trim();
+        if (desc.Length <= 120) return desc;
+        return desc[..117] + "…";
+    }
 }

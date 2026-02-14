@@ -15,6 +15,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ServerManager _serverManager;
     private readonly WsBridgeClient _bridgeClient;
     private readonly DemoService _demoService;
+    private readonly IServiceProvider? _serviceProvider;
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
@@ -130,12 +131,13 @@ public partial class CopilotService : IAsyncDisposable
 
     private readonly RepoManager _repoManager;
     
-    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient, RepoManager repoManager)
+    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider)
     {
         _chatDb = chatDb;
         _serverManager = serverManager;
         _bridgeClient = bridgeClient;
         _repoManager = repoManager;
+        _serviceProvider = serviceProvider;
         _demoService = new DemoService();
     }
 
@@ -751,6 +753,140 @@ public partial class CopilotService : IAsyncDisposable
             System.Diagnostics.Debug.WriteLine($"[Skills] Failed to scan plugin skill directories: {ex.Message}");
         }
         return dirs.Count > 0 ? dirs : null;
+    }
+
+    /// <summary>
+    /// Discover all available skills from installed plugins and project-level skill directories.
+    /// Returns a list of (Name, Description, Source) tuples.
+    /// </summary>
+    public static List<SkillInfo> DiscoverAvailableSkills(string? workingDirectory = null)
+    {
+        var skills = new List<SkillInfo>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            // Project-level skills (.claude/skills/ or .copilot/skills/)
+            if (!string.IsNullOrEmpty(workingDirectory))
+            {
+                foreach (var subdir in new[] { ".claude/skills", ".copilot/skills", ".github/skills" })
+                {
+                    var projSkillsDir = Path.Combine(workingDirectory, subdir);
+                    if (Directory.Exists(projSkillsDir))
+                        ScanSkillDirectory(projSkillsDir, "project", skills, seen);
+                }
+            }
+
+            // Plugin-level skills (~/.copilot/installed-plugins/*/skills/)
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var pluginsDir = Path.Combine(home, ".copilot", "installed-plugins");
+            if (Directory.Exists(pluginsDir))
+            {
+                foreach (var marketDir in Directory.GetDirectories(pluginsDir))
+                {
+                    foreach (var pluginDir in Directory.GetDirectories(marketDir))
+                    {
+                        var skillsDir = Path.Combine(pluginDir, "skills");
+                        if (Directory.Exists(skillsDir))
+                        {
+                            var pluginName = Path.GetFileName(pluginDir);
+                            ScanSkillDirectory(skillsDir, pluginName, skills, seen);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Skills] Discovery failed: {ex.Message}");
+        }
+
+        return skills;
+    }
+
+    private static void ScanSkillDirectory(string skillsDir, string source, List<SkillInfo> skills, HashSet<string> seen)
+    {
+        foreach (var skillDir in Directory.GetDirectories(skillsDir))
+        {
+            var skillMd = Path.Combine(skillDir, "SKILL.md");
+            if (!File.Exists(skillMd)) continue;
+
+            try
+            {
+                var content = File.ReadAllText(skillMd);
+                var (name, description) = ParseSkillFrontmatter(content);
+                if (string.IsNullOrEmpty(name)) name = Path.GetFileName(skillDir);
+                if (seen.Add(name))
+                    skills.Add(new SkillInfo(name, description ?? "", source));
+            }
+            catch { }
+        }
+    }
+
+    private static (string? name, string? description) ParseSkillFrontmatter(string content)
+    {
+        if (!content.StartsWith("---")) return (null, null);
+        var endIdx = content.IndexOf("---", 3, StringComparison.Ordinal);
+        if (endIdx < 0) return (null, null);
+
+        var frontmatter = content[3..endIdx];
+        string? name = null, description = null;
+
+        foreach (var line in frontmatter.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("name:"))
+                name = trimmed[5..].Trim().Trim('"', '\'');
+            else if (trimmed.StartsWith("description:"))
+            {
+                var desc = trimmed[12..].Trim();
+                if (desc.StartsWith(">")) continue; // multiline, skip for now
+                description = desc.Trim('"', '\'');
+            }
+        }
+
+        return (name, description);
+    }
+
+    public List<AgentInfo> DiscoverAvailableAgents(string? workingDirectory)
+    {
+        var agents = new List<AgentInfo>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            if (!string.IsNullOrEmpty(workingDirectory))
+            {
+                foreach (var subdir in new[] { ".github/agents", ".claude/agents", ".copilot/agents" })
+                {
+                    var agentsDir = Path.Combine(workingDirectory, subdir);
+                    if (Directory.Exists(agentsDir))
+                        ScanAgentDirectory(agentsDir, "project", agents, seen);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Agents] Discovery failed: {ex.Message}");
+        }
+
+        return agents;
+    }
+
+    private static void ScanAgentDirectory(string agentsDir, string source, List<AgentInfo> agents, HashSet<string> seen)
+    {
+        foreach (var file in Directory.GetFiles(agentsDir, "*.md"))
+        {
+            try
+            {
+                var content = File.ReadAllText(file);
+                var (name, description) = ParseSkillFrontmatter(content);
+                if (string.IsNullOrEmpty(name)) name = Path.GetFileNameWithoutExtension(file);
+                if (seen.Add(name))
+                    agents.Add(new AgentInfo(name, description ?? "", source));
+            }
+            catch { }
+        }
     }
 
     /// <summary>
@@ -1512,3 +1648,6 @@ public record QuotaInfo(
     int RemainingPercentage,
     string? ResetDate
 );
+
+public record SkillInfo(string Name, string Description, string Source);
+public record AgentInfo(string Name, string Description, string Source);

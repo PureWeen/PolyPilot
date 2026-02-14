@@ -36,10 +36,13 @@
                         @if (PlatformHelper.IsDesktop)
                         {
                             <div class="info-divider"></div>
+                            <div class="info-row"><span class="info-label">⌘1-9</span><span class="info-value">Switch session</span></div>
                             <div class="info-row"><span class="info-label">⌘E</span><span class="info-value">Expand/collapse</span></div>
                             <div class="info-row"><span class="info-label">Esc</span><span class="info-value">Collapse to grid</span></div>
                             <div class="info-row"><span class="info-label">Tab</span><span class="info-value">Next session</span></div>
-                            <div class="info-row"><span class="info-label">A−/A+</span><span class="info-value">Font size</span></div>
+                            <div class="info-row"><span class="info-label">⌘+/−/0</span><span class="info-value">Font size</span></div>
+                            <div class="info-row"><span class="info-label">Ctrl+C</span><span class="info-value">Interrupt</span></div>
+                            <div class="info-row"><span class="info-label">↑/↓</span><span class="info-value">History</span></div>
                         }
                     </div>
                 </div>
@@ -47,6 +50,8 @@
         </div>
     </div>
 
+    @if (!PlatformHelper.IsMobile || CopilotService.IsInitialized)
+    {
     <div class="settings-group @(GroupVisible("connection") ? "" : "search-hidden")">
         <h2 class="group-title">Connection</h2>
 
@@ -265,6 +270,13 @@
                     <label>Token:</label>
                     <input type="password" @bind="settings.RemoteToken" placeholder="Tunnel access token" class="form-input wide" />
                 </div>
+                <div class="notifications-toggle">
+                    <label class="toggle-label">
+                        <input type="checkbox" @bind="settings.EnableSessionNotifications" />
+                        <span class="toggle-text">🔔 Notify when sessions need attention</span>
+                    </label>
+                    <p class="toggle-hint">Get notified when a session completes, errors, or needs input</p>
+                </div>
             </div>
         </div>
     }
@@ -454,6 +466,7 @@
         </div>
     </div>
     </div>
+    }
 
     @if (settings.Mode != ConnectionMode.Remote && settings.Mode != ConnectionMode.Demo)
     {
@@ -548,6 +561,15 @@
                 </div>
             </div>
         </div>
+
+        <div class="settings-section @(SectionVisible("font size text zoom") ? "" : "search-hidden")">
+            <h3>Font Size</h3>
+            <div class="font-size-control">
+                <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)">A‒</button>
+                <span class="font-size-value">@fontSize px</span>
+                <button class="font-size-btn" @onclick="IncreaseFontSize" disabled="@(fontSize >= 24)">A+</button>
+            </div>
+        </div>
     </div>
 
     @if (GitAutoUpdate.IsAvailable)
@@ -608,6 +630,7 @@
     private string manualWorkerHost = "";
     private int manualWorkerPort = DevTunnelService.BridgePort;
     private string manualWorkerJoinCode = "";
+    private int fontSize = 20;
 
     private string GetPeerJoinCode(string instanceId)
         => fiestaJoinCodeInput.TryGetValue(instanceId, out var value) ? value : "";
@@ -645,7 +668,7 @@
         return groupKeyword switch
         {
             "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect fiesta machine name discovery join code approval workers lan"),
-            "ui" => SectionVisible("chat message layout default reversed both left theme"),
+            "ui" => SectionVisible("chat message layout default reversed both left theme font size text zoom"),
             "developer" => SectionVisible("auto update main git watch relaunch rebuild"),
             _ => true
         };
@@ -677,6 +700,9 @@
         GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
         FiestaCoordinator.OnStateChanged += OnFiestaStateChanged;
         FiestaCoordinator.OnStatusMessage += OnFiestaStatusMessage;
+
+        var uiState = CopilotService.LoadUiState();
+        if (uiState?.FontSize > 0) fontSize = uiState.FontSize;
 
         if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
             GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
@@ -1069,6 +1095,26 @@
         settings.Save();
         CopilotService.ChatLayout = layout;
         ShowStatus("Layout updated", "success");
+    }
+
+    private async Task IncreaseFontSize()
+    {
+        if (fontSize >= 24) return;
+        fontSize = Math.Min(fontSize + 2, 24);
+        await ApplyFontSize();
+    }
+
+    private async Task DecreaseFontSize()
+    {
+        if (fontSize <= 12) return;
+        fontSize = Math.Max(fontSize - 2, 12);
+        await ApplyFontSize();
+    }
+
+    private async Task ApplyFontSize()
+    {
+        await JS.InvokeVoidAsync("eval", $"document.documentElement.style.setProperty('--app-font-size', '{fontSize}px')");
+        CopilotService.SaveUiState("/settings", fontSize: fontSize);
     }
 
     private void ToggleAutoUpdate()

@@ -106,12 +106,8 @@ public partial class CopilotService
     {
         try
         {
-            // Ensure directory exists (required on iOS where it may not exist by default)
+            // Ensure directory exists (critical for iOS where it doesn't exist by default)
             Directory.CreateDirectory(PolyPilotBaseDir);
-            
-            var logMsg = $"[{DateTime.Now:HH:mm:ss}] SaveUiState called: expandedSession param = '{expandedSession ?? "NULL"}'";
-            Console.WriteLine(logMsg);
-            try { File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), logMsg + "\n"); } catch { }
             
             var existing = LoadUiState();
             var state = new UiState
@@ -125,16 +121,10 @@ public partial class CopilotService
             };
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);
-            
-            var saveMsg = $"[{DateTime.Now:HH:mm:ss}] Saved UI state: Page={currentPage}, ExpandedSession={state.ExpandedSession ?? "NULL"}, ExpandedGrid={state.ExpandedGrid}";
-            Console.WriteLine(saveMsg);
-            try { File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), saveMsg + "\n"); } catch { }
         }
         catch (Exception ex)
         {
-            var errMsg = $"[{DateTime.Now:HH:mm:ss}] Failed to save UI state: {ex.Message}";
-            Console.WriteLine(errMsg);
-            try { File.AppendAllText(Path.Combine(PolyPilotBaseDir, "ui-state-debug.log"), errMsg + "\n"); } catch { }
+            Console.WriteLine($"Failed to save UI state: {ex.Message}");
         }
     }
 

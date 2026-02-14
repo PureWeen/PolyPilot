@@ -77,6 +77,7 @@ public static class BridgeMessageTypes
     public const string FiestaJoinStatus = "fiesta_join_status";
     public const string FiestaDispatchResult = "fiesta_dispatch_result";
     public const string FiestaSessionCommandResult = "fiesta_session_command_result";
+    public const string AttentionNeeded = "attention_needed";
 
     // Client → Server
     public const string GetSessions = "get_sessions";
@@ -350,4 +351,22 @@ public class FiestaSessionCommandResultPayload
     public string SessionName { get; set; } = "";
     public bool Success { get; set; }
     public string? Error { get; set; }
+}
+
+// --- Attention/Notification payloads ---
+
+public enum AttentionReason
+{
+    Completed,        // Session finished responding
+    Error,            // Session encountered an error
+    NeedsInteraction, // Tool/approval needs user input
+    ReadyForMore      // Session is idle, ready for next prompt
+}
+
+public class AttentionNeededPayload
+{
+    public string SessionName { get; set; } = "";
+    public string? SessionId { get; set; }
+    public AttentionReason Reason { get; set; }
+    public string Summary { get; set; } = "";
 }
