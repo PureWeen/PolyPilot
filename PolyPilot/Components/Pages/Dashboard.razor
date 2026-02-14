@@ -9,6 +9,7 @@
 @inject WsBridgeServer WsBridgeServer
 @inject GitAutoUpdateService GitAutoUpdate
 @inject QrScannerService QrScanner
+@inject FiestaService FiestaService
 @implements IAsyncDisposable
 
 <div class="dashboard @(expandedSession != null ? "expanded-mode" : "")">
@@ -76,6 +77,8 @@
                                  Layout="@CopilotService.ChatLayout"
                                  FontSize="fontSize"
                                  MessageWindowSize="@(expandedMessageCounts.TryGetValue(session.Name, out var emc) ? emc : 25)"
+                                 FiestaActive="@FiestaService.IsFiestaActive(session.Name)"
+                                 FiestaWorkers="@GetFiestaWorkersForSession(session.Name)"
                                  OnSend="() => SendFromCard(session.Name)"
                                  OnStop="() => StopSession(session.Name)"
                                  OnCollapse="CollapseExpanded"
@@ -87,7 +90,9 @@
                                  OnSetPlanMode="(enabled) => SetPlanMode(session.Name, enabled)"
                                  OnSetModel="(model) => SetExpandedModel(session, model)"
                                  OnFontSizeChange="HandleFontSizeChange"
-                                 OnLoadMore="() => LoadMoreExpandedMessages(session.Name)" />
+                                 OnLoadMore="() => LoadMoreExpandedMessages(session.Name)"
+                                 OnStartFiesta="(request) => StartFiestaForSession(session.Name, request)"
+                                 OnStopFiesta="() => StopFiestaForSession(session.Name)" />
         }
     }
     else
@@ -235,6 +240,7 @@
     private DotNetObjectReference<Dashboard>? _dotNetRef;
     private string? initError;
     private bool _initializationComplete = false;
+    private readonly Dictionary<string, ChatMessage> _fiestaStreamingMessages = new(StringComparer.Ordinal);
 
     protected override async Task OnInitializedAsync()
     {
@@ -251,6 +257,8 @@
         CopilotService.OnError += HandleError;
         CopilotService.OnTurnStart += HandleTurnStart;
         CopilotService.OnTurnEnd += HandleTurnEnd;
+        FiestaService.OnStateChanged += HandleFiestaStateChanged;
+        FiestaService.OnHostTaskUpdate += HandleFiestaTaskUpdate;
 
         await Initialize();
 
@@ -908,6 +916,26 @@
         if (planModeBySession.GetValueOrDefault(sessionName))
             finalPrompt = $"[[PLAN]] {finalPrompt}";
 
+        var dispatch = await FiestaService.DispatchMentionedWorkAsync(sessionName, finalPrompt);
+        if (dispatch.MentionsFound)
+        {
+            var hostSession = sessions.FirstOrDefault(s => s.Name == sessionName);
+            hostSession?.History.Add(ChatMessage.UserMessage(finalPrompt));
+            if (hostSession != null)
+            {
+                hostSession.MessageCount = hostSession.History.Count;
+                if (dispatch.DispatchCount > 0)
+                {
+                    hostSession.History.Add(ChatMessage.SystemMessage(
+                        $"🎉 Dispatched to {dispatch.DispatchCount} worker{(dispatch.DispatchCount == 1 ? "" : "s")} in Fiesta mode."));
+                    hostSession.MessageCount = hostSession.History.Count;
+                }
+            }
+            _needsScrollToBottom = true;
+            await InvokeAsync(SafeRefreshAsync);
+            return;
+        }
+
         List<string>? imagePaths = null;
         if (hasImages)
         {
@@ -1453,6 +1481,122 @@
     private async Task StopSession(string sessionName)
     {
         await CopilotService.AbortSessionAsync(sessionName);
+    }
+
+    private IReadOnlyList<FiestaLinkedWorker> GetFiestaWorkersForSession(string sessionName)
+    {
+        var linked = FiestaService.LinkedWorkers;
+        var state = FiestaService.GetFiestaState(sessionName);
+        if (state == null || state.WorkerIds.Count == 0)
+            return linked;
+
+        var selected = linked
+            .Where(w => state.WorkerIds.Contains(w.Id, StringComparer.Ordinal))
+            .ToList();
+        return selected.Count > 0 ? selected : linked;
+    }
+
+    private async Task StartFiestaForSession(string sessionName, FiestaStartRequest request)
+    {
+        var workerIds = request.WorkerIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        if (workerIds.Count == 0)
+        {
+            var noWorkerSession = CopilotService.GetSession(sessionName);
+            if (noWorkerSession != null)
+            {
+                noWorkerSession.History.Add(ChatMessage.ErrorMessage("Select at least one worker to start Fiesta."));
+                noWorkerSession.MessageCount = noWorkerSession.History.Count;
+            }
+            _needsScrollToBottom = true;
+            await InvokeAsync(SafeRefreshAsync);
+            return;
+        }
+
+        var started = FiestaService.StartFiesta(sessionName, request.FiestaName, workerIds);
+        if (started)
+        {
+            var session = CopilotService.GetSession(sessionName);
+            if (session != null)
+            {
+                var fiestaName = string.IsNullOrWhiteSpace(request.FiestaName) ? "Fiesta" : request.FiestaName.Trim();
+                var workers = FiestaService.LinkedWorkers
+                    .Where(w => workerIds.Contains(w.Id, StringComparer.Ordinal))
+                    .OrderBy(w => w.Name)
+                    .Select(w => $"@{w.Name}")
+                    .ToList();
+                var workerText = workers.Count > 0 ? string.Join(", ", workers) : "(none)";
+                session.History.Add(ChatMessage.SystemMessage(
+                    $"🎉 Fiesta **{fiestaName}** started with {workerText}. Mention workers to dispatch work."));
+                session.MessageCount = session.History.Count;
+            }
+        }
+        _needsScrollToBottom = true;
+        await InvokeAsync(SafeRefreshAsync);
+    }
+
+    private async Task StopFiestaForSession(string sessionName)
+    {
+        FiestaService.StopFiesta(sessionName);
+        var session = CopilotService.GetSession(sessionName);
+        if (session != null)
+        {
+            session.History.Add(ChatMessage.SystemMessage("Fiesta stopped for this session."));
+            session.MessageCount = session.History.Count;
+        }
+        _needsScrollToBottom = true;
+        await InvokeAsync(SafeRefreshAsync);
+    }
+
+    private void HandleFiestaStateChanged()
+    {
+        InvokeAsync(SafeRefreshAsync);
+    }
+
+    private void HandleFiestaTaskUpdate(string sessionName, FiestaTaskUpdate update)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            var session = CopilotService.GetSession(sessionName);
+            if (session == null)
+                return;
+
+            var key = $"{sessionName}:{update.TaskId}";
+            if (!_fiestaStreamingMessages.TryGetValue(key, out var liveMessage))
+            {
+                liveMessage = ChatMessage.SystemMessage($"🎉 @{update.WorkerName}: ");
+                session.History.Add(liveMessage);
+                _fiestaStreamingMessages[key] = liveMessage;
+            }
+
+            switch (update.Kind)
+            {
+                case FiestaTaskUpdateKind.Started:
+                    liveMessage.Content = $"🎉 @{update.WorkerName}: {update.Content}";
+                    break;
+                case FiestaTaskUpdateKind.Delta:
+                    liveMessage.Content += update.Content;
+                    break;
+                case FiestaTaskUpdateKind.Completed:
+                    if (!string.IsNullOrWhiteSpace(update.Content))
+                        liveMessage.Content += $"\n\n✅ {update.Content}";
+                    else
+                        liveMessage.Content += "\n\n✅ Completed.";
+                    _fiestaStreamingMessages.Remove(key);
+                    break;
+                case FiestaTaskUpdateKind.Error:
+                    liveMessage.Content += $"\n\n❌ {update.Content}";
+                    _fiestaStreamingMessages.Remove(key);
+                    break;
+                default:
+                    if (!string.IsNullOrWhiteSpace(update.Content))
+                        liveMessage.Content += $"\n{update.Content}";
+                    break;
+            }
+
+            session.MessageCount = session.History.Count;
+            _needsScrollToBottom = true;
+            await SafeRefreshAsync();
+        });
     }
 
     private string GetPluginInfo()
@@ -2070,6 +2214,8 @@
         CopilotService.OnError -= HandleError;
         CopilotService.OnTurnStart -= HandleTurnStart;
         CopilotService.OnTurnEnd -= HandleTurnEnd;
+        FiestaService.OnStateChanged -= HandleFiestaStateChanged;
+        FiestaService.OnHostTaskUpdate -= HandleFiestaTaskUpdate;
         foreach (var images in pendingImagesBySession.Values)
             foreach (var img in images)
                 try { File.Delete(img.TempPath); } catch { }

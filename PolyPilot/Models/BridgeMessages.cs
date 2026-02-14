@@ -84,6 +84,15 @@ public static class BridgeMessageTypes
 
     // Server → Client (response)
     public const string DirectoriesList = "directories_list";
+
+    // Fiesta Host ↔ Worker
+    public const string FiestaAssign = "fiesta_assign";
+    public const string FiestaTaskStarted = "fiesta_task_started";
+    public const string FiestaTaskDelta = "fiesta_task_delta";
+    public const string FiestaTaskComplete = "fiesta_task_complete";
+    public const string FiestaTaskError = "fiesta_task_error";
+    public const string FiestaPing = "fiesta_ping";
+    public const string FiestaPong = "fiesta_pong";
 }
 
 // --- Server → Client payloads ---
@@ -280,4 +289,53 @@ public class AttentionNeededPayload
     public string? SessionId { get; set; }
     public AttentionReason Reason { get; set; }
     public string Summary { get; set; } = "";
+}
+
+// --- Fiesta payloads ---
+
+public class FiestaAssignPayload
+{
+    public string TaskId { get; set; } = "";
+    public string HostSessionName { get; set; } = "";
+    public string FiestaName { get; set; } = "";
+    public string Prompt { get; set; } = "";
+}
+
+public class FiestaTaskStartedPayload
+{
+    public string TaskId { get; set; } = "";
+    public string WorkerName { get; set; } = "";
+    public string Prompt { get; set; } = "";
+}
+
+public class FiestaTaskDeltaPayload
+{
+    public string TaskId { get; set; } = "";
+    public string WorkerName { get; set; } = "";
+    public string Delta { get; set; } = "";
+}
+
+public class FiestaTaskCompletePayload
+{
+    public string TaskId { get; set; } = "";
+    public string WorkerName { get; set; } = "";
+    public bool Success { get; set; }
+    public string Summary { get; set; } = "";
+}
+
+public class FiestaTaskErrorPayload
+{
+    public string TaskId { get; set; } = "";
+    public string WorkerName { get; set; } = "";
+    public string Error { get; set; } = "";
+}
+
+public class FiestaPingPayload
+{
+    public string Sender { get; set; } = "";
+}
+
+public class FiestaPongPayload
+{
+    public string Sender { get; set; } = "";
 }

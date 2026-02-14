@@ -94,6 +94,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<WsBridgeServer>();
 		builder.Services.AddSingleton<TailscaleService>();
 		builder.Services.AddSingleton<WsBridgeClient>();
+		builder.Services.AddSingleton<FiestaService>();
 		builder.Services.AddSingleton<QrScannerService>();
 		builder.Services.AddSingleton<KeyCommandService>();
 	builder.Services.AddSingleton<GitAutoUpdateService>();

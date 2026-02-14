@@ -8,6 +8,7 @@
 @inject TailscaleService TailscaleService
 @inject QrScannerService QrScanner
 @inject GitAutoUpdateService GitAutoUpdate
+@inject FiestaService FiestaService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject IServiceProvider ServiceProvider
@@ -247,6 +248,70 @@
         </div>
     }
 
+    @if (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || settings.Mode == ConnectionMode.Persistent))
+    {
+        <div class="mode-linked-panel @(SectionVisible("fiesta workers discovery link remove hostname") ? "" : "search-hidden")">
+            <h3>Fiesta Workers</h3>
+            <div class="tunnel-controls">
+                <p class="mode-hint">Discovered workers require manual linking before they can be used in Fiesta mode.</p>
+
+                @if (FiestaService.DiscoveredWorkers.Any())
+                {
+                    <div class="tunnel-url-section">
+                        <label>Discovered on LAN:</label>
+                        @foreach (var worker in FiestaService.DiscoveredWorkers.OrderByDescending(w => w.LastSeenAt))
+                        {
+                            <div class="tunnel-url">
+                                <code>@worker.Hostname — @worker.BridgeUrl</code>
+                                <button class="copy-btn" @onclick="() => UseDiscoveredWorker(worker)" title="Use for linking">Use</button>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <p class="hint">No workers discovered yet. Enable Direct Sharing on worker machines first.</p>
+                }
+
+                <div class="url-input">
+                    <label>Worker Name:</label>
+                    <input type="text" @bind="fiestaLinkName" placeholder="e.g. mac-mini" class="form-input wide" />
+                </div>
+                <div class="url-input">
+                    <label>Worker URL:</label>
+                    <input type="text" @bind="fiestaLinkUrl" placeholder="http://192.168.1.20:4322" class="form-input wide" />
+                </div>
+                <div class="url-input">
+                    <label>Worker Token:</label>
+                    <input type="password" @bind="fiestaLinkToken" placeholder="Worker server password/token" class="form-input wide" />
+                </div>
+                <button class="start-btn" @onclick="LinkFiestaWorker"
+                        disabled="@(string.IsNullOrWhiteSpace(fiestaLinkUrl) || string.IsNullOrWhiteSpace(fiestaLinkToken))">
+                    Link Worker
+                </button>
+
+                @if (!string.IsNullOrEmpty(fiestaLinkError))
+                {
+                    <p class="tunnel-error">@fiestaLinkError</p>
+                }
+
+                @if (FiestaService.LinkedWorkers.Any())
+                {
+                    <div class="tunnel-url-section">
+                        <label>Linked workers:</label>
+                        @foreach (var worker in FiestaService.LinkedWorkers.OrderBy(w => w.Name))
+                        {
+                            <div class="tunnel-url">
+                                <code>@worker.Name (@worker.Hostname) — @worker.BridgeUrl @(worker.IsOnline ? "🟢" : "⚪")</code>
+                                <button class="stop-btn" @onclick="() => RemoveFiestaWorker(worker.Id)">Remove</button>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
 
     @if (settings.Mode == ConnectionMode.Remote)
     {
@@ -456,6 +521,10 @@
     private CliSourceMode _initialCliSource;
     private bool cliSourceChanged;
     private int fontSize = 20;
+    private string fiestaLinkName = "";
+    private string fiestaLinkUrl = "";
+    private string fiestaLinkToken = "";
+    private string? fiestaLinkError;
 
     [JSInvokable]
     public void JsUpdateSearch(string query)
@@ -517,6 +586,7 @@
         _initialCliSource = settings.CliSource;
         DevTunnelService.OnStateChanged += OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
+        FiestaService.OnStateChanged += OnFiestaStateChanged;
 
         var uiState = CopilotService.LoadUiState();
         if (uiState?.FontSize > 0) fontSize = uiState.FontSize;
@@ -577,6 +647,7 @@
     {
         DevTunnelService.OnStateChanged -= OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged -= OnAutoUpdateStateChanged;
+        FiestaService.OnStateChanged -= OnFiestaStateChanged;
         _ = JS.InvokeVoidAsync("eval", "window.__settingsRef = null;");
         _selfRef?.Dispose();
     }
@@ -821,6 +892,64 @@
     private void OnAutoUpdateStateChanged()
     {
         InvokeAsync(StateHasChanged);
+    }
+
+    private void OnFiestaStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void UseDiscoveredWorker(FiestaDiscoveredWorker worker)
+    {
+        fiestaLinkName = worker.Hostname;
+        fiestaLinkUrl = worker.BridgeUrl;
+        fiestaLinkError = null;
+    }
+
+    private void LinkFiestaWorker()
+    {
+        fiestaLinkError = null;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(fiestaLinkUrl) || string.IsNullOrWhiteSpace(fiestaLinkToken))
+            {
+                fiestaLinkError = "Worker URL and token are required.";
+                return;
+            }
+
+            var hostName = TryExtractHost(fiestaLinkUrl) ?? fiestaLinkName;
+            FiestaService.LinkWorker(fiestaLinkName, hostName, fiestaLinkUrl, fiestaLinkToken);
+            fiestaLinkName = "";
+            fiestaLinkUrl = "";
+            fiestaLinkToken = "";
+            ShowStatus("Fiesta worker linked", "success", 2500);
+        }
+        catch (Exception ex)
+        {
+            fiestaLinkError = ex.Message;
+        }
+    }
+
+    private void RemoveFiestaWorker(string workerId)
+    {
+        FiestaService.RemoveLinkedWorker(workerId);
+        ShowStatus("Fiesta worker removed", "success", 2000);
+    }
+
+    private static string? TryExtractHost(string url)
+    {
+        try
+        {
+            var normalized = url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                             url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                ? url
+                : "http://" + url;
+            return new Uri(normalized).Host;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private string GetLayoutLabel(ChatLayout layout) => layout switch
