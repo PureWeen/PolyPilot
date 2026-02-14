@@ -238,6 +238,11 @@
     color: var(--accent-primary);
 }
 
+.card-skills {
+    font-size: var(--type-caption1, 0.6rem);
+    color: var(--text-dim, #6a7a8a);
+}
+
 .card-messages {
     flex: 1;
     min-height: 80px;
