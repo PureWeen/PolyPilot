@@ -335,6 +335,24 @@ public partial class CopilotService
                 CompleteResponse(state);
                 // Refresh git branch — agent may have switched branches
                 state.Info.GitBranch = GetGitBranch(state.Info.WorkingDirectory);
+                // Send notification when agent finishes
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var currentSettings = ConnectionSettings.Load();
+                        if (!currentSettings.EnableSessionNotifications) return;
+                        var notifService = _serviceProvider?.GetService<INotificationManagerService>();
+                        if (notifService == null || !notifService.HasPermission) return;
+                        var lastMsg = state.Info.History.LastOrDefault(m => m.Role == "assistant");
+                        var body = BuildNotificationBody(lastMsg?.Content, state.Info.History.Count);
+                        await notifService.SendNotificationAsync(
+                            $"✓ {sessionName}",
+                            body,
+                            state.Info.SessionId);
+                    }
+                    catch { }
+                });
                 break;
 
             case SessionStartEvent start:
@@ -543,6 +561,9 @@ public partial class CopilotService
             var msg = new ChatMessage("assistant", response, DateTime.Now);
             state.Info.History.Add(msg);
             state.Info.MessageCount = state.Info.History.Count;
+            // If user is viewing this session, keep it read
+            if (state.Info.Name == _activeSessionName)
+                state.Info.LastReadMessageCount = state.Info.History.Count;
 
             // Write-through to DB
             if (!string.IsNullOrEmpty(state.Info.SessionId))
@@ -557,7 +578,6 @@ public partial class CopilotService
         // Fire completion notification
         var summary = response.Length > 100 ? response[..100] + "..." : response;
         OnSessionComplete?.Invoke(state.Info.Name, summary);
-        IncrementBadge();
 
         // Auto-dispatch next queued message
         if (state.Info.MessageQueue.Count > 0)
@@ -578,5 +598,30 @@ public partial class CopilotService
                 }
             });
         }
+    }
+
+    private static string BuildNotificationBody(string? content, int messageCount)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return $"Agent finished · {messageCount} messages";
+
+        // Strip markdown formatting for cleaner notification text
+        var text = content
+            .Replace("**", "").Replace("__", "")
+            .Replace("```", "").Replace("`", "")
+            .Replace("###", "").Replace("##", "").Replace("#", "")
+            .Replace("\r", "");
+
+        // Get first non-empty line as summary
+        var firstLine = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault(l => l.Length > 5 && !l.StartsWith("---") && !l.StartsWith("- ["));
+
+        if (string.IsNullOrEmpty(firstLine))
+            return $"Agent finished · {messageCount} messages";
+
+        if (firstLine.Length > 120)
+            firstLine = firstLine[..117] + "…";
+
+        return firstLine;
     }
 }

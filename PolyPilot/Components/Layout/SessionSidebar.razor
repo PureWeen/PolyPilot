@@ -700,6 +700,8 @@ else
     {
         completedSessions.Remove(name);
         CopilotService.SwitchSession(name);
+        var session = CopilotService.GetSession(name);
+        if (session != null) session.LastReadMessageCount = session.History.Count;
         CopilotService.SaveUiState("/", name);
         await OnSessionSelected.InvokeAsync();
         if (currentPage != "/")

@@ -22,6 +22,10 @@
             else
             {
                 <h3>@Session.Name</h3>
+                @if (Session.UnreadCount > 0)
+                {
+                    <span class="unread-badge">@Session.UnreadCount</span>
+                }
             }
         </div>
         <div class="card-more-wrapper">

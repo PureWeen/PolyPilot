@@ -46,6 +46,10 @@
             else
             {
                 <span class="session-name-text" @ondblclick="() => OnStartRename.InvokeAsync()" @ondblclick:stopPropagation="true">@Session.Name</span>
+                @if (Session.UnreadCount > 0)
+                {
+                    <span class="unread-badge">@Session.UnreadCount</span>
+                }
             }
         </span>
         <div class="session-meta-row">

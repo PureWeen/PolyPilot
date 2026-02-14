@@ -986,6 +986,7 @@ public partial class CopilotService : IAsyncDisposable
             info.History.Add(msg);
         }
         info.MessageCount = info.History.Count;
+        info.LastReadMessageCount = info.History.Count;
 
         // Mark any stale incomplete tool calls as complete (from prior session)
         foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.ToolCall && !m.IsComplete))
@@ -1306,6 +1307,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             displayPrompt += "\n" + string.Join("\n", imagePaths);
         state.Info.History.Add(new ChatMessage("user", displayPrompt, DateTime.Now));
         state.Info.MessageCount = state.Info.History.Count;
+        state.Info.LastReadMessageCount = state.Info.History.Count;
         OnStateChanged?.Invoke();
 
         // Write-through to DB

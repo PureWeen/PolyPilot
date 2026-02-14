@@ -1,10 +1,13 @@
-﻿namespace PolyPilot;
+using PolyPilot.Services;
+
+namespace PolyPilot;
 
 public partial class App : Application
 {
-	public App()
+	public App(INotificationManagerService notificationService)
 	{
 		InitializeComponent();
+		_ = notificationService.InitializeAsync();
 	}
 
 	protected override Window CreateWindow(IActivationState? activationState)
