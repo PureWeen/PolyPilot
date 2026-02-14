@@ -36,3 +36,6 @@ launchSettings.json
 .DS_Store
 *.swp
 *~
+
+## .NET
+*.binlog
