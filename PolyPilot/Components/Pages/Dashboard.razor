@@ -1170,7 +1170,16 @@
                     session.MessageCount = session.History.Count;
                     _needsScrollToBottom = true;
                     await InvokeAsync(SafeRefreshAsync);
-                    _ = CopilotService.SendPromptAsync(sessionName, arg, mode: "delegate");
+                    _ = CopilotService.SendPromptAsync(sessionName, arg, mode: "delegate").ContinueWith(t =>
+                    {
+                        if (t.IsFaulted)
+                        {
+                            InvokeAsync(() =>
+                            {
+                                Console.WriteLine($"Delegate to CCA failed for {sessionName}: {t.Exception?.InnerException?.Message}");
+                            });
+                        }
+                    });
                 }
                 return;
 

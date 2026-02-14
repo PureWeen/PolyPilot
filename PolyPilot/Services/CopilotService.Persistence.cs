@@ -244,9 +244,10 @@ public partial class CopilotService
                     Summary = s.Summary,
                     StartTime = s.StartTime,
                     ModifiedTime = s.ModifiedTime,
-                    Repository = s.Context?.Repository,
-                    Branch = s.Context?.Branch,
-                    WorkingDirectory = s.Context?.Cwd,
+                    // Context properties not yet available in SDK 0.1.24
+                    Repository = null,
+                    Branch = null,
+                    WorkingDirectory = null,
                 })
                 .OrderByDescending(s => s.ModifiedTime)
                 .ToList();
