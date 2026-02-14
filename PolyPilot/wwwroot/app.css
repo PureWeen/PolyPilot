@@ -494,6 +494,17 @@ a, .btn-link {
     padding-top: 1.1rem;
 }
 
+/* Settings route uses a single scroll container to avoid nested-scroll clipping on GTK/WebKit */
+.content.settings-content-active {
+    overflow-y: auto !important;
+}
+
+.content.settings-content-active .settings-page {
+    height: auto !important;
+    min-height: 100%;
+    overflow-y: visible !important;
+}
+
 h1:focus {
     outline: none;
 }

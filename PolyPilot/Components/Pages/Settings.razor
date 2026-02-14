@@ -658,6 +658,16 @@
                         if (window.__settingsRef) window.__settingsRef.invokeMethodAsync('JsUpdateSearch', val);
                     }, 150);
                 });
+
+                var content = document.querySelector('article.content');
+                if (content) {
+                    content.classList.add('settings-content-active');
+                    content.scrollTop = 0;
+                    requestAnimationFrame(function() { content.scrollTop = 0; });
+                }
+
+                var page = document.querySelector('.settings-page');
+                if (page) page.scrollTop = 0;
             })()");
 
         // IntersectionObserver to highlight active category on scroll
@@ -703,6 +713,7 @@
         DevTunnelService.OnStateChanged -= OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged -= OnAutoUpdateStateChanged;
         FiestaService.OnStateChanged -= OnFiestaStateChanged;
+        _ = JS.InvokeVoidAsync("eval", "document.querySelector('article.content')?.classList.remove('settings-content-active');");
         _ = JS.InvokeVoidAsync("eval", "window.__settingsRef = null;");
         _selfRef?.Dispose();
     }
