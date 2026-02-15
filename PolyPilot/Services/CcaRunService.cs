@@ -75,7 +75,7 @@ public class CcaRunService
             process.StartInfo = new ProcessStartInfo
             {
                 FileName = "gh",
-                Arguments = $"api /repos/{ownerRepo}/actions/runs?actor=copilot-swe-agent%5Bbot%5D&per_page=10 --jq \".workflow_runs\"",
+                Arguments = $"api /repos/{ownerRepo}/actions/runs?actor=copilot-swe-agent%5Bbot%5D&per_page=30 --jq \".workflow_runs\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -100,9 +100,11 @@ public class CcaRunService
             using var doc = JsonDocument.Parse(stdout);
             foreach (var elem in doc.RootElement.EnumerateArray())
             {
-                runs.Add(new CcaRun
+                var run = new CcaRun
                 {
                     Id = elem.GetProperty("id").GetInt64(),
+                    Name = elem.TryGetProperty("name", out var nm) ? nm.GetString() ?? "" : "",
+                    Event = elem.TryGetProperty("event", out var ev) ? ev.GetString() ?? "" : "",
                     DisplayTitle = elem.TryGetProperty("display_title", out var dt) ? dt.GetString() ?? "" : "",
                     HeadBranch = elem.TryGetProperty("head_branch", out var hb) ? hb.GetString() ?? "" : "",
                     Status = elem.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
@@ -110,7 +112,10 @@ public class CcaRunService
                     CreatedAt = elem.TryGetProperty("created_at", out var ca) ? ca.GetDateTime() : DateTime.MinValue,
                     UpdatedAt = elem.TryGetProperty("updated_at", out var ua) ? ua.GetDateTime() : DateTime.MinValue,
                     HtmlUrl = elem.TryGetProperty("html_url", out var hu) ? hu.GetString() ?? "" : "",
-                });
+                };
+                // Only include coding agent runs (not comment-response runs like "Addressing comment on PR #123")
+                if (run.IsCodingAgent)
+                    runs.Add(run);
             }
             return runs;
         }
