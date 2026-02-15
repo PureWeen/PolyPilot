@@ -179,13 +179,14 @@ public partial class CopilotService : IAsyncDisposable
 
     private class SessionState
     {
-        public required CopilotSession Session { get; init; }
+        public required CopilotSession? Session { get; set; }  // Null until lazy-loaded
         public required AgentSessionInfo Info { get; init; }
         public TaskCompletionSource<string>? ResponseCompletion { get; set; }
         public StringBuilder CurrentResponse { get; } = new();
         public bool HasReceivedDeltasThisTurn { get; set; }
         public bool HasReceivedEventsSinceResume { get; set; }
         public string? LastMessageId { get; set; }
+        public bool IsLazyLoaded { get; set; }  // True if only metadata loaded, not full session
     }
 
     private void Debug(string message)
@@ -1316,6 +1317,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
+
+        // Ensure lazy-loaded session is fully resumed before sending
+        state = await EnsureSessionResumedAsync(sessionName, cancellationToken);
 
         if (state.Info.IsProcessing)
             throw new InvalidOperationException("Session is already processing a request.");

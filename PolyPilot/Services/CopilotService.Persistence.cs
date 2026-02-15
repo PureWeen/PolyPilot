@@ -1,5 +1,6 @@
 using System.Text.Json;
 using PolyPilot.Models;
+using GitHub.Copilot.SDK;
 
 namespace PolyPilot.Services;
 
@@ -36,7 +37,7 @@ public partial class CopilotService
     }
 
     /// <summary>
-    /// Load and resume all previously active sessions (pre-filters for faster startup)
+    /// Load session metadata without resuming SDK sessions (lazy loading for fast startup)
     /// </summary>
     public async Task RestorePreviousSessionsAsync(CancellationToken cancellationToken = default)
     {
@@ -55,46 +56,101 @@ public partial class CopilotService
                 .ToList();
 
             if (toRestore.Count == 0) return;
-            Debug($"Restoring {toRestore.Count} previous sessions...");
+            Debug($"Lazy-loading {toRestore.Count} previous sessions (metadata only)...");
 
             foreach (var entry in toRestore)
             {
                 try
                 {
-                    await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken);
-                    Debug($"Restored session: {entry.DisplayName}");
+                    // Create lightweight placeholder with metadata only
+                    var info = new AgentSessionInfo
+                    {
+                        Name = entry.DisplayName,
+                        SessionId = entry.SessionId,
+                        Model = entry.Model ?? DefaultModel,
+                        WorkingDirectory = entry.WorkingDirectory,
+                        CreatedAt = DateTime.Now,
+                        IsResumed = true
+                    };
+                    info.GitBranch = GetGitBranch(info.WorkingDirectory);
+
+                    var state = new SessionState
+                    {
+                        Session = null!,  // Will be lazy-loaded on first access
+                        Info = info,
+                        IsLazyLoaded = true
+                    };
+
+                    _sessions[entry.DisplayName] = state;
+                    Debug($"Lazy-loaded session metadata: {entry.DisplayName}");
                 }
                 catch (Exception ex)
                 {
-                    Debug($"Failed to restore '{entry.DisplayName}': {ex.Message}");
-
-                    if (ex is System.IO.IOException or System.Net.Sockets.SocketException
-                        or ObjectDisposedException
-                        || ex.InnerException is System.IO.IOException or System.Net.Sockets.SocketException
-                        || ex.Message.Contains("Connection", StringComparison.OrdinalIgnoreCase)
-                        || ex.Message.Contains("transport", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Debug("Connection lost during restore, recreating client...");
-                        try
-                        {
-                            if (_client != null) await _client.DisposeAsync();
-                            var settings = ConnectionSettings.Load();
-                            _client = CreateClient(settings);
-                            await _client.StartAsync(cancellationToken);
-                            Debug("Client recreated successfully");
-                        }
-                        catch (Exception clientEx)
-                        {
-                            Debug($"Failed to recreate client: {clientEx.Message}");
-                            break;
-                        }
-                    }
+                    Debug($"Failed to lazy-load '{entry.DisplayName}': {ex.Message}");
                 }
             }
         }
         catch (Exception ex)
         {
             Debug($"Failed to load active sessions file: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Ensure a lazy-loaded session is fully resumed before use
+    /// </summary>
+    private async Task<SessionState> EnsureSessionResumedAsync(string sessionName, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state))
+            throw new InvalidOperationException($"Session '{sessionName}' not found");
+
+        if (!state.IsLazyLoaded || state.Session != null)
+            return state;  // Already fully loaded
+
+        Debug($"Hydrating lazy-loaded session: {sessionName}");
+
+        try
+        {
+            // Load history from disk
+            var history = LoadHistoryFromDisk(state.Info.SessionId!);
+            if (history.Count > 0)
+                await _chatDb.BulkInsertAsync(state.Info.SessionId!, history);
+
+            // Resume the SDK session
+            var resumeConfig = new ResumeSessionConfig
+            {
+                Model = state.Info.Model,
+                WorkingDirectory = state.Info.WorkingDirectory
+            };
+            var copilotSession = await _client!.ResumeSessionAsync(state.Info.SessionId!, resumeConfig, cancellationToken);
+
+            // Update state with full session
+            state.Session = copilotSession;
+            state.IsLazyLoaded = false;
+
+            // Add history to info
+            foreach (var msg in history)
+                state.Info.History.Add(msg);
+            state.Info.MessageCount = state.Info.History.Count;
+            state.Info.LastReadMessageCount = state.Info.History.Count;
+
+            // Mark stale incomplete tool calls/reasoning as complete
+            foreach (var msg in state.Info.History.Where(m => m.MessageType == ChatMessageType.ToolCall && !m.IsComplete))
+                msg.IsComplete = true;
+            foreach (var msg in state.Info.History.Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete))
+                msg.IsComplete = true;
+
+            // Subscribe to events
+            state.Session!.On(evt => HandleSessionEvent(state, evt));
+
+            Debug($"Session hydrated: {sessionName}");
+            OnStateChanged?.Invoke();
+            return state;
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to hydrate session '{sessionName}': {ex.Message}");
+            throw;
         }
     }
 
