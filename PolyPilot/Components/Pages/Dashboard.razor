@@ -261,6 +261,7 @@
         CopilotService.OnTurnEnd += HandleTurnEnd;
         FiestaService.OnStateChanged += HandleFiestaStateChanged;
         FiestaService.OnHostTaskUpdate += HandleFiestaTaskUpdate;
+        FiestaService.EnsureInitialized();
 
         await Initialize();
 
@@ -316,10 +317,10 @@
 
             await CopilotService.InitializeAsync();
 
-            // Wait for sessions to arrive (remote mode needs time to sync)
-            if (!CopilotService.GetAllSessions().Any())
+            // In remote mode, briefly wait for sessions to sync over WebSocket
+            if (CopilotService.IsRemoteMode && !CopilotService.GetAllSessions().Any())
             {
-                await Task.Delay(2000);
+                await Task.Delay(500);
             }
             sessions = CopilotService.GetAllSessions().ToList();
 

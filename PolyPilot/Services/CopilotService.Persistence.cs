@@ -36,70 +36,66 @@ public partial class CopilotService
     }
 
     /// <summary>
-    /// Load and resume all previously active sessions
+    /// Load and resume all previously active sessions (pre-filters for faster startup)
     /// </summary>
     public async Task RestorePreviousSessionsAsync(CancellationToken cancellationToken = default)
     {
-        if (File.Exists(ActiveSessionsFile))
-        {
-            try
-            {
-                var json = await File.ReadAllTextAsync(ActiveSessionsFile, cancellationToken);
-                var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
-                if (entries != null && entries.Count > 0)
-                {
-                    Debug($"Restoring {entries.Count} previous sessions...");
+        if (!File.Exists(ActiveSessionsFile)) return;
 
-                    foreach (var entry in entries)
+        try
+        {
+            var json = await File.ReadAllTextAsync(ActiveSessionsFile, cancellationToken);
+            var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
+            if (entries == null || entries.Count == 0) return;
+
+            // Filter to restorable entries upfront (avoids per-iteration checks)
+            var toRestore = entries
+                .Where(e => !_sessions.ContainsKey(e.DisplayName))
+                .Where(e => Directory.Exists(Path.Combine(SessionStatePath, e.SessionId)))
+                .ToList();
+
+            if (toRestore.Count == 0) return;
+            Debug($"Restoring {toRestore.Count} previous sessions...");
+
+            foreach (var entry in toRestore)
+            {
+                try
+                {
+                    await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken);
+                    Debug($"Restored session: {entry.DisplayName}");
+                }
+                catch (Exception ex)
+                {
+                    Debug($"Failed to restore '{entry.DisplayName}': {ex.Message}");
+
+                    if (ex is System.IO.IOException or System.Net.Sockets.SocketException
+                        or ObjectDisposedException
+                        || ex.InnerException is System.IO.IOException or System.Net.Sockets.SocketException
+                        || ex.Message.Contains("Connection", StringComparison.OrdinalIgnoreCase)
+                        || ex.Message.Contains("transport", StringComparison.OrdinalIgnoreCase))
                     {
+                        Debug("Connection lost during restore, recreating client...");
                         try
                         {
-                            // Skip if already active
-                            if (_sessions.ContainsKey(entry.DisplayName)) continue;
-                            
-                            // Check the session still exists on disk
-                            var sessionDir = Path.Combine(SessionStatePath, entry.SessionId);
-                            if (!Directory.Exists(sessionDir)) continue;
-
-                            await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken);
-                            Debug($"Restored session: {entry.DisplayName}");
+                            if (_client != null) await _client.DisposeAsync();
+                            var settings = ConnectionSettings.Load();
+                            _client = CreateClient(settings);
+                            await _client.StartAsync(cancellationToken);
+                            Debug("Client recreated successfully");
                         }
-                        catch (Exception ex)
+                        catch (Exception clientEx)
                         {
-                            Debug($"Failed to restore '{entry.DisplayName}': {ex.Message}");
-
-                            // If the connection broke, recreate the client
-                            if (ex is System.IO.IOException or System.Net.Sockets.SocketException
-                                or ObjectDisposedException
-                                || ex.InnerException is System.IO.IOException or System.Net.Sockets.SocketException
-                                || ex.Message.Contains("Connection", StringComparison.OrdinalIgnoreCase)
-                                || ex.Message.Contains("transport", StringComparison.OrdinalIgnoreCase))
-                            {
-                                Debug("Connection lost during restore, recreating client...");
-                                try
-                                {
-                                    if (_client != null) await _client.DisposeAsync();
-                                    var settings = ConnectionSettings.Load();
-                                    _client = CreateClient(settings);
-                                    await _client.StartAsync(cancellationToken);
-                                    Debug("Client recreated successfully");
-                                }
-                                catch (Exception clientEx)
-                                {
-                                    Debug($"Failed to recreate client: {clientEx.Message}");
-                                    break; // Stop trying to restore sessions
-                                }
-                            }
+                            Debug($"Failed to recreate client: {clientEx.Message}");
+                            break;
                         }
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                Debug($"Failed to load active sessions file: {ex.Message}");
-            }
         }
-
+        catch (Exception ex)
+        {
+            Debug($"Failed to load active sessions file: {ex.Message}");
+        }
     }
 
     public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null, bool? expandedGrid = null, string? expandedSession = "<<unspecified>>")

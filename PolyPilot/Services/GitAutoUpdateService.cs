@@ -14,7 +14,7 @@ public class GitAutoUpdateService : IDisposable
     private string _status = "";
     private string? _lastLocalCommit;
     private readonly ILogger<GitAutoUpdateService> _logger;
-    private readonly SynchronizationContext? _syncCtx;
+    private SynchronizationContext? _syncCtx;
 
     public bool IsAvailable => _isAvailable;
     public bool IsEnabled { get; private set; }
@@ -27,11 +27,13 @@ public class GitAutoUpdateService : IDisposable
     {
         _logger = logger;
         _syncCtx = SynchronizationContext.Current;
-        DetectSourceEnvironment();
+        // DetectSourceEnvironment() is deferred to Initialize() to avoid blocking DI resolution.
     }
 
     public void Initialize()
     {
+        _syncCtx ??= SynchronizationContext.Current;
+        DetectSourceEnvironment();
         if (!_isAvailable) return;
         var settings = ConnectionSettings.Load();
         if (settings.AutoUpdateFromMain)

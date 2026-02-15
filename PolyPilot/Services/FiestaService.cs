@@ -38,11 +38,24 @@ public class FiestaService : IDisposable
     public event Action? OnStateChanged;
     public event Action<string, FiestaTaskUpdate>? OnHostTaskUpdate;
 
+    private bool _stateLoaded;
+
     public FiestaService(CopilotService copilot, WsBridgeServer bridgeServer)
     {
         _copilot = copilot;
         _bridgeServer = bridgeServer;
         _bridgeServer.SetFiestaService(this);
+        // Defer LoadState() and StartDiscovery() to avoid blocking DI resolution.
+        // State is loaded lazily on first access via EnsureStateLoaded().
+    }
+
+    /// <summary>
+    /// Ensures Fiesta state is loaded from disk and discovery is started (called once on first access).
+    /// </summary>
+    public void EnsureInitialized()
+    {
+        if (_stateLoaded) return;
+        _stateLoaded = true;
         LoadState();
         if (PlatformHelper.IsDesktop)
             StartDiscovery();

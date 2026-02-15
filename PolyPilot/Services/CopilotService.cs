@@ -268,24 +268,21 @@ public partial class CopilotService : IAsyncDisposable
 
         _client = CreateClient(settings);
 
+        // Load organization state in parallel with client startup (independent I/O)
+        var orgTask = Task.Run(() => LoadOrganization());
         await _client.StartAsync(cancellationToken);
         IsInitialized = true;
         NeedsConfiguration = false;
         Debug($"Copilot client started in {settings.Mode} mode");
-        
-        // Note: copilot-instructions.md is automatically loaded by the CLI from .github/ in the working directory.
-        // We don't need to manually load and inject it here.
 
         OnStateChanged?.Invoke();
 
-        // Fetch available models dynamically
+        // Fire-and-forget: fetch models and user info
         _ = FetchAvailableModelsAsync();
-
-        // Fetch GitHub user info for avatar
         _ = FetchGitHubUserInfoAsync();
 
-        // Load organization state FIRST (groups, pinning, sorting) so reconcile during restore doesn't wipe it
-        LoadOrganization();
+        // Ensure organization is loaded before restoring sessions
+        await orgTask;
 
         // Restore previous sessions (includes subscribing to untracked server sessions in Persistent mode)
         IsRestoring = true;
