@@ -47,6 +47,56 @@ public class CcaRunTests
         Assert.False(run.IsActive);
     }
 
+    [Fact]
+    public void IsPrCompleted_Merged_ReturnsTrue()
+    {
+        var run = new CcaRun { PrState = "merged" };
+        Assert.True(run.IsPrCompleted);
+    }
+
+    [Fact]
+    public void IsPrCompleted_Closed_ReturnsTrue()
+    {
+        var run = new CcaRun { PrState = "closed" };
+        Assert.True(run.IsPrCompleted);
+    }
+
+    [Fact]
+    public void IsPrCompleted_Open_ReturnsFalse()
+    {
+        var run = new CcaRun { PrState = "open" };
+        Assert.False(run.IsPrCompleted);
+    }
+
+    [Fact]
+    public void IsPrCompleted_NoPr_ReturnsFalse()
+    {
+        var run = new CcaRun { PrState = null };
+        Assert.False(run.IsPrCompleted);
+    }
+
+    [Fact]
+    public void ClickUrl_WithPrUrl_ReturnsPrUrl()
+    {
+        var run = new CcaRun
+        {
+            HtmlUrl = "https://github.com/owner/repo/actions/runs/123",
+            PrUrl = "https://github.com/owner/repo/pull/42"
+        };
+        Assert.Equal("https://github.com/owner/repo/pull/42", run.ClickUrl);
+    }
+
+    [Fact]
+    public void ClickUrl_WithoutPrUrl_ReturnsHtmlUrl()
+    {
+        var run = new CcaRun
+        {
+            HtmlUrl = "https://github.com/owner/repo/actions/runs/123",
+            PrUrl = null
+        };
+        Assert.Equal("https://github.com/owner/repo/actions/runs/123", run.ClickUrl);
+    }
+
     [Theory]
     [InlineData("https://github.com/owner/repo.git", "owner/repo")]
     [InlineData("https://github.com/owner/repo", "owner/repo")]

@@ -71,11 +71,99 @@ public class CcaRunService
     {
         try
         {
+            // Fetch CCA runs and PRs in parallel
+            var runsTask = FetchActionsRunsAsync(ownerRepo, ct);
+            var prsTask = FetchPullRequestsAsync(ownerRepo, ct);
+            await Task.WhenAll(runsTask, prsTask);
+
+            var runs = await runsTask;
+            var prs = await prsTask;
+
+            // Join: match run.HeadBranch to PR headRefName
+            // Use TryAdd to handle duplicate branch names (e.g. from forks)
+            var prByBranch = new Dictionary<string, PrInfo>();
+            foreach (var pr in prs)
+                prByBranch.TryAdd(pr.Branch, pr);
+            foreach (var run in runs)
+            {
+                if (prByBranch.TryGetValue(run.HeadBranch, out var pr))
+                {
+                    run.PrNumber = pr.Number;
+                    run.PrState = pr.State;
+                    run.PrUrl = pr.Url;
+                    run.PrTitle = pr.Title;
+                }
+            }
+            return runs;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CcaRunService] Error fetching CCA runs for {ownerRepo}: {ex.Message}");
+            return new List<CcaRun>();
+        }
+    }
+
+    private static async Task<List<CcaRun>> FetchActionsRunsAsync(string ownerRepo, CancellationToken ct)
+    {
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = "gh",
+            Arguments = $"api /repos/{ownerRepo}/actions/runs?actor=copilot-swe-agent%5Bbot%5D&per_page=30 --jq \".workflow_runs\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        process.Start();
+
+        var stdout = await process.StandardOutput.ReadToEndAsync(ct);
+        var stderr = await process.StandardError.ReadToEndAsync(ct);
+        await process.WaitForExitAsync(ct);
+
+        if (process.ExitCode != 0)
+        {
+            Console.WriteLine($"[CcaRunService] gh api failed for {ownerRepo}: {stderr}");
+            return new List<CcaRun>();
+        }
+
+        if (string.IsNullOrWhiteSpace(stdout))
+            return new List<CcaRun>();
+
+        var runs = new List<CcaRun>();
+        using var doc = JsonDocument.Parse(stdout);
+        foreach (var elem in doc.RootElement.EnumerateArray())
+        {
+            var run = new CcaRun
+            {
+                Id = elem.GetProperty("id").GetInt64(),
+                Name = elem.TryGetProperty("name", out var nm) ? nm.GetString() ?? "" : "",
+                Event = elem.TryGetProperty("event", out var ev) ? ev.GetString() ?? "" : "",
+                DisplayTitle = elem.TryGetProperty("display_title", out var dt) ? dt.GetString() ?? "" : "",
+                HeadBranch = elem.TryGetProperty("head_branch", out var hb) ? hb.GetString() ?? "" : "",
+                Status = elem.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
+                Conclusion = elem.TryGetProperty("conclusion", out var cn) ? cn.GetString() : null,
+                CreatedAt = elem.TryGetProperty("created_at", out var ca) ? ca.GetDateTime() : DateTime.MinValue,
+                UpdatedAt = elem.TryGetProperty("updated_at", out var ua) ? ua.GetDateTime() : DateTime.MinValue,
+                HtmlUrl = elem.TryGetProperty("html_url", out var hu) ? hu.GetString() ?? "" : "",
+            };
+            if (run.IsCodingAgent)
+                runs.Add(run);
+        }
+        return runs;
+    }
+
+    private record PrInfo(int Number, string Branch, string State, string Url, string Title);
+
+    private static async Task<List<PrInfo>> FetchPullRequestsAsync(string ownerRepo, CancellationToken ct)
+    {
+        try
+        {
             using var process = new Process();
             process.StartInfo = new ProcessStartInfo
             {
                 FileName = "gh",
-                Arguments = $"api /repos/{ownerRepo}/actions/runs?actor=copilot-swe-agent%5Bbot%5D&per_page=30 --jq \".workflow_runs\"",
+                Arguments = $"pr list --repo {ownerRepo} --state all --limit 30 --json number,title,headRefName,state,url",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -84,45 +172,33 @@ public class CcaRunService
             process.Start();
 
             var stdout = await process.StandardOutput.ReadToEndAsync(ct);
-            var stderr = await process.StandardError.ReadToEndAsync(ct);
             await process.WaitForExitAsync(ct);
 
-            if (process.ExitCode != 0)
-            {
-                Console.WriteLine($"[CcaRunService] gh api failed for {ownerRepo}: {stderr}");
-                return new List<CcaRun>();
-            }
+            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(stdout))
+                return new List<PrInfo>();
 
-            if (string.IsNullOrWhiteSpace(stdout))
-                return new List<CcaRun>();
-
-            var runs = new List<CcaRun>();
+            var prs = new List<PrInfo>();
             using var doc = JsonDocument.Parse(stdout);
             foreach (var elem in doc.RootElement.EnumerateArray())
             {
-                var run = new CcaRun
-                {
-                    Id = elem.GetProperty("id").GetInt64(),
-                    Name = elem.TryGetProperty("name", out var nm) ? nm.GetString() ?? "" : "",
-                    Event = elem.TryGetProperty("event", out var ev) ? ev.GetString() ?? "" : "",
-                    DisplayTitle = elem.TryGetProperty("display_title", out var dt) ? dt.GetString() ?? "" : "",
-                    HeadBranch = elem.TryGetProperty("head_branch", out var hb) ? hb.GetString() ?? "" : "",
-                    Status = elem.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
-                    Conclusion = elem.TryGetProperty("conclusion", out var cn) ? cn.GetString() : null,
-                    CreatedAt = elem.TryGetProperty("created_at", out var ca) ? ca.GetDateTime() : DateTime.MinValue,
-                    UpdatedAt = elem.TryGetProperty("updated_at", out var ua) ? ua.GetDateTime() : DateTime.MinValue,
-                    HtmlUrl = elem.TryGetProperty("html_url", out var hu) ? hu.GetString() ?? "" : "",
-                };
-                // Only include coding agent runs (not comment-response runs like "Addressing comment on PR #123")
-                if (run.IsCodingAgent)
-                    runs.Add(run);
+                var branch = elem.TryGetProperty("headRefName", out var hb) ? hb.GetString() ?? "" : "";
+                var state = elem.TryGetProperty("state", out var st) ? st.GetString() ?? "" : "";
+                // gh CLI returns OPEN, MERGED, CLOSED — normalize to lowercase
+                state = state.ToLowerInvariant();
+                prs.Add(new PrInfo(
+                    Number: elem.TryGetProperty("number", out var n) ? n.GetInt32() : 0,
+                    Branch: branch,
+                    State: state,
+                    Url: elem.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "",
+                    Title: elem.TryGetProperty("title", out var t) ? t.GetString() ?? "" : ""
+                ));
             }
-            return runs;
+            return prs;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[CcaRunService] Error fetching CCA runs for {ownerRepo}: {ex.Message}");
-            return new List<CcaRun>();
+            Console.WriteLine($"[CcaRunService] Error fetching PRs for {ownerRepo}: {ex.Message}");
+            return new List<PrInfo>();
         }
     }
 

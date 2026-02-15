@@ -16,7 +16,23 @@ public class CcaRun
     public DateTime UpdatedAt { get; set; }
     public string HtmlUrl { get; set; } = "";
 
+    // PR info (enriched after fetch)
+    public int? PrNumber { get; set; }
+    public string? PrState { get; set; }   // "open", "merged", "closed"
+    public string? PrUrl { get; set; }
+    public string? PrTitle { get; set; }
+
     public bool IsActive => Status == "in_progress" || Status == "queued";
+
+    /// <summary>
+    /// True if the associated PR is merged or closed (work is done/abandoned).
+    /// </summary>
+    public bool IsPrCompleted => PrState is "merged" or "closed";
+
+    /// <summary>
+    /// The best URL to open when clicked: PR if available, otherwise the Actions run.
+    /// </summary>
+    public string ClickUrl => PrUrl ?? HtmlUrl;
 
     /// <summary>
     /// True if this is a coding agent run (creates branches, pushes code, opens PRs).
