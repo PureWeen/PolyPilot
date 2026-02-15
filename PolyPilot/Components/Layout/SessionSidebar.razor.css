@@ -1174,6 +1174,11 @@
     font-weight: 600;
 }
 
+.cca-action-link.open-btn {
+    color: var(--accent-primary, #3b82f6);
+    font-weight: 600;
+}
+
 .cca-action-link.loading {
     cursor: wait;
     animation: pulse 1.5s ease-in-out infinite;

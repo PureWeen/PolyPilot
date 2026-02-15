@@ -344,6 +344,10 @@ else
                                                             {
                                                                 <span class="cca-action-link loading" title="Loading...">⏳</span>
                                                             }
+                                                            else if (IsCcaRunLoaded(run.Id))
+                                                            {
+                                                                <span class="cca-action-link open-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="Switch to loaded session">Open →</span>
+                                                            }
                                                             else
                                                             {
                                                                 <span class="cca-action-link load-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="⚠️ CCA still running — load current progress">Load ↓</span>
@@ -370,6 +374,10 @@ else
                                                             {
                                                                 <span class="cca-action-link loading" title="Loading...">⏳</span>
                                                             }
+                                                            else if (IsCcaRunLoaded(run.Id))
+                                                            {
+                                                                <span class="cca-action-link open-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="Switch to loaded session">Open →</span>
+                                                            }
                                                             else
                                                             {
                                                                 <span class="cca-action-link load-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="Load CCA session locally">Load ↓</span>
@@ -395,6 +403,10 @@ else
                                                             @if (loadingCcaRuns.Contains(run.Id))
                                                             {
                                                                 <span class="cca-action-link loading" title="Loading...">⏳</span>
+                                                            }
+                                                            else if (IsCcaRunLoaded(run.Id))
+                                                            {
+                                                                <span class="cca-action-link open-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="Switch to loaded session">Open →</span>
                                                             }
                                                             else
                                                             {
@@ -714,6 +726,9 @@ else
             await InvokeAsync(StateHasChanged);
         }
     }
+
+    private bool IsCcaRunLoaded(long runId) =>
+        sessions.Any(s => s.CcaRunId == runId);
 
     private static string FormatTimeAgo(DateTime utcTime)
     {
