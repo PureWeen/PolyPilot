@@ -1757,6 +1757,10 @@ public class ActiveSessionEntry
     public string DisplayName { get; set; } = "";
     public string Model { get; set; } = "";
     public string? WorkingDirectory { get; set; }
+    // CCA context (for sessions loaded from CCA runs)
+    public long? CcaRunId { get; set; }
+    public int? CcaPrNumber { get; set; }
+    public string? CcaBranch { get; set; }
 }
 
 public class PersistedSessionInfo

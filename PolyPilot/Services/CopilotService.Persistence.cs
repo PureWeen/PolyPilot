@@ -22,7 +22,10 @@ public partial class CopilotService
                     SessionId = s.Info.SessionId!,
                     DisplayName = s.Info.Name,
                     Model = s.Info.Model,
-                    WorkingDirectory = s.Info.WorkingDirectory
+                    WorkingDirectory = s.Info.WorkingDirectory,
+                    CcaRunId = s.Info.CcaRunId,
+                    CcaPrNumber = s.Info.CcaPrNumber,
+                    CcaBranch = s.Info.CcaBranch
                 })
                 .ToList();
             
@@ -62,6 +65,13 @@ public partial class CopilotService
                             if (!Directory.Exists(sessionDir)) continue;
 
                             await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken);
+                            // Restore CCA metadata if this was a loaded CCA session
+                            if (entry.CcaRunId.HasValue && _sessions.TryGetValue(entry.DisplayName, out var restored))
+                            {
+                                restored.Info.CcaRunId = entry.CcaRunId;
+                                restored.Info.CcaPrNumber = entry.CcaPrNumber;
+                                restored.Info.CcaBranch = entry.CcaBranch;
+                            }
                             Debug($"Restored session: {entry.DisplayName}");
                         }
                         catch (Exception ex)
