@@ -354,15 +354,15 @@ else
                 }
             }
 
-            @if (ccaSessions.Any())
+            <div class="sidebar-divider"></div>
+            <div class="section-header" @onclick="ToggleCcaSessions" style="cursor: pointer;">
+                <span class="section-header-label">☁️ CCA Sessions @(ccaSessions.Any() ? $"({ccaSessions.Count})" : "")</span>
+                <span class="toggle-icon">@(showCcaSessions ? "▼" : "▶")</span>
+            </div>
+            
+            @if (showCcaSessions)
             {
-                <div class="sidebar-divider"></div>
-                <div class="section-header" @onclick="ToggleCcaSessions" style="cursor: pointer;">
-                    <span class="section-header-label">☁️ CCA Sessions (@ccaSessions.Count)</span>
-                    <span class="toggle-icon">@(showCcaSessions ? "▼" : "▶")</span>
-                </div>
-                
-                @if (showCcaSessions)
+                @if (ccaSessions.Any())
                 {
                     @foreach (var cca in ccaSessions.Take(30))
                     {
@@ -411,6 +411,10 @@ else
                             </div>
                         </div>
                     }
+                }
+                else
+                {
+                    <div class="empty-section-hint">No CCA sessions found</div>
                 }
             }
         </div>
