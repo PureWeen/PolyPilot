@@ -2,6 +2,7 @@
 @using PolyPilot.Models
 @inject CopilotService CopilotService
 @inject RepoManager RepoManager
+@inject CcaRunService CcaRunService
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
@@ -289,6 +290,61 @@ else
                                              OnToggleMenu="() => ToggleSessionMenu(sName)"
                                              OnCloseMenu="() => { openMenuSession = null; }" />
                         }
+
+                        @if (!string.IsNullOrEmpty(group.RepoId))
+                        {
+                            var repoForCca = RepoManager.Repositories.FirstOrDefault(r => r.Id == group.RepoId);
+                            if (repoForCca != null)
+                            {
+                                var ownerRepo = CcaRunService.ExtractOwnerRepo(repoForCca.Url);
+                                if (ownerRepo != null)
+                                {
+                                    var ccaKey = ownerRepo;
+                                    var runs = GetCcaRunsForRepo(ccaKey);
+                                    <div class="cca-sub-header" @onclick="() => ToggleRepoCca(ccaKey)" style="cursor:pointer;">
+                                        <span class="cca-sub-icon">☁️</span>
+                                        <span class="cca-sub-label">CCA Runs @(runs != null && runs.Count > 0 ? $"({runs.Count})" : "")</span>
+                                        <span class="toggle-icon" style="font-size:0.7rem">@(IsRepoCcaExpanded(ccaKey) ? "▼" : "▶")</span>
+                                    </div>
+                                    @if (IsRepoCcaExpanded(ccaKey))
+                                    {
+                                        @if (runs == null)
+                                        {
+                                            <div class="cca-loading">Loading...</div>
+                                        }
+                                        else if (runs.Count == 0)
+                                        {
+                                            <div class="cca-empty">No CCA runs found</div>
+                                        }
+                                        else
+                                        {
+                                            var activeRuns = runs.Where(r => r.IsActive).ToList();
+                                            var completedRuns = runs.Where(r => !r.IsActive).Take(5).ToList();
+                                            @foreach (var run in activeRuns)
+                                            {
+                                                <div class="cca-run-item active" title="@run.HtmlUrl">
+                                                    <span class="cca-run-status">🟢</span>
+                                                    <div class="cca-run-info">
+                                                        <span class="cca-run-title">@Truncate(run.DisplayTitle, 40)</span>
+                                                        <span class="cca-run-meta">🌿 @run.HeadBranch · @run.Status</span>
+                                                    </div>
+                                                </div>
+                                            }
+                                            @foreach (var run in completedRuns)
+                                            {
+                                                <div class="cca-run-item completed" title="@run.HtmlUrl">
+                                                    <span class="cca-run-status">@(run.Conclusion == "success" ? "✅" : "❌")</span>
+                                                    <div class="cca-run-info">
+                                                        <span class="cca-run-title">@Truncate(run.DisplayTitle, 40)</span>
+                                                        <span class="cca-run-meta">🌿 @run.HeadBranch · @FormatTimeAgo(run.UpdatedAt)</span>
+                                                    </div>
+                                                </div>
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -354,69 +410,7 @@ else
                 }
             }
 
-            <div class="sidebar-divider"></div>
-            <div class="section-header" @onclick="ToggleCcaSessions" style="cursor: pointer;">
-                <span class="section-header-label">☁️ CCA Sessions @(ccaSessions.Any() ? $"({ccaSessions.Count})" : "")</span>
-                <span class="toggle-icon">@(showCcaSessions ? "▼" : "▶")</span>
-            </div>
-            
-            @if (showCcaSessions)
-            {
-                @if (ccaSessions.Any())
-                {
-                    @foreach (var cca in ccaSessions.Take(30))
-                    {
-                        var isOpen = IsSessionOpen(cca.SessionId);
-                        <div class="session-item persisted @(isOpen ? "already-open" : "") @(confirmCcaResumeId == cca.SessionId ? "confirm-active" : "")" 
-                             @onclick="async () => { if (isOpen) await SwitchToOpenSession(cca.SessionId); else ConfirmCcaResume(cca); }"
-                             title="@(isOpen ? "Click to switch to this session" : GetCcaTooltip(cca))">
-                            <div class="session-info">
-                                <span class="session-name persisted-name">@(cca.Summary ?? "CCA Session")</span>
-                                <div class="session-meta-row">
-                                    <div class="session-meta-left">
-                                        <span class="session-meta-time">@cca.ModifiedTime.ToString("MMM dd") @cca.ModifiedTime.ToShortTimeString()</span>
-                                        @if (!string.IsNullOrEmpty(cca.Repository))
-                                        {
-                                            <span class="session-meta-dir">@cca.Repository</span>
-                                        }
-                                        @if (!string.IsNullOrEmpty(cca.Branch))
-                                        {
-                                            <span class="session-meta-dir">🌿 @cca.Branch</span>
-                                        }
-                                    </div>
-                                    @if (isOpen)
-                                    {
-                                        <span class="open-badge">● Open</span>
-                                    }
-                                    else if (confirmCcaResumeId != cca.SessionId)
-                                    {
-                                        <span class="resume-icon">Connect</span>
-                                    }
-                                </div>
-                                @if (!isOpen && confirmCcaResumeId == cca.SessionId)
-                                {
-                                    <div class="resume-confirm-wrap">
-                                        <div class="resume-confirm">
-                                            <button class="btn-resume-yes" @onclick="() => ConnectToCcaSession(cca)" @onclick:stopPropagation="true" disabled="@isCreating">
-                                                @if (isCreating) { <span>Connecting<span class="dots"><span>.</span><span>.</span><span>.</span></span></span> } else { <span>▶ Connect</span> }
-                                            </button>
-                                            <button class="btn-resume-no" @onclick="CancelCcaResume" @onclick:stopPropagation="true">✕</button>
-                                        </div>
-                                        @if (!string.IsNullOrEmpty(ccaResumeError))
-                                        {
-                                            <div class="resume-error">⚠ @ccaResumeError</div>
-                                        }
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    }
-                }
-                else
-                {
-                    <div class="empty-section-hint">No CCA sessions found</div>
-                }
-            }
+
         </div>
     };
 
@@ -437,10 +431,6 @@ else
     private bool showDirectoryPicker;
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
-    private List<CcaSessionSummary> ccaSessions = new();
-    private bool showCcaSessions = false;
-    private string? confirmCcaResumeId = null;
-    private string? ccaResumeError = null;
     private bool showAddRepo = false;
     private string newRepoUrl = "";
     private string? addRepoError = null;
@@ -449,6 +439,9 @@ else
     private bool confirmRepoReplace = false;
     private string? confirmRepoName = null;
     private string? confirmRemoveRepoId = null;
+    // CCA runs per repo
+    private HashSet<string> expandedRepoCca = new();
+    private Dictionary<string, List<CcaRun>?> ccaRunsByRepo = new();
 
     private async Task ToggleFlyout()
     {
@@ -599,69 +592,51 @@ else
         showPersistedSessions = !showPersistedSessions;
     }
 
-    private void ToggleCcaSessions()
+    // --- Repo CCA runs helpers ---
+
+    private bool IsRepoCcaExpanded(string ownerRepo) => expandedRepoCca.Contains(ownerRepo);
+
+    private List<CcaRun>? GetCcaRunsForRepo(string ownerRepo)
     {
-        showCcaSessions = !showCcaSessions;
-        if (showCcaSessions && ccaSessions.Count == 0)
+        return ccaRunsByRepo.TryGetValue(ownerRepo, out var runs) ? runs : null;
+    }
+
+    private void ToggleRepoCca(string ownerRepo)
+    {
+        if (expandedRepoCca.Contains(ownerRepo))
         {
-            _ = LoadCcaSessionsAsync();
+            expandedRepoCca.Remove(ownerRepo);
+        }
+        else
+        {
+            expandedRepoCca.Add(ownerRepo);
+            if (!ccaRunsByRepo.ContainsKey(ownerRepo))
+            {
+                ccaRunsByRepo[ownerRepo] = null; // loading state
+                _ = LoadRepoCcaRunsAsync(ownerRepo);
+            }
         }
     }
 
-    private async Task LoadCcaSessionsAsync()
+    private async Task LoadRepoCcaRunsAsync(string ownerRepo, bool forceRefresh = false)
     {
-        ccaSessions = await CopilotService.GetCcaSessionsAsync();
+        var runs = await CcaRunService.GetCcaRunsAsync(ownerRepo, forceRefresh);
+        ccaRunsByRepo[ownerRepo] = runs;
         await InvokeAsync(StateHasChanged);
     }
 
-    private void ConfirmCcaResume(CcaSessionSummary cca)
+    private static string FormatTimeAgo(DateTime utcTime)
     {
-        ccaResumeError = null;
-        confirmCcaResumeId = confirmCcaResumeId == cca.SessionId ? null : cca.SessionId;
+        var elapsed = DateTime.UtcNow - utcTime;
+        if (elapsed.TotalMinutes < 1) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+        if (elapsed.TotalDays < 7) return $"{(int)elapsed.TotalDays}d ago";
+        return utcTime.ToString("MMM dd");
     }
 
-    private void CancelCcaResume()
-    {
-        confirmCcaResumeId = null;
-        ccaResumeError = null;
-    }
-
-    private async Task ConnectToCcaSession(CcaSessionSummary cca)
-    {
-        isCreating = true;
-        ccaResumeError = null;
-        try
-        {
-            var displayName = cca.Summary ?? "CCA Session";
-            if (displayName.Length > 30) displayName = displayName[..27] + "...";
-            var sessionInfo = await CopilotService.ResumeSessionAsync(cca.SessionId, displayName, workingDirectory: cca.WorkingDirectory);
-            CopilotService.SwitchSession(sessionInfo.Name);
-            confirmCcaResumeId = null;
-            // Refresh CCA list since the session is now active
-            _ = LoadCcaSessionsAsync();
-        }
-        catch (Exception ex)
-        {
-            ccaResumeError = $"Failed to connect: {ex.Message}";
-            Console.WriteLine($"Error connecting to CCA session: {ex.Message}");
-        }
-        finally
-        {
-            isCreating = false;
-        }
-    }
-
-    private string GetCcaTooltip(CcaSessionSummary cca)
-    {
-        var tooltip = $"CCA Session: {cca.SessionId}\n";
-        if (!string.IsNullOrEmpty(cca.Repository))
-            tooltip += $"Repository: {cca.Repository}\n";
-        if (!string.IsNullOrEmpty(cca.Branch))
-            tooltip += $"Branch: {cca.Branch}\n";
-        if (!string.IsNullOrEmpty(cca.Summary))
-            tooltip += $"\n{cca.Summary}";
-        return tooltip;
-    }
+    private static string Truncate(string s, int max)
+        => s.Length <= max ? s : s[..(max - 1)] + "…";
 
     private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt) args)
     {
