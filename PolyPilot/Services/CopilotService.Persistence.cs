@@ -144,7 +144,8 @@ public partial class CopilotService
             state.Session!.On(evt => HandleSessionEvent(state, evt));
 
             Debug($"Session hydrated: {sessionName}");
-            OnStateChanged?.Invoke();
+            // Single UI notification — called from background thread so use InvokeOnUI
+            InvokeOnUI(() => OnStateChanged?.Invoke());
             return state;
         }
         catch (Exception ex)

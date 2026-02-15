@@ -625,44 +625,47 @@
         _lastRefresh = now;
         _refreshPending = false;
 
-        // Capture all card input values before re-render wipes them
-        try
+        // Only capture card input values in grid view (multiple inputs to preserve).
+        // In expanded view there's only one input so the JS interop round-trip is unnecessary.
+        if (expandedSession == null)
         {
-            var json = await JS.InvokeAsync<string>("eval", @"
-                (function() {
-                    var result = {};
-                    var active = document.activeElement;
-                    document.querySelectorAll('.card-input input, .card-input textarea, .expanded-card .input-area textarea').forEach(function(el) {
-                        if (el.id && el.value) result[el.id] = el.value;
-                    });
-                    if (active && active.id) result['__focused'] = active.id;
-                    if (active) { result['__selStart'] = active.selectionStart || 0; result['__selEnd'] = active.selectionEnd || 0; }
-                    return JSON.stringify(result);
-                })();
-            ");
-            if (!string.IsNullOrEmpty(json))
+            try
             {
-                var saved = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-                if (saved != null)
+                var json = await JS.InvokeAsync<string>("eval", @"
+                    (function() {
+                        var result = {};
+                        var active = document.activeElement;
+                        document.querySelectorAll('.card-input input, .card-input textarea, .expanded-card .input-area textarea').forEach(function(el) {
+                            if (el.id && el.value) result[el.id] = el.value;
+                        });
+                        if (active && active.id) result['__focused'] = active.id;
+                        if (active) { result['__selStart'] = active.selectionStart || 0; result['__selEnd'] = active.selectionEnd || 0; }
+                        return JSON.stringify(result);
+                    })();
+                ");
+                if (!string.IsNullOrEmpty(json))
                 {
-                    foreach (var (id, val) in saved)
+                    var saved = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                    if (saved != null)
                     {
-                        if (id.StartsWith("__")) continue;
-                        // Map input id back to session name
-                        var sessionName = id.Replace("input-", "").Replace("-", " ");
-                        if (!string.IsNullOrEmpty(val))
-                            draftBySession[sessionName] = val;
+                        foreach (var (id, val) in saved)
+                        {
+                            if (id.StartsWith("__")) continue;
+                            var sessionName = id.Replace("input-", "").Replace("-", " ");
+                            if (!string.IsNullOrEmpty(val))
+                                draftBySession[sessionName] = val;
+                        }
+                        if (saved.TryGetValue("__focused", out var fid))
+                            _focusedInputId = fid;
+                        if (saved.TryGetValue("__selStart", out var ss) && int.TryParse(ss, out var start))
+                            _cursorStart = start;
+                        if (saved.TryGetValue("__selEnd", out var se) && int.TryParse(se, out var end))
+                            _cursorEnd = end;
                     }
-                    if (saved.TryGetValue("__focused", out var fid))
-                        _focusedInputId = fid;
-                    if (saved.TryGetValue("__selStart", out var ss) && int.TryParse(ss, out var start))
-                        _cursorStart = start;
-                    if (saved.TryGetValue("__selEnd", out var se) && int.TryParse(se, out var end))
-                        _cursorEnd = end;
                 }
             }
+            catch { }
         }
-        catch { }
         StateHasChanged();
     }
 
@@ -717,7 +720,7 @@
                 expandedSession = active;
                 _focusedInputId = $"input-{active.Replace(" ", "-")}";
                 _needsScrollToBottom = true;
-                CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid);
+                _ = Task.Run(() => CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid));
             }
             
             // Set _lastActiveSession during initial load to prevent auto-expand above

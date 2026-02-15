@@ -1507,28 +1507,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         return _activeSessionName != null ? GetSession(_activeSessionName) : null;
     }
 
-    public async Task<bool> SwitchSessionAsync(string name)
-    {
-        if (!_sessions.ContainsKey(name))
-            return false;
-
-        // Ensure lazy-loaded session is hydrated before switching
-        try
-        {
-            await EnsureSessionResumedAsync(name);
-        }
-        catch (Exception ex)
-        {
-            Debug($"Failed to hydrate session '{name}': {ex.Message}");
-            return false;
-        }
-
-        _activeSessionName = name;
-        OnStateChanged?.Invoke();
-        return true;
-    }
-
-    // Synchronous wrapper for backward compatibility
     public bool SwitchSession(string name)
     {
         if (!_sessions.ContainsKey(name))
@@ -1536,19 +1514,21 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         _activeSessionName = name;
         
-        // Trigger async hydration in background
-        _ = Task.Run(async () =>
+        // If lazy-loaded, hydrate in background (fires OnStateChanged once when done)
+        if (_sessions.TryGetValue(name, out var state) && state.IsLazyLoaded)
         {
-            try
+            _ = Task.Run(async () =>
             {
-                await EnsureSessionResumedAsync(name);
-                InvokeOnUI(() => OnStateChanged?.Invoke());
-            }
-            catch (Exception ex)
-            {
-                Debug($"Failed to hydrate session '{name}': {ex.Message}");
-            }
-        });
+                try
+                {
+                    await EnsureSessionResumedAsync(name);
+                }
+                catch (Exception ex)
+                {
+                    Debug($"Failed to hydrate session '{name}': {ex.Message}");
+                }
+            });
+        }
         
         OnStateChanged?.Invoke();
         return true;
