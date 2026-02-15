@@ -20,6 +20,10 @@ public partial class CopilotService : IAsyncDisposable
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
     
+    // Cache for skills/agents discovery to avoid re-scanning filesystem on session switch
+    private static readonly ConcurrentDictionary<string, (List<SkillInfo> skills, List<AgentInfo> agents, DateTime scanned)> _discoveryCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
+    
     private static string? _copilotBaseDir;
     private static string CopilotBaseDir => _copilotBaseDir ??= GetCopilotBaseDir();
     
@@ -760,6 +764,11 @@ public partial class CopilotService : IAsyncDisposable
     /// </summary>
     public static List<SkillInfo> DiscoverAvailableSkills(string? workingDirectory = null)
     {
+        // Use cached results if available and not expired
+        var cacheKey = workingDirectory ?? "";
+        if (_discoveryCache.TryGetValue(cacheKey, out var cached) && (DateTime.Now - cached.scanned) < _cacheExpiry)
+            return new List<SkillInfo>(cached.skills);
+
         var skills = new List<SkillInfo>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -799,6 +808,11 @@ public partial class CopilotService : IAsyncDisposable
         {
             System.Diagnostics.Debug.WriteLine($"[Skills] Discovery failed: {ex.Message}");
         }
+
+        // Update cache with current results (agents will be added by DiscoverAvailableAgents)
+        _discoveryCache.AddOrUpdate(cacheKey, 
+            _ => (skills, new List<AgentInfo>(), DateTime.Now),
+            (_, existing) => (skills, existing.agents, DateTime.Now));
 
         return skills;
     }
@@ -849,6 +863,11 @@ public partial class CopilotService : IAsyncDisposable
 
     public List<AgentInfo> DiscoverAvailableAgents(string? workingDirectory)
     {
+        // Use cached results if available and not expired
+        var cacheKey = workingDirectory ?? "";
+        if (_discoveryCache.TryGetValue(cacheKey, out var cached) && (DateTime.Now - cached.scanned) < _cacheExpiry)
+            return new List<AgentInfo>(cached.agents);
+
         var agents = new List<AgentInfo>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -868,6 +887,11 @@ public partial class CopilotService : IAsyncDisposable
         {
             System.Diagnostics.Debug.WriteLine($"[Agents] Discovery failed: {ex.Message}");
         }
+
+        // Update cache with current results (skills may have been set by DiscoverAvailableSkills)
+        _discoveryCache.AddOrUpdate(cacheKey,
+            _ => (new List<SkillInfo>(), agents, DateTime.Now),
+            (_, existing) => (existing.skills, agents, DateTime.Now));
 
         return agents;
     }
