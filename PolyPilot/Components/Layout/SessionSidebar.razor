@@ -340,11 +340,6 @@ else
                                                         </span>
                                                         <span class="cca-run-meta">🌿 @run.HeadBranch · @run.Status</span>
                                                         <div class="cca-run-actions">
-                                                            @if (run.PrUrl != null)
-                                                            {
-                                                                <span class="cca-action-link" @onclick="() => OpenUrl(run.PrUrl)" title="Open Pull Request">PR ↗</span>
-                                                            }
-                                                            <span class="cca-action-link" @onclick="() => OpenUrl(run.HtmlUrl)" title="View Actions logs">Logs ↗</span>
                                                             @if (loadingCcaRuns.Contains(run.Id))
                                                             {
                                                                 <span class="cca-action-link loading" title="Loading...">⏳</span>
@@ -371,11 +366,6 @@ else
                                                         </span>
                                                         <span class="cca-run-meta">🌿 @run.HeadBranch · @FormatTimeAgo(run.UpdatedAt)</span>
                                                         <div class="cca-run-actions">
-                                                            @if (run.PrUrl != null)
-                                                            {
-                                                                <span class="cca-action-link" @onclick="() => OpenUrl(run.PrUrl)" title="Open Pull Request">PR ↗</span>
-                                                            }
-                                                            <span class="cca-action-link" @onclick="() => OpenUrl(run.HtmlUrl)" title="View Actions logs">Logs ↗</span>
                                                             @if (loadingCcaRuns.Contains(run.Id))
                                                             {
                                                                 <span class="cca-action-link loading" title="Loading...">⏳</span>
@@ -402,11 +392,6 @@ else
                                                         </span>
                                                         <span class="cca-run-meta">🌿 @run.HeadBranch · @FormatTimeAgo(run.UpdatedAt)</span>
                                                         <div class="cca-run-actions">
-                                                            @if (run.PrUrl != null)
-                                                            {
-                                                                <span class="cca-action-link" @onclick="() => OpenUrl(run.PrUrl)" title="Open Pull Request">PR ↗</span>
-                                                            }
-                                                            <span class="cca-action-link" @onclick="() => OpenUrl(run.HtmlUrl)" title="View Actions logs">Logs ↗</span>
                                                             @if (loadingCcaRuns.Contains(run.Id))
                                                             {
                                                                 <span class="cca-action-link loading" title="Loading...">⏳</span>
@@ -728,12 +713,6 @@ else
             loadingCcaRuns.Remove(run.Id);
             await InvokeAsync(StateHasChanged);
         }
-    }
-
-    private async Task OpenUrl(string url)
-    {
-        if (!string.IsNullOrEmpty(url))
-            await JS.InvokeVoidAsync("open", url, "_blank");
     }
 
     private static string FormatTimeAgo(DateTime utcTime)
