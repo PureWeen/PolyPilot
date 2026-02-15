@@ -1214,13 +1214,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     public async Task<AgentSessionInfo?> LoadCcaRunAsync(
         CcaRun run, string ownerRepo, string? model = null, CancellationToken ct = default)
     {
-        // Check if a session already exists for this CCA run
-        var existing = _sessions.Values
-            .FirstOrDefault(s => s.Info.CcaRunId == run.Id);
-        if (existing != null)
+        // Check if a session already exists for this CCA run (by ID or name pattern)
+        var existingSession = CcaLogService.FindExistingCcaSession(
+            _sessions.Values.Select(s => s.Info), run);
+        if (existingSession != null)
         {
-            Console.WriteLine($"[CopilotService] CCA run {run.Id} already loaded as session '{existing.Info.Name}'");
-            return existing.Info;
+            Console.WriteLine($"[CopilotService] CCA run {run.Id} already loaded as session '{existingSession.Name}'");
+            SaveActiveSessionsToDisk(); // Persist any backfilled CCA metadata
+            return existingSession;
         }
 
         var logService = _serviceProvider?.GetService(typeof(CcaLogService)) as CcaLogService;

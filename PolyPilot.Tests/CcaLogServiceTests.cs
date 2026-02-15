@@ -168,4 +168,113 @@ public class CcaLogServiceTests
         Assert.Equal(116, info.CcaPrNumber);
         Assert.Equal("copilot/add-plan-mode-preview-option", info.CcaBranch);
     }
+
+    // --- FindExistingCcaSession matching logic ---
+
+    [Fact]
+    public void FindExistingCcaSession_MatchesByCcaRunId()
+    {
+        var sessions = new List<AgentSessionInfo>
+        {
+            new() { Name = "CCA: PR #116 — Show plan", Model = "gpt-4", CcaRunId = 22038922298 },
+            new() { Name = "other session", Model = "gpt-4" }
+        };
+
+        var run = new CcaRun { Id = 22038922298, HeadBranch = "copilot/add-plan-mode" };
+        var match = CcaLogService.FindExistingCcaSession(sessions, run);
+
+        Assert.NotNull(match);
+        Assert.Equal("CCA: PR #116 — Show plan", match!.Name);
+    }
+
+    [Fact]
+    public void FindExistingCcaSession_MatchesByNamePrefix_WhenCcaRunIdNull()
+    {
+        // Simulates a session restored from disk before CCA persistence was added
+        var sessions = new List<AgentSessionInfo>
+        {
+            new() { Name = "CCA: PR #116 — Show plan in chat area during plan mode", Model = "gpt-4", CcaRunId = null },
+            new() { Name = "other session", Model = "gpt-4" }
+        };
+
+        var run = new CcaRun { Id = 22038922298, PrNumber = 116, HeadBranch = "copilot/add-plan-mode" };
+        var match = CcaLogService.FindExistingCcaSession(sessions, run);
+
+        Assert.NotNull(match);
+        Assert.Equal("CCA: PR #116 — Show plan in chat area during plan mode", match!.Name);
+    }
+
+    [Fact]
+    public void FindExistingCcaSession_NoMatch_ReturnsNull()
+    {
+        var sessions = new List<AgentSessionInfo>
+        {
+            new() { Name = "some session", Model = "gpt-4" },
+            new() { Name = "CCA: PR #200 — Other thing", Model = "gpt-4", CcaRunId = 999 }
+        };
+
+        var run = new CcaRun { Id = 22038922298, PrNumber = 116, HeadBranch = "copilot/add-plan-mode" };
+        var match = CcaLogService.FindExistingCcaSession(sessions, run);
+
+        Assert.Null(match);
+    }
+
+    [Fact]
+    public void FindExistingCcaSession_BackfillsCcaRunId_WhenMatchedByName()
+    {
+        var session = new AgentSessionInfo
+        {
+            Name = "CCA: PR #116 — Show plan",
+            Model = "gpt-4",
+            CcaRunId = null  // Was restored without CCA metadata
+        };
+        var sessions = new List<AgentSessionInfo> { session };
+
+        var run = new CcaRun
+        {
+            Id = 22038922298,
+            PrNumber = 116,
+            HeadBranch = "copilot/add-plan-mode",
+            PrTitle = "Show plan"
+        };
+        var match = CcaLogService.FindExistingCcaSession(sessions, run);
+
+        Assert.NotNull(match);
+        // After finding by name, CcaRunId should be backfilled
+        Assert.Equal(22038922298, match!.CcaRunId);
+        Assert.Equal(116, match.CcaPrNumber);
+        Assert.Equal("copilot/add-plan-mode", match.CcaBranch);
+    }
+
+    [Fact]
+    public void FindExistingCcaSession_DoesNotMatchDifferentPrNumber()
+    {
+        var sessions = new List<AgentSessionInfo>
+        {
+            new() { Name = "CCA: PR #200 — Different PR", Model = "gpt-4", CcaRunId = null }
+        };
+
+        var run = new CcaRun { Id = 123, PrNumber = 116, HeadBranch = "copilot/something" };
+        var match = CcaLogService.FindExistingCcaSession(sessions, run);
+
+        Assert.Null(match);
+    }
+
+    [Fact]
+    public void FindExistingCcaSession_PrefersRunIdOverName()
+    {
+        // Two sessions: one with matching RunId, one with matching name
+        var sessions = new List<AgentSessionInfo>
+        {
+            new() { Name = "CCA: PR #116 — old", Model = "gpt-4", CcaRunId = null },
+            new() { Name = "renamed-session", Model = "gpt-4", CcaRunId = 22038922298 }
+        };
+
+        var run = new CcaRun { Id = 22038922298, PrNumber = 116, HeadBranch = "copilot/add-plan-mode" };
+        var match = CcaLogService.FindExistingCcaSession(sessions, run);
+
+        // Should match by CcaRunId first
+        Assert.NotNull(match);
+        Assert.Equal("renamed-session", match!.Name);
+    }
 }

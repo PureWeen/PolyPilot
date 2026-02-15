@@ -76,6 +76,37 @@ public class CcaLogService
     }
 
     /// <summary>
+    /// Finds an existing session that was loaded from a CCA run.
+    /// Matches by CcaRunId first, then falls back to matching the session name
+    /// pattern "CCA: PR #{number}". When matched by name, backfills CCA metadata.
+    /// </summary>
+    public static AgentSessionInfo? FindExistingCcaSession(
+        IEnumerable<AgentSessionInfo> sessions, CcaRun run)
+    {
+        // Primary: match by CcaRunId
+        var match = sessions.FirstOrDefault(s => s.CcaRunId == run.Id);
+        if (match != null) return match;
+
+        // Fallback: match by session name prefix "CCA: PR #{number}"
+        if (run.PrNumber.HasValue)
+        {
+            var prPrefix = $"CCA: PR #{run.PrNumber}";
+            match = sessions.FirstOrDefault(s =>
+                s.Name.StartsWith(prPrefix, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+            {
+                // Backfill CCA metadata so future checks use the fast path
+                match.CcaRunId = run.Id;
+                match.CcaPrNumber = run.PrNumber;
+                match.CcaBranch = run.HeadBranch;
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Parse the raw CCA log to extract the agent conversation, stripping
     /// boilerplate, timestamps, and verbose tool output.
     /// </summary>
