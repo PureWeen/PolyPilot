@@ -10,6 +10,7 @@
 @inject GitAutoUpdateService GitAutoUpdate
 @inject QrScannerService QrScanner
 @inject FiestaService FiestaService
+@inject RepoManager RepoManager
 @implements IAsyncDisposable
 
 <div class="dashboard @(expandedSession != null ? "expanded-mode" : "")">
@@ -259,6 +260,7 @@
         CopilotService.OnError += HandleError;
         CopilotService.OnTurnStart += HandleTurnStart;
         CopilotService.OnTurnEnd += HandleTurnEnd;
+        CopilotService.OnInstructionRecommendationRequested += HandleInstructionRecommendation;
         FiestaService.OnStateChanged += HandleFiestaStateChanged;
         FiestaService.OnHostTaskUpdate += HandleFiestaTaskUpdate;
 
@@ -1102,6 +1104,7 @@
                     "- `/status` — Show git status\n" +
                     "- `/mcp` — List MCP servers (enable/disable with `/mcp enable|disable <name>`)\n" +
                     "- `/plugin` — List installed plugins (enable/disable with `/plugin enable|disable <name>`)\n" +
+                    "- `/instructions` — Recommend instruction, skill, and agent improvements\n" +
                     "- `!<command>` — Run a shell command"));
                 break;
 
@@ -1222,6 +1225,10 @@
                 HandlePluginCommand(session, arg);
                 break;
 
+            case "instructions":
+                await SendInstructionRecommendation(sessionName, null);
+                return;
+
             default:
                 // Unknown command — pass through to the SDK as a regular prompt
                 _ = CopilotService.SendPromptAsync(sessionName, input);
@@ -1232,6 +1239,77 @@
             session.MessageCount = session.History.Count;
         _needsScrollToBottom = true;
         await InvokeAsync(SafeRefreshAsync);
+    }
+
+    private void HandleInstructionRecommendation(string? sessionName, string? repoId)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await SendInstructionRecommendation(sessionName, repoId);
+        });
+    }
+
+    private async Task SendInstructionRecommendation(string? sessionName, string? repoId)
+    {
+        // Resolve the target session
+        string targetSession;
+        if (!string.IsNullOrEmpty(sessionName) && sessions.Any(s => s.Name == sessionName))
+        {
+            targetSession = sessionName;
+        }
+        else if (!string.IsNullOrEmpty(expandedSession))
+        {
+            targetSession = expandedSession;
+        }
+        else if (sessions.Count > 0)
+        {
+            targetSession = sessions[0].Name;
+        }
+        else
+        {
+            return; // No session available
+        }
+
+        var session = sessions.FirstOrDefault(s => s.Name == targetSession);
+        if (session == null) return;
+
+        // Determine working directory and repo name
+        string? workingDirectory = session.WorkingDirectory;
+        string? repoName = null;
+
+        if (!string.IsNullOrEmpty(repoId))
+        {
+            var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == repoId);
+            if (repo != null)
+            {
+                repoName = repo.Name;
+                // Try to find a worktree for this repo to use as working directory
+                var worktree = RepoManager.Worktrees.FirstOrDefault(w => w.RepoId == repoId);
+                if (worktree != null && !string.IsNullOrEmpty(worktree.Path))
+                    workingDirectory = worktree.Path;
+            }
+        }
+
+        // Gather existing skills and agents
+        var skills = CopilotService.DiscoverAvailableSkills(workingDirectory)
+            .Select(s => (s.Name, s.Description)).ToList();
+        var agents = CopilotService.DiscoverAvailableAgents(workingDirectory)
+            .Select(a => (a.Name, a.Description)).ToList();
+
+        var prompt = InstructionRecommendationHelper.BuildRecommendationPrompt(
+            workingDirectory, skills, agents, repoName);
+
+        // Select and expand this session
+        CopilotService.SetActiveSession(targetSession);
+        expandedSession = targetSession;
+        _explicitlyCollapsed = false;
+
+        session.History.Add(ChatMessage.UserMessage("/instructions"));
+        session.MessageCount = session.History.Count;
+        _needsScrollToBottom = true;
+        await InvokeAsync(SafeRefreshAsync);
+
+        _ = CopilotService.SendPromptAsync(targetSession, prompt);
     }
 
     private async Task RunGitCommand(string sessionName, AgentSessionInfo session, string gitArgs)
@@ -2216,6 +2294,7 @@
         CopilotService.OnError -= HandleError;
         CopilotService.OnTurnStart -= HandleTurnStart;
         CopilotService.OnTurnEnd -= HandleTurnEnd;
+        CopilotService.OnInstructionRecommendationRequested -= HandleInstructionRecommendation;
         FiestaService.OnStateChanged -= HandleFiestaStateChanged;
         FiestaService.OnHostTaskUpdate -= HandleFiestaTaskUpdate;
         foreach (var images in pendingImagesBySession.Values)

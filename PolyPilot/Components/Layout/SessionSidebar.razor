@@ -244,6 +244,9 @@ else
                                                     <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; createSessionFormRef?.ExpandForRepo(rId); }">
                                                         ➕ New Session
                                                     </button>
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; CopilotService.RequestInstructionRecommendation(repoId: rId); }">
+                                                        💡 Recommend Instructions
+                                                    </button>
                                                     <div class="group-menu-separator"></div>
                                                     <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; confirmRemoveRepoId = rId; }">
                                                         🗑 Remove Repo
@@ -287,7 +290,8 @@ else
                                              OnStartRename="() => StartRename(sName)"
                                              OnCommitRename="CommitRename"
                                              OnToggleMenu="() => ToggleSessionMenu(sName)"
-                                             OnCloseMenu="() => { openMenuSession = null; }" />
+                                             OnCloseMenu="() => { openMenuSession = null; }"
+                                             OnRecommendInstructions="() => CopilotService.RequestInstructionRecommendation(sName)" />
                         }
                     }
                 }
