@@ -1169,6 +1169,21 @@
     text-decoration: underline;
 }
 
+.cca-action-link.load-btn {
+    color: var(--accent-secondary, #10b981);
+    font-weight: 600;
+}
+
+.cca-action-link.loading {
+    cursor: wait;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
 /* === Mobile responsive === */
 @media (max-width: 640px) {
     .flyout-header {

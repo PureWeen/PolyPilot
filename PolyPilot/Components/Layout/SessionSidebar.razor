@@ -345,6 +345,14 @@ else
                                                                 <span class="cca-action-link" @onclick="() => OpenUrl(run.PrUrl)" title="Open Pull Request">PR ↗</span>
                                                             }
                                                             <span class="cca-action-link" @onclick="() => OpenUrl(run.HtmlUrl)" title="View Actions logs">Logs ↗</span>
+                                                            @if (loadingCcaRuns.Contains(run.Id))
+                                                            {
+                                                                <span class="cca-action-link loading" title="Loading...">⏳</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="cca-action-link load-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="⚠️ CCA still running — load current progress">Load ↓</span>
+                                                            }
                                                         </div>
                                                     </div>
                                                 </div>
@@ -368,6 +376,14 @@ else
                                                                 <span class="cca-action-link" @onclick="() => OpenUrl(run.PrUrl)" title="Open Pull Request">PR ↗</span>
                                                             }
                                                             <span class="cca-action-link" @onclick="() => OpenUrl(run.HtmlUrl)" title="View Actions logs">Logs ↗</span>
+                                                            @if (loadingCcaRuns.Contains(run.Id))
+                                                            {
+                                                                <span class="cca-action-link loading" title="Loading...">⏳</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="cca-action-link load-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="Load CCA session locally">Load ↓</span>
+                                                            }
                                                         </div>
                                                     </div>
                                                 </div>
@@ -391,6 +407,14 @@ else
                                                                 <span class="cca-action-link" @onclick="() => OpenUrl(run.PrUrl)" title="Open Pull Request">PR ↗</span>
                                                             }
                                                             <span class="cca-action-link" @onclick="() => OpenUrl(run.HtmlUrl)" title="View Actions logs">Logs ↗</span>
+                                                            @if (loadingCcaRuns.Contains(run.Id))
+                                                            {
+                                                                <span class="cca-action-link loading" title="Loading...">⏳</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="cca-action-link load-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="Load CCA session locally">Load ↓</span>
+                                                            }
                                                         </div>
                                                     </div>
                                                 </div>
@@ -497,6 +521,7 @@ else
     // CCA runs per repo
     private HashSet<string> expandedRepoCca = new();
     private Dictionary<string, List<CcaRun>?> ccaRunsByRepo = new();
+    private HashSet<long> loadingCcaRuns = new HashSet<long>();
 
     private async Task ToggleFlyout()
     {
@@ -678,6 +703,31 @@ else
         var runs = await CcaRunService.GetCcaRunsAsync(ownerRepo, forceRefresh);
         ccaRunsByRepo[ownerRepo] = runs;
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadCcaRunAsync(CcaRun run, string ownerRepo)
+    {
+        if (loadingCcaRuns.Contains(run.Id)) return;
+        loadingCcaRuns.Add(run.Id);
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var session = await CopilotService.LoadCcaRunAsync(run, ownerRepo);
+            if (session != null)
+            {
+                await SelectSession(session.Name);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionSidebar] Failed to load CCA run: {ex.Message}");
+        }
+        finally
+        {
+            loadingCcaRuns.Remove(run.Id);
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task OpenUrl(string url)

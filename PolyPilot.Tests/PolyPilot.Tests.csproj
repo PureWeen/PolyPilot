@@ -31,6 +31,7 @@
     <Compile Include="../PolyPilot/Models/CcaRun.cs" Link="Shared/CcaRun.cs" />
     <Compile Include="../PolyPilot/Services/NotificationMessageBuilder.cs" Link="Shared/NotificationMessageBuilder.cs" />
     <Compile Include="../PolyPilot/Services/CcaRunService.cs" Link="Shared/CcaRunService.cs" />
+    <Compile Include="../PolyPilot/Services/CcaLogService.cs" Link="Shared/CcaLogService.cs" />
   </ItemGroup>
 
 </Project>
