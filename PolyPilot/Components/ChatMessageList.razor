@@ -58,6 +58,28 @@
             }
         }
 
+        @* Plan/intent — shown in expanded view when plan mode is active and there's intent text *@
+        @if (!Compact && PlanMode && !string.IsNullOrEmpty(Intent))
+        {
+            <div class="plan-block @(_planCollapsed && LineCount(Intent) > 5 ? "collapsed" : "")">
+                <button class="plan-header" @onclick="() => _planCollapsed = !_planCollapsed">
+                    <span class="plan-title">📋 Plan</span>
+                    @if (LineCount(Intent) > 5)
+                    {
+                        <span class="collapse-icon">@(_planCollapsed ? "▶" : "▼")</span>
+                    }
+                </button>
+                @if (!_planCollapsed || LineCount(Intent) <= 5)
+                {
+                    <div class="plan-content markdown-body">@((MarkupString)RenderMarkdown(Intent))</div>
+                }
+                else
+                {
+                    <div class="plan-content preview">@FirstLines(Intent, 3)</div>
+                }
+            </div>
+        }
+
         @* Streaming content — only show while actively processing to avoid overlap with finalized History *@
         @if (!string.IsNullOrEmpty(StreamingContent) && IsProcessing)
         {
@@ -109,6 +131,10 @@
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
     [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
+    [Parameter] public bool PlanMode { get; set; }
+    [Parameter] public string Intent { get; set; } = "";
+
+    private bool _planCollapsed;
 
     private string GetLayoutClass() => Layout switch
     {
