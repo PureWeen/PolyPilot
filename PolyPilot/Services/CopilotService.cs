@@ -172,6 +172,16 @@ public partial class CopilotService : IAsyncDisposable
     public event Action<string, SessionUsageInfo>? OnUsageInfoChanged; // sessionName, usageInfo
     public event Action<string>? OnTurnStart; // sessionName
     public event Action<string>? OnTurnEnd; // sessionName
+    public event Action<string?, string?>? OnInstructionRecommendationRequested; // sessionName, repoId
+
+    /// <summary>
+    /// Request instruction recommendations for a session or repository.
+    /// Fires OnInstructionRecommendationRequested so the Dashboard can handle it.
+    /// </summary>
+    public void RequestInstructionRecommendation(string? sessionName = null, string? repoId = null)
+    {
+        OnInstructionRecommendationRequested?.Invoke(sessionName, repoId);
+    }
 
     private class SessionState
     {

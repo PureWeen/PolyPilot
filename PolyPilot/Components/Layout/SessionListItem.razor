@@ -114,6 +114,10 @@
                     </button>
                     <div class="menu-separator"></div>
                 }
+                <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnRecommendInstructions.InvokeAsync(); }">
+                    💡 Recommend Instructions
+                </button>
+                <div class="menu-separator"></div>
                 <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnClose.InvokeAsync(); }">
                     🗑 Close Session
                 </button>
@@ -141,6 +145,7 @@
     [Parameter] public EventCallback OnCommitRename { get; set; }
     [Parameter] public EventCallback OnToggleMenu { get; set; }
     [Parameter] public EventCallback OnCloseMenu { get; set; }
+    [Parameter] public EventCallback OnRecommendInstructions { get; set; }
 
     private async Task HandleRenameKeyDown(KeyboardEventArgs e)
     {

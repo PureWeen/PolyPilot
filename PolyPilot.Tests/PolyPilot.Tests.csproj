@@ -29,6 +29,7 @@
     <Compile Include="../PolyPilot/Models/FiestaModels.cs" Link="Shared/FiestaModels.cs" />
     <Compile Include="../PolyPilot/Models/ModelHelper.cs" Link="Shared/ModelHelper.cs" />
     <Compile Include="../PolyPilot/Services/NotificationMessageBuilder.cs" Link="Shared/NotificationMessageBuilder.cs" />
+    <Compile Include="../PolyPilot/Models/InstructionRecommendationHelper.cs" Link="Shared/InstructionRecommendationHelper.cs" />
   </ItemGroup>
 
 </Project>
