@@ -1174,9 +1174,14 @@
                     {
                         if (t.IsFaulted)
                         {
-                            InvokeAsync(() =>
+                            var errorMsg = t.Exception?.InnerException?.Message ?? "Unknown error";
+                            Console.WriteLine($"Delegate to CCA failed for {sessionName}: {errorMsg}");
+                            InvokeAsync(async () =>
                             {
-                                Console.WriteLine($"Delegate to CCA failed for {sessionName}: {t.Exception?.InnerException?.Message}");
+                                session.History.Add(ChatMessage.ErrorMessage($"❌ Delegate failed: {errorMsg}"));
+                                session.MessageCount = session.History.Count;
+                                _needsScrollToBottom = true;
+                                await SafeRefreshAsync();
                             });
                         }
                     });
