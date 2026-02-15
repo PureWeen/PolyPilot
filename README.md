@@ -33,12 +33,6 @@ The Copilot CLI is powerful, but it's one agent in one terminal. What if you cou
 
 That's PolyPilot.
 
-## 🗺️ Active Planning Doc
-
-Current Copilot SDK event/chat-fidelity planning work is tracked in:
-
-- [`COPILOT-SDK-CHAT-FIDELITY-PLAN.md`](COPILOT-SDK-CHAT-FIDELITY-PLAN.md)
-
 ## ✨ Key Features
 
 ### 🎛️ Multi-Session Orchestrator Dashboard
@@ -65,11 +59,43 @@ Point each agent at a different repo or directory. Native folder pickers on macO
 ### 🏗️ Session Organization
 Groups, pinning, and multiple sort modes (Last Active, Created, A–Z, Manual) let you manage large fleets of agents without losing track. Collapsible groups keep things tidy.
 
+### 🎉 Fiesta Mode — Multi-Machine Orchestration
+Discover and link other PolyPilot instances on your LAN. Start a "Fiesta" to fan out work to linked worker machines via `@mention` routing. Workers are discovered automatically via UDP broadcast and linked manually in Settings. Use `@worker-name` in your prompts to dispatch tasks to specific machines.
+
+### ⌨️ Slash Commands
+Built-in slash commands give you quick control without leaving the chat:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show available commands |
+| `/clear` | Clear chat history |
+| `/version` | Show app version, SDK, runtime, and git commit info |
+| `/compact` | Summarize conversation and start fresh |
+| `/new [name]` | Create a new session |
+| `/sessions` | List all active sessions |
+| `/rename <name>` | Rename the current session |
+| `/diff [args]` | Show git diff |
+| `/status` | Show git status |
+| `/mcp` | List, enable, or disable MCP servers |
+| `/plugin` | List, enable, or disable plugins |
+
+### 🔔 Smart Notifications
+Get notified when agents finish tasks, encounter errors, or need your attention — even when the app is in the background. Context-aware notification messages tell you exactly what happened.
+
+### 🎮 Demo Mode
+Test the UI without a Copilot connection. The built-in demo service simulates streaming responses, tool calls, and activity indicators with realistic timing — perfect for UI development and showcasing features.
+
 ### 🔌 Flexible Connection Modes
 From embedded stdio for quick single-machine use, to a persistent server that survives app restarts, to remote mode for mobile access — pick the transport that fits your workflow.
 
 ### 🛡️ Auto-Reconnect
 If an agent's underlying process dies mid-conversation, PolyPilot automatically resumes the session and retries — transparent to you.
+
+### 🔄 Git Auto-Update
+When running from a git checkout, PolyPilot can automatically detect and pull updates from the main branch — keeping your instance up to date without manual intervention.
+
+### 🌐 Tailscale Integration
+Detects your Tailscale VPN status and IP automatically, making it easy to share your agent fleet across your Tailscale network without DevTunnel.
 
 ## Connection Modes
 
@@ -165,19 +191,31 @@ PolyPilot/
 │   ├── BridgeMessages.cs       # WebSocket bridge protocol (19 message types)
 │   ├── RepositoryInfo.cs       # Managed repository metadata
 │   ├── DiffParser.cs           # Git diff parsing for inline display
+│   ├── FiestaModels.cs         # Fiesta worker discovery & linking models
+│   ├── ModelHelper.cs          # Model name normalization (display ↔ SDK slug)
+│   ├── PendingImage.cs         # Pending image attachment record
 │   └── PlatformHelper.cs       # Platform detection (IsDesktop, IsMobile)
 ├── Services/
 │   ├── CopilotService.cs       # Core service: session CRUD, events, persistence
-│   ├── CopilotService.*.cs     # Partial classes: Events, Bridge, Persistence, Organization, Utilities
+│   ├── CopilotService.Events.cs    # SDK event handling (deltas, tools, intents)
+│   ├── CopilotService.Bridge.cs    # WebSocket bridge integration
+│   ├── CopilotService.Persistence.cs # Session save/restore to disk
+│   ├── CopilotService.Organization.cs # Groups, pins, sorting
+│   ├── CopilotService.Utilities.cs    # Shared helpers
 │   ├── ChatDatabase.cs         # SQLite chat history persistence
 │   ├── ServerManager.cs        # Persistent server lifecycle + PID tracking
 │   ├── DevTunnelService.cs     # Azure DevTunnel CLI wrapper for remote sharing
 │   ├── WsBridgeServer.cs       # WebSocket bridge server (desktop → mobile)
 │   ├── WsBridgeClient.cs       # WebSocket bridge client (mobile → desktop)
+│   ├── FiestaService.cs        # LAN worker discovery, linking, task dispatch
 │   ├── RepoManager.cs          # Git repo cloning, worktree management
 │   ├── DemoService.cs          # Offline demo mode for testing UI
 │   ├── QrScannerService.cs     # QR code scanning for mobile connection setup
-│   └── TailscaleService.cs     # Tailscale VPN integration for LAN sharing
+│   ├── TailscaleService.cs     # Tailscale VPN detection for LAN sharing
+│   ├── KeyCommandService.cs    # Mac Catalyst keyboard shortcut bridge
+│   ├── GitAutoUpdateService.cs # Auto-detect and pull updates from git
+│   ├── NotificationMessageBuilder.cs # Context-aware notification messages
+│   └── INotificationManagerService.cs # Platform notification abstraction
 ├── Components/
 │   ├── Layout/
 │   │   ├── MainLayout.razor    # App shell with sidebar + content area
@@ -191,14 +229,15 @@ PolyPilot/
 │   ├── SessionCard.razor       # Dashboard grid card with streaming output
 │   ├── ExpandedSessionView.razor # Full-screen single-session chat view
 │   ├── ChatMessageList.razor   # Message list with Markdown rendering
+│   ├── ChatMessageItem.razor   # Individual chat message component
 │   ├── DiffView.razor          # Inline git diff viewer
 │   ├── ModelSelector.razor     # Model picker dropdown
 │   └── RemoteDirectoryPicker.razor # Remote directory browser for mobile
 ├── Platforms/
-│   ├── MacCatalyst/            # Mac Catalyst entitlements, folder picker
-│   ├── Windows/                # WinUI entry point, folder picker
-│   ├── Android/                # Android platform bootstrapping
-│   └── iOS/                    # iOS platform bootstrapping
+│   ├── MacCatalyst/            # Mac Catalyst entitlements, folder picker, notifications
+│   ├── Windows/                # WinUI entry point, folder picker, notifications
+│   ├── Android/                # Android platform bootstrapping, notifications
+│   └── iOS/                    # iOS platform bootstrapping, notifications
 └── wwwroot/
     └── app.css                 # Global styles
 ```
@@ -266,7 +305,7 @@ dotnet build PolyPilot.csproj -f net10.0-windows10.0.19041.0
 
 ```bash
 dotnet build PolyPilot.csproj -f net10.0-android -t:Install   # Build + deploy to connected device
-adb shell am start -n com.companyname.PolyPilot/crc645dd8ecec3b5d9ba6.MainActivity
+adb shell am start -n com.microsoft.PolyPilot/crc64ef8e1bf56c865459.MainActivity
 ```
 
 ## 📱 Remote Access via DevTunnel
@@ -342,6 +381,7 @@ The tunnel URL and ID are persisted across restarts — stopping and restarting 
 | `active-sessions.json` | Active sessions for restore on relaunch |
 | `ui-state.json` | Last active page and session name |
 | `organization.json` | Session groups, pins, sort preferences |
+| `fiesta.json` | Linked Fiesta workers for multi-machine orchestration |
 | `server.pid` | PID and port of the persistent Copilot server |
 | `crash.log` | Unhandled exception log |
 | `repos.json` | Managed repository list |
