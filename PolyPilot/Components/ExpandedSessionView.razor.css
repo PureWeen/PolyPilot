@@ -139,6 +139,85 @@
 }
 .collapse-card-btn:hover { background: none; }
 
+.fiesta-btn {
+    border: none;
+    background: transparent;
+    color: inherit;
+    padding: 0.1rem 0.2rem;
+}
+
+.fiesta-btn.active {
+    opacity: 1;
+    color: var(--accent-primary);
+}
+
+.fiesta-panel-inline {
+    margin: 0.5rem 1rem 0;
+    border: 1px solid var(--control-border);
+    border-radius: 8px;
+    background: var(--control-bg);
+    padding: 0.55rem 0.65rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.fiesta-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.fiesta-row label {
+    min-width: 5rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.fiesta-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.35rem 0.45rem;
+    border-radius: 6px;
+    border: 1px solid var(--control-border);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+}
+
+.fiesta-worker-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-height: 130px;
+    overflow-y: auto;
+}
+
+.fiesta-worker-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+}
+
+.fiesta-worker-status {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.fiesta-empty {
+    color: var(--text-muted);
+    font-size: 0.74rem;
+}
+
+.fiesta-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
 /* Messages area (expanded) */
 .expanded-card .messages {
     flex: 1;

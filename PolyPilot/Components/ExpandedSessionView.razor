@@ -39,9 +39,54 @@
                     }
                 </div>
             </div>
+            <button class="icon-badge fiesta-btn @(FiestaActive ? "active" : "")"
+                    data-tooltip="Fiesta workers"
+                    @onclick="ToggleFiestaPicker">🎉</button>
             <button class="icon-badge collapse-card-btn" data-tooltip="Back to grid (Esc / ⌘E)" @onclick="OnCollapse">⊟</button>
         </div>
     </div>
+
+    @if (_showFiestaPicker)
+    {
+        <div class="fiesta-panel-inline">
+            <div class="fiesta-row">
+                <label>Fiesta name</label>
+                <input type="text" @bind="_fiestaName" placeholder="Fiesta name..." />
+            </div>
+            <div class="fiesta-worker-list">
+                @if (FiestaWorkers.Count == 0)
+                {
+                    <div class="fiesta-empty">No linked workers. Link workers in Settings first.</div>
+                }
+                else
+                {
+                    @foreach (var worker in FiestaWorkers.OrderBy(w => w.Name))
+                    {
+                        var selected = _selectedWorkerIds.Contains(worker.Id);
+                        <label class="fiesta-worker-item">
+                            <input type="checkbox"
+                                   checked="@selected"
+                                   @onchange="e => ToggleFiestaWorker(worker.Id, IsChecked(e))" />
+                            <span>@worker.Name (@worker.Hostname)</span>
+                            <span class="fiesta-worker-status">@(worker.IsOnline ? "online" : "offline")</span>
+                        </label>
+                    }
+                }
+            </div>
+            <div class="fiesta-actions">
+                @if (FiestaActive)
+                {
+                    <button class="queue-clear-btn" @onclick="StopFiestaAsync">Stop Fiesta</button>
+                }
+                else
+                {
+                    <button class="queue-clear-btn" @onclick="StartFiestaAsync"
+                            disabled="@(_selectedWorkerIds.Count == 0)">Start Fiesta</button>
+                }
+                <button class="queue-clear-btn" @onclick="ToggleFiestaPicker">Close</button>
+            </div>
+        </div>
+    }
 
     <div class="messages expanded-messages">
         @{ var expandedMessages = GetWindowedMessages(); }
@@ -113,6 +158,7 @@
         <div class="input-row">
             <input type="file" id="file-@Session.Name.Replace(" ", "-")" accept="image/*" multiple style="display:none" />
             <textarea id="input-@Session.Name.Replace(" ", "-")"
+                      data-fiesta-workers="@FiestaAutocompleteWorkers"
                       placeholder="@(Session.IsProcessing ? "Message will be queued…" : PlatformHelper.IsMobile ? "Message..." : "Message... (↵ send, ⇧↵ newline)")"
                       rows="1"></textarea>
             <button class="attach-btn" @onclick="() => OnAttach.InvokeAsync()" title="Attach image">
@@ -196,6 +242,8 @@
     [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
     [Parameter] public int FontSize { get; set; } = 20;
     [Parameter] public int MessageWindowSize { get; set; } = 25;
+    [Parameter] public bool FiestaActive { get; set; }
+    [Parameter] public IReadOnlyList<FiestaLinkedWorker> FiestaWorkers { get; set; } = Array.Empty<FiestaLinkedWorker>();
 
     [Parameter] public EventCallback OnSend { get; set; }
     [Parameter] public EventCallback OnStop { get; set; }
@@ -209,6 +257,12 @@
     [Parameter] public EventCallback<string?> OnSetModel { get; set; }
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
     [Parameter] public EventCallback OnLoadMore { get; set; }
+    [Parameter] public EventCallback<FiestaStartRequest> OnStartFiesta { get; set; }
+    [Parameter] public EventCallback OnStopFiesta { get; set; }
+
+    private bool _showFiestaPicker;
+    private string _fiestaName = "";
+    private readonly HashSet<string> _selectedWorkerIds = new(StringComparer.Ordinal);
 
     private List<ChatMessage> GetWindowedMessages()
     {
@@ -275,8 +329,76 @@
             _lastSkillSessionName = Session.Name;
             availableSkills = CopilotService.DiscoverAvailableSkills(Session.WorkingDirectory);
             availableAgents = CopilotService.DiscoverAvailableAgents(Session.WorkingDirectory);
+            _fiestaName = Session.Name;
+            _selectedWorkerIds.Clear();
+            foreach (var worker in FiestaWorkers)
+                _selectedWorkerIds.Add(worker.Id);
+        }
+
+        _selectedWorkerIds.RemoveWhere(id => FiestaWorkers.All(w => !string.Equals(w.Id, id, StringComparison.Ordinal)));
+        if (_selectedWorkerIds.Count == 0)
+        {
+            foreach (var worker in FiestaWorkers)
+                _selectedWorkerIds.Add(worker.Id);
         }
     }
+
+    private void ToggleFiestaPicker()
+    {
+        _showFiestaPicker = !_showFiestaPicker;
+        if (_showFiestaPicker && string.IsNullOrWhiteSpace(_fiestaName))
+            _fiestaName = Session.Name;
+    }
+
+    private void ToggleFiestaWorker(string workerId, bool selected)
+    {
+        if (selected)
+            _selectedWorkerIds.Add(workerId);
+        else
+            _selectedWorkerIds.Remove(workerId);
+    }
+
+    private static bool IsChecked(ChangeEventArgs e) =>
+        e.Value is bool b ? b : string.Equals(e.Value?.ToString(), "true", StringComparison.OrdinalIgnoreCase);
+
+    private async Task StartFiestaAsync()
+    {
+        if (_selectedWorkerIds.Count == 0) return;
+        var request = new FiestaStartRequest
+        {
+            FiestaName = string.IsNullOrWhiteSpace(_fiestaName) ? Session.Name : _fiestaName.Trim(),
+            WorkerIds = _selectedWorkerIds.ToList()
+        };
+        await OnStartFiesta.InvokeAsync(request);
+        _showFiestaPicker = false;
+    }
+
+    private async Task StopFiestaAsync()
+    {
+        await OnStopFiesta.InvokeAsync();
+        _showFiestaPicker = false;
+    }
+
+    private string FiestaAutocompleteWorkers
+    {
+        get
+        {
+            var tokens = FiestaWorkers
+                .SelectMany(w => new[]
+                {
+                    NormalizeMentionToken(w.Hostname),
+                    NormalizeMentionToken(w.Name)
+                })
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(t => t, StringComparer.OrdinalIgnoreCase);
+
+            return string.Join(",", tokens);
+        }
+    }
+
+    private static string NormalizeMentionToken(string value) =>
+        new((value ?? "").Trim().Where(ch => char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-').ToArray());
 
     private async Task ShowSkillsPopup()
     {

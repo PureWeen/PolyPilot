@@ -17,6 +17,7 @@ public class WsBridgeServer : IDisposable
     private Task? _acceptTask;
     private int _bridgePort;
     private CopilotService? _copilot;
+    private FiestaService? _fiestaService;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
 
@@ -129,6 +130,11 @@ public class WsBridgeServer : IDisposable
                 new ErrorPayload { SessionName = session, Error = error }));
             BroadcastAttentionNeeded(session, AttentionReason.Error, TruncateSummary(error));
         };
+    }
+
+    public void SetFiestaService(FiestaService fiestaService)
+    {
+        _fiestaService ??= fiestaService;
     }
 
     public void Stop()
@@ -484,6 +490,12 @@ public class WsBridgeServer : IDisposable
                     await SendToClientAsync(clientId, ws,
                         BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, dirResult), ct);
                     break;
+
+                case BridgeMessageTypes.FiestaAssign:
+                case BridgeMessageTypes.FiestaPing:
+                    if (_fiestaService != null)
+                        await _fiestaService.HandleBridgeMessageAsync(clientId, ws, msg, ct);
+                    break;
             }
         }
         catch (Exception ex)
@@ -493,6 +505,9 @@ public class WsBridgeServer : IDisposable
     }
 
     // --- Send helpers (per-client lock to prevent concurrent SendAsync) ---
+
+    public Task SendBridgeMessageAsync(string clientId, WebSocket ws, BridgeMessage msg, CancellationToken ct) =>
+        SendToClientAsync(clientId, ws, msg, ct);
 
     private async Task SendToClientAsync(string clientId, WebSocket ws, BridgeMessage msg, CancellationToken ct)
     {
