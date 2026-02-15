@@ -78,6 +78,19 @@ This is a .NET MAUI Blazor Hybrid app targeting Mac Catalyst, Android, and iOS. 
 
 ## Critical Conventions
 
+### Performance - Startup & Navigation
+**PARAMOUNT:** When evaluating or making changes to the codebase, you MUST ensure:
+1. **Startup performance is not degraded** — App must launch quickly regardless of session count
+2. **Session switching is instant** — Navigating between sessions must not block or lag
+3. **Lazy loading is preserved** — Sessions load metadata-only on startup, history on-demand
+4. **No blocking I/O on UI thread** — File/network operations must be async or cached
+
+**Test before committing:** After any change affecting session management, startup flow, or UI rendering:
+- Launch the app and verify startup time is acceptable
+- Switch between multiple sessions and verify instant response
+- Run `PolyPilot.Tests/LazySessionLoadingTests.cs` to verify lazy loading contract
+- Check that session history only loads when accessing that session (not on startup)
+
 ### Git Workflow
 - **NEVER force push** (`git push --force` / `git push -f`). Always add new commits on top of existing ones.
 - When contributing to an existing PR, add commits — do not rebase or squash interactively.
@@ -177,6 +190,7 @@ Mobile apps connect to the desktop server via WebSocket. `WsBridgeServer` runs o
 
 ### Test Coverage
 Test files in `PolyPilot.Tests/`:
+- `LazySessionLoadingTests.cs` — Lazy session loading, startup performance, metadata-only loading
 - `BridgeMessageTests.cs` — Bridge protocol serialization, type constants
 - `RemoteModeTests.cs` — Remote mode payloads, organization state, chat serialization
 - `ChatMessageTests.cs` — Chat message factory methods, state transitions
