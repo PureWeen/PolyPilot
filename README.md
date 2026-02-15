@@ -25,7 +25,6 @@ Think of it as **mission control for AI-powered development**: you launch agents
 The Copilot CLI is powerful, but it's one agent in one terminal. What if you could:
 
 - 🚀 **Run 10+ Copilot agents simultaneously**, each working on a different task or repo
-- 📡 **Broadcast a single prompt to all agents at once** and watch them fan out in parallel
 - 🔄 **Resume any session** across app restarts — your agents never lose context
 - 📱 **Monitor and control everything from your phone** via secure WebSocket bridge and DevTunnel
 - 🧠 **Mix and match models** — Claude, GPT, Gemini — in the same workspace
@@ -36,7 +35,7 @@ That's PolyPilot.
 ## ✨ Key Features
 
 ### 🎛️ Multi-Session Orchestrator Dashboard
-A real-time grid view of all active agents. Each card shows streaming output, tool execution status, token usage, and queue depth. Send targeted prompts to individual agents or **Broadcast to All** to fan out work across your entire fleet.
+A real-time grid view of all active agents. Each card shows streaming output, tool execution status, token usage, and queue depth. Send targeted prompts to individual agents from a single dashboard.
 
 ### 💬 Rich Chat Interface
 Full-featured chat UI with streaming responses, Markdown rendering (code blocks, inline code, bold), real-time activity indicators, and auto-scrolling. See exactly what each agent is thinking and doing — including tool calls, reasoning blocks, and intent changes.
