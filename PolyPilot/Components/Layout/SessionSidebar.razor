@@ -704,8 +704,7 @@ else
 
     private async Task LoadCcaRunAsync(CcaRun run, string ownerRepo)
     {
-        if (loadingCcaRuns.Contains(run.Id)) return;
-        loadingCcaRuns.Add(run.Id);
+        if (!loadingCcaRuns.Add(run.Id)) return;
         await InvokeAsync(StateHasChanged);
 
         try

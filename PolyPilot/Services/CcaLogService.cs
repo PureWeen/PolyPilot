@@ -10,8 +10,11 @@ namespace PolyPilot.Services;
 /// Fetches CCA run logs from GitHub Actions, parses the agent conversation,
 /// and assembles context for loading into a local CLI session.
 /// </summary>
-public class CcaLogService
+public partial class CcaLogService
 {
+    [GeneratedRegex(@"^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*")]
+    private static partial Regex TimestampRegex();
+
     // Lines before this are runner boilerplate (setup, firewall, etc.)
     private const int BoilerplateEndLine = 175;
     // Max characters to include in the parsed prompt (keeps within context window)
@@ -189,7 +192,7 @@ public class CcaLogService
                 return line[(idx + 2)..];
         }
         // Simpler: just strip leading timestamp pattern
-        var match = Regex.Match(line, @"^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*");
+        var match = TimestampRegex().Match(line);
         if (match.Success)
             return line[match.Length..];
         return line;
@@ -299,60 +302,45 @@ public class CcaLogService
 
     private static async Task<string> FetchRunLogsAsync(string ownerRepo, long runId, CancellationToken ct)
     {
+        var tempZip = Path.GetTempFileName();
         try
         {
             // Download logs zip
-            var tempZip = Path.GetTempFileName();
-            try
+            var psi = new ProcessStartInfo
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "gh",
-                    Arguments = $"api /repos/{ownerRepo}/actions/runs/{runId}/logs",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
+                FileName = "gh",
+                Arguments = $"api /repos/{ownerRepo}/actions/runs/{runId}/logs",
+                RedirectStandardOutput = true,
+                RedirectStandardError = false,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
 
-                using var process = Process.Start(psi)!;
-                using var fs = File.Create(tempZip);
-                await process.StandardOutput.BaseStream.CopyToAsync(fs, ct);
-                await process.WaitForExitAsync(ct);
+            using var process = Process.Start(psi)!;
+            using var fs = File.Create(tempZip);
+            await process.StandardOutput.BaseStream.CopyToAsync(fs, ct);
+            await process.WaitForExitAsync(ct);
 
-                if (process.ExitCode != 0)
-                {
-                    Console.WriteLine($"[CcaLogService] Failed to download logs for run {runId}");
-                    return "";
-                }
-            }
-            catch (Exception ex)
+            if (process.ExitCode != 0)
             {
-                Console.WriteLine($"[CcaLogService] Error downloading logs: {ex.Message}");
+                Console.WriteLine($"[CcaLogService] Failed to download logs for run {runId}");
                 return "";
             }
 
             // Extract the main log file from the zip
-            try
-            {
-                using var archive = ZipFile.OpenRead(tempZip);
-                // Look for the main copilot log (usually "0_copilot.txt")
-                var entry = archive.Entries.FirstOrDefault(e =>
-                    e.Name.EndsWith("copilot.txt", StringComparison.OrdinalIgnoreCase) &&
-                    !e.FullName.Contains("system.txt"));
-                if (entry == null)
-                    entry = archive.Entries.FirstOrDefault(e => e.Name.EndsWith(".txt"));
+            using var archive = ZipFile.OpenRead(tempZip);
+            // Look for the main copilot log (usually "0_copilot.txt")
+            var entry = archive.Entries.FirstOrDefault(e =>
+                e.Name.EndsWith("copilot.txt", StringComparison.OrdinalIgnoreCase) &&
+                !e.FullName.Contains("system.txt"));
+            if (entry == null)
+                entry = archive.Entries.FirstOrDefault(e => e.Name.EndsWith(".txt"));
 
-                if (entry != null)
-                {
-                    using var stream = entry.Open();
-                    using var reader = new StreamReader(stream);
-                    return await reader.ReadToEndAsync(ct);
-                }
-            }
-            finally
+            if (entry != null)
             {
-                try { File.Delete(tempZip); } catch { }
+                using var stream = entry.Open();
+                using var reader = new StreamReader(stream);
+                return await reader.ReadToEndAsync(ct);
             }
 
             return "";
@@ -361,6 +349,10 @@ public class CcaLogService
         {
             Console.WriteLine($"[CcaLogService] Error fetching run logs: {ex.Message}");
             return "";
+        }
+        finally
+        {
+            try { File.Delete(tempZip); } catch { }
         }
     }
 
@@ -466,7 +458,10 @@ public class CcaLogService
             CreateNoWindow = true
         };
         process.Start();
-        var stdout = await process.StandardOutput.ReadToEndAsync(ct);
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
+        var stderrTask = process.StandardError.ReadToEndAsync(ct);
+        var stdout = await stdoutTask;
+        await stderrTask;
         await process.WaitForExitAsync(ct);
         return process.ExitCode == 0 ? stdout : "";
     }

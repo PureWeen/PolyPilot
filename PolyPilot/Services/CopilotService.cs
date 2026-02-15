@@ -1309,6 +1309,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         session.CcaPrNumber = run.PrNumber;
         session.CcaBranch = run.HeadBranch;
 
+        // Persist CCA metadata (CreateSessionAsync saved before these fields were set)
+        SaveActiveSessionsToDisk();
+
         // Link to worktree if we have one
         if (workingDirectory != null && repo != null)
         {
@@ -1318,13 +1321,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 _repoManager.LinkSessionToWorktree(wt.Id, sessionName);
         }
 
-        // Send the context-loading prompt
+        // Send the context-loading prompt (use CancellationToken.None since delivery should
+        // succeed regardless of the initiating UI component's lifecycle)
         Console.WriteLine($"[CopilotService] Sending CCA context prompt ({ccaContext.ParsedLogLength} chars parsed from {ccaContext.RawLogLength} chars raw)");
         _ = Task.Run(async () =>
         {
             try
             {
-                await SendPromptAsync(sessionName, ccaContext.Prompt, cancellationToken: ct);
+                await SendPromptAsync(sessionName, ccaContext.Prompt);
             }
             catch (Exception ex)
             {
