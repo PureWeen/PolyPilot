@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using PolyPilot.Models;
 
 namespace PolyPilot.Services;
@@ -18,11 +19,14 @@ public class CcaRunService
     /// Extracts "owner/repo" from a git URL.
     /// Handles HTTPS (https://github.com/owner/repo.git) and SSH (git@github.com:owner/repo.git).
     /// </summary>
+    private static readonly Regex SafeOwnerRepoRegex = new(@"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$");
+
     public static string? ExtractOwnerRepo(string gitUrl)
     {
         try
         {
             gitUrl = gitUrl.Trim();
+            string? candidate = null;
             // SSH: git@github.com:Owner/Repo.git
             if (gitUrl.Contains('@') && gitUrl.Contains(':'))
             {
@@ -30,20 +34,26 @@ public class CcaRunService
                 path = path.TrimEnd('/').Replace(".git", "");
                 var parts = path.Split('/');
                 if (parts.Length == 2)
-                    return $"{parts[0]}/{parts[1]}";
+                    candidate = $"{parts[0]}/{parts[1]}";
             }
             // HTTPS: https://github.com/Owner/Repo.git
-            if (gitUrl.StartsWith("http://") || gitUrl.StartsWith("https://"))
+            if (candidate == null && (gitUrl.StartsWith("http://") || gitUrl.StartsWith("https://")))
             {
                 var uri = new Uri(gitUrl);
                 var segments = uri.AbsolutePath.Trim('/').Replace(".git", "").Split('/');
                 if (segments.Length >= 2)
-                    return $"{segments[0]}/{segments[1]}";
+                    candidate = $"{segments[0]}/{segments[1]}";
             }
             // Shorthand: owner/repo
-            var shortParts = gitUrl.Split('/');
-            if (shortParts.Length == 2 && !gitUrl.Contains('.') && !gitUrl.Contains(':'))
-                return gitUrl;
+            if (candidate == null)
+            {
+                var shortParts = gitUrl.Split('/');
+                if (shortParts.Length == 2 && !gitUrl.Contains('.') && !gitUrl.Contains(':'))
+                    candidate = gitUrl;
+            }
+            // Validate against safe pattern to prevent argument injection
+            if (candidate != null && SafeOwnerRepoRegex.IsMatch(candidate))
+                return candidate;
         }
         catch { }
         return null;
