@@ -93,8 +93,8 @@ When switching between Embedded and Persistent modes (via Settings → Save & Re
 ## Critical Conventions
 
 ### Git Workflow
-- **NEVER force push** (`git push --force` / `git push -f`). Always add new commits on top of existing ones.
-- When contributing to an existing PR, add commits — do not rebase or squash interactively.
+- **NEVER use `git push --force`** — always use `git push --force-with-lease` instead when a force push is needed (e.g., after a rebase). This prevents overwriting remote changes made by others.
+- When contributing to an existing PR, prefer adding commits on top. Rebase only when explicitly asked.
 - Use `git add -f` when adding files matched by `.gitignore` patterns (e.g., `*.app/` catches `PolyPilot/`).
 
 ### No `static readonly` fields that call platform APIs
