@@ -653,46 +653,6 @@
         }
     }
 
-    private async Task SaveDraftsFireAndForget()
-    {
-        try
-        {
-            var json = await JS.InvokeAsync<string>("eval", @"
-                (function() {
-                    var result = {};
-                    var active = document.activeElement;
-                    document.querySelectorAll('.card-input input, .card-input textarea, .expanded-card .input-area textarea').forEach(function(el) {
-                        if (el.id && el.value) result[el.id] = el.value;
-                    });
-                    if (active && active.id) result['__focused'] = active.id;
-                    if (active) { result['__selStart'] = active.selectionStart || 0; result['__selEnd'] = active.selectionEnd || 0; }
-                    return JSON.stringify(result);
-                })();
-            ");
-            if (!string.IsNullOrEmpty(json))
-            {
-                var saved = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-                if (saved != null)
-                {
-                    foreach (var (id, val) in saved)
-                    {
-                        if (id.StartsWith("__")) continue;
-                        var sessionName = id.Replace("input-", "").Replace("-", " ");
-                        if (!string.IsNullOrEmpty(val))
-                            draftBySession[sessionName] = val;
-                    }
-                    if (saved.TryGetValue("__focused", out var fid))
-                        _focusedInputId = fid;
-                    if (saved.TryGetValue("__selStart", out var ss) && int.TryParse(ss, out var start))
-                        _cursorStart = start;
-                    if (saved.TryGetValue("__selEnd", out var se) && int.TryParse(se, out var end))
-                        _cursorEnd = end;
-                }
-            }
-        }
-        catch { }
-    }
-
     private DateTime _lastRefresh = DateTime.MinValue;
     private bool _refreshPending;
     private volatile bool _renderDirty;
