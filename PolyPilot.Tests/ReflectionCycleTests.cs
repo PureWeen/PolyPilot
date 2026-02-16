@@ -16,6 +16,9 @@ public class ReflectionCycleTests
         Assert.False(cycle.GoalMet);
         Assert.False(cycle.IsStalled);
         Assert.Equal("", cycle.EvaluationPrompt);
+        Assert.NotNull(cycle.StartedAt);
+        Assert.Null(cycle.CompletedAt);
+        Assert.False(cycle.IsPaused);
     }
 
     [Fact]
@@ -237,7 +240,17 @@ public class ReflectionCycleTests
         var cycle = ReflectionCycle.Create("Goal", maxIterations: 5);
         cycle.CurrentIteration = 1;
 
-        Assert.Equal("🔄 Iteration 2/5", cycle.BuildFollowUpStatus());
+        var status = cycle.BuildFollowUpStatus();
+        using var doc = System.Text.Json.JsonDocument.Parse(status);
+        var root = doc.RootElement;
+        
+        Assert.Equal(2, root.GetProperty("iteration").GetInt32());
+        Assert.Equal(5, root.GetProperty("max").GetInt32());
+        Assert.Equal("Goal", root.GetProperty("goal").GetString());
+        // New: summary field includes goal text
+        var summary = root.GetProperty("summary").GetString();
+        Assert.Contains("2/5", summary);
+        Assert.Contains("Goal", summary);
     }
 
     [Fact]
@@ -316,12 +329,170 @@ public class ReflectionCycleTests
         Assert.False(cycle.GoalMet);
         Assert.False(cycle.IsStalled);
         Assert.Equal("", cycle.EvaluationPrompt);
+        Assert.Null(cycle.StartedAt);
+        Assert.Null(cycle.CompletedAt);
+        Assert.False(cycle.IsPaused);
     }
 
     [Fact]
     public void CompletionSentinel_IsExposed()
     {
         Assert.Equal("[[REFLECTION_COMPLETE]]", ReflectionCycle.CompletionSentinel);
+    }
+
+    [Fact]
+    public void Advance_GoalMet_SetsCompletedAt()
+    {
+        var cycle = ReflectionCycle.Create("Test goal");
+
+        cycle.Advance("Done!\n[[REFLECTION_COMPLETE]]");
+
+        Assert.NotNull(cycle.CompletedAt);
+        Assert.True(cycle.CompletedAt >= cycle.StartedAt);
+    }
+
+    [Fact]
+    public void Advance_MaxIterations_SetsCompletedAt()
+    {
+        var cycle = ReflectionCycle.Create("Test goal", maxIterations: 1);
+
+        cycle.Advance("Still working with unique content...");
+
+        Assert.NotNull(cycle.CompletedAt);
+    }
+
+    [Fact]
+    public void Advance_Stalled_SetsCompletedAt()
+    {
+        var cycle = ReflectionCycle.Create("Goal", maxIterations: 10);
+        cycle.Advance("Working on the task with specific details about implementation");
+        cycle.Advance("Working on the task with specific details about implementation");
+        cycle.Advance("Working on the task with specific details about implementation");
+
+        Assert.True(cycle.IsStalled);
+        Assert.NotNull(cycle.CompletedAt);
+    }
+
+    [Fact]
+    public void Advance_PausedCycle_ReturnsFalseWithoutIncrementing()
+    {
+        var cycle = ReflectionCycle.Create("Test goal", maxIterations: 5);
+        cycle.IsPaused = true;
+
+        Assert.False(cycle.Advance("Any response"));
+        Assert.Equal(0, cycle.CurrentIteration);
+        Assert.True(cycle.IsActive);
+    }
+
+    [Fact]
+    public void Pause_Resume_ContinuesCycle()
+    {
+        var cycle = ReflectionCycle.Create("Test goal", maxIterations: 5);
+
+        Assert.True(cycle.Advance("First unique response alpha"));
+        Assert.Equal(1, cycle.CurrentIteration);
+
+        cycle.IsPaused = true;
+        Assert.False(cycle.Advance("This should be ignored"));
+        Assert.Equal(1, cycle.CurrentIteration);
+
+        cycle.IsPaused = false;
+        Assert.True(cycle.Advance("Second unique response beta"));
+        Assert.Equal(2, cycle.CurrentIteration);
+    }
+
+    [Fact]
+    public void CheckStall_ExposesSimilarity()
+    {
+        var cycle = ReflectionCycle.Create("Goal");
+
+        cycle.CheckStall("First response with unique words");
+        Assert.Equal(0.0, cycle.LastSimilarity);
+
+        cycle.CheckStall("First response with unique words");
+        Assert.Equal(1.0, cycle.LastSimilarity);
+    }
+
+    [Fact]
+    public void CheckStall_JaccardSimilarity_ExposesScore()
+    {
+        var cycle = ReflectionCycle.Create("Goal");
+
+        cycle.CheckStall("The quick brown fox jumps over the lazy dog repeatedly");
+        cycle.CheckStall("The quick brown fox jumps over the lazy cat repeatedly");
+
+        // Most words are the same, so similarity should be high but < 1.0
+        Assert.True(cycle.LastSimilarity > 0.7);
+        Assert.True(cycle.LastSimilarity < 1.0);
+    }
+
+    [Fact]
+    public void BuildCompletionSummary_GoalMet()
+    {
+        var cycle = ReflectionCycle.Create("Fix all tests", maxIterations: 5);
+        cycle.Advance("Done!\n[[REFLECTION_COMPLETE]]");
+
+        var summary = cycle.BuildCompletionSummary();
+
+        Assert.Contains("✅", summary);
+        Assert.Contains("Fix all tests", summary);
+        Assert.Contains("Goal met", summary);
+        Assert.Contains("1/5", summary);
+    }
+
+    [Fact]
+    public void BuildCompletionSummary_Stalled_ShowsSimilarity()
+    {
+        var cycle = ReflectionCycle.Create("Goal", maxIterations: 10);
+        cycle.Advance("Working on the task with specific details about implementation");
+        cycle.Advance("Working on the task with specific details about implementation");
+        cycle.Advance("Working on the task with specific details about implementation");
+
+        var summary = cycle.BuildCompletionSummary();
+
+        Assert.Contains("⚠️", summary);
+        Assert.Contains("Stalled", summary);
+        Assert.Contains("similarity", summary);
+    }
+
+    [Fact]
+    public void BuildCompletionSummary_MaxIterations()
+    {
+        var cycle = ReflectionCycle.Create("Goal", maxIterations: 2);
+        cycle.Advance("Trying with approach alpha...");
+        cycle.Advance("Still trying with approach beta and new ideas...");
+
+        var summary = cycle.BuildCompletionSummary();
+
+        Assert.Contains("⏱️", summary);
+        Assert.Contains("Max iterations", summary);
+        Assert.Contains("2/2", summary);
+    }
+
+    [Fact]
+    public void BuildCompletionSummary_IncludesDuration()
+    {
+        var cycle = ReflectionCycle.Create("Goal");
+        cycle.StartedAt = DateTime.Now.AddSeconds(-30);
+        cycle.Advance("Done!\n[[REFLECTION_COMPLETE]]");
+
+        var summary = cycle.BuildCompletionSummary();
+
+        Assert.Contains("Duration:", summary);
+    }
+
+    [Fact]
+    public void BuildFollowUpStatus_LongGoal_Truncated()
+    {
+        var longGoal = "This is a very long goal that should be truncated in the status message for readability";
+        var cycle = ReflectionCycle.Create(longGoal, maxIterations: 5);
+
+        var status = cycle.BuildFollowUpStatus();
+        using var doc = System.Text.Json.JsonDocument.Parse(status);
+        var summary = doc.RootElement.GetProperty("summary").GetString()!;
+
+        Assert.Contains("…", summary);
+        Assert.True(summary.Length < longGoal.Length + 30);
     }
 }
 

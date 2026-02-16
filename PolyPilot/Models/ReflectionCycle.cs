@@ -70,6 +70,27 @@ public partial class ReflectionCycle
     /// </summary>
     public bool ShouldWarnOnStall { get; private set; }
 
+    /// <summary>
+    /// The Jaccard similarity score from the last stall check (0.0–1.0).
+    /// Exposed so the UI can show "91% similar to previous response".
+    /// </summary>
+    public double LastSimilarity { get; private set; }
+
+    /// <summary>
+    /// When the cycle was started.
+    /// </summary>
+    public DateTime? StartedAt { get; set; }
+
+    /// <summary>
+    /// When the cycle completed (goal met, stalled, or max iterations).
+    /// </summary>
+    public DateTime? CompletedAt { get; set; }
+
+    /// <summary>
+    /// Whether the cycle is paused (user can inspect without cancelling).
+    /// </summary>
+    public bool IsPaused { get; set; }
+
     // Stall detection state (not serialized)
     private readonly List<int> _recentHashes = new();
     private string _lastResponse = "";
@@ -96,7 +117,16 @@ public partial class ReflectionCycle
 
     public string BuildFollowUpStatus()
     {
-        return $"🔄 Iteration {CurrentIteration + 1}/{MaxIterations}";
+        var truncatedGoal = Goal.Length > 40 ? Goal[..37] + "…" : Goal;
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            iteration = CurrentIteration + 1,
+            max = MaxIterations,
+            goal = Goal,
+            status = "Refining...",
+            nextStep = "Evaluating progress",
+            summary = $"🔄 Iteration {CurrentIteration + 1}/{MaxIterations} — \"{truncatedGoal}\""
+        });
     }
 
     public static bool IsReflectionFollowUpPrompt(string prompt)
@@ -124,11 +154,15 @@ public partial class ReflectionCycle
         if (string.IsNullOrWhiteSpace(response)) return true;
 
         bool isStall = false;
+        LastSimilarity = 0.0;
 
         // Exact repetition check over last 5 responses
         int currentHash = response.GetHashCode();
         if (_recentHashes.Contains(currentHash))
+        {
             isStall = true;
+            LastSimilarity = 1.0;
+        }
 
         _recentHashes.Add(currentHash);
         if (_recentHashes.Count > 5) _recentHashes.RemoveAt(0);
@@ -149,6 +183,7 @@ public partial class ReflectionCycle
                 union.UnionWith(currWords);
 
                 double similarity = (double)intersection.Count / union.Count;
+                LastSimilarity = similarity;
                 if (similarity > 0.9) isStall = true;
             }
         }
@@ -165,6 +200,7 @@ public partial class ReflectionCycle
     public bool Advance(string response)
     {
         if (!IsActive) return false;
+        if (IsPaused) return false;
         ShouldWarnOnStall = false;
 
         CurrentIteration++;
@@ -173,6 +209,7 @@ public partial class ReflectionCycle
         {
             GoalMet = true;
             IsActive = false;
+            CompletedAt = DateTime.Now;
             return false;
         }
 
@@ -185,6 +222,7 @@ public partial class ReflectionCycle
             {
                 IsStalled = true;
                 IsActive = false;
+                CompletedAt = DateTime.Now;
                 return false;
             }
         }
@@ -196,10 +234,31 @@ public partial class ReflectionCycle
         if (CurrentIteration >= MaxIterations)
         {
             IsActive = false;
+            CompletedAt = DateTime.Now;
             return false;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Builds a rich completion summary with duration and iteration details.
+    /// </summary>
+    public string BuildCompletionSummary()
+    {
+        var emoji = GoalMet ? "✅" : IsStalled ? "⚠️" : "⏱️";
+        var reasonText = GoalMet ? "Goal met" : IsStalled ? $"Stalled ({LastSimilarity:P0} similarity)" : $"Max iterations reached ({MaxIterations})";
+        var durationText = "";
+        if (StartedAt.HasValue && CompletedAt.HasValue)
+        {
+            var duration = CompletedAt.Value - StartedAt.Value;
+            durationText = duration.TotalMinutes >= 1
+                ? $" | Duration: {duration.Minutes}m {duration.Seconds}s"
+                : $" | Duration: {duration.TotalSeconds:F0}s";
+        }
+        return $"{emoji} Reflection complete — **{Goal}**\n" +
+               $"Iterations: {CurrentIteration}/{MaxIterations}{durationText}\n" +
+               $"Outcome: {reasonText}";
     }
 
     /// <summary>
@@ -215,6 +274,7 @@ public partial class ReflectionCycle
             IsActive = true,
             CurrentIteration = 0,
             GoalMet = false,
+            StartedAt = DateTime.Now,
         };
     }
 }

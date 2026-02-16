@@ -1199,7 +1199,7 @@
                     "- `/status` — Show git status\n" +
                     "- `/mcp` — List MCP servers (enable/disable with `/mcp enable|disable <name>`)\n" +
                     "- `/plugin` — List installed plugins (enable/disable with `/plugin enable|disable <name>`)\n" +
-                    "- `/reflect <goal>` — Start a reflection cycle (`/reflect stop` to cancel, `--max N` for iterations)\n" +
+                    "- `/reflect <goal>` — Start a reflection cycle (`/reflect stop|pause|resume`, `--max N`)\n" +
                     "- `!<command>` — Run a shell command"));
                 break;
 
@@ -1468,9 +1468,59 @@
             return;
         }
 
+        if (sub == "pause")
+        {
+            if (session.ReflectionCycle is { IsActive: true, IsPaused: false })
+            {
+                session.ReflectionCycle.IsPaused = true;
+                session.History.Add(ChatMessage.SystemMessage("⏸️ Reflection paused. Use `/reflect resume` to continue."));
+            }
+            else
+            {
+                session.History.Add(ChatMessage.ErrorMessage("No active reflection cycle to pause."));
+            }
+            return;
+        }
+
+        if (sub == "resume")
+        {
+            if (session.ReflectionCycle is { IsActive: true, IsPaused: true })
+            {
+                session.ReflectionCycle.IsPaused = false;
+                session.History.Add(ChatMessage.SystemMessage("▶️ Reflection resumed."));
+                // Re-queue a follow-up to continue the cycle
+                var followUp = session.ReflectionCycle.BuildFollowUpPrompt("");
+                session.MessageQueue.Add(followUp);
+            }
+            else
+            {
+                session.History.Add(ChatMessage.ErrorMessage("No paused reflection cycle to resume."));
+            }
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(arg))
         {
-            session.History.Add(ChatMessage.ErrorMessage("Usage: `/reflect <goal>` or `/reflect stop`\nOptional: `--max N` to set max iterations (default 5)"));
+            session.History.Add(ChatMessage.SystemMessage(
+                "🔄 **Reflection Cycles** — Iterative goal-driven prompting\n\n" +
+                "**Quick Start:**\n" +
+                "```\n" +
+                "/reflect Make all tests pass\n" +
+                "/reflect Fix the login bug --max 10\n" +
+                "```\n\n" +
+                "**How it works:**\n" +
+                "1. You set a goal → cycle starts\n" +
+                "2. After each response, checks for `[[REFLECTION_COMPLETE]]`\n" +
+                "3. If not done, auto-generates a follow-up prompt\n" +
+                "4. Stops when: ✅ goal met | ⚠️ stalled (2× similar) | ⏱️ max iterations\n\n" +
+                "**Commands:**\n" +
+                "- `/reflect <goal>` — Start a cycle\n" +
+                "- `/reflect <goal> --max N` — Set max iterations (default 5)\n" +
+                "- `/reflect stop` — Cancel active cycle\n" +
+                "- `/reflect pause` — Pause without cancelling\n" +
+                "- `/reflect resume` — Resume paused cycle\n\n" +
+                "**Tips:** You can send messages during a cycle to steer it. " +
+                "Click the 🔄 pill in the header to stop."));
             return;
         }
 
