@@ -143,8 +143,20 @@ public class ServerManager : IServerManager
             try
             {
                 var process = Process.GetProcessById(pid.Value);
-                process.Kill();
-                Console.WriteLine($"[ServerManager] Killed server PID {pid}");
+                if (!ProcessHelper.HasExitedSafe(process))
+                {
+                    process.Kill();
+                    Console.WriteLine($"[ServerManager] Killed server PID {pid}");
+                }
+                else
+                {
+                    Console.WriteLine($"[ServerManager] Server PID {pid} already exited");
+                }
+            }
+            catch (ArgumentException)
+            {
+                // Process with this PID no longer exists
+                Console.WriteLine($"[ServerManager] Server PID {pid} no longer exists");
             }
             catch (Exception ex)
             {

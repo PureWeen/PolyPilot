@@ -271,7 +271,7 @@ public partial class DevTunnelService : IDisposable
     private async Task<bool> TryHostTunnelAsync(ConnectionSettings settings)
     {
         // Kill any existing host process from a previous attempt
-        if (_hostProcess != null && !_hostProcess.HasExited)
+        if (_hostProcess != null && !ProcessHelper.HasExitedSafe(_hostProcess))
         {
             try { _hostProcess.Kill(entireProcessTree: true); } catch { }
             _hostProcess = null;
@@ -300,14 +300,15 @@ public partial class DevTunnelService : IDisposable
 
         var urlFound = new TaskCompletionSource<bool>();
         var lastErrorLine = "";
+        var proc = _hostProcess; // capture locally to avoid race with Stop() nulling _hostProcess
 
         _ = Task.Run(async () =>
         {
             try
             {
-                while (!_hostProcess.HasExited)
+                while (!ProcessHelper.HasExitedSafe(proc))
                 {
-                    var line = await _hostProcess.StandardOutput.ReadLineAsync();
+                    var line = await proc.StandardOutput.ReadLineAsync();
                     if (line == null) break;
                     Console.WriteLine($"[DevTunnel] {line}");
                     if (!string.IsNullOrWhiteSpace(line))
@@ -322,9 +323,9 @@ public partial class DevTunnelService : IDisposable
         {
             try
             {
-                while (!_hostProcess.HasExited)
+                while (!ProcessHelper.HasExitedSafe(proc))
                 {
-                    var line = await _hostProcess.StandardError.ReadLineAsync();
+                    var line = await proc.StandardError.ReadLineAsync();
                     if (line == null) break;
                     Console.WriteLine($"[DevTunnel ERR] {line}");
                     if (!string.IsNullOrWhiteSpace(line))
@@ -448,7 +449,7 @@ public partial class DevTunnelService : IDisposable
         SetState(TunnelState.Stopping);
         try
         {
-            if (_hostProcess != null && !_hostProcess.HasExited)
+            if (_hostProcess != null && !ProcessHelper.HasExitedSafe(_hostProcess))
             {
                 _hostProcess.Kill(entireProcessTree: true);
                 Console.WriteLine("[DevTunnel] Host process killed");

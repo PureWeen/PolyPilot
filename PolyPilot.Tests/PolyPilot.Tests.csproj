@@ -59,6 +59,7 @@
     <Compile Include="../PolyPilot/Models/SquadWriter.cs" Link="Shared/SquadWriter.cs" />
     <Compile Include="../PolyPilot/Models/ErrorMessageHelper.cs" Link="Shared/ErrorMessageHelper.cs" />
     <Compile Include="../PolyPilot/BuildInfo.cs" Link="Shared/BuildInfo.cs" />
+    <Compile Include="../PolyPilot/Services/ProcessHelper.cs" Link="Shared/ProcessHelper.cs" />
   </ItemGroup>
 
 </Project>
