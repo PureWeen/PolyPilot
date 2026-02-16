@@ -1264,3 +1264,8 @@
     .chat-header-title { font-size: var(--type-body); }
     .expanded-card .input-area textarea { font-size: var(--type-callout, 0.8rem); max-height: 30dvh; }
 }
+
+.keep-alive-slot {
+    height: 100%;
+    width: 100%;
+}

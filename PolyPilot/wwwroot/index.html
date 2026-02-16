@@ -569,6 +569,12 @@
             window.addEventListener('scroll', updateDropdownPosition, true);
         };
 
+        window.switchKeepAliveSlot = function(activeSlotId) {
+            document.querySelectorAll('.keep-alive-slot').forEach(function(slot) {
+                slot.style.display = slot.id === activeSlotId ? '' : 'none';
+            });
+        };
+
         window.restoreDraftsAndFocus = function(draftsJson, focusId, selStart, selEnd, forceScroll) {
             window.ensureFiestaMentionAutocomplete();
             function doScroll() {

@@ -65,44 +65,48 @@
     }
     else if (expandedSession != null)
     {
-        @* Expanded single-session view *@
-        var session = sessions.FirstOrDefault(s => s.Name == expandedSession);
-        if (session != null)
+        @* Keep-alive: render all active sessions, toggle visibility with CSS for instant switching *@
+        @foreach (var session in sessions)
         {
-            <ExpandedSessionView Session="session"
-                                 IsCompleted="@completedSessions.Contains(session.Name)"
-                                 StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s2) ? s2 : "")"
-                                 ActivityText="@(activityBySession.TryGetValue(session.Name, out var a2) ? a2 : "")"
-                                 CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t2) ? t2 : "")"
-                                 ToolActivities="@(toolActivitiesBySession.TryGetValue(session.Name, out var ta2) ? ta2 : new())"
-                                 Intent="@(intentBySession.TryGetValue(session.Name, out var i2) ? i2 : "")"
-                                 Error="@(errorBySession.TryGetValue(session.Name, out var e2) ? e2 : null)"
-                                 UsageInfo="@(usageBySession.TryGetValue(session.Name, out var u2) ? u2 : null)"
-                                 InputMode="@GetInputMode(session.Name)"
-                                 CurrentModel="@GetExpandedModel(session)"
-                                 AvailableModels="availableModels"
-                                 PendingImages="@(pendingImagesBySession.TryGetValue(session.Name, out var pi2) ? pi2 : null)"
-                                 UserAvatarUrl="@CopilotService.GitHubAvatarUrl"
-                                 Layout="@CopilotService.ChatLayout"
-                                 Style="@CopilotService.ChatStyle"
-                                 FontSize="fontSize"
-                                 MessageWindowSize="@(expandedMessageCounts.TryGetValue(session.Name, out var emc) ? emc : 25)"
-                                 FiestaActive="@FiestaService.IsFiestaActive(session.Name)"
-                                 FiestaWorkers="@GetFiestaWorkersForSession(session.Name)"
-                                 OnSend="() => SendFromCard(session.Name)"
-                                 OnStop="() => StopSession(session.Name)"
-                                 OnCollapse="CollapseExpanded"
-                                 OnAttach="() => TriggerAttach(session.Name)"
-                                 OnDismissError="() => DismissError(session.Name)"
-                                 OnClearQueue="() => ClearQueue(session.Name)"
-                                 OnRemoveQueuedMessage="(idx) => RemoveQueuedMessage(session.Name, idx)"
-                                 OnRemovePendingImage="(idx) => RemovePendingImage(session.Name, idx)"
-                                 OnSetInputMode="(mode) => SetInputMode(session.Name, mode)"
-                                 OnSetModel="(model) => SetExpandedModel(session, model)"
-                                 OnFontSizeChange="HandleFontSizeChange"
-                                 OnLoadMore="() => LoadMoreExpandedMessages(session.Name)"
-                                 OnStartFiesta="(request) => StartFiestaForSession(session.Name, request)"
-                                 OnStopFiesta="() => StopFiestaForSession(session.Name)" />
+            var isVisible = session.Name == expandedSession;
+            <div class="keep-alive-slot" id="slot-@session.Name.Replace(" ", "-")" style="@(isVisible ? "" : "display:none")" @key="session.Name">
+                <ExpandedSessionView Session="session"
+                                     IsCompleted="@completedSessions.Contains(session.Name)"
+                                     StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s2) ? s2 : "")"
+                                     ActivityText="@(activityBySession.TryGetValue(session.Name, out var a2) ? a2 : "")"
+                                     CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t2) ? t2 : "")"
+                                     ToolActivities="@(toolActivitiesBySession.TryGetValue(session.Name, out var ta2) ? ta2 : new())"
+                                     Intent="@(intentBySession.TryGetValue(session.Name, out var i2) ? i2 : "")"
+                                     Error="@(errorBySession.TryGetValue(session.Name, out var e2) ? e2 : null)"
+                                     UsageInfo="@(usageBySession.TryGetValue(session.Name, out var u2) ? u2 : null)"
+                                     InputMode="@GetInputMode(session.Name)"
+                                     CurrentModel="@GetExpandedModel(session)"
+                                     AvailableModels="availableModels"
+                                     PendingImages="@(pendingImagesBySession.TryGetValue(session.Name, out var pi2) ? pi2 : null)"
+                                     UserAvatarUrl="@CopilotService.GitHubAvatarUrl"
+                                     Layout="@CopilotService.ChatLayout"
+                                     Style="@CopilotService.ChatStyle"
+                                     FontSize="fontSize"
+                                     MessageWindowSize="@(expandedMessageCounts.TryGetValue(session.Name, out var emc) ? emc : 25)"
+                                     FiestaActive="@FiestaService.IsFiestaActive(session.Name)"
+                                     FiestaWorkers="@GetFiestaWorkersForSession(session.Name)"
+                                     OnSend="HandleSend"
+                                     OnStop="StopSession"
+                                     OnCollapse="CollapseExpanded"
+                                     OnAttach="TriggerAttach"
+                                     OnDismissError="DismissError"
+                                     OnClearQueue="ClearQueue"
+                                     OnRemoveQueuedMessage="RemoveQueuedMessage"
+                                     OnRemovePendingImage="RemovePendingImage"
+                                     OnSetInputMode="SetInputMode"
+                                     OnSetModel="SetExpandedModel"
+                                     OnFontSizeChange="HandleFontSizeChange"
+                                     OnLoadMore="LoadMoreExpandedMessages"
+                                     OnStartFiesta="StartFiestaForSession"
+                                     OnStopFiesta="StopFiestaForSession"
+            </div>
+
+
         }
     }
     else
@@ -649,6 +653,46 @@
         }
     }
 
+    private async Task SaveDraftsFireAndForget()
+    {
+        try
+        {
+            var json = await JS.InvokeAsync<string>("eval", @"
+                (function() {
+                    var result = {};
+                    var active = document.activeElement;
+                    document.querySelectorAll('.card-input input, .card-input textarea, .expanded-card .input-area textarea').forEach(function(el) {
+                        if (el.id && el.value) result[el.id] = el.value;
+                    });
+                    if (active && active.id) result['__focused'] = active.id;
+                    if (active) { result['__selStart'] = active.selectionStart || 0; result['__selEnd'] = active.selectionEnd || 0; }
+                    return JSON.stringify(result);
+                })();
+            ");
+            if (!string.IsNullOrEmpty(json))
+            {
+                var saved = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                if (saved != null)
+                {
+                    foreach (var (id, val) in saved)
+                    {
+                        if (id.StartsWith("__")) continue;
+                        var sessionName = id.Replace("input-", "").Replace("-", " ");
+                        if (!string.IsNullOrEmpty(val))
+                            draftBySession[sessionName] = val;
+                    }
+                    if (saved.TryGetValue("__focused", out var fid))
+                        _focusedInputId = fid;
+                    if (saved.TryGetValue("__selStart", out var ss) && int.TryParse(ss, out var start))
+                        _cursorStart = start;
+                    if (saved.TryGetValue("__selEnd", out var se) && int.TryParse(se, out var end))
+                        _cursorEnd = end;
+                }
+            }
+        }
+        catch { }
+    }
+
     private DateTime _lastRefresh = DateTime.MinValue;
     private bool _refreshPending;
     private volatile bool _renderDirty;
@@ -779,13 +823,9 @@
             }
             if (sessionSwitched)
             {
-                if (_sessionSwitching)
-                {
-                    _sessionSwitching = false;
-                    InvokeAsync(StateHasChanged);
-                }
-                else
-                    InvokeAsync(SafeRefreshAsync);
+                _sessionSwitching = false;
+                _needsScrollToBottom = true;
+                // CSS toggle already done by sidebar/ExpandSession — Blazor state syncs on next natural render
             }
             else
                 ScheduleRender();
@@ -1774,7 +1814,9 @@
         _ = SaveDraftsAndCursor();
         expandedSession = sessionName;
         _needsScrollToBottom = true;
-        _sessionSwitching = true; // tells SafeRefreshAsync to skip redundant JS capture
+        _sessionSwitching = true; // tells RefreshState to skip redundant work
+        // Toggle CSS visibility instantly
+        try { await JS.InvokeVoidAsync("switchKeepAliveSlot", $"slot-{sessionName.Replace(" ", "-")}"); } catch { }
         CopilotService.SwitchSession(sessionName);
         var session = CopilotService.GetSession(sessionName);
         if (session != null) session.LastReadMessageCount = session.History.Count;
@@ -2286,6 +2328,18 @@
     }
 
     private bool _disposed;
+
+    // Tuple-based adapter methods for EventCallbacks (avoids lambda allocations per render)
+    private Task HandleSend(string sessionName) => SendFromCard(sessionName, null);
+    private Task StartFiestaForSession((string SessionName, FiestaStartRequest Request) args) => StartFiestaForSession(args.SessionName, args.Request);
+    private void RemoveQueuedMessage((string SessionName, int Index) args) => RemoveQueuedMessage(args.SessionName, args.Index);
+    private void RemovePendingImage((string SessionName, int Index) args) => RemovePendingImage(args.SessionName, args.Index);
+    private void SetPlanMode((string SessionName, bool Enabled) args) => SetPlanMode(args.SessionName, args.Enabled);
+    private async Task SetExpandedModel((string SessionName, string? Model) args)
+    {
+        var session = sessions.FirstOrDefault(s => s.Name == args.SessionName);
+        if (session != null) await SetExpandedModel(session, args.Model);
+    }
 
     public async ValueTask DisposeAsync()
     {

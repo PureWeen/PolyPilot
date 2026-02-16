@@ -112,7 +112,7 @@
     {
         <div class="error-bar">
             <span>⚠️ @Error</span>
-            <button @onclick="OnDismissError">×</button>
+            <button @onclick="() => OnDismissError.InvokeAsync(Session.Name)">×</button>
         </div>
     }
 
@@ -126,7 +126,7 @@
             <div class="message-queue">
                 <div class="queue-header">
                     <span>📋 Queued (@Session.MessageQueue.Count)</span>
-                    <button class="queue-clear-btn" @onclick="OnClearQueue">Clear</button>
+                    <button class="queue-clear-btn" @onclick="() => OnClearQueue.InvokeAsync(Session.Name)">Clear</button>
                 </div>
                 @for (var i = 0; i < Session.MessageQueue.Count; i++)
                 {
@@ -135,7 +135,7 @@
                     <div class="queue-item">
                         <span class="queue-index">@(index + 1)</span>
                         <span class="queue-text">@Truncate(msg, 80)</span>
-                        <button class="queue-remove-btn" @onclick="() => OnRemoveQueuedMessage.InvokeAsync(index)">×</button>
+                        <button class="queue-remove-btn" @onclick="() => OnRemoveQueuedMessage.InvokeAsync((Session.Name, index))">×</button>
                     </div>
                 }
             </div>
@@ -149,7 +149,7 @@
                     var pimg = PendingImages[pi];
                     <div class="attachment-thumb">
                         <img src="@pimg.DataUri" alt="@pimg.FileName" />
-                        <button class="attachment-remove" @onclick="() => OnRemovePendingImage.InvokeAsync(pidx)" title="Remove">×</button>
+                        <button class="attachment-remove" @onclick="() => OnRemovePendingImage.InvokeAsync((Session.Name, pidx))" title="Remove">×</button>
                         <span class="attachment-name">@TruncateFileName(pimg.FileName, 15)</span>
                     </div>
                 }
@@ -161,16 +161,16 @@
                       data-fiesta-workers="@FiestaAutocompleteWorkers"
                       placeholder="@(Session.IsProcessing ? "Message will be queued…" : PlatformHelper.IsMobile ? "Message..." : "Message... (↵ send, ⇧↵ newline)")"
                       rows="1"></textarea>
-            <button class="attach-btn" @onclick="() => OnAttach.InvokeAsync()" title="Attach image">
+            <button class="attach-btn" @onclick="() => OnAttach.InvokeAsync(Session.Name)" title="Attach image">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
             </button>
             @if (Session.IsProcessing)
             {
-                <button class="send-btn stop-btn" @onclick="() => OnStop.InvokeAsync()" title="Stop">
+                <button class="send-btn stop-btn" @onclick="() => OnStop.InvokeAsync(Session.Name)" title="Stop">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                 </button>
             }
-            <button class="send-btn" @onclick="() => OnSend.InvokeAsync()">
+            <button class="send-btn" @onclick="() => OnSend.InvokeAsync(Session.Name)">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z"/></svg>
             </button>
         </div>
@@ -179,6 +179,7 @@
                 <button class="mode-btn @(InputMode == "chat" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("chat")'>Chat</button>
                 <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")'>Plan</button>
                 <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")'>Autopilot</button>
+
             </div>
             <span class="status-sep">·</span>
             <span class="log-label" style="font-size:var(--type-footnote)">Log</span>
@@ -195,7 +196,7 @@
                 <span class="skills-trigger" @onclick="ShowAgentsPopup">@availableAgents.Count agents</span>
             }
             <span class="status-sep">·</span>
-            <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
+            <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync((Session.Name, e.Value?.ToString()))" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
                 @if (!AvailableModels.Contains(CurrentModel))
                 {
                     <option value="@CurrentModel">@PrettifyModel(CurrentModel)</option>
@@ -246,20 +247,22 @@
     [Parameter] public bool FiestaActive { get; set; }
     [Parameter] public IReadOnlyList<FiestaLinkedWorker> FiestaWorkers { get; set; } = Array.Empty<FiestaLinkedWorker>();
 
-    [Parameter] public EventCallback OnSend { get; set; }
-    [Parameter] public EventCallback OnStop { get; set; }
+    [Parameter] public EventCallback<string> OnSend { get; set; }
+    [Parameter] public EventCallback<string> OnStop { get; set; }
     [Parameter] public EventCallback OnCollapse { get; set; }
-    [Parameter] public EventCallback OnAttach { get; set; }
-    [Parameter] public EventCallback OnDismissError { get; set; }
-    [Parameter] public EventCallback OnClearQueue { get; set; }
-    [Parameter] public EventCallback<int> OnRemoveQueuedMessage { get; set; }
-    [Parameter] public EventCallback<int> OnRemovePendingImage { get; set; }
+    [Parameter] public EventCallback<string> OnAttach { get; set; }
+    [Parameter] public EventCallback<string> OnDismissError { get; set; }
+    [Parameter] public EventCallback<string> OnClearQueue { get; set; }
+    [Parameter] public EventCallback<(string SessionName, int Index)> OnRemoveQueuedMessage { get; set; }
+    [Parameter] public EventCallback<(string SessionName, int Index)> OnRemovePendingImage { get; set; }
     [Parameter] public EventCallback<string> OnSetInputMode { get; set; }
     [Parameter] public EventCallback<string?> OnSetModel { get; set; }
+
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
-    [Parameter] public EventCallback OnLoadMore { get; set; }
-    [Parameter] public EventCallback<FiestaStartRequest> OnStartFiesta { get; set; }
-    [Parameter] public EventCallback OnStopFiesta { get; set; }
+    [Parameter] public EventCallback<string> OnLoadMore { get; set; }
+    [Parameter] public EventCallback<(string SessionName, FiestaStartRequest Request)> OnStartFiesta { get; set; }
+    [Parameter] public EventCallback<string> OnStopFiesta { get; set; }
+
 
     private bool _showFiestaPicker;
     private string _fiestaName = "";
@@ -273,7 +276,7 @@
         return history.Skip(history.Count - MessageWindowSize).ToList();
     }
 
-    private void LoadMore() => OnLoadMore.InvokeAsync();
+    private void LoadMore() => OnLoadMore.InvokeAsync(Session.Name);
 
     private static string PrettifyModel(string modelId)
     {
@@ -383,13 +386,13 @@
             FiestaName = string.IsNullOrWhiteSpace(_fiestaName) ? Session.Name : _fiestaName.Trim(),
             WorkerIds = _selectedWorkerIds.ToList()
         };
-        await OnStartFiesta.InvokeAsync(request);
+        await OnStartFiesta.InvokeAsync((Session.Name, request));
         _showFiestaPicker = false;
     }
 
     private async Task StopFiestaAsync()
     {
-        await OnStopFiesta.InvokeAsync();
+        await OnStopFiesta.InvokeAsync(Session.Name);
         _showFiestaPicker = false;
     }
 

@@ -759,10 +759,13 @@ else
     private async Task SelectSession(string name)
     {
         completedSessions.Remove(name);
+        // Toggle CSS visibility instantly before SwitchSession triggers the render pipeline
+        try { await JS.InvokeVoidAsync("switchKeepAliveSlot", $"slot-{name.Replace(" ", "-")}"); } catch { }
         CopilotService.SwitchSession(name);
         var session = CopilotService.GetSession(name);
         if (session != null) session.LastReadMessageCount = session.History.Count;
-        CopilotService.SaveUiState("/", name);
+        // Fire-and-forget to avoid blocking UI
+        _ = Task.Run(() => CopilotService.SaveUiState("/", name));
         await OnSessionSelected.InvokeAsync();
         if (currentPage != "/")
             Nav.NavigateTo("/");
