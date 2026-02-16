@@ -367,6 +367,25 @@ public class PersistentModeTests
         Assert.Null(options.CliUrl);
     }
 
+    // --- StartAsync failure tests ---
+
+    [Fact]
+    public async Task StartAsync_WithUnreachableServer_Throws()
+    {
+        // Proves the premise of the InitializeAsync/ReconnectAsync try/catch fix:
+        // CopilotClient.StartAsync() throws when the server is unreachable.
+        var options = new CopilotClientOptions();
+        options.CliPath = null;
+        options.UseStdio = false;
+        options.AutoStart = false;
+        options.CliUrl = "http://localhost:19999"; // Nothing listening here
+
+        var client = new CopilotClient(options);
+
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+            await client.StartAsync(CancellationToken.None));
+    }
+
     // --- Helper: mirrors CreateClient option-building logic from CopilotService ---
 
     /// <summary>
