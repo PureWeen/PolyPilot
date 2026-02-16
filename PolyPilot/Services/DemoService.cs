@@ -7,7 +7,7 @@ namespace PolyPilot.Services;
 /// Simulates chat responses for Demo mode — no network connection needed.
 /// Fires the same events as CopilotService for UI testing.
 /// </summary>
-public class DemoService
+public class DemoService : IDemoService
 {
     private readonly ConcurrentDictionary<string, AgentSessionInfo> _sessions = new();
     private string? _activeSessionName;

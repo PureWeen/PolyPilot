@@ -4,7 +4,7 @@ using PolyPilot.Models;
 
 namespace PolyPilot.Services;
 
-public class ServerManager
+public class ServerManager : IServerManager
 {
     private static string? _pidFilePath;
     private static string PidFilePath => _pidFilePath ??= Path.Combine(

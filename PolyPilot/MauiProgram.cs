@@ -89,11 +89,14 @@ public static class MauiProgram
 		// Register CopilotService as singleton so state is shared across components
 		builder.Services.AddSingleton<CopilotService>();
 		builder.Services.AddSingleton<ChatDatabase>();
+		builder.Services.AddSingleton<IChatDatabase>(sp => sp.GetRequiredService<ChatDatabase>());
 		builder.Services.AddSingleton<ServerManager>();
+		builder.Services.AddSingleton<IServerManager>(sp => sp.GetRequiredService<ServerManager>());
 		builder.Services.AddSingleton<DevTunnelService>();
 		builder.Services.AddSingleton<WsBridgeServer>();
 		builder.Services.AddSingleton<TailscaleService>();
 		builder.Services.AddSingleton<WsBridgeClient>();
+		builder.Services.AddSingleton<IWsBridgeClient>(sp => sp.GetRequiredService<WsBridgeClient>());
 		builder.Services.AddSingleton<FiestaService>();
 		builder.Services.AddSingleton<QrScannerService>();
 		builder.Services.AddSingleton<KeyCommandService>();

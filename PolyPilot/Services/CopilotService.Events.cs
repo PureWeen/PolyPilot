@@ -1,6 +1,7 @@
 using System.Text;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using PolyPilot.Models;
 using GitHub.Copilot.SDK;
 

@@ -66,7 +66,7 @@ public class ChatMessageEntity
     }
 }
 
-public class ChatDatabase
+public class ChatDatabase : IChatDatabase
 {
     private SQLiteAsyncConnection? _db;
     private static string? _dbPath;

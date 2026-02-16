@@ -9,7 +9,7 @@ namespace PolyPilot.Services;
 /// Connects to WsBridgeServer, receives state updates, and exposes them
 /// via events that mirror CopilotService's API for UI binding.
 /// </summary>
-public class WsBridgeClient : IDisposable
+public class WsBridgeClient : IWsBridgeClient, IDisposable
 {
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
