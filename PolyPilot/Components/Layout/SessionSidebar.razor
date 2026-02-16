@@ -1151,6 +1151,7 @@ Important conventions:
 - Tests must NEVER call `ConnectionSettings.Save()` or `ConnectionSettings.Load()`.
 - Use `ConnectionMode.Demo` for success paths in tests, `ConnectionMode.Persistent` with port 19999 for failure paths.
 - Never force push. Always add new commits.
+- Do NOT just fix the user's settings files if they are in a bad state. Instead, make the app able to recover gracefully if settings files are corrupt, missing, or in an unexpected state. Add defensive parsing, fallback defaults, and error handling so the app self-heals.
 """;
     }
 
