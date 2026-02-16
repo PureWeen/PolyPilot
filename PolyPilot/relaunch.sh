@@ -48,6 +48,20 @@ rm -rf "$STAGING_DIR/$APP_NAME"
 mkdir -p "$STAGING_DIR"
 ditto "$BUILD_DIR/$APP_NAME" "$STAGING_DIR/$APP_NAME"
 
+# Kill old instances BEFORE launching new one to free up ports
+# Recapture PIDs to ensure we get any instance running right now
+OLD_PIDS=$(ps -eo pid,comm | grep "PolyPilot" | grep -v grep | grep -v "PolyPilot.csproj" | awk '{print $1}' | tr '\n' ' ')
+
+if [ -n "$OLD_PIDS" ]; then
+    echo "🔪 Closing old instance(s)..."
+    for OLD_PID in $OLD_PIDS; do
+        echo "   Killing PID $OLD_PID"
+        kill "$OLD_PID" 2>/dev/null || true
+    done
+    # Give it a moment to release ports
+    sleep 1
+fi
+
 for ATTEMPT in $(seq 1 "$MAX_LAUNCH_ATTEMPTS"); do
     echo "🚀 Launching new instance (attempt $ATTEMPT/$MAX_LAUNCH_ATTEMPTS)..."
     mkdir -p ~/.polypilot
@@ -60,7 +74,7 @@ for ATTEMPT in $(seq 1 "$MAX_LAUNCH_ATTEMPTS"); do
             echo "🔁 Retrying launch..."
             continue
         fi
-        echo "Old instance left running."
+        echo "Launch failed. Old instance was stopped."
         exit 1
     fi
 
@@ -82,14 +96,6 @@ for ATTEMPT in $(seq 1 "$MAX_LAUNCH_ATTEMPTS"); do
     done
 
     if [ "$STABLE" = true ]; then
-        # Now kill old instances
-        if [ -n "$OLD_PIDS" ]; then
-            echo "🔪 Closing old instance(s)..."
-            for OLD_PID in $OLD_PIDS; do
-                echo "   Killing PID $OLD_PID"
-                kill "$OLD_PID" 2>/dev/null || true
-            done
-        fi
         echo "✅ Handoff complete!"
         exit 0
     fi
@@ -100,6 +106,6 @@ for ATTEMPT in $(seq 1 "$MAX_LAUNCH_ATTEMPTS"); do
         continue
     fi
 
-    echo "⚠️  New instance is unstable. Old instance left running."
+    echo "⚠️  New instance is unstable. Old instance was stopped."
     exit 1
 done
