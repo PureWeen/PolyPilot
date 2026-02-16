@@ -1157,21 +1157,17 @@ Important conventions:
 
     private static void LaunchCopilotInTerminal(string workingDir, string promptFile)
     {
-        // Write a shell script that copilot will run
+        // Write a shell script that Terminal.app will run independently
         var shellScript = Path.Combine(Path.GetTempPath(), $"polypilot-launch-{Guid.NewGuid():N}.sh");
-        File.WriteAllText(shellScript, $"#!/bin/bash\ncd \"{workingDir}\" && copilot -p \"$(cat '{promptFile}')\"\n");
-        // Make executable
+        File.WriteAllText(shellScript,
+            "#!/bin/bash\n" +
+            $"cd \"{workingDir}\"\n" +
+            $"copilot -p \"$(cat '{promptFile}')\"\n");
         System.Diagnostics.Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
 
-        // Write AppleScript to a temp file to avoid shell quoting issues
-        var appleScript = Path.Combine(Path.GetTempPath(), $"polypilot-terminal-{Guid.NewGuid():N}.scpt");
-        File.WriteAllText(appleScript,
-            $"tell application \"Terminal\"\n" +
-            $"  activate\n" +
-            $"  do script \"{EscapeForAppleScript(shellScript)}\"\n" +
-            $"end tell\n");
-
-        var psi = new System.Diagnostics.ProcessStartInfo("osascript", appleScript)
+        // Use 'open -a Terminal <script>' — launches Terminal.app as a fully independent
+        // process with NO sandbox inheritance from the MAUI app
+        var psi = new System.Diagnostics.ProcessStartInfo("open", $"-a Terminal \"{shellScript}\"")
         {
             UseShellExecute = false,
             CreateNoWindow = true
