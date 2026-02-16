@@ -1162,7 +1162,9 @@ Important conventions:
         File.WriteAllText(shellScript,
             "#!/bin/bash\n" +
             $"cd \"{workingDir}\"\n" +
-            $"copilot -p \"$(cat '{promptFile}')\"\n");
+            // --yolo grants all permissions so copilot doesn't try to prompt
+            // (non-interactive prompt causes "Permission denied and could not request permission")
+            $"copilot --yolo -p \"$(cat '{promptFile}')\"\n");
         System.Diagnostics.Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
 
         // Use 'open -a Terminal <script>' — launches Terminal.app as a fully independent
