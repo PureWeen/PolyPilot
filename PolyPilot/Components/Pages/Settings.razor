@@ -742,6 +742,9 @@
     private void SetMode(ConnectionMode mode)
     {
         settings.Mode = mode;
+        // Persist mode immediately so it survives app restarts/kills
+        // even if the user doesn't click "Save & Reconnect"
+        settings.Save();
     }
 
     private void SetCliSource(CliSourceMode source)

@@ -151,6 +151,10 @@ public partial class CopilotService : IAsyncDisposable
     // Debug info
     public string LastDebugMessage { get; private set; } = "";
 
+    // Transient notice shown when the service fell back from the user's preferred mode
+    public string? FallbackNotice { get; private set; }
+    public void ClearFallbackNotice() => FallbackNotice = null;
+
     // GitHub user info
     public string? GitHubAvatarUrl { get; private set; }
     public string? GitHubLogin { get; private set; }
@@ -265,6 +269,7 @@ public partial class CopilotService : IAsyncDisposable
                     Debug("Failed to auto-start server, falling back to Embedded mode");
                     settings.Mode = ConnectionMode.Embedded;
                     CurrentMode = ConnectionMode.Embedded;
+                    FallbackNotice = "Persistent server couldn't start — fell back to Embedded mode. Your sessions won't persist across restarts. Go to Settings to fix.";
                 }
             }
             else
@@ -396,6 +401,7 @@ public partial class CopilotService : IAsyncDisposable
         IsInitialized = false;
         IsRemoteMode = false;
         IsDemoMode = false;
+        FallbackNotice = null; // Clear any previous fallback notice
         CurrentMode = settings.Mode;
         OnStateChanged?.Invoke();
 

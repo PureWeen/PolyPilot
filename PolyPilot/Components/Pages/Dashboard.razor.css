@@ -236,6 +236,24 @@
 }
 .retry-btn:hover { background: var(--hover-bg); }
 
+.dismiss-btn {
+    padding: 0.45rem 1.25rem;
+    background: transparent;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+    border-radius: 10px;
+    color: var(--text-secondary);
+    font-size: var(--type-callout);
+    cursor: pointer;
+}
+.dismiss-btn:hover { background: var(--hover-bg); }
+
+.fallback-notice {
+    background: rgba(255, 180, 50, 0.08);
+    border-color: rgba(255, 180, 50, 0.3);
+}
+.fallback-notice .init-error-icon { font-size: 1.5rem; }
+.fallback-notice .init-error-text { color: var(--text-secondary); }
+
 .session-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr));

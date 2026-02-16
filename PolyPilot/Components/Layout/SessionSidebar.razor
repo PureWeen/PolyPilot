@@ -83,6 +83,39 @@ else
         <div class="sidebar-divider"></div>
         @RenderSortToolbar
         @RenderSessionList
+
+        <div class="sidebar-footer">
+            @if (showBugReport)
+            {
+                <div class="bug-report-inline">
+                    <div class="bug-report-header">
+                        <span>Report a Bug</span>
+                        <button class="flyout-close-btn" @onclick="CloseBugReport">✕</button>
+                    </div>
+                    <textarea class="bug-report-textarea" @bind="bugDescription" placeholder="Describe the issue you're seeing…"></textarea>
+                    <details class="bug-report-details">
+                        <summary>Debug info included</summary>
+                        <pre class="bug-report-debug">@GetBugReportDebugInfo()</pre>
+                    </details>
+                    <div class="bug-report-actions">
+                        @if (!string.IsNullOrEmpty(bugReportStatus))
+                        {
+                            <span class="bug-report-status @(bugReportStatus.StartsWith("✓") ? "success" : "error")">@bugReportStatus</span>
+                        }
+                        <button class="bug-report-submit" @onclick="SubmitBugReport" disabled="@bugReportSubmitting">
+                            @(bugReportSubmitting ? "Submitting…" : "Submit Issue")
+                        </button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <button class="bug-report-btn" @onclick="OpenBugReport" title="Report a bug">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    Report Bug
+                </button>
+            }
+        </div>
     </div>
 }
 
@@ -863,6 +896,133 @@ else
         showDirectoryPicker = false;
         StateHasChanged();
     }
+
+    // --- Bug Report ---
+    private bool showBugReport;
+    private string bugDescription = "";
+    private bool bugReportSubmitting;
+    private string? bugReportStatus;
+
+    private void OpenBugReport()
+    {
+        showBugReport = true;
+        bugDescription = "";
+        bugReportStatus = null;
+        StateHasChanged();
+    }
+
+    private void CloseBugReport()
+    {
+        showBugReport = false;
+        StateHasChanged();
+    }
+
+    private string GetBugReportDebugInfo()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Mode: {CopilotService.CurrentMode}");
+        sb.AppendLine($"Initialized: {CopilotService.IsInitialized}");
+        sb.AppendLine($"NeedsConfiguration: {CopilotService.NeedsConfiguration}");
+        sb.AppendLine($"IsRestoring: {CopilotService.IsRestoring}");
+        sb.AppendLine($"IsRemoteMode: {CopilotService.IsRemoteMode}");
+        sb.AppendLine($"Sessions: {CopilotService.GetAllSessions().Count()}");
+        sb.AppendLine($"Platform: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
+        sb.AppendLine($"Arch: {System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}");
+        sb.AppendLine($"Runtime: {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}");
+        if (!string.IsNullOrEmpty(CopilotService.FallbackNotice))
+            sb.AppendLine($"FallbackNotice: {CopilotService.FallbackNotice}");
+        sb.AppendLine($"LastDebug: {CopilotService.LastDebugMessage}");
+
+        // Include last few lines of crash log if it exists
+        try
+        {
+            var crashPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".polypilot", "crash.log");
+            if (File.Exists(crashPath))
+            {
+                var lines = File.ReadAllLines(crashPath);
+                var tail = lines.Length > 10 ? lines[^10..] : lines;
+                sb.AppendLine($"--- crash.log (last {tail.Length} lines) ---");
+                foreach (var line in tail)
+                    sb.AppendLine(line);
+            }
+        }
+        catch { /* ignore */ }
+
+        return sb.ToString();
+    }
+
+    private async Task SubmitBugReport()
+    {
+        if (string.IsNullOrWhiteSpace(bugDescription))
+        {
+            bugReportStatus = "✗ Please describe the issue";
+            return;
+        }
+
+        bugReportSubmitting = true;
+        bugReportStatus = null;
+        StateHasChanged();
+
+        try
+        {
+            var debugInfo = GetBugReportDebugInfo();
+            var body = $"""
+            ## Description
+            {bugDescription.Trim()}
+
+            ## Debug Info
+            ```
+            {debugInfo}
+            ```
+            """;
+
+            // Use gh CLI to create the issue
+            var psi = new System.Diagnostics.ProcessStartInfo("gh", $"issue create --repo PureWeen/PolyPilot --title \"[Bug Report] {EscapeForShell(bugDescription.Trim().Split('\n')[0])}\" --body \"{EscapeForShell(body)}\" --label bug")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            var process = System.Diagnostics.Process.Start(psi);
+            if (process != null)
+            {
+                var output = await process.StandardOutput.ReadToEndAsync();
+                var error = await process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync();
+
+                if (process.ExitCode == 0)
+                {
+                    var issueUrl = output.Trim();
+                    bugReportStatus = $"✓ Issue created: {issueUrl}";
+                    bugDescription = "";
+                }
+                else
+                {
+                    bugReportStatus = $"✗ Failed: {error.Trim()}";
+                }
+            }
+            else
+            {
+                bugReportStatus = "✗ Could not start gh CLI";
+            }
+        }
+        catch (Exception ex)
+        {
+            bugReportStatus = $"✗ Error: {ex.Message}";
+        }
+        finally
+        {
+            bugReportSubmitting = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string EscapeForShell(string s) =>
+        s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("`", "\\`").Replace("$", "\\$");
 
     public void Dispose()
     {

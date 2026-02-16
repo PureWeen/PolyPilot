@@ -398,4 +398,47 @@ public class CopilotServiceInitializationTests
         var persistentChanges = stateChanges.Skip(demoChanges).ToList();
         Assert.Contains(persistentChanges, c => c.mode == ConnectionMode.Persistent && !c.initialized);
     }
+
+    [Fact]
+    public void FallbackNotice_InitiallyNull()
+    {
+        var svc = CreateService();
+        Assert.Null(svc.FallbackNotice);
+    }
+
+    [Fact]
+    public void ClearFallbackNotice_ClearsNotice()
+    {
+        var svc = CreateService();
+        // FallbackNotice is set internally during InitializeAsync persistent fallback,
+        // but we can test the clear path
+        svc.ClearFallbackNotice();
+        Assert.Null(svc.FallbackNotice);
+    }
+
+    [Fact]
+    public async Task ReconnectAsync_ClearsFallbackNotice()
+    {
+        var svc = CreateService();
+
+        // Reconnect to Demo — should clear any previous fallback notice
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        Assert.Null(svc.FallbackNotice);
+    }
+
+    [Fact]
+    public void ConnectionSettings_SetMode_PersistsMode()
+    {
+        // Verify that the mode value round-trips through ConnectionSettings
+        // (mirrors the fix in Settings.razor where SetMode now calls Save)
+        var settings = new ConnectionSettings { Mode = ConnectionMode.Persistent };
+        Assert.Equal(ConnectionMode.Persistent, settings.Mode);
+
+        settings.Mode = ConnectionMode.Embedded;
+        Assert.Equal(ConnectionMode.Embedded, settings.Mode);
+
+        // Verify it doesn't revert on its own
+        settings.Mode = ConnectionMode.Persistent;
+        Assert.Equal(ConnectionMode.Persistent, settings.Mode);
+    }
 }

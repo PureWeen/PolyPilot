@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
@@ -149,21 +150,4 @@ public class UiStatePersistenceTests
         Assert.Equal("claude-opus-4.5", restoredEntry.Model);
         Assert.Equal("/Users/test/.polypilot/worktrees/dotnet-maui-8f45001d", restoredEntry.WorkingDirectory);
     }
-}
-
-// These classes mirror the ones in CopilotService.cs (they're defined at the bottom of that file)
-// They're duplicated here because the original file has MAUI dependencies.
-public class UiState
-{
-    public string CurrentPage { get; set; } = "/";
-    public string? ActiveSession { get; set; }
-    public int FontSize { get; set; } = 20;
-}
-
-public class ActiveSessionEntry
-{
-    public string SessionId { get; set; } = "";
-    public string DisplayName { get; set; } = "";
-    public string Model { get; set; } = "";
-    public string? WorkingDirectory { get; set; }
 }

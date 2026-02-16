@@ -1,0 +1,237 @@
+{
+  "description": "UI scenario tests for mode switching and session persistence. Each scenario is executed against a running PolyPilot app using MauiDevFlow CDP commands. Scenarios assume the app starts in Persistent mode with sessions loaded.",
+  "prerequisites": {
+    "build": "cd PolyPilot && ./relaunch.sh",
+    "waitForAgent": "maui-devflow MAUI status",
+    "initialMode": "Persistent"
+  },
+  "scenarios": [
+    {
+      "id": "mode-switch-persistent-to-embedded-and-back",
+      "name": "Sessions survive Persistent → Embedded → Persistent round trip",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-item').length",
+          "capture": "initialSessionCount"
+        },
+        {
+          "action": "evaluate",
+          "script": "JSON.parse(await (await fetch('/api/status')).text()).mode",
+          "note": "Alternatively read from status element",
+          "fallback": {
+            "action": "evaluate",
+            "script": "document.querySelector('.status')?.textContent?.trim()"
+          },
+          "expect": { "contains": "Persistent" }
+        },
+        {
+          "action": "click",
+          "selector": "a[href='/settings']"
+        },
+        { "action": "wait", "ms": 1000 },
+        {
+          "action": "click",
+          "selector": ".mode-card:first-child",
+          "note": "Select Embedded mode"
+        },
+        { "action": "wait", "ms": 500 },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.mode-card.selected .mode-title')?.textContent",
+          "expect": { "equals": "Embedded" }
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'",
+          "note": "Click Save & Reconnect"
+        },
+        { "action": "wait", "ms": 15000 },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.textContent?.trim()",
+          "expect": { "contains": "Embedded" }
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.className",
+          "expect": { "contains": "connected" }
+        },
+        {
+          "action": "click",
+          "selector": ".mode-card:nth-child(2)",
+          "note": "Select Persistent mode"
+        },
+        { "action": "wait", "ms": 500 },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+        },
+        { "action": "wait", "ms": 15000 },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.textContent?.trim()",
+          "expect": { "contains": "Persistent" }
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.className",
+          "expect": { "contains": "connected" }
+        },
+        {
+          "action": "click",
+          "selector": "a[href='/']",
+          "note": "Navigate back to dashboard"
+        },
+        { "action": "wait", "ms": 2000 },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-item').length + Array.from(document.querySelectorAll('.group-count')).reduce((sum, el) => sum + parseInt(el.textContent.trim() || '0'), 0)",
+          "note": "Total sessions = visible items + collapsed counts. Compare with initial.",
+          "expect": { "greaterThanOrEqual": "initialSessionCount" }
+        }
+      ]
+    },
+    {
+      "id": "mode-switch-rapid-no-session-loss",
+      "name": "Rapid Embedded↔Persistent switching preserves active-sessions.json",
+      "steps": [
+        {
+          "action": "shell",
+          "command": "python3 -c \"import json,os; print(len(json.load(open(os.path.expanduser('~/.polypilot/active-sessions.json')))))\"",
+          "capture": "initialJsonCount"
+        },
+        {
+          "action": "click",
+          "selector": "a[href='/settings']"
+        },
+        { "action": "wait", "ms": 1000 },
+        {
+          "action": "click",
+          "selector": ".mode-card:first-child",
+          "note": "Embedded"
+        },
+        { "action": "wait", "ms": 500 },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+        },
+        { "action": "wait", "ms": 10000 },
+        {
+          "action": "click",
+          "selector": ".mode-card:nth-child(2)",
+          "note": "Back to Persistent immediately"
+        },
+        { "action": "wait", "ms": 500 },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+        },
+        { "action": "wait", "ms": 15000 },
+        {
+          "action": "shell",
+          "command": "python3 -c \"import json,os; print(len(json.load(open(os.path.expanduser('~/.polypilot/active-sessions.json')))))\"",
+          "expect": { "equals": "initialJsonCount" }
+        }
+      ]
+    },
+    {
+      "id": "persistent-failure-shows-needs-configuration",
+      "name": "Connecting to unreachable server shows configuration needed",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/settings']"
+        },
+        { "action": "wait", "ms": 1000 },
+        {
+          "action": "click",
+          "selector": ".mode-card:nth-child(2)",
+          "note": "Persistent mode"
+        },
+        { "action": "wait", "ms": 500 },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('input[placeholder*=\"Port\"]').value = '19999'; document.querySelector('input[placeholder*=\"Port\"]').dispatchEvent(new Event('change')); 'set'",
+          "note": "Set port to 19999 (unreachable)"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+        },
+        { "action": "wait", "ms": 10000 },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.className",
+          "expect": { "notContains": "connected" },
+          "note": "Status should NOT show connected"
+        }
+      ]
+    },
+    {
+      "id": "failed-persistent-then-demo-recovery",
+      "name": "After failed Persistent connection, switching to Demo recovers",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/settings']"
+        },
+        { "action": "wait", "ms": 1000 },
+        {
+          "action": "click",
+          "selector": ".mode-card:nth-child(2)",
+          "note": "Persistent"
+        },
+        { "action": "wait", "ms": 500 },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+        },
+        { "action": "wait", "ms": 10000 },
+        {
+          "action": "click",
+          "selector": ".mode-card:last-child",
+          "note": "Switch to Demo mode (last card)"
+        },
+        { "action": "wait", "ms": 500 },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+        },
+        { "action": "wait", "ms": 5000 },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.className",
+          "expect": { "contains": "connected" }
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.textContent?.trim()",
+          "expect": { "contains": "Demo" }
+        }
+      ]
+    },
+    {
+      "id": "startup-sessions-restore",
+      "name": "Sessions from active-sessions.json appear after app restart",
+      "steps": [
+        {
+          "action": "shell",
+          "command": "python3 -c \"import json,os; print(len(json.load(open(os.path.expanduser('~/.polypilot/active-sessions.json')))))\"",
+          "capture": "expectedCount"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.className",
+          "expect": { "contains": "connected" }
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.group-count')).reduce((sum, el) => sum + parseInt(el.textContent.trim() || '0'), 0)",
+          "note": "Sum all group counts (includes collapsed groups)",
+          "expect": { "greaterThanOrEqual": "expectedCount" }
+        }
+      ]
+    }
+  ]
+}

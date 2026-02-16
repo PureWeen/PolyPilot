@@ -33,6 +33,15 @@
                     <button class="retry-btn" @onclick="Initialize">Retry</button>
                 </div>
             }
+            @if (!string.IsNullOrEmpty(CopilotService.FallbackNotice))
+            {
+                <div class="init-error-card fallback-notice">
+                    <span class="init-error-icon">⚠️</span>
+                    <p class="init-error-text">@CopilotService.FallbackNotice</p>
+                    <button class="retry-btn" @onclick="GoToSettings">Settings</button>
+                    <button class="dismiss-btn" @onclick="DismissFallbackNotice">Dismiss</button>
+                </div>
+            }
             @if (PlatformHelper.IsMobile && !CopilotService.IsInitialized)
             {
                 <div class="mobile-connect-card">
@@ -399,6 +408,17 @@
             WsBridgeServer.SetCopilotService(CopilotService);
             WsBridgeServer.Start(DevTunnelService.BridgePort, connSettings.Port);
         }
+    }
+
+    private void GoToSettings()
+    {
+        Nav.NavigateTo("/settings");
+    }
+
+    private void DismissFallbackNotice()
+    {
+        CopilotService.ClearFallbackNotice();
+        StateHasChanged();
     }
 
     private async Task DashboardScanQr()

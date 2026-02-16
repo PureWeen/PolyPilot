@@ -38,20 +38,9 @@ public partial class CopilotService
                     var existingEntries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(existingJson);
                     if (existingEntries != null)
                     {
-                        var activeIds = new HashSet<string>(entries.Select(e => e.SessionId), StringComparer.OrdinalIgnoreCase);
-                        foreach (var existing in existingEntries)
-                        {
-                            if (activeIds.Contains(existing.SessionId)) continue;
-                            if (_closedSessionIds.ContainsKey(existing.SessionId)) continue;
-                            
-                            // Keep the entry if its session directory still exists on disk
-                            var sessionDir = Path.Combine(SessionStatePath, existing.SessionId);
-                            if (Directory.Exists(sessionDir))
-                            {
-                                entries.Add(existing);
-                                activeIds.Add(existing.SessionId);
-                            }
-                        }
+                        var closedIds = new HashSet<string>(_closedSessionIds.Keys, StringComparer.OrdinalIgnoreCase);
+                        entries = MergeSessionEntries(entries, existingEntries, closedIds,
+                            sessionId => Directory.Exists(Path.Combine(SessionStatePath, sessionId)));
                     }
                 }
             }
@@ -67,6 +56,33 @@ public partial class CopilotService
         {
             Debug($"Failed to save active sessions: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Merge active (in-memory) session entries with persisted (on-disk) entries.
+    /// Persisted entries are kept if they aren't already active, weren't explicitly
+    /// closed, and their session directory still exists.
+    /// </summary>
+    internal static List<ActiveSessionEntry> MergeSessionEntries(
+        List<ActiveSessionEntry> active,
+        List<ActiveSessionEntry> persisted,
+        ISet<string> closedIds,
+        Func<string, bool> sessionDirExists)
+    {
+        var merged = new List<ActiveSessionEntry>(active);
+        var activeIds = new HashSet<string>(active.Select(e => e.SessionId), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var existing in persisted)
+        {
+            if (activeIds.Contains(existing.SessionId)) continue;
+            if (closedIds.Contains(existing.SessionId)) continue;
+            if (!sessionDirExists(existing.SessionId)) continue;
+
+            merged.Add(existing);
+            activeIds.Add(existing.SessionId);
+        }
+
+        return merged;
     }
 
     /// <summary>
