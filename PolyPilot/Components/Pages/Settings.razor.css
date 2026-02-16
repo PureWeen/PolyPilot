@@ -438,6 +438,37 @@
     border-color: var(--accent-primary);
 }
 
+.mode-changed-hint {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    color: #fbbf24;
+    font-size: var(--type-small, 0.85rem);
+}
+
+.reconnect-inline-btn {
+    padding: 0.3rem 0.8rem;
+    border: 1px solid rgba(59, 130, 246, 0.5);
+    border-radius: 6px;
+    background: rgba(59, 130, 246, 0.2);
+    color: var(--accent-primary);
+    font-size: var(--type-small, 0.85rem);
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.reconnect-inline-btn:hover {
+    background: rgba(59, 130, 246, 0.35);
+    border-color: var(--accent-primary);
+}
+
 .status-toast {
     position: fixed;
     bottom: 2rem;

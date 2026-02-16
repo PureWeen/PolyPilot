@@ -71,6 +71,13 @@
                     </div>
                 }
             </div>
+            @if (settings.Mode != _initialMode)
+            {
+                <div class="mode-changed-hint">
+                    <span>⚡ Mode changed to <strong>@settings.Mode</strong> — reconnect to apply.</span>
+                    <button class="reconnect-inline-btn" @onclick="SaveAndApply">Reconnect Now</button>
+                </div>
+            }
         </div>
     }
 
@@ -544,6 +551,7 @@
     private DotNetObjectReference<Settings>? _selfRef;
     private (string? builtInPath, string? builtInVersion, string? systemPath, string? systemVersion) cliInfo;
     private CliSourceMode _initialCliSource;
+    private ConnectionMode _initialMode;
     private bool cliSourceChanged;
     private int fontSize = 20;
     private string fiestaLinkName = "";
@@ -609,6 +617,7 @@
     {
         settings = ConnectionSettings.Load();
         _initialCliSource = settings.CliSource;
+        _initialMode = settings.Mode;
         DevTunnelService.OnStateChanged += OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
         FiestaService.OnStateChanged += OnFiestaStateChanged;
@@ -1067,6 +1076,9 @@
         try
         {
             await CopilotService.ReconnectAsync(settings);
+            _initialMode = settings.Mode;
+            _initialCliSource = settings.CliSource;
+            cliSourceChanged = false;
             ShowStatus("Connected!", "success");
             Nav.NavigateTo("/");
         }
