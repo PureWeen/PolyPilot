@@ -3,10 +3,10 @@ using System.Text.RegularExpressions;
 namespace PolyPilot.Models;
 
 /// <summary>
-/// Ralph's Loop: an iterative reflection cycle where a prompt is sent, the response
-/// is evaluated against a goal, and if the goal is not yet met, a refined follow-up
-/// prompt is automatically generated and sent. The cycle continues until the goal is
-/// satisfied, the model stalls, or the maximum number of iterations is reached.
+/// Reflection cycle ("reflection loop"): an iterative mechanism where a prompt is sent,
+/// the response is evaluated against a goal, and if the goal is not yet met, a refined
+/// follow-up prompt is automatically generated and sent. The cycle continues until the
+/// goal is satisfied, the model stalls, or the maximum number of iterations is reached.
 /// </summary>
 public partial class ReflectionCycle
 {
@@ -14,9 +14,9 @@ public partial class ReflectionCycle
     /// Sentinel token the model must emit on its own line to signal goal completion.
     /// Deliberately machine-style to avoid false positives in natural prose.
     /// </summary>
-    internal const string CompletionSentinel = "[[RALPH_COMPLETE]]";
+    internal const string CompletionSentinel = "[[REFLECTION_COMPLETE]]";
 
-    [GeneratedRegex(@"^\s*\[\[RALPH_COMPLETE\]\]\s*$", RegexOptions.Multiline)]
+    [GeneratedRegex(@"^\s*\[\[REFLECTION_COMPLETE\]\]\s*$", RegexOptions.Multiline)]
     private static partial Regex CompletionSentinelRegex();
 
     private static readonly char[] TokenSeparators = [' ', '\n', '\r', '\t'];
@@ -74,7 +74,7 @@ public partial class ReflectionCycle
             ? EvaluationPrompt
             : $"The goal is: {Goal}";
 
-        return $"[Ralph's Loop — iteration {CurrentIteration + 1}/{MaxIterations}]\n\n"
+        return $"[Reflection cycle — iteration {CurrentIteration + 1}/{MaxIterations}]\n\n"
              + $"{evaluation}\n\n"
              + "Before continuing, briefly assess what progress was made and what remains.\n\n"
              + "Then continue working toward the goal. Make concrete, incremental progress.\n\n"

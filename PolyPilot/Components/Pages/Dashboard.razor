@@ -106,10 +106,9 @@
                                      OnFontSizeChange="HandleFontSizeChange"
                                      OnLoadMore="LoadMoreExpandedMessages"
                                      OnStartFiesta="StartFiestaForSession"
-                                     OnStopFiesta="StopFiestaForSession" />
+                                     OnStopFiesta="StopFiestaForSession"
+                                     OnStopReflection="() => StopReflectionForSession(session.Name)" />
             </KeepAliveSession>
-
-
         }
     }
     else
@@ -1200,6 +1199,7 @@
                     "- `/status` — Show git status\n" +
                     "- `/mcp` — List MCP servers (enable/disable with `/mcp enable|disable <name>`)\n" +
                     "- `/plugin` — List installed plugins (enable/disable with `/plugin enable|disable <name>`)\n" +
+                    "- `/reflect <goal>` — Start a reflection cycle (`/reflect stop` to cancel, `--max N` for iterations)\n" +
                     "- `!<command>` — Run a shell command"));
                 break;
 
@@ -1318,6 +1318,10 @@
             case "plugin":
             case "plugins":
                 HandlePluginCommand(session, arg);
+                break;
+
+            case "reflect":
+                HandleReflectCommand(session, sessionName, arg);
                 break;
 
             default:
@@ -1450,6 +1454,44 @@
                 session.History.Add(ChatMessage.SystemMessage(GetPluginInfo()));
                 break;
         }
+    }
+
+    private void HandleReflectCommand(AgentSessionInfo session, string sessionName, string arg)
+    {
+        var subParts = arg.Split(' ', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var sub = subParts.Length > 0 ? subParts[0].ToLowerInvariant() : "";
+
+        if (sub == "stop")
+        {
+            CopilotService.StopReflectionCycle(sessionName);
+            session.History.Add(ChatMessage.SystemMessage("🛑 Reflection cycle stopped."));
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(arg))
+        {
+            session.History.Add(ChatMessage.ErrorMessage("Usage: `/reflect <goal>` or `/reflect stop`\nOptional: `--max N` to set max iterations (default 5)"));
+            return;
+        }
+
+        // Parse --max N from the goal text
+        int maxIterations = 5;
+        var goal = arg;
+        var maxMatch = System.Text.RegularExpressions.Regex.Match(arg, @"--max\s+(\d+)");
+        if (maxMatch.Success)
+        {
+            maxIterations = int.Parse(maxMatch.Groups[1].Value);
+            goal = arg.Remove(maxMatch.Index, maxMatch.Length).Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(goal))
+        {
+            session.History.Add(ChatMessage.ErrorMessage("Please provide a goal for the reflection cycle."));
+            return;
+        }
+
+        CopilotService.StartReflectionCycle(sessionName, goal, maxIterations);
+        session.History.Add(ChatMessage.SystemMessage($"🔄 Reflection cycle started — **{goal}** (max {maxIterations} iterations)"));
     }
 
     private void ToggleMcpServer(string name, bool enabled)
@@ -1641,6 +1683,20 @@
         if (session != null)
         {
             session.History.Add(ChatMessage.SystemMessage("Fiesta stopped for this session."));
+            session.MessageCount = session.History.Count;
+        }
+        _needsScrollToBottom = true;
+        await InvokeAsync(SafeRefreshAsync);
+    }
+
+    private async Task StopReflectionForSession(string sessionName)
+    {
+        CopilotService.StopReflectionCycle(sessionName);
+        var session = CopilotService.GetSession(sessionName);
+        if (session != null)
+        {
+            var goal = session.ReflectionCycle?.Goal ?? "unknown";
+            session.History.Add(ChatMessage.SystemMessage($"🛑 Reflection cycle stopped — **{goal}**"));
             session.MessageCount = session.History.Count;
         }
         _needsScrollToBottom = true;
