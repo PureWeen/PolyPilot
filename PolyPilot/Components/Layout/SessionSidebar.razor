@@ -1157,17 +1157,23 @@ Important conventions:
 
     private static void LaunchCopilotInTerminal(string workingDir, string promptFile)
     {
-        // Use osascript to open a new Terminal.app window and run copilot
-        var script = $"""
-            tell application "Terminal"
-                activate
-                do script "cd {EscapeForAppleScript(workingDir)} && copilot -p \"$(cat {EscapeForAppleScript(promptFile)})\""
-            end tell
-            """;
+        // Write a shell script that copilot will run
+        var shellScript = Path.Combine(Path.GetTempPath(), $"polypilot-launch-{Guid.NewGuid():N}.sh");
+        File.WriteAllText(shellScript, $"#!/bin/bash\ncd \"{workingDir}\" && copilot -p \"$(cat '{promptFile}')\"\n");
+        // Make executable
+        System.Diagnostics.Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
 
-        var psi = new System.Diagnostics.ProcessStartInfo("osascript", $"-e '{script}'")
+        // Write AppleScript to a temp file to avoid shell quoting issues
+        var appleScript = Path.Combine(Path.GetTempPath(), $"polypilot-terminal-{Guid.NewGuid():N}.scpt");
+        File.WriteAllText(appleScript,
+            $"tell application \"Terminal\"\n" +
+            $"  activate\n" +
+            $"  do script \"{EscapeForAppleScript(shellScript)}\"\n" +
+            $"end tell\n");
+
+        var psi = new System.Diagnostics.ProcessStartInfo("osascript", appleScript)
         {
-            UseShellExecute = true,
+            UseShellExecute = false,
             CreateNoWindow = true
         };
         System.Diagnostics.Process.Start(psi);
