@@ -30,6 +30,7 @@ internal class StubChatDatabase : IChatDatabase
         => Task.CompletedTask;
 }
 
+#pragma warning disable CS0067 // Events declared but never used in stubs
 internal class StubServerManager : IServerManager
 {
     public bool IsServerRunning { get; set; }
@@ -123,3 +124,4 @@ internal class StubDemoService : IDemoService
     public Task SimulateResponseAsync(string sessionName, string prompt, SynchronizationContext? syncContext = null, CancellationToken ct = default)
         => Task.CompletedTask;
 }
+#pragma warning restore CS0067

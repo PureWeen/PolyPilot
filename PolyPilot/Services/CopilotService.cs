@@ -423,6 +423,7 @@ public partial class CopilotService : IAsyncDisposable
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
+            Debug($"Failed to reconnect Copilot client: {ex.Message}");
             try { await _client.DisposeAsync(); } catch { }
             _client = null;
             IsInitialized = false;
