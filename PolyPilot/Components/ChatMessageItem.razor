@@ -180,6 +180,12 @@
             <DiffView RawDiff="@Message.Content" />
         </div>
         break;
+
+    case ChatMessageType.Reflection:
+        <div class="chat-msg reflection">
+            <div class="reflection-text">@Message.Content</div>
+        </div>
+        break;
 }
 
 @code {

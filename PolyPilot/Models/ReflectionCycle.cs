@@ -20,6 +20,7 @@ public partial class ReflectionCycle
     private static partial Regex CompletionSentinelRegex();
 
     private static readonly char[] TokenSeparators = [' ', '\n', '\r', '\t'];
+    private const string FollowUpHeaderPrefix = "[Reflection cycle — iteration ";
 
     /// <summary>
     /// The high-level goal or acceptance criteria that the cycle is working toward.
@@ -54,15 +55,24 @@ public partial class ReflectionCycle
     public bool IsStalled { get; set; }
 
     /// <summary>
+    /// Number of consecutive stalls detected. Exposed for diagnostics and warning UI.
+    /// </summary>
+    public int ConsecutiveStalls { get; private set; }
+
+    /// <summary>
     /// Optional instructions on how to evaluate whether the goal has been met.
     /// If empty, a default evaluation prompt is constructed from the Goal.
     /// </summary>
     public string EvaluationPrompt { get; set; } = "";
 
+    /// <summary>
+    /// True only on the advance where the first stall is detected.
+    /// </summary>
+    public bool ShouldWarnOnStall { get; private set; }
+
     // Stall detection state (not serialized)
     private readonly List<int> _recentHashes = new();
     private string _lastResponse = "";
-    private int _consecutiveStalls;
 
     /// <summary>
     /// Constructs the follow-up prompt to send when the cycle determines
@@ -74,7 +84,7 @@ public partial class ReflectionCycle
             ? EvaluationPrompt
             : $"The goal is: {Goal}";
 
-        return $"[Reflection cycle — iteration {CurrentIteration + 1}/{MaxIterations}]\n\n"
+        return $"{FollowUpHeaderPrefix}{CurrentIteration + 1}/{MaxIterations}]\n\n"
              + $"{evaluation}\n\n"
              + "Before continuing, briefly assess what progress was made and what remains.\n\n"
              + "Then continue working toward the goal. Make concrete, incremental progress.\n\n"
@@ -82,6 +92,17 @@ public partial class ReflectionCycle
              + $"emit this exact sentinel on its own line:\n{CompletionSentinel}\n\n"
              + "Do NOT emit the sentinel if there is any remaining work, errors to fix, or uncertainty. "
              + "Partial progress or \"good enough\" is NOT complete.";
+    }
+
+    public string BuildFollowUpStatus()
+    {
+        return $"🔄 Iteration {CurrentIteration + 1}/{MaxIterations}";
+    }
+
+    public static bool IsReflectionFollowUpPrompt(string prompt)
+    {
+        return !string.IsNullOrWhiteSpace(prompt) &&
+               prompt.StartsWith(FollowUpHeaderPrefix, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -144,6 +165,7 @@ public partial class ReflectionCycle
     public bool Advance(string response)
     {
         if (!IsActive) return false;
+        ShouldWarnOnStall = false;
 
         CurrentIteration++;
 
@@ -156,8 +178,10 @@ public partial class ReflectionCycle
 
         if (CheckStall(response))
         {
-            _consecutiveStalls++;
-            if (_consecutiveStalls >= 2)
+            ConsecutiveStalls++;
+            if (ConsecutiveStalls == 1)
+                ShouldWarnOnStall = true;
+            if (ConsecutiveStalls >= 2)
             {
                 IsStalled = true;
                 IsActive = false;
@@ -166,7 +190,7 @@ public partial class ReflectionCycle
         }
         else
         {
-            _consecutiveStalls = 0;
+            ConsecutiveStalls = 0;
         }
 
         if (CurrentIteration >= MaxIterations)
