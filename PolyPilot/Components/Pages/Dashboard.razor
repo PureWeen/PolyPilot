@@ -667,6 +667,7 @@
     private volatile bool _renderDirty;
     private Timer? _renderTimer;
     private DateTime _lastNonSwitchRefresh = DateTime.MinValue;
+    private long _switchCooldownUntil; // TickCount64 value: suppress renders until this time
 
     private void ScheduleRender()
     {
@@ -676,6 +677,16 @@
 
     private async Task SafeRefreshAsync()
     {
+        // During switch cooldown, skip render to let browser paint the CSS toggle uninterrupted
+        if (Environment.TickCount64 < _switchCooldownUntil)
+        {
+            // Re-schedule to try again after cooldown expires
+            var remaining = (int)(_switchCooldownUntil - Environment.TickCount64);
+            if (remaining > 0)
+                _renderTimer?.Change(remaining + 10, Timeout.Infinite);
+            return;
+        }
+
         // During a session switch, drafts were already saved — skip the expensive JS round-trip
         if (!_sessionSwitching)
         {
@@ -794,7 +805,8 @@
             {
                 _sessionSwitching = false;
                 _needsScrollToBottom = true;
-                // CSS toggle already done by sidebar/ExpandSession — Blazor state syncs on next natural render
+                // CSS toggle already done by sidebar/ExpandSession — suppress renders during cooldown
+                _switchCooldownUntil = Math.Max(_switchCooldownUntil, Environment.TickCount64 + 300);
             }
             else
                 ScheduleRender();
@@ -1784,8 +1796,9 @@
         expandedSession = sessionName;
         _needsScrollToBottom = true;
         _sessionSwitching = true; // tells RefreshState to skip redundant work
-        // Toggle CSS visibility instantly
-        try { await JS.InvokeVoidAsync("switchKeepAliveSlot", $"slot-{sessionName.Replace(" ", "-")}", sessionName); } catch { }
+        // Suppress Blazor renders for 300ms to let browser paint the CSS toggle uninterrupted
+        _switchCooldownUntil = Environment.TickCount64 + 300;
+        // CSS visibility already toggled by JS capture-phase click handler
         CopilotService.SwitchSession(sessionName);
         var session = CopilotService.GetSession(sessionName);
         if (session != null) session.LastReadMessageCount = session.History.Count;
