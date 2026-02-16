@@ -13,6 +13,8 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _pendingRemoteSessions = new();
     // Session IDs explicitly closed by the user — excluded from merge-back during SaveActiveSessionsToDisk
     private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
+    // Image paths queued alongside messages when session is busy (keyed by session name, list per queued message)
+    private readonly ConcurrentDictionary<string, List<List<string>>> _queuedImagePaths = new();
     private readonly IChatDatabase _chatDb;
     private readonly IServerManager _serverManager;
     private readonly IWsBridgeClient _bridgeClient;
@@ -390,6 +392,7 @@ public partial class CopilotService : IAsyncDisposable
         }
         _sessions.Clear();
         _closedSessionIds.Clear();
+        _queuedImagePaths.Clear();
         _activeSessionName = null;
 
         if (_client != null)
@@ -1494,12 +1497,23 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         OnStateChanged?.Invoke();
     }
 
-    public void EnqueueMessage(string sessionName, string prompt)
+    public void EnqueueMessage(string sessionName, string prompt, List<string>? imagePaths = null)
     {
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
         
         state.Info.MessageQueue.Add(prompt);
+        
+        // Track image paths alongside the queued message
+        if (imagePaths != null && imagePaths.Count > 0)
+        {
+            var queue = _queuedImagePaths.GetOrAdd(sessionName, _ => new List<List<string>>());
+            // Pad with empty lists for any prior messages without images
+            while (queue.Count < state.Info.MessageQueue.Count - 1)
+                queue.Add(new List<string>());
+            queue.Add(imagePaths);
+        }
+        
         OnStateChanged?.Invoke();
     }
 
@@ -1518,6 +1532,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (index >= 0 && index < state.Info.MessageQueue.Count)
         {
             state.Info.MessageQueue.RemoveAt(index);
+            // Keep queued image paths in sync
+            if (_queuedImagePaths.TryGetValue(sessionName, out var imageQueue) && index < imageQueue.Count)
+            {
+                imageQueue.RemoveAt(index);
+                if (imageQueue.Count == 0)
+                    _queuedImagePaths.TryRemove(sessionName, out _);
+            }
             OnStateChanged?.Invoke();
         }
     }
@@ -1527,6 +1548,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (_sessions.TryGetValue(sessionName, out var state))
         {
             state.Info.MessageQueue.Clear();
+            _queuedImagePaths.TryRemove(sessionName, out _);
             OnStateChanged?.Invoke();
         }
     }
@@ -1567,6 +1589,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             return false;
 
         state.Info.Name = newName;
+
+        // Move queued image paths to new name
+        if (_queuedImagePaths.TryRemove(oldName, out var imageQueue))
+            _queuedImagePaths[newName] = imageQueue;
 
         if (!_sessions.TryAdd(newName, state))
         {
@@ -1620,6 +1646,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!_sessions.TryRemove(name, out var state))
             return false;
+
+        // Clean up any queued image paths for this session
+        _queuedImagePaths.TryRemove(name, out _);
 
         // Track as explicitly closed so merge doesn't re-add from file
         if (state.Info.SessionId != null)

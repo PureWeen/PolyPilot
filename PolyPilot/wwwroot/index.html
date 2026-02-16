@@ -45,24 +45,50 @@
         document.addEventListener('paste', function(e) {
             var sel = '.card-input input, .card-input textarea, .input-row textarea';
             if (!e.target.matches || !e.target.matches(sel)) return;
-            var items = e.clipboardData && e.clipboardData.items;
-            if (!items) return;
-            for (var i = 0; i < items.length; i++) {
-                if (items[i].type.startsWith('image/')) {
-                    if (!window.__dashRef) return;
-                    e.preventDefault();
-                    var file = items[i].getAsFile();
-                    if (file) {
-                        var reader = new FileReader();
-                        reader.onload = function() {
-                            var base64 = reader.result.split(',')[1];
-                            var ext = (file.name && file.name.includes('.')) ? file.name.split('.').pop() : 'png';
-                            var name = file.name || ('pasted-image.' + ext);
-                            window.__dashRef.invokeMethodAsync('JsImagePasted', base64, name, ext, e.target.id || '');
-                        };
-                        reader.readAsDataURL(file);
+            if (!window.__dashRef) return;
+            var cd = e.clipboardData;
+            if (!cd) return;
+
+            // Try clipboardData.items first (works in most browsers)
+            var items = cd.items;
+            if (items) {
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i].type.startsWith('image/')) {
+                        e.preventDefault();
+                        var file = items[i].getAsFile();
+                        if (file) {
+                            var reader = new FileReader();
+                            reader.onload = function() {
+                                var base64 = reader.result.split(',')[1];
+                                var ext = (file.name && file.name.includes('.')) ? file.name.split('.').pop() : 'png';
+                                var name = file.name || ('pasted-image.' + ext);
+                                window.__dashRef.invokeMethodAsync('JsImagePasted', base64, name, ext, e.target.id || '');
+                            };
+                            reader.readAsDataURL(file);
+                        }
+                        return;
                     }
-                    return;
+                }
+            }
+
+            // Fallback: check clipboardData.files (more reliable on Mac Catalyst WKWebView)
+            var files = cd.files;
+            if (files && files.length > 0) {
+                for (var fi = 0; fi < files.length; fi++) {
+                    if (files[fi].type.startsWith('image/')) {
+                        e.preventDefault();
+                        (function(f) {
+                            var reader = new FileReader();
+                            reader.onload = function() {
+                                var base64 = reader.result.split(',')[1];
+                                var ext = (f.name && f.name.includes('.')) ? f.name.split('.').pop() : 'png';
+                                var name = f.name || ('pasted-image.' + ext);
+                                window.__dashRef.invokeMethodAsync('JsImagePasted', base64, name, ext, e.target.id || '');
+                            };
+                            reader.readAsDataURL(f);
+                        })(files[fi]);
+                        return;
+                    }
                 }
             }
         }, true);

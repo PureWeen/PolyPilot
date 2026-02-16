@@ -585,12 +585,23 @@ public partial class CopilotService
         {
             var nextPrompt = state.Info.MessageQueue[0];
             state.Info.MessageQueue.RemoveAt(0);
+            
+            // Retrieve any queued image paths for this message
+            List<string>? nextImagePaths = null;
+            if (_queuedImagePaths.TryGetValue(state.Info.Name, out var imageQueue) && imageQueue.Count > 0)
+            {
+                nextImagePaths = imageQueue[0];
+                imageQueue.RemoveAt(0);
+                if (imageQueue.Count == 0)
+                    _queuedImagePaths.TryRemove(state.Info.Name, out _);
+            }
+            
             _ = Task.Run(async () =>
             {
                 try
                 {
                     await Task.Delay(500);
-                    await SendPromptAsync(state.Info.Name, nextPrompt);
+                    await SendPromptAsync(state.Info.Name, nextPrompt, nextImagePaths);
                 }
                 catch (Exception ex)
                 {

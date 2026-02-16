@@ -524,4 +524,64 @@ public class CopilotServiceInitializationTests
         // Path may be null in test environment (no bundled binary),
         // but it should not throw
     }
+
+    [Fact]
+    public async Task EnqueueMessage_WithImagePaths_PreservesImagesForDispatch()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("img-test");
+        Assert.NotNull(session);
+
+        // Enqueue a message with image paths
+        var imagePaths = new List<string> { "/tmp/test1.png", "/tmp/test2.jpg" };
+        svc.EnqueueMessage("img-test", "describe these images", imagePaths);
+
+        Assert.Single(session.MessageQueue);
+        Assert.Equal("describe these images", session.MessageQueue[0]);
+    }
+
+    [Fact]
+    public async Task EnqueueMessage_WithoutImages_Works()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("no-img-test");
+
+        svc.EnqueueMessage("no-img-test", "plain text");
+
+        Assert.Single(session.MessageQueue);
+        Assert.Equal("plain text", session.MessageQueue[0]);
+    }
+
+    [Fact]
+    public async Task ClearQueue_ClearsImagePaths()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("clear-test");
+
+        svc.EnqueueMessage("clear-test", "msg1", new List<string> { "/tmp/img.png" });
+        svc.EnqueueMessage("clear-test", "msg2");
+        Assert.Equal(2, session.MessageQueue.Count);
+
+        svc.ClearQueue("clear-test");
+        Assert.Empty(session.MessageQueue);
+    }
+
+    [Fact]
+    public async Task RemoveQueuedMessage_RemovesCorrespondingImagePaths()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("remove-test");
+
+        svc.EnqueueMessage("remove-test", "msg1", new List<string> { "/tmp/img1.png" });
+        svc.EnqueueMessage("remove-test", "msg2");
+        Assert.Equal(2, session.MessageQueue.Count);
+
+        svc.RemoveQueuedMessage("remove-test", 0);
+        Assert.Single(session.MessageQueue);
+        Assert.Equal("msg2", session.MessageQueue[0]);
+    }
 }

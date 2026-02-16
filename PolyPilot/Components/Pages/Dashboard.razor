@@ -958,18 +958,24 @@
             return;
         }
 
+        var session = sessions.FirstOrDefault(s => s.Name == sessionName);
+        if (session?.IsProcessing == true)
+        {
+            List<string>? queueImagePaths = null;
+            if (hasImages)
+            {
+                queueImagePaths = pendingSendImages!.Select(i => i.TempPath).ToList();
+                pendingImagesBySession.Remove(sessionName);
+            }
+            CopilotService.EnqueueMessage(sessionName, finalPrompt, queueImagePaths);
+            return;
+        }
+
         List<string>? imagePaths = null;
         if (hasImages)
         {
             imagePaths = pendingSendImages!.Select(i => i.TempPath).ToList();
             pendingImagesBySession.Remove(sessionName);
-        }
-
-        var session = sessions.FirstOrDefault(s => s.Name == sessionName);
-        if (session?.IsProcessing == true)
-        {
-            CopilotService.EnqueueMessage(sessionName, finalPrompt);
-            return;
         }
 
         _needsScrollToBottom = true;

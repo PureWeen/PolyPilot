@@ -32,6 +32,21 @@ public class AgentSessionInfo
     /// </summary>
     public int LastReadMessageCount { get; set; }
 
-    public int UnreadCount => Math.Max(0, 
-        History.Skip(LastReadMessageCount).Count(m => m.Role == "assistant"));
+    public int UnreadCount
+    {
+        get
+        {
+            try
+            {
+                // Snapshot to avoid collection-modified exceptions from background threads
+                var snapshot = History.ToArray();
+                return Math.Max(0,
+                    snapshot.Skip(LastReadMessageCount).Count(m => m?.Role == "assistant"));
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+    }
 }
