@@ -279,12 +279,14 @@ public partial class CopilotService : IAsyncDisposable
         {
             // Initialization failed (e.g., no CLI found after fallback). Surface state and return gracefully.
             Debug($"Failed to start Copilot client: {ex.Message}");
+            try { await _client.DisposeAsync(); } catch { }
+            _client = null;
             IsInitialized = false;
             NeedsConfiguration = true;
             OnStateChanged?.Invoke();
             return;
         }
-                // Note: copilot-instructions.md is automatically loaded by the CLI from .github/ in the working directory.
+        // Note: copilot-instructions.md is automatically loaded by the CLI from .github/ in the working directory.
         // We don't need to manually load and inject it here.
 
         OnStateChanged?.Invoke();
@@ -416,6 +418,8 @@ public partial class CopilotService : IAsyncDisposable
         catch (Exception ex)
         {
             Debug($"Failed to start Copilot client during reconnect: {ex.Message}");
+            try { await _client.DisposeAsync(); } catch { }
+            _client = null;
             IsInitialized = false;
             NeedsConfiguration = true;
             OnStateChanged?.Invoke();
