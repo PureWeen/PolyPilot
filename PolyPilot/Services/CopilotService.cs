@@ -21,6 +21,8 @@ public partial class CopilotService : IAsyncDisposable
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
+    // Lock for Organization.Sessions and Organization.Groups access (not thread-safe collections)
+    private readonly object _organizationLock = new();
     
     private static string? _copilotBaseDir;
     private static string CopilotBaseDir => _copilotBaseDir ??= GetCopilotBaseDir();
@@ -991,8 +993,11 @@ public partial class CopilotService : IAsyncDisposable
             // Set up optimistic state BEFORE sending bridge message to prevent race with SyncRemoteSessions
             _pendingRemoteSessions[displayName] = 0;
             _sessions[displayName] = new SessionState { Session = null!, Info = remoteInfo };
-            if (!Organization.Sessions.Any(m => m.SessionName == displayName))
-                Organization.Sessions.Add(new SessionMeta { SessionName = displayName, GroupId = SessionGroup.DefaultId });
+            lock (_organizationLock)
+            {
+                if (!Organization.Sessions.Any(m => m.SessionName == displayName))
+                    Organization.Sessions.Add(new SessionMeta { SessionName = displayName, GroupId = SessionGroup.DefaultId });
+            }
             _activeSessionName = displayName;
             OnStateChanged?.Invoke();
             // Now send the bridge message — server may respond before this returns
@@ -1138,11 +1143,14 @@ public partial class CopilotService : IAsyncDisposable
             // Set up optimistic state BEFORE sending bridge message to prevent race with SyncRemoteSessions
             _pendingRemoteSessions[name] = 0;
             _sessions[name] = new SessionState { Session = null!, Info = remoteInfo };
-            var existingMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
-            if (existingMeta != null)
-                existingMeta.IsPinned = false;
-            else
-                Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
+            lock (_organizationLock)
+            {
+                var existingMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
+                if (existingMeta != null)
+                    existingMeta.IsPinned = false;
+                else
+                    Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
+            }
             _activeSessionName = name;
             OnStateChanged?.Invoke();
             await _bridgeClient.CreateSessionAsync(name, model, workingDirectory, cancellationToken);
@@ -1239,9 +1247,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         _activeSessionName ??= name;
 
         // Reset stale pin from a previous session with the same name
-        var staleMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
-        if (staleMeta != null)
-            staleMeta.IsPinned = false;
+        lock (_organizationLock)
+        {
+            var staleMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
+            if (staleMeta != null)
+                staleMeta.IsPinned = false;
+        }
 
         SaveActiveSessionsToDisk();
         ReconcileOrganization();
@@ -1580,9 +1591,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             _activeSessionName = newName;
 
         // Update organization metadata to reflect new name
-        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == oldName);
-        if (meta != null)
-            meta.SessionName = newName;
+        lock (_organizationLock)
+        {
+            var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == oldName);
+            if (meta != null)
+                meta.SessionName = newName;
+        }
 
         // Persist alias so saved sessions also show the custom name
         if (state.Info.SessionId != null)
