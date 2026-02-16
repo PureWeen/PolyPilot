@@ -1166,9 +1166,10 @@ Important conventions:
             $"echo \"📋 Prompt loaded from: {promptFile}\"\n" +
             $"echo \"─────────────────────────────────────────\"\n" +
             $"echo \"\"\n" +
-            // --yolo grants all permissions; --resume keeps session alive for follow-ups
-            // -p sends the initial prompt, then copilot stays interactive in the TTY
-            $"copilot --yolo --resume -p \"$(cat '{promptFile}')\"\n");
+            // --yolo grants all permissions
+            // -i (--interactive) sends the prompt then stays interactive for follow-ups
+            // (-p exits after completion; -i keeps the session open)
+            $"copilot --yolo -i \"$(cat '{promptFile}')\"\n");
         System.Diagnostics.Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
 
         // Use 'open -a Terminal <script>' — launches Terminal.app as a fully independent
