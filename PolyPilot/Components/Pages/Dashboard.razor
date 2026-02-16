@@ -239,6 +239,8 @@
     private bool mobileConnecting;
     private string? mobileConnectError;
     private bool _needsScrollToBottom;
+    private bool _sessionSwitching; // true during ExpandSession to skip redundant JS interop
+    private bool _loadMoreObserverInitialized;
     private bool isCompactGrid;  // true = compact cards, false = spacious cards
     private bool toolbarMenuOpen;
     private string? cardMenuSession;
@@ -625,22 +627,26 @@
         var forceScroll = _needsScrollToBottom;
         _needsScrollToBottom = false;
 
-        // Restore drafts, focus, and scroll position
-        await JS.InvokeVoidAsync("restoreDraftsAndFocus", draftsJson, focusId, selStart, selEnd, forceScroll);
+        // Restore drafts, focus, and scroll position — fire-and-forget to avoid blocking render pipeline
+        _ = JS.InvokeVoidAsync("restoreDraftsAndFocus", draftsJson, focusId, selStart, selEnd, forceScroll);
 
-        // Set up load-more observer (idempotent — only creates observer once)
-        await JS.InvokeVoidAsync("eval", @"
-            if (!window.__loadMoreObserver) {
-                window.__loadMoreObserver = new IntersectionObserver(function(entries) {
-                    entries.forEach(function(entry) {
-                        if (entry.isIntersecting) entry.target.click();
-                    });
-                }, { threshold: 0.1 });
-            }
-            document.querySelectorAll('.messages .load-more-btn').forEach(function(btn) {
-                if (!btn.__observed) { btn.__observed = true; window.__loadMoreObserver.observe(btn); }
-            });
-        ");
+        // Set up load-more observer only when needed (new .load-more-btn elements may appear)
+        if (!_loadMoreObserverInitialized || forceScroll)
+        {
+            _loadMoreObserverInitialized = true;
+            _ = JS.InvokeVoidAsync("eval", @"
+                if (!window.__loadMoreObserver) {
+                    window.__loadMoreObserver = new IntersectionObserver(function(entries) {
+                        entries.forEach(function(entry) {
+                            if (entry.isIntersecting) entry.target.click();
+                        });
+                    }, { threshold: 0.1 });
+                }
+                document.querySelectorAll('.messages .load-more-btn').forEach(function(btn) {
+                    if (!btn.__observed) { btn.__observed = true; window.__loadMoreObserver.observe(btn); }
+                });
+            ");
+        }
     }
 
     private DateTime _lastRefresh = DateTime.MinValue;
@@ -657,43 +663,48 @@
 
     private async Task SafeRefreshAsync()
     {
-        // Capture all card input values before re-render wipes them
-        try
+        // During a session switch, drafts were already saved — skip the expensive JS round-trip
+        if (!_sessionSwitching)
         {
-            var json = await JS.InvokeAsync<string>("eval", @"
-                (function() {
-                    var result = {};
-                    var active = document.activeElement;
-                    document.querySelectorAll('.card-input input, .card-input textarea, .expanded-card .input-area textarea').forEach(function(el) {
-                        if (el.id && el.value) result[el.id] = el.value;
-                    });
-                    if (active && active.id) result['__focused'] = active.id;
-                    if (active) { result['__selStart'] = active.selectionStart || 0; result['__selEnd'] = active.selectionEnd || 0; }
-                    return JSON.stringify(result);
-                })();
-            ");
-            if (!string.IsNullOrEmpty(json))
+            // Capture all card input values before re-render wipes them
+            try
             {
-                var saved = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-                if (saved != null)
+                var json = await JS.InvokeAsync<string>("eval", @"
+                    (function() {
+                        var result = {};
+                        var active = document.activeElement;
+                        document.querySelectorAll('.card-input input, .card-input textarea, .expanded-card .input-area textarea').forEach(function(el) {
+                            if (el.id && el.value) result[el.id] = el.value;
+                        });
+                        if (active && active.id) result['__focused'] = active.id;
+                        if (active) { result['__selStart'] = active.selectionStart || 0; result['__selEnd'] = active.selectionEnd || 0; }
+                        return JSON.stringify(result);
+                    })();
+                ");
+                if (!string.IsNullOrEmpty(json))
                 {
-                    foreach (var (id, val) in saved)
+                    var saved = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                    if (saved != null)
                     {
-                        if (id.StartsWith("__")) continue;
-                        var sessionName = id.Replace("input-", "").Replace("-", " ");
-                        if (!string.IsNullOrEmpty(val))
-                            draftBySession[sessionName] = val;
+                        foreach (var (id, val) in saved)
+                        {
+                            if (id.StartsWith("__")) continue;
+                            var sessionName = id.Replace("input-", "").Replace("-", " ");
+                            if (!string.IsNullOrEmpty(val))
+                                draftBySession[sessionName] = val;
+                        }
+                        if (saved.TryGetValue("__focused", out var fid))
+                            _focusedInputId = fid;
+                        if (saved.TryGetValue("__selStart", out var ss) && int.TryParse(ss, out var start))
+                            _cursorStart = start;
+                        if (saved.TryGetValue("__selEnd", out var se) && int.TryParse(se, out var end))
+                            _cursorEnd = end;
                     }
-                    if (saved.TryGetValue("__focused", out var fid))
-                        _focusedInputId = fid;
-                    if (saved.TryGetValue("__selStart", out var ss) && int.TryParse(ss, out var start))
-                        _cursorStart = start;
-                    if (saved.TryGetValue("__selEnd", out var se) && int.TryParse(se, out var end))
-                        _cursorEnd = end;
                 }
             }
+            catch { }
         }
-        catch { }
+        _sessionSwitching = false;
         StateHasChanged();
     }
 
@@ -767,7 +778,15 @@
                     streamingBySession.Remove(s.Name);
             }
             if (sessionSwitched)
-                InvokeAsync(SafeRefreshAsync);
+            {
+                if (_sessionSwitching)
+                {
+                    _sessionSwitching = false;
+                    InvokeAsync(StateHasChanged);
+                }
+                else
+                    InvokeAsync(SafeRefreshAsync);
+            }
             else
                 ScheduleRender();
         }
@@ -1755,6 +1774,7 @@
         _ = SaveDraftsAndCursor();
         expandedSession = sessionName;
         _needsScrollToBottom = true;
+        _sessionSwitching = true; // tells SafeRefreshAsync to skip redundant JS capture
         CopilotService.SwitchSession(sessionName);
         var session = CopilotService.GetSession(sessionName);
         if (session != null) session.LastReadMessageCount = session.History.Count;
