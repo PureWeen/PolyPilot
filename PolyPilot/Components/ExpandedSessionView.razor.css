@@ -144,10 +144,31 @@
     white-space: nowrap;
     flex-shrink: 0;
     line-height: 1.2;
+    position: relative;
+    overflow: hidden;
+}
+.reflection-pill-progress {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: rgba(99,102,241,0.15);
+    border-radius: 999px;
+    transition: width 0.5s ease;
+    pointer-events: none;
+}
+.reflection-pill-text {
+    position: relative;
+    z-index: 1;
 }
 .reflection-pill:hover {
     background: rgba(99,102,241,0.35);
     border-color: rgba(99,102,241,0.6);
+}
+.reflection-pill.paused {
+    animation: none;
+    opacity: 0.7;
+    cursor: default;
 }
 
 .collapse-card-btn {

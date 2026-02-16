@@ -18,9 +18,18 @@
             }
             @if (Session.ReflectionCycle is { IsActive: true } rc)
             {
-                <button class="reflection-pill" data-tooltip="Click to stop" @onclick="OnStopReflection" @onclick:stopPropagation="true">
-                    🔄 Reflecting @rc.CurrentIteration/@rc.MaxIterations
+                var progress = rc.MaxIterations > 0 ? (double)rc.CurrentIteration / rc.MaxIterations * 100 : 0;
+                var truncGoal = rc.Goal.Length > 25 ? rc.Goal[..22] + "…" : rc.Goal;
+                <button class="reflection-pill" data-tooltip="@rc.Goal — Click to stop" @onclick="OnStopReflection" @onclick:stopPropagation="true">
+                    <span class="reflection-pill-progress" style="width: @progress%"></span>
+                    <span class="reflection-pill-text">🔄 @rc.CurrentIteration/@rc.MaxIterations · @truncGoal</span>
                 </button>
+            }
+            else if (Session.ReflectionCycle is { IsPaused: true } rp)
+            {
+                <span class="reflection-pill paused" data-tooltip="@rp.Goal — Paused">
+                    ⏸️ Paused @rp.CurrentIteration/@rp.MaxIterations
+                </span>
             }
             <div class="info-popover">
                 <span class="info-trigger">ℹ︎</span>
@@ -187,6 +196,10 @@
                 <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")'>Autopilot</button>
 
             </div>
+            @if (Session.ReflectionCycle is null || !Session.ReflectionCycle.IsActive)
+            {
+                <button class="mode-btn" style="margin-left:8px;opacity:0.7" title="Start a reflection cycle" @onclick="InsertReflectCommand">Reflect</button>
+            }
             <span class="status-sep">·</span>
             <span class="log-label" style="font-size:var(--type-footnote)">Log</span>
             <span class="status-sep">·</span>
@@ -222,8 +235,10 @@
                     }
                     @if (UsageInfo.CurrentTokens.HasValue && UsageInfo.TokenLimit.HasValue)
                     {
+                        var pct = (double)UsageInfo.CurrentTokens.Value / UsageInfo.TokenLimit.Value;
+                        var ctxColor = pct > 0.9 ? "#ef4444" : pct > 0.75 ? "#fbbf24" : "inherit";
                         <span class="status-sep">·</span>
-                        <span class="status-ctx">@FormatTokenCount(UsageInfo.CurrentTokens.Value)/@FormatTokenCount(UsageInfo.TokenLimit.Value) ctx</span>
+                        <span class="status-ctx" style="color:@ctxColor">@FormatTokenCount(UsageInfo.CurrentTokens.Value)/@FormatTokenCount(UsageInfo.TokenLimit.Value) ctx</span>
                     }
                 }
             </span>
@@ -509,6 +524,12 @@
 
     private static string EscapeHtml(string s) =>
         s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
+
+    private async Task InsertReflectCommand()
+    {
+        var inputId = "input-" + Session.Name.Replace(" ", "-");
+        await JS.InvokeVoidAsync("eval", $"var el = document.getElementById('{inputId}'); if(el){{ el.value = '/reflect '; el.focus(); }}");
+    }
 
     private static string EscapeForJs(string s) =>
         s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "");

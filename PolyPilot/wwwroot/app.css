@@ -503,3 +503,84 @@ h1:focus {
     z-index: 10001;
 }
 .image-viewer-close:hover { background: rgba(255,255,255,0.3); }
+
+/* Reflection Cycle UI */
+.reflection-card {
+    background: rgba(167, 139, 250, 0.1);
+    border: 1px solid rgba(167, 139, 250, 0.2);
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0;
+    max-width: 100%;
+}
+
+.reflection-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: var(--type-footnote);
+    color: var(--accent-purple);
+    font-weight: 600;
+}
+
+.reflection-body {
+    font-size: var(--type-callout);
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.reflection-goal {
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.reflection-status {
+    font-size: var(--type-footnote);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.reflection-progress-track {
+    flex-grow: 1;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 4px;
+}
+
+.reflection-progress-bar {
+    height: 100%;
+    background: var(--accent-purple);
+    transition: width 0.3s ease;
+}
+
+.reflection-pill-small {
+    background: rgba(167, 139, 250, 0.2);
+    color: #c4b5fd;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Button in expanded view header */
+.start-reflection-btn {
+    background: transparent;
+    border: 1px solid var(--accent-purple);
+    color: var(--accent-purple);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: var(--type-caption1);
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-left: 8px;
+}
+
+.start-reflection-btn:hover {
+    background: rgba(167, 139, 250, 0.1);
+}

@@ -182,9 +182,30 @@
         break;
 
     case ChatMessageType.Reflection:
-        <div class="chat-msg reflection">
-            <div class="reflection-text">@Message.Content</div>
-        </div>
+        @if (TryGetReflectionData(Message.Content, out var rData))
+        {
+            <div class="chat-msg reflection-card">
+                <div class="reflection-header">
+                    <span class="reflection-pill-small">Reflection Cycle</span>
+                    <span>Iteration @rData.Iteration / @rData.Max</span>
+                </div>
+                <div class="reflection-body">
+                    <div class="reflection-goal">Target: @rData.Goal</div>
+                    <div class="reflection-status">
+                        <span>@rData.Status</span>
+                    </div>
+                    <div class="reflection-progress-track">
+                        <div class="reflection-progress-bar" style="width: @(rData.Max > 0 ? Math.Min(100, (double)rData.Iteration / rData.Max * 100) : 0)%"></div>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="chat-msg reflection">
+                <div class="reflection-text">@Message.Content</div>
+            </div>
+        }
         break;
 }
 
@@ -193,4 +214,28 @@
     [Parameter] public bool Compact { get; set; }
     [Parameter] public bool IsStreaming { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
+
+    private bool TryGetReflectionData(string content, out ReflectionData data)
+    {
+        data = default;
+        if (string.IsNullOrWhiteSpace(content) || !content.TrimStart().StartsWith("{")) return false;
+        try
+        {
+            var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            data = System.Text.Json.JsonSerializer.Deserialize<ReflectionData>(content, options);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private struct ReflectionData
+    {
+        public int Iteration { get; set; }
+        public int Max { get; set; }
+        public string Goal { get; set; }
+        public string Status { get; set; }
+    }
 }
