@@ -7,6 +7,11 @@ public partial class CopilotService
 {
     #region Session Organization (groups, pinning, sorting)
 
+    /// <summary>
+    /// Load organization state from disk and initialize default group if needed.
+    /// Called during initialization and after mode switches (not concurrently).
+    /// File I/O inside lock is acceptable here as this is not a hot path.
+    /// </summary>
     public void LoadOrganization()
     {
         lock (_organizationLock)
@@ -339,6 +344,10 @@ public partial class CopilotService
         }
     }
 
+    /// <summary>
+    /// Apply sort mode to a session. Parameters are passed explicitly instead of accessing Organization
+    /// to enable lockless operation after copying state in GetOrganizedSessions.
+    /// </summary>
     private object ApplySort(AgentSessionInfo session, Dictionary<string, SessionMeta> sessionMetas, SessionSortMode sortMode)
     {
         return sortMode switch
