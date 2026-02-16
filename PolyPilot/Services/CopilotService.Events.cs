@@ -595,6 +595,11 @@ public partial class CopilotService
             {
                 var reason = cycle.GoalMet ? "goal met" : cycle.IsStalled ? "stalled" : "max iterations reached";
                 Debug($"Reflection cycle ended for '{state.Info.Name}': {reason}");
+                var emoji = cycle.GoalMet ? "✅" : cycle.IsStalled ? "⚠️" : "⏱️";
+                var reasonText = cycle.GoalMet ? "Goal met" : cycle.IsStalled ? "Stalled (no progress)" : $"Max iterations reached ({cycle.MaxIterations})";
+                state.Info.History.Add(ChatMessage.SystemMessage($"{emoji} Reflection complete — **{cycle.Goal}** — {reasonText}"));
+                state.Info.MessageCount = state.Info.History.Count;
+                OnStateChanged?.Invoke();
             }
         }
 

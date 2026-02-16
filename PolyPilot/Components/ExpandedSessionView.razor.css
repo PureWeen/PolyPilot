@@ -129,6 +129,27 @@
 .processing-dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,0.6); animation: pulse-glow 1.5s ease-in-out infinite; flex-shrink: 0; }
 @keyframes pulse-glow { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
+.reflection-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0.5rem;
+    background: rgba(99,102,241,0.2);
+    border: 1px solid rgba(99,102,241,0.4);
+    border-radius: 999px;
+    font-size: var(--type-caption1, 0.6rem);
+    color: #818cf8;
+    cursor: pointer;
+    animation: pulse-glow 1.5s ease-in-out infinite;
+    white-space: nowrap;
+    flex-shrink: 0;
+    line-height: 1.2;
+}
+.reflection-pill:hover {
+    background: rgba(99,102,241,0.35);
+    border-color: rgba(99,102,241,0.6);
+}
+
 .collapse-card-btn {
     background: none;
     border: none;

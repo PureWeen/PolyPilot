@@ -39,7 +39,7 @@ public class ReflectionCycleTests
     {
         var cycle = ReflectionCycle.Create("Test goal");
 
-        Assert.True(cycle.IsGoalMet("Some work done.\n[[RALPH_COMPLETE]]\n"));
+        Assert.True(cycle.IsGoalMet("Some work done.\n[[REFLECTION_COMPLETE]]\n"));
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class ReflectionCycleTests
     {
         var cycle = ReflectionCycle.Create("Test goal");
 
-        Assert.True(cycle.IsGoalMet("All done!\n[[RALPH_COMPLETE]]"));
+        Assert.True(cycle.IsGoalMet("All done!\n[[REFLECTION_COMPLETE]]"));
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class ReflectionCycleTests
     {
         var cycle = ReflectionCycle.Create("Test goal");
 
-        Assert.True(cycle.IsGoalMet("Done.\n  [[RALPH_COMPLETE]]  \nExtra text"));
+        Assert.True(cycle.IsGoalMet("Done.\n  [[REFLECTION_COMPLETE]]  \nExtra text"));
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public class ReflectionCycleTests
         var cycle = ReflectionCycle.Create("Test goal");
 
         // Sentinel must be on its own line, not embedded in prose
-        Assert.False(cycle.IsGoalMet("I said [[RALPH_COMPLETE]] in the middle of a sentence"));
+        Assert.False(cycle.IsGoalMet("I said [[REFLECTION_COMPLETE]] in the middle of a sentence"));
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class ReflectionCycleTests
     {
         var cycle = ReflectionCycle.Create("Test goal");
 
-        Assert.False(cycle.Advance("Done!\n[[RALPH_COMPLETE]]"));
+        Assert.False(cycle.Advance("Done!\n[[REFLECTION_COMPLETE]]"));
         Assert.True(cycle.GoalMet);
         Assert.False(cycle.IsActive);
         Assert.Equal(1, cycle.CurrentIteration);
@@ -201,7 +201,7 @@ public class ReflectionCycleTests
 
         Assert.Contains("Fix all tests", prompt);
         Assert.Contains("iteration 2/5", prompt);
-        Assert.Contains("[[RALPH_COMPLETE]]", prompt);
+        Assert.Contains("[[REFLECTION_COMPLETE]]", prompt);
     }
 
     [Fact]
@@ -251,7 +251,7 @@ public class ReflectionCycleTests
         var cycle = ReflectionCycle.Create("Goal");
         var prompt = cycle.BuildFollowUpPrompt("response");
 
-        Assert.Contains("Ralph's Loop", prompt);
+        Assert.Contains("Reflection cycle", prompt);
     }
 
     [Fact]
@@ -263,7 +263,7 @@ public class ReflectionCycleTests
         Assert.Equal(1, cycle.CurrentIteration);
         Assert.True(cycle.IsActive);
 
-        Assert.False(cycle.Advance("Issue resolved successfully!\n[[RALPH_COMPLETE]]"));
+        Assert.False(cycle.Advance("Issue resolved successfully!\n[[REFLECTION_COMPLETE]]"));
         Assert.Equal(2, cycle.CurrentIteration);
         Assert.True(cycle.GoalMet);
         Assert.False(cycle.IsActive);
@@ -300,7 +300,7 @@ public class ReflectionCycleTests
     [Fact]
     public void CompletionSentinel_IsExposed()
     {
-        Assert.Equal("[[RALPH_COMPLETE]]", ReflectionCycle.CompletionSentinel);
+        Assert.Equal("[[REFLECTION_COMPLETE]]", ReflectionCycle.CompletionSentinel);
     }
 }
 

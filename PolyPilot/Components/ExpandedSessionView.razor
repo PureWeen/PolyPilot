@@ -16,6 +16,12 @@
             {
                 <span class="processing-dot"></span>
             }
+            @if (Session.ReflectionCycle is { IsActive: true } rc)
+            {
+                <button class="reflection-pill" data-tooltip="Click to stop" @onclick="OnStopReflection" @onclick:stopPropagation="true">
+                    🔄 Reflecting @rc.CurrentIteration/@rc.MaxIterations
+                </button>
+            }
             <div class="info-popover">
                 <span class="info-trigger">ℹ︎</span>
                 <div class="info-panel">
@@ -262,7 +268,7 @@
     [Parameter] public EventCallback<string> OnLoadMore { get; set; }
     [Parameter] public EventCallback<(string SessionName, FiestaStartRequest Request)> OnStartFiesta { get; set; }
     [Parameter] public EventCallback<string> OnStopFiesta { get; set; }
-
+    [Parameter] public EventCallback OnStopReflection { get; set; }
 
     private bool _showFiestaPicker;
     private string _fiestaName = "";
