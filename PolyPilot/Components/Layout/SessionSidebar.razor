@@ -90,7 +90,7 @@ else
                 <div class="bug-report-inline">
                     <div class="bug-report-header">
                         <span>Report a Bug</span>
-                        <button class="flyout-close-btn" @onclick="CloseBugReport">✕</button>
+                        <button class="flyout-close-btn" @onclick="CloseFooterPanel">✕</button>
                     </div>
                     <textarea class="bug-report-textarea" @bind="bugDescription" placeholder="Describe the issue you're seeing…"></textarea>
                     <details class="bug-report-details">
@@ -98,12 +98,35 @@ else
                         <pre class="bug-report-debug">@GetBugReportDebugInfo()</pre>
                     </details>
                     <div class="bug-report-actions">
-                        @if (!string.IsNullOrEmpty(bugReportStatus))
+                        @if (!string.IsNullOrEmpty(footerStatus))
                         {
-                            <span class="bug-report-status @(bugReportStatus.StartsWith("✓") ? "success" : "error")">@bugReportStatus</span>
+                            <span class="bug-report-status @(footerStatus.StartsWith("✓") ? "success" : "error")">@footerStatus</span>
                         }
-                        <button class="bug-report-submit" @onclick="SubmitBugReport" disabled="@bugReportSubmitting">
-                            @(bugReportSubmitting ? "Submitting…" : "Submit Issue")
+                        <button class="bug-report-submit" @onclick="SubmitBugReport" disabled="@footerSubmitting">
+                            @(footerSubmitting ? "Submitting…" : "Submit Issue")
+                        </button>
+                    </div>
+                </div>
+            }
+            else if (showFixIt)
+            {
+                <div class="bug-report-inline">
+                    <div class="bug-report-header">
+                        <span>Fix a Bug / Add Feature</span>
+                        <button class="flyout-close-btn" @onclick="CloseFooterPanel">✕</button>
+                    </div>
+                    <textarea class="bug-report-textarea" @bind="bugDescription" placeholder="Describe what to fix or build…"></textarea>
+                    <details class="bug-report-details">
+                        <summary>Debug info included</summary>
+                        <pre class="bug-report-debug">@GetBugReportDebugInfo()</pre>
+                    </details>
+                    <div class="bug-report-actions">
+                        @if (!string.IsNullOrEmpty(footerStatus))
+                        {
+                            <span class="bug-report-status @(footerStatus.StartsWith("✓") ? "success" : footerStatus.StartsWith("⏳") ? "" : "error")">@footerStatus</span>
+                        }
+                        <button class="bug-report-submit" @onclick="LaunchFixIt" disabled="@footerSubmitting">
+                            @(footerSubmitting ? "Launching…" : "Launch Copilot")
                         </button>
                     </div>
                 </div>
@@ -113,6 +136,10 @@ else
                 <button class="bug-report-btn" @onclick="OpenBugReport" title="Report a bug">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                     Report Bug
+                </button>
+                <button class="bug-report-btn fix-it-btn" @onclick="OpenFixIt" title="Fix a bug or add a feature">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                    Fix / Feature
                 </button>
             }
         </div>
@@ -897,23 +924,35 @@ else
         StateHasChanged();
     }
 
-    // --- Bug Report ---
+    // --- Bug Report / Fix It ---
     private bool showBugReport;
+    private bool showFixIt;
     private string bugDescription = "";
-    private bool bugReportSubmitting;
-    private string? bugReportStatus;
+    private bool footerSubmitting;
+    private string? footerStatus;
 
     private void OpenBugReport()
     {
         showBugReport = true;
+        showFixIt = false;
         bugDescription = "";
-        bugReportStatus = null;
+        footerStatus = null;
         StateHasChanged();
     }
 
-    private void CloseBugReport()
+    private void OpenFixIt()
+    {
+        showFixIt = true;
+        showBugReport = false;
+        bugDescription = "";
+        footerStatus = null;
+        StateHasChanged();
+    }
+
+    private void CloseFooterPanel()
     {
         showBugReport = false;
+        showFixIt = false;
         StateHasChanged();
     }
 
@@ -933,7 +972,6 @@ else
             sb.AppendLine($"FallbackNotice: {CopilotService.FallbackNotice}");
         sb.AppendLine($"LastDebug: {CopilotService.LastDebugMessage}");
 
-        // Include last few lines of crash log if it exists
         try
         {
             var crashPath = Path.Combine(
@@ -953,33 +991,28 @@ else
         return sb.ToString();
     }
 
+    // --- Report Bug: creates a GitHub issue ---
     private async Task SubmitBugReport()
     {
         if (string.IsNullOrWhiteSpace(bugDescription))
         {
-            bugReportStatus = "✗ Please describe the issue";
+            footerStatus = "✗ Please describe the issue";
             return;
         }
 
-        bugReportSubmitting = true;
-        bugReportStatus = null;
+        footerSubmitting = true;
+        footerStatus = null;
         StateHasChanged();
 
         try
         {
             var debugInfo = GetBugReportDebugInfo();
-            var body = $"""
-            ## Description
-            {bugDescription.Trim()}
+            var body = $"## Description\n{bugDescription.Trim()}\n\n## Debug Info\n```\n{debugInfo}\n```";
+            var title = bugDescription.Trim().Split('\n')[0];
+            if (title.Length > 80) title = title[..80];
 
-            ## Debug Info
-            ```
-            {debugInfo}
-            ```
-            """;
-
-            // Use gh CLI to create the issue
-            var psi = new System.Diagnostics.ProcessStartInfo("gh", $"issue create --repo PureWeen/PolyPilot --title \"[Bug Report] {EscapeForShell(bugDescription.Trim().Split('\n')[0])}\" --body \"{EscapeForShell(body)}\" --label bug")
+            var psi = new System.Diagnostics.ProcessStartInfo("gh",
+                $"issue create --repo PureWeen/PolyPilot --title \"[Bug Report] {EscapeForShell(title)}\" --body \"{EscapeForShell(body)}\" --label bug")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -996,30 +1029,180 @@ else
 
                 if (process.ExitCode == 0)
                 {
-                    var issueUrl = output.Trim();
-                    bugReportStatus = $"✓ Issue created: {issueUrl}";
+                    footerStatus = $"✓ {output.Trim()}";
                     bugDescription = "";
                 }
                 else
                 {
-                    bugReportStatus = $"✗ Failed: {error.Trim()}";
+                    footerStatus = $"✗ {error.Trim()}";
                 }
             }
             else
             {
-                bugReportStatus = "✗ Could not start gh CLI";
+                footerStatus = "✗ Could not start gh CLI";
             }
         }
         catch (Exception ex)
         {
-            bugReportStatus = $"✗ Error: {ex.Message}";
+            footerStatus = $"✗ {ex.Message}";
         }
         finally
         {
-            bugReportSubmitting = false;
+            footerSubmitting = false;
             StateHasChanged();
         }
     }
+
+    // --- Fix It: creates a worktree and launches copilot in a terminal ---
+    private async Task LaunchFixIt()
+    {
+        if (string.IsNullOrWhiteSpace(bugDescription))
+        {
+            footerStatus = "✗ Please describe what to fix or build";
+            return;
+        }
+
+        footerSubmitting = true;
+        footerStatus = "⏳ Creating worktree…";
+        StateHasChanged();
+
+        try
+        {
+            var debugInfo = GetBugReportDebugInfo();
+            var desc = bugDescription.Trim();
+            var slugTitle = new string(desc.Split('\n')[0]
+                .Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '-')
+                .ToArray())
+                .Trim().Replace(' ', '-').ToLowerInvariant();
+            if (slugTitle.Length > 40) slugTitle = slugTitle[..40].TrimEnd('-');
+            var branchName = $"fix/{slugTitle}-{DateTime.UtcNow:yyyyMMdd-HHmm}";
+
+            var polypilotRepo = RepoManager.Repositories
+                .FirstOrDefault(r => r.Url?.Contains("PolyPilot", StringComparison.OrdinalIgnoreCase) == true);
+
+            string worktreePath;
+
+            if (polypilotRepo != null)
+            {
+                var wt = await RepoManager.CreateWorktreeAsync(polypilotRepo.Id, branchName);
+                worktreePath = wt.Path;
+            }
+            else
+            {
+                var repoRoot = FindGitRoot();
+                if (repoRoot == null)
+                {
+                    footerStatus = "✗ No PolyPilot repo found. Add it via + Repo first.";
+                    return;
+                }
+                worktreePath = repoRoot;
+                await RunProcessAsync("git", $"checkout -b {branchName}", repoRoot);
+            }
+
+            footerStatus = "⏳ Launching copilot…";
+            StateHasChanged();
+
+            var prompt = BuildCopilotPrompt(desc, debugInfo, branchName);
+            var promptFile = Path.Combine(Path.GetTempPath(), $"polypilot-fix-{Guid.NewGuid():N}.md");
+            await File.WriteAllTextAsync(promptFile, prompt);
+
+            LaunchCopilotInTerminal(worktreePath, promptFile);
+
+            footerStatus = "✓ Copilot launched in new terminal";
+            bugDescription = "";
+        }
+        catch (Exception ex)
+        {
+            footerStatus = $"✗ {ex.Message}";
+        }
+        finally
+        {
+            footerSubmitting = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string BuildCopilotPrompt(string description, string debugInfo, string branchName)
+    {
+        return $"""
+You are fixing a bug in the PolyPilot app (a .NET MAUI Blazor Hybrid app).
+
+## Bug Report
+{description}
+
+## Debug Info from the running app
+```
+{debugInfo}
+```
+
+## Instructions
+1. Analyze the bug description and debug info above to understand the issue.
+2. Search the codebase to find the root cause.
+3. Implement a fix with the smallest possible change.
+4. Add unit tests in `PolyPilot.Tests/` that cover the bug scenario and prevent regression.
+5. Add UI scenario definitions to `PolyPilot.Tests/Scenarios/mode-switch-scenarios.json` if the bug involves mode switching, settings, or UI flows.
+6. Run `cd PolyPilot.Tests && dotnet test` to verify all tests pass (existing + new).
+7. Run `cd PolyPilot && dotnet build -f net10.0-maccatalyst` to verify the app builds.
+8. Commit your changes to branch `{branchName}` with a descriptive commit message.
+9. Push the branch and create a PR against `main` in the PureWeen/PolyPilot repository using `gh pr create`.
+
+Important conventions:
+- Never use `static readonly` fields that call platform APIs (use lazy `??=` properties instead).
+- Tests must NEVER call `ConnectionSettings.Save()` or `ConnectionSettings.Load()`.
+- Use `ConnectionMode.Demo` for success paths in tests, `ConnectionMode.Persistent` with port 19999 for failure paths.
+- Never force push. Always add new commits.
+""";
+    }
+
+    private static void LaunchCopilotInTerminal(string workingDir, string promptFile)
+    {
+        // Use osascript to open a new Terminal.app window and run copilot
+        var script = $"""
+            tell application "Terminal"
+                activate
+                do script "cd {EscapeForAppleScript(workingDir)} && copilot -p \"$(cat {EscapeForAppleScript(promptFile)})\""
+            end tell
+            """;
+
+        var psi = new System.Diagnostics.ProcessStartInfo("osascript", $"-e '{script}'")
+        {
+            UseShellExecute = true,
+            CreateNoWindow = true
+        };
+        System.Diagnostics.Process.Start(psi);
+    }
+
+    private static string? FindGitRoot()
+    {
+        try
+        {
+            var dir = AppDomain.CurrentDomain.BaseDirectory;
+            while (dir != null)
+            {
+                if (Directory.Exists(Path.Combine(dir, ".git"))) return dir;
+                dir = Path.GetDirectoryName(dir);
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private static async Task RunProcessAsync(string cmd, string args, string workingDir)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo(cmd, args)
+        {
+            WorkingDirectory = workingDir,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        var p = System.Diagnostics.Process.Start(psi);
+        if (p != null) await p.WaitForExitAsync();
+    }
+
+    private static string EscapeForAppleScript(string s) =>
+        s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     private static string EscapeForShell(string s) =>
         s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("`", "\\`").Replace("$", "\\$");

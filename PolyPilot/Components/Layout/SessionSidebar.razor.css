@@ -1179,6 +1179,10 @@
     color: var(--text-primary);
 }
 
+.fix-it-btn {
+    margin-top: 0.15rem;
+}
+
 .bug-report-inline {
     display: flex;
     flex-direction: column;
