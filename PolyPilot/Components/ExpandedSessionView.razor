@@ -328,12 +328,25 @@
         if (Session.Name != _lastSkillSessionName)
         {
             _lastSkillSessionName = Session.Name;
-            availableSkills = CopilotService.DiscoverAvailableSkills(Session.WorkingDirectory);
-            availableAgents = CopilotService.DiscoverAvailableAgents(Session.WorkingDirectory);
+            // Defer skill/agent discovery to background thread — don't block session switch
+            availableSkills = null;
+            availableAgents = null;
             _fiestaName = Session.Name;
             _selectedWorkerIds.Clear();
             foreach (var worker in FiestaWorkers)
                 _selectedWorkerIds.Add(worker.Id);
+            var workDir = Session.WorkingDirectory;
+            _ = Task.Run(() =>
+            {
+                var skills = CopilotService.DiscoverAvailableSkills(workDir);
+                var agents = CopilotService.DiscoverAvailableAgents(workDir);
+                InvokeAsync(() =>
+                {
+                    availableSkills = skills;
+                    availableAgents = agents;
+                    StateHasChanged();
+                });
+            });
         }
 
         _selectedWorkerIds.RemoveWhere(id => FiestaWorkers.All(w => !string.Equals(w.Id, id, StringComparison.Ordinal)));

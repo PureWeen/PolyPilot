@@ -625,9 +625,10 @@
         var forceScroll = _needsScrollToBottom;
         _needsScrollToBottom = false;
 
+        // Restore drafts, focus, and scroll position
         await JS.InvokeVoidAsync("restoreDraftsAndFocus", draftsJson, focusId, selStart, selEnd, forceScroll);
 
-        // Auto-load more messages when scrolled to top (expanded view only, not grid cards)
+        // Set up load-more observer (idempotent — only creates observer once)
         await JS.InvokeVoidAsync("eval", @"
             if (!window.__loadMoreObserver) {
                 window.__loadMoreObserver = new IntersectionObserver(function(entries) {
@@ -753,7 +754,7 @@
                 expandedSession = active;
                 _focusedInputId = $"input-{active!.Replace(" ", "-")}";
                 _needsScrollToBottom = true;
-                CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid);
+                _ = Task.Run(() => CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid));
             }
             
             if (_lastActiveSession == null && active != null)
@@ -1750,13 +1751,15 @@
 
     private async Task ExpandSession(string sessionName)
     {
-        await SaveDraftsAndCursor();
+        // Fire-and-forget draft save — don't block the switch on JS interop
+        _ = SaveDraftsAndCursor();
         expandedSession = sessionName;
         _needsScrollToBottom = true;
         CopilotService.SwitchSession(sessionName);
         var session = CopilotService.GetSession(sessionName);
         if (session != null) session.LastReadMessageCount = session.History.Count;
-        CopilotService.SaveUiState("/dashboard", activeSession: sessionName, expandedSession: sessionName, expandedGrid: !isCompactGrid);
+        // Defer UI state persistence to avoid blocking on file I/O
+        _ = Task.Run(() => CopilotService.SaveUiState("/dashboard", activeSession: sessionName, expandedSession: sessionName, expandedGrid: !isCompactGrid));
     }
 
     private async Task CollapseExpanded()

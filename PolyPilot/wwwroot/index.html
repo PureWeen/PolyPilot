@@ -604,15 +604,8 @@
                 });
             }
             doScroll();
-            // Multiple delayed scrolls to catch content that renders asynchronously
-            if (forceScroll) {
-                setTimeout(doScroll, 50);
-                setTimeout(doScroll, 150);
-                setTimeout(doScroll, 300);
-            } else {
-                // Even without force, do a follow-up scroll for async content
-                requestAnimationFrame(doScroll);
-            }
+            // Single rAF follow-up is sufficient — content is rendered synchronously by Blazor
+            requestAnimationFrame(doScroll);
             var drafts = JSON.parse(draftsJson || '{}');
             for (var id in drafts) {
                 var el = document.getElementById(id);
