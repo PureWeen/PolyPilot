@@ -14,6 +14,7 @@
 .dashboard.expanded-mode {
     padding: 0;
     overflow: hidden;
+    position: relative;
 }
 
 .dashboard-header {
@@ -1263,6 +1264,11 @@
     .expanded-card .chat-header { padding: 0.4rem 0.5rem; gap: 0.4rem; }
     .chat-header-title { font-size: var(--type-body); }
     .expanded-card .input-area textarea { font-size: var(--type-callout, 0.8rem); max-height: 30dvh; }
+}
+
+/* Expanded mode container must be positioned for absolute slots */
+.dashboard.expanded-mode {
+    position: relative;
 }
 
 .keep-alive-slot {

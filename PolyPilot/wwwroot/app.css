@@ -296,6 +296,21 @@ html, body {
     overflow-x: hidden;
 }
 
+/* Keep-alive slot visibility — visibility:hidden keeps layout warm for instant switching */
+.keep-alive-slot {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    visibility: hidden;
+    pointer-events: none;
+}
+.keep-alive-slot.active {
+    visibility: visible;
+    pointer-events: auto;
+}
+
 /* Expanded chat title — global override to prevent truncation */
 .expanded-card .chat-header-top h2 {
     margin: 0 !important;

@@ -571,7 +571,11 @@
 
         window.switchKeepAliveSlot = function(activeSlotId, sessionName) {
             document.querySelectorAll('.keep-alive-slot').forEach(function(slot) {
-                slot.style.display = slot.id === activeSlotId ? '' : 'none';
+                if (slot.id === activeSlotId) {
+                    slot.classList.add('active');
+                } else {
+                    slot.classList.remove('active');
+                }
             });
             // Instantly toggle sidebar active highlight without waiting for Blazor render
             if (sessionName) {

@@ -65,11 +65,14 @@
     }
     else if (expandedSession != null)
     {
-        @* Keep-alive: render all active sessions, toggle visibility with CSS for instant switching *@
+        @* Keep-alive: render all active sessions, JS owns 'active' class for instant switching *@
         @foreach (var session in sessions)
         {
-            var isVisible = session.Name == expandedSession;
-            <div class="keep-alive-slot" id="slot-@session.Name.Replace(" ", "-")" style="@(isVisible ? "" : "display:none")" @key="session.Name">
+            <KeepAliveSession Id="@($"slot-{session.Name.Replace(" ", "-")}")"
+                              IsVisible="@(session.Name == expandedSession)"
+                              WarmWhenHidden="@(session.IsProcessing && (streamingBySession.ContainsKey(session.Name) || currentToolBySession.ContainsKey(session.Name) || activityBySession.ContainsKey(session.Name)))"
+                              HiddenWarmIntervalMs="250"
+                              @key="session.Name">
                 <ExpandedSessionView Session="session"
                                      IsCompleted="@completedSessions.Contains(session.Name)"
                                      StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s2) ? s2 : "")"
@@ -103,8 +106,8 @@
                                      OnFontSizeChange="HandleFontSizeChange"
                                      OnLoadMore="LoadMoreExpandedMessages"
                                      OnStartFiesta="StartFiestaForSession"
-                                     OnStopFiesta="StopFiestaForSession"
-            </div>
+                                     OnStopFiesta="StopFiestaForSession" />
+            </KeepAliveSession>
 
 
         }
@@ -633,6 +636,12 @@
 
         // Restore drafts, focus, and scroll position — fire-and-forget to avoid blocking render pipeline
         _ = JS.InvokeVoidAsync("restoreDraftsAndFocus", draftsJson, focusId, selStart, selEnd, forceScroll);
+
+        // Set initial active slot on first render (MutationObserver will maintain it after user interactions)
+        if (expandedSession != null)
+        {
+            _ = JS.InvokeVoidAsync("switchKeepAliveSlot", $"slot-{expandedSession.Replace(" ", "-")}", expandedSession);
+        }
 
         // Set up load-more observer only when needed (new .load-more-btn elements may appear)
         if (!_loadMoreObserverInitialized || forceScroll)

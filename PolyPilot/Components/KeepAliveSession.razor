@@ -1,0 +1,54 @@
+@inherits ComponentBase
+@using Microsoft.AspNetCore.Components.Rendering
+
+@* 
+    Blazor and JS both set the 'active' class based on IsVisible/sessionName.
+    Since they agree, Blazor re-renders produce no DOM diff for visibility.
+    JS capture-phase click handler sets 'active' instantly; Blazor confirms later.
+*@
+<div class="keep-alive-slot @(IsVisible ? "active" : "")" id="@Id" @attributes="AdditionalAttributes">
+    @ChildContent
+</div>
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public bool WarmWhenHidden { get; set; }
+    [Parameter] public int HiddenWarmIntervalMs { get; set; } = 250;
+    [Parameter] public RenderFragment ChildContent { get; set; } = default!;
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
+    
+    private bool _prevVisible;
+    private long _lastHiddenWarmRenderAt;
+
+    protected override bool ShouldRender()
+    {
+        // Always render if visibility changed (transitioning hidden<->visible)
+        if (IsVisible != _prevVisible)
+        {
+            _prevVisible = IsVisible;
+            if (IsVisible) _lastHiddenWarmRenderAt = 0;
+            return true;
+        }
+
+        if (IsVisible)
+            return true;
+
+        // Keep hidden streaming sessions "warm" at a low frequency to avoid large catch-up render on switch.
+        if (!WarmWhenHidden)
+            return false;
+
+        var now = Environment.TickCount64;
+        var minInterval = HiddenWarmIntervalMs <= 0 ? 250 : HiddenWarmIntervalMs;
+        if (now - _lastHiddenWarmRenderAt < minInterval)
+            return false;
+
+        _lastHiddenWarmRenderAt = now;
+        return true;
+    }
+    
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender) _prevVisible = IsVisible;
+    }
+}
