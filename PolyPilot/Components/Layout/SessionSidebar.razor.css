@@ -1042,6 +1042,153 @@
     color: var(--text-primary);
 }
 
+/* === CCA Runs in repo groups === */
+
+.cca-sub-header {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.25rem 0.5rem 0.25rem 1.2rem;
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+    user-select: none;
+}
+
+.cca-sub-header:hover {
+    background: var(--hover-bg);
+}
+
+.cca-sub-icon {
+    font-size: 0.75rem;
+}
+
+.cca-sub-label {
+    font-weight: 500;
+    letter-spacing: 0.02em;
+}
+
+.cca-loading, .cca-empty {
+    padding: 0.3rem 0.5rem 0.3rem 1.8rem;
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+    font-style: italic;
+}
+
+.cca-run-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    padding: 0.3rem 0.5rem 0.3rem 1.5rem;
+    cursor: default;
+    font-size: var(--type-caption1);
+}
+
+.cca-run-item:hover {
+    background: var(--hover-bg);
+}
+
+.cca-run-item.pr-completed {
+    opacity: 0.4;
+}
+
+.cca-run-item.pr-completed:hover {
+    opacity: 0.7;
+}
+
+.cca-run-status {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    line-height: 1.4;
+}
+
+.cca-run-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.cca-run-title {
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cca-run-meta {
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cca-pr-badge {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--accent-primary, #3b82f6);
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-right: 0.25rem;
+}
+
+.cca-pr-state {
+    color: var(--text-dim);
+    font-size: 0.65rem;
+    font-style: italic;
+}
+
+.cca-refresh-btn {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 0 0.2rem;
+}
+
+.cca-refresh-btn:hover {
+    color: var(--text-primary);
+}
+
+.cca-run-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.15rem;
+}
+
+.cca-action-link {
+    font-size: 0.7rem;
+    color: var(--accent-primary, #3b82f6);
+    cursor: pointer;
+    opacity: 0.8;
+}
+
+.cca-action-link:hover {
+    opacity: 1;
+    text-decoration: underline;
+}
+
+.cca-action-link.load-btn {
+    color: var(--accent-secondary, #10b981);
+    font-weight: 600;
+}
+
+.cca-action-link.open-btn {
+    color: var(--accent-primary, #3b82f6);
+    font-weight: 600;
+}
+
+.cca-action-link.loading {
+    cursor: wait;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
 /* === Mobile responsive === */
 @media (max-width: 640px) {
     .flyout-header {

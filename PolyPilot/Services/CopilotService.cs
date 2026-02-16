@@ -1220,6 +1220,143 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     }
 
     /// <summary>
+    /// Load a CCA run into a local CLI session. Fetches the CCA conversation logs
+    /// and PR data, creates or reuses a worktree on the CCA branch, creates a new
+    /// session, and sends a context-loading prompt so the local agent understands
+    /// what the CCA did.
+    /// </summary>
+    public async Task<AgentSessionInfo?> LoadCcaRunAsync(
+        CcaRun run, string ownerRepo, string? model = null, CancellationToken ct = default)
+    {
+        // Check if a session already exists for this CCA run (by ID or name pattern)
+        var existingSession = CcaLogService.FindExistingCcaSession(
+            _sessions.Values.Select(s => s.Info), run);
+        if (existingSession != null)
+        {
+            Console.WriteLine($"[CopilotService] CCA run {run.Id} already loaded as session '{existingSession.Name}'");
+            SaveActiveSessionsToDisk(); // Persist any backfilled CCA metadata
+            return existingSession;
+        }
+
+        var logService = _serviceProvider?.GetService(typeof(CcaLogService)) as CcaLogService;
+        if (logService == null)
+        {
+            Console.WriteLine("[CopilotService] CcaLogService not available");
+            return null;
+        }
+
+        // Find the repo in RepoManager
+        var repo = _repoManager.Repositories
+            .FirstOrDefault(r => CcaRunService.ExtractOwnerRepo(r.Url) == ownerRepo);
+
+        string? workingDirectory = null;
+        if (repo != null)
+        {
+            // Check for existing worktree on this branch
+            var existingWt = _repoManager.GetWorktrees(repo.Id)
+                .FirstOrDefault(w => w.Branch == run.HeadBranch);
+
+            if (existingWt != null)
+            {
+                workingDirectory = existingWt.Path;
+                Console.WriteLine($"[CopilotService] Reusing existing worktree for branch '{run.HeadBranch}'");
+            }
+            else
+            {
+                // Create worktree from the CCA's PR branch
+                try
+                {
+                    if (run.PrNumber.HasValue)
+                    {
+                        var wt = await _repoManager.CreateWorktreeFromPrAsync(repo.Id, run.PrNumber.Value, ct);
+                        workingDirectory = wt.Path;
+                    }
+                    else
+                    {
+                        // No PR — create worktree tracking the remote branch
+                        var wt = await _repoManager.CreateWorktreeAsync(
+                            repo.Id, run.HeadBranch, $"refs/remotes/origin/{run.HeadBranch}", ct);
+                        workingDirectory = wt.Path;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[CopilotService] Failed to create worktree for CCA branch: {ex.Message}");
+                    // Fall back to no working directory — agent can still read context
+                }
+            }
+        }
+
+        // Determine context directory (within worktree or temp)
+        var contextDir = workingDirectory != null
+            ? Path.Combine(workingDirectory, ".copilot", "cca-context")
+            : Path.Combine(Path.GetTempPath(), $"polypilot-cca-{run.Id}");
+
+        // Fetch and parse CCA logs + PR data
+        CcaContext ccaContext;
+        try
+        {
+            ccaContext = await logService.LoadCcaContextAsync(ownerRepo, run, contextDir, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CopilotService] Failed to load CCA context: {ex.Message}");
+            return null;
+        }
+
+        // Create session name
+        var sessionName = run.PrNumber.HasValue
+            ? $"CCA: PR #{run.PrNumber} — {Truncate(run.PrTitle ?? run.DisplayTitle, 40)}"
+            : $"CCA: {Truncate(run.DisplayTitle, 50)}";
+
+        // Ensure unique name
+        var baseName = sessionName;
+        var counter = 2;
+        while (_sessions.ContainsKey(sessionName))
+            sessionName = $"{baseName} ({counter++})";
+
+        // Create the session
+        var session = await CreateSessionAsync(sessionName, model, workingDirectory, ct);
+
+        // Set CCA metadata
+        session.CcaRunId = run.Id;
+        session.CcaPrNumber = run.PrNumber;
+        session.CcaBranch = run.HeadBranch;
+
+        // Persist CCA metadata (CreateSessionAsync saved before these fields were set)
+        SaveActiveSessionsToDisk();
+
+        // Link to worktree if we have one
+        if (workingDirectory != null && repo != null)
+        {
+            var wt = _repoManager.GetWorktrees(repo.Id)
+                .FirstOrDefault(w => w.Path == workingDirectory);
+            if (wt != null)
+                _repoManager.LinkSessionToWorktree(wt.Id, sessionName);
+        }
+
+        // Send the context-loading prompt (use CancellationToken.None since delivery should
+        // succeed regardless of the initiating UI component's lifecycle)
+        Console.WriteLine($"[CopilotService] Sending CCA context prompt ({ccaContext.ParsedLogLength} chars parsed from {ccaContext.RawLogLength} chars raw)");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await SendPromptAsync(sessionName, ccaContext.Prompt);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CopilotService] Error sending CCA context prompt: {ex.Message}");
+            }
+        });
+
+        return session;
+    }
+
+    private static string Truncate(string s, int max)
+        => s.Length <= max ? s : s[..(max - 1)] + "…";
+
+    /// <summary>
     /// Switch the model for an active session by resuming it with a new ResumeSessionConfig.
     /// The session history is preserved server-side (same session ID); we just reconnect
     /// asking for a different model.
@@ -1277,7 +1414,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default)
+    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, string? mode = null, CancellationToken cancellationToken = default)
     {
         // In demo mode, simulate a response locally
         if (IsDemoMode)
@@ -1303,7 +1440,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 session.IsProcessing = true;
                 OnStateChanged?.Invoke();
             }
-            await _bridgeClient.SendMessageAsync(sessionName, prompt, cancellationToken);
+            await _bridgeClient.SendMessageAsync(sessionName, prompt, mode, cancellationToken);
             return ""; // Response comes via events
         }
 
@@ -1337,7 +1474,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             var messageOptions = new MessageOptions 
             { 
-                Prompt = prompt
+                Prompt = prompt,
+                Mode = mode
             };
             
             // Attach images via SDK if available
@@ -1638,6 +1776,10 @@ public class ActiveSessionEntry
     public string DisplayName { get; set; } = "";
     public string Model { get; set; } = "";
     public string? WorkingDirectory { get; set; }
+    // CCA context (for sessions loaded from CCA runs)
+    public long? CcaRunId { get; set; }
+    public int? CcaPrNumber { get; set; }
+    public string? CcaBranch { get; set; }
 }
 
 public class PersistedSessionInfo

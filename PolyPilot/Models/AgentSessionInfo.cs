@@ -34,4 +34,9 @@ public class AgentSessionInfo
 
     public int UnreadCount => Math.Max(0, 
         History.Skip(LastReadMessageCount).Count(m => m.Role == "assistant"));
+
+    // CCA context (for sessions loaded from CCA runs)
+    public long? CcaRunId { get; set; }
+    public int? CcaPrNumber { get; set; }
+    public string? CcaBranch { get; set; }
 }

@@ -22,7 +22,10 @@ public partial class CopilotService
                     SessionId = s.Info.SessionId!,
                     DisplayName = s.Info.Name,
                     Model = s.Info.Model,
-                    WorkingDirectory = s.Info.WorkingDirectory
+                    WorkingDirectory = s.Info.WorkingDirectory,
+                    CcaRunId = s.Info.CcaRunId,
+                    CcaPrNumber = s.Info.CcaPrNumber,
+                    CcaBranch = s.Info.CcaBranch
                 })
                 .ToList();
             
@@ -62,6 +65,13 @@ public partial class CopilotService
                             if (!Directory.Exists(sessionDir)) continue;
 
                             await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken);
+                            // Restore CCA metadata if this was a loaded CCA session
+                            if (entry.CcaRunId.HasValue && _sessions.TryGetValue(entry.DisplayName, out var restored))
+                            {
+                                restored.Info.CcaRunId = entry.CcaRunId;
+                                restored.Info.CcaPrNumber = entry.CcaPrNumber;
+                                restored.Info.CcaBranch = entry.CcaBranch;
+                            }
                             Debug($"Restored session: {entry.DisplayName}");
                         }
                         catch (Exception ex)
@@ -216,6 +226,47 @@ public partial class CopilotService
             .Where(IsResumableSessionDirectory)
             .Select(di => CreatePersistedSessionInfo(di))
             .OrderByDescending(s => s.LastModified);
+    }
+
+    /// <summary>
+    /// Gets CCA (Copilot Coding Agent) sessions from the Copilot server.
+    /// These are cloud-based sessions running in GitHub Actions.
+    /// </summary>
+    public async Task<List<CcaSessionSummary>> GetCcaSessionsAsync(CancellationToken cancellationToken = default)
+    {
+        // In remote mode, return CCA sessions from the bridge
+        if (IsRemoteMode)
+        {
+            return _bridgeClient.CcaSessions;
+        }
+
+        if (!IsInitialized || _client == null)
+            return new List<CcaSessionSummary>();
+
+        try
+        {
+            var sessions = await _client.ListSessionsAsync(cancellationToken: cancellationToken);
+            return sessions
+                .Where(s => s.IsRemote)
+                .Select(s => new CcaSessionSummary
+                {
+                    SessionId = s.SessionId,
+                    Summary = s.Summary,
+                    StartTime = s.StartTime,
+                    ModifiedTime = s.ModifiedTime,
+                    // Context properties not yet available in SDK 0.1.24
+                    Repository = null,
+                    Branch = null,
+                    WorkingDirectory = null,
+                })
+                .OrderByDescending(s => s.ModifiedTime)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to list CCA sessions: {ex.Message}");
+            return new List<CcaSessionSummary>();
+        }
     }
 
     private static bool IsResumableSessionDirectory(DirectoryInfo di)

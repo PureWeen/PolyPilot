@@ -342,8 +342,8 @@ public class WsBridgeServer : IDisposable
                     var sendReq = msg.GetPayload<SendMessagePayload>();
                     if (sendReq != null && !string.IsNullOrWhiteSpace(sendReq.SessionName) && !string.IsNullOrWhiteSpace(sendReq.Message))
                     {
-                        Console.WriteLine($"[WsBridge] Client sending message to '{sendReq.SessionName}'");
-                        await _copilot.SendPromptAsync(sendReq.SessionName, sendReq.Message, cancellationToken: ct);
+                        Console.WriteLine($"[WsBridge] Client sending message to '{sendReq.SessionName}'{(sendReq.Mode != null ? $" (mode={sendReq.Mode})" : "")}");
+                        await _copilot.SendPromptAsync(sendReq.SessionName, sendReq.Message, mode: sendReq.Mode, cancellationToken: ct);
                     }
                     break;
 
@@ -386,6 +386,10 @@ public class WsBridgeServer : IDisposable
 
                 case BridgeMessageTypes.GetPersistedSessions:
                     await SendPersistedToClient(clientId, ws, ct);
+                    break;
+
+                case BridgeMessageTypes.GetCcaSessions:
+                    await SendCcaSessionsToClient(clientId, ws, ct);
                     break;
 
                 case BridgeMessageTypes.ResumeSession:
@@ -550,6 +554,16 @@ public class WsBridgeServer : IDisposable
 
         var msg = BridgeMessage.Create(BridgeMessageTypes.PersistedSessionsList,
             new PersistedSessionsPayload { Sessions = persisted });
+        await SendToClientAsync(clientId, ws, msg, ct);
+    }
+
+    private async Task SendCcaSessionsToClient(string clientId, WebSocket ws, CancellationToken ct)
+    {
+        if (_copilot == null) return;
+
+        var ccaSessions = await _copilot.GetCcaSessionsAsync(ct);
+        var msg = BridgeMessage.Create(BridgeMessageTypes.CcaSessionsList,
+            new CcaSessionsPayload { Sessions = ccaSessions });
         await SendToClientAsync(clientId, ws, msg, ct);
     }
 

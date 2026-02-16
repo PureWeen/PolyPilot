@@ -142,6 +142,7 @@ public class BridgeMessageTypesTests
         Assert.Equal("get_sessions", BridgeMessageTypes.GetSessions);
         Assert.Equal("get_history", BridgeMessageTypes.GetHistory);
         Assert.Equal("get_persisted_sessions", BridgeMessageTypes.GetPersistedSessions);
+        Assert.Equal("get_cca_sessions", BridgeMessageTypes.GetCcaSessions);
         Assert.Equal("send_message", BridgeMessageTypes.SendMessage);
         Assert.Equal("create_session", BridgeMessageTypes.CreateSession);
         Assert.Equal("resume_session", BridgeMessageTypes.ResumeSession);
@@ -150,6 +151,12 @@ public class BridgeMessageTypesTests
         Assert.Equal("close_session", BridgeMessageTypes.CloseSession);
         Assert.Equal("abort_session", BridgeMessageTypes.AbortSession);
         Assert.Equal("list_directories", BridgeMessageTypes.ListDirectories);
+    }
+
+    [Fact]
+    public void CcaSessionsList_TypeConstant_IsCorrect()
+    {
+        Assert.Equal("cca_sessions", BridgeMessageTypes.CcaSessionsList);
     }
 
     [Fact]
@@ -311,6 +318,40 @@ public class BridgePayloadTests
     }
 
     [Fact]
+    public void SendMessagePayload_WithDelegateMode_RoundTrip()
+    {
+        var payload = new SendMessagePayload
+        {
+            SessionName = "s1",
+            Message = "fix the login bug",
+            Mode = "delegate"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.SendMessage, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<SendMessagePayload>();
+
+        Assert.Equal("s1", restored!.SessionName);
+        Assert.Equal("fix the login bug", restored.Message);
+        Assert.Equal("delegate", restored.Mode);
+    }
+
+    [Fact]
+    public void SendMessagePayload_WithoutMode_RoundTrip()
+    {
+        var payload = new SendMessagePayload
+        {
+            SessionName = "s1",
+            Message = "hello"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.SendMessage, payload);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<SendMessagePayload>();
+
+        Assert.Equal("s1", restored!.SessionName);
+        Assert.Equal("hello", restored.Message);
+        Assert.Null(restored.Mode);
+    }
+
+    [Fact]
     public void PersistedSessionsPayload_RoundTrip()
     {
         var payload = new PersistedSessionsPayload
@@ -435,5 +476,87 @@ public class BridgePayloadTests
         var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<AttentionNeededPayload>();
 
         Assert.Equal(reason, restored!.Reason);
+    }
+
+    [Fact]
+    public void CcaSessionsPayload_RoundTrip()
+    {
+        var payload = new CcaSessionsPayload
+        {
+            Sessions = new List<CcaSessionSummary>
+            {
+                new()
+                {
+                    SessionId = "cca-guid-1",
+                    Summary = "Fix login bug",
+                    StartTime = new DateTime(2025, 6, 15, 10, 0, 0, DateTimeKind.Utc),
+                    ModifiedTime = new DateTime(2025, 6, 15, 11, 0, 0, DateTimeKind.Utc),
+                    Repository = "owner/repo",
+                    Branch = "copilot/fix-123",
+                    WorkingDirectory = "/home/runner/work/repo"
+                },
+                new()
+                {
+                    SessionId = "cca-guid-2",
+                    Summary = "Add tests for API",
+                    StartTime = new DateTime(2025, 6, 15, 12, 0, 0, DateTimeKind.Utc),
+                    ModifiedTime = new DateTime(2025, 6, 15, 13, 0, 0, DateTimeKind.Utc),
+                    Repository = "owner/other-repo",
+                    Branch = "copilot/add-tests",
+                }
+            }
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.CcaSessionsList, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<CcaSessionsPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal(2, restored!.Sessions.Count);
+        Assert.Equal("cca-guid-1", restored.Sessions[0].SessionId);
+        Assert.Equal("Fix login bug", restored.Sessions[0].Summary);
+        Assert.Equal("owner/repo", restored.Sessions[0].Repository);
+        Assert.Equal("copilot/fix-123", restored.Sessions[0].Branch);
+        Assert.Equal("/home/runner/work/repo", restored.Sessions[0].WorkingDirectory);
+        Assert.Equal("cca-guid-2", restored.Sessions[1].SessionId);
+        Assert.Equal("Add tests for API", restored.Sessions[1].Summary);
+        Assert.Null(restored.Sessions[1].WorkingDirectory);
+    }
+
+    [Fact]
+    public void CcaSessionSummary_NullOptionalFields_RoundTrip()
+    {
+        var payload = new CcaSessionsPayload
+        {
+            Sessions = new List<CcaSessionSummary>
+            {
+                new()
+                {
+                    SessionId = "cca-minimal",
+                    StartTime = DateTime.UtcNow,
+                    ModifiedTime = DateTime.UtcNow
+                }
+            }
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.CcaSessionsList, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<CcaSessionsPayload>();
+
+        Assert.Single(restored!.Sessions);
+        Assert.Equal("cca-minimal", restored.Sessions[0].SessionId);
+        Assert.Null(restored.Sessions[0].Summary);
+        Assert.Null(restored.Sessions[0].Repository);
+        Assert.Null(restored.Sessions[0].Branch);
+        Assert.Null(restored.Sessions[0].WorkingDirectory);
+    }
+
+    [Fact]
+    public void CcaSessionsPayload_EmptyList_RoundTrip()
+    {
+        var payload = new CcaSessionsPayload { Sessions = new List<CcaSessionSummary>() };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.CcaSessionsList, payload);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<CcaSessionsPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Empty(restored!.Sessions);
     }
 }

@@ -29,7 +29,10 @@
     <Compile Include="../PolyPilot/Models/SessionOrganization.cs" Link="Shared/SessionOrganization.cs" />
     <Compile Include="../PolyPilot/Models/FiestaModels.cs" Link="Shared/FiestaModels.cs" />
     <Compile Include="../PolyPilot/Models/ModelHelper.cs" Link="Shared/ModelHelper.cs" />
+    <Compile Include="../PolyPilot/Models/CcaRun.cs" Link="Shared/CcaRun.cs" />
     <Compile Include="../PolyPilot/Services/NotificationMessageBuilder.cs" Link="Shared/NotificationMessageBuilder.cs" />
+    <Compile Include="../PolyPilot/Services/CcaRunService.cs" Link="Shared/CcaRunService.cs" />
+    <Compile Include="../PolyPilot/Services/CcaLogService.cs" Link="Shared/CcaLogService.cs" />
   </ItemGroup>
 
 </Project>

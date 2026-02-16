@@ -2,6 +2,7 @@
 @using PolyPilot.Models
 @inject CopilotService CopilotService
 @inject RepoManager RepoManager
+@inject CcaRunService CcaRunService
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
@@ -289,6 +290,137 @@ else
                                              OnToggleMenu="() => ToggleSessionMenu(sName)"
                                              OnCloseMenu="() => { openMenuSession = null; }" />
                         }
+
+                        @if (!string.IsNullOrEmpty(group.RepoId))
+                        {
+                            var repoForCca = RepoManager.Repositories.FirstOrDefault(r => r.Id == group.RepoId);
+                            if (repoForCca != null)
+                            {
+                                var ownerRepo = CcaRunService.ExtractOwnerRepo(repoForCca.Url);
+                                if (ownerRepo != null)
+                                {
+                                    var ccaKey = ownerRepo;
+                                    var runs = GetCcaRunsForRepo(ccaKey);
+                                    var totalCount = runs?.Count ?? 0;
+                                    <div class="cca-sub-header" @onclick="() => ToggleRepoCca(ccaKey)" style="cursor:pointer;">
+                                        <span class="cca-sub-icon">☁️</span>
+                                        <span class="cca-sub-label">CCA Runs @(totalCount > 0 ? $"({totalCount})" : "")</span>
+                                        <span class="toggle-icon" style="font-size:0.7rem">@(IsRepoCcaExpanded(ccaKey) ? "▼" : "▶")</span>
+                                        @if (IsRepoCcaExpanded(ccaKey))
+                                        {
+                                            <span class="cca-refresh-btn" title="Refresh" @onclick="() => LoadRepoCcaRunsAsync(ccaKey, true)" @onclick:stopPropagation="true">↻</span>
+                                        }
+                                    </div>
+                                    @if (IsRepoCcaExpanded(ccaKey))
+                                    {
+                                        @if (runs == null)
+                                        {
+                                            <div class="cca-loading">Loading...</div>
+                                        }
+                                        else if (runs.Count == 0)
+                                        {
+                                            <div class="cca-empty">No CCA runs found</div>
+                                        }
+                                        else
+                                        {
+                                            var activeRuns = runs.Where(r => r.IsActive).ToList();
+                                            var openRuns = runs.Where(r => !r.IsActive && !r.IsPrCompleted).ToList();
+                                            var completedRuns = runs.Where(r => !r.IsActive && r.IsPrCompleted).Take(5).ToList();
+                                            @foreach (var run in activeRuns)
+                                            {
+                                                <div class="cca-run-item active">
+                                                    <span class="cca-run-status">🟢</span>
+                                                    <div class="cca-run-info">
+                                                        <span class="cca-run-title">
+                                                            @if (run.PrNumber.HasValue)
+                                                            {
+                                                                <span class="cca-pr-badge">#@run.PrNumber</span>
+                                                            }
+                                                            @Truncate(run.PrTitle ?? run.DisplayTitle, 35)
+                                                        </span>
+                                                        <span class="cca-run-meta">🌿 @run.HeadBranch · @run.Status</span>
+                                                        <div class="cca-run-actions">
+                                                            @if (loadingCcaRuns.Contains(run.Id))
+                                                            {
+                                                                <span class="cca-action-link loading" title="Loading...">⏳</span>
+                                                            }
+                                                            else if (IsCcaRunLoaded(run))
+                                                            {
+                                                                <span class="cca-action-link open-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="Switch to loaded session">Open →</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="cca-action-link load-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="⚠️ CCA still running — load current progress">Load ↓</span>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                            @foreach (var run in openRuns)
+                                            {
+                                                <div class="cca-run-item">
+                                                    <span class="cca-run-status">@(run.Conclusion == "success" ? "✅" : "❌")</span>
+                                                    <div class="cca-run-info">
+                                                        <span class="cca-run-title">
+                                                            @if (run.PrNumber.HasValue)
+                                                            {
+                                                                <span class="cca-pr-badge">#@run.PrNumber</span>
+                                                            }
+                                                            @Truncate(run.PrTitle ?? run.DisplayTitle, 35)
+                                                        </span>
+                                                        <span class="cca-run-meta">🌿 @run.HeadBranch · @FormatTimeAgo(run.UpdatedAt)</span>
+                                                        <div class="cca-run-actions">
+                                                            @if (loadingCcaRuns.Contains(run.Id))
+                                                            {
+                                                                <span class="cca-action-link loading" title="Loading...">⏳</span>
+                                                            }
+                                                            else if (IsCcaRunLoaded(run))
+                                                            {
+                                                                <span class="cca-action-link open-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="Switch to loaded session">Open →</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="cca-action-link load-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="Load CCA session locally">Load ↓</span>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                            @foreach (var run in completedRuns)
+                                            {
+                                                <div class="cca-run-item pr-completed">
+                                                    <span class="cca-run-status">@(run.PrState == "merged" ? "🟣" : "⚫")</span>
+                                                    <div class="cca-run-info">
+                                                        <span class="cca-run-title">
+                                                            @if (run.PrNumber.HasValue)
+                                                            {
+                                                                <span class="cca-pr-badge">#@run.PrNumber</span>
+                                                            }
+                                                            @Truncate(run.PrTitle ?? run.DisplayTitle, 35) <span class="cca-pr-state">(@run.PrState)</span>
+                                                        </span>
+                                                        <span class="cca-run-meta">🌿 @run.HeadBranch · @FormatTimeAgo(run.UpdatedAt)</span>
+                                                        <div class="cca-run-actions">
+                                                            @if (loadingCcaRuns.Contains(run.Id))
+                                                            {
+                                                                <span class="cca-action-link loading" title="Loading...">⏳</span>
+                                                            }
+                                                            else if (IsCcaRunLoaded(run))
+                                                            {
+                                                                <span class="cca-action-link open-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="Switch to loaded session">Open →</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="cca-action-link load-btn" @onclick="() => LoadCcaRunAsync(run, ccaKey)" @onclick:stopPropagation="true" title="Load CCA session locally">Load ↓</span>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -353,6 +485,8 @@ else
                     }
                 }
             }
+
+
         </div>
     };
 
@@ -381,6 +515,10 @@ else
     private bool confirmRepoReplace = false;
     private string? confirmRepoName = null;
     private string? confirmRemoveRepoId = null;
+    // CCA runs per repo
+    private HashSet<string> expandedRepoCca = new();
+    private Dictionary<string, List<CcaRun>?> ccaRunsByRepo = new();
+    private HashSet<long> loadingCcaRuns = new HashSet<long>();
 
     private async Task ToggleFlyout()
     {
@@ -530,6 +668,79 @@ else
     {
         showPersistedSessions = !showPersistedSessions;
     }
+
+    // --- Repo CCA runs helpers ---
+
+    private bool IsRepoCcaExpanded(string ownerRepo) => expandedRepoCca.Contains(ownerRepo);
+
+    private List<CcaRun>? GetCcaRunsForRepo(string ownerRepo)
+    {
+        return ccaRunsByRepo.TryGetValue(ownerRepo, out var runs) ? runs : null;
+    }
+
+    private void ToggleRepoCca(string ownerRepo)
+    {
+        if (expandedRepoCca.Contains(ownerRepo))
+        {
+            expandedRepoCca.Remove(ownerRepo);
+        }
+        else
+        {
+            expandedRepoCca.Add(ownerRepo);
+            if (!ccaRunsByRepo.ContainsKey(ownerRepo))
+            {
+                ccaRunsByRepo[ownerRepo] = null; // loading state
+                _ = LoadRepoCcaRunsAsync(ownerRepo);
+            }
+        }
+    }
+
+    private async Task LoadRepoCcaRunsAsync(string ownerRepo, bool forceRefresh = false)
+    {
+        var runs = await CcaRunService.GetCcaRunsAsync(ownerRepo, forceRefresh);
+        ccaRunsByRepo[ownerRepo] = runs;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadCcaRunAsync(CcaRun run, string ownerRepo)
+    {
+        if (!loadingCcaRuns.Add(run.Id)) return;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var session = await CopilotService.LoadCcaRunAsync(run, ownerRepo);
+            if (session != null)
+            {
+                await SelectSession(session.Name);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionSidebar] Failed to load CCA run: {ex.Message}");
+        }
+        finally
+        {
+            loadingCcaRuns.Remove(run.Id);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private bool IsCcaRunLoaded(CcaRun run) =>
+        CcaLogService.FindExistingCcaSession(sessions, run) != null;
+
+    private static string FormatTimeAgo(DateTime utcTime)
+    {
+        var elapsed = DateTime.UtcNow - utcTime;
+        if (elapsed.TotalMinutes < 1) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+        if (elapsed.TotalDays < 7) return $"{(int)elapsed.TotalDays}d ago";
+        return utcTime.ToString("MMM dd");
+    }
+
+    private static string Truncate(string s, int max)
+        => s.Length <= max ? s : s[..(max - 1)] + "…";
 
     private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt) args)
     {
