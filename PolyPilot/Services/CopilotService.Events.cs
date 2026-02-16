@@ -584,11 +584,30 @@ public partial class CopilotService
         var cycle = state.Info.ReflectionCycle;
         if (cycle != null && cycle.IsActive && !string.IsNullOrEmpty(response))
         {
-            if (cycle.Advance(response))
+            var shouldContinue = cycle.Advance(response);
+
+            if (cycle.ShouldWarnOnStall)
+            {
+                var stallWarning = ChatMessage.SystemMessage("⚠️ Reflection may be stalling — if the next response is also repetitive, the cycle will stop.");
+                state.Info.History.Add(stallWarning);
+                state.Info.MessageCount = state.Info.History.Count;
+                if (!string.IsNullOrEmpty(state.Info.SessionId))
+                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, stallWarning);
+            }
+
+            if (shouldContinue)
             {
                 var followUp = cycle.BuildFollowUpPrompt(response);
                 Debug($"Reflection cycle iteration {cycle.CurrentIteration}/{cycle.MaxIterations} for '{state.Info.Name}'");
-                state.Info.MessageQueue.Insert(0, followUp);
+
+                var reflectionMsg = ChatMessage.ReflectionMessage(cycle.BuildFollowUpStatus());
+                state.Info.History.Add(reflectionMsg);
+                state.Info.MessageCount = state.Info.History.Count;
+                if (!string.IsNullOrEmpty(state.Info.SessionId))
+                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, reflectionMsg);
+
+                // Keep queue FIFO so user steering messages queued during this turn run first.
+                state.Info.MessageQueue.Add(followUp);
                 OnStateChanged?.Invoke();
             }
             else
@@ -597,8 +616,11 @@ public partial class CopilotService
                 Debug($"Reflection cycle ended for '{state.Info.Name}': {reason}");
                 var emoji = cycle.GoalMet ? "✅" : cycle.IsStalled ? "⚠️" : "⏱️";
                 var reasonText = cycle.GoalMet ? "Goal met" : cycle.IsStalled ? "Stalled (no progress)" : $"Max iterations reached ({cycle.MaxIterations})";
-                state.Info.History.Add(ChatMessage.SystemMessage($"{emoji} Reflection complete — **{cycle.Goal}** — {reasonText}"));
+                var completionMsg = ChatMessage.SystemMessage($"{emoji} Reflection complete — **{cycle.Goal}** — {reasonText}");
+                state.Info.History.Add(completionMsg);
                 state.Info.MessageCount = state.Info.History.Count;
+                if (!string.IsNullOrEmpty(state.Info.SessionId))
+                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, completionMsg);
                 OnStateChanged?.Invoke();
             }
         }
@@ -624,7 +646,12 @@ public partial class CopilotService
                 try
                 {
                     await Task.Delay(500);
-                    await SendPromptAsync(state.Info.Name, nextPrompt, nextImagePaths);
+                    await SendPromptAsync(
+                        state.Info.Name,
+                        nextPrompt,
+                        imagePaths: nextImagePaths,
+                        skipHistoryMessage: state.Info.ReflectionCycle is { IsActive: true } &&
+                                            ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt));
                 }
                 catch (Exception ex)
                 {

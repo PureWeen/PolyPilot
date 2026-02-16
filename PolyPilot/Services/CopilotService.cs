@@ -1353,15 +1353,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default)
+    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default, bool skipHistoryMessage = false)
     {
         // In demo mode, simulate a response locally
         if (IsDemoMode)
         {
             if (!_sessions.TryGetValue(sessionName, out var demoState))
                 throw new InvalidOperationException($"Session '{sessionName}' not found.");
-            demoState.Info.History.Add(ChatMessage.UserMessage(prompt));
-            demoState.Info.MessageCount = demoState.Info.History.Count;
+            if (!skipHistoryMessage)
+            {
+                demoState.Info.History.Add(ChatMessage.UserMessage(prompt));
+                demoState.Info.MessageCount = demoState.Info.History.Count;
+            }
             demoState.CurrentResponse.Clear();
             OnStateChanged?.Invoke();
             _ = Task.Run(() => _demoService.SimulateResponseAsync(sessionName, prompt, _syncContext, cancellationToken));
@@ -1373,12 +1376,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             // Add user message locally for immediate UI feedback
             var session = GetRemoteSession(sessionName);
-            if (session != null)
+            if (session != null && !skipHistoryMessage)
             {
                 session.History.Add(ChatMessage.UserMessage(prompt));
-                session.IsProcessing = true;
-                OnStateChanged?.Invoke();
             }
+            if (session != null)
+                session.IsProcessing = true;
+            OnStateChanged?.Invoke();
             await _bridgeClient.SendMessageAsync(sessionName, prompt, cancellationToken);
             return ""; // Response comes via events
         }
@@ -1393,18 +1397,22 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.ResponseCompletion = new TaskCompletionSource<string>();
         state.CurrentResponse.Clear();
 
-        // Include image paths in history display so FormatUserMessage renders thumbnails
-        var displayPrompt = prompt;
-        if (imagePaths != null && imagePaths.Count > 0)
-            displayPrompt += "\n" + string.Join("\n", imagePaths);
-        state.Info.History.Add(new ChatMessage("user", displayPrompt, DateTime.Now));
-        state.Info.MessageCount = state.Info.History.Count;
-        state.Info.LastReadMessageCount = state.Info.History.Count;
-        OnStateChanged?.Invoke();
+        if (!skipHistoryMessage)
+        {
+            // Include image paths in history display so FormatUserMessage renders thumbnails
+            var displayPrompt = prompt;
+            if (imagePaths != null && imagePaths.Count > 0)
+                displayPrompt += "\n" + string.Join("\n", imagePaths);
+            state.Info.History.Add(new ChatMessage("user", displayPrompt, DateTime.Now));
 
-        // Write-through to DB
-        if (!string.IsNullOrEmpty(state.Info.SessionId))
-            _ = _chatDb.AddMessageAsync(state.Info.SessionId, state.Info.History.Last());
+            state.Info.MessageCount = state.Info.History.Count;
+            state.Info.LastReadMessageCount = state.Info.History.Count;
+
+            // Write-through to DB
+            if (!string.IsNullOrEmpty(state.Info.SessionId))
+                _ = _chatDb.AddMessageAsync(state.Info.SessionId, state.Info.History.Last());
+        }
+        OnStateChanged?.Invoke();
 
         Console.WriteLine($"[DEBUG] Sending prompt to session '{sessionName}' (Model: {state.Info.Model}): {prompt.Substring(0, Math.Min(50, prompt.Length))}...");
         Console.WriteLine($"[MODEL] Session '{sessionName}' using model: {state.Info.Model}");
@@ -1530,13 +1538,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
 
-        // Treat a new queued user message as an interruption of any active reflection cycle
-        if (state.Info.ReflectionCycle is { IsActive: true })
-        {
-            state.Info.ReflectionCycle.IsActive = false;
-            Debug($"Reflection cycle interrupted for '{sessionName}' by queued user message.");
-        }
-        
         state.Info.MessageQueue.Add(prompt);
         
         // Track image paths alongside the queued message

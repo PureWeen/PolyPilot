@@ -97,6 +97,17 @@ public class ChatMessageTests
     }
 
     [Fact]
+    public void ReflectionMessage_SetsReflectionType()
+    {
+        var msg = ChatMessage.ReflectionMessage("🔄 Iteration 2/5");
+
+        Assert.Equal("system", msg.Role);
+        Assert.Equal(ChatMessageType.Reflection, msg.MessageType);
+        Assert.Equal("🔄 Iteration 2/5", msg.Content);
+        Assert.True(msg.IsComplete);
+    }
+
+    [Fact]
     public void Constructor_UserRole_OverridesMessageType()
     {
         // When role is "user", MessageType should always be User regardless of what's passed

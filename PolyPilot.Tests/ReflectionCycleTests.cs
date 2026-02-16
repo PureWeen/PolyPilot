@@ -169,12 +169,15 @@ public class ReflectionCycleTests
 
         // First response — establishes baseline
         Assert.True(cycle.Advance("Working on the task with specific details about implementation"));
+        Assert.False(cycle.ShouldWarnOnStall);
 
         // Second response — nearly identical (stall #1, allowed)
         Assert.True(cycle.Advance("Working on the task with specific details about implementation"));
+        Assert.True(cycle.ShouldWarnOnStall);
 
         // Third response — still identical (stall #2, stops)
         Assert.False(cycle.Advance("Working on the task with specific details about implementation"));
+        Assert.False(cycle.ShouldWarnOnStall);
         Assert.True(cycle.IsStalled);
         Assert.False(cycle.IsActive);
         Assert.False(cycle.GoalMet);
@@ -187,7 +190,9 @@ public class ReflectionCycleTests
 
         Assert.True(cycle.Advance("First attempt at solving the problem with approach A"));
         Assert.True(cycle.Advance("First attempt at solving the problem with approach A")); // stall #1
+        Assert.True(cycle.ShouldWarnOnStall);
         Assert.True(cycle.Advance("Completely different approach B with new strategy and different words entirely")); // progress resets
+        Assert.False(cycle.ShouldWarnOnStall);
         Assert.False(cycle.IsStalled);
     }
 
@@ -224,6 +229,22 @@ public class ReflectionCycleTests
         var prompt = cycle.BuildFollowUpPrompt("response");
 
         Assert.Contains("5/10", prompt);
+    }
+
+    [Fact]
+    public void BuildFollowUpStatus_MatchesNextIteration()
+    {
+        var cycle = ReflectionCycle.Create("Goal", maxIterations: 5);
+        cycle.CurrentIteration = 1;
+
+        Assert.Equal("🔄 Iteration 2/5", cycle.BuildFollowUpStatus());
+    }
+
+    [Fact]
+    public void IsReflectionFollowUpPrompt_DetectsGeneratedPrompt()
+    {
+        Assert.True(ReflectionCycle.IsReflectionFollowUpPrompt("[Reflection cycle — iteration 2/5]\n\nContinue"));
+        Assert.False(ReflectionCycle.IsReflectionFollowUpPrompt("user typed this"));
     }
 
     [Fact]

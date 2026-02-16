@@ -9,7 +9,8 @@ public enum ChatMessageType
     Error,
     System,
     ShellOutput,
-    Diff
+    Diff,
+    Reflection
 }
 
 public class ChatMessage
@@ -72,6 +73,9 @@ public class ChatMessage
 
     public static ChatMessage DiffMessage(string rawDiff) =>
         new("system", rawDiff, DateTime.Now, ChatMessageType.Diff) { IsComplete = true };
+
+    public static ChatMessage ReflectionMessage(string content) =>
+        new("system", content, DateTime.Now, ChatMessageType.Reflection) { IsComplete = true };
 }
 
 public class ToolActivity
