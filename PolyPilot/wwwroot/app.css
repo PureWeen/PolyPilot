@@ -437,3 +437,54 @@ h1:focus {
         transform: translateY(0);
     }
 }
+
+/* === Full-screen image viewer overlay === */
+.image-viewer-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: rgba(0,0,0,0.88);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: none;
+}
+.image-viewer-overlay.visible { opacity: 1; }
+.image-viewer-overlay img {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 4px;
+    cursor: grab;
+    transform-origin: 0 0;
+    transition: none;
+    will-change: transform;
+    pointer-events: auto;
+}
+.image-viewer-overlay img.grabbing { cursor: grabbing; }
+.image-viewer-close {
+    position: absolute;
+    top: env(safe-area-inset-top, 12px);
+    right: 16px;
+    margin-top: 12px;
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    font-size: 1.25rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 10001;
+}
+.image-viewer-close:hover { background: rgba(255,255,255,0.3); }

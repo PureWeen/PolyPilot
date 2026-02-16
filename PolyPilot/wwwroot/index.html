@@ -606,6 +606,136 @@
         };
 
         window.ensureFiestaMentionAutocomplete();
+
+        // === Full-screen image viewer with zoom/pan ===
+        (function() {
+            var overlay, img, closeBtn;
+            var scale = 1, panX = 0, panY = 0, dragging = false, startX, startY, startPanX, startPanY;
+            var pinchStartDist = 0, pinchStartScale = 1;
+
+            function create() {
+                overlay = document.createElement('div');
+                overlay.className = 'image-viewer-overlay';
+                closeBtn = document.createElement('button');
+                closeBtn.className = 'image-viewer-close';
+                closeBtn.innerHTML = '✕';
+                closeBtn.addEventListener('click', function(e) { e.stopPropagation(); close(); });
+                img = document.createElement('img');
+                overlay.appendChild(closeBtn);
+                overlay.appendChild(img);
+                overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+                img.addEventListener('click', function(e) { e.stopPropagation(); });
+
+                // Mouse zoom
+                overlay.addEventListener('wheel', function(e) {
+                    e.preventDefault();
+                    var rect = img.getBoundingClientRect();
+                    var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+                    var oldScale = scale;
+                    scale *= e.deltaY < 0 ? 1.15 : 1/1.15;
+                    scale = Math.max(0.5, Math.min(scale, 20));
+                    panX -= mx * (scale - oldScale);
+                    panY -= my * (scale - oldScale);
+                    applyTransform();
+                }, { passive: false });
+
+                // Mouse drag
+                img.addEventListener('mousedown', function(e) {
+                    if (e.button !== 0) return;
+                    e.preventDefault();
+                    dragging = true; startX = e.clientX; startY = e.clientY;
+                    startPanX = panX; startPanY = panY;
+                    img.classList.add('grabbing');
+                });
+                document.addEventListener('mousemove', function(e) {
+                    if (!dragging) return;
+                    panX = startPanX + (e.clientX - startX);
+                    panY = startPanY + (e.clientY - startY);
+                    applyTransform();
+                });
+                document.addEventListener('mouseup', function() {
+                    dragging = false;
+                    if (img) img.classList.remove('grabbing');
+                });
+
+                // Touch pinch-to-zoom + pan
+                overlay.addEventListener('touchstart', function(e) {
+                    if (e.touches.length === 2) {
+                        e.preventDefault();
+                        pinchStartDist = getTouchDist(e.touches);
+                        pinchStartScale = scale;
+                    } else if (e.touches.length === 1 && e.target === img) {
+                        dragging = true;
+                        startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+                        startPanX = panX; startPanY = panY;
+                    }
+                }, { passive: false });
+                overlay.addEventListener('touchmove', function(e) {
+                    if (e.touches.length === 2) {
+                        e.preventDefault();
+                        var dist = getTouchDist(e.touches);
+                        scale = pinchStartScale * (dist / pinchStartDist);
+                        scale = Math.max(0.5, Math.min(scale, 20));
+                        applyTransform();
+                    } else if (e.touches.length === 1 && dragging) {
+                        e.preventDefault();
+                        panX = startPanX + (e.touches[0].clientX - startX);
+                        panY = startPanY + (e.touches[0].clientY - startY);
+                        applyTransform();
+                    }
+                }, { passive: false });
+                overlay.addEventListener('touchend', function(e) {
+                    if (e.touches.length < 2) { pinchStartDist = 0; }
+                    if (e.touches.length === 0) { dragging = false; }
+                });
+
+                document.body.appendChild(overlay);
+            }
+
+            function getTouchDist(touches) {
+                var dx = touches[0].clientX - touches[1].clientX;
+                var dy = touches[0].clientY - touches[1].clientY;
+                return Math.sqrt(dx*dx + dy*dy);
+            }
+
+            function applyTransform() {
+                img.style.transform = 'translate(' + panX + 'px,' + panY + 'px) scale(' + scale + ')';
+            }
+
+            function open(src) {
+                if (!overlay) create();
+                scale = 1; panX = 0; panY = 0;
+                img.style.transform = '';
+                img.src = src;
+                overlay.style.display = 'flex';
+                requestAnimationFrame(function() { overlay.classList.add('visible'); });
+            }
+
+            function close() {
+                if (!overlay) return;
+                overlay.classList.remove('visible');
+                setTimeout(function() { overlay.style.display = 'none'; img.src = ''; }, 200);
+            }
+
+            // Escape key to close
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape' && overlay && overlay.style.display === 'flex') {
+                    e.preventDefault(); e.stopPropagation(); close();
+                }
+            }, true);
+
+            // Delegated click on chat images
+            document.addEventListener('click', function(e) {
+                var t = e.target;
+                if (t.tagName !== 'IMG') return;
+                if (t.closest('.markdown-body') || t.closest('.tool-image-result') || t.closest('.action-output') || t.closest('.action-expanded-result')) {
+                    e.preventDefault(); e.stopPropagation();
+                    open(t.src);
+                }
+            });
+
+            window.__imageViewer = { open: open, close: close };
+        })();
     </script>
 
 </body>

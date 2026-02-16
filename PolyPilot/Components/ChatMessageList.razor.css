@@ -320,6 +320,7 @@
     max-width: 100%;
     max-height: 400px;
     border-radius: 6px;
+    cursor: pointer;
 }
 
 /* === Action Box (unified command + output container) === */
@@ -463,6 +464,7 @@
     max-width: 100%;
     max-height: 300px;
     border-radius: 4px;
+    cursor: pointer;
 }
 
 /* Legacy action-item styles kept for backwards compatibility */
@@ -547,6 +549,7 @@
     max-width: 100%;
     max-height: 300px;
     border-radius: 4px;
+    cursor: pointer;
 }
 
 ::deep .task-complete-card {
@@ -614,6 +617,7 @@
     max-width: 100%;
     height: auto;
     border-radius: 6px;
+    cursor: pointer;
 }
 
 ::deep .markdown-body a { color: var(--accent-primary); }
