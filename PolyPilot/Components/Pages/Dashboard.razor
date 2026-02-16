@@ -296,6 +296,14 @@
                 // Restore font size
                 if (uiState.FontSize >= 12 && uiState.FontSize <= 24)
                     fontSize = uiState.FontSize;
+
+                // Restore per-session input modes (chat/plan/autopilot)
+                if (uiState.InputModes?.Count > 0)
+                {
+                    inputModeBySession = uiState.InputModes
+                        .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && IsValidInputMode(kvp.Value))
+                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                }
                 
                 // Restore expanded grid state (inverted: isCompactGrid)
                 isCompactGrid = !uiState.ExpandedGrid;
@@ -2168,8 +2176,11 @@
             ? mode
             : "chat";
 
-    private void SetInputMode(string sessionName, string mode) =>
+    private void SetInputMode(string sessionName, string mode)
+    {
         inputModeBySession[sessionName] = IsValidInputMode(mode) ? mode : "chat";
+        CopilotService.SaveUiState("/dashboard", inputModes: inputModeBySession);
+    }
 
     private void IncreaseFontSize() { if (fontSize < 24) { fontSize += 2; ApplyFontSize(); ShowFontBubble(); } }
     private void DecreaseFontSize() { if (fontSize > 12) { fontSize -= 2; ApplyFontSize(); ShowFontBubble(); } }

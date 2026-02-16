@@ -1678,6 +1678,7 @@ public class UiState
     public string? SelectedModel { get; set; }
     public bool ExpandedGrid { get; set; }
     public string? ExpandedSession { get; set; }
+    public Dictionary<string, string> InputModes { get; set; } = new();
 }
 
 public class ActiveSessionEntry

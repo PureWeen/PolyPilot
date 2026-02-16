@@ -163,7 +163,7 @@ public partial class CopilotService
 
     }
 
-    public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null, bool? expandedGrid = null, string? expandedSession = "<<unspecified>>")
+    public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null, bool? expandedGrid = null, string? expandedSession = "<<unspecified>>", Dictionary<string, string>? inputModes = null)
     {
         try
         {
@@ -178,7 +178,10 @@ public partial class CopilotService
                 FontSize = fontSize ?? existing?.FontSize ?? 20,
                 SelectedModel = selectedModel ?? existing?.SelectedModel,
                 ExpandedGrid = expandedGrid ?? existing?.ExpandedGrid ?? false,
-                ExpandedSession = expandedSession == "<<unspecified>>" ? existing?.ExpandedSession : expandedSession
+                ExpandedSession = expandedSession == "<<unspecified>>" ? existing?.ExpandedSession : expandedSession,
+                InputModes = inputModes != null
+                    ? new Dictionary<string, string>(inputModes)
+                    : existing?.InputModes ?? new Dictionary<string, string>()
             };
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);

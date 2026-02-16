@@ -16,6 +16,7 @@ public class UiStatePersistenceTests
         Assert.Equal("/", state.CurrentPage);
         Assert.Null(state.ActiveSession);
         Assert.Equal(20, state.FontSize);
+        Assert.Empty(state.InputModes);
     }
 
     [Fact]
@@ -25,7 +26,12 @@ public class UiStatePersistenceTests
         {
             CurrentPage = "/dashboard",
             ActiveSession = "my-session",
-            FontSize = 16
+            FontSize = 16,
+            InputModes = new Dictionary<string, string>
+            {
+                ["my-session"] = "autopilot",
+                ["another-session"] = "plan"
+            }
         };
 
         var json = JsonSerializer.Serialize(state);
@@ -35,6 +41,8 @@ public class UiStatePersistenceTests
         Assert.Equal("/dashboard", restored!.CurrentPage);
         Assert.Equal("my-session", restored.ActiveSession);
         Assert.Equal(16, restored.FontSize);
+        Assert.Equal("autopilot", restored.InputModes["my-session"]);
+        Assert.Equal("plan", restored.InputModes["another-session"]);
     }
 
     [Fact]
@@ -46,6 +54,17 @@ public class UiStatePersistenceTests
 
         Assert.NotNull(restored);
         Assert.Null(restored!.ActiveSession);
+    }
+
+    [Fact]
+    public void UiState_LegacyJsonWithoutInputModes_Deserializes()
+    {
+        const string legacyJson = """{"CurrentPage":"/dashboard","ActiveSession":"s1","FontSize":20,"ExpandedGrid":false}""";
+        var restored = JsonSerializer.Deserialize<UiState>(legacyJson);
+
+        Assert.NotNull(restored);
+        Assert.NotNull(restored!.InputModes);
+        Assert.Empty(restored.InputModes);
     }
 
     [Fact]
