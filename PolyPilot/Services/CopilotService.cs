@@ -410,17 +410,30 @@ public partial class CopilotService : IAsyncDisposable
         // Note: Don't set Cwd here - each session sets its own WorkingDirectory in SessionConfig
         var options = new CopilotClientOptions();
 
-        // Resolve the copilot CLI path based on user preference:
-        var cliPath = ResolveCopilotCliPath(settings.CliSource);
-        if (cliPath != null)
-            options.CliPath = cliPath;
+        if (settings.Mode == ConnectionMode.Persistent)
+        {
+            // Connect to the existing headless server via TCP instead of spawning a child process.
+            // Must clear auto-discovered CliPath and UseStdio first —
+            // CliUrl is mutually exclusive with both (SDK throws ArgumentException).
+            options.CliPath = null;
+            options.UseStdio = false;
+            options.AutoStart = false;
+            options.CliUrl = $"http://{settings.Host}:{settings.Port}";
+        }
+        else
+        {
+            // Embedded mode: spawn copilot as a child process via stdio
+            var cliPath = ResolveCopilotCliPath(settings.CliSource);
+            if (cliPath != null)
+                options.CliPath = cliPath;
 
-        // Pass additional MCP server configs via CLI args.
-        // The CLI auto-reads ~/.copilot/mcp-config.json, but mcp-servers.json
-        // uses a different format that needs to be passed explicitly.
-        var mcpArgs = GetMcpCliArgs();
-        if (mcpArgs.Length > 0)
-            options.CliArgs = mcpArgs;
+            // Pass additional MCP server configs via CLI args.
+            // The CLI auto-reads ~/.copilot/mcp-config.json, but mcp-servers.json
+            // uses a different format that needs to be passed explicitly.
+            var mcpArgs = GetMcpCliArgs();
+            if (mcpArgs.Length > 0)
+                options.CliArgs = mcpArgs;
+        }
 
         return new CopilotClient(options);
     }
@@ -449,7 +462,7 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>
     /// Resolves the bundled CLI path (shipped with the app).
     /// </summary>
-    private static string? ResolveBundledCliPath()
+    internal static string? ResolveBundledCliPath()
     {
         // 1. SDK bundled path (runtimes/{rid}/native/copilot)
         var bundledPath = GetBundledCliPath();
@@ -957,6 +970,7 @@ public partial class CopilotService : IAsyncDisposable
 
         // Load history: always parse events.jsonl as source of truth, then sync to DB
         List<ChatMessage> history = LoadHistoryFromDisk(sessionId);
+
         if (history.Count > 0)
         {
             // Replace DB contents with fresh parse (events.jsonl may have grown since last DB sync)
