@@ -103,6 +103,21 @@
                         📌 Pin
                     </button>
                 }
+                @if (Groups != null && Groups.Count > 1)
+                {
+                    <div class="menu-separator"></div>
+                    <div class="menu-submenu">
+                        <span class="menu-item submenu-label">📁 Move to…</span>
+                        @foreach (var g in Groups)
+                        {
+                            if (g.Id == Meta?.GroupId) continue;
+                            var targetId = g.Id;
+                            <button class="menu-item submenu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnMove.InvokeAsync(targetId); }">
+                                @g.Name
+                            </button>
+                        }
+                    </div>
+                }
                 <div class="menu-separator"></div>
                 @if (!string.IsNullOrEmpty(sessionDir))
                 {
