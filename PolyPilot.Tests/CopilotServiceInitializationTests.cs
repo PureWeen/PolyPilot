@@ -441,4 +441,87 @@ public class CopilotServiceInitializationTests
         settings.Mode = ConnectionMode.Persistent;
         Assert.Equal(ConnectionMode.Persistent, settings.Mode);
     }
+
+    [Fact]
+    public void ConnectionSettings_CliSource_DefaultIsBuiltIn()
+    {
+        var settings = new ConnectionSettings();
+        Assert.Equal(CliSourceMode.BuiltIn, settings.CliSource);
+    }
+
+    [Fact]
+    public void ConnectionSettings_CliSource_CanSwitchToSystem()
+    {
+        var settings = new ConnectionSettings();
+        settings.CliSource = CliSourceMode.System;
+        Assert.Equal(CliSourceMode.System, settings.CliSource);
+
+        settings.CliSource = CliSourceMode.BuiltIn;
+        Assert.Equal(CliSourceMode.BuiltIn, settings.CliSource);
+    }
+
+    [Fact]
+    public void ConnectionSettings_CliSource_IndependentOfMode()
+    {
+        // CLI source and connection mode are orthogonal settings
+        var settings = new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            CliSource = CliSourceMode.System
+        };
+        Assert.Equal(ConnectionMode.Persistent, settings.Mode);
+        Assert.Equal(CliSourceMode.System, settings.CliSource);
+
+        // Changing mode shouldn't affect CLI source
+        settings.Mode = ConnectionMode.Embedded;
+        Assert.Equal(CliSourceMode.System, settings.CliSource);
+
+        settings.Mode = ConnectionMode.Persistent;
+        Assert.Equal(CliSourceMode.System, settings.CliSource);
+    }
+
+    [Fact]
+    public void ConnectionSettings_Serialization_PreservesCliSource()
+    {
+        var settings = new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            CliSource = CliSourceMode.System
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(settings);
+        var restored = System.Text.Json.JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(restored);
+        Assert.Equal(ConnectionMode.Persistent, restored!.Mode);
+        Assert.Equal(CliSourceMode.System, restored.CliSource);
+    }
+
+    [Fact]
+    public async Task ModeSwitch_PreservesCliSource()
+    {
+        // Switching modes via ReconnectAsync shouldn't affect the CliSource
+        // stored in the settings object
+        var svc = CreateService();
+        var settings = new ConnectionSettings
+        {
+            Mode = ConnectionMode.Demo,
+            CliSource = CliSourceMode.System
+        };
+
+        await svc.ReconnectAsync(settings);
+        Assert.True(svc.IsInitialized);
+
+        // CliSource should be unchanged after reconnect
+        Assert.Equal(CliSourceMode.System, settings.CliSource);
+    }
+
+    [Fact]
+    public void ResolveBundledCliPath_DoesNotThrow()
+    {
+        // Ensure the static path resolution doesn't crash
+        var path = CopilotService.ResolveBundledCliPath();
+        // Path may be null in test environment (no bundled binary),
+        // but it should not throw
+    }
 }

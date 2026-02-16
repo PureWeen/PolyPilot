@@ -117,4 +117,39 @@ public class ScenarioReferenceTests
     {
         Assert.True(true, "See CopilotServiceInitializationTests.ModeSwitch_PersistentFailureThenDemo_Recovers");
     }
+
+    /// <summary>
+    /// Scenario: "cli-source-switch-builtin-to-system"
+    /// Unit test equivalents: ConnectionSettings_CliSource_CanSwitchToSystem,
+    ///   ConnectionSettings_Serialization_PreservesCliSource,
+    ///   ConnectionSettings_CliSource_IndependentOfMode
+    /// </summary>
+    [Fact]
+    public void Scenario_CliSourceSwitch_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See CopilotServiceInitializationTests.ConnectionSettings_CliSource_* tests");
+    }
+
+    /// <summary>
+    /// Scenario: "mode-persists-without-save-reconnect"
+    /// Unit test equivalents: ConnectionSettings_SetMode_PersistsMode
+    /// </summary>
+    [Fact]
+    public void Scenario_ModePersistsImmediately_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See CopilotServiceInitializationTests.ConnectionSettings_SetMode_PersistsMode");
+    }
+
+    [Fact]
+    public void AllScenarios_HaveUniqueIds()
+    {
+        var json = File.ReadAllText(Path.Combine(ScenariosDir, "mode-switch-scenarios.json"));
+        var doc = JsonDocument.Parse(json);
+        var ids = doc.RootElement.GetProperty("scenarios")
+            .EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString())
+            .ToList();
+
+        Assert.Equal(ids.Count, ids.Distinct().Count());
+    }
 }

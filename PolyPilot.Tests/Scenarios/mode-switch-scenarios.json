@@ -232,6 +232,156 @@
           "expect": { "greaterThanOrEqual": "expectedCount" }
         }
       ]
+    },
+    {
+      "id": "cli-source-switch-builtin-to-system",
+      "name": "CLI source switches between Built-in and System and persists",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/settings']",
+          "note": "Navigate to Settings"
+        },
+        {
+          "action": "wait",
+          "duration": 2000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+          "note": "Record initial CLI source",
+          "saveAs": "initialCliSource"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.cli-card')[1].click()",
+          "note": "Click System CLI card"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+          "expect": { "equals": "System" },
+          "note": "Verify System is now selected"
+        },
+        {
+          "action": "shell",
+          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['CliSource'])\"",
+          "expect": { "equals": "1" },
+          "note": "Verify CliSource=1 (System) persisted to disk"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.cli-card')[0].click()",
+          "note": "Switch back to Built-in"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "shell",
+          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['CliSource'])\"",
+          "expect": { "equals": "0" },
+          "note": "Verify CliSource=0 (BuiltIn) persisted to disk"
+        }
+      ]
+    },
+    {
+      "id": "mode-persists-without-save-reconnect",
+      "name": "Mode selection persists to disk immediately without Save & Reconnect",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/settings']",
+          "note": "Navigate to Settings"
+        },
+        {
+          "action": "wait",
+          "duration": 2000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.mode-card')[0].click()",
+          "note": "Click Embedded mode card"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "shell",
+          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['Mode'])\"",
+          "expect": { "equals": "0" },
+          "note": "Verify Mode=0 (Embedded) persisted immediately"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.mode-card')[1].click()",
+          "note": "Switch back to Persistent"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "shell",
+          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['Mode'])\"",
+          "expect": { "equals": "1" },
+          "note": "Verify Mode=1 (Persistent) persisted immediately"
+        }
+      ]
+    },
+    {
+      "id": "bug-report-button-visible",
+      "name": "Bug report button is visible in sidebar footer and opens inline form",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/']",
+          "note": "Navigate to Dashboard"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.bug-report-btn')?.textContent?.trim()",
+          "expect": { "contains": "Report Bug" },
+          "note": "Verify bug report button exists in sidebar"
+        },
+        {
+          "action": "click",
+          "selector": ".bug-report-btn",
+          "note": "Click Report Bug button"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.bug-report-inline') !== null",
+          "expect": { "equals": "true" },
+          "note": "Verify inline form opened"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.bug-report-textarea') !== null",
+          "expect": { "equals": "true" },
+          "note": "Verify textarea exists"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.bug-report-submit') !== null",
+          "expect": { "equals": "true" },
+          "note": "Verify submit button exists"
+        }
+      ]
     }
   ]
 }
