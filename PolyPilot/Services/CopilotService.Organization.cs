@@ -53,6 +53,9 @@ public partial class CopilotService
             string json;
             lock (_organizationLock)
             {
+                // Serialize inside lock to capture consistent state.
+                // File write is outside lock to avoid holding lock during I/O.
+                // If Organization changes after serialization, next save will write updated state.
                 json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true });
             }
             File.WriteAllText(OrganizationFile, json);
@@ -307,13 +310,13 @@ public partial class CopilotService
     /// </summary>
     public IEnumerable<(SessionGroup Group, List<AgentSessionInfo> Sessions)> GetOrganizedSessions()
     {
-        Dictionary<string, SessionMeta> metas;
+        Dictionary<string, SessionMeta> sessionMetas;
         List<SessionGroup> groups;
         SessionSortMode sortMode;
         
         lock (_organizationLock)
         {
-            metas = Organization.Sessions.ToDictionary(m => m.SessionName);
+            sessionMetas = Organization.Sessions.ToDictionary(m => m.SessionName);
             groups = Organization.Groups.OrderBy(g => g.SortOrder).ToList();
             sortMode = Organization.SortMode;
         }
@@ -323,27 +326,27 @@ public partial class CopilotService
         foreach (var group in groups)
         {
             var groupSessions = allSessions
-                .Where(s => metas.TryGetValue(s.Name, out var m) && m.GroupId == group.Id)
+                .Where(s => sessionMetas.TryGetValue(s.Name, out var m) && m.GroupId == group.Id)
                 .ToList();
 
             // Pinned first, then apply sort mode within each partition
             var sorted = groupSessions
-                .OrderByDescending(s => metas.TryGetValue(s.Name, out var m) && m.IsPinned)
-                .ThenBy(s => ApplySort(s, metas, sortMode))
+                .OrderByDescending(s => sessionMetas.TryGetValue(s.Name, out var m) && m.IsPinned)
+                .ThenBy(s => ApplySort(s, sessionMetas, sortMode))
                 .ToList();
 
             yield return (group, sorted);
         }
     }
 
-    private object ApplySort(AgentSessionInfo session, Dictionary<string, SessionMeta> metas, SessionSortMode sortMode)
+    private object ApplySort(AgentSessionInfo session, Dictionary<string, SessionMeta> sessionMetas, SessionSortMode sortMode)
     {
         return sortMode switch
         {
             SessionSortMode.LastActive => DateTime.MaxValue - session.LastUpdatedAt,
             SessionSortMode.CreatedAt => DateTime.MaxValue - session.CreatedAt,
             SessionSortMode.Alphabetical => session.Name,
-            SessionSortMode.Manual => (object)(metas.TryGetValue(session.Name, out var m) ? m.ManualOrder : int.MaxValue),
+            SessionSortMode.Manual => (object)(sessionMetas.TryGetValue(session.Name, out var m) ? m.ManualOrder : int.MaxValue),
             _ => DateTime.MaxValue - session.LastUpdatedAt
         };
     }
