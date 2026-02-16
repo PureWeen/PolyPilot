@@ -268,12 +268,23 @@ public partial class CopilotService : IAsyncDisposable
 
         _client = CreateClient(settings);
 
-        await _client.StartAsync(cancellationToken);
-        IsInitialized = true;
-        NeedsConfiguration = false;
-        Debug($"Copilot client started in {settings.Mode} mode");
-        
-        // Note: copilot-instructions.md is automatically loaded by the CLI from .github/ in the working directory.
+        try
+        {
+            await _client.StartAsync(cancellationToken);
+            IsInitialized = true;
+            NeedsConfiguration = false;
+            Debug($"Copilot client started in {settings.Mode} mode");
+        }
+        catch (Exception ex)
+        {
+            // Initialization failed (e.g., no CLI found after fallback). Surface state and return gracefully.
+            Debug($"Failed to start Copilot client: {ex.Message}");
+            IsInitialized = false;
+            NeedsConfiguration = true;
+            OnStateChanged?.Invoke();
+            return;
+        }
+                // Note: copilot-instructions.md is automatically loaded by the CLI from .github/ in the working directory.
         // We don't need to manually load and inject it here.
 
         OnStateChanged?.Invoke();
@@ -394,11 +405,22 @@ public partial class CopilotService : IAsyncDisposable
 
         _client = CreateClient(settings);
 
-        await _client.StartAsync(cancellationToken);
-        IsInitialized = true;
-        NeedsConfiguration = false;
-        Debug($"Reconnected in {settings.Mode} mode");
-        OnStateChanged?.Invoke();
+        try
+        {
+            await _client.StartAsync(cancellationToken);
+            IsInitialized = true;
+            NeedsConfiguration = false;
+            Debug($"Reconnected in {settings.Mode} mode");
+            OnStateChanged?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to start Copilot client during reconnect: {ex.Message}");
+            IsInitialized = false;
+            NeedsConfiguration = true;
+            OnStateChanged?.Invoke();
+            return;
+        }
 
         // Restore previous sessions
         await RestorePreviousSessionsAsync(cancellationToken);
