@@ -11,6 +11,8 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, SessionState> _sessions = new();
     // Sessions optimistically added during remote create/resume — protected from removal by SyncRemoteSessions
     private readonly ConcurrentDictionary<string, byte> _pendingRemoteSessions = new();
+    // Session IDs explicitly closed by the user — excluded from merge-back during SaveActiveSessionsToDisk
+    private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
     private readonly IChatDatabase _chatDb;
     private readonly IServerManager _serverManager;
     private readonly IWsBridgeClient _bridgeClient;
@@ -381,6 +383,7 @@ public partial class CopilotService : IAsyncDisposable
             try { if (state.Session != null) await state.Session.DisposeAsync(); } catch { }
         }
         _sessions.Clear();
+        _closedSessionIds.Clear();
         _activeSessionName = null;
 
         if (_client != null)
@@ -433,7 +436,10 @@ public partial class CopilotService : IAsyncDisposable
         }
 
         // Restore previous sessions
+        LoadOrganization();
         await RestorePreviousSessionsAsync(cancellationToken);
+        ReconcileOrganization();
+        OnStateChanged?.Invoke();
     }
 
     private CopilotClient CreateClient(ConnectionSettings settings)
@@ -1100,7 +1106,7 @@ public partial class CopilotService : IAsyncDisposable
 
         _activeSessionName ??= displayName;
         OnStateChanged?.Invoke();
-        SaveActiveSessionsToDisk();
+        if (!IsRestoring) SaveActiveSessionsToDisk();
         if (!IsRestoring) ReconcileOrganization();
         return info;
     }
@@ -1607,6 +1613,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!_sessions.TryRemove(name, out var state))
             return false;
+
+        // Track as explicitly closed so merge doesn't re-add from file
+        if (state.Info.SessionId != null)
+            _closedSessionIds[state.Info.SessionId] = 0;
 
         if (state.Session is not null)
             await state.Session.DisposeAsync();

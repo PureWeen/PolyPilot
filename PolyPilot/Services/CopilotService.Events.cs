@@ -366,7 +366,7 @@ public partial class CopilotService
                     state.Info.Model = normalizedStartModel;
                     Debug($"Session model from start event: {startModel} → {normalizedStartModel}");
                 }
-                SaveActiveSessionsToDisk();
+                if (!IsRestoring) SaveActiveSessionsToDisk();
                 break;
 
             case SessionUsageInfoEvent usageInfo:

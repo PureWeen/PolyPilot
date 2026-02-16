@@ -233,4 +233,169 @@ public class CopilotServiceInitializationTests
         // Even if StartAsync fails, CurrentMode should reflect what was attempted
         Assert.Equal(ConnectionMode.Persistent, svc.CurrentMode);
     }
+
+    // --- Mode Switch Tests ---
+
+    [Fact]
+    public async Task ModeSwitch_DemoToPersistentFailure_SessionsCleared()
+    {
+        var svc = CreateService();
+
+        // Start in Demo, create sessions
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        await svc.CreateSessionAsync("session-a");
+        await svc.CreateSessionAsync("session-b");
+        Assert.Equal(2, svc.GetAllSessions().Count());
+
+        // Switch to Persistent (fails — unreachable port)
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            Host = "localhost",
+            Port = 19999
+        });
+
+        // All old sessions should be cleared by ReconnectAsync
+        Assert.Empty(svc.GetAllSessions());
+        Assert.Null(svc.ActiveSessionName);
+        Assert.False(svc.IsDemoMode);
+    }
+
+    [Fact]
+    public async Task ModeSwitch_PersistentFailureThenDemo_Recovers()
+    {
+        var svc = CreateService();
+
+        // Try Persistent first (fails)
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            Host = "localhost",
+            Port = 19999
+        });
+        Assert.False(svc.IsInitialized);
+        Assert.True(svc.NeedsConfiguration);
+
+        // Now switch to Demo — should recover fully
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        Assert.True(svc.IsInitialized);
+        Assert.True(svc.IsDemoMode);
+        Assert.False(svc.NeedsConfiguration);
+
+        // Should be able to create sessions
+        var session = await svc.CreateSessionAsync("recovered");
+        Assert.NotNull(session);
+        Assert.Equal("recovered", session.Name);
+    }
+
+    [Fact]
+    public async Task ModeSwitch_RapidModeSwitches_NoCorruption()
+    {
+        var svc = CreateService();
+
+        // Demo → Persistent (fail) → Demo → Persistent (fail) → Demo
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        Assert.True(svc.IsInitialized);
+
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent, Host = "localhost", Port = 19999
+        });
+        Assert.False(svc.IsInitialized);
+
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        Assert.True(svc.IsInitialized);
+
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent, Host = "localhost", Port = 19999
+        });
+        Assert.False(svc.IsInitialized);
+
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        Assert.True(svc.IsInitialized);
+        Assert.True(svc.IsDemoMode);
+
+        // Final state is clean — can create sessions
+        var session = await svc.CreateSessionAsync("final-test");
+        Assert.NotNull(session);
+    }
+
+    [Fact]
+    public async Task ModeSwitch_DemoToPersistentFailure_ActiveSessionCleared()
+    {
+        var svc = CreateService();
+
+        // Start in Demo with an active session
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        await svc.CreateSessionAsync("active-one");
+        Assert.Equal("active-one", svc.ActiveSessionName);
+
+        // Switch to Persistent (fails)
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent, Host = "localhost", Port = 19999
+        });
+
+        // Active session name must be cleared
+        Assert.Null(svc.ActiveSessionName);
+    }
+
+    [Fact]
+    public async Task ModeSwitch_PersistentFailure_ThenCreateSession_ThrowsNotInitialized()
+    {
+        var svc = CreateService();
+
+        // Persistent fails
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent, Host = "localhost", Port = 19999
+        });
+
+        // Creating a session after failed connection should still throw
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => svc.CreateSessionAsync("should-fail", cancellationToken: CancellationToken.None));
+        Assert.Contains("Service not initialized", ex.Message);
+    }
+
+    [Fact]
+    public async Task ModeSwitch_PersistentFailure_ResumeSession_ThrowsNotInitialized()
+    {
+        var svc = CreateService();
+
+        // Persistent fails
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent, Host = "localhost", Port = 19999
+        });
+
+        // Resuming a session after failed connection should throw
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => svc.ResumeSessionAsync(Guid.NewGuid().ToString(), "test-resume", cancellationToken: CancellationToken.None));
+        Assert.Contains("Service not initialized", ex.Message);
+    }
+
+    [Fact]
+    public async Task ModeSwitch_OnStateChanged_FiresForEachSwitch()
+    {
+        var svc = CreateService();
+        var stateChanges = new List<(ConnectionMode mode, bool initialized)>();
+        svc.OnStateChanged += () => stateChanges.Add((svc.CurrentMode, svc.IsInitialized));
+
+        // Demo (success)
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var demoChanges = stateChanges.Count;
+        Assert.True(demoChanges > 0);
+
+        // Persistent (failure)
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent, Host = "localhost", Port = 19999
+        });
+        Assert.True(stateChanges.Count > demoChanges, "Should fire additional state changes for Persistent attempt");
+
+        // Verify at least one Persistent state change shows not-initialized
+        var persistentChanges = stateChanges.Skip(demoChanges).ToList();
+        Assert.Contains(persistentChanges, c => c.mode == ConnectionMode.Persistent && !c.initialized);
+    }
 }

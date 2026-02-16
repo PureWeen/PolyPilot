@@ -26,6 +26,40 @@ public partial class CopilotService
                 })
                 .ToList();
             
+            // Merge: preserve entries from the existing file that aren't currently in memory
+            // but whose session directory still exists on disk. This prevents data loss when
+            // sessions fail to restore (e.g. during mode switches) or if the app is killed
+            // mid-restore.
+            try
+            {
+                if (File.Exists(ActiveSessionsFile))
+                {
+                    var existingJson = File.ReadAllText(ActiveSessionsFile);
+                    var existingEntries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(existingJson);
+                    if (existingEntries != null)
+                    {
+                        var activeIds = new HashSet<string>(entries.Select(e => e.SessionId), StringComparer.OrdinalIgnoreCase);
+                        foreach (var existing in existingEntries)
+                        {
+                            if (activeIds.Contains(existing.SessionId)) continue;
+                            if (_closedSessionIds.ContainsKey(existing.SessionId)) continue;
+                            
+                            // Keep the entry if its session directory still exists on disk
+                            var sessionDir = Path.Combine(SessionStatePath, existing.SessionId);
+                            if (Directory.Exists(sessionDir))
+                            {
+                                entries.Add(existing);
+                                activeIds.Add(existing.SessionId);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to merge existing sessions: {ex.Message}");
+            }
+            
             var json = JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(ActiveSessionsFile, json);
         }
@@ -49,24 +83,33 @@ public partial class CopilotService
                 if (entries != null && entries.Count > 0)
                 {
                     Debug($"Restoring {entries.Count} previous sessions...");
+                    IsRestoring = true;
 
                     foreach (var entry in entries)
                     {
                         try
                         {
                             // Skip if already active
-                            if (_sessions.ContainsKey(entry.DisplayName)) continue;
+                            if (_sessions.ContainsKey(entry.DisplayName))
+                            {
+                                Debug($"Skipping '{entry.DisplayName}' — already active");
+                                continue;
+                            }
                             
                             // Check the session still exists on disk
                             var sessionDir = Path.Combine(SessionStatePath, entry.SessionId);
-                            if (!Directory.Exists(sessionDir)) continue;
+                            if (!Directory.Exists(sessionDir))
+                            {
+                                Debug($"Skipping '{entry.DisplayName}' — session dir not found: {sessionDir}");
+                                continue;
+                            }
 
                             await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken);
                             Debug($"Restored session: {entry.DisplayName}");
                         }
                         catch (Exception ex)
                         {
-                            Debug($"Failed to restore '{entry.DisplayName}': {ex.Message}");
+                            Debug($"Failed to restore '{entry.DisplayName}': {ex.GetType().Name}: {ex.Message}");
 
                             // If the connection broke, recreate the client
                             if (ex is System.IO.IOException or System.Net.Sockets.SocketException
@@ -86,12 +129,14 @@ public partial class CopilotService
                                 }
                                 catch (Exception clientEx)
                                 {
-                                    Debug($"Failed to recreate client: {clientEx.Message}");
+                                    Debug($"Failed to recreate client: {clientEx.GetType().Name}: {clientEx.Message}");
                                     break; // Stop trying to restore sessions
                                 }
                             }
                         }
                     }
+                    
+                    IsRestoring = false;
                 }
             }
             catch (Exception ex)
