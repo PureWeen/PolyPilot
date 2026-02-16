@@ -255,6 +255,15 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _renderTimer = new Timer(_ =>
+        {
+            if (_renderDirty)
+            {
+                _renderDirty = false;
+                InvokeAsync(SafeRefreshAsync);
+            }
+        }, null, Timeout.Infinite, Timeout.Infinite);
+        
         CopilotService.OnStateChanged += RefreshState;
         CopilotService.OnSessionComplete += HandleComplete;
         CopilotService.OnContentReceived += HandleContent;
@@ -635,23 +644,18 @@
 
     private DateTime _lastRefresh = DateTime.MinValue;
     private bool _refreshPending;
+    private volatile bool _renderDirty;
+    private Timer? _renderTimer;
+    private DateTime _lastNonSwitchRefresh = DateTime.MinValue;
+
+    private void ScheduleRender()
+    {
+        _renderDirty = true;
+        _renderTimer?.Change(50, Timeout.Infinite);
+    }
 
     private async Task SafeRefreshAsync()
     {
-        // Throttle to max ~4 refreshes per second to avoid blocking UI interactions
-        var now = DateTime.UtcNow;
-        if ((now - _lastRefresh).TotalMilliseconds < 250)
-        {
-            if (!_refreshPending)
-            {
-                _refreshPending = true;
-                _ = Task.Delay(250).ContinueWith(_ => InvokeAsync(SafeRefreshAsync));
-            }
-            return;
-        }
-        _lastRefresh = now;
-        _refreshPending = false;
-
         // Capture all card input values before re-render wipes them
         try
         {
@@ -675,7 +679,6 @@
                     foreach (var (id, val) in saved)
                     {
                         if (id.StartsWith("__")) continue;
-                        // Map input id back to session name
                         var sessionName = id.Replace("input-", "").Replace("-", " ");
                         if (!string.IsNullOrEmpty(val))
                             draftBySession[sessionName] = val;
@@ -700,14 +703,24 @@
     private void RefreshState()
     {
         if (_refreshing) return;
-        if (!_initializationComplete) return; // Don't process state changes until initialization is done
+        if (!_initializationComplete) return;
         _refreshing = true;
         try
         {
+            var active = CopilotService.ActiveSessionName;
+            bool sessionSwitched = active != null && active != _lastActiveSession && _lastActiveSession != null;
+            
+            // For non-switch state changes, throttle to max 2/sec to avoid flooding the render queue
+            if (!sessionSwitched)
+            {
+                var now = DateTime.UtcNow;
+                if ((now - _lastNonSwitchRefresh).TotalMilliseconds < 500)
+                    return;
+                _lastNonSwitchRefresh = now;
+            }
+
             sessions = CopilotService.GetAllSessions().ToList();
 
-            // On first load with multiple sessions, default to grid view
-            // unless a session was explicitly selected (e.g. from Settings page)
             if (!_initialGridSet && sessions.Count > 1)
             {
                 _initialGridSet = true;
@@ -729,37 +742,33 @@
                 return;
             }
 
-            // Auto-expand when only one session (unless user explicitly collapsed)
             if (sessions.Count == 1 && expandedSession == null && !_explicitlyCollapsed)
             {
                 expandedSession = sessions[0].Name;
                 CopilotService.SwitchSession(sessions[0].Name);
             }
-            // Detect sidebar-initiated session switch — expand to chat view
-            // Skip during initial load (_lastActiveSession will be set below)
-            var active = CopilotService.ActiveSessionName;
-            if (active != null && active != _lastActiveSession && sessions.Any(s => s.Name == active) && _lastActiveSession != null)
+            if (sessionSwitched && sessions.Any(s => s.Name == active))
             {
                 _lastActiveSession = active;
                 expandedSession = active;
-                _focusedInputId = $"input-{active.Replace(" ", "-")}";
+                _focusedInputId = $"input-{active!.Replace(" ", "-")}";
                 _needsScrollToBottom = true;
                 CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid);
             }
             
-            // Set _lastActiveSession during initial load to prevent auto-expand above
             if (_lastActiveSession == null && active != null)
             {
                 _lastActiveSession = active;
             }
-            // Clear sidebar highlight when showing grid view
-            // Clear stale streaming content for sessions that finished
             foreach (var s in sessions)
             {
                 if (!s.IsProcessing && streamingBySession.ContainsKey(s.Name))
                     streamingBySession.Remove(s.Name);
             }
-            InvokeAsync(SafeRefreshAsync);
+            if (sessionSwitched)
+                InvokeAsync(SafeRefreshAsync);
+            else
+                ScheduleRender();
         }
         finally { _refreshing = false; }
     }
@@ -769,11 +778,11 @@
         completedSessions.Add(sessionName);
         streamingBySession.Remove(sessionName);
         activityBySession.Remove(sessionName);
-        InvokeAsync(SafeRefreshAsync);
+        ScheduleRender();
         _ = Task.Delay(10000).ContinueWith(_ =>
         {
             completedSessions.Remove(sessionName);
-            InvokeAsync(SafeRefreshAsync);
+            ScheduleRender();
         });
     }
 
@@ -782,13 +791,15 @@
         if (!streamingBySession.ContainsKey(sessionName))
             streamingBySession[sessionName] = "";
         streamingBySession[sessionName] += content;
-        InvokeAsync(SafeRefreshAsync);
+        if (sessionName == expandedSession)
+            ScheduleRender();
     }
 
     private void HandleActivity(string sessionName, string activity)
     {
         activityBySession[sessionName] = activity;
-        InvokeAsync(SafeRefreshAsync);
+        if (sessionName == expandedSession)
+            ScheduleRender();
     }
 
     private void HandleToolStarted(string sessionName, string toolName, string callId, string? inputSummary)
@@ -813,7 +824,8 @@
             Input = inputSummary,
             StartedAt = DateTime.Now
         });
-        InvokeAsync(SafeRefreshAsync);
+        if (sessionName == expandedSession)
+            ScheduleRender();
     }
 
     private void HandleToolCompleted(string sessionName, string callId, string result, bool success)
@@ -830,27 +842,31 @@
             }
         }
         currentToolBySession.Remove(sessionName);
-        InvokeAsync(SafeRefreshAsync);
+        if (sessionName == expandedSession)
+            ScheduleRender();
     }
 
     private void HandleIntentChanged(string sessionName, string intent)
     {
         intentBySession[sessionName] = intent;
-        InvokeAsync(SafeRefreshAsync);
+        if (sessionName == expandedSession)
+            ScheduleRender();
     }
 
     private void HandleReasoningReceived(string sessionName, string reasoningId, string content)
     {
         if (!string.IsNullOrEmpty(sessionName) && !string.IsNullOrEmpty(content))
             _needsScrollToBottom = true;
-        InvokeAsync(SafeRefreshAsync);
+        if (sessionName == expandedSession)
+            ScheduleRender();
     }
 
     private void HandleReasoningComplete(string sessionName, string reasoningId)
     {
         if (!string.IsNullOrEmpty(sessionName) && !string.IsNullOrEmpty(reasoningId))
             _needsScrollToBottom = true;
-        InvokeAsync(SafeRefreshAsync);
+        if (sessionName == expandedSession)
+            ScheduleRender();
     }
 
     private void HandleUsageInfoChanged(string sessionName, SessionUsageInfo info)
@@ -869,30 +885,32 @@
         {
             usageBySession[sessionName] = info;
         }
-        InvokeAsync(SafeRefreshAsync);
+        if (sessionName == expandedSession)
+            ScheduleRender();
     }
 
     private void HandleError(string sessionName, string error)
     {
         if (error.Contains("cancell", StringComparison.OrdinalIgnoreCase)) return;
         errorBySession[sessionName] = error;
-        InvokeAsync(SafeRefreshAsync);
+        ScheduleRender();
     }
 
     private void HandleTurnStart(string sessionName)
     {
-        // Clear streaming content from previous turn
         streamingBySession.Remove(sessionName);
         currentToolBySession.Remove(sessionName);
         toolActivitiesBySession[sessionName] = new();
-        InvokeAsync(SafeRefreshAsync);
+        if (sessionName == expandedSession)
+            ScheduleRender();
     }
 
     private void HandleTurnEnd(string sessionName)
     {
         intentBySession.Remove(sessionName);
         currentToolBySession.Remove(sessionName);
-        InvokeAsync(SafeRefreshAsync);
+        if (sessionName == expandedSession)
+            ScheduleRender();
     }
 
     private void DismissError(string sessionName)
@@ -1588,7 +1606,7 @@
 
     private void HandleFiestaStateChanged()
     {
-        InvokeAsync(SafeRefreshAsync);
+        ScheduleRender();
     }
 
     private void HandleFiestaTaskUpdate(string sessionName, FiestaTaskUpdate update)
@@ -1732,12 +1750,10 @@
 
     private async Task ExpandSession(string sessionName)
     {
-        try { File.AppendAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot/ui-state-debug.log"), $"[{DateTime.Now:HH:mm:ss}] ExpandSession called for {sessionName}\n"); } catch { }
         await SaveDraftsAndCursor();
         expandedSession = sessionName;
         _needsScrollToBottom = true;
         CopilotService.SwitchSession(sessionName);
-        // Mark messages as read
         var session = CopilotService.GetSession(sessionName);
         if (session != null) session.LastReadMessageCount = session.History.Count;
         CopilotService.SaveUiState("/dashboard", activeSession: sessionName, expandedSession: sessionName, expandedGrid: !isCompactGrid);
@@ -1745,7 +1761,6 @@
 
     private async Task CollapseExpanded()
     {
-        try { File.AppendAllText(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot/ui-state-debug.log"), $"[{DateTime.Now:HH:mm:ss}] CollapseExpanded called\n"); } catch { }
         await SaveDraftsAndCursor();
         expandedSession = null;
         _needsScrollToBottom = true;
@@ -2267,6 +2282,8 @@
         CopilotService.OnTurnEnd -= HandleTurnEnd;
         FiestaService.OnStateChanged -= HandleFiestaStateChanged;
         FiestaService.OnHostTaskUpdate -= HandleFiestaTaskUpdate;
+        _renderTimer?.Dispose();
+        _renderTimer = null;
         foreach (var images in pendingImagesBySession.Values)
             foreach (var img in images)
                 try { File.Delete(img.TempPath); } catch { }
