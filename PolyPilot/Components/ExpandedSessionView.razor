@@ -176,8 +176,9 @@
         </div>
         <div class="input-status-bar">
             <div class="mode-switcher">
-                <button class="mode-btn @(!PlanMode ? "active" : "")" @onclick="() => OnSetPlanMode.InvokeAsync(false)">Chat</button>
-                <button class="mode-btn @(PlanMode ? "active" : "")" @onclick="() => OnSetPlanMode.InvokeAsync(true)">Plan</button>
+                <button class="mode-btn @(InputMode == "chat" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("chat")'>Chat</button>
+                <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")'>Plan</button>
+                <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")'>Autopilot</button>
             </div>
             <span class="status-sep">·</span>
             <span class="log-label" style="font-size:var(--type-footnote)">Log</span>
@@ -233,7 +234,7 @@
     [Parameter] public string Intent { get; set; } = "";
     [Parameter] public string? Error { get; set; }
     [Parameter] public SessionUsageInfo? UsageInfo { get; set; }
-    [Parameter] public bool PlanMode { get; set; }
+    [Parameter] public string InputMode { get; set; } = "chat";
     [Parameter] public string CurrentModel { get; set; } = "";
     [Parameter] public IReadOnlyList<string> AvailableModels { get; set; } = Array.Empty<string>();
     [Parameter] public List<PendingImage>? PendingImages { get; set; }
@@ -253,7 +254,7 @@
     [Parameter] public EventCallback OnClearQueue { get; set; }
     [Parameter] public EventCallback<int> OnRemoveQueuedMessage { get; set; }
     [Parameter] public EventCallback<int> OnRemovePendingImage { get; set; }
-    [Parameter] public EventCallback<bool> OnSetPlanMode { get; set; }
+    [Parameter] public EventCallback<string> OnSetInputMode { get; set; }
     [Parameter] public EventCallback<string?> OnSetModel { get; set; }
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
     [Parameter] public EventCallback OnLoadMore { get; set; }

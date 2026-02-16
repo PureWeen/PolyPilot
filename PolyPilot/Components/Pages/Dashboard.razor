@@ -78,7 +78,7 @@
                                  Intent="@(intentBySession.TryGetValue(session.Name, out var i2) ? i2 : "")"
                                  Error="@(errorBySession.TryGetValue(session.Name, out var e2) ? e2 : null)"
                                  UsageInfo="@(usageBySession.TryGetValue(session.Name, out var u2) ? u2 : null)"
-                                 PlanMode="@planModeBySession.GetValueOrDefault(session.Name)"
+                                 InputMode="@GetInputMode(session.Name)"
                                  CurrentModel="@GetExpandedModel(session)"
                                  AvailableModels="availableModels"
                                  PendingImages="@(pendingImagesBySession.TryGetValue(session.Name, out var pi2) ? pi2 : null)"
@@ -97,7 +97,7 @@
                                  OnClearQueue="() => ClearQueue(session.Name)"
                                  OnRemoveQueuedMessage="(idx) => RemoveQueuedMessage(session.Name, idx)"
                                  OnRemovePendingImage="(idx) => RemovePendingImage(session.Name, idx)"
-                                 OnSetPlanMode="(enabled) => SetPlanMode(session.Name, enabled)"
+                                 OnSetInputMode="(mode) => SetInputMode(session.Name, mode)"
                                  OnSetModel="(model) => SetExpandedModel(session, model)"
                                  OnFontSizeChange="HandleFontSizeChange"
                                  OnLoadMore="() => LoadMoreExpandedMessages(session.Name)"
@@ -227,7 +227,7 @@
     private Dictionary<string, string> intentBySession = new();
     private Dictionary<string, string> errorBySession = new();
     private Dictionary<string, SessionUsageInfo> usageBySession = new();
-    private Dictionary<string, bool> planModeBySession = new();
+    private Dictionary<string, string> inputModeBySession = new();
     private Dictionary<string, List<PendingImage>> pendingImagesBySession = new();
     private Dictionary<string, string> shellCwdBySession = new();
     private Dictionary<string, List<string>> commandHistoryBySession = new();
@@ -935,8 +935,11 @@
             return;
         }
 
-        if (planModeBySession.GetValueOrDefault(sessionName))
+        var inputMode = GetInputMode(sessionName);
+        if (inputMode == "plan")
             finalPrompt = $"[[PLAN]] {finalPrompt}";
+        else if (inputMode == "autopilot")
+            finalPrompt = $"[[AUTOPILOT]] {finalPrompt}";
 
         var dispatch = await FiestaService.DispatchMentionedWorkAsync(sessionName, finalPrompt);
         if (dispatch.MentionsFound)
@@ -2157,7 +2160,16 @@
         }
     }
 
-    private void SetPlanMode(string sessionName, bool enabled) => planModeBySession[sessionName] = enabled;
+    private static bool IsValidInputMode(string mode) =>
+        mode is "chat" or "plan" or "autopilot";
+
+    private string GetInputMode(string sessionName) =>
+        inputModeBySession.TryGetValue(sessionName, out var mode) && IsValidInputMode(mode)
+            ? mode
+            : "chat";
+
+    private void SetInputMode(string sessionName, string mode) =>
+        inputModeBySession[sessionName] = IsValidInputMode(mode) ? mode : "chat";
 
     private void IncreaseFontSize() { if (fontSize < 24) { fontSize += 2; ApplyFontSize(); ShowFontBubble(); } }
     private void DecreaseFontSize() { if (fontSize > 12) { fontSize -= 2; ApplyFontSize(); ShowFontBubble(); } }
