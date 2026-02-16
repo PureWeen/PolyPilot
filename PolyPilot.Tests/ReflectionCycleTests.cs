@@ -14,6 +14,7 @@ public class ReflectionCycleTests
         Assert.Equal(0, cycle.CurrentIteration);
         Assert.True(cycle.IsActive);
         Assert.False(cycle.GoalMet);
+        Assert.False(cycle.IsStalled);
         Assert.Equal("", cycle.EvaluationPrompt);
     }
 
@@ -34,35 +35,65 @@ public class ReflectionCycleTests
     }
 
     [Fact]
-    public void IsGoalMet_WithCompletionMarker_ReturnsTrue()
+    public void IsGoalMet_WithSentinelOnOwnLine_ReturnsTrue()
     {
         var cycle = ReflectionCycle.Create("Test goal");
 
-        Assert.True(cycle.IsGoalMet("✅ Goal complete - everything looks good"));
+        Assert.True(cycle.IsGoalMet("Some work done.\n[[RALPH_COMPLETE]]\n"));
     }
 
     [Fact]
-    public void IsGoalMet_WithTextMarker_ReturnsTrue()
+    public void IsGoalMet_WithSentinelAtEnd_ReturnsTrue()
     {
         var cycle = ReflectionCycle.Create("Test goal");
 
-        Assert.True(cycle.IsGoalMet("Goal complete - all done"));
+        Assert.True(cycle.IsGoalMet("All done!\n[[RALPH_COMPLETE]]"));
     }
 
     [Fact]
-    public void IsGoalMet_CaseInsensitive()
+    public void IsGoalMet_WithSentinelWithWhitespace_ReturnsTrue()
     {
         var cycle = ReflectionCycle.Create("Test goal");
 
-        Assert.True(cycle.IsGoalMet("GOAL COMPLETE - finished"));
+        Assert.True(cycle.IsGoalMet("Done.\n  [[RALPH_COMPLETE]]  \nExtra text"));
     }
 
     [Fact]
-    public void IsGoalMet_WithoutMarker_ReturnsFalse()
+    public void IsGoalMet_SentinelEmbeddedInText_ReturnsFalse()
+    {
+        var cycle = ReflectionCycle.Create("Test goal");
+
+        // Sentinel must be on its own line, not embedded in prose
+        Assert.False(cycle.IsGoalMet("I said [[RALPH_COMPLETE]] in the middle of a sentence"));
+    }
+
+    [Fact]
+    public void IsGoalMet_WithoutSentinel_ReturnsFalse()
     {
         var cycle = ReflectionCycle.Create("Test goal");
 
         Assert.False(cycle.IsGoalMet("Still working on it..."));
+    }
+
+    [Fact]
+    public void IsGoalMet_OldMarkerDoesNotTrigger()
+    {
+        var cycle = ReflectionCycle.Create("Test goal");
+
+        // The old "Goal complete" marker should NOT trigger completion
+        Assert.False(cycle.IsGoalMet("✅ Goal complete - everything looks good"));
+        Assert.False(cycle.IsGoalMet("Goal complete - all done"));
+        Assert.False(cycle.IsGoalMet("GOAL COMPLETE - finished"));
+    }
+
+    [Fact]
+    public void IsGoalMet_NaturalProseFalsePositive_ReturnsFalse()
+    {
+        var cycle = ReflectionCycle.Create("Test goal");
+
+        // Sentences that naturally contain "goal complete" should not trigger
+        Assert.False(cycle.IsGoalMet("The goal complete with all requirements met."));
+        Assert.False(cycle.IsGoalMet("I have not made the goal complete yet."));
     }
 
     [Fact]
@@ -88,7 +119,7 @@ public class ReflectionCycleTests
     {
         var cycle = ReflectionCycle.Create("Test goal");
 
-        Assert.False(cycle.Advance("✅ Goal complete"));
+        Assert.False(cycle.Advance("Done!\n[[RALPH_COMPLETE]]"));
         Assert.True(cycle.GoalMet);
         Assert.False(cycle.IsActive);
         Assert.Equal(1, cycle.CurrentIteration);
@@ -99,10 +130,8 @@ public class ReflectionCycleTests
     {
         var cycle = ReflectionCycle.Create("Test goal", maxIterations: 2);
 
-        // First advance: iteration becomes 1, still under max
         Assert.True(cycle.Advance("Trying..."));
-        // Second advance: iteration becomes 2, hits max
-        Assert.False(cycle.Advance("Still going..."));
+        Assert.False(cycle.Advance("Still going with different content and new ideas..."));
         Assert.False(cycle.IsActive);
         Assert.False(cycle.GoalMet);
         Assert.Equal(2, cycle.CurrentIteration);
@@ -123,14 +152,43 @@ public class ReflectionCycleTests
     {
         var cycle = ReflectionCycle.Create("Goal", maxIterations: 10);
 
-        cycle.Advance("response 1");
+        cycle.Advance("response 1 with unique content alpha");
         Assert.Equal(1, cycle.CurrentIteration);
 
-        cycle.Advance("response 2");
+        cycle.Advance("response 2 with different content beta");
         Assert.Equal(2, cycle.CurrentIteration);
 
-        cycle.Advance("response 3");
+        cycle.Advance("response 3 with more unique content gamma");
         Assert.Equal(3, cycle.CurrentIteration);
+    }
+
+    [Fact]
+    public void Advance_StallDetection_StopsAfterTwoConsecutiveStalls()
+    {
+        var cycle = ReflectionCycle.Create("Goal", maxIterations: 10);
+
+        // First response — establishes baseline
+        Assert.True(cycle.Advance("Working on the task with specific details about implementation"));
+
+        // Second response — nearly identical (stall #1, allowed)
+        Assert.True(cycle.Advance("Working on the task with specific details about implementation"));
+
+        // Third response — still identical (stall #2, stops)
+        Assert.False(cycle.Advance("Working on the task with specific details about implementation"));
+        Assert.True(cycle.IsStalled);
+        Assert.False(cycle.IsActive);
+        Assert.False(cycle.GoalMet);
+    }
+
+    [Fact]
+    public void Advance_StallDetection_ResetsOnProgress()
+    {
+        var cycle = ReflectionCycle.Create("Goal", maxIterations: 10);
+
+        Assert.True(cycle.Advance("First attempt at solving the problem with approach A"));
+        Assert.True(cycle.Advance("First attempt at solving the problem with approach A")); // stall #1
+        Assert.True(cycle.Advance("Completely different approach B with new strategy and different words entirely")); // progress resets
+        Assert.False(cycle.IsStalled);
     }
 
     [Fact]
@@ -143,7 +201,7 @@ public class ReflectionCycleTests
 
         Assert.Contains("Fix all tests", prompt);
         Assert.Contains("iteration 2/5", prompt);
-        Assert.Contains("Goal complete", prompt);
+        Assert.Contains("[[RALPH_COMPLETE]]", prompt);
     }
 
     [Fact]
@@ -169,17 +227,43 @@ public class ReflectionCycleTests
     }
 
     [Fact]
+    public void BuildFollowUpPrompt_IncludesProgressAssessment()
+    {
+        var cycle = ReflectionCycle.Create("Fix all tests");
+        var prompt = cycle.BuildFollowUpPrompt("some response");
+
+        Assert.Contains("assess what progress", prompt);
+    }
+
+    [Fact]
+    public void BuildFollowUpPrompt_DiscouragemsPrematureCompletion()
+    {
+        var cycle = ReflectionCycle.Create("Fix all tests");
+        var prompt = cycle.BuildFollowUpPrompt("some response");
+
+        Assert.Contains("genuinely, fully achieved", prompt);
+        Assert.Contains("NOT complete", prompt);
+    }
+
+    [Fact]
+    public void BuildFollowUpPrompt_IncludesRalphsLoopBranding()
+    {
+        var cycle = ReflectionCycle.Create("Goal");
+        var prompt = cycle.BuildFollowUpPrompt("response");
+
+        Assert.Contains("Ralph's Loop", prompt);
+    }
+
+    [Fact]
     public void FullCycle_GoalMetOnSecondIteration()
     {
         var cycle = ReflectionCycle.Create("Fix the issue", maxIterations: 5);
 
-        // First iteration: goal not met
-        Assert.True(cycle.Advance("Still working..."));
+        Assert.True(cycle.Advance("Still working on the fix with new approach..."));
         Assert.Equal(1, cycle.CurrentIteration);
         Assert.True(cycle.IsActive);
 
-        // Second iteration: goal met
-        Assert.False(cycle.Advance("✅ Goal complete - issue resolved"));
+        Assert.False(cycle.Advance("Issue resolved successfully!\n[[RALPH_COMPLETE]]"));
         Assert.Equal(2, cycle.CurrentIteration);
         Assert.True(cycle.GoalMet);
         Assert.False(cycle.IsActive);
@@ -190,12 +274,10 @@ public class ReflectionCycleTests
     {
         var cycle = ReflectionCycle.Create("Impossible goal", maxIterations: 2);
 
-        // First iteration
-        Assert.True(cycle.Advance("Trying..."));
+        Assert.True(cycle.Advance("Trying with approach alpha..."));
         Assert.Equal(1, cycle.CurrentIteration);
 
-        // Second iteration - hits max
-        Assert.False(cycle.Advance("Still trying..."));
+        Assert.False(cycle.Advance("Still trying with approach beta and new ideas..."));
         Assert.Equal(2, cycle.CurrentIteration);
         Assert.False(cycle.GoalMet);
         Assert.False(cycle.IsActive);
@@ -211,7 +293,14 @@ public class ReflectionCycleTests
         Assert.Equal(0, cycle.CurrentIteration);
         Assert.False(cycle.IsActive);
         Assert.False(cycle.GoalMet);
+        Assert.False(cycle.IsStalled);
         Assert.Equal("", cycle.EvaluationPrompt);
+    }
+
+    [Fact]
+    public void CompletionSentinel_IsExposed()
+    {
+        Assert.Equal("[[RALPH_COMPLETE]]", ReflectionCycle.CompletionSentinel);
     }
 }
 

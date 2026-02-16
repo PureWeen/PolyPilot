@@ -1,15 +1,25 @@
+using System.Text.RegularExpressions;
+
 namespace PolyPilot.Models;
 
 /// <summary>
-/// Defines an iterative reflection cycle: a prompt is sent, the response is evaluated
-/// against a goal, and if the goal is not yet met, a refined follow-up prompt is
-/// automatically generated and sent. The cycle continues until the goal is satisfied
-/// or the maximum number of iterations is reached.
+/// Ralph's Loop: an iterative reflection cycle where a prompt is sent, the response
+/// is evaluated against a goal, and if the goal is not yet met, a refined follow-up
+/// prompt is automatically generated and sent. The cycle continues until the goal is
+/// satisfied, the model stalls, or the maximum number of iterations is reached.
 /// </summary>
-public class ReflectionCycle
+public partial class ReflectionCycle
 {
-    private const string CompletionMarker = "Goal complete";
-    private const string CompletionMarkerWithEmoji = "✅ Goal complete";
+    /// <summary>
+    /// Sentinel token the model must emit on its own line to signal goal completion.
+    /// Deliberately machine-style to avoid false positives in natural prose.
+    /// </summary>
+    internal const string CompletionSentinel = "[[RALPH_COMPLETE]]";
+
+    [GeneratedRegex(@"^\s*\[\[RALPH_COMPLETE\]\]\s*$", RegexOptions.Multiline)]
+    private static partial Regex CompletionSentinelRegex();
+
+    private static readonly char[] TokenSeparators = [' ', '\n', '\r', '\t'];
 
     /// <summary>
     /// The high-level goal or acceptance criteria that the cycle is working toward.
@@ -39,10 +49,20 @@ public class ReflectionCycle
     public bool GoalMet { get; set; }
 
     /// <summary>
+    /// Whether the cycle was stopped early because progress stalled.
+    /// </summary>
+    public bool IsStalled { get; set; }
+
+    /// <summary>
     /// Optional instructions on how to evaluate whether the goal has been met.
     /// If empty, a default evaluation prompt is constructed from the Goal.
     /// </summary>
     public string EvaluationPrompt { get; set; } = "";
+
+    // Stall detection state (not serialized)
+    private readonly List<int> _recentHashes = new();
+    private string _lastResponse = "";
+    private int _consecutiveStalls;
 
     /// <summary>
     /// Constructs the follow-up prompt to send when the cycle determines
@@ -54,29 +74,72 @@ public class ReflectionCycle
             ? EvaluationPrompt
             : $"The goal is: {Goal}";
 
-        return $"[Reflection cycle iteration {CurrentIteration + 1}/{MaxIterations}]\n\n"
+        return $"[Ralph's Loop — iteration {CurrentIteration + 1}/{MaxIterations}]\n\n"
              + $"{evaluation}\n\n"
-             + "Review your previous response and continue working toward the goal. "
-             + $"If the goal is fully met, state \"{CompletionMarkerWithEmoji}\" at the start of your response. "
-             + "Otherwise, continue making progress.";
+             + "Before continuing, briefly assess what progress was made and what remains.\n\n"
+             + "Then continue working toward the goal. Make concrete, incremental progress.\n\n"
+             + "IMPORTANT: Only when the goal is genuinely, fully achieved with NO remaining work, "
+             + $"emit this exact sentinel on its own line:\n{CompletionSentinel}\n\n"
+             + "Do NOT emit the sentinel if there is any remaining work, errors to fix, or uncertainty. "
+             + "Partial progress or \"good enough\" is NOT complete.";
     }
 
     /// <summary>
-    /// Checks whether a response indicates the goal has been met.
-    /// Looks for the completion marker in the response text.
+    /// Checks whether a response indicates the goal has been met by looking for the
+    /// completion sentinel on its own line. Uses a strict regex to avoid false positives.
     /// </summary>
     public bool IsGoalMet(string response)
     {
         if (string.IsNullOrWhiteSpace(response)) return false;
+        return CompletionSentinelRegex().IsMatch(response);
+    }
 
-        return response.Contains(CompletionMarker, StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// Checks if the response indicates a stall (repetitive or near-identical to previous).
+    /// Uses exact hash matching over a sliding window and Jaccard token similarity.
+    /// </summary>
+    public bool CheckStall(string response)
+    {
+        if (string.IsNullOrWhiteSpace(response)) return true;
+
+        bool isStall = false;
+
+        // Exact repetition check over last 5 responses
+        int currentHash = response.GetHashCode();
+        if (_recentHashes.Contains(currentHash))
+            isStall = true;
+
+        _recentHashes.Add(currentHash);
+        if (_recentHashes.Count > 5) _recentHashes.RemoveAt(0);
+
+        // Jaccard similarity with immediate predecessor
+        if (!isStall && !string.IsNullOrEmpty(_lastResponse))
+        {
+            var prevWords = new HashSet<string>(
+                _lastResponse.Split(TokenSeparators, StringSplitOptions.RemoveEmptyEntries));
+            var currWords = new HashSet<string>(
+                response.Split(TokenSeparators, StringSplitOptions.RemoveEmptyEntries));
+
+            if (prevWords.Count > 0 && currWords.Count > 0)
+            {
+                var intersection = new HashSet<string>(prevWords);
+                intersection.IntersectWith(currWords);
+                var union = new HashSet<string>(prevWords);
+                union.UnionWith(currWords);
+
+                double similarity = (double)intersection.Count / union.Count;
+                if (similarity > 0.9) isStall = true;
+            }
+        }
+
+        _lastResponse = response;
+        return isStall;
     }
 
     /// <summary>
     /// Advances the cycle by one iteration, evaluates the response, and determines
-    /// whether the cycle should continue. Increments CurrentIteration, checks for
-    /// goal completion, and deactivates the cycle if done.
-    /// Returns true if the cycle should send another follow-up prompt.
+    /// whether the cycle should continue. Returns true if another follow-up should be sent.
+    /// Stops if: goal met, stalled for 2+ consecutive iterations, or max iterations reached.
     /// </summary>
     public bool Advance(string response)
     {
@@ -89,6 +152,21 @@ public class ReflectionCycle
             GoalMet = true;
             IsActive = false;
             return false;
+        }
+
+        if (CheckStall(response))
+        {
+            _consecutiveStalls++;
+            if (_consecutiveStalls >= 2)
+            {
+                IsStalled = true;
+                IsActive = false;
+                return false;
+            }
+        }
+        else
+        {
+            _consecutiveStalls = 0;
         }
 
         if (CurrentIteration >= MaxIterations)

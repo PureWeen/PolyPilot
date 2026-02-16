@@ -333,7 +333,7 @@ public partial class CopilotService
 
             case SessionIdleEvent:
                 CompleteReasoningMessages(state, sessionName);
-                CompleteResponse(state);
+                Invoke(() => CompleteResponse(state));
                 // Refresh git branch — agent may have switched branches
                 state.Info.GitBranch = GetGitBranch(state.Info.WorkingDirectory);
                 // Send notification when agent finishes
@@ -593,7 +593,7 @@ public partial class CopilotService
             }
             else
             {
-                var reason = cycle.GoalMet ? "goal met" : "max iterations reached";
+                var reason = cycle.GoalMet ? "goal met" : cycle.IsStalled ? "stalled" : "max iterations reached";
                 Debug($"Reflection cycle ended for '{state.Info.Name}': {reason}");
             }
         }

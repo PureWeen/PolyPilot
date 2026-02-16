@@ -1529,6 +1529,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     {
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
+
+        // Treat a new queued user message as an interruption of any active reflection cycle
+        if (state.Info.ReflectionCycle is { IsActive: true })
+        {
+            state.Info.ReflectionCycle.IsActive = false;
+            Debug($"Reflection cycle interrupted for '{sessionName}' by queued user message.");
+        }
         
         state.Info.MessageQueue.Add(prompt);
         
