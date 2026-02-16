@@ -20,6 +20,7 @@
     var contextColor = contextPct > 85 ? "var(--accent-primary)" : contextPct > 60 ? "#fbbf24" : "var(--accent-success)";
 }
 <div class="session-item @cssClass @(isPinned ? "pinned" : "")"
+     data-session-name="@Session.Name"
      @onclick="() => OnSelect.InvokeAsync()">
     <div class="session-info">
         <span class="session-name">

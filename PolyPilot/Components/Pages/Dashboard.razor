@@ -1776,7 +1776,7 @@
         _needsScrollToBottom = true;
         _sessionSwitching = true; // tells RefreshState to skip redundant work
         // Toggle CSS visibility instantly
-        try { await JS.InvokeVoidAsync("switchKeepAliveSlot", $"slot-{sessionName.Replace(" ", "-")}"); } catch { }
+        try { await JS.InvokeVoidAsync("switchKeepAliveSlot", $"slot-{sessionName.Replace(" ", "-")}", sessionName); } catch { }
         CopilotService.SwitchSession(sessionName);
         var session = CopilotService.GetSession(sessionName);
         if (session != null) session.LastReadMessageCount = session.History.Count;
