@@ -88,20 +88,19 @@
     flex-shrink: 0;
     max-width: 100%;
     padding: 0.8rem 1rem;
-    align-items: flex-start;
+    align-items: flex-end;
 }
 
 .chat-message-list.full ::deep .chat-msg.user {
-    justify-content: flex-start;
-    background: rgba(255, 255, 255, 0.03);
+    justify-content: flex-end;
 }
 
 .chat-message-list.full ::deep .chat-msg.user .chat-msg-content {
-    background: none;
-    border: none;
-    border-radius: 0;
-    padding: 0;
-    max-width: 100%;
+    background: rgba(78, 168, 209, 0.12);
+    border: 1px solid rgba(78, 168, 209, 0.2);
+    border-radius: 12px 12px 0 12px;
+    padding: 0.75rem 1rem 0.35rem;
+    max-width: 80%;
 }
 
 ::deep .chat-msg.user .chat-msg-text p {
@@ -113,11 +112,11 @@
 }
 
 .chat-message-list.full ::deep .chat-msg.assistant .chat-msg-content {
-    background: none;
-    border: none;
-    border-radius: 0;
-    padding: 0;
-    max-width: 100%;
+    background: rgba(0, 195, 91, 0.06);
+    border: 1px solid rgba(0, 195, 91, 0.12);
+    border-radius: 12px 12px 12px 0;
+    padding: 0.75rem 1rem 0.35rem;
+    max-width: 80%;
 }
 
 ::deep .chat-msg.assistant .chat-msg-text p {
@@ -129,8 +128,8 @@
 }
 
 .chat-message-list.full ::deep .chat-msg-avatar {
-    width: 24px;
-    height: 24px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -140,12 +139,12 @@
 }
 
 .chat-message-list.full ::deep .chat-msg.user .chat-msg-avatar {
-    order: 0;
+    order: 1;
     background: rgba(78, 168, 209, 0.25);
-    width: 24px;
-    height: 24px;
+    width: 36px;
+    height: 36px;
     overflow: hidden;
-    font-size: 12px;
+    font-size: 16px;
 }
 
 .chat-message-list.full ::deep .chat-msg.user .chat-msg-avatar .user-avatar-img {
@@ -158,8 +157,8 @@
 .chat-message-list.full ::deep .chat-msg.assistant .chat-msg-avatar {
     background: transparent;
     overflow: hidden;
-    width: 24px;
-    height: 24px;
+    width: 36px;
+    height: 36px;
 }
 
 .chat-message-list.full ::deep .chat-msg.assistant .chat-msg-avatar img {
@@ -194,10 +193,10 @@
 }
 
 .chat-message-list.full ::deep .chat-msg-time {
-    font-size: 10px;
+    font-size: 16px;
     color: var(--text-muted);
     margin-top: 0.1rem;
-    opacity: 0.6;
+    opacity: 0.8;
 }
 
 .chat-message-list.full ::deep .chat-msg.system {
@@ -744,9 +743,11 @@
     padding: 0.8rem 1rem;
 }
 .chat-message-list.full.style-minimal ::deep .chat-msg.user {
+    justify-content: flex-start;
     background: rgba(255, 255, 255, 0.03);
 }
 .chat-message-list.full.style-minimal ::deep .chat-msg.user .chat-msg-avatar {
+    order: 0;
     width: 32px;
     height: 32px;
 }
@@ -783,4 +784,8 @@
     text-align: center;
     padding: 0.2rem 0.5rem;
     opacity: 0.7;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg-time {
+    font-size: 16px;
+    opacity: 0.8;
 }
