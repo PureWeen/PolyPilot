@@ -168,6 +168,7 @@ public partial class CopilotService : IAsyncDisposable
     public OrganizationState Organization { get; private set; } = new();
 
     public event Action? OnStateChanged;
+    public void NotifyStateChanged() => OnStateChanged?.Invoke();
     public event Action<string, string>? OnContentReceived; // sessionName, content
     public event Action<string, string>? OnError; // sessionName, error
     public event Action<string, string>? OnSessionComplete; // sessionName, summary

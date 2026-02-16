@@ -875,6 +875,7 @@
         settings.ChatLayout = layout;
         settings.Save();
         CopilotService.ChatLayout = layout;
+        CopilotService.NotifyStateChanged();
         ShowStatus("Layout updated", "success");
     }
 
@@ -883,6 +884,7 @@
         settings.ChatStyle = style;
         settings.Save();
         CopilotService.ChatStyle = style;
+        CopilotService.NotifyStateChanged();
         ShowStatus("Style updated", "success");
     }
 
