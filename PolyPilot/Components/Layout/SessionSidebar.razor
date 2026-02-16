@@ -1157,14 +1157,18 @@ Important conventions:
 
     private static void LaunchCopilotInTerminal(string workingDir, string promptFile)
     {
-        // Write a shell script that Terminal.app will run independently
+        // Write a shell script that sends the prompt as the first message
+        // then keeps copilot running interactively for follow-up conversation
         var shellScript = Path.Combine(Path.GetTempPath(), $"polypilot-launch-{Guid.NewGuid():N}.sh");
         File.WriteAllText(shellScript,
             "#!/bin/bash\n" +
             $"cd \"{workingDir}\"\n" +
-            // --yolo grants all permissions so copilot doesn't try to prompt
-            // (non-interactive prompt causes "Permission denied and could not request permission")
-            $"copilot --yolo -p \"$(cat '{promptFile}')\"\n");
+            $"echo \"📋 Prompt loaded from: {promptFile}\"\n" +
+            $"echo \"─────────────────────────────────────────\"\n" +
+            $"echo \"\"\n" +
+            // --yolo grants all permissions; --resume keeps session alive for follow-ups
+            // -p sends the initial prompt, then copilot stays interactive in the TTY
+            $"copilot --yolo --resume -p \"$(cat '{promptFile}')\"\n");
         System.Diagnostics.Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
 
         // Use 'open -a Terminal <script>' — launches Terminal.app as a fully independent
