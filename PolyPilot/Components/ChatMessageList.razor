@@ -10,7 +10,7 @@
     }
     else
     {
-        @foreach (var msg in Messages)
+        @foreach (var msg in Messages.ToList())
         {
             <ChatMessageItem @key="msg" Message="msg" Compact="Compact" UserAvatarUrl="@UserAvatarUrl" />
         }
@@ -126,7 +126,7 @@
 
     private IEnumerable<ToolActivity> GetNewActivities()
     {
-        var historyCallIds = Messages.Where(m => m.ToolCallId != null).Select(m => m.ToolCallId).ToHashSet();
+        var historyCallIds = Messages.ToList().Where(m => m.ToolCallId != null).Select(m => m.ToolCallId).ToHashSet();
         return ToolActivities.Where(a => !historyCallIds.Contains(a.CallId));
     }
 

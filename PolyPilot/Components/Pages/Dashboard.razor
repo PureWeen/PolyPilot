@@ -681,10 +681,11 @@
     {
         if (_disposed) return;
         // During switch cooldown, skip render to let browser paint the CSS toggle uninterrupted
-        if (Environment.TickCount64 < Interlocked.Read(ref _switchCooldownUntil))
+        var cooldownUntil = Interlocked.Read(ref _switchCooldownUntil);
+        if (Environment.TickCount64 < cooldownUntil)
         {
             // Re-schedule to try again after cooldown expires
-            var remaining = (int)(Interlocked.Read(ref _switchCooldownUntil) - Environment.TickCount64);
+            var remaining = (int)(cooldownUntil - Environment.TickCount64);
             if (remaining > 0)
                 try { _renderTimer?.Change(remaining + 10, Timeout.Infinite); } catch (ObjectDisposedException) { }
             return;
@@ -838,14 +839,14 @@
         if (!streamingBySession.ContainsKey(sessionName))
             streamingBySession[sessionName] = "";
         streamingBySession[sessionName] += content;
-        if (sessionName == expandedSession)
+        if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }
 
     private void HandleActivity(string sessionName, string activity)
     {
         activityBySession[sessionName] = activity;
-        if (sessionName == expandedSession)
+        if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }
 
@@ -871,7 +872,7 @@
             Input = inputSummary,
             StartedAt = DateTime.Now
         });
-        if (sessionName == expandedSession)
+        if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }
 
@@ -889,14 +890,14 @@
             }
         }
         currentToolBySession.Remove(sessionName);
-        if (sessionName == expandedSession)
+        if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }
 
     private void HandleIntentChanged(string sessionName, string intent)
     {
         intentBySession[sessionName] = intent;
-        if (sessionName == expandedSession)
+        if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }
 
@@ -904,7 +905,7 @@
     {
         if (!string.IsNullOrEmpty(sessionName) && !string.IsNullOrEmpty(content))
             _needsScrollToBottom = true;
-        if (sessionName == expandedSession)
+        if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }
 
@@ -912,7 +913,7 @@
     {
         if (!string.IsNullOrEmpty(sessionName) && !string.IsNullOrEmpty(reasoningId))
             _needsScrollToBottom = true;
-        if (sessionName == expandedSession)
+        if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }
 
@@ -932,7 +933,7 @@
         {
             usageBySession[sessionName] = info;
         }
-        if (sessionName == expandedSession)
+        if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }
 
@@ -948,7 +949,7 @@
         streamingBySession.Remove(sessionName);
         currentToolBySession.Remove(sessionName);
         toolActivitiesBySession[sessionName] = new();
-        if (sessionName == expandedSession)
+        if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }
 
@@ -956,7 +957,7 @@
     {
         intentBySession.Remove(sessionName);
         currentToolBySession.Remove(sessionName);
-        if (sessionName == expandedSession)
+        if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }
 

@@ -339,6 +339,7 @@
             foreach (var worker in FiestaWorkers)
                 _selectedWorkerIds.Add(worker.Id);
             var workDir = Session.WorkingDirectory;
+            var capturedSessionName = Session.Name;
             _ = Task.Run(() =>
             {
                 try
@@ -347,9 +348,13 @@
                     var agents = CopilotService.DiscoverAvailableAgents(workDir);
                     InvokeAsync(() =>
                     {
-                        availableSkills = skills;
-                        availableAgents = agents;
-                        StateHasChanged();
+                        // Only apply if we're still on the same session
+                        if (_lastSkillSessionName == capturedSessionName)
+                        {
+                            availableSkills = skills;
+                            availableAgents = agents;
+                            StateHasChanged();
+                        }
                     });
                 }
                 catch { /* Component may be disposed during discovery */ }
