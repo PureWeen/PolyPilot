@@ -1542,6 +1542,15 @@
 
         CopilotService.StartReflectionCycle(sessionName, goal, maxIterations);
         session.History.Add(ChatMessage.SystemMessage($"🔄 Reflection cycle started — **{goal}** (max {maxIterations} iterations)"));
+        if (session.IsProcessing)
+        {
+            CopilotService.EnqueueMessage(sessionName, goal);
+            session.History.Add(ChatMessage.SystemMessage("⏳ Current turn is still running — queued reflection goal to run next."));
+            return;
+        }
+
+        // Send the goal as the initial prompt to kick off the first iteration
+        _ = CopilotService.SendPromptAsync(sessionName, goal);
     }
 
     private void ToggleMcpServer(string name, bool enabled)

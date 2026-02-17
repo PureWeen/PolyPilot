@@ -200,6 +200,7 @@ public partial class CopilotService : IAsyncDisposable
         public bool HasReceivedDeltasThisTurn { get; set; }
         public bool HasReceivedEventsSinceResume { get; set; }
         public string? LastMessageId { get; set; }
+        public bool SkipReflectionEvaluationOnce { get; set; }
     }
 
     private void Debug(string message)
@@ -1600,7 +1601,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
 
         state.Info.ReflectionCycle = ReflectionCycle.Create(goal, maxIterations, evaluationPrompt);
-        Debug($"Reflection cycle started for '{sessionName}': goal='{goal}', maxIterations={maxIterations}");
+        state.SkipReflectionEvaluationOnce = state.Info.IsProcessing;
+        Debug($"Reflection cycle started for '{sessionName}': goal='{goal}', maxIterations={maxIterations}, deferFirstEvaluation={state.SkipReflectionEvaluationOnce}");
         OnStateChanged?.Invoke();
     }
 

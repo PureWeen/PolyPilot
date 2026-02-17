@@ -582,68 +582,76 @@ public partial class CopilotService
 
         // Reflection cycle: evaluate response and enqueue follow-up if goal not yet met
         var cycle = state.Info.ReflectionCycle;
-        if (cycle != null && cycle.IsActive && !string.IsNullOrEmpty(response))
+        if (cycle != null && cycle.IsActive)
         {
-            var shouldContinue = cycle.Advance(response);
-
-            if (cycle.ShouldWarnOnStall)
+            if (state.SkipReflectionEvaluationOnce)
             {
-                var pct = cycle.LastSimilarity;
-                var stallWarning = ChatMessage.SystemMessage($"⚠️ Potential stall — {pct:P0} similarity with previous response. If the next response is also repetitive, the cycle will stop.");
-                state.Info.History.Add(stallWarning);
-                state.Info.MessageCount = state.Info.History.Count;
-                if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, stallWarning);
+                state.SkipReflectionEvaluationOnce = false;
+                Debug($"Reflection cycle for '{state.Info.Name}' will begin after queued goal prompt.");
             }
-
-            if (shouldContinue)
+            else if (!string.IsNullOrEmpty(response))
             {
-                // Context usage warning during reflection
-                if (state.Info.ContextTokenLimit.HasValue && state.Info.ContextTokenLimit.Value > 0 
-                    && state.Info.ContextCurrentTokens.HasValue && state.Info.ContextCurrentTokens.Value > 0)
+                var shouldContinue = cycle.Advance(response);
+
+                if (cycle.ShouldWarnOnStall)
                 {
-                    var ctxPct = (double)state.Info.ContextCurrentTokens.Value / state.Info.ContextTokenLimit.Value;
-                    if (ctxPct > 0.9)
-                    {
-                        var ctxWarning = ChatMessage.SystemMessage($"🔴 Context {ctxPct:P0} full — reflection may lose earlier history. Consider `/reflect stop`.");
-                        state.Info.History.Add(ctxWarning);
-                        state.Info.MessageCount = state.Info.History.Count;
-                        if (!string.IsNullOrEmpty(state.Info.SessionId))
-                            _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
-                    }
-                    else if (ctxPct > 0.7)
-                    {
-                        var ctxWarning = ChatMessage.SystemMessage($"🟡 Context {ctxPct:P0} used — {cycle.MaxIterations - cycle.CurrentIteration} iterations remaining.");
-                        state.Info.History.Add(ctxWarning);
-                        state.Info.MessageCount = state.Info.History.Count;
-                        if (!string.IsNullOrEmpty(state.Info.SessionId))
-                            _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
-                    }
+                    var pct = cycle.LastSimilarity;
+                    var stallWarning = ChatMessage.SystemMessage($"⚠️ Potential stall — {pct:P0} similarity with previous response. If the next response is also repetitive, the cycle will stop.");
+                    state.Info.History.Add(stallWarning);
+                    state.Info.MessageCount = state.Info.History.Count;
+                    if (!string.IsNullOrEmpty(state.Info.SessionId))
+                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, stallWarning);
                 }
 
-                var followUp = cycle.BuildFollowUpPrompt(response);
-                Debug($"Reflection cycle iteration {cycle.CurrentIteration}/{cycle.MaxIterations} for '{state.Info.Name}'");
+                if (shouldContinue)
+                {
+                    // Context usage warning during reflection
+                    if (state.Info.ContextTokenLimit.HasValue && state.Info.ContextTokenLimit.Value > 0 
+                        && state.Info.ContextCurrentTokens.HasValue && state.Info.ContextCurrentTokens.Value > 0)
+                    {
+                        var ctxPct = (double)state.Info.ContextCurrentTokens.Value / state.Info.ContextTokenLimit.Value;
+                        if (ctxPct > 0.9)
+                        {
+                            var ctxWarning = ChatMessage.SystemMessage($"🔴 Context {ctxPct:P0} full — reflection may lose earlier history. Consider `/reflect stop`.");
+                            state.Info.History.Add(ctxWarning);
+                            state.Info.MessageCount = state.Info.History.Count;
+                            if (!string.IsNullOrEmpty(state.Info.SessionId))
+                                _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
+                        }
+                        else if (ctxPct > 0.7)
+                        {
+                            var ctxWarning = ChatMessage.SystemMessage($"🟡 Context {ctxPct:P0} used — {cycle.MaxIterations - cycle.CurrentIteration} iterations remaining.");
+                            state.Info.History.Add(ctxWarning);
+                            state.Info.MessageCount = state.Info.History.Count;
+                            if (!string.IsNullOrEmpty(state.Info.SessionId))
+                                _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
+                        }
+                    }
 
-                var reflectionMsg = ChatMessage.ReflectionMessage(cycle.BuildFollowUpStatus());
-                state.Info.History.Add(reflectionMsg);
-                state.Info.MessageCount = state.Info.History.Count;
-                if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, reflectionMsg);
+                    var followUp = cycle.BuildFollowUpPrompt(response);
+                    Debug($"Reflection cycle iteration {cycle.CurrentIteration}/{cycle.MaxIterations} for '{state.Info.Name}'");
 
-                // Keep queue FIFO so user steering messages queued during this turn run first.
-                state.Info.MessageQueue.Add(followUp);
-                OnStateChanged?.Invoke();
-            }
-            else
-            {
-                var reason = cycle.GoalMet ? "goal met" : cycle.IsStalled ? "stalled" : "max iterations reached";
-                Debug($"Reflection cycle ended for '{state.Info.Name}': {reason}");
-                var completionMsg = ChatMessage.SystemMessage(cycle.BuildCompletionSummary());
-                state.Info.History.Add(completionMsg);
-                state.Info.MessageCount = state.Info.History.Count;
-                if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, completionMsg);
-                OnStateChanged?.Invoke();
+                    var reflectionMsg = ChatMessage.ReflectionMessage(cycle.BuildFollowUpStatus());
+                    state.Info.History.Add(reflectionMsg);
+                    state.Info.MessageCount = state.Info.History.Count;
+                    if (!string.IsNullOrEmpty(state.Info.SessionId))
+                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, reflectionMsg);
+
+                    // Keep queue FIFO so user steering messages queued during this turn run first.
+                    state.Info.MessageQueue.Add(followUp);
+                    OnStateChanged?.Invoke();
+                }
+                else if (!cycle.IsActive)
+                {
+                    var reason = cycle.GoalMet ? "goal met" : cycle.IsStalled ? "stalled" : "max iterations reached";
+                    Debug($"Reflection cycle ended for '{state.Info.Name}': {reason}");
+                    var completionMsg = ChatMessage.SystemMessage(cycle.BuildCompletionSummary());
+                    state.Info.History.Add(completionMsg);
+                    state.Info.MessageCount = state.Info.History.Count;
+                    if (!string.IsNullOrEmpty(state.Info.SessionId))
+                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, completionMsg);
+                    OnStateChanged?.Invoke();
+                }
             }
         }
 
