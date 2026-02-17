@@ -29,8 +29,6 @@ else if (IsFlyoutPanel)
             <button class="flyout-close-btn" @onclick="ToggleFlyout">✕</button>
         </div>
 
-        @if (!PlatformHelper.IsMobile)
-        {
         <div class="new-session-wrapper">
             <CreateSessionForm @ref="createSessionFormRef" @bind-SessionName="newSessionName"
                                @bind-SelectedModel="selectedModel"
@@ -42,7 +40,6 @@ else if (IsFlyoutPanel)
         </div>
 
         <div class="sidebar-divider"></div>
-        }
         @RenderSortToolbar
         @RenderSessionList
     </div>
