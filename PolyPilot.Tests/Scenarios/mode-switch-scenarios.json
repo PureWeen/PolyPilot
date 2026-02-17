@@ -382,6 +382,68 @@
           "note": "Verify submit button exists"
         }
       ]
+    },
+    {
+      "id": "scroll-position-preserved-on-mode-switch",
+      "name": "Scroll position preserved when switching between expanded and collapsed mode",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/']",
+          "note": "Navigate to Dashboard"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-card').length > 0",
+          "expect": { "equals": "true" },
+          "note": "Verify at least one session exists in grid"
+        },
+        {
+          "action": "evaluate",
+          "script": "(function() { var card = document.querySelector('.session-card'); var msgs = card?.querySelector('.card-messages'); if (msgs && msgs.scrollHeight > msgs.clientHeight) { msgs.scrollTop = 100; return true; } return false; })()",
+          "note": "Scroll card messages to a specific position if scrollable"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.session-card .card-messages')?.scrollTop || 0",
+          "capture": "savedScrollPosition",
+          "note": "Capture scroll position before expand"
+        },
+        {
+          "action": "click",
+          "selector": ".session-card .expand-btn, .session-card",
+          "note": "Click to expand session"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.expanded-session-view') !== null || document.querySelector('.keep-alive-slot.active') !== null",
+          "expect": { "equals": "true" },
+          "note": "Verify expanded view is shown"
+        },
+        {
+          "action": "click",
+          "selector": ".collapse-card-btn, .collapse-btn",
+          "note": "Click collapse button to return to grid"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-card').length > 0",
+          "expect": { "equals": "true" },
+          "note": "Verify back in grid mode"
+        }
+      ]
     }
   ]
 }

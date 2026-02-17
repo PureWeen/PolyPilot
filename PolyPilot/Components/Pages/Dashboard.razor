@@ -247,6 +247,7 @@
     private bool mobileConnecting;
     private string? mobileConnectError;
     private bool _needsScrollToBottom;
+    private bool _needsScrollRestore; // true during mode switch to restore scroll positions instead of forcing bottom
     private volatile bool _sessionSwitching; // true during ExpandSession to skip redundant JS interop
     private bool _loadMoreObserverInitialized;
     private bool isCompactGrid;  // true = compact cards, false = spacious cards
@@ -634,9 +635,18 @@
 
         var forceScroll = _needsScrollToBottom;
         _needsScrollToBottom = false;
+        
+        var restoreScroll = _needsScrollRestore;
+        _needsScrollRestore = false;
 
         // Restore drafts, focus, and scroll position — fire-and-forget to avoid blocking render pipeline
         _ = JS.InvokeVoidAsync("restoreDraftsAndFocus", draftsJson, focusId, selStart, selEnd, forceScroll);
+        
+        // Restore saved scroll positions after mode switch
+        if (restoreScroll)
+        {
+            _ = JS.InvokeVoidAsync("restoreScrollPositions");
+        }
 
         // Set initial active slot on first render (MutationObserver will maintain it after user interactions)
         if (expandedSession != null)
@@ -1793,10 +1803,12 @@
 
     private async Task ExpandSession(string sessionName)
     {
+        // Save scroll positions before mode switch
+        await JS.InvokeVoidAsync("saveScrollPositions");
         // Fire-and-forget draft save — don't block the switch on JS interop
         _ = SaveDraftsAndCursor();
         expandedSession = sessionName;
-        _needsScrollToBottom = true;
+        _needsScrollRestore = true; // restore scroll position instead of forcing bottom
         _sessionSwitching = true; // tells RefreshState to skip redundant work
         // Suppress Blazor renders for 300ms to let browser paint the CSS toggle uninterrupted
         Interlocked.Exchange(ref _switchCooldownUntil, Environment.TickCount64 + 300);
@@ -1810,9 +1822,11 @@
 
     private async Task CollapseExpanded()
     {
+        // Save scroll positions before mode switch
+        await JS.InvokeVoidAsync("saveScrollPositions");
         await SaveDraftsAndCursor();
         expandedSession = null;
-        _needsScrollToBottom = true;
+        _needsScrollRestore = true; // restore scroll position instead of forcing bottom
         _lastActiveSession = null;
         _explicitlyCollapsed = true;
         CopilotService.SetActiveSession(null);
@@ -2049,8 +2063,11 @@
     [JSInvokable]
     public async Task JsExpandSession(string sessionName)
     {
+        // Save scroll positions before mode switch
+        await JS.InvokeVoidAsync("saveScrollPositions");
         await SaveDraftsAndCursor();
         expandedSession = sessionName;
+        _needsScrollRestore = true;
         CopilotService.SwitchSession(sessionName);
         var s = CopilotService.GetSession(sessionName);
         if (s != null) s.LastReadMessageCount = s.History.Count;
@@ -2060,8 +2077,11 @@
     [JSInvokable]
     public async Task JsCollapseToGrid()
     {
+        // Save scroll positions before mode switch
+        await JS.InvokeVoidAsync("saveScrollPositions");
         await SaveDraftsAndCursor();
         expandedSession = null;
+        _needsScrollRestore = true;
         _lastActiveSession = null;
         _explicitlyCollapsed = true;
         CopilotService.SetActiveSession(null);

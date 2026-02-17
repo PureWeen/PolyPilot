@@ -569,6 +569,67 @@
             window.addEventListener('scroll', updateDropdownPosition, true);
         };
 
+        // Scroll position preservation for mode switches
+        window.__savedScrollPositions = window.__savedScrollPositions || {};
+        
+        window.saveScrollPositions = function() {
+            var positions = {};
+            // Save expanded session scroll positions (keyed by slot ID)
+            document.querySelectorAll('.keep-alive-slot .messages').forEach(function(el) {
+                var slot = el.closest('.keep-alive-slot');
+                if (slot && slot.id) {
+                    positions[slot.id] = {
+                        scrollTop: el.scrollTop,
+                        scrollHeight: el.scrollHeight,
+                        wasAtBottom: el.__wasAtBottom
+                    };
+                }
+            });
+            // Save grid card scroll positions
+            document.querySelectorAll('.session-card .card-messages').forEach(function(el) {
+                var card = el.closest('.session-card');
+                var sessionName = card ? card.getAttribute('data-session') : null;
+                if (sessionName) {
+                    positions['card-' + sessionName] = {
+                        scrollTop: el.scrollTop,
+                        scrollHeight: el.scrollHeight
+                    };
+                }
+            });
+            window.__savedScrollPositions = positions;
+            return JSON.stringify(positions);
+        };
+        
+        window.restoreScrollPositions = function() {
+            var positions = window.__savedScrollPositions || {};
+            // Restore expanded session scroll positions
+            document.querySelectorAll('.keep-alive-slot .messages').forEach(function(el) {
+                var slot = el.closest('.keep-alive-slot');
+                if (slot && slot.id && positions[slot.id]) {
+                    var saved = positions[slot.id];
+                    // Calculate scroll position relative to bottom to handle content changes
+                    var distFromBottom = saved.scrollHeight - saved.scrollTop - el.clientHeight;
+                    if (distFromBottom < 300 || saved.wasAtBottom) {
+                        // Was near bottom, stay at bottom
+                        el.scrollTop = el.scrollHeight;
+                    } else {
+                        // Restore absolute position
+                        el.scrollTop = saved.scrollTop;
+                    }
+                    el.__wasAtBottom = saved.wasAtBottom;
+                }
+            });
+            // Restore grid card scroll positions
+            document.querySelectorAll('.session-card .card-messages').forEach(function(el) {
+                var card = el.closest('.session-card');
+                var sessionName = card ? card.getAttribute('data-session') : null;
+                if (sessionName && positions['card-' + sessionName]) {
+                    var saved = positions['card-' + sessionName];
+                    el.scrollTop = saved.scrollTop;
+                }
+            });
+        };
+
         window.switchKeepAliveSlot = function(activeSlotId, sessionName) {
             document.querySelectorAll('.keep-alive-slot').forEach(function(slot) {
                 if (slot.id === activeSlotId) {

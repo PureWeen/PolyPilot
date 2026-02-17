@@ -666,7 +666,15 @@ public class WsBridgeServer : IDisposable
             var clientId = id;
             _ = Task.Run(async () =>
             {
-                await sendLock.WaitAsync();
+                try
+                {
+                    await sendLock.WaitAsync();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Semaphore was disposed by another thread — client already cleaned up
+                    return;
+                }
                 try
                 {
                     if (ws.State == WebSocketState.Open)
@@ -680,7 +688,8 @@ public class WsBridgeServer : IDisposable
                 }
                 finally
                 {
-                    sendLock.Release();
+                    try { sendLock.Release(); }
+                    catch (ObjectDisposedException) { /* Semaphore disposed by concurrent cleanup */ }
                 }
             });
         }
