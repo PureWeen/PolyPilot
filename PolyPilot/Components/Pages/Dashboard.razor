@@ -1558,10 +1558,10 @@
             return;
         }
 
-        // Parse --max N from the goal text
+        // Parse --max N from the goal text (accept em-dash — which macOS auto-substitutes for --)
         int maxIterations = 5;
         var goal = arg;
-        var maxMatch = System.Text.RegularExpressions.Regex.Match(arg, @"--max\s+(\d+)");
+        var maxMatch = System.Text.RegularExpressions.Regex.Match(arg, @"(?:--|—|\u2014)max\s+(\d+)");
         if (maxMatch.Success)
         {
             if (int.TryParse(maxMatch.Groups[1].Value, out var parsed) && parsed > 0)
