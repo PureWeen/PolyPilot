@@ -196,7 +196,7 @@
                 <span class="skills-trigger" @onclick="ShowAgentsPopup">@availableAgents.Count agents</span>
             }
             <span class="status-sep">·</span>
-            <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync((Session.Name, e.Value?.ToString()))" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
+            <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
                 @if (!AvailableModels.Contains(CurrentModel))
                 {
                     <option value="@CurrentModel">@PrettifyModel(CurrentModel)</option>
@@ -341,14 +341,18 @@
             var workDir = Session.WorkingDirectory;
             _ = Task.Run(() =>
             {
-                var skills = CopilotService.DiscoverAvailableSkills(workDir);
-                var agents = CopilotService.DiscoverAvailableAgents(workDir);
-                InvokeAsync(() =>
+                try
                 {
-                    availableSkills = skills;
-                    availableAgents = agents;
-                    StateHasChanged();
-                });
+                    var skills = CopilotService.DiscoverAvailableSkills(workDir);
+                    var agents = CopilotService.DiscoverAvailableAgents(workDir);
+                    InvokeAsync(() =>
+                    {
+                        availableSkills = skills;
+                        availableAgents = agents;
+                        StateHasChanged();
+                    });
+                }
+                catch { /* Component may be disposed during discovery */ }
             });
         }
 

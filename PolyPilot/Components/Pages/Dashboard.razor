@@ -101,8 +101,8 @@
                                      OnClearQueue="ClearQueue"
                                      OnRemoveQueuedMessage="RemoveQueuedMessage"
                                      OnRemovePendingImage="RemovePendingImage"
-                                     OnSetInputMode="SetInputMode"
-                                     OnSetModel="SetExpandedModel"
+                                     OnSetInputMode="(mode) => SetInputMode(session.Name, mode)"
+                                     OnSetModel="(model) => SetExpandedModel(session, model)"
                                      OnFontSizeChange="HandleFontSizeChange"
                                      OnLoadMore="LoadMoreExpandedMessages"
                                      OnStartFiesta="StartFiestaForSession"
@@ -246,7 +246,7 @@
     private bool mobileConnecting;
     private string? mobileConnectError;
     private bool _needsScrollToBottom;
-    private bool _sessionSwitching; // true during ExpandSession to skip redundant JS interop
+    private volatile bool _sessionSwitching; // true during ExpandSession to skip redundant JS interop
     private bool _loadMoreObserverInitialized;
     private bool isCompactGrid;  // true = compact cards, false = spacious cards
     private bool toolbarMenuOpen;
@@ -663,7 +663,6 @@
     }
 
     private DateTime _lastRefresh = DateTime.MinValue;
-    private bool _refreshPending;
     private volatile bool _renderDirty;
     private Timer? _renderTimer;
     private DateTime _lastNonSwitchRefresh = DateTime.MinValue;
@@ -671,19 +670,22 @@
 
     private void ScheduleRender()
     {
+        if (_disposed) return;
         _renderDirty = true;
-        _renderTimer?.Change(50, Timeout.Infinite);
+        // Throttle: only reset timer if not already scheduled (avoid starving rapid updates)
+        try { _renderTimer?.Change(50, Timeout.Infinite); } catch (ObjectDisposedException) { }
     }
 
     private async Task SafeRefreshAsync()
     {
+        if (_disposed) return;
         // During switch cooldown, skip render to let browser paint the CSS toggle uninterrupted
-        if (Environment.TickCount64 < _switchCooldownUntil)
+        if (Environment.TickCount64 < Interlocked.Read(ref _switchCooldownUntil))
         {
             // Re-schedule to try again after cooldown expires
-            var remaining = (int)(_switchCooldownUntil - Environment.TickCount64);
+            var remaining = (int)(Interlocked.Read(ref _switchCooldownUntil) - Environment.TickCount64);
             if (remaining > 0)
-                _renderTimer?.Change(remaining + 10, Timeout.Infinite);
+                try { _renderTimer?.Change(remaining + 10, Timeout.Infinite); } catch (ObjectDisposedException) { }
             return;
         }
 
@@ -806,7 +808,10 @@
                 _sessionSwitching = false;
                 _needsScrollToBottom = true;
                 // CSS toggle already done by sidebar/ExpandSession — suppress renders during cooldown
-                _switchCooldownUntil = Math.Max(_switchCooldownUntil, Environment.TickCount64 + 300);
+                var newCooldown = Environment.TickCount64 + 300;
+                long current;
+                do { current = Interlocked.Read(ref _switchCooldownUntil); }
+                while (newCooldown > current && Interlocked.CompareExchange(ref _switchCooldownUntil, newCooldown, current) != current);
             }
             else
                 ScheduleRender();
@@ -1797,7 +1802,7 @@
         _needsScrollToBottom = true;
         _sessionSwitching = true; // tells RefreshState to skip redundant work
         // Suppress Blazor renders for 300ms to let browser paint the CSS toggle uninterrupted
-        _switchCooldownUntil = Environment.TickCount64 + 300;
+        Interlocked.Exchange(ref _switchCooldownUntil, Environment.TickCount64 + 300);
         // CSS visibility already toggled by JS capture-phase click handler
         CopilotService.SwitchSession(sessionName);
         var session = CopilotService.GetSession(sessionName);
@@ -2316,12 +2321,6 @@
     private Task StartFiestaForSession((string SessionName, FiestaStartRequest Request) args) => StartFiestaForSession(args.SessionName, args.Request);
     private void RemoveQueuedMessage((string SessionName, int Index) args) => RemoveQueuedMessage(args.SessionName, args.Index);
     private void RemovePendingImage((string SessionName, int Index) args) => RemovePendingImage(args.SessionName, args.Index);
-    private void SetPlanMode((string SessionName, bool Enabled) args) => SetPlanMode(args.SessionName, args.Enabled);
-    private async Task SetExpandedModel((string SessionName, string? Model) args)
-    {
-        var session = sessions.FirstOrDefault(s => s.Name == args.SessionName);
-        if (session != null) await SetExpandedModel(session, args.Model);
-    }
 
     public async ValueTask DisposeAsync()
     {
