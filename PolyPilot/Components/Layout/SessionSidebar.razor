@@ -1165,7 +1165,8 @@ Important conventions:
                 $"Write-Host \"📋 Prompt loaded from: {promptFile}\"\n" +
                 $"Write-Host \"─────────────────────────────────────────\"\n" +
                 $"Write-Host \"\"\n" +
-                $"copilot --yolo -i (Get-Content '{promptFile}' -Raw)\n");
+                $"$prompt = Get-Content '{promptFile}' -Raw\n" +
+                $"copilot --yolo -i \"$prompt\"\n");
 
             // Launch in a new Windows Terminal / cmd window
             var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe",
