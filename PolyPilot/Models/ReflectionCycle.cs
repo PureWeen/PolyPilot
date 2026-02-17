@@ -164,14 +164,20 @@ public partial class ReflectionCycle
     public string BuildEvaluatorPrompt(string workerResponse)
     {
         var truncated = workerResponse.Length > 4000 ? workerResponse[..4000] + "\n[... truncated]" : workerResponse;
-        return "You are a strict evaluator. Your ONLY job is to judge whether the worker's response fully achieves the stated goal.\n\n"
+        var iterationContext = CurrentIteration < MaxIterations - 1
+            ? $"This is iteration {CurrentIteration}/{MaxIterations}. There is room for improvement — be demanding."
+            : $"This is the final iteration ({CurrentIteration}/{MaxIterations}). Be more lenient — PASS if the core goal is met.";
+
+        return "You are a ruthlessly strict quality evaluator. Your job is to find flaws.\n\n"
              + $"## Goal\n{Goal}\n\n"
              + $"## Worker's Response (Iteration {CurrentIteration}/{MaxIterations})\n{truncated}\n\n"
              + "## Instructions\n"
-             + "Evaluate whether the goal is COMPLETELY and UNAMBIGUOUSLY achieved.\n"
-             + "- If YES: respond with exactly: PASS\n"
-             + "- If NO: respond with: FAIL: <brief specific feedback on what's missing or wrong>\n\n"
-             + "Be pragmatic — accept good-enough solutions. Only FAIL if there are clear gaps.\n"
+             + $"{iterationContext}\n\n"
+             + "Check EVERY requirement in the goal. For each one, verify it is fully met.\n"
+             + "If ANY requirement is missing, incomplete, or poorly executed: FAIL.\n"
+             + "Look for: missing requirements, weak execution, lack of specificity, logical errors.\n\n"
+             + "- If ALL requirements are genuinely and fully met: respond with exactly: PASS\n"
+             + "- If ANY requirement is not met: respond with: FAIL: <specific feedback listing what's wrong>\n\n"
              + "Respond with PASS or FAIL: on the FIRST LINE. No other format.";
     }
 
