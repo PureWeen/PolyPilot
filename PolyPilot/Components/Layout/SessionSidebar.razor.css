@@ -362,6 +362,82 @@
     margin-right: 0.15rem;
 }
 
+/* Sidebar multi-agent controls */
+.sidebar-ma-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.3rem 0.75rem 0.4rem;
+    background: rgba(59, 130, 246, 0.05);
+    border-bottom: 1px solid var(--control-border);
+}
+
+.sidebar-ma-mode-select {
+    width: 100%;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid var(--control-border);
+    border-radius: 5px;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    font-size: var(--type-caption1);
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a0b4cc' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.35rem center;
+}
+
+.sidebar-ma-mode-select option {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.sidebar-ma-input-bar {
+    display: flex;
+    gap: 0.25rem;
+    align-items: flex-end;
+}
+
+.sidebar-ma-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid var(--control-border);
+    border-radius: 5px;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    font-size: var(--type-caption1);
+    font-family: inherit;
+    resize: vertical;
+    max-height: 80px;
+    box-sizing: border-box;
+}
+
+.sidebar-ma-input::placeholder {
+    color: var(--text-dim);
+}
+
+.sidebar-ma-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.sidebar-ma-send-btn {
+    all: unset;
+    padding: 0.25rem 0.4rem;
+    border-radius: 5px;
+    background: var(--accent-primary);
+    color: #fff;
+    cursor: pointer;
+    font-size: var(--type-caption1);
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.sidebar-ma-send-btn:hover {
+    filter: brightness(1.15);
+}
+
 .group-worktree-btn {
     all: unset;
     font-size: var(--type-callout);
