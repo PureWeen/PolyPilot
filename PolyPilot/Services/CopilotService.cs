@@ -1136,7 +1136,7 @@ public partial class CopilotService : IAsyncDisposable
 
         if (!_sessions.TryAdd(displayName, state))
         {
-            await copilotSession.DisposeAsync();
+            try { await copilotSession.DisposeAsync(); } catch { }
             throw new InvalidOperationException($"Failed to add session '{displayName}'.");
         }
 
@@ -1264,7 +1264,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!_sessions.TryAdd(name, state))
         {
-            await copilotSession.DisposeAsync();
+            try { await copilotSession.DisposeAsync(); } catch { }
             throw new InvalidOperationException($"Failed to add session '{name}'.");
         }
 
@@ -1810,7 +1810,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (_client != null)
         {
-            await _client.DisposeAsync();
+            try { await _client.DisposeAsync(); } catch { }
         }
     }
 }
