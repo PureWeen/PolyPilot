@@ -257,4 +257,61 @@ public class SessionOrganizationTests
         Assert.Null(state.Groups[0].OrchestratorPrompt);
         Assert.Equal(MultiAgentRole.Worker, state.Sessions[0].Role);
     }
+
+    [Fact]
+    public void OrchestratorInvariant_PromotingNewOrchestrator_DemotesPrevious()
+    {
+        var state = new OrganizationState();
+        var group = new SessionGroup
+        {
+            Id = "ma-group-1",
+            Name = "Team",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.Orchestrator
+        };
+        state.Groups.Add(group);
+
+        var session1 = new SessionMeta { SessionName = "s1", GroupId = "ma-group-1", Role = MultiAgentRole.Orchestrator };
+        var session2 = new SessionMeta { SessionName = "s2", GroupId = "ma-group-1", Role = MultiAgentRole.Worker };
+        var session3 = new SessionMeta { SessionName = "s3", GroupId = "ma-group-1", Role = MultiAgentRole.Worker };
+        state.Sessions.Add(session1);
+        state.Sessions.Add(session2);
+        state.Sessions.Add(session3);
+
+        // Simulate the demotion logic from SetSessionRole
+        foreach (var other in state.Sessions.Where(m => m.GroupId == "ma-group-1" && m.SessionName != "s2" && m.Role == MultiAgentRole.Orchestrator))
+        {
+            other.Role = MultiAgentRole.Worker;
+        }
+        session2.Role = MultiAgentRole.Orchestrator;
+
+        Assert.Equal(MultiAgentRole.Worker, session1.Role);
+        Assert.Equal(MultiAgentRole.Orchestrator, session2.Role);
+        Assert.Equal(MultiAgentRole.Worker, session3.Role);
+        Assert.Single(state.Sessions, s => s.GroupId == "ma-group-1" && s.Role == MultiAgentRole.Orchestrator);
+    }
+
+    [Fact]
+    public void MultiAgentSetRolePayload_Serializes()
+    {
+        var payload = new MultiAgentSetRolePayload
+        {
+            SessionName = "worker-1",
+            Role = "Orchestrator"
+        };
+        var json = JsonSerializer.Serialize(payload, BridgeJson.Options);
+        Assert.Contains("worker-1", json);
+        Assert.Contains("Orchestrator", json);
+
+        var deserialized = JsonSerializer.Deserialize<MultiAgentSetRolePayload>(json, BridgeJson.Options);
+        Assert.NotNull(deserialized);
+        Assert.Equal("worker-1", deserialized!.SessionName);
+        Assert.Equal("Orchestrator", deserialized.Role);
+    }
+
+    [Fact]
+    public void MultiAgentSetRole_BridgeMessageType_Exists()
+    {
+        Assert.Equal("multi_agent_set_role", BridgeMessageTypes.MultiAgentSetRole);
+    }
 }

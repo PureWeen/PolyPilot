@@ -487,18 +487,27 @@ public class WsBridgeServer : IDisposable
 
                 case BridgeMessageTypes.MultiAgentBroadcast:
                     var maReq = msg.GetPayload<MultiAgentBroadcastPayload>();
-                    if (maReq != null && _copilotService != null)
+                    if (maReq != null && _copilot != null)
                     {
-                        _ = _copilotService.SendToMultiAgentGroupAsync(maReq.GroupId, maReq.Message, ct);
+                        _ = _copilot.SendToMultiAgentGroupAsync(maReq.GroupId, maReq.Message, ct);
                     }
                     break;
 
                 case BridgeMessageTypes.MultiAgentCreateGroup:
                     var maCreateReq = msg.GetPayload<MultiAgentCreateGroupPayload>();
-                    if (maCreateReq != null && _copilotService != null)
+                    if (maCreateReq != null && _copilot != null)
                     {
                         var mode = Enum.TryParse<MultiAgentMode>(maCreateReq.Mode, out var m) ? m : MultiAgentMode.Broadcast;
-                        _copilotService.CreateMultiAgentGroup(maCreateReq.Name, mode, maCreateReq.OrchestratorPrompt, maCreateReq.SessionNames);
+                        _copilot.CreateMultiAgentGroup(maCreateReq.Name, mode, maCreateReq.OrchestratorPrompt, maCreateReq.SessionNames);
+                    }
+                    break;
+
+                case BridgeMessageTypes.MultiAgentSetRole:
+                    var maRoleReq = msg.GetPayload<MultiAgentSetRolePayload>();
+                    if (maRoleReq != null && _copilot != null)
+                    {
+                        var role = Enum.TryParse<MultiAgentRole>(maRoleReq.Role, out var r) ? r : MultiAgentRole.Worker;
+                        _copilot.SetSessionRole(maRoleReq.SessionName, role);
                     }
                     break;
             }

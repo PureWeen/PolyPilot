@@ -83,6 +83,7 @@ public static class BridgeMessageTypes
     public const string ListDirectories = "list_directories";
     public const string MultiAgentBroadcast = "multi_agent_broadcast";
     public const string MultiAgentCreateGroup = "multi_agent_create_group";
+    public const string MultiAgentSetRole = "multi_agent_set_role";
 
     // Server → Client (response)
     public const string DirectoriesList = "directories_list";
@@ -308,4 +309,10 @@ public class MultiAgentProgressPayload
     public int CompletedSessions { get; set; }
     public int ProcessingSessions { get; set; }
     public List<string> CompletedSessionNames { get; set; } = new();
+}
+
+public class MultiAgentSetRolePayload
+{
+    public string SessionName { get; set; } = "";
+    public string Role { get; set; } = "Worker";
 }

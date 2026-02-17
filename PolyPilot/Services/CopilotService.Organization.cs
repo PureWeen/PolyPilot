@@ -370,16 +370,32 @@ public partial class CopilotService
 
     /// <summary>
     /// Set the role of a session within a multi-agent group.
+    /// When promoting to Orchestrator, any existing orchestrator in the same group is demoted to Worker.
     /// </summary>
     public void SetSessionRole(string sessionName, MultiAgentRole role)
     {
         var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
-        if (meta != null)
+        if (meta == null) return;
+
+        var oldRole = meta.Role;
+
+        // Enforce single orchestrator per group
+        if (role == MultiAgentRole.Orchestrator)
         {
-            meta.Role = role;
-            SaveOrganization();
-            OnStateChanged?.Invoke();
+            var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+            if (group is { IsMultiAgent: true })
+            {
+                foreach (var other in Organization.Sessions
+                    .Where(m => m.GroupId == meta.GroupId && m.SessionName != sessionName && m.Role == MultiAgentRole.Orchestrator))
+                {
+                    other.Role = MultiAgentRole.Worker;
+                }
+            }
         }
+
+        meta.Role = role;
+        SaveOrganization();
+        OnStateChanged?.Invoke();
     }
 
     /// <summary>
@@ -417,11 +433,11 @@ public partial class CopilotService
         switch (group.OrchestratorMode)
         {
             case MultiAgentMode.Broadcast:
-                await SendBroadcastAsync(members, prompt, cancellationToken);
+                await SendBroadcastAsync(group, members, prompt, cancellationToken);
                 break;
 
             case MultiAgentMode.Sequential:
-                await SendSequentialAsync(members, prompt, cancellationToken);
+                await SendSequentialAsync(group, members, prompt, cancellationToken);
                 break;
 
             case MultiAgentMode.Orchestrator:
@@ -430,20 +446,35 @@ public partial class CopilotService
         }
     }
 
-    private async Task SendBroadcastAsync(List<string> sessionNames, string prompt, CancellationToken cancellationToken)
+    /// <summary>
+    /// Build a multi-agent context prefix for a session in a group.
+    /// </summary>
+    private string BuildMultiAgentPrefix(string sessionName, SessionGroup group, List<string> allMembers)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        var role = meta?.Role ?? MultiAgentRole.Worker;
+        var roleName = role == MultiAgentRole.Orchestrator ? "orchestrator" : "worker";
+        var others = allMembers.Where(m => m != sessionName).ToList();
+        var othersList = others.Count > 0 ? string.Join(", ", others) : "none";
+        return $"[Multi-agent context: You are '{sessionName}' ({roleName}) in group '{group.Name}'. Other members: {othersList}.]\n\n";
+    }
+
+    private async Task SendBroadcastAsync(SessionGroup group, List<string> sessionNames, string prompt, CancellationToken cancellationToken)
     {
         var tasks = sessionNames.Select(name =>
         {
             var session = GetSession(name);
             if (session == null) return Task.CompletedTask;
 
+            var prefixedPrompt = BuildMultiAgentPrefix(name, group, sessionNames) + prompt;
+
             if (session.IsProcessing)
             {
-                EnqueueMessage(name, prompt);
+                EnqueueMessage(name, prefixedPrompt);
                 return Task.CompletedTask;
             }
 
-            return SendPromptAsync(name, prompt, cancellationToken: cancellationToken)
+            return SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken)
                 .ContinueWith(t =>
                 {
                     if (t.IsFaulted)
@@ -454,7 +485,7 @@ public partial class CopilotService
         await Task.WhenAll(tasks);
     }
 
-    private async Task SendSequentialAsync(List<string> sessionNames, string prompt, CancellationToken cancellationToken)
+    private async Task SendSequentialAsync(SessionGroup group, List<string> sessionNames, string prompt, CancellationToken cancellationToken)
     {
         foreach (var name in sessionNames)
         {
@@ -463,15 +494,17 @@ public partial class CopilotService
             var session = GetSession(name);
             if (session == null) continue;
 
+            var prefixedPrompt = BuildMultiAgentPrefix(name, group, sessionNames) + prompt;
+
             if (session.IsProcessing)
             {
-                EnqueueMessage(name, prompt);
+                EnqueueMessage(name, prefixedPrompt);
                 continue;
             }
 
             try
             {
-                await SendPromptAsync(name, prompt, cancellationToken: cancellationToken);
+                await SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken);
             }
             catch (Exception ex)
             {
@@ -482,16 +515,17 @@ public partial class CopilotService
 
     private async Task SendViaOrchestratorAsync(string groupId, List<string> members, string prompt, CancellationToken cancellationToken)
     {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         var orchestratorName = GetOrchestratorSession(groupId);
         if (orchestratorName == null)
         {
             // Fall back to broadcast if no orchestrator is designated
-            await SendBroadcastAsync(members, prompt, cancellationToken);
+            if (group != null)
+                await SendBroadcastAsync(group, members, prompt, cancellationToken);
             return;
         }
 
         var workerNames = members.Where(m => m != orchestratorName).ToList();
-        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
 
         // Build the orchestrator prompt with context about available workers
         var promptBuilder = new System.Text.StringBuilder();
