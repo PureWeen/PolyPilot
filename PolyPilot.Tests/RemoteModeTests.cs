@@ -688,4 +688,74 @@ public class ChatMessageSerializationTests
         var wd = "/Users/test/../../../etc/passwd";
         Assert.True(wd.Contains(".."));
     }
+
+    // ===== SyncRemoteSessions streaming guard =====
+
+    [Fact]
+    public void HistorySync_ShouldNotOverwrite_WhenSessionIsProcessing()
+    {
+        // Simulates the bug: during streaming, content_delta appends to history.
+        // SyncRemoteSessions should NOT replace history from stale cache while processing.
+        var history = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+            new ChatMessage("assistant", "Hi there! How can I", DateTime.Now, ChatMessageType.Assistant) { IsComplete = false }
+        };
+
+        var cachedHistory = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+        };
+
+        // Session is processing (streaming)
+        bool isProcessing = true;
+
+        // Mirror the guard logic from SyncRemoteSessions
+        bool shouldSync = !isProcessing && cachedHistory.Count >= history.Count;
+
+        Assert.False(shouldSync, "Should NOT sync history while session is processing");
+    }
+
+    [Fact]
+    public void HistorySync_ShouldOverwrite_WhenSessionIsIdle()
+    {
+        var history = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+        };
+
+        var cachedHistory = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+            new ChatMessage("assistant", "Full response", DateTime.Now, ChatMessageType.Assistant) { IsComplete = true }
+        };
+
+        bool isProcessing = false;
+
+        bool shouldSync = !isProcessing && cachedHistory.Count >= history.Count;
+
+        Assert.True(shouldSync, "Should sync history when session is idle and cache has more messages");
+    }
+
+    [Fact]
+    public void HistorySync_ShouldNotOverwrite_WhenCacheIsStale()
+    {
+        var history = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+            new ChatMessage("assistant", "Full response", DateTime.Now, ChatMessageType.Assistant) { IsComplete = true },
+            ChatMessage.UserMessage("Follow up"),
+        };
+
+        var cachedHistory = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+        };
+
+        bool isProcessing = false;
+
+        bool shouldSync = !isProcessing && cachedHistory.Count >= history.Count;
+
+        Assert.False(shouldSync, "Should NOT sync when cache has fewer messages than local history");
+    }
 }

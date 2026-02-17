@@ -226,11 +226,18 @@ public partial class CopilotService
 
         // Sync history from WsBridgeClient cache
         // Don't overwrite if local history has messages not yet reflected by server
+        // Skip sessions that are actively streaming — content_delta handlers update history
+        // incrementally; replacing it with the (stale) SessionHistories cache would cause duplicates.
         var sessionsNeedingHistory = new List<string>();
         foreach (var (name, messages) in _bridgeClient.SessionHistories)
         {
             if (_sessions.TryGetValue(name, out var s))
             {
+                // Skip history sync for sessions currently processing — the incremental
+                // content_delta/tool events are more up-to-date than the cached history
+                if (s.Info.IsProcessing)
+                    continue;
+
                 if (messages.Count >= s.Info.History.Count)
                 {
                     Debug($"SyncRemoteSessions: Syncing {messages.Count} messages for '{name}'");
