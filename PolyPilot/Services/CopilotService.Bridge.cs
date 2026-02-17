@@ -255,9 +255,11 @@ public partial class CopilotService
         foreach (var rs in remoteSessions)
         {
             if (rs.MessageCount > 0 && _sessions.TryGetValue(rs.Name, out var s) && s.Info.History.Count == 0
-                && !_bridgeClient.SessionHistories.ContainsKey(rs.Name))
+                && !_bridgeClient.SessionHistories.ContainsKey(rs.Name)
+                && !_requestedHistorySessions.ContainsKey(rs.Name))
             {
                 sessionsNeedingHistory.Add(rs.Name);
+                _requestedHistorySessions[rs.Name] = 0;
             }
         }
 

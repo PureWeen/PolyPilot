@@ -272,12 +272,14 @@ public class WsBridgeServer : IDisposable
                 BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot?.Organization ?? new OrganizationState()), ct);
             await SendPersistedToClient(clientId, ws, ct);
 
-            // Send active session history
+            // Send history for all active sessions so mobile has full state on connect
             if (_copilot != null)
             {
-                var active = _copilot.GetActiveSession();
-                if (active != null)
-                    await SendSessionHistoryToClient(clientId, ws, active.Name, ct);
+                foreach (var session in _copilot.GetAllSessions())
+                {
+                    if (session.History.Count > 0)
+                        await SendSessionHistoryToClient(clientId, ws, session.Name, ct);
+                }
             }
 
             // Read client commands (with fragmentation support)
