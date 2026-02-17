@@ -39,3 +39,9 @@ launchSettings.json
 
 ## .NET
 *.binlog
+
+## Screenshots & images (never commit these)
+screenshot_*.png
+*.screenshot.png
+*.bmp
+*.tiff
