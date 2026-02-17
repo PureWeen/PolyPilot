@@ -1,10 +1,15 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using PolyPilot.Models;
 
 namespace PolyPilot.Services;
 
+public enum OrchestratorPhase { Planning, Dispatching, WaitingForWorkers, Synthesizing, Complete }
+
 public partial class CopilotService
 {
+    public event Action<string, OrchestratorPhase, string?>? OnOrchestratorPhaseChanged; // groupId, phase, detail
+
     #region Session Organization (groups, pinning, sorting)
 
     public void LoadOrganization()
@@ -378,6 +383,19 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Convert an existing regular group into a multi-agent group.
+    /// </summary>
+    public void ConvertToMultiAgent(string groupId)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group == null || group.IsMultiAgent) return;
+        group.IsMultiAgent = true;
+        group.OrchestratorMode = MultiAgentMode.Broadcast;
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
     /// Set the orchestration mode for a multi-agent group.
     /// </summary>
     public void SetMultiAgentMode(string groupId, MultiAgentMode mode)
@@ -550,31 +568,160 @@ public partial class CopilotService
 
         var workerNames = members.Where(m => m != orchestratorName).ToList();
 
-        // Build the orchestrator prompt with context about available workers
-        var promptBuilder = new System.Text.StringBuilder();
-        promptBuilder.AppendLine($"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available: {string.Join(", ", workerNames.Select(w => $"'{w}'"))}.");
-        promptBuilder.AppendLine();
-        promptBuilder.AppendLine($"The user's request is:");
-        promptBuilder.AppendLine(prompt);
-        if (!string.IsNullOrEmpty(group?.OrchestratorPrompt))
-        {
-            promptBuilder.AppendLine();
-            promptBuilder.AppendLine($"Additional orchestration instructions: {group.OrchestratorPrompt}");
-        }
-        promptBuilder.AppendLine();
-        promptBuilder.AppendLine("Analyze the request and respond with your plan. The user will manually delegate specific tasks to the worker sessions based on your plan.");
-        var orchestratorPrompt = promptBuilder.ToString();
+        // Phase 1: Planning — ask orchestrator to analyze and assign tasks
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Planning, null));
 
-        var orchestratorSession = GetSession(orchestratorName);
-        if (orchestratorSession == null) return;
+        var planningPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group?.OrchestratorPrompt);
+        var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken);
+
+        // Phase 2: Parse task assignments from orchestrator response
+        var assignments = ParseTaskAssignments(planResponse, workerNames);
+        if (assignments.Count == 0)
+        {
+            // Orchestrator handled it without delegation — add a system note
+            AddOrchestratorSystemMessage(orchestratorName, "ℹ️ Orchestrator handled the request directly (no tasks delegated to workers).");
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
+            return;
+        }
+
+        // Phase 3: Dispatch tasks to workers in parallel
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Dispatching,
+            $"Sending tasks to {assignments.Count} worker(s)"));
+
+        var workerTasks = assignments.Select(a =>
+            ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
+        var results = await Task.WhenAll(workerTasks);
+
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, null));
+
+        // Phase 4: Synthesize — send worker results back to orchestrator
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
+
+        var synthesisPrompt = BuildSynthesisPrompt(prompt, results.ToList());
+        await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken);
+
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
+    }
+
+    private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available:");
+        foreach (var w in workerNames)
+            sb.AppendLine($"  - '{w}'");
+        sb.AppendLine();
+        sb.AppendLine("## User Request");
+        sb.AppendLine(userPrompt);
+        if (!string.IsNullOrEmpty(additionalInstructions))
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Additional Orchestration Instructions");
+            sb.AppendLine(additionalInstructions);
+        }
+        sb.AppendLine();
+        sb.AppendLine("## Your Task");
+        sb.AppendLine("Analyze the request and assign specific tasks to your workers. Use this exact format for each assignment:");
+        sb.AppendLine();
+        sb.AppendLine("@worker:worker-name");
+        sb.AppendLine("Detailed task description for this worker.");
+        sb.AppendLine("@end");
+        sb.AppendLine();
+        sb.AppendLine("You may include your analysis and reasoning as normal text. Only the @worker/@end blocks will be dispatched.");
+        sb.AppendLine("If you can handle the request entirely yourself, just respond normally without any @worker blocks.");
+        return sb.ToString();
+    }
+
+    internal record TaskAssignment(string WorkerName, string Task);
+
+    internal static List<TaskAssignment> ParseTaskAssignments(string orchestratorResponse, List<string> availableWorkers)
+    {
+        var assignments = new List<TaskAssignment>();
+        var pattern = @"@worker:(\S+)\s*([\s\S]*?)(?:@end|(?=@worker:)|$)";
+
+        foreach (Match match in Regex.Matches(orchestratorResponse, pattern, RegexOptions.IgnoreCase))
+        {
+            var workerName = match.Groups[1].Value.Trim();
+            var task = match.Groups[2].Value.Trim();
+            if (string.IsNullOrEmpty(task)) continue;
+
+            // Resolve worker name: exact match, then fuzzy
+            var resolved = availableWorkers.FirstOrDefault(w =>
+                w.Equals(workerName, StringComparison.OrdinalIgnoreCase));
+            if (resolved == null)
+            {
+                resolved = availableWorkers.FirstOrDefault(w =>
+                    w.Contains(workerName, StringComparison.OrdinalIgnoreCase) ||
+                    workerName.Contains(w, StringComparison.OrdinalIgnoreCase));
+            }
+            if (resolved != null)
+                assignments.Add(new TaskAssignment(resolved, task));
+        }
+        return assignments;
+    }
+
+    private record WorkerResult(string WorkerName, string? Response, bool Success, string? Error, TimeSpan Duration);
+
+    private async Task<WorkerResult> ExecuteWorkerAsync(string workerName, string task, string originalPrompt, CancellationToken cancellationToken)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var workerPrompt = $"You are a worker agent. Complete the following task thoroughly. Your response will be collected and synthesized with other workers' responses.\n\n## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
 
         try
         {
-            await SendPromptAsync(orchestratorName, orchestratorPrompt, cancellationToken: cancellationToken);
+            var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken);
+            return new WorkerResult(workerName, response, true, null, sw.Elapsed);
         }
         catch (Exception ex)
         {
-            Debug($"Orchestrator send failed: {ex.Message}");
+            return new WorkerResult(workerName, null, false, ex.Message, sw.Elapsed);
+        }
+    }
+
+    private async Task<string> SendPromptAndWaitAsync(string sessionName, string prompt, CancellationToken cancellationToken)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state))
+            throw new InvalidOperationException($"Session '{sessionName}' not found.");
+
+        await SendPromptAsync(sessionName, prompt, cancellationToken: cancellationToken);
+
+        // Wait for the response to complete via the existing ResponseCompletion TCS
+        if (state.ResponseCompletion != null)
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromMinutes(10));
+            return await state.ResponseCompletion.Task.WaitAsync(cts.Token);
+        }
+        return "";
+    }
+
+    private string BuildSynthesisPrompt(string originalPrompt, List<WorkerResult> results)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("## Worker Results");
+        sb.AppendLine();
+        foreach (var result in results)
+        {
+            sb.AppendLine($"### {result.WorkerName} ({(result.Success ? "✅ completed" : "❌ failed")}, {result.Duration.TotalSeconds:F1}s)");
+            if (result.Success)
+                sb.AppendLine(result.Response);
+            else
+                sb.AppendLine($"*Error: {result.Error}*");
+            sb.AppendLine();
+        }
+        sb.AppendLine("## Instructions");
+        sb.AppendLine($"Original request: {originalPrompt}");
+        sb.AppendLine();
+        sb.AppendLine("Synthesize these worker responses into a coherent final answer. Note any tasks that failed. Provide a unified response addressing the original request.");
+        return sb.ToString();
+    }
+
+    private void AddOrchestratorSystemMessage(string sessionName, string message)
+    {
+        var session = GetSession(sessionName);
+        if (session != null)
+        {
+            session.History.Add(ChatMessage.SystemMessage(message));
+            InvokeOnUI(() => OnStateChanged?.Invoke());
         }
     }
 

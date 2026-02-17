@@ -180,7 +180,7 @@ else
             @if (isAddingGroup)
             {
                 <input type="text" class="new-group-input" id="newGroupInput"
-                       placeholder="Group name..."
+                       placeholder="@(isAddingMultiAgentGroup ? "Multi-agent group name..." : "Group name...")"
                        @onblur="CommitNewGroup"
                        @onkeydown="HandleNewGroupKeyDown" />
             }
@@ -188,6 +188,7 @@ else
             {
                 <div class="toolbar-actions">
                     <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
+                    <button class="new-group-btn" @onclick="StartAddMultiAgentGroup" title="New multi-agent group">🤖 + Multi-Agent</button>
                     <button class="new-group-btn" @onclick="() => showAddRepo = true" title="Add repository">+ Repo</button>
                 </div>
             }
@@ -265,6 +266,10 @@ else
                             {
                                 <span class="group-repo-icon" title="Repository">⌥</span>
                             }
+                            @if (group.IsMultiAgent)
+                            {
+                                <span class="group-repo-icon" title="Multi-agent group">🤖</span>
+                            }
                             <span class="group-name">@group.Name</span>
                             <span class="group-count">@groupSessions.Count</span>
                             @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
@@ -308,6 +313,13 @@ else
                                                 }
                                                 else
                                                 {
+                                                    @if (!group.IsMultiAgent)
+                                                    {
+                                                        <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; CopilotService.ConvertToMultiAgent(gId); }">
+                                                            🤖 Convert to Multi-Agent
+                                                        </button>
+                                                        <div class="group-menu-separator"></div>
+                                                    }
                                                     <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
                                                         🗑 Delete Group
                                                     </button>
@@ -424,6 +436,7 @@ else
     private string? resumeError = null;
     private string currentPage = "/";
     private bool isAddingGroup = false;
+    private bool isAddingMultiAgentGroup = false;
     private string? openMenuSession = null;
     private string? openGroupMenuId = null;
     private CreateSessionForm? createSessionFormRef;
@@ -798,22 +811,34 @@ else
     private void StartAddGroup()
     {
         isAddingGroup = true;
+        isAddingMultiAgentGroup = false;
+    }
+
+    private void StartAddMultiAgentGroup()
+    {
+        isAddingGroup = true;
+        isAddingMultiAgentGroup = true;
     }
 
     private async Task CommitNewGroup()
     {
         var name = await JS.InvokeAsync<string>("getElementValue", "newGroupInput");
+        var wasMultiAgent = isAddingMultiAgentGroup;
         isAddingGroup = false;
+        isAddingMultiAgentGroup = false;
         if (!string.IsNullOrWhiteSpace(name))
         {
-            CopilotService.CreateGroup(name.Trim());
+            if (wasMultiAgent)
+                CopilotService.CreateMultiAgentGroup(name.Trim());
+            else
+                CopilotService.CreateGroup(name.Trim());
         }
     }
 
     private async Task HandleNewGroupKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await CommitNewGroup();
-        else if (e.Key == "Escape") isAddingGroup = false;
+        else if (e.Key == "Escape") { isAddingGroup = false; isAddingMultiAgentGroup = false; }
     }
 
     private void ToggleSessionMenu(string sessionName)

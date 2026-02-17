@@ -664,4 +664,80 @@ public class RepoGroupingTests
         Assert.Equal(groupA.Id, metaA.GroupId);
         Assert.Equal(groupB.Id, metaB.GroupId);
     }
+
+    [Fact]
+    public void ParseTaskAssignments_ExtractsWorkerTasks()
+    {
+        var response = @"Here's my plan:
+
+@worker:session-a
+Implement the login form with email and password fields.
+@end
+
+@worker:session-b
+Create the API endpoint for user authentication.
+@end
+
+That covers the full task.";
+
+        var workers = new List<string> { "session-a", "session-b" };
+        var assignments = CopilotService.ParseTaskAssignments(response, workers);
+
+        Assert.Equal(2, assignments.Count);
+        Assert.Equal("session-a", assignments[0].WorkerName);
+        Assert.Contains("login form", assignments[0].Task);
+        Assert.Equal("session-b", assignments[1].WorkerName);
+        Assert.Contains("API endpoint", assignments[1].Task);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_FuzzyMatchesWorkerNames()
+    {
+        var response = @"@worker:session
+Do the work.
+@end";
+
+        var workers = new List<string> { "session-alpha", "session-beta" };
+        var assignments = CopilotService.ParseTaskAssignments(response, workers);
+
+        Assert.Single(assignments);
+        Assert.Equal("session-alpha", assignments[0].WorkerName);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_ReturnsEmpty_WhenNoMarkers()
+    {
+        var response = "I'll handle this myself. No need to delegate to workers.";
+        var workers = new List<string> { "session-a", "session-b" };
+        var assignments = CopilotService.ParseTaskAssignments(response, workers);
+
+        Assert.Empty(assignments);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_IgnoresUnknownWorkers()
+    {
+        var response = @"@worker:unknown-worker
+Do something.
+@end";
+
+        var workers = new List<string> { "session-a", "session-b" };
+        var assignments = CopilotService.ParseTaskAssignments(response, workers);
+
+        Assert.Empty(assignments);
+    }
+
+    [Fact]
+    public void ConvertToMultiAgent_SetsIsMultiAgentTrue()
+    {
+        var svc = CreateService();
+        svc.CreateGroup("TestGroup");
+        var group = svc.Organization.Groups.First(g => g.Name == "TestGroup");
+        Assert.False(group.IsMultiAgent);
+
+        svc.ConvertToMultiAgent(group.Id);
+
+        Assert.True(group.IsMultiAgent);
+        Assert.Equal(MultiAgentMode.Broadcast, group.OrchestratorMode);
+    }
 }
