@@ -680,12 +680,16 @@ public partial class CopilotService
                     {
                         Debug($"Failed to send queued message: {t.Exception?.InnerException?.Message}");
                         // Re-queue on failure so it retries on next CompleteResponse
-                        state.Info.MessageQueue.Insert(0, nextPrompt);
-                        if (nextImagePaths != null)
+                        // Marshal to UI thread to avoid cross-thread List<T> mutation
+                        InvokeOnUI(() =>
                         {
-                            var images = _queuedImagePaths.GetOrAdd(state.Info.Name, _ => new List<List<string>>());
-                            images.Insert(0, nextImagePaths);
-                        }
+                            state.Info.MessageQueue.Insert(0, nextPrompt);
+                            if (nextImagePaths != null)
+                            {
+                                var images = _queuedImagePaths.GetOrAdd(state.Info.Name, _ => new List<List<string>>());
+                                images.Insert(0, nextImagePaths);
+                            }
+                        });
                     }
                 });
         }

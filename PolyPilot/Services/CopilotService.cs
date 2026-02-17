@@ -1617,6 +1617,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (state.Info.ReflectionCycle is { IsActive: true })
         {
             state.Info.ReflectionCycle.IsActive = false;
+            // Purge any queued reflection follow-up prompts to prevent zombie iterations
+            state.Info.MessageQueue.RemoveAll(p => ReflectionCycle.IsReflectionFollowUpPrompt(p));
             Debug($"Reflection cycle stopped for '{sessionName}'");
             OnStateChanged?.Invoke();
         }

@@ -1487,10 +1487,19 @@
             if (session.ReflectionCycle is { IsActive: true, IsPaused: true })
             {
                 session.ReflectionCycle.IsPaused = false;
+                session.ReflectionCycle.ResetStallDetection();
                 session.History.Add(ChatMessage.SystemMessage("▶️ Reflection resumed."));
                 // Re-queue a follow-up to continue the cycle
                 var followUp = session.ReflectionCycle.BuildFollowUpPrompt("");
-                session.MessageQueue.Add(followUp);
+                if (session.IsProcessing)
+                {
+                    session.MessageQueue.Add(followUp);
+                }
+                else
+                {
+                    // Dispatch immediately if session is idle
+                    _ = CopilotService.SendPromptAsync(sessionName, followUp);
+                }
             }
             else
             {
@@ -1530,7 +1539,8 @@
         var maxMatch = System.Text.RegularExpressions.Regex.Match(arg, @"--max\s+(\d+)");
         if (maxMatch.Success)
         {
-            maxIterations = int.Parse(maxMatch.Groups[1].Value);
+            if (int.TryParse(maxMatch.Groups[1].Value, out var parsed) && parsed > 0)
+                maxIterations = Math.Min(parsed, 100);
             goal = arg.Remove(maxMatch.Index, maxMatch.Length).Trim();
         }
 

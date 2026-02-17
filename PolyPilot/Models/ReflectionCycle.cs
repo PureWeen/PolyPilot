@@ -96,6 +96,18 @@ public partial class ReflectionCycle
     private string _lastResponse = "";
 
     /// <summary>
+    /// Resets stall detection state. Call when resuming from pause to avoid
+    /// false stall detection from pre-pause response history.
+    /// </summary>
+    public void ResetStallDetection()
+    {
+        _recentHashes.Clear();
+        _lastResponse = "";
+        ConsecutiveStalls = 0;
+        ShouldWarnOnStall = false;
+    }
+
+    /// <summary>
     /// Constructs the follow-up prompt to send when the cycle determines
     /// the goal has not yet been met after an iteration.
     /// </summary>
