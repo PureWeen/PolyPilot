@@ -1595,15 +1595,42 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     /// each response against the goal and automatically send follow-up prompts
     /// until the goal is met or max iterations are reached.
     /// </summary>
-    public void StartReflectionCycle(string sessionName, string goal, int maxIterations = 5, string? evaluationPrompt = null)
+    public async Task StartReflectionCycleAsync(string sessionName, string goal, int maxIterations = 5, string? evaluationPrompt = null)
     {
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
 
         state.Info.ReflectionCycle = ReflectionCycle.Create(goal, maxIterations, evaluationPrompt);
         state.SkipReflectionEvaluationOnce = state.Info.IsProcessing;
+
+        // Create a hidden evaluator session with a cheap model
+        var evaluatorName = $"__evaluator_{sessionName}_{DateTime.Now.Ticks}";
+        try
+        {
+            var evaluatorModel = "gpt-4.1"; // Fast, cheap model for evaluation
+            await CreateSessionAsync(evaluatorName, evaluatorModel);
+            state.Info.ReflectionCycle.EvaluatorSessionName = evaluatorName;
+            // Hide the evaluator session from the sidebar
+            if (_sessions.TryGetValue(evaluatorName, out var evalState))
+                evalState.Info.IsHidden = true;
+            Debug($"Evaluator session '{evaluatorName}' created for reflection cycle on '{sessionName}'");
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to create evaluator session: {ex.Message}. Falling back to self-evaluation.");
+            // Continue without evaluator — will use sentinel-based self-evaluation
+        }
+
         Debug($"Reflection cycle started for '{sessionName}': goal='{goal}', maxIterations={maxIterations}, deferFirstEvaluation={state.SkipReflectionEvaluationOnce}");
         OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Synchronous overload for backward compatibility (does not create evaluator session).
+    /// </summary>
+    public void StartReflectionCycle(string sessionName, string goal, int maxIterations = 5, string? evaluationPrompt = null)
+    {
+        _ = StartReflectionCycleAsync(sessionName, goal, maxIterations, evaluationPrompt);
     }
 
     /// <summary>
@@ -1616,10 +1643,22 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (state.Info.ReflectionCycle is { IsActive: true })
         {
+            var evaluatorName = state.Info.ReflectionCycle.EvaluatorSessionName;
             state.Info.ReflectionCycle.IsActive = false;
             // Purge any queued reflection follow-up prompts to prevent zombie iterations
             state.Info.MessageQueue.RemoveAll(p => ReflectionCycle.IsReflectionFollowUpPrompt(p));
             Debug($"Reflection cycle stopped for '{sessionName}'");
+
+            // Clean up evaluator session in background
+            if (!string.IsNullOrEmpty(evaluatorName))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try { await CloseSessionAsync(evaluatorName); }
+                    catch (Exception ex) { Debug($"Error closing evaluator session: {ex.Message}"); }
+                });
+            }
+
             OnStateChanged?.Invoke();
         }
     }
@@ -1751,7 +1790,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public IEnumerable<AgentSessionInfo> GetAllSessions() => _sessions.Values.Select(s => s.Info);
+    public IEnumerable<AgentSessionInfo> GetAllSessions() => _sessions.Values.Select(s => s.Info).Where(s => !s.IsHidden);
 
     public int SessionCount => _sessions.Count;
 

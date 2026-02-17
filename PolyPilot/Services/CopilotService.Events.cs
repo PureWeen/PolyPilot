@@ -591,66 +591,28 @@ public partial class CopilotService
             }
             else if (!string.IsNullOrEmpty(response))
             {
-                var shouldContinue = cycle.Advance(response);
-
-                if (cycle.ShouldWarnOnStall)
+                // Use evaluator session if available, otherwise fall back to self-evaluation
+                if (!string.IsNullOrEmpty(cycle.EvaluatorSessionName) && _sessions.ContainsKey(cycle.EvaluatorSessionName))
                 {
-                    var pct = cycle.LastSimilarity;
-                    var stallWarning = ChatMessage.SystemMessage($"⚠️ Potential stall — {pct:P0} similarity with previous response. If the next response is also repetitive, the cycle will stop.");
-                    state.Info.History.Add(stallWarning);
-                    state.Info.MessageCount = state.Info.History.Count;
-                    if (!string.IsNullOrEmpty(state.Info.SessionId))
-                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, stallWarning);
-                }
-
-                if (shouldContinue)
-                {
-                    // Context usage warning during reflection
-                    if (state.Info.ContextTokenLimit.HasValue && state.Info.ContextTokenLimit.Value > 0 
-                        && state.Info.ContextCurrentTokens.HasValue && state.Info.ContextCurrentTokens.Value > 0)
+                    // Async evaluator path — dispatch evaluation in background
+                    var sessionName = state.Info.Name;
+                    _ = Task.Run(async () =>
                     {
-                        var ctxPct = (double)state.Info.ContextCurrentTokens.Value / state.Info.ContextTokenLimit.Value;
-                        if (ctxPct > 0.9)
+                        try
                         {
-                            var ctxWarning = ChatMessage.SystemMessage($"🔴 Context {ctxPct:P0} full — reflection may lose earlier history. Consider `/reflect stop`.");
-                            state.Info.History.Add(ctxWarning);
-                            state.Info.MessageCount = state.Info.History.Count;
-                            if (!string.IsNullOrEmpty(state.Info.SessionId))
-                                _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
+                            await EvaluateAndAdvanceAsync(sessionName, response);
                         }
-                        else if (ctxPct > 0.7)
+                        catch (Exception ex)
                         {
-                            var ctxWarning = ChatMessage.SystemMessage($"🟡 Context {ctxPct:P0} used — {cycle.MaxIterations - cycle.CurrentIteration} iterations remaining.");
-                            state.Info.History.Add(ctxWarning);
-                            state.Info.MessageCount = state.Info.History.Count;
-                            if (!string.IsNullOrEmpty(state.Info.SessionId))
-                                _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
+                            Debug($"Evaluator failed for '{sessionName}': {ex.Message}. Falling back to self-evaluation.");
+                            _syncContext?.Post(_ => FallbackAdvance(sessionName, response), null);
                         }
-                    }
-
-                    var followUp = cycle.BuildFollowUpPrompt(response);
-                    Debug($"Reflection cycle iteration {cycle.CurrentIteration}/{cycle.MaxIterations} for '{state.Info.Name}'");
-
-                    var reflectionMsg = ChatMessage.ReflectionMessage(cycle.BuildFollowUpStatus());
-                    state.Info.History.Add(reflectionMsg);
-                    state.Info.MessageCount = state.Info.History.Count;
-                    if (!string.IsNullOrEmpty(state.Info.SessionId))
-                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, reflectionMsg);
-
-                    // Keep queue FIFO so user steering messages queued during this turn run first.
-                    state.Info.MessageQueue.Add(followUp);
-                    OnStateChanged?.Invoke();
+                    });
                 }
-                else if (!cycle.IsActive)
+                else
                 {
-                    var reason = cycle.GoalMet ? "goal met" : cycle.IsStalled ? "stalled" : "max iterations reached";
-                    Debug($"Reflection cycle ended for '{state.Info.Name}': {reason}");
-                    var completionMsg = ChatMessage.SystemMessage(cycle.BuildCompletionSummary());
-                    state.Info.History.Add(completionMsg);
-                    state.Info.MessageCount = state.Info.History.Count;
-                    if (!string.IsNullOrEmpty(state.Info.SessionId))
-                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, completionMsg);
-                    OnStateChanged?.Invoke();
+                    // Fallback: self-evaluation via sentinel detection
+                    FallbackAdvance(state.Info.Name, response);
                 }
             }
         }
@@ -673,25 +635,51 @@ public partial class CopilotService
 
             var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
                               ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt);
-            _ = SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory)
-                .ContinueWith(t =>
+
+            // Use Task.Run to dispatch on a clean stack frame, avoiding reentrancy
+            // issues where CompleteResponse hasn't fully unwound yet.
+            _ = Task.Run(async () =>
+            {
+                try
                 {
-                    if (t.IsFaulted)
+                    // Small delay to let the current turn fully complete
+                    await Task.Delay(100);
+                    if (_syncContext != null)
                     {
-                        Debug($"Failed to send queued message: {t.Exception?.InnerException?.Message}");
-                        // Re-queue on failure so it retries on next CompleteResponse
-                        // Marshal to UI thread to avoid cross-thread List<T> mutation
-                        InvokeOnUI(() =>
+                        var tcs = new TaskCompletionSource();
+                        _syncContext.Post(async _ =>
                         {
-                            state.Info.MessageQueue.Insert(0, nextPrompt);
-                            if (nextImagePaths != null)
+                            try
                             {
-                                var images = _queuedImagePaths.GetOrAdd(state.Info.Name, _ => new List<List<string>>());
-                                images.Insert(0, nextImagePaths);
+                                await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory);
+                                tcs.TrySetResult();
                             }
-                        });
+                            catch (Exception ex)
+                            {
+                                tcs.TrySetException(ex);
+                            }
+                        }, null);
+                        await tcs.Task;
                     }
-                });
+                    else
+                    {
+                        await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug($"Failed to send queued message: {ex.Message}");
+                    InvokeOnUI(() =>
+                    {
+                        state.Info.MessageQueue.Insert(0, nextPrompt);
+                        if (nextImagePaths != null)
+                        {
+                            var images = _queuedImagePaths.GetOrAdd(state.Info.Name, _ => new List<List<string>>());
+                            images.Insert(0, nextImagePaths);
+                        }
+                    });
+                }
+            });
         }
     }
 
@@ -718,5 +706,196 @@ public partial class CopilotService
             firstLine = firstLine[..117] + "…";
 
         return firstLine;
+    }
+
+    /// <summary>
+    /// Sends the worker's response to the evaluator session and advances the cycle based on the result.
+    /// Runs on a background thread; posts UI updates back to sync context.
+    /// </summary>
+    private async Task EvaluateAndAdvanceAsync(string workerSessionName, string workerResponse)
+    {
+        if (!_sessions.TryGetValue(workerSessionName, out var workerState))
+            return;
+
+        var cycle = workerState.Info.ReflectionCycle;
+        if (cycle == null || !cycle.IsActive || string.IsNullOrEmpty(cycle.EvaluatorSessionName))
+        {
+            _syncContext?.Post(_ => FallbackAdvance(workerSessionName, workerResponse), null);
+            return;
+        }
+
+        var evaluatorName = cycle.EvaluatorSessionName;
+        if (!_sessions.TryGetValue(evaluatorName, out var evalState))
+        {
+            Debug($"Evaluator session '{evaluatorName}' not found. Falling back to self-evaluation.");
+            _syncContext?.Post(_ => FallbackAdvance(workerSessionName, workerResponse), null);
+            return;
+        }
+
+        // Build evaluation prompt and send to evaluator with a timeout
+        var evalPrompt = cycle.BuildEvaluatorPrompt(workerResponse);
+        Debug($"Sending to evaluator '{evaluatorName}' for cycle on '{workerSessionName}' (iteration {cycle.CurrentIteration + 1})");
+
+        bool evaluatorPassed = false;
+        string? evaluatorFeedback = null;
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+            // Wait for evaluator to not be processing
+            while (evalState.Info.IsProcessing && !cts.Token.IsCancellationRequested)
+                await Task.Delay(200, cts.Token);
+
+            evalState.ResponseCompletion = new TaskCompletionSource<string>();
+            await SendPromptAsync(evaluatorName, evalPrompt, cancellationToken: cts.Token, skipHistoryMessage: true);
+
+            // Wait for the evaluator response
+            var evalResponse = await evalState.ResponseCompletion.Task.WaitAsync(cts.Token);
+
+            Debug($"Evaluator response for '{workerSessionName}': {(evalResponse.Length > 100 ? evalResponse[..100] + "..." : evalResponse)}");
+
+            var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse(evalResponse);
+            evaluatorPassed = pass;
+            evaluatorFeedback = feedback;
+        }
+        catch (OperationCanceledException)
+        {
+            Debug($"Evaluator timed out for '{workerSessionName}'. Falling back to self-evaluation.");
+            _syncContext?.Post(_ => FallbackAdvance(workerSessionName, workerResponse), null);
+            return;
+        }
+        catch (Exception ex)
+        {
+            Debug($"Evaluator error for '{workerSessionName}': {ex.Message}. Falling back to self-evaluation.");
+            _syncContext?.Post(_ => FallbackAdvance(workerSessionName, workerResponse), null);
+            return;
+        }
+
+        // Post the advance back to the UI thread
+        _syncContext?.Post(_ =>
+        {
+            if (!_sessions.TryGetValue(workerSessionName, out var state)) return;
+            var c = state.Info.ReflectionCycle;
+            if (c == null || !c.IsActive) return;
+
+            var shouldContinue = c.AdvanceWithEvaluation(workerResponse, evaluatorPassed, evaluatorFeedback);
+            HandleReflectionAdvanceResult(state, workerResponse, shouldContinue, evaluatorFeedback);
+        }, null);
+    }
+
+    /// <summary>
+    /// Fallback: advances the cycle using sentinel-based self-evaluation.
+    /// Must be called on the UI thread.
+    /// </summary>
+    private void FallbackAdvance(string sessionName, string response)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state)) return;
+        var cycle = state.Info.ReflectionCycle;
+        if (cycle == null || !cycle.IsActive) return;
+
+        var shouldContinue = cycle.Advance(response);
+        HandleReflectionAdvanceResult(state, response, shouldContinue, null);
+    }
+
+    /// <summary>
+    /// Common logic after cycle advance: handles stall warnings, context warnings,
+    /// follow-up enqueueing, and completion messages.
+    /// </summary>
+    private void HandleReflectionAdvanceResult(SessionState state, string response, bool shouldContinue, string? evaluatorFeedback)
+    {
+        var cycle = state.Info.ReflectionCycle!;
+
+        if (cycle.ShouldWarnOnStall)
+        {
+            var pct = cycle.LastSimilarity;
+            var stallWarning = ChatMessage.SystemMessage($"⚠️ Potential stall — {pct:P0} similarity with previous response. If the next response is also repetitive, the cycle will stop.");
+            state.Info.History.Add(stallWarning);
+            state.Info.MessageCount = state.Info.History.Count;
+            if (!string.IsNullOrEmpty(state.Info.SessionId))
+                _ = _chatDb.AddMessageAsync(state.Info.SessionId, stallWarning);
+        }
+
+        if (shouldContinue)
+        {
+            // Context usage warning during reflection
+            if (state.Info.ContextTokenLimit.HasValue && state.Info.ContextTokenLimit.Value > 0
+                && state.Info.ContextCurrentTokens.HasValue && state.Info.ContextCurrentTokens.Value > 0)
+            {
+                var ctxPct = (double)state.Info.ContextCurrentTokens.Value / state.Info.ContextTokenLimit.Value;
+                if (ctxPct > 0.9)
+                {
+                    var ctxWarning = ChatMessage.SystemMessage($"🔴 Context {ctxPct:P0} full — reflection may lose earlier history. Consider `/reflect stop`.");
+                    state.Info.History.Add(ctxWarning);
+                    state.Info.MessageCount = state.Info.History.Count;
+                    if (!string.IsNullOrEmpty(state.Info.SessionId))
+                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
+                }
+                else if (ctxPct > 0.7)
+                {
+                    var ctxWarning = ChatMessage.SystemMessage($"🟡 Context {ctxPct:P0} used — {cycle.MaxIterations - cycle.CurrentIteration} iterations remaining.");
+                    state.Info.History.Add(ctxWarning);
+                    state.Info.MessageCount = state.Info.History.Count;
+                    if (!string.IsNullOrEmpty(state.Info.SessionId))
+                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
+                }
+            }
+
+            // Use evaluator feedback to build the follow-up prompt (or fall back to self-eval prompt)
+            string followUp;
+            if (!string.IsNullOrEmpty(evaluatorFeedback))
+            {
+                followUp = cycle.BuildFollowUpFromEvaluator(evaluatorFeedback);
+                Debug($"Reflection cycle iteration {cycle.CurrentIteration}/{cycle.MaxIterations} for '{state.Info.Name}' — evaluator feedback: {evaluatorFeedback}");
+            }
+            else
+            {
+                followUp = cycle.BuildFollowUpPrompt(response);
+                Debug($"Reflection cycle iteration {cycle.CurrentIteration}/{cycle.MaxIterations} for '{state.Info.Name}' (self-eval fallback)");
+            }
+
+            var reflectionMsg = ChatMessage.ReflectionMessage(cycle.BuildFollowUpStatus());
+            state.Info.History.Add(reflectionMsg);
+            state.Info.MessageCount = state.Info.History.Count;
+            if (!string.IsNullOrEmpty(state.Info.SessionId))
+                _ = _chatDb.AddMessageAsync(state.Info.SessionId, reflectionMsg);
+
+            // Show evaluator feedback in chat if available
+            if (!string.IsNullOrEmpty(evaluatorFeedback))
+            {
+                var feedbackMsg = ChatMessage.SystemMessage($"🔍 Evaluator: {evaluatorFeedback}");
+                state.Info.History.Add(feedbackMsg);
+                state.Info.MessageCount = state.Info.History.Count;
+                if (!string.IsNullOrEmpty(state.Info.SessionId))
+                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, feedbackMsg);
+            }
+
+            // Keep queue FIFO so user steering messages queued during this turn run first.
+            state.Info.MessageQueue.Add(followUp);
+            OnStateChanged?.Invoke();
+        }
+        else if (!cycle.IsActive)
+        {
+            var reason = cycle.GoalMet ? "goal met" : cycle.IsStalled ? "stalled" : "max iterations reached";
+            Debug($"Reflection cycle ended for '{state.Info.Name}': {reason}");
+            var completionMsg = ChatMessage.SystemMessage(cycle.BuildCompletionSummary());
+            state.Info.History.Add(completionMsg);
+            state.Info.MessageCount = state.Info.History.Count;
+            if (!string.IsNullOrEmpty(state.Info.SessionId))
+                _ = _chatDb.AddMessageAsync(state.Info.SessionId, completionMsg);
+
+            // Clean up evaluator session
+            if (!string.IsNullOrEmpty(cycle.EvaluatorSessionName))
+            {
+                var evalName = cycle.EvaluatorSessionName;
+                _ = Task.Run(async () =>
+                {
+                    try { await CloseSessionAsync(evalName); }
+                    catch (Exception ex) { Debug($"Error closing evaluator session: {ex.Message}"); }
+                });
+            }
+
+            OnStateChanged?.Invoke();
+        }
     }
 }

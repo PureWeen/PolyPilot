@@ -91,6 +91,16 @@ public partial class ReflectionCycle
     /// </summary>
     public bool IsPaused { get; set; }
 
+    /// <summary>
+    /// Name of the hidden evaluator session used for independent goal evaluation.
+    /// </summary>
+    public string? EvaluatorSessionName { get; set; }
+
+    /// <summary>
+    /// The latest feedback from the evaluator (shown in reflection status UI).
+    /// </summary>
+    public string? EvaluatorFeedback { get; set; }
+
     // Stall detection state (not serialized)
     private readonly List<int> _recentHashes = new();
     private string _lastResponse = "";
@@ -145,6 +155,66 @@ public partial class ReflectionCycle
     {
         return !string.IsNullOrWhiteSpace(prompt) &&
                prompt.StartsWith(FollowUpHeaderPrefix, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Builds the prompt sent to the independent evaluator session.
+    /// The evaluator sees only the goal and the latest worker response (fresh context).
+    /// </summary>
+    public string BuildEvaluatorPrompt(string workerResponse)
+    {
+        var truncated = workerResponse.Length > 4000 ? workerResponse[..4000] + "\n[... truncated]" : workerResponse;
+        return "You are a strict evaluator. Your ONLY job is to judge whether the worker's response fully achieves the stated goal.\n\n"
+             + $"## Goal\n{Goal}\n\n"
+             + $"## Worker's Response (Iteration {CurrentIteration}/{MaxIterations})\n{truncated}\n\n"
+             + "## Instructions\n"
+             + "Evaluate whether the goal is COMPLETELY and UNAMBIGUOUSLY achieved.\n"
+             + "- If YES: respond with exactly: PASS\n"
+             + "- If NO: respond with: FAIL: <brief specific feedback on what's missing or wrong>\n\n"
+             + "Be pragmatic — accept good-enough solutions. Only FAIL if there are clear gaps.\n"
+             + "Respond with PASS or FAIL: on the FIRST LINE. No other format.";
+    }
+
+    /// <summary>
+    /// Parses the evaluator's response. Returns (pass, feedback).
+    /// </summary>
+    public static (bool Pass, string? Feedback) ParseEvaluatorResponse(string response)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+            return (false, "Evaluator returned empty response");
+
+        var firstLine = response.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim() ?? "";
+
+        if (firstLine.StartsWith("PASS", StringComparison.OrdinalIgnoreCase))
+            return (true, null);
+
+        if (firstLine.StartsWith("FAIL:", StringComparison.OrdinalIgnoreCase))
+        {
+            var feedback = firstLine["FAIL:".Length..].Trim();
+            if (string.IsNullOrEmpty(feedback) && response.Split('\n').Length > 1)
+                feedback = string.Join(" ", response.Split('\n').Skip(1)).Trim();
+            return (false, string.IsNullOrEmpty(feedback) ? "No specific feedback provided" : feedback);
+        }
+
+        // Fallback: check if response contains PASS/FAIL anywhere
+        if (response.Contains("PASS", StringComparison.OrdinalIgnoreCase) &&
+            !response.Contains("FAIL", StringComparison.OrdinalIgnoreCase))
+            return (true, null);
+
+        return (false, firstLine.Length > 200 ? firstLine[..200] : firstLine);
+    }
+
+    /// <summary>
+    /// Builds the follow-up prompt for the worker using evaluator feedback.
+    /// </summary>
+    public string BuildFollowUpFromEvaluator(string feedback)
+    {
+        return $"{FollowUpHeaderPrefix}{CurrentIteration + 1}/{MaxIterations}]\n\n"
+             + $"An independent evaluator reviewed your work against the goal:\n"
+             + $"**Goal:** {Goal}\n\n"
+             + $"**Evaluator feedback:** {feedback}\n\n"
+             + "Address the feedback above and continue working toward the goal.\n\n"
+             + $"When the goal is fully achieved, emit: {CompletionSentinel}";
     }
 
     /// <summary>
@@ -225,6 +295,56 @@ public partial class ReflectionCycle
             return false;
         }
 
+        if (CheckStall(response))
+        {
+            ConsecutiveStalls++;
+            if (ConsecutiveStalls == 1)
+                ShouldWarnOnStall = true;
+            if (ConsecutiveStalls >= 2)
+            {
+                IsStalled = true;
+                IsActive = false;
+                CompletedAt = DateTime.Now;
+                return false;
+            }
+        }
+        else
+        {
+            ConsecutiveStalls = 0;
+        }
+
+        if (CurrentIteration >= MaxIterations)
+        {
+            IsActive = false;
+            CompletedAt = DateTime.Now;
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Advances the cycle using an independent evaluator's judgment instead of self-evaluation.
+    /// The evaluator's pass/fail overrides sentinel detection. Stall detection still runs as a safety net.
+    /// </summary>
+    public bool AdvanceWithEvaluation(string response, bool evaluatorPassed, string? evaluatorFeedback)
+    {
+        if (!IsActive) return false;
+        if (IsPaused) return false;
+        ShouldWarnOnStall = false;
+
+        CurrentIteration++;
+        EvaluatorFeedback = evaluatorFeedback;
+
+        if (evaluatorPassed)
+        {
+            GoalMet = true;
+            IsActive = false;
+            CompletedAt = DateTime.Now;
+            return false;
+        }
+
+        // Stall detection still runs as safety net even with evaluator
         if (CheckStall(response))
         {
             ConsecutiveStalls++;

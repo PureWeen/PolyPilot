@@ -1321,7 +1321,7 @@
                 break;
 
             case "reflect":
-                HandleReflectCommand(session, sessionName, arg);
+                await HandleReflectCommand(session, sessionName, arg);
                 break;
 
             default:
@@ -1456,7 +1456,7 @@
         }
     }
 
-    private void HandleReflectCommand(AgentSessionInfo session, string sessionName, string arg)
+    private async Task HandleReflectCommand(AgentSessionInfo session, string sessionName, string arg)
     {
         var subParts = arg.Split(' ', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         var sub = subParts.Length > 0 ? subParts[0].ToLowerInvariant() : "";
@@ -1550,7 +1550,7 @@
             return;
         }
 
-        CopilotService.StartReflectionCycle(sessionName, goal, maxIterations);
+        await CopilotService.StartReflectionCycleAsync(sessionName, goal, maxIterations);
         session.History.Add(ChatMessage.SystemMessage($"🔄 Reflection cycle started — **{goal}** (max {maxIterations} iterations)"));
         if (session.IsProcessing)
         {

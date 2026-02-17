@@ -527,4 +527,193 @@ public class AgentSessionInfoReflectionCycleTests
 
         Assert.Null(session.ReflectionCycle);
     }
+
+    // --- Evaluator-Based Reflection Tests ---
+
+    [Fact]
+    public void ParseEvaluatorResponse_Pass()
+    {
+        var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse("PASS");
+        Assert.True(pass);
+        Assert.Null(feedback);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_PassWithExtraText()
+    {
+        var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse("PASS\nGreat work!");
+        Assert.True(pass);
+        Assert.Null(feedback);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_PassCaseInsensitive()
+    {
+        var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse("pass");
+        Assert.True(pass);
+        Assert.Null(feedback);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_FailWithFeedback()
+    {
+        var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse("FAIL: Missing error handling");
+        Assert.False(pass);
+        Assert.Equal("Missing error handling", feedback);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_FailFeedbackOnNextLine()
+    {
+        var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse("FAIL:\nThe code doesn't handle edge cases");
+        Assert.False(pass);
+        Assert.Equal("The code doesn't handle edge cases", feedback);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_FailCaseInsensitive()
+    {
+        var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse("fail: needs more tests");
+        Assert.False(pass);
+        Assert.Equal("needs more tests", feedback);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_EmptyReturnsFailure()
+    {
+        var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse("");
+        Assert.False(pass);
+        Assert.Equal("Evaluator returned empty response", feedback);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_GarbageReturnsFeedback()
+    {
+        var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse("I think this looks good but...");
+        Assert.False(pass);
+        Assert.NotNull(feedback);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_ContainsPassButNotFail()
+    {
+        var (pass, _) = ReflectionCycle.ParseEvaluatorResponse("The result would PASS all criteria.");
+        Assert.True(pass);
+    }
+
+    [Fact]
+    public void BuildEvaluatorPrompt_ContainsGoalAndResponse()
+    {
+        var cycle = ReflectionCycle.Create("Fix the bug", maxIterations: 5);
+        cycle.Advance("First attempt"); // iteration 1
+
+        var prompt = cycle.BuildEvaluatorPrompt("Here is my fix");
+
+        Assert.Contains("Fix the bug", prompt);
+        Assert.Contains("Here is my fix", prompt);
+        Assert.Contains("PASS", prompt);
+        Assert.Contains("FAIL:", prompt);
+    }
+
+    [Fact]
+    public void BuildEvaluatorPrompt_TruncatesLongResponses()
+    {
+        var cycle = ReflectionCycle.Create("Goal");
+        var longResponse = new string('x', 5000);
+
+        var prompt = cycle.BuildEvaluatorPrompt(longResponse);
+
+        Assert.Contains("[... truncated]", prompt);
+        Assert.True(prompt.Length < 5500);
+    }
+
+    [Fact]
+    public void BuildFollowUpFromEvaluator_ContainsFeedback()
+    {
+        var cycle = ReflectionCycle.Create("Fix the bug", maxIterations: 5);
+
+        var followUp = cycle.BuildFollowUpFromEvaluator("Missing error handling for null inputs");
+
+        Assert.Contains("Missing error handling for null inputs", followUp);
+        Assert.Contains("Fix the bug", followUp);
+        Assert.Contains("independent evaluator", followUp);
+    }
+
+    [Fact]
+    public void AdvanceWithEvaluation_PassEndseCycle()
+    {
+        var cycle = ReflectionCycle.Create("Fix the bug");
+
+        var shouldContinue = cycle.AdvanceWithEvaluation("response", evaluatorPassed: true, "Looks good");
+
+        Assert.False(shouldContinue);
+        Assert.True(cycle.GoalMet);
+        Assert.False(cycle.IsActive);
+    }
+
+    [Fact]
+    public void AdvanceWithEvaluation_FailContinuesCycle()
+    {
+        var cycle = ReflectionCycle.Create("Fix the bug", maxIterations: 5);
+
+        var shouldContinue = cycle.AdvanceWithEvaluation("response", evaluatorPassed: false, "Needs work");
+
+        Assert.True(shouldContinue);
+        Assert.Equal(1, cycle.CurrentIteration);
+        Assert.Equal("Needs work", cycle.EvaluatorFeedback);
+    }
+
+    [Fact]
+    public void AdvanceWithEvaluation_RespectsMaxIterations()
+    {
+        var cycle = ReflectionCycle.Create("Fix the bug", maxIterations: 2);
+        cycle.AdvanceWithEvaluation("resp1", false, "feedback1");
+        var shouldContinue = cycle.AdvanceWithEvaluation("resp2", false, "feedback2");
+
+        Assert.False(shouldContinue);
+        Assert.False(cycle.IsActive);
+        Assert.False(cycle.GoalMet);
+    }
+
+    [Fact]
+    public void AdvanceWithEvaluation_StillDetectsStalls()
+    {
+        var cycle = ReflectionCycle.Create("Fix the bug", maxIterations: 10);
+        // Send same response twice — stall detection should fire
+        cycle.AdvanceWithEvaluation("identical response here", false, "try again");
+        Assert.False(cycle.ShouldWarnOnStall);
+
+        cycle.AdvanceWithEvaluation("identical response here", false, "try again");
+        Assert.True(cycle.ShouldWarnOnStall);
+
+        // Third identical — should stall out
+        var shouldContinue = cycle.AdvanceWithEvaluation("identical response here", false, "try again");
+        Assert.False(shouldContinue);
+        Assert.True(cycle.IsStalled);
+    }
+
+    [Fact]
+    public void EvaluatorSessionName_DefaultsToNull()
+    {
+        var cycle = ReflectionCycle.Create("Goal");
+        Assert.Null(cycle.EvaluatorSessionName);
+    }
+
+    [Fact]
+    public void EvaluatorFeedback_TracksLatest()
+    {
+        var cycle = ReflectionCycle.Create("Goal", maxIterations: 5);
+        cycle.AdvanceWithEvaluation("resp1", false, "first feedback");
+        Assert.Equal("first feedback", cycle.EvaluatorFeedback);
+
+        cycle.AdvanceWithEvaluation("resp2", false, "second feedback");
+        Assert.Equal("second feedback", cycle.EvaluatorFeedback);
+    }
+
+    [Fact]
+    public void IsHidden_DefaultsFalse()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        Assert.False(session.IsHidden);
+    }
 }
