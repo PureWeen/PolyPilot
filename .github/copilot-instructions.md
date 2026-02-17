@@ -7,7 +7,7 @@
 ./relaunch.sh              # Build + seamless hot-relaunch (ALWAYS use this after code changes)
 dotnet build -f net10.0-maccatalyst   # Build only
 ```
-`relaunch.sh` builds, copies to staging, launches the new instance, waits for it to be ready, then kills the old one. Safe to run from a Copilot session inside the app itself.
+`relaunch.sh` builds, copies to staging, kills the old instance (freeing ports like MauiDevFlow 9223), then launches the new one. Safe to run from a Copilot session inside the app itself.
 
 ### Tests
 ```bash

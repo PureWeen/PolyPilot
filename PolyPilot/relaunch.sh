@@ -1,6 +1,6 @@
 #!/bin/bash
-# Builds PolyPilot, launches a new instance, waits for it to be ready,
-# then kills the old instance(s) for a seamless handoff.
+# Builds PolyPilot, kills the old instance (freeing ports like MauiDevFlow 9223),
+# then launches a new instance.
 # 
 # IMPORTANT: ONLY launches if build succeeds. If build fails:
 #   - Shows clear error messages with line numbers and error codes
@@ -8,8 +8,8 @@
 #   - Exits with code 1
 #   - Old app instance remains running
 #
-# This prevents the common issue where build errors go unnoticed and agents
-# keep testing against stale code.
+# Kill-first ensures the new instance binds the same MauiDevFlow agent port,
+# so `maui-devflow` auto-discovery continues to work across relaunches.
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$PROJECT_DIR/bin/Debug/net10.0-maccatalyst/maccatalyst-arm64"
@@ -19,7 +19,7 @@ STAGING_DIR="$PROJECT_DIR/bin/staging"
 MAX_LAUNCH_ATTEMPTS=2
 STABILITY_SECONDS=8
 
-# Capture PIDs of currently running instances BEFORE launch
+# Capture PIDs of currently running instances BEFORE build
 OLD_PIDS=$(ps -eo pid,comm | grep "PolyPilot" | grep -v grep | grep -v "PolyPilot.csproj" | awk '{print $1}' | tr '\n' ' ')
 
 echo "🔨 Building..."
@@ -48,6 +48,17 @@ rm -rf "$STAGING_DIR/$APP_NAME"
 mkdir -p "$STAGING_DIR"
 ditto "$BUILD_DIR/$APP_NAME" "$STAGING_DIR/$APP_NAME"
 
+# Kill old instance(s) first so ports (e.g. MauiDevFlow 9223) are freed
+if [ -n "$OLD_PIDS" ]; then
+    echo "🔪 Closing old instance(s)..."
+    for OLD_PID in $OLD_PIDS; do
+        echo "   Killing PID $OLD_PID"
+        kill "$OLD_PID" 2>/dev/null || true
+    done
+    # Brief pause to let ports release
+    sleep 1
+fi
+
 for ATTEMPT in $(seq 1 "$MAX_LAUNCH_ATTEMPTS"); do
     echo "🚀 Launching new instance (attempt $ATTEMPT/$MAX_LAUNCH_ATTEMPTS)..."
     mkdir -p ~/.polypilot
@@ -55,12 +66,11 @@ for ATTEMPT in $(seq 1 "$MAX_LAUNCH_ATTEMPTS"); do
     NEW_PID=$!
 
     if [ -z "$NEW_PID" ]; then
-        echo "⚠️  Timed out waiting for new instance to appear."
+        echo "⚠️  Failed to launch new instance."
         if [ "$ATTEMPT" -lt "$MAX_LAUNCH_ATTEMPTS" ]; then
             echo "🔁 Retrying launch..."
             continue
         fi
-        echo "Old instance left running."
         exit 1
     fi
 
@@ -69,28 +79,14 @@ for ATTEMPT in $(seq 1 "$MAX_LAUNCH_ATTEMPTS"); do
     STABLE=true
     for i in $(seq 1 "$STABILITY_SECONDS"); do
         sleep 1
-        ACTIVE_NEW_PID=$(ps -eo pid,comm | grep "PolyPilot" | grep -v grep | grep -v "PolyPilot.csproj" | awk '{print $1}' | while read -r PID; do
-            if ! echo "$OLD_PIDS" | grep -qw "$PID"; then
-                echo "$PID"
-                break
-            fi
-        done)
-        if [ -z "$ACTIVE_NEW_PID" ]; then
+        if ! kill -0 "$NEW_PID" 2>/dev/null; then
             STABLE=false
             break
         fi
     done
 
     if [ "$STABLE" = true ]; then
-        # Now kill old instances
-        if [ -n "$OLD_PIDS" ]; then
-            echo "🔪 Closing old instance(s)..."
-            for OLD_PID in $OLD_PIDS; do
-                echo "   Killing PID $OLD_PID"
-                kill "$OLD_PID" 2>/dev/null || true
-            done
-        fi
-        echo "✅ Handoff complete!"
+        echo "✅ Relaunch complete!"
         exit 0
     fi
 
@@ -100,6 +96,6 @@ for ATTEMPT in $(seq 1 "$MAX_LAUNCH_ATTEMPTS"); do
         continue
     fi
 
-    echo "⚠️  New instance is unstable. Old instance left running."
+    echo "⚠️  New instance is unstable."
     exit 1
 done
