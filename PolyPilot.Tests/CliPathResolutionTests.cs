@@ -10,6 +10,8 @@ namespace PolyPilot.Tests;
 /// </summary>
 public class CliPathResolutionTests
 {
+    private static string CopilotBinaryName =>
+        OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
     [Fact]
     public void CliSourceMode_BuiltIn_IsDefault()
     {
@@ -121,7 +123,7 @@ public class CliPathResolutionTests
         Assert.NotNull(assemblyDir);
 
         var rid = RuntimeInformation.RuntimeIdentifier;
-        var bundledPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", "copilot");
+        var bundledPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", CopilotBinaryName);
 
         Assert.True(File.Exists(bundledPath),
             $"Bundled copilot binary not found at: {bundledPath} (RID={rid})");
@@ -136,11 +138,11 @@ public class CliPathResolutionTests
         Assert.NotNull(assemblyDir);
 
         var rid = RuntimeInformation.RuntimeIdentifier;
-        var bundledPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", "copilot");
+        var bundledPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", CopilotBinaryName);
 
         Assert.Contains("runtimes", bundledPath);
         Assert.Contains(rid, bundledPath);
-        Assert.EndsWith("copilot", bundledPath);
+        Assert.EndsWith(CopilotBinaryName, bundledPath);
     }
 
     [Fact]
@@ -181,7 +183,7 @@ public class CliPathResolutionTests
         Assert.NotNull(assemblyDir);
 
         var rid = RuntimeInformation.RuntimeIdentifier;
-        var bundledPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", "copilot");
+        var bundledPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", CopilotBinaryName);
 
         Assert.True(File.Exists(bundledPath),
             $"Bundled copilot binary should exist at: {bundledPath}");
@@ -226,12 +228,12 @@ public class CliPathResolutionTests
         Assert.NotNull(assemblyDir);
 
         var rid = RuntimeInformation.RuntimeIdentifier;
-        var bundledPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", "copilot");
+        var bundledPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", CopilotBinaryName);
 
         // The path should be well-formed and match the pattern ServerManager expects
         Assert.Contains("runtimes", bundledPath);
         Assert.Contains("native", bundledPath);
-        Assert.EndsWith("copilot", bundledPath);
+        Assert.EndsWith(CopilotBinaryName, bundledPath);
     }
 
     [Fact]
@@ -244,21 +246,21 @@ public class CliPathResolutionTests
         Assert.NotNull(assemblyDir);
 
         var rid = RuntimeInformation.RuntimeIdentifier;
-        var expectedPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", "copilot");
+        var expectedPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", CopilotBinaryName);
 
         // The test project runs as net10.0 (not maccatalyst), so the RID is typically
         // osx-arm64 on Apple Silicon Macs. The SDK packages the binary for this RID.
         if (!File.Exists(expectedPath))
         {
             // Try common alternative RIDs in case the exact RID doesn't match
-            var alternativeRids = new[] { "osx-arm64", "osx-x64", "maccatalyst-arm64" };
+            var alternativeRids = new[] { "win-x64", "osx-arm64", "osx-x64", "maccatalyst-arm64" };
             var found = false;
             var checkedPaths = new List<string> { expectedPath };
 
             foreach (var altRid in alternativeRids)
             {
                 if (altRid == rid) continue;
-                var altPath = Path.Combine(assemblyDir!, "runtimes", altRid, "native", "copilot");
+                var altPath = Path.Combine(assemblyDir!, "runtimes", altRid, "native", CopilotBinaryName);
                 checkedPaths.Add(altPath);
                 if (File.Exists(altPath))
                 {
@@ -296,17 +298,17 @@ public class CliPathResolutionTests
         var assemblyDir = Path.GetDirectoryName(typeof(CopilotClient).Assembly.Location);
         Assert.NotNull(assemblyDir);
 
-        var monoBundlePath = Path.Combine(assemblyDir!, "copilot");
+        var monoBundlePath = Path.Combine(assemblyDir!, CopilotBinaryName);
 
         // In test context, the MonoBundle path typically doesn't exist (we're not in a .app bundle).
         // But the path should be well-formed and point to the assembly directory.
         Assert.Equal(assemblyDir, Path.GetDirectoryName(monoBundlePath));
-        Assert.Equal("copilot", Path.GetFileName(monoBundlePath));
+        Assert.Equal(CopilotBinaryName, Path.GetFileName(monoBundlePath));
 
         // The runtimes/{rid}/native/ path is the primary bundled path;
         // MonoBundle is only a fallback for the Mac Catalyst app bundle layout.
         var rid = RuntimeInformation.RuntimeIdentifier;
-        var primaryPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", "copilot");
+        var primaryPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", CopilotBinaryName);
         Assert.NotEqual(primaryPath, monoBundlePath);
     }
 }
