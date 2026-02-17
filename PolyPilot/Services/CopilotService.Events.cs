@@ -655,12 +655,12 @@ public partial class CopilotService
             }
         }
 
-        // Auto-dispatch next queued message
+        // Auto-dispatch next queued message — send immediately on the current
+        // synchronization context to prevent other actors from racing for the session.
         if (state.Info.MessageQueue.Count > 0)
         {
             var nextPrompt = state.Info.MessageQueue[0];
             state.Info.MessageQueue.RemoveAt(0);
-            
             // Retrieve any queued image paths for this message
             List<string>? nextImagePaths = null;
             if (_queuedImagePaths.TryGetValue(state.Info.Name, out var imageQueue) && imageQueue.Count > 0)
@@ -670,25 +670,24 @@ public partial class CopilotService
                 if (imageQueue.Count == 0)
                     _queuedImagePaths.TryRemove(state.Info.Name, out _);
             }
-            
-            _ = Task.Run(async () =>
-            {
-                try
+
+            var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
+                              ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt);
+            _ = SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory)
+                .ContinueWith(t =>
                 {
-                    await Task.Delay(500);
-                    await SendPromptAsync(
-                        state.Info.Name,
-                        nextPrompt,
-                        imagePaths: nextImagePaths,
-                        skipHistoryMessage: state.Info.ReflectionCycle is { IsActive: true } &&
-                                            ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt));
-                }
-                catch (Exception ex)
-                {
-                    Debug($"Failed to send queued message: {ex.Message}");
-                    OnError?.Invoke(state.Info.Name, $"Queued message failed: {ex.Message}");
-                }
-            });
+                    if (t.IsFaulted)
+                    {
+                        Debug($"Failed to send queued message: {t.Exception?.InnerException?.Message}");
+                        // Re-queue on failure so it retries on next CompleteResponse
+                        state.Info.MessageQueue.Insert(0, nextPrompt);
+                        if (nextImagePaths != null)
+                        {
+                            var images = _queuedImagePaths.GetOrAdd(state.Info.Name, _ => new List<List<string>>());
+                            images.Insert(0, nextImagePaths);
+                        }
+                    }
+                });
         }
     }
 
