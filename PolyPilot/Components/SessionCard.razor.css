@@ -489,3 +489,17 @@
     margin-left: 6px;
     flex-shrink: 0;
 }
+
+.card-role-badge {
+    font-size: var(--type-caption1, 0.7rem);
+    flex-shrink: 0;
+    opacity: 0.85;
+}
+
+.card-role-badge.orchestrator {
+    color: rgba(99, 102, 241, 0.9);
+}
+
+.card-role-badge.worker {
+    color: var(--text-dim);
+}
