@@ -1142,7 +1142,7 @@ You are fixing a bug in the PolyPilot app (a .NET MAUI Blazor Hybrid app).
 4. Add unit tests in `PolyPilot.Tests/` that cover the bug scenario and prevent regression.
 5. Add UI scenario definitions to `PolyPilot.Tests/Scenarios/mode-switch-scenarios.json` if the bug involves mode switching, settings, or UI flows.
 6. Run `cd PolyPilot.Tests && dotnet test` to verify all tests pass (existing + new).
-7. Run `cd PolyPilot && dotnet build -f net10.0-maccatalyst` to verify the app builds.
+7. Run `cd PolyPilot && dotnet build -f {(OperatingSystem.IsWindows() ? "net10.0-windows10.0.19041.0" : "net10.0-maccatalyst")}` to verify the app builds.
 8. Commit your changes to branch `{branchName}` with a descriptive commit message.
 9. Push the branch and create a PR against `main` in the PureWeen/PolyPilot repository using `gh pr create`.
 
@@ -1157,29 +1157,51 @@ Important conventions:
 
     private static void LaunchCopilotInTerminal(string workingDir, string promptFile)
     {
-        // Write a shell script that sends the prompt as the first message
-        // then keeps copilot running interactively for follow-up conversation
-        var shellScript = Path.Combine(Path.GetTempPath(), $"polypilot-launch-{Guid.NewGuid():N}.sh");
-        File.WriteAllText(shellScript,
-            "#!/bin/bash\n" +
-            $"cd \"{workingDir}\"\n" +
-            $"echo \"📋 Prompt loaded from: {promptFile}\"\n" +
-            $"echo \"─────────────────────────────────────────\"\n" +
-            $"echo \"\"\n" +
-            // --yolo grants all permissions
-            // -i (--interactive) sends the prompt then stays interactive for follow-ups
-            // (-p exits after completion; -i keeps the session open)
-            $"copilot --yolo -i \"$(cat '{promptFile}')\"\n");
-        System.Diagnostics.Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
-
-        // Use 'open -a Terminal <script>' — launches Terminal.app as a fully independent
-        // process with NO sandbox inheritance from the MAUI app
-        var psi = new System.Diagnostics.ProcessStartInfo("open", $"-a Terminal \"{shellScript}\"")
+        if (OperatingSystem.IsWindows())
         {
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        System.Diagnostics.Process.Start(psi);
+            // Write a PowerShell script that sends the prompt as the first message
+            var psScript = Path.Combine(Path.GetTempPath(), $"polypilot-launch-{Guid.NewGuid():N}.ps1");
+            File.WriteAllText(psScript,
+                $"Set-Location \"{workingDir}\"\n" +
+                $"Write-Host \"📋 Prompt loaded from: {promptFile}\"\n" +
+                $"Write-Host \"─────────────────────────────────────────\"\n" +
+                $"Write-Host \"\"\n" +
+                $"copilot --yolo -i (Get-Content '{promptFile}' -Raw)\n");
+
+            // Launch in a new Windows Terminal / cmd window
+            var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe",
+                $"-ExecutionPolicy Bypass -NoExit -File \"{psScript}\"")
+            {
+                UseShellExecute = true,
+                WorkingDirectory = workingDir
+            };
+            System.Diagnostics.Process.Start(psi);
+        }
+        else
+        {
+            // Write a shell script that sends the prompt as the first message
+            var shellScript = Path.Combine(Path.GetTempPath(), $"polypilot-launch-{Guid.NewGuid():N}.sh");
+            File.WriteAllText(shellScript,
+                "#!/bin/bash\n" +
+                $"cd \"{workingDir}\"\n" +
+                $"echo \"📋 Prompt loaded from: {promptFile}\"\n" +
+                $"echo \"─────────────────────────────────────────\"\n" +
+                $"echo \"\"\n" +
+                // --yolo grants all permissions
+                // -i (--interactive) sends the prompt then stays interactive for follow-ups
+                // (-p exits after completion; -i keeps the session open)
+                $"copilot --yolo -i \"$(cat '{promptFile}')\"\n");
+            System.Diagnostics.Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
+
+            // Use 'open -a Terminal <script>' — launches Terminal.app as a fully independent
+            // process with NO sandbox inheritance from the MAUI app
+            var psi = new System.Diagnostics.ProcessStartInfo("open", $"-a Terminal \"{shellScript}\"")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            System.Diagnostics.Process.Start(psi);
+        }
     }
 
     private static string? FindGitRoot()
