@@ -183,6 +183,7 @@
                     var meta = CopilotService.GetSessionMeta(session.Name);
                     var isPinned = meta?.IsPinned ?? false;
                     <SessionCard Session="session"
+                                 @key="session.Name"
                                  Meta="meta"
                                  IsCompleted="isCompleted"
                                  MessageCount="@(cardMessageCounts.TryGetValue(session.Name, out var mc) ? mc : DefaultCardMessageWindow)"
