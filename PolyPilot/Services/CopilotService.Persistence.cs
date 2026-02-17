@@ -16,7 +16,7 @@ public partial class CopilotService
             Directory.CreateDirectory(PolyPilotBaseDir);
             
             var entries = _sessions.Values
-                .Where(s => s.Info.SessionId != null)
+                .Where(s => s.Info.SessionId != null && !s.Info.IsHidden)
                 .Select(s => new ActiveSessionEntry
                 {
                     SessionId = s.Info.SessionId!,

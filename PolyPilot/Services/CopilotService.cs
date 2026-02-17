@@ -200,6 +200,7 @@ public partial class CopilotService : IAsyncDisposable
         public bool HasReceivedDeltasThisTurn { get; set; }
         public bool HasReceivedEventsSinceResume { get; set; }
         public string? LastMessageId { get; set; }
+        public bool SkipReflectionEvaluationOnce { get; set; }
     }
 
     private void Debug(string message)
@@ -1353,15 +1354,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default)
+    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default, bool skipHistoryMessage = false)
     {
         // In demo mode, simulate a response locally
         if (IsDemoMode)
         {
             if (!_sessions.TryGetValue(sessionName, out var demoState))
                 throw new InvalidOperationException($"Session '{sessionName}' not found.");
-            demoState.Info.History.Add(ChatMessage.UserMessage(prompt));
-            demoState.Info.MessageCount = demoState.Info.History.Count;
+            if (!skipHistoryMessage)
+            {
+                demoState.Info.History.Add(ChatMessage.UserMessage(prompt));
+                demoState.Info.MessageCount = demoState.Info.History.Count;
+            }
             demoState.CurrentResponse.Clear();
             OnStateChanged?.Invoke();
             _ = Task.Run(() => _demoService.SimulateResponseAsync(sessionName, prompt, _syncContext, cancellationToken));
@@ -1373,12 +1377,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             // Add user message locally for immediate UI feedback
             var session = GetRemoteSession(sessionName);
-            if (session != null)
+            if (session != null && !skipHistoryMessage)
             {
                 session.History.Add(ChatMessage.UserMessage(prompt));
-                session.IsProcessing = true;
-                OnStateChanged?.Invoke();
             }
+            if (session != null)
+                session.IsProcessing = true;
+            OnStateChanged?.Invoke();
             await _bridgeClient.SendMessageAsync(sessionName, prompt, cancellationToken);
             return ""; // Response comes via events
         }
@@ -1393,18 +1398,22 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.ResponseCompletion = new TaskCompletionSource<string>();
         state.CurrentResponse.Clear();
 
-        // Include image paths in history display so FormatUserMessage renders thumbnails
-        var displayPrompt = prompt;
-        if (imagePaths != null && imagePaths.Count > 0)
-            displayPrompt += "\n" + string.Join("\n", imagePaths);
-        state.Info.History.Add(new ChatMessage("user", displayPrompt, DateTime.Now));
-        state.Info.MessageCount = state.Info.History.Count;
-        state.Info.LastReadMessageCount = state.Info.History.Count;
-        OnStateChanged?.Invoke();
+        if (!skipHistoryMessage)
+        {
+            // Include image paths in history display so FormatUserMessage renders thumbnails
+            var displayPrompt = prompt;
+            if (imagePaths != null && imagePaths.Count > 0)
+                displayPrompt += "\n" + string.Join("\n", imagePaths);
+            state.Info.History.Add(new ChatMessage("user", displayPrompt, DateTime.Now));
 
-        // Write-through to DB
-        if (!string.IsNullOrEmpty(state.Info.SessionId))
-            _ = _chatDb.AddMessageAsync(state.Info.SessionId, state.Info.History.Last());
+            state.Info.MessageCount = state.Info.History.Count;
+            state.Info.LastReadMessageCount = state.Info.History.Count;
+
+            // Write-through to DB
+            if (!string.IsNullOrEmpty(state.Info.SessionId))
+                _ = _chatDb.AddMessageAsync(state.Info.SessionId, state.Info.History.Last());
+        }
+        OnStateChanged?.Invoke();
 
         Console.WriteLine($"[DEBUG] Sending prompt to session '{sessionName}' (Model: {state.Info.Model}): {prompt.Substring(0, Math.Min(50, prompt.Length))}...");
         Console.WriteLine($"[MODEL] Session '{sessionName}' using model: {state.Info.Model}");
@@ -1529,7 +1538,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     {
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
-        
+
         state.Info.MessageQueue.Add(prompt);
         
         // Track image paths alongside the queued message
@@ -1577,6 +1586,79 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             state.Info.MessageQueue.Clear();
             _queuedImagePaths.TryRemove(sessionName, out _);
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// Starts a reflection cycle on the specified session. The cycle will evaluate
+    /// each response against the goal and automatically send follow-up prompts
+    /// until the goal is met or max iterations are reached.
+    /// </summary>
+    public async Task StartReflectionCycleAsync(string sessionName, string goal, int maxIterations = 5, string? evaluationPrompt = null)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state))
+            throw new InvalidOperationException($"Session '{sessionName}' not found.");
+
+        state.Info.ReflectionCycle = ReflectionCycle.Create(goal, maxIterations, evaluationPrompt);
+        state.SkipReflectionEvaluationOnce = state.Info.IsProcessing;
+
+        // Create a hidden evaluator session with a cheap model
+        var evaluatorName = $"__evaluator_{sessionName}_{DateTime.Now.Ticks}";
+        try
+        {
+            var evaluatorModel = "gpt-4.1"; // Fast, cheap model for evaluation
+            await CreateSessionAsync(evaluatorName, evaluatorModel);
+            state.Info.ReflectionCycle.EvaluatorSessionName = evaluatorName;
+            // Hide the evaluator session from the sidebar
+            if (_sessions.TryGetValue(evaluatorName, out var evalState))
+                evalState.Info.IsHidden = true;
+            Debug($"Evaluator session '{evaluatorName}' created for reflection cycle on '{sessionName}'");
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to create evaluator session: {ex.Message}. Falling back to self-evaluation.");
+            // Continue without evaluator — will use sentinel-based self-evaluation
+        }
+
+        Debug($"Reflection cycle started for '{sessionName}': goal='{goal}', maxIterations={maxIterations}, deferFirstEvaluation={state.SkipReflectionEvaluationOnce}");
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Synchronous overload for backward compatibility (does not create evaluator session).
+    /// </summary>
+    public void StartReflectionCycle(string sessionName, string goal, int maxIterations = 5, string? evaluationPrompt = null)
+    {
+        _ = StartReflectionCycleAsync(sessionName, goal, maxIterations, evaluationPrompt);
+    }
+
+    /// <summary>
+    /// Stops the active reflection cycle on the specified session, if any.
+    /// </summary>
+    public void StopReflectionCycle(string sessionName)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state))
+            return;
+
+        if (state.Info.ReflectionCycle is { IsActive: true })
+        {
+            var evaluatorName = state.Info.ReflectionCycle.EvaluatorSessionName;
+            state.Info.ReflectionCycle.IsActive = false;
+            // Purge any queued reflection follow-up prompts to prevent zombie iterations
+            state.Info.MessageQueue.RemoveAll(p => ReflectionCycle.IsReflectionFollowUpPrompt(p));
+            Debug($"Reflection cycle stopped for '{sessionName}'");
+
+            // Clean up evaluator session in background
+            if (!string.IsNullOrEmpty(evaluatorName))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try { await CloseSessionAsync(evaluatorName); }
+                    catch (Exception ex) { Debug($"Error closing evaluator session: {ex.Message}"); }
+                });
+            }
+
             OnStateChanged?.Invoke();
         }
     }
@@ -1668,6 +1750,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public async Task<bool> CloseSessionAsync(string name)
     {
+        // Clean up any active reflection cycle (including evaluator session)
+        StopReflectionCycle(name);
+
         // In remote mode, send close request to server
         if (_bridgeClient != null && _bridgeClient.IsConnected)
         {
@@ -1708,7 +1793,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public IEnumerable<AgentSessionInfo> GetAllSessions() => _sessions.Values.Select(s => s.Info);
+    public IEnumerable<AgentSessionInfo> GetAllSessions() => _sessions.Values.Select(s => s.Info).Where(s => !s.IsHidden);
 
     public int SessionCount => _sessions.Count;
 

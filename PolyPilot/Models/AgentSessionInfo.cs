@@ -49,4 +49,12 @@ public class AgentSessionInfo
             }
         }
     }
+
+    // Reflection cycle for iterative goal-driven refinement
+    public ReflectionCycle? ReflectionCycle { get; set; }
+
+    /// <summary>
+    /// Hidden sessions are not shown in the sidebar (e.g., evaluator sessions).
+    /// </summary>
+    public bool IsHidden { get; set; }
 }

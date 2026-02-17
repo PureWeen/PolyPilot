@@ -67,7 +67,7 @@ public partial class CopilotService
     /// </summary>
     private void ReconcileOrganization()
     {
-        var activeNames = _sessions.Keys.ToHashSet();
+        var activeNames = _sessions.Where(kv => !kv.Value.Info.IsHidden).Select(kv => kv.Key).ToHashSet();
         bool changed = false;
 
         // Add missing sessions to default group and link to worktrees
