@@ -11,6 +11,8 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, SessionState> _sessions = new();
     // Sessions optimistically added during remote create/resume — protected from removal by SyncRemoteSessions
     private readonly ConcurrentDictionary<string, byte> _pendingRemoteSessions = new();
+    // Sessions currently receiving streaming content via bridge events — history sync skipped to avoid duplicates
+    private readonly ConcurrentDictionary<string, byte> _remoteStreamingSessions = new();
     // Session IDs explicitly closed by the user — excluded from merge-back during SaveActiveSessionsToDisk
     private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
     // Image paths queued alongside messages when session is busy (keyed by session name, list per queued message)

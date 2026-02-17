@@ -28,6 +28,9 @@ public partial class CopilotService
         };
         _bridgeClient.OnContentReceived += (s, c) =>
         {
+            // Track that this session is actively streaming
+            _remoteStreamingSessions[s] = 0;
+
             // Update local session history from remote events
             var session = GetRemoteSession(s);
             if (session != null)
@@ -113,6 +116,7 @@ public partial class CopilotService
         };
         _bridgeClient.OnTurnEnd += (s) =>
         {
+            _remoteStreamingSessions.TryRemove(s, out _);
             var session = GetRemoteSession(s);
             if (session != null)
             {
@@ -233,9 +237,9 @@ public partial class CopilotService
         {
             if (_sessions.TryGetValue(name, out var s))
             {
-                // Skip history sync for sessions currently processing — the incremental
-                // content_delta/tool events are more up-to-date than the cached history
-                if (s.Info.IsProcessing)
+                // Skip history sync for sessions currently receiving streaming content —
+                // the incremental content_delta/tool events are more up-to-date than the cached history
+                if (_remoteStreamingSessions.ContainsKey(name))
                     continue;
 
                 if (messages.Count >= s.Info.History.Count)
