@@ -594,6 +594,7 @@ public partial class CopilotService
                 // Use evaluator session if available, otherwise fall back to self-evaluation
                 if (!string.IsNullOrEmpty(cycle.EvaluatorSessionName) && _sessions.ContainsKey(cycle.EvaluatorSessionName))
                 {
+                    Debug($"[EVAL] Taking evaluator path for '{state.Info.Name}', evaluator='{cycle.EvaluatorSessionName}'");
                     // Async evaluator path — dispatch evaluation in background
                     var sessionName = state.Info.Name;
                     _ = Task.Run(async () =>
@@ -611,6 +612,7 @@ public partial class CopilotService
                 }
                 else
                 {
+                    Debug($"[EVAL] Taking FALLBACK path for '{state.Info.Name}', evaluatorName='{cycle.EvaluatorSessionName}', inSessions={(!string.IsNullOrEmpty(cycle.EvaluatorSessionName) && _sessions.ContainsKey(cycle.EvaluatorSessionName))}");
                     // Fallback: self-evaluation via sentinel detection
                     FallbackAdvance(state.Info.Name, response);
                 }
@@ -758,6 +760,7 @@ public partial class CopilotService
             var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse(evalResponse);
             evaluatorPassed = pass;
             evaluatorFeedback = feedback;
+            Debug($"[EVAL] Parsed result for '{workerSessionName}': pass={pass}, feedback='{feedback}'");
         }
         catch (OperationCanceledException)
         {
@@ -794,6 +797,8 @@ public partial class CopilotService
         var cycle = state.Info.ReflectionCycle;
         if (cycle == null || !cycle.IsActive) return;
 
+        var goalMet = cycle.IsGoalMet(response);
+        Debug($"[EVAL] FallbackAdvance for '{sessionName}': sentinel detected={goalMet}, response length={response.Length}");
         var shouldContinue = cycle.Advance(response);
         HandleReflectionAdvanceResult(state, response, shouldContinue, null);
     }
