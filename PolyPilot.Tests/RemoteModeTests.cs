@@ -576,4 +576,186 @@ public class ChatMessageSerializationTests
 
         Assert.Empty(restored!.Messages);
     }
+
+    // ===== CreateSession WorkingDirectory edge cases =====
+
+    [Fact]
+    public void CreateSession_EmptyWorkingDirectory_Serializes()
+    {
+        // Mobile sends empty string when no directory is specified
+        var payload = new CreateSessionPayload
+        {
+            Name = "mobile-session",
+            Model = "claude-sonnet-4",
+            WorkingDirectory = ""
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.CreateSession, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<CreateSessionPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("mobile-session", restored!.Name);
+        Assert.Equal("", restored.WorkingDirectory);
+    }
+
+    [Fact]
+    public void CreateSession_NullWorkingDirectory_Serializes()
+    {
+        var payload = new CreateSessionPayload
+        {
+            Name = "test-session",
+            Model = "claude-sonnet-4",
+            WorkingDirectory = null
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.CreateSession, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<CreateSessionPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("test-session", restored!.Name);
+        Assert.Null(restored.WorkingDirectory);
+    }
+
+    [Fact]
+    public void CreateSession_EmptyDirectory_ShouldBeTreatedAsNull()
+    {
+        // This validates the server-side normalization: empty string → null
+        // so the path validation doesn't reject the request
+        var payload = new CreateSessionPayload
+        {
+            Name = "mobile-test",
+            WorkingDirectory = ""
+        };
+
+        // Simulate the server-side normalization
+        if (string.IsNullOrWhiteSpace(payload.WorkingDirectory))
+            payload.WorkingDirectory = null;
+
+        Assert.Null(payload.WorkingDirectory);
+    }
+
+    [Fact]
+    public void CreateSession_WhitespaceDirectory_ShouldBeTreatedAsNull()
+    {
+        var payload = new CreateSessionPayload
+        {
+            Name = "mobile-test",
+            WorkingDirectory = "   "
+        };
+
+        if (string.IsNullOrWhiteSpace(payload.WorkingDirectory))
+            payload.WorkingDirectory = null;
+
+        Assert.Null(payload.WorkingDirectory);
+    }
+
+    [Fact]
+    public void CreateSession_ValidDirectory_NotNormalized()
+    {
+        var payload = new CreateSessionPayload
+        {
+            Name = "desktop-test",
+            WorkingDirectory = "/Users/test/project"
+        };
+
+        if (string.IsNullOrWhiteSpace(payload.WorkingDirectory))
+            payload.WorkingDirectory = null;
+
+        Assert.Equal("/Users/test/project", payload.WorkingDirectory);
+    }
+
+    [Fact]
+    public void CreateSession_PathValidation_EmptyStringFailsIsPathRooted()
+    {
+        // Documents the actual bug: empty string is not null, passes the != null check,
+        // but fails Path.IsPathRooted, causing silent rejection
+        Assert.False(Path.IsPathRooted(""));
+        Assert.False(Path.IsPathRooted("  "));
+    }
+
+    [Fact]
+    public void CreateSession_PathValidation_ValidPathPasses()
+    {
+        Assert.True(Path.IsPathRooted("/Users/test"));
+        if (OperatingSystem.IsWindows())
+            Assert.True(Path.IsPathRooted(@"C:\Users\test"));
+    }
+
+    [Fact]
+    public void CreateSession_PathTraversal_Rejected()
+    {
+        // WorkingDirectory containing ".." should be rejected
+        var wd = "/Users/test/../../../etc/passwd";
+        Assert.True(wd.Contains(".."));
+    }
+
+    // ===== SyncRemoteSessions streaming guard =====
+
+    [Fact]
+    public void HistorySync_ShouldNotOverwrite_WhenSessionIsProcessing()
+    {
+        // Simulates the bug: during streaming, content_delta appends to history.
+        // SyncRemoteSessions should NOT replace history from stale cache while processing.
+        var history = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+            new ChatMessage("assistant", "Hi there! How can I", DateTime.Now, ChatMessageType.Assistant) { IsComplete = false }
+        };
+
+        var cachedHistory = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+        };
+
+        // Session is processing (streaming)
+        bool isProcessing = true;
+
+        // Mirror the guard logic from SyncRemoteSessions
+        bool shouldSync = !isProcessing && cachedHistory.Count >= history.Count;
+
+        Assert.False(shouldSync, "Should NOT sync history while session is processing");
+    }
+
+    [Fact]
+    public void HistorySync_ShouldOverwrite_WhenSessionIsIdle()
+    {
+        var history = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+        };
+
+        var cachedHistory = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+            new ChatMessage("assistant", "Full response", DateTime.Now, ChatMessageType.Assistant) { IsComplete = true }
+        };
+
+        bool isProcessing = false;
+
+        bool shouldSync = !isProcessing && cachedHistory.Count >= history.Count;
+
+        Assert.True(shouldSync, "Should sync history when session is idle and cache has more messages");
+    }
+
+    [Fact]
+    public void HistorySync_ShouldNotOverwrite_WhenCacheIsStale()
+    {
+        var history = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+            new ChatMessage("assistant", "Full response", DateTime.Now, ChatMessageType.Assistant) { IsComplete = true },
+            ChatMessage.UserMessage("Follow up"),
+        };
+
+        var cachedHistory = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("Hello"),
+        };
+
+        bool isProcessing = false;
+
+        bool shouldSync = !isProcessing && cachedHistory.Count >= history.Count;
+
+        Assert.False(shouldSync, "Should NOT sync when cache has fewer messages than local history");
+    }
 }

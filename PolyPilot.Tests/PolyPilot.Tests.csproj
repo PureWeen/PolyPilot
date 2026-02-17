@@ -47,6 +47,9 @@
     <Compile Include="../PolyPilot/Services/CopilotService.Organization.cs" Link="Shared/CopilotService.Organization.cs" />
     <Compile Include="../PolyPilot/Services/CopilotService.Persistence.cs" Link="Shared/CopilotService.Persistence.cs" />
     <Compile Include="../PolyPilot/Services/CopilotService.Utilities.cs" Link="Shared/CopilotService.Utilities.cs" />
+    <Compile Include="../PolyPilot/Services/WsBridgeServer.cs" Link="Shared/WsBridgeServer.cs" />
+    <Compile Include="../PolyPilot/Services/DevTunnelService.cs" Link="Shared/DevTunnelService.cs" />
+    <Compile Include="../PolyPilot/Services/FiestaService.cs" Link="Shared/FiestaService.cs" />
   </ItemGroup>
 
 </Project>
