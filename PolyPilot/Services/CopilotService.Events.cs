@@ -873,11 +873,71 @@ public partial class CopilotService
             // Keep queue FIFO so user steering messages queued during this turn run first.
             state.Info.MessageQueue.Add(followUp);
             OnStateChanged?.Invoke();
+
+            // If the session is idle (evaluator ran asynchronously after CompleteResponse),
+            // dispatch the queued message immediately.
+            if (!state.Info.IsProcessing && state.Info.MessageQueue.Count > 0)
+            {
+                var nextPrompt = state.Info.MessageQueue[0];
+                state.Info.MessageQueue.RemoveAt(0);
+
+                var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
+                                  ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt);
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(100);
+                        if (_syncContext != null)
+                        {
+                            var tcs = new TaskCompletionSource();
+                            _syncContext.Post(async _ =>
+                            {
+                                try
+                                {
+                                    await SendPromptAsync(state.Info.Name, nextPrompt, skipHistoryMessage: skipHistory);
+                                    tcs.TrySetResult();
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug($"Error dispatching evaluator follow-up: {ex.Message}");
+                                    tcs.TrySetException(ex);
+                                }
+                            }, null);
+                            await tcs.Task;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug($"Error dispatching queued message after evaluation: {ex.Message}");
+                    }
+                });
+            }
         }
         else if (!cycle.IsActive)
         {
             var reason = cycle.GoalMet ? "goal met" : cycle.IsStalled ? "stalled" : "max iterations reached";
             Debug($"Reflection cycle ended for '{state.Info.Name}': {reason}");
+
+            // Show evaluator verdict when cycle ends
+            if (cycle.GoalMet && !string.IsNullOrEmpty(cycle.EvaluatorSessionName))
+            {
+                var passMsg = ChatMessage.SystemMessage("🔍 Evaluator: **PASS** — goal achieved");
+                state.Info.History.Add(passMsg);
+                state.Info.MessageCount = state.Info.History.Count;
+                if (!string.IsNullOrEmpty(state.Info.SessionId))
+                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, passMsg);
+            }
+            else if (!string.IsNullOrEmpty(evaluatorFeedback))
+            {
+                var feedbackMsg = ChatMessage.SystemMessage($"🔍 Evaluator: {evaluatorFeedback}");
+                state.Info.History.Add(feedbackMsg);
+                state.Info.MessageCount = state.Info.History.Count;
+                if (!string.IsNullOrEmpty(state.Info.SessionId))
+                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, feedbackMsg);
+            }
+
             var completionMsg = ChatMessage.SystemMessage(cycle.BuildCompletionSummary());
             state.Info.History.Add(completionMsg);
             state.Info.MessageCount = state.Info.History.Count;
