@@ -666,8 +666,8 @@
     private DateTime _lastRefresh = DateTime.MinValue;
     private volatile bool _renderDirty;
     private Timer? _renderTimer;
-    private DateTime _lastNonSwitchRefresh = DateTime.MinValue;
     private long _switchCooldownUntil; // TickCount64 value: suppress renders until this time
+    private readonly RenderThrottle _refreshThrottle = new(500);
 
     private void ScheduleRender()
     {
@@ -750,14 +750,9 @@
             var active = CopilotService.ActiveSessionName;
             bool sessionSwitched = active != null && active != _lastActiveSession && _lastActiveSession != null;
             
-            // For non-switch state changes, throttle to max 2/sec to avoid flooding the render queue
-            if (!sessionSwitched)
-            {
-                var now = DateTime.UtcNow;
-                if ((now - _lastNonSwitchRefresh).TotalMilliseconds < 500)
-                    return;
-                _lastNonSwitchRefresh = now;
-            }
+            // Throttle non-switch state changes to max 2/sec, but always allow completed sessions through
+            if (!_refreshThrottle.ShouldRefresh(sessionSwitched, completedSessions.Count > 0))
+                return;
 
             sessions = CopilotService.GetAllSessions().ToList();
 
