@@ -520,7 +520,8 @@ public partial class CopilotService : IAsyncDisposable
             var assemblyDir = Path.GetDirectoryName(typeof(CopilotClient).Assembly.Location);
             if (assemblyDir != null)
             {
-                var monoBundlePath = Path.Combine(assemblyDir, "copilot");
+                var binaryName = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
+                var monoBundlePath = Path.Combine(assemblyDir, binaryName);
                 if (File.Exists(monoBundlePath))
                     return monoBundlePath;
             }
@@ -536,24 +537,43 @@ public partial class CopilotService : IAsyncDisposable
     private static string? ResolveSystemCliPath()
     {
         // 1. Check well-known system install paths
-        var systemPaths = new[]
+        if (OperatingSystem.IsWindows())
         {
-            "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
-            "/usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
-            "/usr/local/bin/copilot",
-        };
-        foreach (var path in systemPaths)
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var windowsPaths = new[]
+            {
+                Path.Combine(appData, "npm", "node_modules", "@github", "copilot", "node_modules", "@github", "copilot-win-x64", "copilot.exe"),
+                Path.Combine(localAppData, "npm", "node_modules", "@github", "copilot", "node_modules", "@github", "copilot-win-x64", "copilot.exe"),
+            };
+            foreach (var path in windowsPaths)
+            {
+                if (File.Exists(path)) return path;
+            }
+        }
+        else
         {
-            if (File.Exists(path)) return path;
+            var unixPaths = new[]
+            {
+                "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+                "/usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+                "/usr/local/bin/copilot",
+            };
+            foreach (var path in unixPaths)
+            {
+                if (File.Exists(path)) return path;
+            }
         }
 
-        // 2. Try to find "copilot" on PATH
+        // 2. Try to find copilot on PATH
         try
         {
+            var binaryName = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
             var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
-            foreach (var dir in pathEnv.Split(':'))
+            foreach (var dir in pathEnv.Split(Path.PathSeparator))
             {
-                var candidate = Path.Combine(dir, "copilot");
+                if (string.IsNullOrEmpty(dir)) continue;
+                var candidate = Path.Combine(dir, binaryName);
                 if (File.Exists(candidate)) return candidate;
             }
         }
@@ -573,7 +593,8 @@ public partial class CopilotService : IAsyncDisposable
             var assemblyDir = Path.GetDirectoryName(typeof(CopilotClient).Assembly.Location);
             if (assemblyDir == null) return null;
             var rid = System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier;
-            return Path.Combine(assemblyDir, "runtimes", rid, "native", "copilot");
+            var binaryName = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
+            return Path.Combine(assemblyDir, "runtimes", rid, "native", binaryName);
         }
         catch { return null; }
     }
@@ -1170,11 +1191,14 @@ public partial class CopilotService : IAsyncDisposable
         // Only include relaunch instructions when targeting the PolyPilot directory
         if (string.Equals(sessionDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
         {
+            var relaunchCmd = OperatingSystem.IsWindows()
+                ? $"powershell -ExecutionPolicy Bypass -File \"{Path.Combine(ProjectDir, "relaunch.ps1")}\""
+                : $"bash {Path.Combine(ProjectDir, "relaunch.sh")}";
             systemContent.AppendLine($@"
 CRITICAL BUILD INSTRUCTION: You are running inside the PolyPilot MAUI application.
 When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and relaunch by running:
 
-    bash {Path.Combine(ProjectDir, "relaunch.sh")}
+    {relaunchCmd}
 
 This script builds the app, launches a new instance, waits for it to start, then kills the old one.
 NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
