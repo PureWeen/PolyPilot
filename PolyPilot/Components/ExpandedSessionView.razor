@@ -527,7 +527,7 @@
 
     private async Task InsertReflectCommand()
     {
-        var inputId = "input-" + Session.Name.Replace(" ", "-");
+        var inputId = EscapeForJs("input-" + Session.Name.Replace(" ", "-"));
         await JS.InvokeVoidAsync("eval", $"var el = document.getElementById('{inputId}'); if(el){{ el.value = '/reflect '; el.focus(); }}");
     }
 
