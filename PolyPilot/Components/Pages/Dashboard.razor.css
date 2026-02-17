@@ -1352,3 +1352,49 @@
     height: 100%;
     width: 100%;
 }
+
+/* Multi-agent expanded toolbar */
+.ma-expanded-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    height: 40px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(99, 102, 241, 0.08);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+    flex-shrink: 0;
+}
+.ma-expanded-toolbar-label {
+    font-size: var(--type-callout);
+    font-weight: 600;
+    color: rgba(99, 102, 241, 0.9);
+    white-space: nowrap;
+}
+.ma-expanded-toolbar-progress {
+    font-size: var(--type-caption1);
+    color: rgba(99, 102, 241, 0.8);
+    font-weight: 500;
+    white-space: nowrap;
+}
+.ma-expanded-toolbar-input {
+    flex: 1;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.25rem 0.5rem;
+    font-size: var(--type-callout);
+    font-family: inherit;
+    min-width: 0;
+}
+.ma-expanded-toolbar-input:focus {
+    outline: none;
+    border-color: rgba(99, 102, 241, 0.6);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+.ma-expanded-toolbar-input::placeholder {
+    color: var(--text-muted);
+}

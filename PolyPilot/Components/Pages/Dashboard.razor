@@ -65,6 +65,32 @@
     }
     else if (expandedSession != null)
     {
+        var expandedMeta = CopilotService.Organization.Sessions.FirstOrDefault(m => m.SessionName == expandedSession);
+        var expandedGroup = expandedMeta != null ? CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == expandedMeta.GroupId && g.IsMultiAgent) : null;
+        @if (expandedGroup != null)
+        {
+            var grpProgress = CopilotService.GetMultiAgentProgress(expandedGroup.Id);
+            var expandedGroupId = expandedGroup.Id;
+            <div class="ma-expanded-toolbar" @onclick:stopPropagation="true">
+                <span class="ma-expanded-toolbar-label">🤖 @expandedGroup.Name</span>
+                <select class="ma-mode-select" @onchange="(e) => OnMultiAgentModeChanged(expandedGroupId, e)" value="@expandedGroup.OrchestratorMode.ToString()">
+                    <option value="Broadcast">📡 Broadcast</option>
+                    <option value="Sequential">⏩ Sequential</option>
+                    <option value="Orchestrator">🎯 Orchestrator</option>
+                </select>
+                @if (grpProgress.Processing > 0)
+                {
+                    <span class="ma-expanded-toolbar-progress">@grpProgress.Completed/@grpProgress.Total done</span>
+                }
+                <input type="text" id="ma-input-expanded-@expandedGroupId" class="ma-expanded-toolbar-input"
+                       placeholder="Send to all sessions…"
+                       @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") await SendToExpandedMultiAgentGroup(expandedGroupId); })"
+                       @onclick:stopPropagation="true" />
+                <button class="ma-send-btn" @onclick="() => SendToExpandedMultiAgentGroup(expandedGroupId)" @onclick:stopPropagation="true">
+                    📡 Send All
+                </button>
+            </div>
+        }
         @* Keep-alive: render all active sessions, JS owns 'active' class for instant switching *@
         @foreach (var session in sessions)
         {
@@ -1960,6 +1986,33 @@
     private async Task SendToMultiAgentGroup(string groupId)
     {
         var inputId = $"ma-input-{groupId}";
+        var prompt = await JS.InvokeAsync<string>("getElementValue", inputId);
+        if (string.IsNullOrWhiteSpace(prompt)) return;
+
+        await JS.InvokeVoidAsync("clearElementValue", inputId);
+
+        try
+        {
+            _ = CopilotService.SendToMultiAgentGroupAsync(groupId, prompt.Trim()).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                {
+                    InvokeAsync(() =>
+                    {
+                        Console.WriteLine($"Error sending to multi-agent group: {t.Exception?.InnerException?.Message}");
+                    });
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error sending to multi-agent group: {ex.Message}");
+        }
+    }
+
+    private async Task SendToExpandedMultiAgentGroup(string groupId)
+    {
+        var inputId = $"ma-input-expanded-{groupId}";
         var prompt = await JS.InvokeAsync<string>("getElementValue", inputId);
         if (string.IsNullOrWhiteSpace(prompt)) return;
 
