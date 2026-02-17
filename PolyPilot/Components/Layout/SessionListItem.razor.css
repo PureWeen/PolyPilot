@@ -272,3 +272,9 @@
     margin-left: 6px;
     flex-shrink: 0;
 }
+
+.role-badge {
+    font-size: 0.7rem;
+    margin-left: 4px;
+    flex-shrink: 0;
+}

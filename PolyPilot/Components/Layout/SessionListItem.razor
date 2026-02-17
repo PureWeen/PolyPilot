@@ -47,6 +47,10 @@
             else
             {
                 <span class="session-name-text" @ondblclick="() => OnStartRename.InvokeAsync()" @ondblclick:stopPropagation="true">@Session.Name</span>
+                @if (Meta?.Role == MultiAgentRole.Orchestrator)
+                {
+                    <span class="role-badge orchestrator" title="Orchestrator">🎯</span>
+                }
                 @if (Session.UnreadCount > 0)
                 {
                     <span class="unread-badge">@Session.UnreadCount</span>
@@ -119,8 +123,26 @@
                         }
                     </div>
                 }
+                @{
+                    var currentGroup = Groups?.FirstOrDefault(g => g.Id == Meta?.GroupId);
+                }
+                @if (currentGroup is { IsMultiAgent: true })
+                {
+                    <div class="menu-separator"></div>
+                    @if (Meta?.Role == MultiAgentRole.Orchestrator)
+                    {
+                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionRole(Session.Name, MultiAgentRole.Worker); }">
+                            👷 Set as Worker
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionRole(Session.Name, MultiAgentRole.Orchestrator); }">
+                            🎯 Set as Orchestrator
+                        </button>
+                    }
+                }
                 <div class="menu-separator"></div>
-                @if (!string.IsNullOrEmpty(sessionDir))
                 {
                     <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInTerminal(); }">
                         >_ Terminal
