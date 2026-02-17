@@ -208,11 +208,7 @@ public partial class ReflectionCycle
             return (false, string.IsNullOrEmpty(feedback) ? "No specific feedback provided" : feedback);
         }
 
-        // Fallback: check if response contains PASS/FAIL anywhere
-        if (response.Contains("PASS", StringComparison.OrdinalIgnoreCase) &&
-            !response.Contains("FAIL", StringComparison.OrdinalIgnoreCase))
-            return (true, null);
-
+        // Unknown format — treat as FAIL with the first line as feedback
         return (false, firstLine.Length > 200 ? firstLine[..200] : firstLine);
     }
 

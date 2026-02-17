@@ -16,7 +16,7 @@
             {
                 <span class="processing-dot"></span>
             }
-            @if (Session.ReflectionCycle is { IsActive: true } rc)
+            @if (Session.ReflectionCycle is { IsActive: true, IsPaused: false } rc)
             {
                 var progress = rc.MaxIterations > 0 ? (double)rc.CurrentIteration / rc.MaxIterations * 100 : 0;
                 var truncGoal = rc.Goal.Length > 25 ? rc.Goal[..22] + "…" : rc.Goal;

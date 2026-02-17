@@ -1750,6 +1750,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public async Task<bool> CloseSessionAsync(string name)
     {
+        // Clean up any active reflection cycle (including evaluator session)
+        StopReflectionCycle(name);
+
         // In remote mode, send close request to server
         if (_bridgeClient != null && _bridgeClient.IsConnected)
         {

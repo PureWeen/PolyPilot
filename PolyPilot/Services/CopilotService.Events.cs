@@ -776,11 +776,14 @@ public partial class CopilotService
         }
 
         // Post the advance back to the UI thread
+        // Capture cycle reference to detect if user restarted the cycle while evaluator was running
+        var originalCycle = cycle;
         _syncContext?.Post(_ =>
         {
             if (!_sessions.TryGetValue(workerSessionName, out var state)) return;
             var c = state.Info.ReflectionCycle;
-            if (c == null || !c.IsActive) return;
+            // Verify this is still the same cycle instance (user may have stopped/restarted)
+            if (c == null || !c.IsActive || !ReferenceEquals(c, originalCycle)) return;
 
             var shouldContinue = c.AdvanceWithEvaluation(workerResponse, evaluatorPassed, evaluatorFeedback);
             HandleReflectionAdvanceResult(state, workerResponse, shouldContinue, evaluatorFeedback);

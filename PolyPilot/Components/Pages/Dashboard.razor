@@ -1498,7 +1498,7 @@
                 else
                 {
                     // Dispatch immediately if session is idle
-                    _ = CopilotService.SendPromptAsync(sessionName, followUp);
+                    _ = CopilotService.SendPromptAsync(sessionName, followUp, skipHistoryMessage: true);
                 }
             }
             else

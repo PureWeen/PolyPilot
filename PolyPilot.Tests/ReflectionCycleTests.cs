@@ -595,10 +595,12 @@ public class AgentSessionInfoReflectionCycleTests
     }
 
     [Fact]
-    public void ParseEvaluatorResponse_ContainsPassButNotFail()
+    public void ParseEvaluatorResponse_ContainsPassInText_NoLongerMatchesFuzzy()
     {
-        var (pass, _) = ReflectionCycle.ParseEvaluatorResponse("The result would PASS all criteria.");
-        Assert.True(pass);
+        // After removing fuzzy fallback, text containing "PASS" but not starting with it should FAIL
+        var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse("The result would PASS all criteria.");
+        Assert.False(pass);
+        Assert.NotNull(feedback);
     }
 
     [Fact]
@@ -715,5 +717,149 @@ public class AgentSessionInfoReflectionCycleTests
     {
         var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
         Assert.False(session.IsHidden);
+    }
+
+    // --- Code Review Fix Tests ---
+
+    [Fact]
+    public void ParseEvaluatorResponse_Surpass_DoesNotFalsePositive()
+    {
+        // "surpass" contains "PASS" but should not be treated as a PASS verdict
+        var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse("This work could surpass expectations with improvements.");
+        Assert.False(pass);
+        Assert.NotNull(feedback);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_PassMidSentence_DoesNotMatch()
+    {
+        var (pass, _) = ReflectionCycle.ParseEvaluatorResponse("I think this might pass later.");
+        Assert.False(pass);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_GarbageText_ReturnsFail()
+    {
+        var (pass, feedback) = ReflectionCycle.ParseEvaluatorResponse("Well, let me think about this...");
+        Assert.False(pass);
+        Assert.Equal("Well, let me think about this...", feedback);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_ExactPass_Works()
+    {
+        var (pass, _) = ReflectionCycle.ParseEvaluatorResponse("PASS");
+        Assert.True(pass);
+    }
+
+    [Fact]
+    public void ParseEvaluatorResponse_PassWithWhitespace_Works()
+    {
+        var (pass, _) = ReflectionCycle.ParseEvaluatorResponse("  PASS  ");
+        Assert.True(pass);
+    }
+
+    [Fact]
+    public void AdvanceWithEvaluation_DifferentCycleInstance_NotCorrupted()
+    {
+        // Simulate: cycle1 is active, evaluator runs, user restarts cycle
+        var cycle1 = ReflectionCycle.Create("Goal 1", maxIterations: 5);
+        cycle1.AdvanceWithEvaluation("response1", false, "needs work");
+        Assert.Equal(1, cycle1.CurrentIteration);
+
+        // User stops cycle1 and starts cycle2
+        cycle1.IsActive = false;
+        var cycle2 = ReflectionCycle.Create("Goal 2", maxIterations: 5);
+
+        // Old evaluator result arrives — should NOT affect cycle2
+        // (In real code, ReferenceEquals check prevents this)
+        Assert.False(ReferenceEquals(cycle1, cycle2));
+        Assert.Equal(0, cycle2.CurrentIteration);
+        Assert.True(cycle2.IsActive);
+    }
+
+    [Fact]
+    public void PausedCycle_IsActive_And_IsPaused()
+    {
+        var cycle = ReflectionCycle.Create("Goal");
+        cycle.IsPaused = true;
+
+        // Both flags are true simultaneously — UI pattern must check both
+        Assert.True(cycle.IsActive);
+        Assert.True(cycle.IsPaused);
+    }
+
+    [Fact]
+    public void PausedCycle_Advance_DoesNotProgress()
+    {
+        var cycle = ReflectionCycle.Create("Goal", maxIterations: 5);
+        cycle.IsPaused = true;
+
+        var shouldContinue = cycle.Advance("some response");
+
+        Assert.False(shouldContinue);
+        Assert.Equal(0, cycle.CurrentIteration);
+    }
+
+    [Fact]
+    public void PausedCycle_AdvanceWithEvaluation_DoesNotProgress()
+    {
+        var cycle = ReflectionCycle.Create("Goal", maxIterations: 5);
+        cycle.IsPaused = true;
+
+        var shouldContinue = cycle.AdvanceWithEvaluation("response", false, "feedback");
+
+        Assert.False(shouldContinue);
+        Assert.Equal(0, cycle.CurrentIteration);
+    }
+
+    [Fact]
+    public void BuildEvaluatorPrompt_EarlyIteration_IsDemanding()
+    {
+        var cycle = ReflectionCycle.Create("Write a haiku", maxIterations: 5);
+        // iteration 0 — first eval
+        var prompt = cycle.BuildEvaluatorPrompt("Roses are red");
+
+        Assert.Contains("MUST find at least one flaw", prompt);
+        Assert.Contains("Do NOT say PASS on early iterations", prompt);
+    }
+
+    [Fact]
+    public void BuildEvaluatorPrompt_FinalIteration_IsLenient()
+    {
+        var cycle = ReflectionCycle.Create("Write a haiku", maxIterations: 5);
+        cycle.AdvanceWithEvaluation("r1", false, "f1");
+        cycle.AdvanceWithEvaluation("r2", false, "f2");
+        cycle.AdvanceWithEvaluation("r3", false, "f3");
+        // Now at iteration 3, maxIterations 5, MaxIterations-1 = 4
+        // Need to reach iteration 4 (final) to get lenient prompt
+        cycle.AdvanceWithEvaluation("r4", false, "f4");
+        // CurrentIteration is now 4, MaxIterations-1 is 4, so final iteration
+        var prompt = cycle.BuildEvaluatorPrompt("Final attempt");
+
+        Assert.Contains("lenient", prompt.ToLowerInvariant());
+    }
+
+    [Fact]
+    public void BuildEvaluatorPrompt_MidIteration_IsDemandingButFair()
+    {
+        var cycle = ReflectionCycle.Create("Write a haiku", maxIterations: 6);
+        cycle.AdvanceWithEvaluation("r1", false, "f1");
+        cycle.AdvanceWithEvaluation("r2", false, "f2");
+        cycle.AdvanceWithEvaluation("r3", false, "f3");
+        // At iteration 3/6 — mid range
+        var prompt = cycle.BuildEvaluatorPrompt("Mid attempt");
+
+        Assert.Contains("demanding but fair", prompt.ToLowerInvariant());
+    }
+
+    [Fact]
+    public void EvaluatorFeedback_NullOnPass()
+    {
+        var cycle = ReflectionCycle.Create("Goal", maxIterations: 5);
+        cycle.AdvanceWithEvaluation("response", true, null);
+
+        Assert.Null(cycle.EvaluatorFeedback);
+        Assert.True(cycle.GoalMet);
     }
 }
