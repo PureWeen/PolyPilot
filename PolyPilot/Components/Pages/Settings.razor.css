@@ -87,13 +87,13 @@
     position: absolute;
     top: calc(100% + 4px);
     right: 0;
-    background: var(--bg-elevated, #1e1e2e);
-    border: 1px solid var(--control-border, #45475a);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--control-border);
     border-radius: 8px;
     padding: 0.5rem 0;
     min-width: 180px;
     z-index: 200;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
     opacity: 0;
     pointer-events: none;
     transform: translateY(-4px);
@@ -119,9 +119,9 @@
     padding: 0.3rem 0.75rem;
     font-size: 0.72rem;
 }
-.info-label { color: var(--text-muted, #6c7086); white-space: nowrap; }
-.info-value { color: var(--text-primary, #cdd6f4); }
-.info-divider { height: 1px; background: var(--control-border, #45475a); margin: 0.25rem 0.75rem; }
+.info-label { color: var(--text-muted); white-space: nowrap; }
+.info-value { color: var(--text-primary); }
+.info-divider { height: 1px; background: var(--control-border); margin: 0.25rem 0.75rem; }
 
 .badge-dot {
     width: 8px;
@@ -435,6 +435,37 @@
 
 .save-btn:hover {
     background: rgba(59, 130, 246, 0.25);
+    border-color: var(--accent-primary);
+}
+
+.mode-changed-hint {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    color: #fbbf24;
+    font-size: var(--type-small, 0.85rem);
+}
+
+.reconnect-inline-btn {
+    padding: 0.3rem 0.8rem;
+    border: 1px solid rgba(59, 130, 246, 0.5);
+    border-radius: 6px;
+    background: rgba(59, 130, 246, 0.2);
+    color: var(--accent-primary);
+    font-size: var(--type-small, 0.85rem);
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.reconnect-inline-btn:hover {
+    background: rgba(59, 130, 246, 0.35);
     border-color: var(--accent-primary);
 }
 
@@ -1168,6 +1199,30 @@
 .lp-bubble.lp-you {
     background: rgba(78, 168, 209, 0.2);
     border: 1px solid rgba(78, 168, 209, 0.3);
+}
+
+/* Minimal layout preview: small dots + full-width lines */
+.lp-small {
+    width: 7px;
+    height: 7px;
+}
+
+.lp-row.lp-full {
+    width: 100%;
+}
+
+.lp-line {
+    height: 6px;
+    border-radius: 3px;
+    flex: 1;
+}
+
+.lp-line.lp-ai {
+    background: rgba(0, 195, 91, 0.15);
+}
+
+.lp-line.lp-you {
+    background: rgba(78, 168, 209, 0.15);
 }
 
 .layout-label {

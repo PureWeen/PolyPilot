@@ -12,7 +12,7 @@
                 <div class="chat-msg-avatar">
                     @if (!string.IsNullOrEmpty(UserAvatarUrl))
                     {
-                        <img src="@UserAvatarUrl" width="22" height="22" alt="You" class="user-avatar-img" />
+                        <img src="@UserAvatarUrl" width="36" height="36" alt="You" class="user-avatar-img" />
                     }
                     else
                     {
@@ -38,7 +38,7 @@
         <div class="chat-msg assistant @(IsStreaming ? "streaming" : "")">
             @if (!Compact)
             {
-                <div class="chat-msg-avatar"><img src="PolyPilot_logo.png" width="22" height="22" alt="PolyPilot" /></div>
+                <div class="chat-msg-avatar"><img src="PolyPilot_logo.png" width="36" height="36" alt="PolyPilot" /></div>
             }
             <div class="chat-msg-content">
                 @if (Compact)

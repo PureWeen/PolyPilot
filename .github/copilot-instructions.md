@@ -7,7 +7,7 @@
 ./relaunch.sh              # Build + seamless hot-relaunch (ALWAYS use this after code changes)
 dotnet build -f net10.0-maccatalyst   # Build only
 ```
-`relaunch.sh` builds, copies to staging, launches the new instance, waits for it to be ready, then kills the old one. Safe to run from a Copilot session inside the app itself.
+`relaunch.sh` builds, copies to staging, kills the old instance (freeing ports like MauiDevFlow 9223), then launches the new one. Safe to run from a Copilot session inside the app itself.
 
 ### Tests
 ```bash
@@ -64,9 +64,23 @@ This is a .NET MAUI Blazor Hybrid app targeting Mac Catalyst, Android, and iOS. 
 3. **SDK** — `GitHub.Copilot.SDK` (`CopilotClient`/`CopilotSession`) communicates with the Copilot CLI process via ACP (Agent Control Protocol) over stdio or TCP.
 
 ### Connection Modes
-- **Embedded** (default on desktop): SDK spawns copilot via stdio, dies with app.
-- **Persistent**: App spawns a detached `copilot --headless` server tracked via PID file; survives restarts.
+- **Embedded** (fallback): SDK spawns copilot via stdio, dies with app.
+- **Persistent** (default on desktop): App spawns a detached `copilot --headless` server tracked via PID file; survives restarts.
 - **Remote**: Connects to a remote server URL (e.g., DevTunnel). Only mode available on mobile.
+- **Demo**: Local mock responses for testing without a network connection.
+
+Mode and CLI source selections persist immediately to `~/.polypilot/settings.json` when the user clicks the corresponding card — no "Save & Reconnect" needed for the choice itself. "Save & Reconnect" is only needed to actually reconnect with the new settings.
+
+### Mode Switching & Session Persistence
+When switching between Embedded and Persistent modes (via Settings → Save & Reconnect), `ReconnectAsync` tears down the existing client and restores sessions from disk. Key safety mechanisms:
+
+1. **Merge-based `SaveActiveSessionsToDisk()`** — reads the existing `active-sessions.json` and preserves entries whose session directory still exists on disk, even if not currently in memory. This prevents partial restores from clobbering the full list. The merge logic is in `CopilotService.Persistence.cs` → `MergeSessionEntries()` (static, testable).
+
+2. **`_closedSessionIds`** — tracks sessions explicitly closed by the user so the merge doesn't re-add them. Cleared on `ReconnectAsync`.
+
+3. **`IsRestoring` flag** — set during `RestorePreviousSessionsAsync`. Guards per-session `SaveActiveSessionsToDisk()` and `ReconcileOrganization()` calls to avoid unnecessary disk I/O and race conditions during bulk restore.
+
+4. **Persistent fallback notice** — if `InitializeAsync` can't start the persistent server, it falls back to Embedded and sets `FallbackNotice` with a visible warning banner on the Dashboard.
 
 ### WebSocket Bridge (Remote Viewer Protocol)
 `WsBridgeServer` runs on the desktop app and exposes session state over WebSocket. `WsBridgeClient` runs on mobile apps to receive live updates and send commands. The protocol is defined in `Models/BridgeMessages.cs` with typed payloads and message type constants in `BridgeMessageTypes`.
@@ -74,13 +88,13 @@ This is a .NET MAUI Blazor Hybrid app targeting Mac Catalyst, Android, and iOS. 
 `DevTunnelService` manages a `devtunnel host` process to expose the bridge over the internet, with QR code scanning for easy mobile setup (`QrScannerPage.xaml`).
 
 ### Platform Differences
-`Models/PlatformHelper.cs` exposes `IsDesktop`/`IsMobile` and controls which `ConnectionMode`s are available. Mobile can only use Remote mode. Desktop defaults to Embedded.
+`Models/PlatformHelper.cs` exposes `IsDesktop`/`IsMobile` and controls which `ConnectionMode`s are available. Mobile can only use Remote mode. Desktop defaults to Persistent.
 
 ## Critical Conventions
 
 ### Git Workflow
-- **NEVER force push** (`git push --force` / `git push -f`). Always add new commits on top of existing ones.
-- When contributing to an existing PR, add commits — do not rebase or squash interactively.
+- **NEVER use `git push --force`** — always use `git push --force-with-lease` instead when a force push is needed (e.g., after a rebase). This prevents overwriting remote changes made by others.
+- When contributing to an existing PR, prefer adding commits on top. Rebase only when explicitly asked.
 - Use `git add -f` when adding files matched by `.gitignore` patterns (e.g., `*.app/` catches `PolyPilot/`).
 
 ### No `static readonly` fields that call platform APIs
@@ -183,9 +197,20 @@ Test files in `PolyPilot.Tests/`:
 - `AgentSessionInfoTests.cs` — Session info properties, history, queue
 - `SessionOrganizationTests.cs` — Groups, sorting, metadata
 - `ConnectionSettingsTests.cs` — Settings persistence
+- `CopilotServiceInitializationTests.cs` — Initialization error handling, mode switching, fallback notices, CLI source persistence
+- `SessionPersistenceTests.cs` — Merge-based `SaveActiveSessionsToDisk()`, closed session exclusion, directory checks
+- `ScenarioReferenceTests.cs` — Validates UI scenario JSON + cross-references with unit tests
 - `EventsJsonlParsingTests.cs` — SDK event log parsing
 - `PlatformHelperTests.cs` — Platform detection
 - `ToolResultFormattingTests.cs` — Tool output formatting
 - `UiStatePersistenceTests.cs` — UI state save/load
 
+UI scenario definitions live in `PolyPilot.Tests/Scenarios/mode-switch-scenarios.json` — executable via MauiDevFlow CDP commands against a running app.
+
 Tests include source files via `<Compile Include>` links in the csproj. When adding new model classes, add a corresponding link entry.
+
+### Test Safety
+- Tests must **NEVER** call `ConnectionSettings.Save()` or `ConnectionSettings.Load()` — these read/write `~/.polypilot/settings.json` which is shared with the running app.
+- All tests use `ReconnectAsync(settings)` with an in-memory settings object.
+- Never use `ConnectionMode.Embedded` in tests — it spawns real copilot processes. Use `ConnectionMode.Persistent` with port 19999 for deterministic failures, or `ConnectionMode.Demo` for success paths.
+- CopilotService dependencies are injected via interfaces: `IChatDatabase`, `IServerManager`, `IWsBridgeClient`, `IDemoService`. Test stubs live in `TestStubs.cs`.

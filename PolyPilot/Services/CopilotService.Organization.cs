@@ -97,12 +97,25 @@ public partial class CopilotService
                         var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
                         if (repo != null)
                         {
-                            var repoGroup = Organization.Groups.FirstOrDefault(g => g.RepoId == repo.Id);
-                            if (repoGroup != null)
-                            {
-                                meta.GroupId = repoGroup.Id;
-                            }
+                            var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
+                            meta.GroupId = repoGroup.Id;
                         }
+                        changed = true;
+                    }
+                }
+            }
+
+            // Ensure sessions with worktrees are in the correct repo group
+            if (meta.WorktreeId != null && meta.GroupId == SessionGroup.DefaultId)
+            {
+                var worktree = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
+                if (worktree != null)
+                {
+                    var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
+                    if (repo != null)
+                    {
+                        var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
+                        meta.GroupId = repoGroup.Id;
                         changed = true;
                     }
                 }
@@ -167,13 +180,23 @@ public partial class CopilotService
 
     public void MoveSession(string sessionName, string groupId)
     {
+        if (!Organization.Groups.Any(g => g.Id == groupId))
+            return;
+
         var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
-        if (meta != null && Organization.Groups.Any(g => g.Id == groupId))
+        if (meta == null)
+        {
+            // Session exists but wasn't reconciled yet — create meta on the fly
+            meta = new SessionMeta { SessionName = sessionName, GroupId = groupId };
+            Organization.Sessions.Add(meta);
+        }
+        else
         {
             meta.GroupId = groupId;
-            SaveOrganization();
-            OnStateChanged?.Invoke();
         }
+
+        SaveOrganization();
+        OnStateChanged?.Invoke();
     }
 
     public SessionGroup CreateGroup(string name)

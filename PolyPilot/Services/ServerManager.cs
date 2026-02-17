@@ -4,7 +4,7 @@ using PolyPilot.Models;
 
 namespace PolyPilot.Services;
 
-public class ServerManager
+public class ServerManager : IServerManager
 {
     private static string? _pidFilePath;
     private static string PidFilePath => _pidFilePath ??= Path.Combine(
@@ -240,6 +240,10 @@ public class ServerManager
         {
             if (File.Exists(path)) return path;
         }
+
+        // Try the bundled binary from the SDK (MonoBundle/copilot or runtimes/{rid}/native/copilot)
+        var bundledPath = CopilotService.ResolveBundledCliPath();
+        if (bundledPath != null) return bundledPath;
 
         // Fallback to node wrapper (works if copilot is on PATH)
         return OperatingSystem.IsWindows() ? "copilot.cmd" : "copilot";

@@ -45,24 +45,50 @@
         document.addEventListener('paste', function(e) {
             var sel = '.card-input input, .card-input textarea, .input-row textarea';
             if (!e.target.matches || !e.target.matches(sel)) return;
-            var items = e.clipboardData && e.clipboardData.items;
-            if (!items) return;
-            for (var i = 0; i < items.length; i++) {
-                if (items[i].type.startsWith('image/')) {
-                    if (!window.__dashRef) return;
-                    e.preventDefault();
-                    var file = items[i].getAsFile();
-                    if (file) {
-                        var reader = new FileReader();
-                        reader.onload = function() {
-                            var base64 = reader.result.split(',')[1];
-                            var ext = (file.name && file.name.includes('.')) ? file.name.split('.').pop() : 'png';
-                            var name = file.name || ('pasted-image.' + ext);
-                            window.__dashRef.invokeMethodAsync('JsImagePasted', base64, name, ext, e.target.id || '');
-                        };
-                        reader.readAsDataURL(file);
+            if (!window.__dashRef) return;
+            var cd = e.clipboardData;
+            if (!cd) return;
+
+            // Try clipboardData.items first (works in most browsers)
+            var items = cd.items;
+            if (items) {
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i].type.startsWith('image/')) {
+                        e.preventDefault();
+                        var file = items[i].getAsFile();
+                        if (file) {
+                            var reader = new FileReader();
+                            reader.onload = function() {
+                                var base64 = reader.result.split(',')[1];
+                                var ext = (file.name && file.name.includes('.')) ? file.name.split('.').pop() : 'png';
+                                var name = file.name || ('pasted-image.' + ext);
+                                window.__dashRef.invokeMethodAsync('JsImagePasted', base64, name, ext, e.target.id || '');
+                            };
+                            reader.readAsDataURL(file);
+                        }
+                        return;
                     }
-                    return;
+                }
+            }
+
+            // Fallback: check clipboardData.files (more reliable on Mac Catalyst WKWebView)
+            var files = cd.files;
+            if (files && files.length > 0) {
+                for (var fi = 0; fi < files.length; fi++) {
+                    if (files[fi].type.startsWith('image/')) {
+                        e.preventDefault();
+                        (function(f) {
+                            var reader = new FileReader();
+                            reader.onload = function() {
+                                var base64 = reader.result.split(',')[1];
+                                var ext = (f.name && f.name.includes('.')) ? f.name.split('.').pop() : 'png';
+                                var name = f.name || ('pasted-image.' + ext);
+                                window.__dashRef.invokeMethodAsync('JsImagePasted', base64, name, ext, e.target.id || '');
+                            };
+                            reader.readAsDataURL(f);
+                        })(files[fi]);
+                        return;
+                    }
                 }
             }
         }, true);
@@ -321,45 +347,297 @@
             if (el) el.click();
         };
 
+        window.ensureFiestaMentionAutocomplete = function() {
+            if (window.__fiestaMentionSetup) return;
+            window.__fiestaMentionSetup = true;
+
+            var state = {
+                dropdown: null,
+                target: null,
+                options: [],
+                selectedIndex: 0,
+                mentionStart: -1,
+                mentionEnd: -1
+            };
+
+            function getWorkers(el) {
+                var raw = (el && el.getAttribute && el.getAttribute('data-fiesta-workers')) || '';
+                if (!raw) return [];
+                var seen = {};
+                return raw.split(',')
+                    .map(function(v) { return (v || '').trim(); })
+                    .filter(function(v) {
+                        if (!v || /[^A-Za-z0-9._-]/.test(v)) return false;
+                        var key = v.toLowerCase();
+                        if (seen[key]) return false;
+                        seen[key] = true;
+                        return true;
+                    });
+            }
+
+            function getMentionContext(el) {
+                var text = el && typeof el.value === 'string' ? el.value : '';
+                var cursor = (el && typeof el.selectionStart === 'number') ? el.selectionStart : text.length;
+                var left = text.slice(0, cursor);
+                var atIndex = left.lastIndexOf('@');
+                if (atIndex < 0) return null;
+                if (atIndex > 0 && /\S/.test(left.charAt(atIndex - 1))) return null;
+
+                var fragment = left.slice(atIndex + 1);
+                if (/[^A-Za-z0-9._-]/.test(fragment)) return null;
+
+                return {
+                    start: atIndex,
+                    end: cursor,
+                    query: fragment || ''
+                };
+            }
+
+            function ensureDropdown() {
+                if (state.dropdown) return state.dropdown;
+                var d = document.createElement('div');
+                d.id = 'fiesta-mention-autocomplete';
+                d.style.cssText =
+                    'position:fixed;z-index:10020;display:none;min-width:180px;max-width:300px;max-height:220px;overflow-y:auto;' +
+                    'background:var(--bg-tertiary,#1e1e2e);border:1px solid var(--control-border,#45475a);border-radius:8px;' +
+                    'box-shadow:0 8px 24px rgba(0,0,0,0.35);padding:4px;';
+                document.body.appendChild(d);
+                state.dropdown = d;
+                return d;
+            }
+
+            function hideDropdown() {
+                if (state.dropdown) state.dropdown.style.display = 'none';
+                state.target = null;
+                state.options = [];
+                state.selectedIndex = 0;
+                state.mentionStart = -1;
+                state.mentionEnd = -1;
+            }
+
+            function updateDropdownPosition() {
+                if (!state.dropdown || !state.target) return;
+                var rect = state.target.getBoundingClientRect();
+                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 320));
+                var spaceBelow = window.innerHeight - rect.bottom - 8;
+                var spaceAbove = rect.top - 8;
+                var openUp = spaceBelow < 120 && spaceAbove > spaceBelow;
+                var maxHeight = Math.min(220, Math.max(120, openUp ? spaceAbove : spaceBelow));
+                var contentHeight = state.dropdown.scrollHeight || state.dropdown.offsetHeight || 120;
+                var visibleHeight = Math.min(maxHeight, contentHeight);
+                var top = openUp
+                    ? Math.max(8, rect.top - visibleHeight - 6)
+                    : Math.min(rect.bottom + 6, window.innerHeight - visibleHeight - 8);
+                state.dropdown.style.left = left + 'px';
+                state.dropdown.style.top = top + 'px';
+                state.dropdown.style.maxHeight = maxHeight + 'px';
+            }
+
+            function chooseOption(index) {
+                if (!state.target || !state.options[index]) return;
+                var target = state.target;
+                var mention = '@' + state.options[index] + ' ';
+                var value = target.value || '';
+                var before = value.slice(0, state.mentionStart);
+                var after = value.slice(state.mentionEnd);
+                target.value = before + mention + after;
+                var nextCursor = before.length + mention.length;
+                target.focus();
+                target.setSelectionRange(nextCursor, nextCursor);
+                hideDropdown();
+                target.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+
+            function renderDropdown() {
+                var dropdown = ensureDropdown();
+                if (!state.target || state.options.length === 0) {
+                    hideDropdown();
+                    return;
+                }
+
+                dropdown.innerHTML = '';
+                state.options.forEach(function(option, idx) {
+                    var item = document.createElement('button');
+                    item.type = 'button';
+                    item.textContent = '@' + option;
+                    item.style.cssText =
+                        'display:block;width:100%;text-align:left;border:none;border-radius:6px;padding:6px 8px;' +
+                        'font-size:12px;cursor:pointer;line-height:1.25;' +
+                        (idx === state.selectedIndex
+                            ? 'background:var(--hover-bg,#313244);color:var(--text-primary,#cdd6f4);'
+                            : 'background:transparent;color:var(--text-secondary,#bac2de);');
+                    item.addEventListener('mouseenter', function() {
+                        state.selectedIndex = idx;
+                        renderDropdown();
+                    });
+                    item.addEventListener('mousedown', function(ev) {
+                        ev.preventDefault();
+                        chooseOption(idx);
+                    });
+                    dropdown.appendChild(item);
+                });
+
+                dropdown.style.display = 'block';
+                updateDropdownPosition();
+            }
+
+            function refreshForTarget(el) {
+                if (!el || !el.matches || !el.matches('textarea[data-fiesta-workers]')) {
+                    hideDropdown();
+                    return;
+                }
+
+                var workers = getWorkers(el);
+                if (workers.length === 0) {
+                    hideDropdown();
+                    return;
+                }
+
+                var context = getMentionContext(el);
+                if (!context) {
+                    hideDropdown();
+                    return;
+                }
+
+                var q = context.query.toLowerCase();
+                var filtered = workers.filter(function(w) {
+                    return w.toLowerCase().indexOf(q) === 0;
+                }).slice(0, 12);
+
+                if (filtered.length === 0) {
+                    hideDropdown();
+                    return;
+                }
+
+                state.target = el;
+                state.options = filtered;
+                state.mentionStart = context.start;
+                state.mentionEnd = context.end;
+                if (state.selectedIndex >= filtered.length) state.selectedIndex = 0;
+                renderDropdown();
+            }
+
+            document.addEventListener('input', function(e) {
+                if (e.target && e.target.matches && e.target.matches('textarea[data-fiesta-workers]'))
+                    refreshForTarget(e.target);
+            }, true);
+
+            document.addEventListener('click', function(e) {
+                if (state.dropdown && state.dropdown.contains(e.target)) return;
+                if (e.target && e.target.matches && e.target.matches('textarea[data-fiesta-workers]')) {
+                    refreshForTarget(e.target);
+                    return;
+                }
+                hideDropdown();
+            }, true);
+
+            document.addEventListener('keydown', function(e) {
+                if (!state.target || !state.dropdown || state.dropdown.style.display === 'none') return;
+                if (document.activeElement !== state.target) {
+                    hideDropdown();
+                    return;
+                }
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    state.selectedIndex = (state.selectedIndex + 1) % state.options.length;
+                    renderDropdown();
+                    return;
+                }
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    state.selectedIndex = (state.selectedIndex - 1 + state.options.length) % state.options.length;
+                    renderDropdown();
+                    return;
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    chooseOption(state.selectedIndex);
+                    return;
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    hideDropdown();
+                }
+            }, true);
+
+            window.addEventListener('resize', updateDropdownPosition);
+            window.addEventListener('scroll', updateDropdownPosition, true);
+        };
+
+        window.switchKeepAliveSlot = function(activeSlotId, sessionName) {
+            document.querySelectorAll('.keep-alive-slot').forEach(function(slot) {
+                if (slot.id === activeSlotId) {
+                    slot.classList.add('active');
+                } else {
+                    slot.classList.remove('active');
+                }
+            });
+            // Instantly toggle sidebar active highlight without waiting for Blazor render
+            if (sessionName) {
+                document.querySelectorAll('.session-item').forEach(function(item) {
+                    var sn = item.getAttribute('data-session-name');
+                    if (sn === sessionName) {
+                        item.classList.add('active');
+                        item.classList.remove('completed');
+                    } else if (item.classList.contains('active')) {
+                        item.classList.remove('active');
+                    }
+                });
+            }
+        };
+
+        // Capture-phase click handler: instantly switch CSS before Blazor processes the event
+        document.addEventListener('click', function(e) {
+            var item = e.target.closest('.session-item[data-session-name]');
+            if (!item || item.closest('.persisted')) return;
+            var name = item.getAttribute('data-session-name');
+            if (!name) return;
+            var slotId = 'slot-' + name.replace(/ /g, '-');
+            window.switchKeepAliveSlot(slotId, name);
+        }, true);
+
         window.restoreDraftsAndFocus = function(draftsJson, focusId, selStart, selEnd, forceScroll) {
+            window.ensureFiestaMentionAutocomplete();
             function doScroll() {
-                document.querySelectorAll('.card-messages, .messages').forEach(function(el) {
+                // Expanded chat: auto-follow with near-bottom tracking
+                document.querySelectorAll('.messages').forEach(function(el) {
                     if (!el.__scrollInit) {
                         el.__scrollInit = true;
                         el.__wasAtBottom = true;
                         el.scrollTop = el.scrollHeight;
                         return;
                     }
-                    // Use larger threshold (300px) for better tracking during rapid updates
                     var threshold = 300;
                     var distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
                     var isNearBottom = distFromBottom < threshold;
                     
-                    // Track if user was at bottom - reset when they scroll back down
                     if (isNearBottom) {
                         el.__wasAtBottom = true;
                     }
-                    // Only stop following if user actively scrolled up significantly
                     if (distFromBottom > 500) {
                         el.__wasAtBottom = false;
                     }
                     
-                    // Scroll if: forced, near bottom, or was at bottom when content started arriving
                     if (forceScroll || isNearBottom || el.__wasAtBottom) {
+                        el.scrollTop = el.scrollHeight;
+                    }
+                });
+                // Grid cards: only scroll to bottom on init, never fight user scrolling
+                document.querySelectorAll('.card-messages').forEach(function(el) {
+                    if (!el.__scrollInit) {
+                        el.__scrollInit = true;
                         el.scrollTop = el.scrollHeight;
                     }
                 });
             }
             doScroll();
-            // Multiple delayed scrolls to catch content that renders asynchronously
-            if (forceScroll) {
-                setTimeout(doScroll, 50);
-                setTimeout(doScroll, 150);
-                setTimeout(doScroll, 300);
-            } else {
-                // Even without force, do a follow-up scroll for async content
-                requestAnimationFrame(doScroll);
-            }
+            // Single rAF follow-up is sufficient — content is rendered synchronously by Blazor
+            requestAnimationFrame(doScroll);
             var drafts = JSON.parse(draftsJson || '{}');
             for (var id in drafts) {
                 var el = document.getElementById(id);
@@ -377,6 +655,138 @@
                 }
             }
         };
+
+        window.ensureFiestaMentionAutocomplete();
+
+        // === Full-screen image viewer with zoom/pan ===
+        (function() {
+            var overlay, img, closeBtn;
+            var scale = 1, panX = 0, panY = 0, dragging = false, startX, startY, startPanX, startPanY;
+            var pinchStartDist = 0, pinchStartScale = 1;
+
+            function create() {
+                overlay = document.createElement('div');
+                overlay.className = 'image-viewer-overlay';
+                closeBtn = document.createElement('button');
+                closeBtn.className = 'image-viewer-close';
+                closeBtn.innerHTML = '✕';
+                closeBtn.addEventListener('click', function(e) { e.stopPropagation(); close(); });
+                img = document.createElement('img');
+                overlay.appendChild(closeBtn);
+                overlay.appendChild(img);
+                overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+                img.addEventListener('click', function(e) { e.stopPropagation(); });
+
+                // Mouse zoom
+                overlay.addEventListener('wheel', function(e) {
+                    e.preventDefault();
+                    var rect = img.getBoundingClientRect();
+                    var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+                    var oldScale = scale;
+                    scale *= e.deltaY < 0 ? 1.15 : 1/1.15;
+                    scale = Math.max(0.5, Math.min(scale, 20));
+                    panX -= mx * (scale - oldScale);
+                    panY -= my * (scale - oldScale);
+                    applyTransform();
+                }, { passive: false });
+
+                // Mouse drag
+                img.addEventListener('mousedown', function(e) {
+                    if (e.button !== 0) return;
+                    e.preventDefault();
+                    dragging = true; startX = e.clientX; startY = e.clientY;
+                    startPanX = panX; startPanY = panY;
+                    img.classList.add('grabbing');
+                });
+                document.addEventListener('mousemove', function(e) {
+                    if (!dragging) return;
+                    panX = startPanX + (e.clientX - startX);
+                    panY = startPanY + (e.clientY - startY);
+                    applyTransform();
+                });
+                document.addEventListener('mouseup', function() {
+                    dragging = false;
+                    if (img) img.classList.remove('grabbing');
+                });
+
+                // Touch pinch-to-zoom + pan
+                overlay.addEventListener('touchstart', function(e) {
+                    if (e.touches.length === 2) {
+                        e.preventDefault();
+                        pinchStartDist = getTouchDist(e.touches);
+                        pinchStartScale = scale;
+                    } else if (e.touches.length === 1 && e.target === img) {
+                        dragging = true;
+                        startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+                        startPanX = panX; startPanY = panY;
+                    }
+                }, { passive: false });
+                overlay.addEventListener('touchmove', function(e) {
+                    if (e.touches.length === 2) {
+                        e.preventDefault();
+                        var dist = getTouchDist(e.touches);
+                        scale = pinchStartScale * (dist / pinchStartDist);
+                        scale = Math.max(0.5, Math.min(scale, 20));
+                        applyTransform();
+                    } else if (e.touches.length === 1 && dragging) {
+                        e.preventDefault();
+                        panX = startPanX + (e.touches[0].clientX - startX);
+                        panY = startPanY + (e.touches[0].clientY - startY);
+                        applyTransform();
+                    }
+                }, { passive: false });
+                overlay.addEventListener('touchend', function(e) {
+                    if (e.touches.length < 2) { pinchStartDist = 0; }
+                    if (e.touches.length === 0) { dragging = false; }
+                });
+
+                document.body.appendChild(overlay);
+            }
+
+            function getTouchDist(touches) {
+                var dx = touches[0].clientX - touches[1].clientX;
+                var dy = touches[0].clientY - touches[1].clientY;
+                return Math.sqrt(dx*dx + dy*dy);
+            }
+
+            function applyTransform() {
+                img.style.transform = 'translate(' + panX + 'px,' + panY + 'px) scale(' + scale + ')';
+            }
+
+            function open(src) {
+                if (!overlay) create();
+                scale = 1; panX = 0; panY = 0;
+                img.style.transform = '';
+                img.src = src;
+                overlay.style.display = 'flex';
+                requestAnimationFrame(function() { overlay.classList.add('visible'); });
+            }
+
+            function close() {
+                if (!overlay) return;
+                overlay.classList.remove('visible');
+                setTimeout(function() { overlay.style.display = 'none'; img.src = ''; }, 200);
+            }
+
+            // Escape key to close
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape' && overlay && overlay.style.display === 'flex') {
+                    e.preventDefault(); e.stopPropagation(); close();
+                }
+            }, true);
+
+            // Delegated click on chat images
+            document.addEventListener('click', function(e) {
+                var t = e.target;
+                if (t.tagName !== 'IMG') return;
+                if (t.closest('.markdown-body') || t.closest('.tool-image-result') || t.closest('.action-output') || t.closest('.action-expanded-result')) {
+                    e.preventDefault(); e.stopPropagation();
+                    open(t.src);
+                }
+            });
+
+            window.__imageViewer = { open: open, close: close };
+        })();
     </script>
 
 </body>

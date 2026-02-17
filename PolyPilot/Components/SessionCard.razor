@@ -22,6 +22,10 @@
             else
             {
                 <h3>@Session.Name</h3>
+                @if (Session.UnreadCount > 0)
+                {
+                    <span class="unread-badge">@Session.UnreadCount</span>
+                }
             }
         </div>
         <div class="card-more-wrapper">
@@ -68,6 +72,10 @@
         {
             <span class="card-branch-sub"> @Session.GitBranch</span>
         }
+        @if (availableSkills?.Count > 0)
+        {
+            <span class="card-skills" title="@string.Join(", ", availableSkills.Select(s => s.Name))">@availableSkills.Count skill@(availableSkills.Count != 1 ? "s" : "")</span>
+        }
     </div>
 
     <div class="card-messages">
@@ -87,7 +95,8 @@
                          IsProcessing="Session.IsProcessing"
                          Compact="true"
                          UserAvatarUrl="@UserAvatarUrl"
-                         Layout="@Layout" />
+                         Layout="@Layout"
+                         Style="@Style" />
     </div>
 
     @if (!string.IsNullOrEmpty(Error))
@@ -152,6 +161,7 @@
     [Parameter] public List<PendingImage> PendingImages { get; set; } = new();
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
+    [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
     
     // State controlled by parent or callbacks
     [Parameter] public bool IsRenaming { get; set; }
@@ -257,5 +267,18 @@
     {
         if (name.Length <= len) return name;
         return name.Substring(0, len - 3) + "...";
+    }
+
+    private List<SkillInfo>? availableSkills;
+    private string? _lastWorkDir;
+
+    protected override void OnParametersSet()
+    {
+        var wd = Session.WorkingDirectory;
+        if (wd != _lastWorkDir)
+        {
+            _lastWorkDir = wd;
+            availableSkills = CopilotService.DiscoverAvailableSkills(wd);
+        }
     }
 }

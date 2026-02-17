@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
@@ -15,6 +16,7 @@ public class UiStatePersistenceTests
         Assert.Equal("/", state.CurrentPage);
         Assert.Null(state.ActiveSession);
         Assert.Equal(20, state.FontSize);
+        Assert.Empty(state.InputModes);
     }
 
     [Fact]
@@ -24,7 +26,12 @@ public class UiStatePersistenceTests
         {
             CurrentPage = "/dashboard",
             ActiveSession = "my-session",
-            FontSize = 16
+            FontSize = 16,
+            InputModes = new Dictionary<string, string>
+            {
+                ["my-session"] = "autopilot",
+                ["another-session"] = "plan"
+            }
         };
 
         var json = JsonSerializer.Serialize(state);
@@ -34,6 +41,8 @@ public class UiStatePersistenceTests
         Assert.Equal("/dashboard", restored!.CurrentPage);
         Assert.Equal("my-session", restored.ActiveSession);
         Assert.Equal(16, restored.FontSize);
+        Assert.Equal("autopilot", restored.InputModes["my-session"]);
+        Assert.Equal("plan", restored.InputModes["another-session"]);
     }
 
     [Fact]
@@ -45,6 +54,17 @@ public class UiStatePersistenceTests
 
         Assert.NotNull(restored);
         Assert.Null(restored!.ActiveSession);
+    }
+
+    [Fact]
+    public void UiState_LegacyJsonWithoutInputModes_Deserializes()
+    {
+        const string legacyJson = """{"CurrentPage":"/dashboard","ActiveSession":"s1","FontSize":20,"ExpandedGrid":false}""";
+        var restored = JsonSerializer.Deserialize<UiState>(legacyJson);
+
+        Assert.NotNull(restored);
+        Assert.NotNull(restored!.InputModes);
+        Assert.Empty(restored.InputModes);
     }
 
     [Fact]
@@ -149,21 +169,4 @@ public class UiStatePersistenceTests
         Assert.Equal("claude-opus-4.5", restoredEntry.Model);
         Assert.Equal("/Users/test/.polypilot/worktrees/dotnet-maui-8f45001d", restoredEntry.WorkingDirectory);
     }
-}
-
-// These classes mirror the ones in CopilotService.cs (they're defined at the bottom of that file)
-// They're duplicated here because the original file has MAUI dependencies.
-public class UiState
-{
-    public string CurrentPage { get; set; } = "/";
-    public string? ActiveSession { get; set; }
-    public int FontSize { get; set; } = 20;
-}
-
-public class ActiveSessionEntry
-{
-    public string SessionId { get; set; } = "";
-    public string DisplayName { get; set; } = "";
-    public string Model { get; set; } = "";
-    public string? WorkingDirectory { get; set; }
 }

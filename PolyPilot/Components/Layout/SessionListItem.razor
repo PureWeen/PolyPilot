@@ -20,6 +20,7 @@
     var contextColor = contextPct > 85 ? "var(--accent-primary)" : contextPct > 60 ? "#fbbf24" : "var(--accent-success)";
 }
 <div class="session-item @cssClass @(isPinned ? "pinned" : "")"
+     data-session-name="@Session.Name"
      @onclick="() => OnSelect.InvokeAsync()">
     <div class="session-info">
         <span class="session-name">
@@ -46,6 +47,10 @@
             else
             {
                 <span class="session-name-text" @ondblclick="() => OnStartRename.InvokeAsync()" @ondblclick:stopPropagation="true">@Session.Name</span>
+                @if (Session.UnreadCount > 0)
+                {
+                    <span class="unread-badge">@Session.UnreadCount</span>
+                }
             }
         </span>
         <div class="session-meta-row">
@@ -98,6 +103,21 @@
                     <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnPin.InvokeAsync(true); }">
                         📌 Pin
                     </button>
+                }
+                @if (Groups != null && Groups.Count > 1)
+                {
+                    <div class="menu-separator"></div>
+                    <div class="menu-submenu">
+                        <span class="menu-item submenu-label">📁 Move to…</span>
+                        @foreach (var g in Groups)
+                        {
+                            if (g.Id == Meta?.GroupId) continue;
+                            var targetId = g.Id;
+                            <button class="menu-item submenu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnMove.InvokeAsync(targetId); }">
+                                @g.Name
+                            </button>
+                        }
+                    </div>
                 }
                 <div class="menu-separator"></div>
                 @if (!string.IsNullOrEmpty(sessionDir))

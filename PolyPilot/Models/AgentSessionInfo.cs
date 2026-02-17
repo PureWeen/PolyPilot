@@ -25,4 +25,28 @@ public class AgentSessionInfo
     public int TotalOutputTokens { get; set; }
     public int? ContextCurrentTokens { get; set; }
     public int? ContextTokenLimit { get; set; }
+
+    /// <summary>
+    /// History.Count at the time the user last viewed this session.
+    /// Messages added after this count are "unread".
+    /// </summary>
+    public int LastReadMessageCount { get; set; }
+
+    public int UnreadCount
+    {
+        get
+        {
+            try
+            {
+                // Snapshot to avoid collection-modified exceptions from background threads
+                var snapshot = History.ToArray();
+                return Math.Max(0,
+                    snapshot.Skip(LastReadMessageCount).Count(m => m?.Role == "assistant"));
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+    }
 }

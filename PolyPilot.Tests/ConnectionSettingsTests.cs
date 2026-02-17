@@ -134,6 +134,80 @@ public class ConnectionSettingsTests
         Assert.Contains("\"Mode\":1", json);
     }
 
+    [Fact]
+    public void DefaultValues_NewFields_AreCorrect()
+    {
+        var settings = new ConnectionSettings();
+
+        Assert.Null(settings.ServerPassword);
+        Assert.False(settings.DirectSharingEnabled);
+        Assert.Equal(CliSourceMode.BuiltIn, settings.CliSource);
+    }
+
+    [Fact]
+    public void Save_Load_RoundTrip_WithNewFields()
+    {
+        var original = new ConnectionSettings
+        {
+            Mode = ConnectionMode.Embedded,
+            Host = "localhost",
+            Port = 4321,
+            ServerPassword = "mypass",
+            DirectSharingEnabled = true,
+            CliSource = CliSourceMode.System
+        };
+
+        var json = JsonSerializer.Serialize(original);
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        Assert.Equal("mypass", loaded!.ServerPassword);
+        Assert.True(loaded.DirectSharingEnabled);
+        Assert.Equal(CliSourceMode.System, loaded.CliSource);
+    }
+
+    [Fact]
+    public void BackwardCompatibility_OldJsonWithoutNewFields()
+    {
+        var json = """{"Mode":0,"Host":"oldhost","Port":1234}""";
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        Assert.Equal("oldhost", loaded!.Host);
+        Assert.Equal(1234, loaded.Port);
+        Assert.Null(loaded.ServerPassword);
+        Assert.False(loaded.DirectSharingEnabled);
+        Assert.Equal(CliSourceMode.BuiltIn, loaded.CliSource);
+    }
+
+    [Fact]
+    public void ServerPassword_NotInCliUrl()
+    {
+        var settings = new ConnectionSettings
+        {
+            Host = "myhost",
+            Port = 5555,
+            ServerPassword = "secret123"
+        };
+
+        Assert.Equal("myhost:5555", settings.CliUrl);
+        Assert.DoesNotContain("secret123", settings.CliUrl);
+    }
+
+    [Fact]
+    public void DirectSharingEnabled_DefaultFalse()
+    {
+        var settings = new ConnectionSettings();
+        Assert.False(settings.DirectSharingEnabled);
+    }
+
+    [Fact]
+    public void CliSourceMode_Enum_HasExpectedValues()
+    {
+        Assert.Equal(0, (int)CliSourceMode.BuiltIn);
+        Assert.Equal(1, (int)CliSourceMode.System);
+    }
+
     private void Dispose()
     {
         try { Directory.Delete(_testDir, true); } catch { }

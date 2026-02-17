@@ -17,6 +17,7 @@ public class WsBridgeServer : IDisposable
     private Task? _acceptTask;
     private int _bridgePort;
     private CopilotService? _copilot;
+    private FiestaService? _fiestaService;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
 
@@ -129,6 +130,11 @@ public class WsBridgeServer : IDisposable
                 new ErrorPayload { SessionName = session, Error = error }));
             BroadcastAttentionNeeded(session, AttentionReason.Error, TruncateSummary(error));
         };
+    }
+
+    public void SetFiestaService(FiestaService fiestaService)
+    {
+        _fiestaService ??= fiestaService;
     }
 
     public void Stop()
@@ -266,12 +272,14 @@ public class WsBridgeServer : IDisposable
                 BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot?.Organization ?? new OrganizationState()), ct);
             await SendPersistedToClient(clientId, ws, ct);
 
-            // Send active session history
+            // Send history for all active sessions so mobile has full state on connect
             if (_copilot != null)
             {
-                var active = _copilot.GetActiveSession();
-                if (active != null)
-                    await SendSessionHistoryToClient(clientId, ws, active.Name, ct);
+                foreach (var session in _copilot.GetAllSessions())
+                {
+                    if (session.History.Count > 0)
+                        await SendSessionHistoryToClient(clientId, ws, session.Name, ct);
+                }
             }
 
             // Read client commands (with fragmentation support)
@@ -345,6 +353,10 @@ public class WsBridgeServer : IDisposable
                     var createReq = msg.GetPayload<CreateSessionPayload>();
                     if (createReq != null && !string.IsNullOrWhiteSpace(createReq.Name))
                     {
+                        // Normalize empty WorkingDirectory to null (mobile sends "" when no dir is specified)
+                        if (string.IsNullOrWhiteSpace(createReq.WorkingDirectory))
+                            createReq.WorkingDirectory = null;
+
                         // Validate WorkingDirectory if provided — must be an absolute path that exists
                         if (createReq.WorkingDirectory != null)
                         {
@@ -510,6 +522,12 @@ public class WsBridgeServer : IDisposable
                         _copilot.SetSessionRole(maRoleReq.SessionName, role);
                     }
                     break;
+
+                case BridgeMessageTypes.FiestaAssign:
+                case BridgeMessageTypes.FiestaPing:
+                    if (_fiestaService != null)
+                        await _fiestaService.HandleBridgeMessageAsync(clientId, ws, msg, ct);
+                    break;
             }
         }
         catch (Exception ex)
@@ -519,6 +537,9 @@ public class WsBridgeServer : IDisposable
     }
 
     // --- Send helpers (per-client lock to prevent concurrent SendAsync) ---
+
+    public Task SendBridgeMessageAsync(string clientId, WebSocket ws, BridgeMessage msg, CancellationToken ct) =>
+        SendToClientAsync(clientId, ws, msg, ct);
 
     private async Task SendToClientAsync(string clientId, WebSocket ws, BridgeMessage msg, CancellationToken ct)
     {

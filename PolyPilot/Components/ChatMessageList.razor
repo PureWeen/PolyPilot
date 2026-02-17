@@ -3,7 +3,7 @@
 
 @* Shared chat message list — used by Dashboard.razor (grid=compact, expanded=full) *@
 
-<div class="chat-message-list @(Compact ? "compact" : "full") @GetLayoutClass()">
+<div class="chat-message-list @(Compact ? "compact" : "full") @GetLayoutClass() @GetStyleClass()">
     @if (!Messages.Any() && string.IsNullOrEmpty(StreamingContent))
     {
         <p class="chat-empty">@(Compact ? "No messages yet" : "Start a conversation with Copilot!")</p>
@@ -12,15 +12,16 @@
     {
         @foreach (var msg in Messages.ToList())
         {
-            <ChatMessageItem Message="msg" Compact="Compact" UserAvatarUrl="@UserAvatarUrl" />
+            <ChatMessageItem @key="msg" Message="msg" Compact="Compact" UserAvatarUrl="@UserAvatarUrl" />
         }
 
         @* Current turn tool activity feed — skip activities already in history *@
-        @if (GetNewActivities().Any())
+        var newActivities = GetNewActivities().ToList();
+        @if (newActivities.Count > 0)
         {
             @if (Compact)
             {
-                @foreach (var activity in GetNewActivities().TakeLast(3))
+                @foreach (var activity in newActivities.TakeLast(3))
                 {
                     <div class="chat-msg tool">
                         <span class="chat-msg-role">🔧</span>
@@ -30,7 +31,7 @@
             }
             else
             {
-                @foreach (var activity in GetNewActivities())
+                @foreach (var activity in newActivities)
                 {
                     <div class="action-item @(GetActionLabel(activity.Name).CssClass) @(activity.IsComplete ? (activity.IsSuccess ? "done" : "failed") : "running")">
                         <span class="action-dot"></span>
@@ -108,11 +109,18 @@
     [Parameter] public bool Compact { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
+    [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
 
     private string GetLayoutClass() => Layout switch
     {
         ChatLayout.Reversed => "layout-reversed",
         ChatLayout.BothLeft => "layout-both-left",
+        _ => ""
+    };
+
+    private string GetStyleClass() => Style switch
+    {
+        ChatStyle.Minimal => "style-minimal",
         _ => ""
     };
 

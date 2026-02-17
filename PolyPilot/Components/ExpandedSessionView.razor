@@ -39,9 +39,54 @@
                     }
                 </div>
             </div>
+            <button class="icon-badge fiesta-btn @(FiestaActive ? "active" : "")"
+                    data-tooltip="Fiesta workers"
+                    @onclick="ToggleFiestaPicker">🎉</button>
             <button class="icon-badge collapse-card-btn" data-tooltip="Back to grid (Esc / ⌘E)" @onclick="OnCollapse">⊟</button>
         </div>
     </div>
+
+    @if (_showFiestaPicker)
+    {
+        <div class="fiesta-panel-inline">
+            <div class="fiesta-row">
+                <label>Fiesta name</label>
+                <input type="text" @bind="_fiestaName" placeholder="Fiesta name..." />
+            </div>
+            <div class="fiesta-worker-list">
+                @if (FiestaWorkers.Count == 0)
+                {
+                    <div class="fiesta-empty">No linked workers. Link workers in Settings first.</div>
+                }
+                else
+                {
+                    @foreach (var worker in FiestaWorkers.OrderBy(w => w.Name))
+                    {
+                        var selected = _selectedWorkerIds.Contains(worker.Id);
+                        <label class="fiesta-worker-item">
+                            <input type="checkbox"
+                                   checked="@selected"
+                                   @onchange="e => ToggleFiestaWorker(worker.Id, IsChecked(e))" />
+                            <span>@worker.Name (@worker.Hostname)</span>
+                            <span class="fiesta-worker-status">@(worker.IsOnline ? "online" : "offline")</span>
+                        </label>
+                    }
+                }
+            </div>
+            <div class="fiesta-actions">
+                @if (FiestaActive)
+                {
+                    <button class="queue-clear-btn" @onclick="StopFiestaAsync">Stop Fiesta</button>
+                }
+                else
+                {
+                    <button class="queue-clear-btn" @onclick="StartFiestaAsync"
+                            disabled="@(_selectedWorkerIds.Count == 0)">Start Fiesta</button>
+                }
+                <button class="queue-clear-btn" @onclick="ToggleFiestaPicker">Close</button>
+            </div>
+        </div>
+    }
 
     <div class="messages expanded-messages">
         @{ var expandedMessages = GetWindowedMessages(); }
@@ -59,14 +104,15 @@
                          IsProcessing="Session.IsProcessing"
                          Compact="false"
                          UserAvatarUrl="@UserAvatarUrl"
-                         Layout="@Layout" />
+                         Layout="@Layout"
+                         Style="@Style" />
     </div>
 
     @if (!string.IsNullOrEmpty(Error))
     {
         <div class="error-bar">
             <span>⚠️ @Error</span>
-            <button @onclick="OnDismissError">×</button>
+            <button @onclick="() => OnDismissError.InvokeAsync(Session.Name)">×</button>
         </div>
     }
 
@@ -80,7 +126,7 @@
             <div class="message-queue">
                 <div class="queue-header">
                     <span>📋 Queued (@Session.MessageQueue.Count)</span>
-                    <button class="queue-clear-btn" @onclick="OnClearQueue">Clear</button>
+                    <button class="queue-clear-btn" @onclick="() => OnClearQueue.InvokeAsync(Session.Name)">Clear</button>
                 </div>
                 @for (var i = 0; i < Session.MessageQueue.Count; i++)
                 {
@@ -89,7 +135,7 @@
                     <div class="queue-item">
                         <span class="queue-index">@(index + 1)</span>
                         <span class="queue-text">@Truncate(msg, 80)</span>
-                        <button class="queue-remove-btn" @onclick="() => OnRemoveQueuedMessage.InvokeAsync(index)">×</button>
+                        <button class="queue-remove-btn" @onclick="() => OnRemoveQueuedMessage.InvokeAsync((Session.Name, index))">×</button>
                     </div>
                 }
             </div>
@@ -103,7 +149,7 @@
                     var pimg = PendingImages[pi];
                     <div class="attachment-thumb">
                         <img src="@pimg.DataUri" alt="@pimg.FileName" />
-                        <button class="attachment-remove" @onclick="() => OnRemovePendingImage.InvokeAsync(pidx)" title="Remove">×</button>
+                        <button class="attachment-remove" @onclick="() => OnRemovePendingImage.InvokeAsync((Session.Name, pidx))" title="Remove">×</button>
                         <span class="attachment-name">@TruncateFileName(pimg.FileName, 15)</span>
                     </div>
                 }
@@ -112,26 +158,43 @@
         <div class="input-row">
             <input type="file" id="file-@Session.Name.Replace(" ", "-")" accept="image/*" multiple style="display:none" />
             <textarea id="input-@Session.Name.Replace(" ", "-")"
+                      data-fiesta-workers="@FiestaAutocompleteWorkers"
                       placeholder="@(Session.IsProcessing ? "Message will be queued…" : PlatformHelper.IsMobile ? "Message..." : "Message... (↵ send, ⇧↵ newline)")"
                       rows="1"></textarea>
-            <button class="attach-btn" @onclick="() => OnAttach.InvokeAsync()" title="Attach image">
+            <button class="attach-btn" @onclick="() => OnAttach.InvokeAsync(Session.Name)" title="Attach image">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
             </button>
             @if (Session.IsProcessing)
             {
-                <button class="send-btn stop-btn" @onclick="() => OnStop.InvokeAsync()" title="Stop">
+                <button class="send-btn stop-btn" @onclick="() => OnStop.InvokeAsync(Session.Name)" title="Stop">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                 </button>
             }
-            <button class="send-btn" @onclick="() => OnSend.InvokeAsync()">
+            <button class="send-btn" @onclick="() => OnSend.InvokeAsync(Session.Name)">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z"/></svg>
             </button>
         </div>
         <div class="input-status-bar">
             <div class="mode-switcher">
-                <button class="mode-btn @(!PlanMode ? "active" : "")" @onclick="() => OnSetPlanMode.InvokeAsync(false)">Chat</button>
-                <button class="mode-btn @(PlanMode ? "active" : "")" @onclick="() => OnSetPlanMode.InvokeAsync(true)">Plan</button>
+                <button class="mode-btn @(InputMode == "chat" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("chat")'>Chat</button>
+                <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")'>Plan</button>
+                <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")'>Autopilot</button>
+
             </div>
+            <span class="status-sep">·</span>
+            <span class="log-label" style="font-size:var(--type-footnote)">Log</span>
+            <span class="status-sep">·</span>
+            <span class="status-msgs">@Session.History.Count msgs</span>
+            @if (availableSkills?.Count > 0)
+            {
+                <span class="status-sep">·</span>
+                <span class="skills-trigger" @onclick="ShowSkillsPopup">@availableSkills.Count skills</span>
+            }
+            @if (availableAgents?.Count > 0)
+            {
+                <span class="status-sep">·</span>
+                <span class="skills-trigger" @onclick="ShowAgentsPopup">@availableAgents.Count agents</span>
+            }
             <span class="status-sep">·</span>
             <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
                 @if (!AvailableModels.Contains(CurrentModel))
@@ -143,12 +206,12 @@
                     <option value="@m">@PrettifyModel(m)</option>
                 }
             </select>
+            <div class="status-spacer"></div>
             <span class="status-extra">
                 @if (UsageInfo != null)
                 {
                     @if (UsageInfo.InputTokens.HasValue || UsageInfo.OutputTokens.HasValue)
                     {
-                        <span class="status-sep">·</span>
                         <span class="status-tokens">↑@FormatTokenCount(UsageInfo.InputTokens ?? 0) ↓@FormatTokenCount(UsageInfo.OutputTokens ?? 0)</span>
                     }
                     @if (UsageInfo.CurrentTokens.HasValue && UsageInfo.TokenLimit.HasValue)
@@ -157,17 +220,7 @@
                         <span class="status-ctx">@FormatTokenCount(UsageInfo.CurrentTokens.Value)/@FormatTokenCount(UsageInfo.TokenLimit.Value) ctx</span>
                     }
                 }
-                <span class="status-sep">·</span>
-                <span class="status-msgs">@Session.History.Count msgs</span>
-                <span class="status-sep">·</span>
-                <span class="font-size-controls">
-                    <button class="font-size-btn" @onclick="() => OnFontSizeChange.InvokeAsync(-2)" disabled="@(FontSize <= 12)">A−</button>
-                    <span class="font-size-label" @onclick="() => OnFontSizeChange.InvokeAsync(0)">@(FontSize)px</span>
-                    <button class="font-size-btn" @onclick="() => OnFontSizeChange.InvokeAsync(2)" disabled="@(FontSize >= 24)">A+</button>
-                </span>
             </span>
-            <span class="status-sep log-sep">·</span>
-            <span class="log-label" style="font-size:var(--type-footnote)">Log</span>
         </div>
     </div>
 </div>
@@ -182,27 +235,38 @@
     [Parameter] public string Intent { get; set; } = "";
     [Parameter] public string? Error { get; set; }
     [Parameter] public SessionUsageInfo? UsageInfo { get; set; }
-    [Parameter] public bool PlanMode { get; set; }
+    [Parameter] public string InputMode { get; set; } = "chat";
     [Parameter] public string CurrentModel { get; set; } = "";
     [Parameter] public IReadOnlyList<string> AvailableModels { get; set; } = Array.Empty<string>();
     [Parameter] public List<PendingImage>? PendingImages { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
+    [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
     [Parameter] public int FontSize { get; set; } = 20;
     [Parameter] public int MessageWindowSize { get; set; } = 25;
+    [Parameter] public bool FiestaActive { get; set; }
+    [Parameter] public IReadOnlyList<FiestaLinkedWorker> FiestaWorkers { get; set; } = Array.Empty<FiestaLinkedWorker>();
 
-    [Parameter] public EventCallback OnSend { get; set; }
-    [Parameter] public EventCallback OnStop { get; set; }
+    [Parameter] public EventCallback<string> OnSend { get; set; }
+    [Parameter] public EventCallback<string> OnStop { get; set; }
     [Parameter] public EventCallback OnCollapse { get; set; }
-    [Parameter] public EventCallback OnAttach { get; set; }
-    [Parameter] public EventCallback OnDismissError { get; set; }
-    [Parameter] public EventCallback OnClearQueue { get; set; }
-    [Parameter] public EventCallback<int> OnRemoveQueuedMessage { get; set; }
-    [Parameter] public EventCallback<int> OnRemovePendingImage { get; set; }
-    [Parameter] public EventCallback<bool> OnSetPlanMode { get; set; }
+    [Parameter] public EventCallback<string> OnAttach { get; set; }
+    [Parameter] public EventCallback<string> OnDismissError { get; set; }
+    [Parameter] public EventCallback<string> OnClearQueue { get; set; }
+    [Parameter] public EventCallback<(string SessionName, int Index)> OnRemoveQueuedMessage { get; set; }
+    [Parameter] public EventCallback<(string SessionName, int Index)> OnRemovePendingImage { get; set; }
+    [Parameter] public EventCallback<string> OnSetInputMode { get; set; }
     [Parameter] public EventCallback<string?> OnSetModel { get; set; }
+
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
-    [Parameter] public EventCallback OnLoadMore { get; set; }
+    [Parameter] public EventCallback<string> OnLoadMore { get; set; }
+    [Parameter] public EventCallback<(string SessionName, FiestaStartRequest Request)> OnStartFiesta { get; set; }
+    [Parameter] public EventCallback<string> OnStopFiesta { get; set; }
+
+
+    private bool _showFiestaPicker;
+    private string _fiestaName = "";
+    private readonly HashSet<string> _selectedWorkerIds = new(StringComparer.Ordinal);
 
     private List<ChatMessage> GetWindowedMessages()
     {
@@ -212,7 +276,7 @@
         return history.Skip(history.Count - MessageWindowSize).ToList();
     }
 
-    private void LoadMore() => OnLoadMore.InvokeAsync();
+    private void LoadMore() => OnLoadMore.InvokeAsync(Session.Name);
 
     private static string PrettifyModel(string modelId)
     {
@@ -257,4 +321,196 @@
 
     private static string TruncateFileName(string name, int maxLen) =>
         name.Length <= maxLen ? name : name[..maxLen] + "…";
+
+    private List<SkillInfo>? availableSkills;
+    private List<AgentInfo>? availableAgents;
+    private string? _lastSkillSessionName;
+
+    protected override void OnParametersSet()
+    {
+        if (Session.Name != _lastSkillSessionName)
+        {
+            _lastSkillSessionName = Session.Name;
+            // Defer skill/agent discovery to background thread — don't block session switch
+            availableSkills = null;
+            availableAgents = null;
+            _fiestaName = Session.Name;
+            _selectedWorkerIds.Clear();
+            foreach (var worker in FiestaWorkers)
+                _selectedWorkerIds.Add(worker.Id);
+            var workDir = Session.WorkingDirectory;
+            var capturedSessionName = Session.Name;
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    var skills = CopilotService.DiscoverAvailableSkills(workDir);
+                    var agents = CopilotService.DiscoverAvailableAgents(workDir);
+                    InvokeAsync(() =>
+                    {
+                        // Only apply if we're still on the same session
+                        if (_lastSkillSessionName == capturedSessionName)
+                        {
+                            availableSkills = skills;
+                            availableAgents = agents;
+                            StateHasChanged();
+                        }
+                    });
+                }
+                catch { /* Component may be disposed during discovery */ }
+            });
+        }
+
+        _selectedWorkerIds.RemoveWhere(id => FiestaWorkers.All(w => !string.Equals(w.Id, id, StringComparison.Ordinal)));
+        if (_selectedWorkerIds.Count == 0)
+        {
+            foreach (var worker in FiestaWorkers)
+                _selectedWorkerIds.Add(worker.Id);
+        }
+    }
+
+    private void ToggleFiestaPicker()
+    {
+        _showFiestaPicker = !_showFiestaPicker;
+        if (_showFiestaPicker && string.IsNullOrWhiteSpace(_fiestaName))
+            _fiestaName = Session.Name;
+    }
+
+    private void ToggleFiestaWorker(string workerId, bool selected)
+    {
+        if (selected)
+            _selectedWorkerIds.Add(workerId);
+        else
+            _selectedWorkerIds.Remove(workerId);
+    }
+
+    private static bool IsChecked(ChangeEventArgs e) =>
+        e.Value is bool b ? b : string.Equals(e.Value?.ToString(), "true", StringComparison.OrdinalIgnoreCase);
+
+    private async Task StartFiestaAsync()
+    {
+        if (_selectedWorkerIds.Count == 0) return;
+        var request = new FiestaStartRequest
+        {
+            FiestaName = string.IsNullOrWhiteSpace(_fiestaName) ? Session.Name : _fiestaName.Trim(),
+            WorkerIds = _selectedWorkerIds.ToList()
+        };
+        await OnStartFiesta.InvokeAsync((Session.Name, request));
+        _showFiestaPicker = false;
+    }
+
+    private async Task StopFiestaAsync()
+    {
+        await OnStopFiesta.InvokeAsync(Session.Name);
+        _showFiestaPicker = false;
+    }
+
+    private string FiestaAutocompleteWorkers
+    {
+        get
+        {
+            var tokens = FiestaWorkers
+                .SelectMany(w => new[]
+                {
+                    NormalizeMentionToken(w.Hostname),
+                    NormalizeMentionToken(w.Name)
+                })
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(t => t, StringComparer.OrdinalIgnoreCase);
+
+            return string.Join(",", tokens);
+        }
+    }
+
+    private static string NormalizeMentionToken(string value) =>
+        new((value ?? "").Trim().Where(ch => char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-').ToArray());
+
+    private async Task ShowSkillsPopup()
+    {
+        if (availableSkills == null || availableSkills.Count == 0) return;
+        var rows = string.Join("", availableSkills.Select(s =>
+        {
+            var desc = string.IsNullOrWhiteSpace(s.Description) ? "" :
+                $"<div style=\"font-size:13px;color:#a6adc8;margin-top:3px;line-height:1.4\">{EscapeHtml(TruncateDesc(s.Description))}</div>";
+            return $"<div style=\"padding:8px 14px;border-bottom:1px solid #313244\">" +
+                $"<div style=\"display:flex;justify-content:space-between;align-items:center;font-size:15px\">" +
+                $"<span style=\"color:#cdd6f4;font-weight:600\">{EscapeHtml(s.Name)}</span>" +
+                $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(s.Source)}</span></div>" +
+                desc + "</div>";
+        }));
+        var jsHtml = EscapeForJs(rows);
+        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Skills</div>");
+        await JS.InvokeVoidAsync("eval", $@"
+            (function(){{
+                var old = document.getElementById('skills-popup-overlay');
+                if(old) old.remove();
+                var trigger = document.querySelector('[class*=""skills-trigger""]');
+                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
+                var ov = document.createElement('div');
+                ov.id = 'skills-popup-overlay';
+                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
+                ov.onclick = function(){{ ov.remove(); }};
+                var popup = document.createElement('div');
+                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
+                var bottom = window.innerHeight - rect.top + 8;
+                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
+                popup.innerHTML = '{headerHtml}{jsHtml}';
+                popup.onclick = function(e){{ e.stopPropagation(); }};
+                ov.appendChild(popup);
+                document.body.appendChild(ov);
+            }})()
+        ");
+    }
+
+    private async Task ShowAgentsPopup()
+    {
+        if (availableAgents == null || availableAgents.Count == 0) return;
+        var rows = string.Join("", availableAgents.Select(a =>
+        {
+            var desc = string.IsNullOrWhiteSpace(a.Description) ? "" :
+                $"<div style=\"font-size:13px;color:#a6adc8;margin-top:3px;line-height:1.4\">{EscapeHtml(TruncateDesc(a.Description))}</div>";
+            return $"<div style=\"padding:8px 14px;border-bottom:1px solid #313244\">" +
+                $"<div style=\"display:flex;justify-content:space-between;align-items:center;font-size:15px\">" +
+                $"<span style=\"color:#cdd6f4;font-weight:600\">{EscapeHtml(a.Name)}</span>" +
+                $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(a.Source)}</span></div>" +
+                desc + "</div>";
+        }));
+        var jsHtml = EscapeForJs(rows);
+        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Agents</div>");
+        await JS.InvokeVoidAsync("eval", $@"
+            (function(){{
+                var old = document.getElementById('skills-popup-overlay');
+                if(old) old.remove();
+                var trigger = document.querySelectorAll('[class*=""skills-trigger""]');
+                var el = trigger.length > 1 ? trigger[1] : trigger[0];
+                var rect = el ? el.getBoundingClientRect() : {{left:20,bottom:60}};
+                var ov = document.createElement('div');
+                ov.id = 'skills-popup-overlay';
+                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
+                ov.onclick = function(){{ ov.remove(); }};
+                var popup = document.createElement('div');
+                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
+                var bottom = window.innerHeight - rect.top + 8;
+                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
+                popup.innerHTML = '{headerHtml}{jsHtml}';
+                popup.onclick = function(e){{ e.stopPropagation(); }};
+                ov.appendChild(popup);
+                document.body.appendChild(ov);
+            }})()
+        ");
+    }
+
+    private static string EscapeHtml(string s) =>
+        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
+
+    private static string EscapeForJs(string s) =>
+        s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "");
+
+    private static string TruncateDesc(string desc)
+    {
+        desc = desc.Trim();
+        if (desc.Length <= 120) return desc;
+        return desc[..117] + "…";
+    }
 }

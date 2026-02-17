@@ -238,6 +238,11 @@
     color: var(--accent-primary);
 }
 
+.card-skills {
+    font-size: var(--type-caption1, 0.6rem);
+    color: var(--text-dim, #6a7a8a);
+}
+
 .card-messages {
     flex: 1;
     min-height: 80px;
@@ -480,4 +485,20 @@
 
 .card-role-badge.worker {
     color: var(--text-dim);
+}
+
+.unread-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--accent-primary, #7c5cfc);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 6px;
+    flex-shrink: 0;
 }

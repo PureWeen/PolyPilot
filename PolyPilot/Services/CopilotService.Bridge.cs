@@ -28,6 +28,9 @@ public partial class CopilotService
         };
         _bridgeClient.OnContentReceived += (s, c) =>
         {
+            // Track that this session is actively streaming
+            _remoteStreamingSessions[s] = 0;
+
             // Update local session history from remote events
             var session = GetRemoteSession(s);
             if (session != null)
@@ -113,6 +116,7 @@ public partial class CopilotService
         };
         _bridgeClient.OnTurnEnd += (s) =>
         {
+            _remoteStreamingSessions.TryRemove(s, out _);
             var session = GetRemoteSession(s);
             if (session != null)
             {
@@ -226,11 +230,18 @@ public partial class CopilotService
 
         // Sync history from WsBridgeClient cache
         // Don't overwrite if local history has messages not yet reflected by server
+        // Skip sessions that are actively streaming — content_delta handlers update history
+        // incrementally; replacing it with the (stale) SessionHistories cache would cause duplicates.
         var sessionsNeedingHistory = new List<string>();
         foreach (var (name, messages) in _bridgeClient.SessionHistories)
         {
             if (_sessions.TryGetValue(name, out var s))
             {
+                // Skip history sync for sessions currently receiving streaming content —
+                // the incremental content_delta/tool events are more up-to-date than the cached history
+                if (_remoteStreamingSessions.ContainsKey(name))
+                    continue;
+
                 if (messages.Count >= s.Info.History.Count)
                 {
                     Debug($"SyncRemoteSessions: Syncing {messages.Count} messages for '{name}'");
@@ -244,9 +255,11 @@ public partial class CopilotService
         foreach (var rs in remoteSessions)
         {
             if (rs.MessageCount > 0 && _sessions.TryGetValue(rs.Name, out var s) && s.Info.History.Count == 0
-                && !_bridgeClient.SessionHistories.ContainsKey(rs.Name))
+                && !_bridgeClient.SessionHistories.ContainsKey(rs.Name)
+                && !_requestedHistorySessions.ContainsKey(rs.Name))
             {
                 sessionsNeedingHistory.Add(rs.Name);
+                _requestedHistorySessions[rs.Name] = 0;
             }
         }
 

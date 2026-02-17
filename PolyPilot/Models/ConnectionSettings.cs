@@ -18,6 +18,12 @@ public enum ChatLayout
     BothLeft      // Both on left
 }
 
+public enum ChatStyle
+{
+    Normal,       // Colored bubbles with borders
+    Minimal       // Full-width, no bubbles (Claude.ai style)
+}
+
 public enum UiTheme
 {
     System,          // Follow OS light/dark preference
@@ -46,6 +52,7 @@ public class ConnectionSettings
     public string? ServerPassword { get; set; }
     public bool DirectSharingEnabled { get; set; } = false;
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
+    public ChatStyle ChatStyle { get; set; } = ChatStyle.Normal;
     public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
     public bool AutoUpdateFromMain { get; set; } = false;
     public CliSourceMode CliSource { get; set; } = CliSourceMode.BuiltIn;

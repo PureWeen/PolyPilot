@@ -8,7 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="coverlet.collector" Version="8.0.0" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.24-preview.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
@@ -26,8 +29,27 @@
     <Compile Include="../PolyPilot/Models/ConnectionSettings.cs" Link="Shared/ConnectionSettings.cs" />
     <Compile Include="../PolyPilot/Models/PlatformHelper.cs" Link="Shared/PlatformHelper.cs" />
     <Compile Include="../PolyPilot/Models/SessionOrganization.cs" Link="Shared/SessionOrganization.cs" />
+    <Compile Include="../PolyPilot/Models/FiestaModels.cs" Link="Shared/FiestaModels.cs" />
     <Compile Include="../PolyPilot/Models/ModelHelper.cs" Link="Shared/ModelHelper.cs" />
+    <Compile Include="../PolyPilot/Models/RepositoryInfo.cs" Link="Shared/RepositoryInfo.cs" />
+    <Compile Include="../PolyPilot/Models/RenderThrottle.cs" Link="Shared/RenderThrottle.cs" />
     <Compile Include="../PolyPilot/Services/NotificationMessageBuilder.cs" Link="Shared/NotificationMessageBuilder.cs" />
+    <Compile Include="../PolyPilot/Services/IChatDatabase.cs" Link="Shared/IChatDatabase.cs" />
+    <Compile Include="../PolyPilot/Services/IServerManager.cs" Link="Shared/IServerManager.cs" />
+    <Compile Include="../PolyPilot/Services/IWsBridgeClient.cs" Link="Shared/IWsBridgeClient.cs" />
+    <Compile Include="../PolyPilot/Services/IDemoService.cs" Link="Shared/IDemoService.cs" />
+    <Compile Include="../PolyPilot/Services/INotificationManagerService.cs" Link="Shared/INotificationManagerService.cs" />
+    <Compile Include="../PolyPilot/Services/RepoManager.cs" Link="Shared/RepoManager.cs" />
+    <Compile Include="../PolyPilot/Services/DemoService.cs" Link="Shared/DemoService.cs" />
+    <Compile Include="../PolyPilot/Services/CopilotService.cs" Link="Shared/CopilotService.cs" />
+    <Compile Include="../PolyPilot/Services/CopilotService.Events.cs" Link="Shared/CopilotService.Events.cs" />
+    <Compile Include="../PolyPilot/Services/CopilotService.Bridge.cs" Link="Shared/CopilotService.Bridge.cs" />
+    <Compile Include="../PolyPilot/Services/CopilotService.Organization.cs" Link="Shared/CopilotService.Organization.cs" />
+    <Compile Include="../PolyPilot/Services/CopilotService.Persistence.cs" Link="Shared/CopilotService.Persistence.cs" />
+    <Compile Include="../PolyPilot/Services/CopilotService.Utilities.cs" Link="Shared/CopilotService.Utilities.cs" />
+    <Compile Include="../PolyPilot/Services/WsBridgeServer.cs" Link="Shared/WsBridgeServer.cs" />
+    <Compile Include="../PolyPilot/Services/DevTunnelService.cs" Link="Shared/DevTunnelService.cs" />
+    <Compile Include="../PolyPilot/Services/FiestaService.cs" Link="Shared/FiestaService.cs" />
   </ItemGroup>
 
 </Project>

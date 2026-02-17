@@ -89,4 +89,49 @@ public class AgentSessionInfoTests
         Assert.Null(session.SessionId);
         Assert.False(session.IsResumed);
     }
+
+    [Fact]
+    public void UnreadCount_HandlesNullMessagesInHistory()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.UserMessage("hello"));
+        session.History.Add(null!); // Simulate corrupt null entry
+        session.History.Add(ChatMessage.AssistantMessage("hi"));
+        session.LastReadMessageCount = 0;
+
+        // Should not throw, and should count only non-null assistant messages
+        var count = session.UnreadCount;
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public void UnreadCount_ReturnsZeroForEmptyHistory()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        Assert.Equal(0, session.UnreadCount);
+    }
+
+    [Fact]
+    public void UnreadCount_CountsOnlyAssistantMessagesAfterLastRead()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.UserMessage("hello"));
+        session.History.Add(ChatMessage.AssistantMessage("hi"));
+        session.LastReadMessageCount = 2;
+        session.History.Add(ChatMessage.UserMessage("more"));
+        session.History.Add(ChatMessage.AssistantMessage("reply1"));
+        session.History.Add(ChatMessage.AssistantMessage("reply2"));
+
+        Assert.Equal(2, session.UnreadCount);
+    }
+
+    [Fact]
+    public void UnreadCount_HandlesLastReadBeyondHistory()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.AssistantMessage("hi"));
+        session.LastReadMessageCount = 100; // Beyond history length
+
+        Assert.Equal(0, session.UnreadCount);
+    }
 }

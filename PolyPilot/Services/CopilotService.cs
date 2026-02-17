@@ -11,10 +11,18 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, SessionState> _sessions = new();
     // Sessions optimistically added during remote create/resume — protected from removal by SyncRemoteSessions
     private readonly ConcurrentDictionary<string, byte> _pendingRemoteSessions = new();
-    private readonly ChatDatabase _chatDb;
-    private readonly ServerManager _serverManager;
-    private readonly WsBridgeClient _bridgeClient;
-    private readonly DemoService _demoService;
+    // Sessions currently receiving streaming content via bridge events — history sync skipped to avoid duplicates
+    private readonly ConcurrentDictionary<string, byte> _remoteStreamingSessions = new();
+    // Sessions for which history has already been requested — prevents duplicate request storms
+    private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();
+    // Session IDs explicitly closed by the user — excluded from merge-back during SaveActiveSessionsToDisk
+    private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
+    // Image paths queued alongside messages when session is busy (keyed by session name, list per queued message)
+    private readonly ConcurrentDictionary<string, List<List<string>>> _queuedImagePaths = new();
+    private readonly IChatDatabase _chatDb;
+    private readonly IServerManager _serverManager;
+    private readonly IWsBridgeClient _bridgeClient;
+    private readonly IDemoService _demoService;
     private readonly IServiceProvider? _serviceProvider;
     private CopilotClient? _client;
     private string? _activeSessionName;
@@ -125,24 +133,33 @@ public partial class CopilotService : IAsyncDisposable
     public bool IsBridgeConnected => _bridgeClient.IsConnected;
     public bool IsDemoMode { get; private set; }
     public string? ActiveSessionName => _activeSessionName;
-    public ChatDatabase ChatDb => _chatDb;
+    public IChatDatabase ChatDb => _chatDb;
     public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
     public List<string> AvailableModels { get; private set; } = new();
 
     private readonly RepoManager _repoManager;
     
-    public CopilotService(ChatDatabase chatDb, ServerManager serverManager, WsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider)
+    public CopilotService(IChatDatabase chatDb, IServerManager serverManager, IWsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider)
+    : this(chatDb, serverManager, bridgeClient, repoManager, serviceProvider, new DemoService())
+    {
+    }
+
+    internal CopilotService(IChatDatabase chatDb, IServerManager serverManager, IWsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider, IDemoService demoService)
     {
         _chatDb = chatDb;
         _serverManager = serverManager;
         _bridgeClient = bridgeClient;
         _repoManager = repoManager;
         _serviceProvider = serviceProvider;
-        _demoService = new DemoService();
+        _demoService = demoService;
     }
 
     // Debug info
     public string LastDebugMessage { get; private set; } = "";
+
+    // Transient notice shown when the service fell back from the user's preferred mode
+    public string? FallbackNotice { get; private set; }
+    public void ClearFallbackNotice() => FallbackNotice = null;
 
     // GitHub user info
     public string? GitHubAvatarUrl { get; private set; }
@@ -150,12 +167,14 @@ public partial class CopilotService : IAsyncDisposable
 
     // UI preferences
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
+    public ChatStyle ChatStyle { get; set; } = ChatStyle.Normal;
     public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
 
     // Session organization (groups, pinning, sorting)
     public OrganizationState Organization { get; private set; } = new();
 
     public event Action? OnStateChanged;
+    public void NotifyStateChanged() => OnStateChanged?.Invoke();
     public event Action<string, string>? OnContentReceived; // sessionName, content
     public event Action<string, string>? OnError; // sessionName, error
     public event Action<string, string>? OnSessionComplete; // sessionName, summary
@@ -209,6 +228,7 @@ public partial class CopilotService : IAsyncDisposable
         var settings = ConnectionSettings.Load();
         CurrentMode = settings.Mode;
         ChatLayout = settings.ChatLayout;
+        ChatStyle = settings.ChatStyle;
         Theme = settings.Theme;
 
         // On mobile with Remote mode and no URL configured, skip initialization
@@ -256,6 +276,7 @@ public partial class CopilotService : IAsyncDisposable
                     Debug("Failed to auto-start server, falling back to Embedded mode");
                     settings.Mode = ConnectionMode.Embedded;
                     CurrentMode = ConnectionMode.Embedded;
+                    FallbackNotice = "Persistent server couldn't start — fell back to Embedded mode. Your sessions won't persist across restarts. Go to Settings to fix.";
                 }
             }
             else
@@ -266,11 +287,24 @@ public partial class CopilotService : IAsyncDisposable
 
         _client = CreateClient(settings);
 
-        await _client.StartAsync(cancellationToken);
-        IsInitialized = true;
-        NeedsConfiguration = false;
-        Debug($"Copilot client started in {settings.Mode} mode");
-        
+        try
+        {
+            await _client.StartAsync(cancellationToken);
+            IsInitialized = true;
+            NeedsConfiguration = false;
+            Debug($"Copilot client started in {settings.Mode} mode");
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            Debug($"Failed to start Copilot client: {ex.Message}");
+            try { await _client.DisposeAsync(); } catch { }
+            _client = null;
+            IsInitialized = false;
+            NeedsConfiguration = true;
+            OnStateChanged?.Invoke();
+            return;
+        }
         // Note: copilot-instructions.md is automatically loaded by the CLI from .github/ in the working directory.
         // We don't need to manually load and inject it here.
 
@@ -361,6 +395,8 @@ public partial class CopilotService : IAsyncDisposable
             try { if (state.Session != null) await state.Session.DisposeAsync(); } catch { }
         }
         _sessions.Clear();
+        _closedSessionIds.Clear();
+        _queuedImagePaths.Clear();
         _activeSessionName = null;
 
         if (_client != null)
@@ -373,6 +409,7 @@ public partial class CopilotService : IAsyncDisposable
         IsInitialized = false;
         IsRemoteMode = false;
         IsDemoMode = false;
+        FallbackNotice = null; // Clear any previous fallback notice
         CurrentMode = settings.Mode;
         OnStateChanged?.Invoke();
 
@@ -392,14 +429,31 @@ public partial class CopilotService : IAsyncDisposable
 
         _client = CreateClient(settings);
 
-        await _client.StartAsync(cancellationToken);
-        IsInitialized = true;
-        NeedsConfiguration = false;
-        Debug($"Reconnected in {settings.Mode} mode");
-        OnStateChanged?.Invoke();
+        try
+        {
+            await _client.StartAsync(cancellationToken);
+            IsInitialized = true;
+            NeedsConfiguration = false;
+            Debug($"Reconnected in {settings.Mode} mode");
+            OnStateChanged?.Invoke();
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            Debug($"Failed to reconnect Copilot client: {ex.Message}");
+            try { await _client.DisposeAsync(); } catch { }
+            _client = null;
+            IsInitialized = false;
+            NeedsConfiguration = true;
+            OnStateChanged?.Invoke();
+            return;
+        }
 
         // Restore previous sessions
+        LoadOrganization();
         await RestorePreviousSessionsAsync(cancellationToken);
+        ReconcileOrganization();
+        OnStateChanged?.Invoke();
     }
 
     private CopilotClient CreateClient(ConnectionSettings settings)
@@ -408,17 +462,30 @@ public partial class CopilotService : IAsyncDisposable
         // Note: Don't set Cwd here - each session sets its own WorkingDirectory in SessionConfig
         var options = new CopilotClientOptions();
 
-        // Resolve the copilot CLI path based on user preference:
-        var cliPath = ResolveCopilotCliPath(settings.CliSource);
-        if (cliPath != null)
-            options.CliPath = cliPath;
+        if (settings.Mode == ConnectionMode.Persistent)
+        {
+            // Connect to the existing headless server via TCP instead of spawning a child process.
+            // Must clear auto-discovered CliPath and UseStdio first —
+            // CliUrl is mutually exclusive with both (SDK throws ArgumentException).
+            options.CliPath = null;
+            options.UseStdio = false;
+            options.AutoStart = false;
+            options.CliUrl = $"http://{settings.Host}:{settings.Port}";
+        }
+        else
+        {
+            // Embedded mode: spawn copilot as a child process via stdio
+            var cliPath = ResolveCopilotCliPath(settings.CliSource);
+            if (cliPath != null)
+                options.CliPath = cliPath;
 
-        // Pass additional MCP server configs via CLI args.
-        // The CLI auto-reads ~/.copilot/mcp-config.json, but mcp-servers.json
-        // uses a different format that needs to be passed explicitly.
-        var mcpArgs = GetMcpCliArgs();
-        if (mcpArgs.Length > 0)
-            options.CliArgs = mcpArgs;
+            // Pass additional MCP server configs via CLI args.
+            // The CLI auto-reads ~/.copilot/mcp-config.json, but mcp-servers.json
+            // uses a different format that needs to be passed explicitly.
+            var mcpArgs = GetMcpCliArgs();
+            if (mcpArgs.Length > 0)
+                options.CliArgs = mcpArgs;
+        }
 
         return new CopilotClient(options);
     }
@@ -447,7 +514,7 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>
     /// Resolves the bundled CLI path (shipped with the app).
     /// </summary>
-    private static string? ResolveBundledCliPath()
+    internal static string? ResolveBundledCliPath()
     {
         // 1. SDK bundled path (runtimes/{rid}/native/copilot)
         var bundledPath = GetBundledCliPath();
@@ -460,7 +527,8 @@ public partial class CopilotService : IAsyncDisposable
             var assemblyDir = Path.GetDirectoryName(typeof(CopilotClient).Assembly.Location);
             if (assemblyDir != null)
             {
-                var monoBundlePath = Path.Combine(assemblyDir, "copilot");
+                var binaryName = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
+                var monoBundlePath = Path.Combine(assemblyDir, binaryName);
                 if (File.Exists(monoBundlePath))
                     return monoBundlePath;
             }
@@ -476,24 +544,43 @@ public partial class CopilotService : IAsyncDisposable
     private static string? ResolveSystemCliPath()
     {
         // 1. Check well-known system install paths
-        var systemPaths = new[]
+        if (OperatingSystem.IsWindows())
         {
-            "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
-            "/usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
-            "/usr/local/bin/copilot",
-        };
-        foreach (var path in systemPaths)
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var windowsPaths = new[]
+            {
+                Path.Combine(appData, "npm", "node_modules", "@github", "copilot", "node_modules", "@github", "copilot-win-x64", "copilot.exe"),
+                Path.Combine(localAppData, "npm", "node_modules", "@github", "copilot", "node_modules", "@github", "copilot-win-x64", "copilot.exe"),
+            };
+            foreach (var path in windowsPaths)
+            {
+                if (File.Exists(path)) return path;
+            }
+        }
+        else
         {
-            if (File.Exists(path)) return path;
+            var unixPaths = new[]
+            {
+                "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+                "/usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
+                "/usr/local/bin/copilot",
+            };
+            foreach (var path in unixPaths)
+            {
+                if (File.Exists(path)) return path;
+            }
         }
 
-        // 2. Try to find "copilot" on PATH
+        // 2. Try to find copilot on PATH
         try
         {
+            var binaryName = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
             var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
-            foreach (var dir in pathEnv.Split(':'))
+            foreach (var dir in pathEnv.Split(Path.PathSeparator))
             {
-                var candidate = Path.Combine(dir, "copilot");
+                if (string.IsNullOrEmpty(dir)) continue;
+                var candidate = Path.Combine(dir, binaryName);
                 if (File.Exists(candidate)) return candidate;
             }
         }
@@ -513,7 +600,8 @@ public partial class CopilotService : IAsyncDisposable
             var assemblyDir = Path.GetDirectoryName(typeof(CopilotClient).Assembly.Location);
             if (assemblyDir == null) return null;
             var rid = System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier;
-            return Path.Combine(assemblyDir, "runtimes", rid, "native", "copilot");
+            var binaryName = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
+            return Path.Combine(assemblyDir, "runtimes", rid, "native", binaryName);
         }
         catch { return null; }
     }
@@ -756,6 +844,140 @@ public partial class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
+    /// Discover all available skills from installed plugins and project-level skill directories.
+    /// Returns a list of (Name, Description, Source) tuples.
+    /// </summary>
+    public static List<SkillInfo> DiscoverAvailableSkills(string? workingDirectory = null)
+    {
+        var skills = new List<SkillInfo>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            // Project-level skills (.claude/skills/ or .copilot/skills/)
+            if (!string.IsNullOrEmpty(workingDirectory))
+            {
+                foreach (var subdir in new[] { ".claude/skills", ".copilot/skills", ".github/skills" })
+                {
+                    var projSkillsDir = Path.Combine(workingDirectory, subdir);
+                    if (Directory.Exists(projSkillsDir))
+                        ScanSkillDirectory(projSkillsDir, "project", skills, seen);
+                }
+            }
+
+            // Plugin-level skills (~/.copilot/installed-plugins/*/skills/)
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var pluginsDir = Path.Combine(home, ".copilot", "installed-plugins");
+            if (Directory.Exists(pluginsDir))
+            {
+                foreach (var marketDir in Directory.GetDirectories(pluginsDir))
+                {
+                    foreach (var pluginDir in Directory.GetDirectories(marketDir))
+                    {
+                        var skillsDir = Path.Combine(pluginDir, "skills");
+                        if (Directory.Exists(skillsDir))
+                        {
+                            var pluginName = Path.GetFileName(pluginDir);
+                            ScanSkillDirectory(skillsDir, pluginName, skills, seen);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Skills] Discovery failed: {ex.Message}");
+        }
+
+        return skills;
+    }
+
+    private static void ScanSkillDirectory(string skillsDir, string source, List<SkillInfo> skills, HashSet<string> seen)
+    {
+        foreach (var skillDir in Directory.GetDirectories(skillsDir))
+        {
+            var skillMd = Path.Combine(skillDir, "SKILL.md");
+            if (!File.Exists(skillMd)) continue;
+
+            try
+            {
+                var content = File.ReadAllText(skillMd);
+                var (name, description) = ParseSkillFrontmatter(content);
+                if (string.IsNullOrEmpty(name)) name = Path.GetFileName(skillDir);
+                if (seen.Add(name))
+                    skills.Add(new SkillInfo(name, description ?? "", source));
+            }
+            catch { }
+        }
+    }
+
+    private static (string? name, string? description) ParseSkillFrontmatter(string content)
+    {
+        if (!content.StartsWith("---")) return (null, null);
+        var endIdx = content.IndexOf("---", 3, StringComparison.Ordinal);
+        if (endIdx < 0) return (null, null);
+
+        var frontmatter = content[3..endIdx];
+        string? name = null, description = null;
+
+        foreach (var line in frontmatter.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("name:"))
+                name = trimmed[5..].Trim().Trim('"', '\'');
+            else if (trimmed.StartsWith("description:"))
+            {
+                var desc = trimmed[12..].Trim();
+                if (desc.StartsWith(">")) continue; // multiline, skip for now
+                description = desc.Trim('"', '\'');
+            }
+        }
+
+        return (name, description);
+    }
+
+    public List<AgentInfo> DiscoverAvailableAgents(string? workingDirectory)
+    {
+        var agents = new List<AgentInfo>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            if (!string.IsNullOrEmpty(workingDirectory))
+            {
+                foreach (var subdir in new[] { ".github/agents", ".claude/agents", ".copilot/agents" })
+                {
+                    var agentsDir = Path.Combine(workingDirectory, subdir);
+                    if (Directory.Exists(agentsDir))
+                        ScanAgentDirectory(agentsDir, "project", agents, seen);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Agents] Discovery failed: {ex.Message}");
+        }
+
+        return agents;
+    }
+
+    private static void ScanAgentDirectory(string agentsDir, string source, List<AgentInfo> agents, HashSet<string> seen)
+    {
+        foreach (var file in Directory.GetFiles(agentsDir, "*.md"))
+        {
+            try
+            {
+                var content = File.ReadAllText(file);
+                var (name, description) = ParseSkillFrontmatter(content);
+                if (string.IsNullOrEmpty(name)) name = Path.GetFileNameWithoutExtension(file);
+                if (seen.Add(name))
+                    agents.Add(new AgentInfo(name, description ?? "", source));
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>
     /// Parse a JSON element into a McpLocalServerConfig so the SDK serializes it correctly.
     /// </summary>
     private static McpLocalServerConfig ParseMcpServerConfig(JsonElement element)
@@ -821,6 +1043,7 @@ public partial class CopilotService : IAsyncDisposable
 
         // Load history: always parse events.jsonl as source of truth, then sync to DB
         List<ChatMessage> history = LoadHistoryFromDisk(sessionId);
+
         if (history.Count > 0)
         {
             // Replace DB contents with fresh parse (events.jsonl may have grown since last DB sync)
@@ -852,6 +1075,7 @@ public partial class CopilotService : IAsyncDisposable
             info.History.Add(msg);
         }
         info.MessageCount = info.History.Count;
+        info.LastReadMessageCount = info.History.Count;
 
         // Mark any stale incomplete tool calls as complete (from prior session)
         foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.ToolCall && !m.IsComplete))
@@ -917,7 +1141,7 @@ public partial class CopilotService : IAsyncDisposable
 
         _activeSessionName ??= displayName;
         OnStateChanged?.Invoke();
-        SaveActiveSessionsToDisk();
+        if (!IsRestoring) SaveActiveSessionsToDisk();
         if (!IsRestoring) ReconcileOrganization();
         return info;
     }
@@ -974,11 +1198,14 @@ public partial class CopilotService : IAsyncDisposable
         // Only include relaunch instructions when targeting the PolyPilot directory
         if (string.Equals(sessionDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
         {
+            var relaunchCmd = OperatingSystem.IsWindows()
+                ? $"powershell -ExecutionPolicy Bypass -File \"{Path.Combine(ProjectDir, "relaunch.ps1")}\""
+                : $"bash {Path.Combine(ProjectDir, "relaunch.sh")}";
             systemContent.AppendLine($@"
 CRITICAL BUILD INSTRUCTION: You are running inside the PolyPilot MAUI application.
 When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and relaunch by running:
 
-    bash {Path.Combine(ProjectDir, "relaunch.sh")}
+    {relaunchCmd}
 
 This script builds the app, launches a new instance, waits for it to start, then kills the old one.
 NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
@@ -1172,6 +1399,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             displayPrompt += "\n" + string.Join("\n", imagePaths);
         state.Info.History.Add(new ChatMessage("user", displayPrompt, DateTime.Now));
         state.Info.MessageCount = state.Info.History.Count;
+        state.Info.LastReadMessageCount = state.Info.History.Count;
         OnStateChanged?.Invoke();
 
         // Write-through to DB
@@ -1297,12 +1525,23 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         OnStateChanged?.Invoke();
     }
 
-    public void EnqueueMessage(string sessionName, string prompt)
+    public void EnqueueMessage(string sessionName, string prompt, List<string>? imagePaths = null)
     {
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
         
         state.Info.MessageQueue.Add(prompt);
+        
+        // Track image paths alongside the queued message
+        if (imagePaths != null && imagePaths.Count > 0)
+        {
+            var queue = _queuedImagePaths.GetOrAdd(sessionName, _ => new List<List<string>>());
+            // Pad with empty lists for any prior messages without images
+            while (queue.Count < state.Info.MessageQueue.Count - 1)
+                queue.Add(new List<string>());
+            queue.Add(imagePaths);
+        }
+        
         OnStateChanged?.Invoke();
     }
 
@@ -1321,6 +1560,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (index >= 0 && index < state.Info.MessageQueue.Count)
         {
             state.Info.MessageQueue.RemoveAt(index);
+            // Keep queued image paths in sync
+            if (_queuedImagePaths.TryGetValue(sessionName, out var imageQueue) && index < imageQueue.Count)
+            {
+                imageQueue.RemoveAt(index);
+                if (imageQueue.Count == 0)
+                    _queuedImagePaths.TryRemove(sessionName, out _);
+            }
             OnStateChanged?.Invoke();
         }
     }
@@ -1330,6 +1576,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (_sessions.TryGetValue(sessionName, out var state))
         {
             state.Info.MessageQueue.Clear();
+            _queuedImagePaths.TryRemove(sessionName, out _);
             OnStateChanged?.Invoke();
         }
     }
@@ -1350,6 +1597,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             return false;
 
         _activeSessionName = name;
+        if (IsRemoteMode)
+            _ = _bridgeClient.SwitchSessionAsync(name);
         OnStateChanged?.Invoke();
         return true;
     }
@@ -1370,6 +1619,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             return false;
 
         state.Info.Name = newName;
+
+        // Move queued image paths to new name
+        if (_queuedImagePaths.TryRemove(oldName, out var imageQueue))
+            _queuedImagePaths[newName] = imageQueue;
 
         if (!_sessions.TryAdd(newName, state))
         {
@@ -1423,6 +1676,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!_sessions.TryRemove(name, out var state))
             return false;
+
+        // Clean up any queued image paths for this session
+        _queuedImagePaths.TryRemove(name, out _);
+
+        // Track as explicitly closed so merge doesn't re-add from file
+        if (state.Info.SessionId != null)
+            _closedSessionIds[state.Info.SessionId] = 0;
 
         if (state.Session is not null)
             await state.Session.DisposeAsync();
@@ -1478,6 +1738,7 @@ public class UiState
     public string? SelectedModel { get; set; }
     public bool ExpandedGrid { get; set; }
     public string? ExpandedSession { get; set; }
+    public Dictionary<string, string> InputModes { get; set; } = new();
 }
 
 public class ActiveSessionEntry
@@ -1514,3 +1775,6 @@ public record QuotaInfo(
     int RemainingPercentage,
     string? ResetDate
 );
+
+public record SkillInfo(string Name, string Description, string Source);
+public record AgentInfo(string Name, string Description, string Source);

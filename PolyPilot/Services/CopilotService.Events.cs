@@ -1,6 +1,7 @@
 using System.Text;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using PolyPilot.Models;
 using GitHub.Copilot.SDK;
 
@@ -335,6 +336,24 @@ public partial class CopilotService
                 CompleteResponse(state);
                 // Refresh git branch — agent may have switched branches
                 state.Info.GitBranch = GetGitBranch(state.Info.WorkingDirectory);
+                // Send notification when agent finishes
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var currentSettings = ConnectionSettings.Load();
+                        if (!currentSettings.EnableSessionNotifications) return;
+                        var notifService = _serviceProvider?.GetService<INotificationManagerService>();
+                        if (notifService == null || !notifService.HasPermission) return;
+                        var lastMsg = state.Info.History.LastOrDefault(m => m.Role == "assistant");
+                        var body = BuildNotificationBody(lastMsg?.Content, state.Info.History.Count);
+                        await notifService.SendNotificationAsync(
+                            $"✓ {sessionName}",
+                            body,
+                            state.Info.SessionId);
+                    }
+                    catch { }
+                });
                 break;
 
             case SessionStartEvent start:
@@ -347,7 +366,7 @@ public partial class CopilotService
                     state.Info.Model = normalizedStartModel;
                     Debug($"Session model from start event: {startModel} → {normalizedStartModel}");
                 }
-                SaveActiveSessionsToDisk();
+                if (!IsRestoring) SaveActiveSessionsToDisk();
                 break;
 
             case SessionUsageInfoEvent usageInfo:
@@ -543,6 +562,9 @@ public partial class CopilotService
             var msg = new ChatMessage("assistant", response, DateTime.Now);
             state.Info.History.Add(msg);
             state.Info.MessageCount = state.Info.History.Count;
+            // If user is viewing this session, keep it read
+            if (state.Info.Name == _activeSessionName)
+                state.Info.LastReadMessageCount = state.Info.History.Count;
 
             // Write-through to DB
             if (!string.IsNullOrEmpty(state.Info.SessionId))
@@ -557,19 +579,29 @@ public partial class CopilotService
         // Fire completion notification
         var summary = response.Length > 100 ? response[..100] + "..." : response;
         OnSessionComplete?.Invoke(state.Info.Name, summary);
-        IncrementBadge();
 
         // Auto-dispatch next queued message
         if (state.Info.MessageQueue.Count > 0)
         {
             var nextPrompt = state.Info.MessageQueue[0];
             state.Info.MessageQueue.RemoveAt(0);
+            
+            // Retrieve any queued image paths for this message
+            List<string>? nextImagePaths = null;
+            if (_queuedImagePaths.TryGetValue(state.Info.Name, out var imageQueue) && imageQueue.Count > 0)
+            {
+                nextImagePaths = imageQueue[0];
+                imageQueue.RemoveAt(0);
+                if (imageQueue.Count == 0)
+                    _queuedImagePaths.TryRemove(state.Info.Name, out _);
+            }
+            
             _ = Task.Run(async () =>
             {
                 try
                 {
                     await Task.Delay(500);
-                    await SendPromptAsync(state.Info.Name, nextPrompt);
+                    await SendPromptAsync(state.Info.Name, nextPrompt, nextImagePaths);
                 }
                 catch (Exception ex)
                 {
@@ -578,5 +610,30 @@ public partial class CopilotService
                 }
             });
         }
+    }
+
+    private static string BuildNotificationBody(string? content, int messageCount)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return $"Agent finished · {messageCount} messages";
+
+        // Strip markdown formatting for cleaner notification text
+        var text = content
+            .Replace("**", "").Replace("__", "")
+            .Replace("```", "").Replace("`", "")
+            .Replace("###", "").Replace("##", "").Replace("#", "")
+            .Replace("\r", "");
+
+        // Get first non-empty line as summary
+        var firstLine = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault(l => l.Length > 5 && !l.StartsWith("---") && !l.StartsWith("- ["));
+
+        if (string.IsNullOrEmpty(firstLine))
+            return $"Agent finished · {messageCount} messages";
+
+        if (firstLine.Length > 120)
+            firstLine = firstLine[..117] + "…";
+
+        return firstLine;
     }
 }

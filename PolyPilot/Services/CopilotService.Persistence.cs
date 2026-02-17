@@ -26,6 +26,29 @@ public partial class CopilotService
                 })
                 .ToList();
             
+            // Merge: preserve entries from the existing file that aren't currently in memory
+            // but whose session directory still exists on disk. This prevents data loss when
+            // sessions fail to restore (e.g. during mode switches) or if the app is killed
+            // mid-restore.
+            try
+            {
+                if (File.Exists(ActiveSessionsFile))
+                {
+                    var existingJson = File.ReadAllText(ActiveSessionsFile);
+                    var existingEntries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(existingJson);
+                    if (existingEntries != null)
+                    {
+                        var closedIds = new HashSet<string>(_closedSessionIds.Keys, StringComparer.OrdinalIgnoreCase);
+                        entries = MergeSessionEntries(entries, existingEntries, closedIds,
+                            sessionId => Directory.Exists(Path.Combine(SessionStatePath, sessionId)));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to merge existing sessions: {ex.Message}");
+            }
+            
             var json = JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(ActiveSessionsFile, json);
         }
@@ -33,6 +56,33 @@ public partial class CopilotService
         {
             Debug($"Failed to save active sessions: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Merge active (in-memory) session entries with persisted (on-disk) entries.
+    /// Persisted entries are kept if they aren't already active, weren't explicitly
+    /// closed, and their session directory still exists.
+    /// </summary>
+    internal static List<ActiveSessionEntry> MergeSessionEntries(
+        List<ActiveSessionEntry> active,
+        List<ActiveSessionEntry> persisted,
+        ISet<string> closedIds,
+        Func<string, bool> sessionDirExists)
+    {
+        var merged = new List<ActiveSessionEntry>(active);
+        var activeIds = new HashSet<string>(active.Select(e => e.SessionId), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var existing in persisted)
+        {
+            if (activeIds.Contains(existing.SessionId)) continue;
+            if (closedIds.Contains(existing.SessionId)) continue;
+            if (!sessionDirExists(existing.SessionId)) continue;
+
+            merged.Add(existing);
+            activeIds.Add(existing.SessionId);
+        }
+
+        return merged;
     }
 
     /// <summary>
@@ -49,24 +99,33 @@ public partial class CopilotService
                 if (entries != null && entries.Count > 0)
                 {
                     Debug($"Restoring {entries.Count} previous sessions...");
+                    IsRestoring = true;
 
                     foreach (var entry in entries)
                     {
                         try
                         {
                             // Skip if already active
-                            if (_sessions.ContainsKey(entry.DisplayName)) continue;
+                            if (_sessions.ContainsKey(entry.DisplayName))
+                            {
+                                Debug($"Skipping '{entry.DisplayName}' — already active");
+                                continue;
+                            }
                             
                             // Check the session still exists on disk
                             var sessionDir = Path.Combine(SessionStatePath, entry.SessionId);
-                            if (!Directory.Exists(sessionDir)) continue;
+                            if (!Directory.Exists(sessionDir))
+                            {
+                                Debug($"Skipping '{entry.DisplayName}' — session dir not found: {sessionDir}");
+                                continue;
+                            }
 
                             await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken);
                             Debug($"Restored session: {entry.DisplayName}");
                         }
                         catch (Exception ex)
                         {
-                            Debug($"Failed to restore '{entry.DisplayName}': {ex.Message}");
+                            Debug($"Failed to restore '{entry.DisplayName}': {ex.GetType().Name}: {ex.Message}");
 
                             // If the connection broke, recreate the client
                             if (ex is System.IO.IOException or System.Net.Sockets.SocketException
@@ -86,12 +145,14 @@ public partial class CopilotService
                                 }
                                 catch (Exception clientEx)
                                 {
-                                    Debug($"Failed to recreate client: {clientEx.Message}");
+                                    Debug($"Failed to recreate client: {clientEx.GetType().Name}: {clientEx.Message}");
                                     break; // Stop trying to restore sessions
                                 }
                             }
                         }
                     }
+                    
+                    IsRestoring = false;
                 }
             }
             catch (Exception ex)
@@ -102,7 +163,7 @@ public partial class CopilotService
 
     }
 
-    public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null, bool? expandedGrid = null, string? expandedSession = "<<unspecified>>")
+    public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null, bool? expandedGrid = null, string? expandedSession = "<<unspecified>>", Dictionary<string, string>? inputModes = null)
     {
         try
         {
@@ -117,7 +178,10 @@ public partial class CopilotService
                 FontSize = fontSize ?? existing?.FontSize ?? 20,
                 SelectedModel = selectedModel ?? existing?.SelectedModel,
                 ExpandedGrid = expandedGrid ?? existing?.ExpandedGrid ?? false,
-                ExpandedSession = expandedSession == "<<unspecified>>" ? existing?.ExpandedSession : expandedSession
+                ExpandedSession = expandedSession == "<<unspecified>>" ? existing?.ExpandedSession : expandedSession,
+                InputModes = inputModes != null
+                    ? new Dictionary<string, string>(inputModes)
+                    : existing?.InputModes ?? new Dictionary<string, string>()
             };
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);
