@@ -97,12 +97,25 @@ public partial class CopilotService
                         var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
                         if (repo != null)
                         {
-                            var repoGroup = Organization.Groups.FirstOrDefault(g => g.RepoId == repo.Id);
-                            if (repoGroup != null)
-                            {
-                                meta.GroupId = repoGroup.Id;
-                            }
+                            var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
+                            meta.GroupId = repoGroup.Id;
                         }
+                        changed = true;
+                    }
+                }
+            }
+
+            // Ensure sessions with worktrees are in the correct repo group
+            if (meta.WorktreeId != null && meta.GroupId == SessionGroup.DefaultId)
+            {
+                var worktree = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
+                if (worktree != null)
+                {
+                    var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
+                    if (repo != null)
+                    {
+                        var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
+                        meta.GroupId = repoGroup.Id;
                         changed = true;
                     }
                 }
