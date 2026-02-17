@@ -82,6 +82,10 @@
                 {
                     <span class="ma-expanded-toolbar-progress">@grpProgress.Completed/@grpProgress.Total done</span>
                 }
+                @if (_groupPhases.TryGetValue(expandedGroupId, out var expPhase))
+                {
+                    <span class="phase-indicator">@PhaseLabel(expPhase.Phase, expPhase.Detail)</span>
+                }
                 <input type="text" id="ma-input-expanded-@expandedGroupId" class="ma-expanded-toolbar-input"
                        placeholder="Send to all sessions…"
                        @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") await SendToExpandedMultiAgentGroup(expandedGroupId); })"
@@ -226,6 +230,10 @@
                                 @progress.Completed/@progress.Total done
                             </span>
                         }
+                        @if (_groupPhases.TryGetValue(group.Id, out var gridPhase))
+                        {
+                            <span class="phase-indicator">@PhaseLabel(gridPhase.Phase, gridPhase.Detail)</span>
+                        }
                     }
                     <span class="group-divider-chevron">@(group.IsCollapsed ? "▶" : "▼")</span>
                 </div>
@@ -331,6 +339,7 @@
     private string? initError;
     private bool _initializationComplete = false;
     private readonly Dictionary<string, ChatMessage> _fiestaStreamingMessages = new(StringComparer.Ordinal);
+    private Dictionary<string, (OrchestratorPhase Phase, string? Detail)> _groupPhases = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -356,6 +365,7 @@
         CopilotService.OnError += HandleError;
         CopilotService.OnTurnStart += HandleTurnStart;
         CopilotService.OnTurnEnd += HandleTurnEnd;
+        CopilotService.OnOrchestratorPhaseChanged += HandleOrchestratorPhaseChanged;
         FiestaService.OnStateChanged += HandleFiestaStateChanged;
         FiestaService.OnHostTaskUpdate += HandleFiestaTaskUpdate;
 
@@ -1024,6 +1034,24 @@
         if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }
+
+    private void HandleOrchestratorPhaseChanged(string groupId, OrchestratorPhase phase, string? detail)
+    {
+        if (phase == OrchestratorPhase.Complete)
+            _groupPhases.Remove(groupId);
+        else
+            _groupPhases[groupId] = (phase, detail);
+        ScheduleRender();
+    }
+
+    private static string PhaseLabel(OrchestratorPhase phase, string? detail) => phase switch
+    {
+        OrchestratorPhase.Planning => "🎯 Planning...",
+        OrchestratorPhase.Dispatching => "📡 Dispatching..." + (detail != null ? $" {detail}" : ""),
+        OrchestratorPhase.WaitingForWorkers => "⏳ Waiting for workers...",
+        OrchestratorPhase.Synthesizing => "🔄 Synthesizing...",
+        _ => ""
+    };
 
     private void DismissError(string sessionName)
     {
@@ -2482,6 +2510,7 @@
         CopilotService.OnError -= HandleError;
         CopilotService.OnTurnStart -= HandleTurnStart;
         CopilotService.OnTurnEnd -= HandleTurnEnd;
+        CopilotService.OnOrchestratorPhaseChanged -= HandleOrchestratorPhaseChanged;
         FiestaService.OnStateChanged -= HandleFiestaStateChanged;
         FiestaService.OnHostTaskUpdate -= HandleFiestaTaskUpdate;
         _renderTimer?.Dispose();

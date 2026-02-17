@@ -420,6 +420,19 @@
     color: rgba(99, 102, 241, 0.8);
     font-weight: 500;
 }
+
+/* Orchestrator phase indicator */
+.phase-indicator {
+    font-size: 0.75rem;
+    color: var(--accent-primary);
+    white-space: nowrap;
+    animation: phase-pulse 2s ease-in-out infinite;
+}
+
+@keyframes phase-pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
 .multi-agent-input-bar {
     display: flex;
     align-items: flex-end;

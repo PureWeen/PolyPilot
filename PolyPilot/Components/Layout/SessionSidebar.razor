@@ -4,6 +4,7 @@
 @inject RepoManager RepoManager
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@implements IDisposable
 
 @if (IsMobileTopBar)
 {
@@ -155,6 +156,17 @@ else
     [Parameter] public EventCallback OnSessionSelected { get; set; }
     [Parameter] public int FontSize { get; set; } = 20;
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
+
+    private Dictionary<string, (OrchestratorPhase Phase, string? Detail)> _groupPhases = new();
+
+    private static string PhaseLabel(OrchestratorPhase phase, string? detail) => phase switch
+    {
+        OrchestratorPhase.Planning => "🎯 Planning...",
+        OrchestratorPhase.Dispatching => "📡 Dispatching..." + (detail != null ? $" {detail}" : ""),
+        OrchestratorPhase.WaitingForWorkers => "⏳ Waiting for workers...",
+        OrchestratorPhase.Synthesizing => "🔄 Synthesizing...",
+        _ => ""
+    };
 
     private async Task IncreaseFontSize()
     {
@@ -344,6 +356,10 @@ else
                                     <textarea id="sidebar-ma-input-@maGroupId" class="sidebar-ma-input" placeholder="Send to all..." rows="1" @onclick:stopPropagation="true"></textarea>
                                     <button class="sidebar-ma-send-btn" @onclick="() => SendToSidebarMultiAgentGroup(maGroupId)" @onclick:stopPropagation="true">📡</button>
                                 </div>
+                                @if (_groupPhases.TryGetValue(maGroupId, out var sidebarPhase))
+                                {
+                                    <span class="phase-indicator">@PhaseLabel(sidebarPhase.Phase, sidebarPhase.Detail)</span>
+                                }
                             </div>
                         }
                     }
@@ -513,6 +529,7 @@ else
         CopilotService.OnStateChanged += RefreshSessions;
         CopilotService.OnSessionComplete += HandleSessionComplete;
         CopilotService.OnUsageInfoChanged += HandleUsageInfoChanged;
+        CopilotService.OnOrchestratorPhaseChanged += HandleOrchestratorPhaseChanged;
         RepoManager.Load();
         RefreshSessions();
         LoadPersistedSessions();
@@ -559,6 +576,15 @@ else
             completedSessions.Remove(sessionName);
             InvokeAsync(StateHasChanged);
         });
+    }
+
+    private void HandleOrchestratorPhaseChanged(string groupId, OrchestratorPhase phase, string? detail)
+    {
+        if (phase == OrchestratorPhase.Complete)
+            _groupPhases.Remove(groupId);
+        else
+            _groupPhases[groupId] = (phase, detail);
+        InvokeAsync(StateHasChanged);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -1315,5 +1341,6 @@ Important conventions:
         CopilotService.OnStateChanged -= RefreshSessions;
         CopilotService.OnSessionComplete -= HandleSessionComplete;
         CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;
+        CopilotService.OnOrchestratorPhaseChanged -= HandleOrchestratorPhaseChanged;
     }
 }

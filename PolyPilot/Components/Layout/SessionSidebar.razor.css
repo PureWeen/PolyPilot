@@ -372,6 +372,18 @@
     border-bottom: 1px solid var(--control-border);
 }
 
+/* Orchestrator phase indicator */
+.phase-indicator {
+    font-size: 0.75rem;
+    color: var(--accent-primary);
+    animation: phase-pulse 2s ease-in-out infinite;
+}
+
+@keyframes phase-pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
 .sidebar-ma-mode-select {
     width: 100%;
     padding: 0.25rem 0.4rem;
