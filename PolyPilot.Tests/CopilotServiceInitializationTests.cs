@@ -584,4 +584,96 @@ public class CopilotServiceInitializationTests
         Assert.Single(session.MessageQueue);
         Assert.Equal("msg2", session.MessageQueue[0]);
     }
+
+    // ===== SwitchSession remote mode tests =====
+
+    [Fact]
+    public async Task SwitchSession_InRemoteMode_SendsBridgeMessage()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+
+        // Simulate bridge client providing a session so SwitchSession can find it
+        _bridgeClient.Sessions.Add(new SessionSummary { Name = "remote-session" });
+        _bridgeClient.IsConnected = true;
+        _bridgeClient.FireOnStateChanged();
+
+        var result = svc.SwitchSession("remote-session");
+
+        Assert.True(result);
+        Assert.Equal("remote-session", _bridgeClient.LastSwitchedSession);
+        Assert.Equal(1, _bridgeClient.SwitchSessionCallCount);
+    }
+
+    [Fact]
+    public async Task SwitchSession_InDemoMode_DoesNotSendBridgeMessage()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        await svc.CreateSessionAsync("local-session", cancellationToken: CancellationToken.None);
+
+        var result = svc.SwitchSession("local-session");
+
+        Assert.True(result);
+        Assert.Equal(0, _bridgeClient.SwitchSessionCallCount);
+    }
+
+    [Fact]
+    public async Task SwitchSession_NonExistentSession_ReturnsFalse()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+
+        var result = svc.SwitchSession("does-not-exist");
+
+        Assert.False(result);
+        Assert.Equal(0, _bridgeClient.SwitchSessionCallCount);
+    }
+
+    [Fact]
+    public async Task SwitchSession_InRemoteMode_MultipleSwitches_SendsEachOne()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+
+        _bridgeClient.Sessions.Add(new SessionSummary { Name = "session-a" });
+        _bridgeClient.Sessions.Add(new SessionSummary { Name = "session-b" });
+        _bridgeClient.IsConnected = true;
+        _bridgeClient.FireOnStateChanged();
+
+        svc.SwitchSession("session-a");
+        svc.SwitchSession("session-b");
+        svc.SwitchSession("session-a");
+
+        Assert.Equal(3, _bridgeClient.SwitchSessionCallCount);
+        Assert.Equal("session-a", _bridgeClient.LastSwitchedSession);
+    }
+
+    [Fact]
+    public async Task SetActiveSession_Null_DoesNotSendBridgeMessage()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+
+        svc.SetActiveSession(null);
+
+        Assert.Equal(0, _bridgeClient.SwitchSessionCallCount);
+    }
 }

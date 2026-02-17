@@ -83,7 +83,16 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public Task RequestHistoryAsync(string sessionName, CancellationToken ct = default) => Task.CompletedTask;
     public Task SendMessageAsync(string sessionName, string message, CancellationToken ct = default) => Task.CompletedTask;
     public Task CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken ct = default) => Task.CompletedTask;
-    public Task SwitchSessionAsync(string name, CancellationToken ct = default) => Task.CompletedTask;
+    public string? LastSwitchedSession { get; private set; }
+    public int SwitchSessionCallCount { get; private set; }
+    public Task SwitchSessionAsync(string name, CancellationToken ct = default)
+    {
+        LastSwitchedSession = name;
+        SwitchSessionCallCount++;
+        return Task.CompletedTask;
+    }
+
+    public void FireOnStateChanged() => OnStateChanged?.Invoke();
     public Task QueueMessageAsync(string sessionName, string message, CancellationToken ct = default) => Task.CompletedTask;
     public Task ResumeSessionAsync(string sessionId, string? displayName = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task CloseSessionAsync(string name, CancellationToken ct = default) => Task.CompletedTask;

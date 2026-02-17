@@ -1597,6 +1597,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             return false;
 
         _activeSessionName = name;
+        if (IsRemoteMode)
+            _ = _bridgeClient.SwitchSessionAsync(name);
         OnStateChanged?.Invoke();
         return true;
     }
