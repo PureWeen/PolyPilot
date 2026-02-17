@@ -1199,7 +1199,7 @@
                     "- `/status` — Show git status\n" +
                     "- `/mcp` — List MCP servers (enable/disable with `/mcp enable|disable <name>`)\n" +
                     "- `/plugin` — List installed plugins (enable/disable with `/plugin enable|disable <name>`)\n" +
-                    "- `/reflect <goal>` — Start a reflection cycle (`/reflect stop|pause|resume`, `--max N`)\n" +
+                    "- `/reflect <goal>` — Start a reflection cycle (`/reflect help` for details)\n" +
                     "- `!<command>` — Run a shell command"));
                 break;
 
@@ -1508,28 +1508,53 @@
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(arg))
+        if (sub == "status")
+        {
+            if (session.ReflectionCycle is { IsActive: true } rc)
+            {
+                var status = rc.IsPaused ? "⏸️ Paused" : "🔄 Running";
+                var evalInfo = !string.IsNullOrEmpty(rc.EvaluatorSessionName) ? "independent evaluator" : "self-evaluation";
+                var feedback = !string.IsNullOrEmpty(rc.EvaluatorFeedback) ? $"\n**Last feedback:** {rc.EvaluatorFeedback}" : "";
+                session.History.Add(ChatMessage.SystemMessage(
+                    $"{status} — **{rc.Goal}**\n" +
+                    $"Iteration {rc.CurrentIteration}/{rc.MaxIterations} · {evalInfo}{feedback}"));
+            }
+            else
+            {
+                session.History.Add(ChatMessage.SystemMessage("No active reflection cycle."));
+            }
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(arg) || sub == "help")
         {
             session.History.Add(ChatMessage.SystemMessage(
-                "🔄 **Reflection Cycles** — Iterative goal-driven prompting\n\n" +
-                "**Quick Start:**\n" +
+                "🔄 **Reflection Cycles** — Iterative goal-driven refinement\n\n" +
+                "**Usage:**\n" +
                 "```\n" +
-                "/reflect Make all tests pass\n" +
-                "/reflect Fix the login bug --max 10\n" +
+                "/reflect <goal>            Start a cycle (default 5 iterations)\n" +
+                "/reflect <goal> --max N    Set max iterations (1-100)\n" +
+                "/reflect stop              Cancel active cycle\n" +
+                "/reflect pause             Pause without cancelling\n" +
+                "/reflect resume            Resume paused cycle\n" +
+                "/reflect status            Show current cycle progress\n" +
+                "/reflect help              Show this help\n" +
                 "```\n\n" +
                 "**How it works:**\n" +
-                "1. You set a goal → cycle starts\n" +
-                "2. After each response, checks for `[[REFLECTION_COMPLETE]]`\n" +
-                "3. If not done, auto-generates a follow-up prompt\n" +
-                "4. Stops when: ✅ goal met | ⚠️ stalled (2× similar) | ⏱️ max iterations\n\n" +
-                "**Commands:**\n" +
-                "- `/reflect <goal>` — Start a cycle\n" +
-                "- `/reflect <goal> --max N` — Set max iterations (default 5)\n" +
-                "- `/reflect stop` — Cancel active cycle\n" +
-                "- `/reflect pause` — Pause without cancelling\n" +
-                "- `/reflect resume` — Resume paused cycle\n\n" +
-                "**Tips:** You can send messages during a cycle to steer it. " +
-                "Click the 🔄 pill in the header to stop."));
+                "1. You set a goal → the worker starts iterating\n" +
+                "2. After each response, an **independent evaluator** judges the result\n" +
+                "3. If the evaluator says FAIL, its feedback is sent back to the worker\n" +
+                "4. Cycle ends when: ✅ evaluator says PASS | ⚠️ stalled | ⏱️ max iterations\n\n" +
+                "**Examples:**\n" +
+                "```\n" +
+                "/reflect write a haiku about rain --max 4\n" +
+                "/reflect fix the login bug and add tests --max 8\n" +
+                "/reflect refactor this function for readability\n" +
+                "```\n\n" +
+                "**Tips:**\n" +
+                "- Send messages during a cycle to steer the worker\n" +
+                "- Click the 🔄 pill in the header to stop\n" +
+                "- The evaluator is strict early on, lenient on the final iteration"));
             return;
         }
 
