@@ -164,20 +164,26 @@ public partial class ReflectionCycle
     public string BuildEvaluatorPrompt(string workerResponse)
     {
         var truncated = workerResponse.Length > 4000 ? workerResponse[..4000] + "\n[... truncated]" : workerResponse;
-        var iterationContext = CurrentIteration < MaxIterations - 1
-            ? $"This is iteration {CurrentIteration}/{MaxIterations}. There is room for improvement — be demanding."
-            : $"This is the final iteration ({CurrentIteration}/{MaxIterations}). Be more lenient — PASS if the core goal is met.";
+        string iterationContext;
+        if (CurrentIteration <= 2)
+            iterationContext = $"This is iteration {CurrentIteration}/{MaxIterations}. You MUST find at least one flaw. "
+                             + "Even if the response is good, push for higher quality — better word choice, stronger imagery, tighter structure, more creativity. "
+                             + "Do NOT say PASS on early iterations unless the work is truly exceptional and flawless.";
+        else if (CurrentIteration < MaxIterations - 1)
+            iterationContext = $"This is iteration {CurrentIteration}/{MaxIterations}. Be demanding but fair — FAIL if there are genuine issues.";
+        else
+            iterationContext = $"This is the final iteration ({CurrentIteration}/{MaxIterations}). Be lenient — PASS if the core goal is met.";
 
-        return "You are a ruthlessly strict quality evaluator. Your job is to find flaws.\n\n"
+        return "You are a ruthlessly strict quality evaluator. Your job is to find flaws and push for excellence.\n\n"
              + $"## Goal\n{Goal}\n\n"
              + $"## Worker's Response (Iteration {CurrentIteration}/{MaxIterations})\n{truncated}\n\n"
              + "## Instructions\n"
              + $"{iterationContext}\n\n"
              + "Check EVERY requirement in the goal. For each one, verify it is fully met.\n"
              + "If ANY requirement is missing, incomplete, or poorly executed: FAIL.\n"
-             + "Look for: missing requirements, weak execution, lack of specificity, logical errors.\n\n"
-             + "- If ALL requirements are genuinely and fully met: respond with exactly: PASS\n"
-             + "- If ANY requirement is not met: respond with: FAIL: <specific feedback listing what's wrong>\n\n"
+             + "Look for: missing requirements, weak execution, lack of specificity, logical errors, room for improvement.\n\n"
+             + "- If ALL requirements are genuinely and fully met with high quality: respond with exactly: PASS\n"
+             + "- Otherwise: respond with: FAIL: <specific feedback listing what to improve>\n\n"
              + "Respond with PASS or FAIL: on the FIRST LINE. No other format.";
     }
 
