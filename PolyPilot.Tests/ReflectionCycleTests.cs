@@ -870,7 +870,11 @@ public class AgentSessionInfoReflectionCycleTests
     [InlineData("--max 20 fix the bug", 20, "fix the bug")]
     [InlineData("\u2014max 20 fix the bug", 20, "fix the bug")] // em-dash at start
     [InlineData("fix the bug", 5, "fix the bug")] // no --max, default
-    [InlineData("fix the bug --max 200", 100, "fix the bug")] // clamped to 100
+    [InlineData("fix the bug --max 200", 200, "fix the bug")] // no upper bound
+    [InlineData("fix the bug --max 9999", 9999, "fix the bug")] // unlimited
+    [InlineData("fix the bug --max 0", 5, "fix the bug")] // zero keeps default
+    [InlineData("fix the bug --max 1", 1, "fix the bug")] // minimum valid
+    [InlineData("fix --max 3 the bug", 3, "fix  the bug")] // mid-goal placement
     public void ParseMaxIterations_HandlesVariousFormats(string arg, int expectedMax, string expectedGoal)
     {
         int maxIterations = 5;
@@ -879,7 +883,7 @@ public class AgentSessionInfoReflectionCycleTests
         if (maxMatch.Success)
         {
             if (int.TryParse(maxMatch.Groups[1].Value, out var parsed) && parsed > 0)
-                maxIterations = Math.Min(parsed, 100);
+                maxIterations = parsed;
             goal = arg.Remove(maxMatch.Index, maxMatch.Length).Trim();
         }
 

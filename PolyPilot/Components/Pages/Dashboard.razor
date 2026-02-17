@@ -1533,7 +1533,7 @@
                 "**Usage:**\n" +
                 "```\n" +
                 "/reflect <goal>            Start a cycle (default 5 iterations)\n" +
-                "/reflect <goal> --max N    Set max iterations (1-100)\n" +
+                "/reflect <goal> --max N    Set max iterations (default 5)\n" +
                 "/reflect stop              Cancel active cycle\n" +
                 "/reflect pause             Pause without cancelling\n" +
                 "/reflect resume            Resume paused cycle\n" +
@@ -1565,7 +1565,7 @@
         if (maxMatch.Success)
         {
             if (int.TryParse(maxMatch.Groups[1].Value, out var parsed) && parsed > 0)
-                maxIterations = Math.Min(parsed, 100);
+                maxIterations = parsed;
             goal = arg.Remove(maxMatch.Index, maxMatch.Length).Trim();
         }
 
