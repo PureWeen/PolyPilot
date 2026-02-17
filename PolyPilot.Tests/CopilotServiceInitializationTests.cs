@@ -585,6 +585,36 @@ public class CopilotServiceInitializationTests
         Assert.Equal("msg2", session.MessageQueue[0]);
     }
 
+    [Fact]
+    public async Task RefreshSessionsAsync_DemoMode_FiresOnStateChanged()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var stateChangedCount = 0;
+        svc.OnStateChanged += () => stateChangedCount++;
+
+        await svc.RefreshSessionsAsync();
+
+        Assert.True(stateChangedCount > 0, "Manual refresh should notify UI listeners");
+    }
+
+    [Fact]
+    public async Task RefreshSessionsAsync_RemoteMode_RequestsBridgeSessions()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+        _bridgeClient.IsConnected = true;
+
+        await svc.RefreshSessionsAsync();
+
+        Assert.Equal(1, _bridgeClient.RequestSessionsCallCount);
+    }
+
     // ===== SwitchSession remote mode tests =====
 
     [Fact]

@@ -382,6 +382,43 @@
           "note": "Verify submit button exists"
         }
       ]
+    },
+    {
+      "id": "refresh-sessions-button-visible",
+      "name": "Refresh sessions button is visible in sidebar toolbar and can be clicked",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/']",
+          "note": "Navigate to Dashboard"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.sidebar-toolbar .new-group-btn')).some(b => b.textContent.includes('Refresh'))",
+          "expect": { "equals": "true" },
+          "note": "Verify refresh button exists"
+        },
+        {
+          "action": "evaluate",
+          "script": "(() => { const btn = Array.from(document.querySelectorAll('.sidebar-toolbar .new-group-btn')).find(b => b.textContent.includes('Refresh')); if (!btn) return 'missing'; btn.click(); return 'clicked'; })()",
+          "expect": { "equals": "clicked" },
+          "note": "Click refresh button"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.sidebar-toolbar') !== null",
+          "expect": { "equals": "true" },
+          "note": "Verify toolbar remains available after refresh"
+        }
+      ]
     }
   ]
 }
