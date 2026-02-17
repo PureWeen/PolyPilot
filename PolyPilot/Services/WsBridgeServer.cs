@@ -351,6 +351,10 @@ public class WsBridgeServer : IDisposable
                     var createReq = msg.GetPayload<CreateSessionPayload>();
                     if (createReq != null && !string.IsNullOrWhiteSpace(createReq.Name))
                     {
+                        // Normalize empty WorkingDirectory to null (mobile sends "" when no dir is specified)
+                        if (string.IsNullOrWhiteSpace(createReq.WorkingDirectory))
+                            createReq.WorkingDirectory = null;
+
                         // Validate WorkingDirectory if provided — must be an absolute path that exists
                         if (createReq.WorkingDirectory != null)
                         {

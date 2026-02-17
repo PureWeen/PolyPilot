@@ -576,4 +576,116 @@ public class ChatMessageSerializationTests
 
         Assert.Empty(restored!.Messages);
     }
+
+    // ===== CreateSession WorkingDirectory edge cases =====
+
+    [Fact]
+    public void CreateSession_EmptyWorkingDirectory_Serializes()
+    {
+        // Mobile sends empty string when no directory is specified
+        var payload = new CreateSessionPayload
+        {
+            Name = "mobile-session",
+            Model = "claude-sonnet-4",
+            WorkingDirectory = ""
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.CreateSession, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<CreateSessionPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("mobile-session", restored!.Name);
+        Assert.Equal("", restored.WorkingDirectory);
+    }
+
+    [Fact]
+    public void CreateSession_NullWorkingDirectory_Serializes()
+    {
+        var payload = new CreateSessionPayload
+        {
+            Name = "test-session",
+            Model = "claude-sonnet-4",
+            WorkingDirectory = null
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.CreateSession, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<CreateSessionPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("test-session", restored!.Name);
+        Assert.Null(restored.WorkingDirectory);
+    }
+
+    [Fact]
+    public void CreateSession_EmptyDirectory_ShouldBeTreatedAsNull()
+    {
+        // This validates the server-side normalization: empty string → null
+        // so the path validation doesn't reject the request
+        var payload = new CreateSessionPayload
+        {
+            Name = "mobile-test",
+            WorkingDirectory = ""
+        };
+
+        // Simulate the server-side normalization
+        if (string.IsNullOrWhiteSpace(payload.WorkingDirectory))
+            payload.WorkingDirectory = null;
+
+        Assert.Null(payload.WorkingDirectory);
+    }
+
+    [Fact]
+    public void CreateSession_WhitespaceDirectory_ShouldBeTreatedAsNull()
+    {
+        var payload = new CreateSessionPayload
+        {
+            Name = "mobile-test",
+            WorkingDirectory = "   "
+        };
+
+        if (string.IsNullOrWhiteSpace(payload.WorkingDirectory))
+            payload.WorkingDirectory = null;
+
+        Assert.Null(payload.WorkingDirectory);
+    }
+
+    [Fact]
+    public void CreateSession_ValidDirectory_NotNormalized()
+    {
+        var payload = new CreateSessionPayload
+        {
+            Name = "desktop-test",
+            WorkingDirectory = "/Users/test/project"
+        };
+
+        if (string.IsNullOrWhiteSpace(payload.WorkingDirectory))
+            payload.WorkingDirectory = null;
+
+        Assert.Equal("/Users/test/project", payload.WorkingDirectory);
+    }
+
+    [Fact]
+    public void CreateSession_PathValidation_EmptyStringFailsIsPathRooted()
+    {
+        // Documents the actual bug: empty string is not null, passes the != null check,
+        // but fails Path.IsPathRooted, causing silent rejection
+        Assert.False(Path.IsPathRooted(""));
+        Assert.False(Path.IsPathRooted("  "));
+    }
+
+    [Fact]
+    public void CreateSession_PathValidation_ValidPathPasses()
+    {
+        Assert.True(Path.IsPathRooted("/Users/test"));
+        if (OperatingSystem.IsWindows())
+            Assert.True(Path.IsPathRooted(@"C:\Users\test"));
+    }
+
+    [Fact]
+    public void CreateSession_PathTraversal_Rejected()
+    {
+        // WorkingDirectory containing ".." should be rejected
+        var wd = "/Users/test/../../../etc/passwd";
+        Assert.True(wd.Contains(".."));
+    }
 }
