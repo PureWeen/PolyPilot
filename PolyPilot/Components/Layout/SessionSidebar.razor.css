@@ -207,7 +207,7 @@
 }
 
 .new-group-input {
-    margin-left: auto;
+    flex-basis: 100%;
     font-size: var(--type-caption1);
     color: var(--text-primary);
     background: var(--control-border);
