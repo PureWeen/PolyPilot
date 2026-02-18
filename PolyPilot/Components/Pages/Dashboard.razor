@@ -79,6 +79,15 @@
                     <option value="Orchestrator" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.Orchestrator)">🎯 Orchestrate</option>
                     <option value="OrchestratorReflect" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">🔄 Reflect</option>
                 </select>
+                @if (expandedGroup.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+                {
+                    <span class="reflect-iter-inline">
+                        <label>Iterations:</label>
+                        <input type="number" min="1" max="100" value="@GetMaxIterations(expandedGroupId)"
+                               @onchange="(e) => SetMaxIterations(expandedGroupId, e)"
+                               @onclick:stopPropagation="true" class="reflect-iter-input" />
+                    </span>
+                }
                 @if (grpProgress.Processing > 0)
                 {
                     <span class="ma-expanded-toolbar-progress">@grpProgress.Completed/@grpProgress.Total done</span>
@@ -245,6 +254,15 @@
                 @if (group.IsMultiAgent && showGroupHeaders)
                 {
                     <div class="multi-agent-input-bar" @onclick:stopPropagation="true">
+                        @if (group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+                        {
+                            <span class="reflect-iter-inline">
+                                <label>Iterations:</label>
+                                <input type="number" min="1" max="100" value="@GetMaxIterations(group.Id)"
+                                       @onchange="(e) => SetMaxIterations(group.Id, e)"
+                                       @onclick:stopPropagation="true" class="reflect-iter-input" />
+                            </span>
+                        }
                         <textarea id="ma-input-@group.Id" class="ma-broadcast-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)"
                                   rows="1"></textarea>
                         <button class="ma-send-btn" @onclick="() => SendToMultiAgentGroup(group.Id)" title="Send to all sessions">
@@ -2177,8 +2195,23 @@
         var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         if (group?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
         {
-            CopilotService.StartGroupReflection(groupId, prompt, 5);
+            var maxIter = GetMaxIterations(groupId);
+            CopilotService.StartGroupReflection(groupId, prompt, maxIter);
         }
+    }
+
+    private Dictionary<string, int> _groupMaxIterations = new();
+
+    private int GetMaxIterations(string groupId)
+    {
+        if (_groupMaxIterations.TryGetValue(groupId, out var val)) return val;
+        return 5;
+    }
+
+    private void SetMaxIterations(string groupId, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var val) && val >= 1)
+            _groupMaxIterations[groupId] = val;
     }
 
     private async Task SendToMultiAgentGroup(string groupId)

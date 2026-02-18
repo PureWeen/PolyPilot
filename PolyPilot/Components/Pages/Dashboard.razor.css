@@ -416,6 +416,27 @@
     cursor: pointer;
     min-width: 120px;
 }
+
+.reflect-iter-inline {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.reflect-iter-input {
+    width: 50px;
+    padding: 0.15rem 0.3rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    font-size: var(--type-footnote);
+    text-align: center;
+}
+
 .group-divider-progress {
     font-size: var(--type-caption1);
     color: rgba(99, 102, 241, 0.8);
