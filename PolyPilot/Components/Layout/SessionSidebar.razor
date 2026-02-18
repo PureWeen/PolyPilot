@@ -411,8 +411,8 @@ else
                                 <select class="sidebar-ma-mode-select" @onchange="(e) => OnSidebarMultiAgentModeChanged(maGroupId, e)">
                                     <option value="Broadcast" selected="@(group.OrchestratorMode == MultiAgentMode.Broadcast)">📡 Broadcast</option>
                                     <option value="Sequential" selected="@(group.OrchestratorMode == MultiAgentMode.Sequential)">⏩ Sequential</option>
-                                    <option value="Orchestrator" selected="@(group.OrchestratorMode == MultiAgentMode.Orchestrator)">🎯 Orchestrator</option>
-                                    <option value="OrchestratorReflect" selected="@(group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">🔄 Orchestrator + Reflect</option>
+                                    <option value="Orchestrator" selected="@(group.OrchestratorMode == MultiAgentMode.Orchestrator)">🎯 Orchestrate</option>
+                                    <option value="OrchestratorReflect" selected="@(group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">🔄 Reflect</option>
                                 </select>
                                 <div class="sidebar-ma-input-bar">
                                     <textarea id="sidebar-ma-input-@maGroupId" class="sidebar-ma-input" placeholder="Send to all..." rows="1" @onclick:stopPropagation="true"></textarea>

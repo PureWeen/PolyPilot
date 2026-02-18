@@ -408,12 +408,13 @@
 }
 .ma-mode-select {
     background: var(--control-bg);
-    color: var(--text-dim);
+    color: var(--text-primary);
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    font-size: var(--type-caption1);
-    padding: 0.15rem 0.35rem;
+    font-size: var(--type-footnote);
+    padding: 0.2rem 0.4rem;
     cursor: pointer;
+    min-width: 120px;
 }
 .group-divider-progress {
     font-size: var(--type-caption1);

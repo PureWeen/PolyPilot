@@ -73,10 +73,11 @@
             var expandedGroupId = expandedGroup.Id;
             <div class="ma-expanded-toolbar" @onclick:stopPropagation="true">
                 <span class="ma-expanded-toolbar-label">🤖 @expandedGroup.Name</span>
-                <select class="ma-mode-select" @onchange="(e) => OnMultiAgentModeChanged(expandedGroupId, e)" value="@expandedGroup.OrchestratorMode.ToString()">
-                    <option value="Broadcast">📡 Broadcast</option>
-                    <option value="Sequential">⏩ Sequential</option>
-                    <option value="Orchestrator">🎯 Orchestrator</option>
+                <select class="ma-mode-select" @onchange="(e) => OnMultiAgentModeChanged(expandedGroupId, e)">
+                    <option value="Broadcast" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.Broadcast)">📡 Broadcast</option>
+                    <option value="Sequential" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.Sequential)">⏩ Sequential</option>
+                    <option value="Orchestrator" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.Orchestrator)">🎯 Orchestrate</option>
+                    <option value="OrchestratorReflect" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">🔄 Reflect</option>
                 </select>
                 @if (grpProgress.Processing > 0)
                 {
@@ -208,10 +209,11 @@
                     @if (group.IsMultiAgent)
                     {
                         <span class="group-divider-mode" @onclick:stopPropagation="true">
-                            <select class="ma-mode-select" @onchange="(e) => OnMultiAgentModeChanged(group.Id, e)" value="@group.OrchestratorMode.ToString()">
-                                <option value="Broadcast">📡 Broadcast</option>
-                                <option value="Sequential">⏩ Sequential</option>
-                                <option value="Orchestrator">🎯 Orchestrator</option>
+                            <select class="ma-mode-select" @onchange="(e) => OnMultiAgentModeChanged(group.Id, e)">
+                                <option value="Broadcast" selected="@(group.OrchestratorMode == MultiAgentMode.Broadcast)">📡 Broadcast</option>
+                                <option value="Sequential" selected="@(group.OrchestratorMode == MultiAgentMode.Sequential)">⏩ Sequential</option>
+                                <option value="Orchestrator" selected="@(group.OrchestratorMode == MultiAgentMode.Orchestrator)">🎯 Orchestrate</option>
+                                <option value="OrchestratorReflect" selected="@(group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">🔄 Reflect</option>
                             </select>
                         </span>
                     }
