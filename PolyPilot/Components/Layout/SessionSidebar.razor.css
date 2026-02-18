@@ -201,7 +201,8 @@
     display: flex;
     gap: 0.1rem;
     margin-left: auto;
-    flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .new-group-input {
@@ -1387,14 +1388,28 @@
 
 /* === Preset Picker === */
 .preset-picker {
+    position: fixed;
+    top: 80px;
+    left: 16px;
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
-    padding: 0.5rem;
+    padding: 0.75rem;
     background: var(--bg-tertiary);
     border: 1px solid var(--control-border);
-    border-radius: 8px;
-    margin-top: 0.25rem;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    z-index: 1000;
+    max-height: 70vh;
+    overflow-y: auto;
+    width: 320px;
+}
+
+.preset-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.3);
+    z-index: 999;
 }
 
 .preset-item {

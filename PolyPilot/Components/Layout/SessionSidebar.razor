@@ -207,6 +207,7 @@ else
                 </div>
                 @if (showPresetPicker)
                 {
+                    <div class="preset-backdrop" @onclick="() => showPresetPicker = false"></div>
                     <div class="preset-picker" @onclick:stopPropagation="true">
                         @foreach (var preset in UserPresets.GetAll(CopilotService.BaseDir))
                         {
