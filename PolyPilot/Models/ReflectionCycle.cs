@@ -57,7 +57,7 @@ public partial class ReflectionCycle
     /// <summary>
     /// Number of consecutive stalls detected. Exposed for diagnostics and warning UI.
     /// </summary>
-    public int ConsecutiveStalls { get; private set; }
+    public int ConsecutiveStalls { get; internal set; }
 
     /// <summary>
     /// Optional instructions on how to evaluate whether the goal has been met.

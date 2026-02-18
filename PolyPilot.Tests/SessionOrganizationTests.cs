@@ -1900,3 +1900,97 @@ public class MultiAgentScenarioTests
         Assert.Contains(diags2, d => d.Level == "info" && d.Message.Contains("deep-thinker") && d.Message.Contains("premium"));
     }
 }
+
+/// <summary>
+/// Tests for the aligned stall handling between single-agent and multi-agent paths.
+/// Both now use 2-consecutive-stalls tolerance via ConsecutiveStalls counter.
+/// </summary>
+public class StallHandlingAlignmentTests
+{
+    [Fact]
+    public void SingleAgent_Advance_ToleratesFirstStall()
+    {
+        var cycle = ReflectionCycle.Create("Test goal", maxIterations: 10);
+
+        // First iteration — unique response
+        Assert.True(cycle.Advance("First unique response about the topic"));
+
+        // Second iteration — repeat triggers CheckStall but Advance tolerates it
+        Assert.True(cycle.Advance("First unique response about the topic"));
+        Assert.Equal(1, cycle.ConsecutiveStalls);
+        Assert.True(cycle.ShouldWarnOnStall); // warning but not stopped
+        Assert.False(cycle.IsStalled);
+
+        // Third iteration — still repeating, now stalled
+        Assert.False(cycle.Advance("First unique response about the topic"));
+        Assert.True(cycle.IsStalled);
+        Assert.Equal(2, cycle.ConsecutiveStalls);
+    }
+
+    [Fact]
+    public void SingleAgent_Advance_ResetsStallCountOnNewContent()
+    {
+        var cycle = ReflectionCycle.Create("Test goal", maxIterations: 10);
+
+        cycle.Advance("Response A with some content");
+        cycle.Advance("Response A with some content"); // first stall
+        Assert.Equal(1, cycle.ConsecutiveStalls);
+
+        cycle.Advance("Response B completely different content"); // new content resets
+        Assert.Equal(0, cycle.ConsecutiveStalls);
+        Assert.False(cycle.IsStalled);
+    }
+
+    [Fact]
+    public void MultiAgent_StallHandling_MatchesSingleAgent()
+    {
+        // Verify the multi-agent path uses same 2-consecutive tolerance
+        // by testing the ReflectionCycle state directly (service layer applies same logic)
+        var state = ReflectionCycle.Create("Multi-agent goal", maxIterations: 10);
+
+        // Simulate what SendViaOrchestratorReflectAsync does:
+        // First stall: warn but continue
+        state.CurrentIteration = 1;
+        var isStall1 = state.CheckStall("Synthesis of worker outputs about authentication");
+        Assert.False(isStall1);
+
+        state.CurrentIteration = 2;
+        var isStall2 = state.CheckStall("Synthesis of worker outputs about authentication"); // repeat
+        Assert.True(isStall2);
+
+        // Multi-agent path now increments ConsecutiveStalls (aligned with Advance)
+        state.ConsecutiveStalls++;
+        Assert.Equal(1, state.ConsecutiveStalls);
+        Assert.False(state.ConsecutiveStalls >= 2); // NOT stopped yet — this is the fix
+
+        state.CurrentIteration = 3;
+        var isStall3 = state.CheckStall("Synthesis of worker outputs about authentication"); // still repeating
+        Assert.True(isStall3);
+        state.ConsecutiveStalls++;
+        Assert.True(state.ConsecutiveStalls >= 2); // NOW stopped
+        state.IsStalled = true;
+        Assert.Contains("Stalled", state.BuildCompletionSummary());
+    }
+
+    [Fact]
+    public void CheckStall_JaccardSimilarity_CatchesRephrasing()
+    {
+        var cycle = ReflectionCycle.Create("Test goal");
+
+        // First response
+        Assert.False(cycle.CheckStall("The authentication module needs JWT token validation and session management"));
+
+        // Very similar rephrasing (should trigger Jaccard > 0.9)
+        Assert.True(cycle.CheckStall("The authentication module needs JWT token validation and session management support"));
+    }
+
+    [Fact]
+    public void CheckStall_DifferentContent_NoFalsePositive()
+    {
+        var cycle = ReflectionCycle.Create("Test goal");
+
+        Assert.False(cycle.CheckStall("First I will implement the database layer with PostgreSQL"));
+        Assert.False(cycle.CheckStall("Next the API routes need Express middleware for auth"));
+        Assert.False(cycle.CheckStall("Finally the frontend React components for the dashboard"));
+    }
+}

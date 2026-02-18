@@ -1110,11 +1110,22 @@ public partial class CopilotService
             // Auto-adjustment: analyze worker results and suggest/apply changes
             AutoAdjustFromFeedback(groupId, group, results.ToList(), reflectState);
 
-            // Stall detection
+            // Stall detection — use 2-consecutive tolerance like single-agent Advance()
             if (reflectState.CheckStall(synthesisResponse))
             {
-                AddOrchestratorSystemMessage(orchestratorName, $"⚠️ {reflectState.BuildCompletionSummary()}");
-                break;
+                reflectState.ConsecutiveStalls++;
+                if (reflectState.ConsecutiveStalls >= 2)
+                {
+                    reflectState.IsStalled = true;
+                    AddOrchestratorSystemMessage(orchestratorName, $"⚠️ {reflectState.BuildCompletionSummary()}");
+                    break;
+                }
+                // First stall: warn but continue
+                reflectState.PendingAdjustments.Add("⚠️ Output similarity detected — may be stalling. Will stop if it repeats.");
+            }
+            else
+            {
+                reflectState.ConsecutiveStalls = 0;
             }
 
             SaveOrganization();
