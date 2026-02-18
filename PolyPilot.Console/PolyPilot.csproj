@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.24-preview.0" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.25" />
     <PackageReference Include="Spectre.Console" Version="0.54.0" />
   </ItemGroup>
 

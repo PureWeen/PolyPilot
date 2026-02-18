@@ -415,6 +415,25 @@ public class RepoManager
         return await RunGitWithProgressAsync(workDir, null, ct, args);
     }
 
+    private static void SetPath(ProcessStartInfo psi)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var existing = Environment.GetEnvironmentVariable("PATH") ?? "";
+            var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            var gitPath = Path.Combine(programFiles, "Git", "cmd");
+            if (!existing.Contains("Git", StringComparison.OrdinalIgnoreCase))
+                psi.Environment["PATH"] = $"{gitPath};{existing}";
+        }
+        else
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            psi.Environment["PATH"] =
+                $"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+            psi.Environment["HOME"] = home;
+        }
+    }
+
     private static async Task<string> RunGitWithProgressAsync(string? workDir, Action<string>? onProgress, CancellationToken ct, params string[] args)
     {
         var psi = new ProcessStartInfo("git")
@@ -428,6 +447,9 @@ public class RepoManager
             psi.WorkingDirectory = workDir;
         foreach (var a in args)
             psi.ArgumentList.Add(a);
+
+        // Ensure git is discoverable when launched from a GUI app (limited default PATH)
+        SetPath(psi);
 
         using var proc = Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start git process.");

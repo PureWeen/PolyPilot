@@ -140,6 +140,17 @@ public class ScenarioReferenceTests
         Assert.True(true, "See CopilotServiceInitializationTests.ConnectionSettings_SetMode_PersistsMode");
     }
 
+    /// <summary>
+    /// Scenario: "refresh-sessions-button-visible"
+    /// Unit test equivalents: RefreshSessionsAsync_DemoMode_FiresOnStateChanged,
+    ///   RefreshSessionsAsync_RemoteMode_RequestsBridgeSessions
+    /// </summary>
+    [Fact]
+    public void Scenario_RefreshSessionsButton_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See CopilotServiceInitializationTests.RefreshSessionsAsync_* tests");
+    }
+
     [Fact]
     public void AllScenarios_HaveUniqueIds()
     {

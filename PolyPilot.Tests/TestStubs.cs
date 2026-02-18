@@ -79,7 +79,12 @@ internal class StubWsBridgeClient : IWsBridgeClient
 
     public Task ConnectAsync(string wsUrl, string? authToken = null, CancellationToken ct = default) => Task.CompletedTask;
     public void Stop() { IsConnected = false; }
-    public Task RequestSessionsAsync(CancellationToken ct = default) => Task.CompletedTask;
+    public int RequestSessionsCallCount { get; private set; }
+    public Task RequestSessionsAsync(CancellationToken ct = default)
+    {
+        RequestSessionsCallCount++;
+        return Task.CompletedTask;
+    }
     public Task RequestHistoryAsync(string sessionName, CancellationToken ct = default) => Task.CompletedTask;
     public Task SendMessageAsync(string sessionName, string message, CancellationToken ct = default) => Task.CompletedTask;
     public Task CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken ct = default) => Task.CompletedTask;

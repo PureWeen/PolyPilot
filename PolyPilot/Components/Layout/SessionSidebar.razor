@@ -202,6 +202,7 @@ else
                     <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
                     <button class="new-group-btn" @onclick="StartAddMultiAgentGroup" title="New multi-agent group">🤖 + Multi-Agent</button>
                     <button class="new-group-btn" @onclick="() => showAddRepo = true" title="Add repository">+ Repo</button>
+                    <button class="new-group-btn" @onclick="RefreshSessionsManually" title="Refresh sessions">↻ Refresh</button>
                 </div>
             }
         </div>
@@ -605,6 +606,13 @@ else
 
     private DateTime _lastSidebarRefresh = DateTime.MinValue;
     private bool _sidebarRefreshPending;
+
+    private async Task RefreshSessionsManually()
+    {
+        _sidebarRefreshPending = false;
+        _lastSidebarRefresh = DateTime.MinValue;
+        await CopilotService.RefreshSessionsAsync();
+    }
 
     private void RefreshSessions()
     {

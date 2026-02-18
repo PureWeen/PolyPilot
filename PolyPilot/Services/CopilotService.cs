@@ -1136,7 +1136,7 @@ public partial class CopilotService : IAsyncDisposable
 
         if (!_sessions.TryAdd(displayName, state))
         {
-            await copilotSession.DisposeAsync();
+            try { await copilotSession.DisposeAsync(); } catch { }
             throw new InvalidOperationException($"Failed to add session '{displayName}'.");
         }
 
@@ -1264,7 +1264,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!_sessions.TryAdd(name, state))
         {
-            await copilotSession.DisposeAsync();
+            try { await copilotSession.DisposeAsync(); } catch { }
             throw new InvalidOperationException($"Failed to add session '{name}'.");
         }
 
@@ -1317,8 +1317,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         try
         {
-            // Dispose old session connection
-            await state.Session.DisposeAsync();
+            // Dispose old session connection (may already be disposed if disconnected)
+            try { await state.Session.DisposeAsync(); } catch { }
 
             if (_client == null)
                 throw new InvalidOperationException("Client is not initialized");
@@ -1448,7 +1448,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 OnActivity?.Invoke(sessionName, "🔄 Reconnecting session...");
                 try
                 {
-                    await state.Session.DisposeAsync();
+                    try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
                     if (_client == null)
                         throw new InvalidOperationException("Client is not initialized");
                     var reconnectModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
@@ -1748,6 +1748,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
+    public async Task RefreshSessionsAsync(CancellationToken cancellationToken = default)
+    {
+        if (IsRemoteMode && _bridgeClient.IsConnected)
+            await _bridgeClient.RequestSessionsAsync(cancellationToken);
+
+        OnStateChanged?.Invoke();
+    }
+
     public async Task<bool> CloseSessionAsync(string name)
     {
         // Clean up any active reflection cycle (including evaluator session)
@@ -1770,7 +1778,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             _closedSessionIds[state.Info.SessionId] = 0;
 
         if (state.Session is not null)
-            await state.Session.DisposeAsync();
+            try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
 
         if (_activeSessionName == name)
         {
@@ -1804,13 +1812,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         foreach (var state in _sessions.Values)
         {
             if (state.Session is not null)
-                await state.Session.DisposeAsync();
+                try { await state.Session.DisposeAsync(); } catch { }
         }
         _sessions.Clear();
 
         if (_client != null)
         {
-            await _client.DisposeAsync();
+            try { await _client.DisposeAsync(); } catch { }
         }
     }
 }

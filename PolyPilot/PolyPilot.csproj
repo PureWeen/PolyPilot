@@ -15,7 +15,7 @@
         <OutputType>Exe</OutputType>
         <RootNamespace>PolyPilot</RootNamespace>
         <UseMaui>true</UseMaui>
-        <MauiVersion>10.0.31</MauiVersion>
+        <MauiVersion>10.0.41</MauiVersion>
         <SingleProject>true</SingleProject>
         <ImplicitUsings>enable</ImplicitUsings>
         <EnableDefaultCssItems>false</EnableDefaultCssItems>
@@ -68,11 +68,12 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.24-preview.0" />
+        <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.25" />
         <PackageReference Include="Markdig" Version="0.45.0" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
-        <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.3" />
+        <PackageReference Include="Microsoft.Maui.Essentials.AI" Version="10.0.50-ci.main.26117.2" />
         <PackageReference Include="sqlite-net-pcl" Version="*" />
         <PackageReference Include="SQLitePCLRaw.bundle_green" Version="*" />
         <PackageReference Include="QRCoder" Version="*" />

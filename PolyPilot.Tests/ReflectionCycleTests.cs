@@ -862,4 +862,32 @@ public class AgentSessionInfoReflectionCycleTests
         Assert.Null(cycle.EvaluatorFeedback);
         Assert.True(cycle.GoalMet);
     }
+
+    [Theory]
+    [InlineData("fix the bug --max 10", 10, "fix the bug")]
+    [InlineData("fix the bug \u2014max 10", 10, "fix the bug")] // em-dash (macOS auto-substitution)
+    [InlineData("fix the bug --max 50", 50, "fix the bug")]
+    [InlineData("--max 20 fix the bug", 20, "fix the bug")]
+    [InlineData("\u2014max 20 fix the bug", 20, "fix the bug")] // em-dash at start
+    [InlineData("fix the bug", 5, "fix the bug")] // no --max, default
+    [InlineData("fix the bug --max 200", 200, "fix the bug")] // no upper bound
+    [InlineData("fix the bug --max 9999", 9999, "fix the bug")] // unlimited
+    [InlineData("fix the bug --max 0", 5, "fix the bug")] // zero keeps default
+    [InlineData("fix the bug --max 1", 1, "fix the bug")] // minimum valid
+    [InlineData("fix --max 3 the bug", 3, "fix  the bug")] // mid-goal placement
+    public void ParseMaxIterations_HandlesVariousFormats(string arg, int expectedMax, string expectedGoal)
+    {
+        int maxIterations = 5;
+        var goal = arg;
+        var maxMatch = System.Text.RegularExpressions.Regex.Match(arg, @"(?:--|—|\u2014)max\s+(\d+)");
+        if (maxMatch.Success)
+        {
+            if (int.TryParse(maxMatch.Groups[1].Value, out var parsed) && parsed > 0)
+                maxIterations = parsed;
+            goal = arg.Remove(maxMatch.Index, maxMatch.Length).Trim();
+        }
+
+        Assert.Equal(expectedMax, maxIterations);
+        Assert.Equal(expectedGoal, goal);
+    }
 }
