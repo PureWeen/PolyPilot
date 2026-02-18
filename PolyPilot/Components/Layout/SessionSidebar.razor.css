@@ -167,6 +167,7 @@
 /* Sort/group toolbar */
 .sidebar-toolbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.1rem;
     padding: 0.25rem 0.5rem;
@@ -201,8 +202,8 @@
     display: flex;
     gap: 0.1rem;
     margin-left: auto;
-    flex-wrap: wrap;
-    justify-content: flex-end;
+    flex-shrink: 0;
+    overflow: hidden;
 }
 
 .new-group-input {
@@ -1388,60 +1389,40 @@
 
 /* === Preset Picker === */
 .preset-picker {
-    position: fixed;
-    top: 80px;
-    left: 16px;
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
-    padding: 0.75rem;
+    flex-basis: 100%;
+    gap: 0.1rem;
+    padding: 0.3rem;
     background: var(--bg-tertiary);
     border: 1px solid var(--control-border);
-    border-radius: 10px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-    z-index: 1000;
-    max-height: 70vh;
-    overflow-y: auto;
-    width: 320px;
+    border-radius: 6px;
+    margin-top: 0.2rem;
 }
 
 .preset-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.3);
-    z-index: 999;
+    display: none;
 }
 
 .preset-item {
     all: unset;
     display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    padding: 0.5rem;
-    border-radius: 6px;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.4rem;
+    border-radius: 4px;
     cursor: pointer;
-    transition: background 0.15s;
+    font-size: var(--type-footnote);
 }
 .preset-item:hover { background: var(--control-bg); }
 
-.preset-emoji { font-size: 1.2rem; flex-shrink: 0; margin-top: 0.1rem; }
-
-.preset-info {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
-}
+.preset-emoji { font-size: 0.9rem; flex-shrink: 0; }
 
 .preset-name {
-    font-size: var(--type-callout);
-    font-weight: 600;
     color: var(--text-primary);
-}
-
-.preset-desc {
-    font-size: var(--type-footnote);
-    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .preset-models {

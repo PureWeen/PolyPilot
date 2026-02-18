@@ -200,25 +200,20 @@ else
             {
                 <div class="toolbar-actions">
                     <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
-                    <button class="new-group-btn" @onclick="StartAddMultiAgentGroup" title="New multi-agent group">🤖 + Multi-Agent</button>
-                    <button class="new-group-btn" @onclick="() => showPresetPicker = !showPresetPicker" title="Create from template">🚀 Preset</button>
+                    <button class="new-group-btn" @onclick="StartAddMultiAgentGroup" title="New multi-agent group">🤖 Multi</button>
+                    <button class="new-group-btn" @onclick="() => showPresetPicker = !showPresetPicker" title="Create from template">🚀</button>
                     <button class="new-group-btn" @onclick="() => showAddRepo = true" title="Add repository">+ Repo</button>
-                    <button class="new-group-btn" @onclick="RefreshSessionsManually" title="Refresh sessions">↻ Refresh</button>
+                    <button class="new-group-btn" @onclick="RefreshSessionsManually" title="Refresh sessions">↻</button>
                 </div>
                 @if (showPresetPicker)
                 {
-                    <div class="preset-backdrop" @onclick="() => showPresetPicker = false"></div>
                     <div class="preset-picker" @onclick:stopPropagation="true">
                         @foreach (var preset in UserPresets.GetAll(CopilotService.BaseDir))
                         {
                             var p = preset;
-                            <button class="preset-item" @onclick="() => CreateFromPreset(p)">
+                            <button class="preset-item" @onclick="() => CreateFromPreset(p)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
                                 <span class="preset-emoji">@p.Emoji</span>
-                                <div class="preset-info">
-                                    <span class="preset-name">@p.Name @(p.IsUserDefined ? "👤" : "")</span>
-                                    <span class="preset-desc">@p.Description</span>
-                                    <span class="preset-models">🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)</span>
-                                </div>
+                                <span class="preset-name">@p.Name @(p.IsUserDefined ? "👤" : "")</span>
                             </button>
                         }
                     </div>
