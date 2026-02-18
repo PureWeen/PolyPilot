@@ -975,6 +975,7 @@ else
         sb.AppendLine($"IsRestoring: {CopilotService.IsRestoring}");
         sb.AppendLine($"IsRemoteMode: {CopilotService.IsRemoteMode}");
         sb.AppendLine($"Sessions: {CopilotService.GetAllSessions().Count()}");
+        sb.AppendLine($"Build: {BuildInfo.BuildTimestamp}");
         sb.AppendLine($"Platform: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
         sb.AppendLine($"Arch: {System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}");
         sb.AppendLine($"Runtime: {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}");
