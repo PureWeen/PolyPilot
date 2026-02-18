@@ -1541,6 +1541,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
 
         state.Info.IsProcessing = false;
+        CancelProcessingWatchdog(state);
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();
     }

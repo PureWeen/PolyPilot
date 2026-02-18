@@ -1021,7 +1021,7 @@ public partial class CopilotService
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Connection lost — no response received. You can try sending your message again."));
                         state.ResponseCompletion?.TrySetResult("");
-                        OnError?.Invoke(sessionName, "Connection appears lost — no events received for over 2 minutes.");
+                        OnError?.Invoke(sessionName, $"Connection appears lost — no events received for over {WatchdogInactivityTimeoutSeconds / 60} minute(s).");
                         OnStateChanged?.Invoke();
                     });
                     break;
@@ -1029,5 +1029,6 @@ public partial class CopilotService
             }
         }
         catch (OperationCanceledException) { /* Normal cancellation when response completes */ }
+        catch (Exception ex) { Debug($"Watchdog error for '{sessionName}': {ex.Message}"); }
     }
 }
