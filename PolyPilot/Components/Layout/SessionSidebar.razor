@@ -588,6 +588,7 @@ else
         CopilotService.OnSessionComplete += HandleSessionComplete;
         CopilotService.OnUsageInfoChanged += HandleUsageInfoChanged;
         CopilotService.OnOrchestratorPhaseChanged += HandleOrchestratorPhaseChanged;
+        RepoManager.OnStateChanged += OnRepoStateChanged;
         RepoManager.Load();
         RefreshSessions();
         LoadPersistedSessions();
@@ -694,6 +695,8 @@ else
         LoadPersistedSessions();
         InvokeAsync(StateHasChanged);
     }
+
+    private void OnRepoStateChanged() => InvokeAsync(StateHasChanged);
 
     private void LoadPersistedSessions()
     {
@@ -1475,5 +1478,6 @@ Important conventions:
         CopilotService.OnSessionComplete -= HandleSessionComplete;
         CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;
         CopilotService.OnOrchestratorPhaseChanged -= HandleOrchestratorPhaseChanged;
+        RepoManager.OnStateChanged -= OnRepoStateChanged;
     }
 }

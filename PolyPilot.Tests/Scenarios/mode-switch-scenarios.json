@@ -419,6 +419,125 @@
           "note": "Verify toolbar remains available after refresh"
         }
       ]
+    },
+    {
+      "id": "stuck-session-recovery-after-server-disconnect",
+      "name": "Sessions recover from 'Thinking' state when persistent server dies mid-turn",
+      "description": "Validates that sessions stuck in IsProcessing=true recover automatically via the processing watchdog when the persistent server becomes unreachable.",
+      "unitTestCoverage": [
+        "ProcessingWatchdogTests.WatchdogCheckInterval_IsReasonable",
+        "ProcessingWatchdogTests.WatchdogInactivityTimeout_IsReasonable",
+        "ProcessingWatchdogTests.WatchdogTimeout_IsGreaterThanCheckInterval",
+        "ProcessingWatchdogTests.SystemMessage_ConnectionLost_HasExpectedContent",
+        "ProcessingWatchdogTests.SystemMessage_AddedToHistory_IsVisible"
+      ],
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-item').length > 0",
+          "expect": { "equals": "true" },
+          "note": "At least one session exists"
+        },
+        {
+          "action": "click",
+          "selector": ".session-item:first-child",
+          "note": "Open a session"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.chat-input textarea') !== null",
+          "expect": { "equals": "true" }
+        },
+        {
+          "action": "type",
+          "selector": ".chat-input textarea",
+          "text": "Test message for watchdog scenario"
+        },
+        {
+          "action": "click",
+          "selector": ".chat-input button[type=submit]"
+        },
+        {
+          "action": "wait",
+          "duration": 2000,
+          "note": "Wait for message to be sent and processing to start"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.action-item.running .action-label')?.textContent || document.querySelector('.chat-msg.tool .chat-msg-text')?.textContent",
+          "note": "Should show 'Thinking' or activity text while processing"
+        },
+        {
+          "action": "note",
+          "text": "To fully test: kill the persistent server process while session is processing, then wait up to 2 minutes for the watchdog to detect inactivity and clear the stuck state. The session should show a system message: 'Connection lost — no response received.'"
+        },
+        {
+          "action": "wait",
+          "duration": 130000,
+          "note": "Wait for watchdog timeout (120s) + buffer. In manual testing, kill server during this wait."
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.action-item.running') === null",
+          "expect": { "equals": "true" },
+          "note": "Processing indicator should be gone after watchdog fires"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.chat-msg')).some(el => el.textContent.includes('Connection lost'))",
+          "expect": { "equals": "true" },
+          "note": "System message about connection loss should appear in chat"
+        }
+      ]
+    },
+    {
+      "id": "relaunch-with-stale-server-shows-sessions",
+      "name": "After relaunch, all previously-active sessions should be visible",
+      "description": "Validates that after relaunch.sh deploys a new build, session restore failures don't silently leave the app with 0 sessions. Covers the scenario where an old copilot server is running but individual session resumes fail.",
+      "unitTestCoverage": [
+        "ProcessingWatchdogTests.PersistentMode_FailedInit_SetsNeedsConfiguration",
+        "ProcessingWatchdogTests.PersistentMode_FailedInit_NoSessionsStuckProcessing",
+        "ProcessingWatchdogTests.DemoMode_SessionRestore_AllSessionsVisible",
+        "ProcessingWatchdogTests.ReconnectAsync_IsInitialized_CorrectForEachMode",
+        "ProcessingWatchdogTests.ReconnectAsync_ClearsStuckProcessingFromPreviousMode",
+        "ProcessingWatchdogTests.OnStateChanged_FiresDuringReconnect"
+      ],
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-item').length",
+          "capture": "preRelaunchCount",
+          "note": "Record session count before relaunch"
+        },
+        {
+          "action": "shell",
+          "command": "cd PolyPilot && ./relaunch.sh",
+          "note": "Rebuild and relaunch the app"
+        },
+        {
+          "action": "wait",
+          "duration": 20000,
+          "note": "Wait for app to restart and restore sessions"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.textContent?.trim()",
+          "expect": { "not_contains": "Disconnected" },
+          "note": "App should be connected (Persistent or Embedded fallback)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-item').length > 0",
+          "expect": { "equals": "true" },
+          "note": "Sessions should be visible after relaunch — not silently lost"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.session-item')).filter(el => el.querySelector('.processing')).length === 0",
+          "expect": { "equals": "true" },
+          "note": "No sessions should be stuck in processing state after relaunch"
+        }
+      ]
     }
   ]
 }

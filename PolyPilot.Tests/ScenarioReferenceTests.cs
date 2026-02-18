@@ -52,7 +52,7 @@ public class ScenarioReferenceTests
     [Fact]
     public void ModeSwitchScenarios_StepsHaveValidActions()
     {
-        var validActions = new HashSet<string> { "click", "evaluate", "wait", "shell", "screenshot" };
+        var validActions = new HashSet<string> { "click", "evaluate", "wait", "shell", "screenshot", "type", "note" };
         var json = File.ReadAllText(Path.Combine(ScenariosDir, "mode-switch-scenarios.json"));
         var doc = JsonDocument.Parse(json);
 
@@ -149,6 +149,31 @@ public class ScenarioReferenceTests
     public void Scenario_RefreshSessionsButton_HasUnitTestCoverage()
     {
         Assert.True(true, "See CopilotServiceInitializationTests.RefreshSessionsAsync_* tests");
+    }
+
+    /// <summary>
+    /// Scenario: "stuck-session-recovery-after-server-disconnect"
+    /// Unit test equivalents: ProcessingWatchdogTests.WatchdogCheckInterval_IsReasonable,
+    ///   ProcessingWatchdogTests.WatchdogInactivityTimeout_IsReasonable,
+    ///   ProcessingWatchdogTests.SystemMessage_ConnectionLost_HasExpectedContent,
+    ///   ProcessingWatchdogTests.SystemMessage_AddedToHistory_IsVisible
+    /// </summary>
+    [Fact]
+    public void Scenario_StuckSessionRecovery_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ProcessingWatchdogTests for watchdog constant validation and recovery message tests");
+    }
+
+    /// <summary>
+    /// Scenario: "relaunch-with-stale-server-shows-sessions"
+    /// Unit test equivalents: ProcessingWatchdogTests.PersistentMode_FailedInit_*,
+    ///   ProcessingWatchdogTests.ReconnectAsync_IsInitialized_CorrectForEachMode,
+    ///   ProcessingWatchdogTests.ReconnectAsync_ClearsStuckProcessingFromPreviousMode
+    /// </summary>
+    [Fact]
+    public void Scenario_RelaunchWithStaleServer_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ProcessingWatchdogTests for relaunch/reconnect resilience tests");
     }
 
     [Fact]

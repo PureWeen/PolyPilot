@@ -201,6 +201,8 @@ public partial class CopilotService : IAsyncDisposable
         public bool HasReceivedEventsSinceResume { get; set; }
         public string? LastMessageId { get; set; }
         public bool SkipReflectionEvaluationOnce { get; set; }
+        public long LastEventAtTicks = DateTime.UtcNow.Ticks;
+        public CancellationTokenSource? ProcessingWatchdog { get; set; }
     }
 
     private void Debug(string message)
@@ -393,6 +395,7 @@ public partial class CopilotService : IAsyncDisposable
         // Dispose existing sessions and client
         foreach (var state in _sessions.Values)
         {
+            CancelProcessingWatchdog(state);
             try { if (state.Session != null) await state.Session.DisposeAsync(); } catch { }
         }
         _sessions.Clear();
@@ -1397,6 +1400,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.IsProcessing = true;
         state.ResponseCompletion = new TaskCompletionSource<string>();
         state.CurrentResponse.Clear();
+        StartProcessingWatchdog(state, sessionName);
 
         if (!skipHistoryMessage)
         {
@@ -1458,6 +1462,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     if (!string.IsNullOrEmpty(state.Info.WorkingDirectory))
                         reconnectConfig.WorkingDirectory = state.Info.WorkingDirectory;
                     var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, reconnectConfig, cancellationToken);
+                    // Cancel old watchdog BEFORE creating new state — they share Info/TCS
+                    CancelProcessingWatchdog(state);
                     var newState = new SessionState
                     {
                         Session = newSession,
@@ -1467,6 +1473,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     newSession.On(evt => HandleSessionEvent(newState, evt));
                     _sessions[sessionName] = newState;
                     state = newState;
+                    
+                    // Start fresh watchdog for the new connection
+                    StartProcessingWatchdog(state, sessionName);
                     
                     Debug($"Session '{sessionName}' reconnected, retrying prompt...");
                     await state.Session.SendAsync(new MessageOptions
@@ -1478,6 +1487,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 {
                     Console.WriteLine($"[DEBUG] Reconnect+retry failed: {retryEx.Message}");
                     OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {retryEx.Message}");
+                    CancelProcessingWatchdog(state);
                     state.Info.IsProcessing = false;
                     OnStateChanged?.Invoke();
                     throw;
@@ -1486,6 +1496,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             else
             {
                 OnError?.Invoke(sessionName, $"SendAsync failed: {ex.Message}");
+                CancelProcessingWatchdog(state);
                 state.Info.IsProcessing = false;
                 OnStateChanged?.Invoke();
                 throw;
@@ -1530,6 +1541,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
 
         state.Info.IsProcessing = false;
+        CancelProcessingWatchdog(state);
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();
     }
@@ -1811,6 +1823,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         
         foreach (var state in _sessions.Values)
         {
+            CancelProcessingWatchdog(state);
             if (state.Session is not null)
                 try { await state.Session.DisposeAsync(); } catch { }
         }

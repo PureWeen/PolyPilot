@@ -68,12 +68,12 @@ else
                                         <div class="wt-new-form">
                                             @if (newWorktreeMode == "branch")
                                             {
-                                                <input type="text" @bind="newWorktreeBranch" placeholder="branch-name"
+                                                <input type="text" @bind="newWorktreeBranch" @bind:event="oninput" placeholder="branch-name"
                                                        class="wt-branch-input" @onkeydown="HandleNewWorktreeKeyDown" />
                                             }
                                             else
                                             {
-                                                <input type="text" @bind="newWorktreePr" placeholder="PR #"
+                                                <input type="text" @bind="newWorktreePr" @bind:event="oninput" placeholder="PR #"
                                                        class="wt-branch-input" @onkeydown="HandleNewWorktreeKeyDown" />
                                             }
                                             <button class="wt-create-btn" @onclick="CreateAndSelectWorktree"

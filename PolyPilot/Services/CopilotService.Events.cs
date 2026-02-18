@@ -197,6 +197,7 @@ public partial class CopilotService
     private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
         state.HasReceivedEventsSinceResume = true;
+        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         var sessionName = state.Info.Name;
         void Invoke(Action action)
         {
@@ -435,6 +436,7 @@ public partial class CopilotService
 
             case SessionErrorEvent err:
                 var errMsg = err.Data?.Message ?? "Unknown error";
+                CancelProcessingWatchdog(state);
                 Invoke(() => OnError?.Invoke(sessionName, errMsg));
                 state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                 state.Info.IsProcessing = false;
@@ -556,6 +558,7 @@ public partial class CopilotService
     {
         if (!state.Info.IsProcessing) return; // Already completed (e.g. timeout)
         
+        CancelProcessingWatchdog(state);
         var response = state.CurrentResponse.ToString();
         if (!string.IsNullOrEmpty(response))
         {
@@ -965,5 +968,67 @@ public partial class CopilotService
 
             OnStateChanged?.Invoke();
         }
+    }
+
+    // -- Processing watchdog: detects stuck sessions when server dies mid-turn --
+
+    /// <summary>Interval between watchdog checks in seconds.</summary>
+    internal const int WatchdogCheckIntervalSeconds = 15;
+    /// <summary>If no SDK events arrive for this many seconds, the session is considered stuck.</summary>
+    internal const int WatchdogInactivityTimeoutSeconds = 120;
+
+    private static void CancelProcessingWatchdog(SessionState state)
+    {
+        if (state.ProcessingWatchdog != null)
+        {
+            state.ProcessingWatchdog.Cancel();
+            state.ProcessingWatchdog.Dispose();
+            state.ProcessingWatchdog = null;
+        }
+    }
+
+    private void StartProcessingWatchdog(SessionState state, string sessionName)
+    {
+        CancelProcessingWatchdog(state);
+        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+        state.ProcessingWatchdog = new CancellationTokenSource();
+        var ct = state.ProcessingWatchdog.Token;
+        _ = RunProcessingWatchdogAsync(state, sessionName, ct);
+    }
+
+    private async Task RunProcessingWatchdogAsync(SessionState state, string sessionName, CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested && state.Info.IsProcessing)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(WatchdogCheckIntervalSeconds), ct);
+
+                if (!state.Info.IsProcessing) break;
+
+                var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
+                var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
+                if (elapsed >= WatchdogInactivityTimeoutSeconds)
+                {
+                    Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s, clearing stuck processing state");
+                    // Marshal all state mutations to the UI thread to avoid
+                    // racing with CompleteResponse / HandleSessionEvent.
+                    InvokeOnUI(() =>
+                    {
+                        if (!state.Info.IsProcessing) return; // Already completed
+                        CancelProcessingWatchdog(state);
+                        state.Info.IsProcessing = false;
+                        state.Info.History.Add(ChatMessage.SystemMessage(
+                            "⚠️ Connection lost — no response received. You can try sending your message again."));
+                        state.ResponseCompletion?.TrySetResult("");
+                        OnError?.Invoke(sessionName, $"Connection appears lost — no events received for over {WatchdogInactivityTimeoutSeconds / 60} minute(s).");
+                        OnStateChanged?.Invoke();
+                    });
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) { /* Normal cancellation when response completes */ }
+        catch (Exception ex) { Debug($"Watchdog error for '{sessionName}': {ex.Message}"); }
     }
 }
