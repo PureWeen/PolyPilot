@@ -165,7 +165,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
             "claude-opus-4.6", new[] { "gpt-5", "gemini-3-pro", "claude-sonnet-4.5" }),
 
         new GroupPreset(
-            "Fast Iteration Squad", "Cheap workers + smart evaluator for reflect loops",
+            "Quick Reflection Cycle", "Cheap workers + smart evaluator for reflect loops",
             "🔄", MultiAgentMode.OrchestratorReflect,
             "claude-opus-4.6", new[] { "gpt-4.1", "gpt-4.1", "gpt-5.1-codex-mini" }),
 

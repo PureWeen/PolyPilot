@@ -1711,7 +1711,7 @@ public class MultiAgentScenarioTests
     /// Scenario: Dedicated evaluator session provides independent scoring.
     /// 
     /// User flow:
-    ///   1. User creates a "Fast Iteration Squad" from presets (OrchestratorReflect)
+    ///   1. User creates a "Quick Reflection Cycle" from presets (OrchestratorReflect)
     ///   2. Group has: opus orchestrator + 3 cheap workers
     ///   3. User adds a 4th session, sets role to Worker, assigns gpt-4.1
     ///   4. In code, EvaluatorSession is set to this 4th session
