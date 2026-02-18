@@ -84,6 +84,7 @@ public partial class CopilotService
             {
                 var json = File.ReadAllText(OrganizationFile);
                 Organization = JsonSerializer.Deserialize<OrganizationState>(json) ?? new OrganizationState();
+                Debug($"LoadOrganization: loaded {Organization.Groups.Count} groups, {Organization.Sessions.Count} sessions");
             }
             else
             {
@@ -207,6 +208,7 @@ public partial class CopilotService
         {
             if (!groupIds.Contains(meta.GroupId))
             {
+                Debug($"ReconcileOrganization: orphaned session '{meta.SessionName}' (GroupId={meta.GroupId}) → _default");
                 meta.GroupId = SessionGroup.DefaultId;
                 changed = true;
             }
@@ -251,6 +253,9 @@ public partial class CopilotService
         }
 
         // Remove metadata only for sessions that are truly gone (not in any known set)
+        var toRemove = Organization.Sessions.Where(m => !knownNames.Contains(m.SessionName)).ToList();
+        if (toRemove.Count > 0)
+            Debug($"ReconcileOrganization: pruning {toRemove.Count} sessions: {string.Join(", ", toRemove.Select(m => m.SessionName))}");
         Organization.Sessions.RemoveAll(m => !knownNames.Contains(m.SessionName));
 
         if (changed) SaveOrganization();
