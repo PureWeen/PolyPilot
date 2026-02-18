@@ -1043,19 +1043,62 @@ public partial class CopilotService
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, iterDetail));
 
             var synthEvalPrompt = BuildSynthesisWithEvalPrompt(prompt, results.ToList(), reflectState);
-            var synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthEvalPrompt, ct);
 
-            // Check completion sentinel
-            if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase))
+            // Use dedicated evaluator session if configured, otherwise orchestrator self-evaluates
+            string evaluatorName = reflectState.EvaluatorSession ?? orchestratorName;
+            string synthesisResponse;
+            if (reflectState.EvaluatorSession != null && reflectState.EvaluatorSession != orchestratorName)
             {
-                reflectState.GoalMet = true;
-                reflectState.IsActive = false;
-                AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.CompletionSummary}");
-                break;
+                // Send results to orchestrator for synthesis
+                var synthOnlyPrompt = BuildSynthesisOnlyPrompt(prompt, results.ToList());
+                synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthOnlyPrompt, ct);
+
+                // Send to evaluator for independent scoring
+                var evalOnlyPrompt = BuildEvaluatorPrompt(prompt, synthesisResponse, reflectState);
+                var evalResponse = await SendPromptAndWaitAsync(evaluatorName, evalOnlyPrompt, ct);
+
+                // Parse score from evaluator
+                var (score, rationale) = ParseEvaluationScore(evalResponse);
+                var evaluatorModel = GetEffectiveModel(evaluatorName);
+                var trend = reflectState.RecordEvaluation(reflectState.CurrentIteration, score, rationale, evaluatorModel);
+
+                // Check if evaluator says complete
+                if (evalResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) || score >= 0.9)
+                {
+                    reflectState.GoalMet = true;
+                    reflectState.IsActive = false;
+                    AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.CompletionSummary} (score: {score:F1})");
+                    break;
+                }
+
+                reflectState.LastEvaluation = rationale;
+                if (trend == Models.QualityTrend.Degrading)
+                    reflectState.PendingAdjustments.Add("📉 Quality degrading — consider changing worker models or refining the goal.");
+            }
+            else
+            {
+                synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthEvalPrompt, ct);
+
+                // Check completion sentinel
+                if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase))
+                {
+                    reflectState.GoalMet = true;
+                    reflectState.IsActive = false;
+                    AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.CompletionSummary}");
+                    break;
+                }
+
+                // Extract evaluation for next iteration
+                reflectState.LastEvaluation = ExtractIterationEvaluation(synthesisResponse);
+
+                // Record a self-eval score (estimated from sentinel presence)
+                var selfScore = synthesisResponse.Contains("[[NEEDS_ITERATION]]", StringComparison.OrdinalIgnoreCase) ? 0.4 : 0.7;
+                reflectState.RecordEvaluation(reflectState.CurrentIteration, selfScore,
+                    reflectState.LastEvaluation ?? "", GetEffectiveModel(orchestratorName));
             }
 
-            // Extract evaluation for next iteration
-            reflectState.LastEvaluation = ExtractIterationEvaluation(synthesisResponse);
+            // Auto-adjustment: analyze worker results and suggest/apply changes
+            AutoAdjustFromFeedback(groupId, group, results.ToList(), reflectState);
 
             // Stall detection
             if (reflectState.CheckStall(synthesisResponse))
@@ -1150,6 +1193,170 @@ public partial class CopilotService
         // No marker — use last paragraph as evaluation
         var lines = response.Split('\n');
         return string.Join('\n', lines.TakeLast(5)).Trim();
+    }
+
+    /// <summary>Build a synthesis-only prompt (no evaluation decision) for use with separate evaluator.</summary>
+    private string BuildSynthesisOnlyPrompt(string originalPrompt, List<WorkerResult> results)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append(BuildSynthesisPrompt(originalPrompt, results));
+        sb.AppendLine();
+        sb.AppendLine("Synthesize the worker outputs into a unified, coherent response. Do NOT make a completion decision — an independent evaluator will assess quality separately.");
+        return sb.ToString();
+    }
+
+    /// <summary>Build a prompt for an independent evaluator session to score synthesis quality.</summary>
+    private static string BuildEvaluatorPrompt(string originalGoal, string synthesisResponse, Models.GroupReflectionState state)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("## Independent Quality Evaluation");
+        sb.AppendLine($"**Goal:** {state.Goal}");
+        sb.AppendLine($"**Iteration:** {state.CurrentIteration}/{state.MaxIterations}");
+        sb.AppendLine();
+        sb.AppendLine("### Synthesized Output to Evaluate");
+        sb.AppendLine(synthesisResponse);
+        sb.AppendLine();
+        sb.AppendLine("### Scoring Rubric");
+        sb.AppendLine("Rate the output on a 0.0–1.0 scale across these dimensions:");
+        sb.AppendLine("1. **Completeness** (0-1): Does it fully address the goal?");
+        sb.AppendLine("2. **Correctness** (0-1): Is it accurate and well-reasoned?");
+        sb.AppendLine("3. **Coherence** (0-1): Is the synthesis well-organized?");
+        sb.AppendLine("4. **Actionability** (0-1): Can the user act on this output?");
+        sb.AppendLine();
+        if (state.EvaluationHistory.Count > 0)
+        {
+            var last = state.EvaluationHistory.Last();
+            sb.AppendLine($"Previous iteration scored: {last.Score:F1} — {last.Rationale}");
+            sb.AppendLine("Indicate whether quality improved, degraded, or stayed flat.");
+            sb.AppendLine();
+        }
+        sb.AppendLine("### Response Format");
+        sb.AppendLine("SCORE: <average of 4 dimensions as decimal, e.g. 0.75>");
+        sb.AppendLine("RATIONALE: <2-3 sentences explaining the score and gaps>");
+        sb.AppendLine();
+        sb.AppendLine("If score >= 0.9, include `[[GROUP_REFLECT_COMPLETE]]`.");
+        sb.AppendLine("If score < 0.9, include `[[NEEDS_ITERATION]]` and list specific improvements needed.");
+        return sb.ToString();
+    }
+
+    /// <summary>Parse a score and rationale from evaluator response.</summary>
+    internal static (double Score, string Rationale) ParseEvaluationScore(string evalResponse)
+    {
+        double score = 0.5; // default if parsing fails
+        string rationale = evalResponse;
+
+        // Try to find "SCORE: X.X" pattern
+        var scoreMatch = System.Text.RegularExpressions.Regex.Match(evalResponse, @"SCORE:\s*(-?[\d.]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (scoreMatch.Success && double.TryParse(scoreMatch.Groups[1].Value, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+        {
+            score = Math.Clamp(parsed, 0.0, 1.0);
+        }
+
+        // Extract rationale
+        var rationaleMatch = System.Text.RegularExpressions.Regex.Match(evalResponse, @"RATIONALE:\s*(.+?)(?:\[\[|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+        if (rationaleMatch.Success)
+            rationale = rationaleMatch.Groups[1].Value.Trim();
+
+        return (score, rationale);
+    }
+
+    /// <summary>
+    /// Auto-adjust agent configuration based on iteration feedback.
+    /// Called after each reflect iteration to detect quality issues and apply fixes.
+    /// Surfaces adjustments both as orchestrator system messages and as PendingAdjustments on state (for UI banners).
+    /// </summary>
+    private void AutoAdjustFromFeedback(string groupId, SessionGroup group, List<WorkerResult> results, GroupReflectionState state)
+    {
+        var failedWorkers = results.Where(r => !r.Success).ToList();
+        var adjustments = new List<string>();
+
+        // Auto-reassign tasks from failed workers to successful ones
+        if (failedWorkers.Count > 0 && results.Any(r => r.Success))
+        {
+            foreach (var failed in failedWorkers)
+            {
+                adjustments.Add($"🔄 Worker '{failed.WorkerName}' failed ({failed.Error}). Its tasks will be reassigned in the next iteration.");
+            }
+        }
+
+        // Detect workers with suspiciously short responses (quality issue)
+        foreach (var result in results.Where(r => r.Success))
+        {
+            if (result.Response != null && result.Response.Length < 100 && state.CurrentIteration > 1)
+            {
+                var caps = Models.ModelCapabilities.GetCapabilities(GetEffectiveModel(result.WorkerName));
+                if (caps.HasFlag(Models.ModelCapability.CostEfficient) && !caps.HasFlag(Models.ModelCapability.ReasoningExpert))
+                {
+                    adjustments.Add($"📈 Worker '{result.WorkerName}' produced a brief response. Consider upgrading from a cost-efficient model to improve quality.");
+                }
+            }
+        }
+
+        // Detect quality degradation from evaluation history
+        if (state.EvaluationHistory.Count >= 2)
+        {
+            var lastTwo = state.EvaluationHistory.TakeLast(2).ToList();
+            if (lastTwo[1].Score < lastTwo[0].Score - 0.15)
+                adjustments.Add("📉 Quality degraded significantly vs. previous iteration. Review worker models or task clarity.");
+        }
+
+        // Detect quality degradation: if consecutive stalls detected, suggest model changes
+        if (state.ConsecutiveStalls == 1)
+        {
+            adjustments.Add("⚠️ Output repetition detected. The orchestrator may benefit from a different model or clearer instructions.");
+        }
+
+        // Surface adjustments for UI banners (non-blocking)
+        state.PendingAdjustments.Clear();
+        state.PendingAdjustments.AddRange(adjustments);
+
+        // Surface adjustments as system messages to orchestrator
+        if (adjustments.Count > 0)
+        {
+            var orchestratorName = GetOrchestratorSession(groupId);
+            if (orchestratorName != null)
+            {
+                AddOrchestratorSystemMessage(orchestratorName,
+                    $"🔧 Auto-analysis (iteration {state.CurrentIteration}):\n" + string.Join("\n", adjustments));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Get diagnostics for a multi-agent group (model conflicts, capability gaps).
+    /// </summary>
+    public List<Models.GroupModelAnalyzer.GroupDiagnostic> GetGroupDiagnostics(string groupId)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group == null || !group.IsMultiAgent) return new();
+
+        var members = GetMultiAgentGroupMembers(groupId)
+            .Select(name =>
+            {
+                var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
+                return (name, GetEffectiveModel(name), meta?.Role ?? MultiAgentRole.Worker);
+            })
+            .ToList();
+
+        return Models.GroupModelAnalyzer.Analyze(group, members);
+    }
+
+    /// <summary>
+    /// Save the current multi-agent group configuration as a reusable user preset.
+    /// </summary>
+    public Models.GroupPreset? SaveGroupAsPreset(string groupId, string name, string description, string emoji)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
+        if (group == null) return null;
+
+        var members = GetMultiAgentGroupMembers(groupId)
+            .Select(n => Organization.Sessions.FirstOrDefault(m => m.SessionName == n))
+            .Where(m => m != null)
+            .ToList();
+
+        return Models.UserPresets.SaveGroupAsPreset(PolyPilotBaseDir, name, description, emoji,
+            group, members!, GetEffectiveModel);
     }
 
     #endregion

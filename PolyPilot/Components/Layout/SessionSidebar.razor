@@ -210,13 +210,13 @@ else
                 @if (showPresetPicker)
                 {
                     <div class="preset-picker" @onclick:stopPropagation="true">
-                        @foreach (var preset in GroupPreset.BuiltIn)
+                        @foreach (var preset in UserPresets.GetAll(CopilotService.PolyPilotBaseDir))
                         {
                             var p = preset;
                             <button class="preset-item" @onclick="() => CreateFromPreset(p)">
                                 <span class="preset-emoji">@p.Emoji</span>
                                 <div class="preset-info">
-                                    <span class="preset-name">@p.Name</span>
+                                    <span class="preset-name">@p.Name @(p.IsUserDefined ? "👤" : "")</span>
                                     <span class="preset-desc">@p.Description</span>
                                     <span class="preset-models">🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)</span>
                                 </div>
@@ -386,11 +386,38 @@ else
                                 {
                                     <div class="group-reflect-status">
                                         <span class="reflect-iter">🔄 @rs.CurrentIteration/@rs.MaxIterations</span>
+                                        @if (rs.EvaluationHistory.Count > 0)
+                                        {
+                                            var lastEval = rs.EvaluationHistory.Last();
+                                            <span class="reflect-score" title="@lastEval.Rationale">📊 @lastEval.Score.ToString("F1") (@lastEval.EvaluatorModel)</span>
+                                        }
                                         <span class="reflect-goal" title="@rs.Goal">@(rs.Goal.Length > 40 ? rs.Goal[..40] + "…" : rs.Goal)</span>
                                         <button class="reflect-stop-btn" @onclick="() => CopilotService.StopGroupReflection(maGroupId)" @onclick:stopPropagation="true">⏹</button>
                                         <button class="reflect-pause-btn" @onclick="() => CopilotService.PauseGroupReflection(maGroupId, !rs.IsPaused)" @onclick:stopPropagation="true">@(rs.IsPaused ? "▶" : "⏸")</button>
                                     </div>
+                                    @if (rs.PendingAdjustments.Count > 0)
+                                    {
+                                        <div class="adjust-banner">
+                                            @foreach (var adj in rs.PendingAdjustments)
+                                            {
+                                                <span>@adj</span>
+                                            }
+                                        </div>
+                                    }
                                 }
+                                @{
+                                    var diags = CopilotService.GetGroupDiagnostics(maGroupId);
+                                }
+                                @if (diags.Count > 0)
+                                {
+                                    <div class="group-diagnostics">
+                                        @foreach (var d in diags)
+                                        {
+                                            <span class="diag-@d.Level">@d.Message</span>
+                                        }
+                                    </div>
+                                }
+                                <button class="save-preset-btn" @onclick="() => PromptSaveAsPreset(maGroupId)" @onclick:stopPropagation="true" title="Save this group as a reusable preset">💾 Save as Preset</button>
                             </div>
                         }
                     }
@@ -944,6 +971,28 @@ else
         {
             Console.WriteLine($"Failed to create from preset: {ex.Message}");
         }
+    }
+
+    private void PromptSaveAsPreset(string groupId)
+    {
+        var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group == null) return;
+
+        // Save with the group's current name and a generated description
+        var members = CopilotService.GetMultiAgentGroupMembers(groupId);
+        var desc = $"{group.OrchestratorMode} group with {members.Count} agent(s)";
+        var preset = CopilotService.SaveGroupAsPreset(groupId, group.Name, desc, "⭐");
+        if (preset != null)
+        {
+            var orchestratorName = CopilotService.GetOrchestratorSession(groupId);
+            if (orchestratorName != null)
+            {
+                var session = CopilotService.GetSession(orchestratorName);
+                if (session != null)
+                    session.History.Add(ChatMessage.SystemMessage($"💾 Group saved as preset: \"{preset.Name}\" (🎯 {preset.OrchestratorModel} + 👷 {string.Join(", ", preset.WorkerModels)})"));
+            }
+        }
+        StateHasChanged();
     }
 
     private void OnSidebarMultiAgentModeChanged(string groupId, ChangeEventArgs e)

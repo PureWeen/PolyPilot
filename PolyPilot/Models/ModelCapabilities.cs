@@ -56,7 +56,31 @@ public static class ModelCapabilities
                 key.StartsWith(modelSlug, StringComparison.OrdinalIgnoreCase))
                 return val.Caps;
 
-        return ModelCapability.None;
+        // Name-pattern inference for new/unknown models
+        return InferFromName(modelSlug);
+    }
+
+    /// <summary>
+    /// Infer capabilities from model name patterns for unknown models.
+    /// Handles new model releases gracefully without registry updates.
+    /// </summary>
+    internal static ModelCapability InferFromName(string slug)
+    {
+        var lower = slug.ToLowerInvariant();
+        var caps = ModelCapability.None;
+
+        // Family inference
+        if (lower.Contains("opus")) caps |= ModelCapability.ReasoningExpert | ModelCapability.CodeExpert | ModelCapability.ToolUse;
+        else if (lower.Contains("sonnet")) caps |= ModelCapability.CodeExpert | ModelCapability.ToolUse | ModelCapability.Fast;
+        else if (lower.Contains("haiku")) caps |= ModelCapability.Fast | ModelCapability.CostEfficient;
+        else if (lower.Contains("gemini")) caps |= ModelCapability.ReasoningExpert | ModelCapability.LargeContext | ModelCapability.Vision;
+
+        // Variant inference
+        if (lower.Contains("codex")) caps |= ModelCapability.CodeExpert;
+        if (lower.Contains("mini")) caps |= ModelCapability.Fast | ModelCapability.CostEfficient;
+        if (lower.Contains("max")) caps |= ModelCapability.ReasoningExpert;
+
+        return caps;
     }
 
     /// <summary>Get a short description of model strengths.</summary>
@@ -111,6 +135,9 @@ public static class ModelCapabilities
 public record GroupPreset(string Name, string Description, string Emoji, MultiAgentMode Mode,
     string OrchestratorModel, string[] WorkerModels)
 {
+    /// <summary>Whether this is a user-created preset (vs built-in).</summary>
+    public bool IsUserDefined { get; init; }
+
     public static readonly GroupPreset[] BuiltIn = new[]
     {
         new GroupPreset(
@@ -133,4 +160,122 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
             "🧠", MultiAgentMode.Orchestrator,
             "claude-opus-4.6", new[] { "gpt-5.1", "gemini-3-pro" }),
     };
+}
+
+/// <summary>
+/// Manages user-defined presets: save/load from ~/.polypilot/presets.json.
+/// </summary>
+public static class UserPresets
+{
+    private const string FileName = "presets.json";
+
+    public static List<GroupPreset> Load(string baseDir)
+    {
+        try
+        {
+            var path = Path.Combine(baseDir, FileName);
+            if (!File.Exists(path)) return new List<GroupPreset>();
+            var json = File.ReadAllText(path);
+            return System.Text.Json.JsonSerializer.Deserialize<List<GroupPreset>>(json) ?? new();
+        }
+        catch { return new List<GroupPreset>(); }
+    }
+
+    public static void Save(string baseDir, List<GroupPreset> presets)
+    {
+        try
+        {
+            Directory.CreateDirectory(baseDir);
+            var json = System.Text.Json.JsonSerializer.Serialize(presets,
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(Path.Combine(baseDir, FileName), json);
+        }
+        catch { /* best-effort persistence */ }
+    }
+
+    /// <summary>Get all presets: built-in + user-defined.</summary>
+    public static GroupPreset[] GetAll(string baseDir)
+    {
+        var user = Load(baseDir);
+        return GroupPreset.BuiltIn.Concat(user).ToArray();
+    }
+
+    /// <summary>Save the current multi-agent group as a reusable preset.</summary>
+    public static GroupPreset? SaveGroupAsPreset(string baseDir, string name, string description,
+        string emoji, SessionGroup group, List<SessionMeta> members, Func<string, string> getEffectiveModel)
+    {
+        var orchestrator = members.FirstOrDefault(m => m.Role == MultiAgentRole.Orchestrator);
+        var workers = members.Where(m => m.Role != MultiAgentRole.Orchestrator).ToList();
+
+        if (orchestrator == null && workers.Count == 0) return null;
+
+        var preset = new GroupPreset(
+            name, description, emoji, group.OrchestratorMode,
+            orchestrator != null ? getEffectiveModel(orchestrator.SessionName) : "claude-opus-4.6",
+            workers.Select(w => getEffectiveModel(w.SessionName)).ToArray())
+        { IsUserDefined = true };
+
+        var existing = Load(baseDir);
+        existing.RemoveAll(p => p.Name == name); // replace if same name
+        existing.Add(preset);
+        Save(baseDir, existing);
+        return preset;
+    }
+}
+
+/// <summary>
+/// Detects conflicts and issues within a multi-agent group's model configuration.
+/// </summary>
+public static class GroupModelAnalyzer
+{
+    public record GroupDiagnostic(string Level, string Message); // Level: "error", "warning", "info"
+
+    /// <summary>
+    /// Analyze a multi-agent group for model conflicts and capability gaps.
+    /// </summary>
+    public static List<GroupDiagnostic> Analyze(SessionGroup group, List<(string Name, string Model, MultiAgentRole Role)> members)
+    {
+        var diags = new List<GroupDiagnostic>();
+        if (members.Count == 0) return diags;
+
+        var orchestrators = members.Where(m => m.Role == MultiAgentRole.Orchestrator).ToList();
+        var workers = members.Where(m => m.Role == MultiAgentRole.Worker).ToList();
+
+        // Check: orchestrator mode without orchestrator
+        if ((group.OrchestratorMode == MultiAgentMode.Orchestrator || group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+            && orchestrators.Count == 0)
+        {
+            diags.Add(new("error", "⛔ Orchestrator mode requires at least one session with the Orchestrator role."));
+        }
+
+        // Check: orchestrator using weak model
+        foreach (var orch in orchestrators)
+        {
+            var caps = ModelCapabilities.GetCapabilities(orch.Model);
+            if (!caps.HasFlag(ModelCapability.ReasoningExpert))
+                diags.Add(new("warning", $"⚠️ Orchestrator '{orch.Name}' uses {orch.Model} which lacks strong reasoning. Consider claude-opus or gpt-5."));
+        }
+
+        // Check: all workers same model in broadcast (less diverse perspectives)
+        if (group.OrchestratorMode == MultiAgentMode.Broadcast && workers.Count > 1)
+        {
+            var uniqueModels = workers.Select(w => w.Model).Distinct().Count();
+            if (uniqueModels == 1)
+                diags.Add(new("info", "💡 All workers use the same model. For diverse perspectives, assign different models."));
+        }
+
+        // Check: expensive models as workers when cheaper ones suffice
+        foreach (var w in workers)
+        {
+            var caps = ModelCapabilities.GetCapabilities(w.Model);
+            if (caps.HasFlag(ModelCapability.ReasoningExpert) && !caps.HasFlag(ModelCapability.Fast))
+                diags.Add(new("info", $"💰 Worker '{w.Name}' uses premium model {w.Model}. Consider a faster/cheaper model for worker tasks."));
+        }
+
+        // Check: OrchestratorReflect without enough workers
+        if (group.OrchestratorMode == MultiAgentMode.OrchestratorReflect && workers.Count == 0)
+            diags.Add(new("error", "⛔ OrchestratorReflect needs at least one worker to iterate on."));
+
+        return diags;
+    }
 }

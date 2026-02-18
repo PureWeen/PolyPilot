@@ -1086,3 +1086,357 @@ public class GroupPresetTests
         Assert.Contains(GroupPreset.BuiltIn, p => p.Mode == MultiAgentMode.OrchestratorReflect);
     }
 }
+
+public class GroupModelAnalyzerTests
+{
+    [Fact]
+    public void Analyze_OrchestratorModeWithoutOrchestrator_ReturnsError()
+    {
+        var group = new SessionGroup { IsMultiAgent = true, OrchestratorMode = MultiAgentMode.Orchestrator };
+        var members = new List<(string Name, string Model, MultiAgentRole Role)>
+        {
+            ("w1", "gpt-4.1", MultiAgentRole.Worker),
+            ("w2", "gpt-4.1", MultiAgentRole.Worker),
+        };
+
+        var diags = GroupModelAnalyzer.Analyze(group, members);
+        Assert.Contains(diags, d => d.Level == "error" && d.Message.Contains("Orchestrator role"));
+    }
+
+    [Fact]
+    public void Analyze_WeakOrchestratorModel_ReturnsWarning()
+    {
+        var group = new SessionGroup { IsMultiAgent = true, OrchestratorMode = MultiAgentMode.Orchestrator };
+        var members = new List<(string Name, string Model, MultiAgentRole Role)>
+        {
+            ("orch", "gpt-4.1", MultiAgentRole.Orchestrator),
+            ("w1", "gpt-5", MultiAgentRole.Worker),
+        };
+
+        var diags = GroupModelAnalyzer.Analyze(group, members);
+        Assert.Contains(diags, d => d.Level == "warning" && d.Message.Contains("reasoning"));
+    }
+
+    [Fact]
+    public void Analyze_StrongOrchestrator_NoErrors()
+    {
+        var group = new SessionGroup { IsMultiAgent = true, OrchestratorMode = MultiAgentMode.Orchestrator };
+        var members = new List<(string Name, string Model, MultiAgentRole Role)>
+        {
+            ("orch", "claude-opus-4.6", MultiAgentRole.Orchestrator),
+            ("w1", "gpt-4.1", MultiAgentRole.Worker),
+        };
+
+        var diags = GroupModelAnalyzer.Analyze(group, members);
+        Assert.DoesNotContain(diags, d => d.Level == "error");
+    }
+
+    [Fact]
+    public void Analyze_AllSameModelBroadcast_SuggestsDiversity()
+    {
+        var group = new SessionGroup { IsMultiAgent = true, OrchestratorMode = MultiAgentMode.Broadcast };
+        var members = new List<(string Name, string Model, MultiAgentRole Role)>
+        {
+            ("w1", "gpt-4.1", MultiAgentRole.Worker),
+            ("w2", "gpt-4.1", MultiAgentRole.Worker),
+            ("w3", "gpt-4.1", MultiAgentRole.Worker),
+        };
+
+        var diags = GroupModelAnalyzer.Analyze(group, members);
+        Assert.Contains(diags, d => d.Level == "info" && d.Message.Contains("diverse"));
+    }
+
+    [Fact]
+    public void Analyze_OrchestratorReflectWithoutWorkers_ReturnsError()
+    {
+        var group = new SessionGroup { IsMultiAgent = true, OrchestratorMode = MultiAgentMode.OrchestratorReflect };
+        var members = new List<(string Name, string Model, MultiAgentRole Role)>
+        {
+            ("orch", "claude-opus-4.6", MultiAgentRole.Orchestrator),
+        };
+
+        var diags = GroupModelAnalyzer.Analyze(group, members);
+        Assert.Contains(diags, d => d.Level == "error" && d.Message.Contains("worker"));
+    }
+}
+
+public class UserPresetsTests
+{
+    [Fact]
+    public void GetAll_IncludesBuiltInPresets()
+    {
+        // Use a temp dir that won't have presets.json
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            var all = UserPresets.GetAll(tempDir);
+            Assert.Equal(GroupPreset.BuiltIn.Length, all.Length);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void SaveAndLoad_RoundTrips()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            var preset = new GroupPreset("My Team", "Custom desc", "🎯",
+                MultiAgentMode.Orchestrator, "claude-opus-4.6", new[] { "gpt-4.1" })
+            { IsUserDefined = true };
+
+            UserPresets.Save(tempDir, new List<GroupPreset> { preset });
+            var loaded = UserPresets.Load(tempDir);
+
+            Assert.Single(loaded);
+            Assert.Equal("My Team", loaded[0].Name);
+            Assert.True(loaded[0].IsUserDefined);
+            Assert.Equal("claude-opus-4.6", loaded[0].OrchestratorModel);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void GetAll_CombinesBuiltInAndUser()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            var userPreset = new GroupPreset("Custom", "Mine", "⭐",
+                MultiAgentMode.Broadcast, "gpt-5", new[] { "gpt-4.1" })
+            { IsUserDefined = true };
+
+            UserPresets.Save(tempDir, new List<GroupPreset> { userPreset });
+            var all = UserPresets.GetAll(tempDir);
+
+            Assert.Equal(GroupPreset.BuiltIn.Length + 1, all.Length);
+            Assert.Contains(all, p => p.Name == "Custom" && p.IsUserDefined);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void SaveGroupAsPreset_CreatesFromMembers()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            var group = new SessionGroup { Name = "Test", IsMultiAgent = true, OrchestratorMode = MultiAgentMode.Orchestrator };
+            var members = new List<SessionMeta>
+            {
+                new() { SessionName = "orch", Role = MultiAgentRole.Orchestrator },
+                new() { SessionName = "w1", Role = MultiAgentRole.Worker },
+            };
+
+            var preset = UserPresets.SaveGroupAsPreset(tempDir, "Test Preset", "desc", "🔥",
+                group, members, name => name == "orch" ? "claude-opus-4.6" : "gpt-4.1");
+
+            Assert.NotNull(preset);
+            Assert.Equal("claude-opus-4.6", preset!.OrchestratorModel);
+            Assert.Single(preset.WorkerModels);
+            Assert.Equal("gpt-4.1", preset.WorkerModels[0]);
+            Assert.True(preset.IsUserDefined);
+
+            // Verify persisted
+            var loaded = UserPresets.Load(tempDir);
+            Assert.Single(loaded);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+}
+
+public class EvaluationTrackingTests
+{
+    [Fact]
+    public void RecordEvaluation_FirstEntry_ReturnsStable()
+    {
+        var state = GroupReflectionState.Create("test goal");
+        var trend = state.RecordEvaluation(1, 0.6, "Needs work", "gpt-4.1");
+        Assert.Equal(QualityTrend.Stable, trend);
+        Assert.Single(state.EvaluationHistory);
+    }
+
+    [Fact]
+    public void RecordEvaluation_ImprovingScores_ReturnsImproving()
+    {
+        var state = GroupReflectionState.Create("test goal");
+        state.RecordEvaluation(1, 0.4, "Poor", "gpt-4.1");
+        var trend = state.RecordEvaluation(2, 0.7, "Better", "gpt-4.1");
+        Assert.Equal(QualityTrend.Improving, trend);
+    }
+
+    [Fact]
+    public void RecordEvaluation_DegradingScores_ReturnsDegrading()
+    {
+        var state = GroupReflectionState.Create("test goal");
+        state.RecordEvaluation(1, 0.8, "Good", "gpt-4.1");
+        var trend = state.RecordEvaluation(2, 0.5, "Got worse", "gpt-4.1");
+        Assert.Equal(QualityTrend.Degrading, trend);
+    }
+
+    [Fact]
+    public void RecordEvaluation_SimilarScores_ReturnsStable()
+    {
+        var state = GroupReflectionState.Create("test goal");
+        state.RecordEvaluation(1, 0.6, "Ok", "gpt-4.1");
+        var trend = state.RecordEvaluation(2, 0.65, "Similar", "gpt-4.1");
+        Assert.Equal(QualityTrend.Stable, trend);
+    }
+
+    [Fact]
+    public void EvaluatorSession_CanBeConfigured()
+    {
+        var state = GroupReflectionState.Create("goal", 5, "eval-session");
+        Assert.Equal("eval-session", state.EvaluatorSession);
+    }
+
+    [Fact]
+    public void PendingAdjustments_InitiallyEmpty()
+    {
+        var state = GroupReflectionState.Create("goal");
+        Assert.Empty(state.PendingAdjustments);
+    }
+
+    [Fact]
+    public void EvaluationHistory_TracksMultipleIterations()
+    {
+        var state = GroupReflectionState.Create("goal");
+        state.RecordEvaluation(1, 0.3, "Bad", "claude-haiku-4.5");
+        state.RecordEvaluation(2, 0.5, "Improving", "claude-haiku-4.5");
+        state.RecordEvaluation(3, 0.8, "Good", "claude-haiku-4.5");
+
+        Assert.Equal(3, state.EvaluationHistory.Count);
+        Assert.Equal(0.3, state.EvaluationHistory[0].Score);
+        Assert.Equal(0.8, state.EvaluationHistory[2].Score);
+        Assert.All(state.EvaluationHistory, e => Assert.Equal("claude-haiku-4.5", e.EvaluatorModel));
+    }
+}
+
+public class ModelNameInferenceTests
+{
+    [Fact]
+    public void InferFromName_OpusVariant_HasReasoningExpert()
+    {
+        var caps = ModelCapabilities.InferFromName("claude-opus-5.0");
+        Assert.True(caps.HasFlag(ModelCapability.ReasoningExpert));
+        Assert.True(caps.HasFlag(ModelCapability.CodeExpert));
+    }
+
+    [Fact]
+    public void InferFromName_SonnetVariant_HasCodeExpert()
+    {
+        var caps = ModelCapabilities.InferFromName("claude-sonnet-5.0");
+        Assert.True(caps.HasFlag(ModelCapability.CodeExpert));
+        Assert.True(caps.HasFlag(ModelCapability.Fast));
+    }
+
+    [Fact]
+    public void InferFromName_HaikuVariant_HasFastAndCheap()
+    {
+        var caps = ModelCapabilities.InferFromName("claude-haiku-5.0");
+        Assert.True(caps.HasFlag(ModelCapability.Fast));
+        Assert.True(caps.HasFlag(ModelCapability.CostEfficient));
+    }
+
+    [Fact]
+    public void InferFromName_CodexVariant_HasCodeExpert()
+    {
+        var caps = ModelCapabilities.InferFromName("gpt-6-codex");
+        Assert.True(caps.HasFlag(ModelCapability.CodeExpert));
+    }
+
+    [Fact]
+    public void InferFromName_MiniVariant_HasFastAndCheap()
+    {
+        var caps = ModelCapabilities.InferFromName("gpt-6-mini");
+        Assert.True(caps.HasFlag(ModelCapability.Fast));
+        Assert.True(caps.HasFlag(ModelCapability.CostEfficient));
+    }
+
+    [Fact]
+    public void InferFromName_MaxVariant_HasReasoningExpert()
+    {
+        var caps = ModelCapabilities.InferFromName("gpt-6-codex-max");
+        Assert.True(caps.HasFlag(ModelCapability.ReasoningExpert));
+    }
+
+    [Fact]
+    public void InferFromName_GeminiVariant_HasVision()
+    {
+        var caps = ModelCapabilities.InferFromName("gemini-4-ultra");
+        Assert.True(caps.HasFlag(ModelCapability.Vision));
+        Assert.True(caps.HasFlag(ModelCapability.ReasoningExpert));
+    }
+
+    [Fact]
+    public void InferFromName_UnknownModel_ReturnsNone()
+    {
+        var caps = ModelCapabilities.InferFromName("totally-unknown-model");
+        Assert.Equal(ModelCapability.None, caps);
+    }
+
+    [Fact]
+    public void GetCapabilities_NewOpusVersion_InfersFromName()
+    {
+        // Not in registry, but should be inferred
+        var caps = ModelCapabilities.GetCapabilities("claude-opus-99.0");
+        Assert.True(caps.HasFlag(ModelCapability.ReasoningExpert));
+    }
+}
+
+public class ParseEvaluationScoreTests
+{
+    [Fact]
+    public void ParseScore_ValidFormat_ExtractsCorrectly()
+    {
+        var response = "SCORE: 0.75\nRATIONALE: Good progress but missing edge cases.\n[[NEEDS_ITERATION]]";
+        var (score, rationale) = CopilotService.ParseEvaluationScore(response);
+        Assert.Equal(0.75, score);
+        Assert.Contains("Good progress", rationale);
+    }
+
+    [Fact]
+    public void ParseScore_HighScore_ExtractsCorrectly()
+    {
+        var response = "SCORE: 0.95\nRATIONALE: Excellent output, fully addresses the goal.\n[[GROUP_REFLECT_COMPLETE]]";
+        var (score, rationale) = CopilotService.ParseEvaluationScore(response);
+        Assert.Equal(0.95, score);
+        Assert.Contains("Excellent", rationale);
+    }
+
+    [Fact]
+    public void ParseScore_NoScoreMarker_ReturnsDefault()
+    {
+        var response = "The output looks good but could improve.";
+        var (score, _) = CopilotService.ParseEvaluationScore(response);
+        Assert.Equal(0.5, score); // default
+    }
+
+    [Fact]
+    public void ParseScore_ClampAboveOne_Returns1()
+    {
+        var response = "SCORE: 1.5\nRATIONALE: Overshot.";
+        var (score, _) = CopilotService.ParseEvaluationScore(response);
+        Assert.Equal(1.0, score);
+    }
+
+    [Fact]
+    public void ParseScore_NegativeScore_ReturnsZero()
+    {
+        var response = "SCORE: -0.5\nRATIONALE: Terrible.";
+        var (score, _) = CopilotService.ParseEvaluationScore(response);
+        Assert.Equal(0.0, score);
+    }
+}
