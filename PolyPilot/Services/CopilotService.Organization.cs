@@ -945,7 +945,7 @@ public partial class CopilotService
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
         if (group == null) return;
 
-        group.ReflectionState = GroupReflectionState.Create(goal, maxIterations);
+        group.ReflectionState = ReflectionCycle.Create(goal, maxIterations);
         group.OrchestratorMode = MultiAgentMode.OrchestratorReflect;
         SaveOrganization();
         OnStateChanged?.Invoke();
@@ -1045,9 +1045,9 @@ public partial class CopilotService
             var synthEvalPrompt = BuildSynthesisWithEvalPrompt(prompt, results.ToList(), reflectState);
 
             // Use dedicated evaluator session if configured, otherwise orchestrator self-evaluates
-            string evaluatorName = reflectState.EvaluatorSession ?? orchestratorName;
+            string evaluatorName = reflectState.EvaluatorSessionName ?? orchestratorName;
             string synthesisResponse;
-            if (reflectState.EvaluatorSession != null && reflectState.EvaluatorSession != orchestratorName)
+            if (reflectState.EvaluatorSessionName != null && reflectState.EvaluatorSessionName != orchestratorName)
             {
                 // Send results to orchestrator for synthesis
                 var synthOnlyPrompt = BuildSynthesisOnlyPrompt(prompt, results.ToList());
@@ -1067,7 +1067,7 @@ public partial class CopilotService
                 {
                     reflectState.GoalMet = true;
                     reflectState.IsActive = false;
-                    AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.CompletionSummary} (score: {score:F1})");
+                    AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.BuildCompletionSummary()} (score: {score:F1})");
                     break;
                 }
 
@@ -1084,7 +1084,7 @@ public partial class CopilotService
                 {
                     reflectState.GoalMet = true;
                     reflectState.IsActive = false;
-                    AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.CompletionSummary}");
+                    AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.BuildCompletionSummary()}");
                     break;
                 }
 
@@ -1103,7 +1103,7 @@ public partial class CopilotService
             // Stall detection
             if (reflectState.CheckStall(synthesisResponse))
             {
-                AddOrchestratorSystemMessage(orchestratorName, $"⚠️ {reflectState.CompletionSummary}");
+                AddOrchestratorSystemMessage(orchestratorName, $"⚠️ {reflectState.BuildCompletionSummary()}");
                 break;
             }
 
@@ -1113,7 +1113,7 @@ public partial class CopilotService
 
         if (!reflectState.GoalMet && !reflectState.IsStalled && !reflectState.IsPaused)
         {
-            AddOrchestratorSystemMessage(orchestratorName, $"⏱️ {reflectState.CompletionSummary}");
+            AddOrchestratorSystemMessage(orchestratorName, $"⏱️ {reflectState.BuildCompletionSummary()}");
         }
 
         reflectState.IsActive = false;
@@ -1121,12 +1121,12 @@ public partial class CopilotService
         SaveOrganization();
         InvokeOnUI(() =>
         {
-            OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, reflectState.CompletionSummary);
+            OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, reflectState.BuildCompletionSummary());
             OnStateChanged?.Invoke();
         });
     }
 
-    private string BuildSynthesisWithEvalPrompt(string originalPrompt, List<WorkerResult> results, GroupReflectionState state)
+    private string BuildSynthesisWithEvalPrompt(string originalPrompt, List<WorkerResult> results, ReflectionCycle state)
     {
         var sb = new System.Text.StringBuilder();
         sb.Append(BuildSynthesisPrompt(originalPrompt, results));
@@ -1206,7 +1206,7 @@ public partial class CopilotService
     }
 
     /// <summary>Build a prompt for an independent evaluator session to score synthesis quality.</summary>
-    private static string BuildEvaluatorPrompt(string originalGoal, string synthesisResponse, Models.GroupReflectionState state)
+    private static string BuildEvaluatorPrompt(string originalGoal, string synthesisResponse, ReflectionCycle state)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("## Independent Quality Evaluation");
@@ -1266,7 +1266,7 @@ public partial class CopilotService
     /// Called after each reflect iteration to detect quality issues and apply fixes.
     /// Surfaces adjustments both as orchestrator system messages and as PendingAdjustments on state (for UI banners).
     /// </summary>
-    private void AutoAdjustFromFeedback(string groupId, SessionGroup group, List<WorkerResult> results, GroupReflectionState state)
+    private void AutoAdjustFromFeedback(string groupId, SessionGroup group, List<WorkerResult> results, ReflectionCycle state)
     {
         var failedWorkers = results.Where(r => !r.Success).ToList();
         var adjustments = new List<string>();

@@ -30,7 +30,7 @@ public class SessionGroup
     public string? DefaultOrchestratorModel { get; set; }
 
     /// <summary>Active reflection state for OrchestratorReflect mode. Null when not in a reflect loop.</summary>
-    public GroupReflectionState? ReflectionState { get; set; }
+    public ReflectionCycle? ReflectionState { get; set; }
 }
 
 public class SessionMeta
@@ -96,109 +96,5 @@ public class OrganizationState
     public SessionSortMode SortMode { get; set; } = SessionSortMode.LastActive;
 }
 
-/// <summary>
-/// Tracks iterative orchestration state for a multi-agent group in OrchestratorReflect mode.
-/// The orchestrator evaluates worker results against a goal and re-dispatches until satisfied.
-/// </summary>
-public class GroupReflectionState
-{
-    public string Goal { get; set; } = "";
-    public int MaxIterations { get; set; } = 5;
-    public int CurrentIteration { get; set; }
-    public bool IsActive { get; set; }
-    public bool GoalMet { get; set; }
-    public bool IsStalled { get; set; }
-    public bool IsPaused { get; set; }
-    public DateTime? StartedAt { get; set; }
-    public DateTime? CompletedAt { get; set; }
+// GroupReflectionState class removed and merged into ReflectionCycle
 
-    /// <summary>The orchestrator's evaluation from the last iteration.</summary>
-    public string? LastEvaluation { get; set; }
-
-    /// <summary>Per-iteration evaluation results for trend tracking.</summary>
-    public List<EvaluationResult> EvaluationHistory { get; set; } = new();
-
-    /// <summary>Optional: session name of a dedicated evaluator (different from orchestrator).</summary>
-    public string? EvaluatorSession { get; set; }
-
-    /// <summary>Auto-adjustment suggestions surfaced to the user.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
-    public List<string> PendingAdjustments { get; } = new();
-
-    /// <summary>Hash window for stall detection (last N response hashes).</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
-    internal List<int> ResponseHashes { get; } = new();
-    internal const int StallWindowSize = 3;
-    internal int ConsecutiveStalls { get; set; }
-
-    public static GroupReflectionState Create(string goal, int maxIterations = 5, string? evaluatorSession = null) => new()
-    {
-        Goal = goal,
-        MaxIterations = maxIterations,
-        IsActive = true,
-        StartedAt = DateTime.Now,
-        EvaluatorSession = evaluatorSession
-    };
-
-    /// <summary>Check if the latest synthesis is repeating (stall detection).</summary>
-    public bool CheckStall(string synthesisResponse)
-    {
-        var hash = synthesisResponse.GetHashCode();
-        if (ResponseHashes.Contains(hash))
-        {
-            ConsecutiveStalls++;
-            if (ConsecutiveStalls >= 2)
-            {
-                IsStalled = true;
-                return true;
-            }
-        }
-        else
-        {
-            ConsecutiveStalls = 0;
-        }
-        ResponseHashes.Add(hash);
-        if (ResponseHashes.Count > StallWindowSize)
-            ResponseHashes.RemoveAt(0);
-        return false;
-    }
-
-    /// <summary>Record an evaluation result and return the quality trend.</summary>
-    public QualityTrend RecordEvaluation(int iteration, double score, string rationale, string evaluatorModel)
-    {
-        EvaluationHistory.Add(new EvaluationResult
-        {
-            Iteration = iteration,
-            Score = score,
-            Rationale = rationale,
-            EvaluatorModel = evaluatorModel,
-            Timestamp = DateTime.Now
-        });
-
-        if (EvaluationHistory.Count < 2) return QualityTrend.Stable;
-
-        var recent = EvaluationHistory.TakeLast(3).Select(e => e.Score).ToList();
-        if (recent.Count >= 2 && recent.Last() > recent[^2] + 0.1) return QualityTrend.Improving;
-        if (recent.Count >= 2 && recent.Last() < recent[^2] - 0.1) return QualityTrend.Degrading;
-        return QualityTrend.Stable;
-    }
-
-    public string CompletionSummary =>
-        GoalMet ? $"✅ Goal met after {CurrentIteration} iteration(s)"
-        : IsStalled ? $"⚠️ Stalled after {CurrentIteration} iteration(s)"
-        : $"⏱️ Reached max iterations ({MaxIterations})";
-}
-
-/// <summary>Quality trend across iterations.</summary>
-public enum QualityTrend { Improving, Stable, Degrading }
-
-/// <summary>Structured evaluation result from one reflect iteration.</summary>
-public class EvaluationResult
-{
-    public int Iteration { get; set; }
-    /// <summary>Quality score 0.0-1.0.</summary>
-    public double Score { get; set; }
-    public string Rationale { get; set; } = "";
-    public string EvaluatorModel { get; set; } = "";
-    public DateTime Timestamp { get; set; }
-}

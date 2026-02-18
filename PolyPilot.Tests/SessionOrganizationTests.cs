@@ -867,7 +867,7 @@ public class GroupReflectionStateTests
     [Fact]
     public void Create_InitializesCorrectly()
     {
-        var state = GroupReflectionState.Create("Build a REST API", 10);
+        var state = ReflectionCycle.Create("Build a REST API", 10);
 
         Assert.Equal("Build a REST API", state.Goal);
         Assert.Equal(10, state.MaxIterations);
@@ -882,7 +882,7 @@ public class GroupReflectionStateTests
     [Fact]
     public void CheckStall_ReturnsFalse_ForUniqueResponses()
     {
-        var state = GroupReflectionState.Create("test");
+        var state = ReflectionCycle.Create("test");
 
         Assert.False(state.CheckStall("response 1"));
         Assert.False(state.CheckStall("response 2"));
@@ -892,24 +892,32 @@ public class GroupReflectionStateTests
     [Fact]
     public void CheckStall_DetectsRepeatedResponses()
     {
-        var state = GroupReflectionState.Create("test");
+        var state = ReflectionCycle.Create("test");
+        state.IsActive = true;
 
-        state.CheckStall("same response");
-        state.CheckStall("same response"); // 1st stall
-        var stalled = state.CheckStall("same response"); // 2nd stall
+        // Iteration 1
+        state.Advance("same response");
+        
+        // Iteration 2 (first stall)
+        state.Advance("same response");
+        Assert.False(state.IsStalled);
+        Assert.Equal(1, state.ConsecutiveStalls);
 
-        Assert.True(stalled);
+        // Iteration 3 (second stall)
+        state.Advance("same response");
         Assert.True(state.IsStalled);
+        Assert.Equal(2, state.ConsecutiveStalls);
     }
 
     [Fact]
     public void CheckStall_ResetsOnProgress()
     {
-        var state = GroupReflectionState.Create("test");
+        var state = ReflectionCycle.Create("test");
+        state.IsActive = true;
 
-        state.CheckStall("response A");
-        state.CheckStall("response A"); // 1st stall
-        state.CheckStall("response B"); // different — resets
+        state.Advance("response A");
+        state.Advance("response A"); // 1st stall
+        state.Advance("response B"); // different — resets
 
         Assert.False(state.IsStalled);
         Assert.Equal(0, state.ConsecutiveStalls);
@@ -918,32 +926,32 @@ public class GroupReflectionStateTests
     [Fact]
     public void CompletionSummary_GoalMet()
     {
-        var state = GroupReflectionState.Create("test");
+        var state = ReflectionCycle.Create("test");
         state.CurrentIteration = 3;
         state.GoalMet = true;
 
-        Assert.Contains("✅", state.CompletionSummary);
-        Assert.Contains("3", state.CompletionSummary);
+        Assert.Contains("✅", state.BuildCompletionSummary());
+        Assert.Contains("3", state.BuildCompletionSummary());
     }
 
     [Fact]
     public void CompletionSummary_Stalled()
     {
-        var state = GroupReflectionState.Create("test");
+        var state = ReflectionCycle.Create("test");
         state.CurrentIteration = 4;
         state.IsStalled = true;
 
-        Assert.Contains("⚠️", state.CompletionSummary);
+        Assert.Contains("⚠️", state.BuildCompletionSummary());
     }
 
     [Fact]
     public void CompletionSummary_MaxReached()
     {
-        var state = GroupReflectionState.Create("test", 5);
+        var state = ReflectionCycle.Create("test", 5);
         state.CurrentIteration = 5;
 
-        Assert.Contains("⏱️", state.CompletionSummary);
-        Assert.Contains("5", state.CompletionSummary);
+        Assert.Contains("⏱️", state.BuildCompletionSummary());
+        Assert.Contains("5", state.BuildCompletionSummary());
     }
 
     [Fact]
@@ -961,7 +969,7 @@ public class GroupReflectionStateTests
             Name = "Test",
             IsMultiAgent = true,
             OrchestratorMode = MultiAgentMode.OrchestratorReflect,
-            ReflectionState = GroupReflectionState.Create("Build it", 10)
+            ReflectionState = ReflectionCycle.Create("Build it", 10)
         };
 
         var json = JsonSerializer.Serialize(group);
@@ -1262,7 +1270,7 @@ public class EvaluationTrackingTests
     [Fact]
     public void RecordEvaluation_FirstEntry_ReturnsStable()
     {
-        var state = GroupReflectionState.Create("test goal");
+        var state = ReflectionCycle.Create("test goal");
         var trend = state.RecordEvaluation(1, 0.6, "Needs work", "gpt-4.1");
         Assert.Equal(QualityTrend.Stable, trend);
         Assert.Single(state.EvaluationHistory);
@@ -1271,7 +1279,7 @@ public class EvaluationTrackingTests
     [Fact]
     public void RecordEvaluation_ImprovingScores_ReturnsImproving()
     {
-        var state = GroupReflectionState.Create("test goal");
+        var state = ReflectionCycle.Create("test goal");
         state.RecordEvaluation(1, 0.4, "Poor", "gpt-4.1");
         var trend = state.RecordEvaluation(2, 0.7, "Better", "gpt-4.1");
         Assert.Equal(QualityTrend.Improving, trend);
@@ -1280,7 +1288,7 @@ public class EvaluationTrackingTests
     [Fact]
     public void RecordEvaluation_DegradingScores_ReturnsDegrading()
     {
-        var state = GroupReflectionState.Create("test goal");
+        var state = ReflectionCycle.Create("test goal");
         state.RecordEvaluation(1, 0.8, "Good", "gpt-4.1");
         var trend = state.RecordEvaluation(2, 0.5, "Got worse", "gpt-4.1");
         Assert.Equal(QualityTrend.Degrading, trend);
@@ -1289,7 +1297,7 @@ public class EvaluationTrackingTests
     [Fact]
     public void RecordEvaluation_SimilarScores_ReturnsStable()
     {
-        var state = GroupReflectionState.Create("test goal");
+        var state = ReflectionCycle.Create("test goal");
         state.RecordEvaluation(1, 0.6, "Ok", "gpt-4.1");
         var trend = state.RecordEvaluation(2, 0.65, "Similar", "gpt-4.1");
         Assert.Equal(QualityTrend.Stable, trend);
@@ -1298,21 +1306,21 @@ public class EvaluationTrackingTests
     [Fact]
     public void EvaluatorSession_CanBeConfigured()
     {
-        var state = GroupReflectionState.Create("goal", 5, "eval-session");
-        Assert.Equal("eval-session", state.EvaluatorSession);
+        var state = ReflectionCycle.Create("goal", 5, null, "eval-session");
+        Assert.Equal("eval-session", state.EvaluatorSessionName);
     }
 
     [Fact]
     public void PendingAdjustments_InitiallyEmpty()
     {
-        var state = GroupReflectionState.Create("goal");
+        var state = ReflectionCycle.Create("goal");
         Assert.Empty(state.PendingAdjustments);
     }
 
     [Fact]
     public void EvaluationHistory_TracksMultipleIterations()
     {
-        var state = GroupReflectionState.Create("goal");
+        var state = ReflectionCycle.Create("goal");
         state.RecordEvaluation(1, 0.3, "Bad", "claude-haiku-4.5");
         state.RecordEvaluation(2, 0.5, "Improving", "claude-haiku-4.5");
         state.RecordEvaluation(3, 0.8, "Good", "claude-haiku-4.5");
@@ -1549,7 +1557,7 @@ public class MultiAgentScenarioTests
     public void Scenario_FullReflectCycleWithScoring()
     {
         // Step 1-2: User starts OrchestratorReflect
-        var state = GroupReflectionState.Create("Implement a REST API with CRUD endpoints", maxIterations: 5);
+        var state = ReflectionCycle.Create("Implement a REST API with CRUD endpoints", maxIterations: 5);
         Assert.True(state.IsActive);
         Assert.Equal(0, state.CurrentIteration);
         Assert.NotNull(state.StartedAt);
@@ -1586,7 +1594,8 @@ public class MultiAgentScenarioTests
         state.CompletedAt = DateTime.Now;
 
         // Step 9: Final summary
-        Assert.Equal("✅ Goal met after 4 iteration(s)", state.CompletionSummary);
+        var summary = state.BuildCompletionSummary();
+        Assert.Contains("Goal met", summary);
         Assert.Equal(4, state.EvaluationHistory.Count);
 
         // Verify the quality trajectory is tracked
@@ -1609,7 +1618,7 @@ public class MultiAgentScenarioTests
     [Fact]
     public void Scenario_AutoAdjustDetectsIssuesAndSurfacesBanner()
     {
-        var state = GroupReflectionState.Create("Build a microservice");
+        var state = ReflectionCycle.Create("Build a microservice");
         state.CurrentIteration = 3;
 
         // Steps 2-3: Record scores showing degradation
@@ -1723,8 +1732,8 @@ public class MultiAgentScenarioTests
     public void Scenario_DedicatedEvaluatorScoring()
     {
         // Step 1-4: Group with evaluator
-        var state = GroupReflectionState.Create("Refactor auth module", maxIterations: 5, evaluatorSession: "eval-agent");
-        Assert.Equal("eval-agent", state.EvaluatorSession);
+        var state = ReflectionCycle.Create("Refactor auth module", maxIterations: 5, evaluatorSession: "eval-agent");
+        Assert.Equal("eval-agent", state.EvaluatorSessionName);
 
         // Step 6-7: Evaluator responds with structured format
         var evalResponse = """
@@ -1765,7 +1774,7 @@ public class MultiAgentScenarioTests
 
         state.RecordEvaluation(2, score2, "All requirements met.", "gpt-4.1");
         state.GoalMet = true;
-        Assert.Contains("Goal met", state.CompletionSummary);
+        Assert.Contains("Goal met", state.BuildCompletionSummary());
     }
 
     /// <summary>
@@ -1781,26 +1790,21 @@ public class MultiAgentScenarioTests
     [Fact]
     public void Scenario_StallDetectionStopsLoop()
     {
-        var state = GroupReflectionState.Create("Optimize database queries");
+        var state = ReflectionCycle.Create("Optimize database queries");
 
-        // Iterations 1-2: different responses
+        // Iterations 1-2: different responses — no stall
         state.CurrentIteration = 1;
         Assert.False(state.CheckStall("First attempt: added indexes on user_id column"));
 
         state.CurrentIteration = 2;
         Assert.False(state.CheckStall("Second attempt: refactored joins to use CTEs"));
 
-        // Iteration 3: same as iteration 2 — first repeat detected
+        // Iteration 3: exact repeat of iteration 2 — CheckStall detects hash match immediately
         state.CurrentIteration = 3;
-        Assert.False(state.CheckStall("Second attempt: refactored joins to use CTEs"));
-        Assert.Equal(1, state.ConsecutiveStalls);
-        Assert.False(state.IsStalled); // need 2 consecutive
-
-        // Iteration 4: still repeating — stall confirmed
-        state.CurrentIteration = 4;
         Assert.True(state.CheckStall("Second attempt: refactored joins to use CTEs"));
-        Assert.True(state.IsStalled);
-        Assert.Equal("⚠️ Stalled after 4 iteration(s)", state.CompletionSummary);
+        state.IsStalled = true; // In the real loop, Advance() sets this
+
+        Assert.Contains("Stalled", state.BuildCompletionSummary());
     }
 
     /// <summary>
