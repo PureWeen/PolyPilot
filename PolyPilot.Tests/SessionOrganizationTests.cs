@@ -1001,3 +1001,88 @@ public class GroupReflectionStateTests
         Assert.Contains("The final evaluation", result);
     }
 }
+
+public class ModelCapabilitiesTests
+{
+    [Fact]
+    public void GetCapabilities_KnownModel_ReturnsFlags()
+    {
+        var caps = ModelCapabilities.GetCapabilities("claude-opus-4.6");
+        Assert.True(caps.HasFlag(ModelCapability.ReasoningExpert));
+        Assert.True(caps.HasFlag(ModelCapability.CodeExpert));
+    }
+
+    [Fact]
+    public void GetCapabilities_UnknownModel_ReturnsNone()
+    {
+        var caps = ModelCapabilities.GetCapabilities("totally-unknown-model");
+        Assert.Equal(ModelCapability.None, caps);
+    }
+
+    [Fact]
+    public void GetCapabilities_FuzzyMatch_Works()
+    {
+        // "claude-opus-4.6-fast" should fuzzy-match "claude-opus-4.6"
+        var caps = ModelCapabilities.GetCapabilities("gpt-4.1");
+        Assert.True(caps.HasFlag(ModelCapability.Fast));
+        Assert.True(caps.HasFlag(ModelCapability.CostEfficient));
+    }
+
+    [Fact]
+    public void GetRoleWarnings_CheapOrchestratorModel_WarnsAboutReasoning()
+    {
+        var warnings = ModelCapabilities.GetRoleWarnings("gpt-4.1", MultiAgentRole.Orchestrator);
+        Assert.NotEmpty(warnings);
+        Assert.Contains(warnings, w => w.Contains("reasoning", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void GetRoleWarnings_StrongOrchestratorModel_NoWarnings()
+    {
+        var warnings = ModelCapabilities.GetRoleWarnings("claude-opus-4.6", MultiAgentRole.Orchestrator);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void GetRoleWarnings_WorkerWithToolUse_NoWarnings()
+    {
+        var warnings = ModelCapabilities.GetRoleWarnings("gpt-4.1", MultiAgentRole.Worker);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void GetStrengths_ReturnsDescription()
+    {
+        var strengths = ModelCapabilities.GetStrengths("claude-opus-4.6");
+        Assert.NotEqual("Unknown model", strengths);
+        Assert.Contains("reasoning", strengths, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
+public class GroupPresetTests
+{
+    [Fact]
+    public void BuiltInPresets_AllHaveRequiredFields()
+    {
+        foreach (var preset in GroupPreset.BuiltIn)
+        {
+            Assert.False(string.IsNullOrEmpty(preset.Name));
+            Assert.False(string.IsNullOrEmpty(preset.Description));
+            Assert.False(string.IsNullOrEmpty(preset.OrchestratorModel));
+            Assert.NotEmpty(preset.WorkerModels);
+            Assert.True(preset.WorkerModels.All(m => !string.IsNullOrEmpty(m)));
+        }
+    }
+
+    [Fact]
+    public void BuiltInPresets_ContainExpectedCount()
+    {
+        Assert.True(GroupPreset.BuiltIn.Length >= 3, "Should have at least 3 built-in presets");
+    }
+
+    [Fact]
+    public void BuiltInPresets_IncludeOrchestratorReflect()
+    {
+        Assert.Contains(GroupPreset.BuiltIn, p => p.Mode == MultiAgentMode.OrchestratorReflect);
+    }
+}

@@ -152,9 +152,25 @@
                             <option value="">Default (@Session.Model)</option>
                             @foreach (var model in CopilotService.AvailableModels)
                             {
-                                <option value="@model">@model</option>
+                                var strengths = ModelCapabilities.GetStrengths(model);
+                                <option value="@model" title="@strengths">@model</option>
                             }
                         </select>
+                        @{
+                            var effectiveModel = CopilotService.GetEffectiveModel(Session.Name);
+                            var warnings = ModelCapabilities.GetRoleWarnings(effectiveModel, Meta?.Role ?? MultiAgentRole.Worker);
+                        }
+                        @if (warnings.Count > 0)
+                        {
+                            @foreach (var w in warnings)
+                            {
+                                <div class="model-warning">@w</div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="model-strengths">@ModelCapabilities.GetStrengths(effectiveModel)</div>
+                        }
                     </div>
                 }
                 <div class="menu-separator"></div>

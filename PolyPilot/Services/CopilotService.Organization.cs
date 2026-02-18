@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using PolyPilot.Models;
@@ -10,7 +11,70 @@ public partial class CopilotService
 {
     public event Action<string, OrchestratorPhase, string?>? OnOrchestratorPhaseChanged; // groupId, phase, detail
 
+    // Per-session semaphores to prevent concurrent model switches during rapid dispatch
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _modelSwitchLocks = new();
+
     #region Session Organization (groups, pinning, sorting)
+
+    public async Task<string> CreateMultiAgentGroupAsync(string groupName, string orchestratorModel, string workerModel, int workerCount, MultiAgentMode mode, string? systemPrompt = null)
+    {
+        // 1. Create the group
+        var group = new SessionGroup
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = groupName,
+            IsMultiAgent = true,
+            OrchestratorMode = mode,
+            OrchestratorPrompt = systemPrompt,
+            DefaultOrchestratorModel = orchestratorModel,
+            DefaultWorkerModel = workerModel,
+            SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
+        };
+        Organization.Groups.Add(group);
+
+        // 2. Create Orchestrator Session
+        var orchName = $"{groupName}-Orchestrator";
+        // Ensure name uniqueness
+        int suffix = 1;
+        while (_sessions.ContainsKey(orchName) || Organization.Sessions.Any(s => s.SessionName == orchName))
+            orchName = $"{groupName}-Orchestrator-{suffix++}";
+
+        var orchSession = await CreateSessionAsync(orchName, orchestratorModel, null); // Use default dir
+        var orchMeta = GetOrCreateSessionMeta(orchSession.Name);
+        orchMeta.GroupId = group.Id;
+        orchMeta.Role = MultiAgentRole.Orchestrator;
+        orchMeta.PreferredModel = orchestratorModel;
+
+        // 3. Create Worker Sessions
+        for (int i = 1; i <= workerCount; i++)
+        {
+            var workerName = $"{groupName}-Worker-{i}";
+            suffix = 1;
+            while (_sessions.ContainsKey(workerName) || Organization.Sessions.Any(s => s.SessionName == workerName))
+                workerName = $"{groupName}-Worker-{i}-{suffix++}";
+
+            var workerSession = await CreateSessionAsync(workerName, workerModel, null);
+            var workerMeta = GetOrCreateSessionMeta(workerSession.Name);
+            workerMeta.GroupId = group.Id;
+            workerMeta.Role = MultiAgentRole.Worker;
+            workerMeta.PreferredModel = workerModel;
+        }
+
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+        return group.Id;
+    }
+
+    private SessionMeta GetOrCreateSessionMeta(string sessionName)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta == null)
+        {
+            meta = new SessionMeta { SessionName = sessionName, GroupId = SessionGroup.DefaultId };
+            Organization.Sessions.Add(meta);
+        }
+        return meta;
+    }
 
     public void LoadOrganization()
     {
@@ -789,7 +853,52 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Create a multi-agent group from a preset template, creating sessions with assigned models.
+    /// </summary>
+    public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, CancellationToken ct = default)
+    {
+        var group = CreateMultiAgentGroup(preset.Name, preset.Mode);
+        if (group == null) return null;
+
+        // Create orchestrator session
+        var orchName = $"{preset.Name}-orchestrator";
+        try
+        {
+            await CreateSessionAsync(orchName, preset.OrchestratorModel, workingDirectory, ct);
+            MoveSession(orchName, group.Id);
+            SetSessionRole(orchName, MultiAgentRole.Orchestrator);
+            SetSessionPreferredModel(orchName, preset.OrchestratorModel);
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to create orchestrator session: {ex.Message}");
+        }
+
+        // Create worker sessions
+        for (int i = 0; i < preset.WorkerModels.Length; i++)
+        {
+            var workerName = $"{preset.Name}-worker-{i + 1}";
+            var workerModel = preset.WorkerModels[i];
+            try
+            {
+                await CreateSessionAsync(workerName, workerModel, workingDirectory, ct);
+                MoveSession(workerName, group.Id);
+                SetSessionPreferredModel(workerName, workerModel);
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to create worker session '{workerName}': {ex.Message}");
+            }
+        }
+
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+        return group;
+    }
+
+    /// <summary>
     /// Ensures a session's live model matches its PreferredModel before dispatch.
+    /// Uses per-session semaphore to prevent concurrent model switches.
     /// No-op if PreferredModel is null or already matches.
     /// </summary>
     private async Task EnsureSessionModelAsync(string sessionName, CancellationToken ct)
@@ -803,14 +912,24 @@ public partial class CopilotService
         var currentSlug = Models.ModelHelper.NormalizeToSlug(session.Model);
         if (currentSlug == meta.PreferredModel) return;
 
+        var semaphore = _modelSwitchLocks.GetOrAdd(sessionName, _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync(ct);
         try
         {
+            // Re-check after acquiring lock — another dispatch may have already switched
+            currentSlug = Models.ModelHelper.NormalizeToSlug(GetSession(sessionName)?.Model ?? "");
+            if (currentSlug == meta.PreferredModel) return;
+
             await ChangeModelAsync(sessionName, meta.PreferredModel, ct);
             Debug($"Switched '{sessionName}' model to '{meta.PreferredModel}' for multi-agent dispatch");
         }
         catch (Exception ex)
         {
             Debug($"Failed to switch model for '{sessionName}': {ex.Message}");
+        }
+        finally
+        {
+            semaphore.Release();
         }
     }
 
@@ -972,9 +1091,31 @@ public partial class CopilotService
         sb.AppendLine($"## Evaluation Check (Iteration {state.CurrentIteration}/{state.MaxIterations})");
         sb.AppendLine($"**Goal:** {state.Goal}");
         sb.AppendLine();
-        sb.AppendLine("Evaluate whether the combined output satisfies the goal.");
-        sb.AppendLine("- If **YES**: Include `[[GROUP_REFLECT_COMPLETE]]` in your response with a final summary.");
-        sb.AppendLine("- If **NO**: Include `[[NEEDS_ITERATION]]` explaining what's missing, then provide revised `@worker` blocks for the next iteration.");
+        sb.AppendLine("### Quality Assessment");
+        sb.AppendLine("Before deciding, evaluate each worker's output:");
+        sb.AppendLine("1. **Completeness** — Did they fully address their assigned task?");
+        sb.AppendLine("2. **Correctness** — Is the output accurate and well-reasoned?");
+        sb.AppendLine("3. **Relevance** — Does it contribute meaningfully toward the goal?");
+        sb.AppendLine();
+        if (state.CurrentIteration > 1 && state.LastEvaluation != null)
+        {
+            sb.AppendLine("### Previous Iteration Feedback");
+            sb.AppendLine(state.LastEvaluation);
+            sb.AppendLine();
+            sb.AppendLine("Check whether the identified gaps have been addressed in this iteration.");
+            sb.AppendLine();
+        }
+        sb.AppendLine("### Decision");
+        sb.AppendLine("- If the combined output **fully satisfies** the goal: Include `[[GROUP_REFLECT_COMPLETE]]` with a summary.");
+        sb.AppendLine("- If **not yet complete**: Include `[[NEEDS_ITERATION]]` followed by:");
+        sb.AppendLine("  1. What specific gaps remain (be precise)");
+        sb.AppendLine("  2. Whether quality improved, degraded, or stalled vs. previous iteration");
+        sb.AppendLine("  3. Revised `@worker:name` / `@end` blocks for the next iteration");
+        if (state.CurrentIteration >= state.MaxIterations - 1)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"⚠️ This is iteration {state.CurrentIteration} of {state.MaxIterations}. If close to the goal, consider completing with what you have rather than requesting another iteration.");
+        }
         return sb.ToString();
     }
 

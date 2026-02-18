@@ -37,6 +37,7 @@ else if (IsFlyoutPanel)
                                IsCreating="isCreating"
                                CreateError="@createError"
                                OnCreate="HandleCreateSession"
+                               OnCreateGroup="HandleCreateGroup"
                                OnBrowseDirectory="OpenDirectoryPicker" />
         </div>
 
@@ -75,6 +76,7 @@ else
                                IsCreating="isCreating"
                                CreateError="@createError"
                                OnCreate="HandleCreateSession"
+                               OnCreateGroup="HandleCreateGroup"
                                OnBrowseDirectory="OpenDirectoryPicker" />
         </div>
 
@@ -201,9 +203,27 @@ else
                 <div class="toolbar-actions">
                     <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
                     <button class="new-group-btn" @onclick="StartAddMultiAgentGroup" title="New multi-agent group">🤖 + Multi-Agent</button>
+                    <button class="new-group-btn" @onclick="() => showPresetPicker = !showPresetPicker" title="Create from template">🚀 Preset</button>
                     <button class="new-group-btn" @onclick="() => showAddRepo = true" title="Add repository">+ Repo</button>
                     <button class="new-group-btn" @onclick="RefreshSessionsManually" title="Refresh sessions">↻ Refresh</button>
                 </div>
+                @if (showPresetPicker)
+                {
+                    <div class="preset-picker" @onclick:stopPropagation="true">
+                        @foreach (var preset in GroupPreset.BuiltIn)
+                        {
+                            var p = preset;
+                            <button class="preset-item" @onclick="() => CreateFromPreset(p)">
+                                <span class="preset-emoji">@p.Emoji</span>
+                                <div class="preset-info">
+                                    <span class="preset-name">@p.Name</span>
+                                    <span class="preset-desc">@p.Description</span>
+                                    <span class="preset-models">🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)</span>
+                                </div>
+                            </button>
+                        }
+                    </div>
+                }
             }
         </div>
     };
@@ -661,6 +681,35 @@ else
         showPersistedSessions = !showPersistedSessions;
     }
 
+    private async Task HandleCreateGroup(GroupPreset preset)
+    {
+        if (isCreating) return;
+        isCreating = true;
+        createError = null;
+        try
+        {
+            var groupId = await CopilotService.CreateMultiAgentGroupAsync(
+                preset.Name, 
+                preset.OrchestratorModel, 
+                preset.WorkerModel, 
+                preset.WorkerCount, 
+                preset.Mode, 
+                preset.SystemPrompt);
+
+            // Expand the new group
+            CopilotService.ToggleGroupCollapsed(groupId); 
+            CopilotService.SaveUiState(currentPage);
+        }
+        catch (Exception ex)
+        {
+            createError = ex.Message;
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
     private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt) args)
     {
         if (isCreating) return;
@@ -878,6 +927,23 @@ else
     {
         isAddingGroup = true;
         isAddingMultiAgentGroup = true;
+        showPresetPicker = false;
+    }
+
+    private bool showPresetPicker;
+
+    private async Task CreateFromPreset(GroupPreset preset)
+    {
+        showPresetPicker = false;
+        StateHasChanged();
+        try
+        {
+            await CopilotService.CreateGroupFromPresetAsync(preset, CopilotService.GetActiveSessionWorkingDirectory());
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to create from preset: {ex.Message}");
+        }
     }
 
     private void OnSidebarMultiAgentModeChanged(string groupId, ChangeEventArgs e)

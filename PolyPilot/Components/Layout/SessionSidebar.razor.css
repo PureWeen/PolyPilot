@@ -1384,3 +1384,56 @@
 }
 .bug-report-submit:hover { opacity: 0.85; }
 .bug-report-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* === Preset Picker === */
+.preset-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.5rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--control-border);
+    border-radius: 8px;
+    margin-top: 0.25rem;
+}
+
+.preset-item {
+    all: unset;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.preset-item:hover { background: var(--control-bg); }
+
+.preset-emoji { font-size: 1.2rem; flex-shrink: 0; margin-top: 0.1rem; }
+
+.preset-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.preset-name {
+    font-size: var(--type-callout);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.preset-desc {
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+}
+
+.preset-models {
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+    opacity: 0.8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
