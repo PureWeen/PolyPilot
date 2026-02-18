@@ -189,15 +189,16 @@ else
                 <option value="Alphabetical" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Alphabetical)">↕ A–Z</option>
                 <option value="Manual" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Manual)">↕ Manual</option>
             </select>
-            @if (isAddingGroup && !isAddingMultiAgentGroup)
+            @if (isAddingGroup && !isAddingMultiAgentGroup && pendingMultiAgentWorktree == null)
             {
                 <input type="text" class="new-group-input" id="newGroupInput"
-                       placeholder="@(pendingMultiAgentWorktree != null ? $"Team name ({pendingMultiAgentWorktree.Branch})..." : "Group name...")"
+                       placeholder="Group name..."
                        @onblur="CommitNewGroup"
                        @onkeydown="HandleNewGroupKeyDown" />
             }
-            else if (isAddingMultiAgentGroup)
+            else if (isAddingMultiAgentGroup && pendingMultiAgentWorktree == null)
             {
+                @* Step 1: Pick a worktree *@
                 <div class="worktree-picker" @onclick:stopPropagation="true">
                     <div class="worktree-picker-header">
                         <span>Select worktree for team:</span>
@@ -218,51 +219,37 @@ else
                     }
                 </div>
             }
+            else if (pendingMultiAgentWorktree != null)
+            {
+                @* Step 2: Pick a preset or enter a custom name *@
+                <div class="worktree-picker" @onclick:stopPropagation="true">
+                    <div class="worktree-picker-header">
+                        <span>🌿 @pendingMultiAgentWorktree.Branch</span>
+                        <button class="worktree-cancel-btn" @onclick="CancelMultiAgentCreation">✕</button>
+                    </div>
+                    @foreach (var preset in UserPresets.GetAll(CopilotService.BaseDir))
+                    {
+                        var p = preset;
+                        <button class="preset-item" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                            <span class="preset-emoji">@p.Emoji</span>
+                            <span class="preset-name">@p.Name</span>
+                        </button>
+                    }
+                    <div class="preset-divider">or create empty team:</div>
+                    <input type="text" class="new-group-input" id="newGroupInput"
+                           placeholder="Custom team name..."
+                           @onblur="CommitNewGroup"
+                           @onkeydown="HandleNewGroupKeyDown" />
+                </div>
+            }
             else
             {
                 <div class="toolbar-actions">
                     <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
                     <button class="new-group-btn" @onclick="StartAddMultiAgentGroup" title="New multi-agent group">🤖 Multi</button>
-                    <button class="new-group-btn" @onclick="TogglePresetPicker" title="Create from template">🚀</button>
                     <button class="new-group-btn" @onclick="() => showAddRepo = true" title="Add repository">+ Repo</button>
                     <button class="new-group-btn" @onclick="RefreshSessionsManually" title="Refresh sessions">↻</button>
                 </div>
-                @if (showPresetPicker)
-                {
-                    <div class="worktree-picker" @onclick:stopPropagation="true">
-                        <div class="worktree-picker-header">
-                            <span>@(selectedPreset != null ? $"📂 Worktree for \"{selectedPreset.Name}\":" : "Select worktree:")</span>
-                            <button class="worktree-cancel-btn" @onclick="() => { showPresetPicker = false; selectedPreset = null; }">✕</button>
-                        </div>
-                        @if (selectedPreset == null)
-                        {
-                            @foreach (var preset in UserPresets.GetAll(CopilotService.BaseDir))
-                            {
-                                var p = preset;
-                                <button class="preset-item" @onclick="() => selectedPreset = p" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
-                                    <span class="preset-emoji">@p.Emoji</span>
-                                    <span class="preset-name">@p.Name @(p.IsUserDefined ? "👤" : "")</span>
-                                </button>
-                            }
-                        }
-                        else
-                        {
-                            @foreach (var wt in RepoManager.Worktrees)
-                            {
-                                var w = wt;
-                                var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == w.RepoId);
-                                <button class="worktree-item" @onclick="() => CreateFromPresetWithWorktree(selectedPreset, w)">
-                                    <span class="worktree-branch">@(repo?.Name ?? w.RepoId)/@w.Branch</span>
-                                    <span class="worktree-path">@ShortenPath(w.Path)</span>
-                                </button>
-                            }
-                            @if (!RepoManager.Worktrees.Any())
-                            {
-                                <div class="worktree-empty">No worktrees available. Add a repository first.</div>
-                            }
-                        }
-                    </div>
-                }
             }
         </div>
     };
@@ -999,15 +986,7 @@ else
     {
         isAddingGroup = false;
         isAddingMultiAgentGroup = true;
-        showPresetPicker = false;
-        selectedPreset = null;
         pendingMultiAgentWorktree = null;
-    }
-
-    private void TogglePresetPicker()
-    {
-        showPresetPicker = !showPresetPicker;
-        selectedPreset = null;
     }
 
     private void CancelMultiAgentCreation()
@@ -1018,30 +997,18 @@ else
 
     private async Task SelectWorktreeForGroup(WorktreeInfo wt)
     {
-        // Worktree selected — now show name input
+        // Worktree selected — advance to step 2 (presets + custom name)
         pendingMultiAgentWorktree = wt;
-        isAddingMultiAgentGroup = false; // hide worktree picker
-        isAddingGroup = true; // show name input
+        isAddingMultiAgentGroup = false;
+        isAddingGroup = false;
         StateHasChanged();
     }
 
     private WorktreeInfo? pendingMultiAgentWorktree;
 
-    private bool showPresetPicker;
-    private GroupPreset? selectedPreset;
-
-    private async Task CreateFromPreset(GroupPreset preset)
-    {
-        // Legacy path — should not be reached since we now require worktree
-        showPresetPicker = false;
-        selectedPreset = null;
-        StateHasChanged();
-    }
-
     private async Task CreateFromPresetWithWorktree(GroupPreset preset, WorktreeInfo wt)
     {
-        showPresetPicker = false;
-        selectedPreset = null;
+        pendingMultiAgentWorktree = null;
         StateHasChanged();
         try
         {
