@@ -34,6 +34,7 @@
                     <div class="info-panel">
                         <div class="info-row"><span class="info-label">Mode</span><span class="info-value">@CopilotService.CurrentMode</span></div>
                         <div class="info-row"><span class="info-label">Status</span><span class="info-value">@(CopilotService.IsInitialized ? "Connected" : "Disconnected")</span></div>
+                        <div class="info-row"><span class="info-label">Build</span><span class="info-value" title="@BuildInfo.BuildTimestamp">@BuildInfo.ShortBuildId</span></div>
                         @if (PlatformHelper.IsDesktop)
                         {
                             <div class="info-divider"></div>
