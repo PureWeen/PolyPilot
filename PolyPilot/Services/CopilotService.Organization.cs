@@ -133,6 +133,16 @@ public partial class CopilotService
             }
         }
 
+        // Ensure every tracked repo has a sidebar group (even if no sessions exist yet)
+        foreach (var repo in _repoManager.Repositories)
+        {
+            if (!Organization.Groups.Any(g => g.RepoId == repo.Id))
+            {
+                GetOrCreateRepoGroup(repo.Id, repo.Name);
+                changed = true;
+            }
+        }
+
         // Build the full set of known session names: active sessions + aliases (persisted names)
         var knownNames = new HashSet<string>(activeNames);
         try
