@@ -107,8 +107,21 @@
         font-size: var(--type-callout);
     }
 
+    .model-selector-dropdown {
+        position: fixed;
+        top: auto;
+        bottom: auto;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 90vw;
+        max-width: 280px;
+        max-height: 50vh;
+        z-index: 2000;
+    }
+
     .model-option {
-        padding: 0.35rem 0.5rem;
+        padding: 0.5rem 0.6rem;
         font-size: var(--type-callout);
+        min-height: 44px;
     }
 }

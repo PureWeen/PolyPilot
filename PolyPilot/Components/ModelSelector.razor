@@ -11,7 +11,7 @@
     </div>
     @if (isOpen)
     {
-        <div class="model-selector-dropdown" @onmousedown:preventDefault="true">
+        <div class="model-selector-dropdown" @onmousedown:preventDefault="true" @ontouchstart:preventDefault="false">
             @foreach (var model in Models)
             {
                 var info = GetDisplayInfo(model);
