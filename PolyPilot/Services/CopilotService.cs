@@ -19,6 +19,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
     // Image paths queued alongside messages when session is busy (keyed by session name, list per queued message)
     private readonly ConcurrentDictionary<string, List<List<string>>> _queuedImagePaths = new();
+    private static readonly object _diagnosticLogLock = new();
     private readonly IChatDatabase _chatDb;
     private readonly IServerManager _serverManager;
     private readonly IWsBridgeClient _bridgeClient;
@@ -221,8 +222,15 @@ public partial class CopilotService : IAsyncDisposable
             try
             {
                 var logPath = Path.Combine(PolyPilotBaseDir, "event-diagnostics.log");
-                File.AppendAllText(logPath,
-                    $"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+                // Rotate at 10 MB to prevent unbounded growth
+                var fi = new FileInfo(logPath);
+                if (fi.Exists && fi.Length > 10 * 1024 * 1024)
+                    try { File.Delete(logPath); } catch { }
+                lock (_diagnosticLogLock)
+                {
+                    File.AppendAllText(logPath,
+                        $"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+                }
             }
             catch { /* Don't let logging failures cascade */ }
         }
@@ -237,11 +245,17 @@ public partial class CopilotService : IAsyncDisposable
                 try { action(); }
                 catch (Exception ex)
                 {
-                    Debug($"[UI-ERR] InvokeOnUI callback threw: {ex.GetType().Name}: {ex.Message}");
+                    Debug($"[UI-ERR] InvokeOnUI callback threw: {ex}");
                 }
             }, null);
         else
-            action();
+        {
+            try { action(); }
+            catch (Exception ex)
+            {
+                Debug($"[UI-ERR] InvokeOnUI inline callback threw: {ex}");
+            }
+        }
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)

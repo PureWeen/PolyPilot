@@ -209,7 +209,10 @@ public partial class CopilotService
                   $"thread={Environment.CurrentManagedThreadId})");
         }
 
-        // Warn if receiving events on an orphaned (replaced) state object
+        // Warn if receiving events on an orphaned (replaced) state object.
+        // We don't early-return here: both old and new SessionState share the same Info object
+        // (reconnect copies Info to newState), so CompleteResponse on the orphaned state still
+        // correctly clears IsProcessing on the live session's shared Info.
         if (!isCurrentState)
         {
             Debug($"[EVT-WARN] '{sessionName}' event {evt.GetType().Name} delivered to ORPHANED state " +
@@ -225,12 +228,18 @@ public partial class CopilotService
                     try { action(); }
                     catch (Exception ex)
                     {
-                        Debug($"[EVT-ERR] '{sessionName}' SyncContext.Post callback threw: {ex.GetType().Name}: {ex.Message}");
+                        Debug($"[EVT-ERR] '{sessionName}' SyncContext.Post callback threw: {ex}");
                     }
                 }, null);
             }
             else
-                action();
+            {
+                try { action(); }
+                catch (Exception ex)
+                {
+                    Debug($"[EVT-ERR] '{sessionName}' inline callback threw: {ex}");
+                }
+            }
         }
         
         switch (evt)
@@ -350,7 +359,11 @@ public partial class CopilotService
                 break;
 
             case AssistantTurnEndEvent:
-                CompleteReasoningMessages(state, sessionName);
+                try { CompleteReasoningMessages(state, sessionName); }
+                catch (Exception ex)
+                {
+                    Debug($"[EVT-ERR] '{sessionName}' CompleteReasoningMessages threw in TurnEnd: {ex}");
+                }
                 Invoke(() =>
                 {
                     OnTurnEnd?.Invoke(sessionName);
@@ -362,12 +375,13 @@ public partial class CopilotService
                 try { CompleteReasoningMessages(state, sessionName); }
                 catch (Exception ex)
                 {
-                    Debug($"[EVT-ERR] '{sessionName}' CompleteReasoningMessages threw before CompleteResponse: {ex.Message}");
+                    Debug($"[EVT-ERR] '{sessionName}' CompleteReasoningMessages threw before CompleteResponse: {ex}");
                 }
                 Invoke(() =>
                 {
-                    Debug($"[IDLE] '{sessionName}' CompleteResponse dispatched on UI thread " +
-                          $"(IsProcessing={state.Info.IsProcessing}, thread={Environment.CurrentManagedThreadId})");
+                    Debug($"[IDLE] '{sessionName}' CompleteResponse dispatched " +
+                          $"(syncCtx={(_syncContext != null ? "UI" : "inline")}, " +
+                          $"IsProcessing={state.Info.IsProcessing}, thread={Environment.CurrentManagedThreadId})");
                     CompleteResponse(state);
                 });
                 // Refresh git branch — agent may have switched branches
