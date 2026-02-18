@@ -19,6 +19,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
     // Image paths queued alongside messages when session is busy (keyed by session name, list per queued message)
     private readonly ConcurrentDictionary<string, List<List<string>>> _queuedImagePaths = new();
+    private static readonly object _diagnosticLogLock = new();
     private readonly IChatDatabase _chatDb;
     private readonly IServerManager _serverManager;
     private readonly IWsBridgeClient _bridgeClient;
@@ -210,14 +211,51 @@ public partial class CopilotService : IAsyncDisposable
         LastDebugMessage = message;
         Console.WriteLine($"[DEBUG] {message}");
         OnDebug?.Invoke(message);
+
+        // Persist lifecycle diagnostics to file for post-mortem analysis (DEBUG builds only)
+#if DEBUG
+        if (message.StartsWith("[EVT") || message.StartsWith("[IDLE") ||
+            message.StartsWith("[COMPLETE") || message.StartsWith("[SEND") ||
+            message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
+            message.Contains("watchdog"))
+        {
+            try
+            {
+                lock (_diagnosticLogLock)
+                {
+                    var logPath = Path.Combine(PolyPilotBaseDir, "event-diagnostics.log");
+                    // Rotate at 10 MB to prevent unbounded growth
+                    var fi = new FileInfo(logPath);
+                    if (fi.Exists && fi.Length > 10 * 1024 * 1024)
+                        try { File.Delete(logPath); } catch { }
+                    File.AppendAllText(logPath,
+                        $"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+                }
+            }
+            catch { /* Don't let logging failures cascade */ }
+        }
+#endif
     }
 
     private void InvokeOnUI(Action action)
     {
         if (_syncContext != null)
-            _syncContext.Post(_ => action(), null);
+            _syncContext.Post(_ =>
+            {
+                try { action(); }
+                catch (Exception ex)
+                {
+                    Debug($"[UI-ERR] InvokeOnUI callback threw: {ex}");
+                }
+            }, null);
         else
-            action();
+        {
+            try { action(); }
+            catch (Exception ex)
+            {
+                Debug($"[UI-ERR] InvokeOnUI inline callback threw: {ex}");
+            }
+        }
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -1398,6 +1436,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             throw new InvalidOperationException("Session is already processing a request.");
 
         state.Info.IsProcessing = true;
+        Debug($"[SEND] '{sessionName}' IsProcessing=true (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>();
         state.CurrentResponse.Clear();
         StartProcessingWatchdog(state, sessionName);
@@ -1464,6 +1503,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, reconnectConfig, cancellationToken);
                     // Cancel old watchdog BEFORE creating new state — they share Info/TCS
                     CancelProcessingWatchdog(state);
+                    Debug($"[RECONNECT] '{sessionName}' replacing state (old handler will be orphaned, " +
+                          $"old session disposed, new session={newSession.SessionId})");
                     var newState = new SessionState
                     {
                         Session = newSession,
