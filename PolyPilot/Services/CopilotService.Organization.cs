@@ -1029,6 +1029,10 @@ public partial class CopilotService
             ct.ThrowIfCancellationRequested();
             reflectState.CurrentIteration++;
 
+            try
+            {
+            Debug($"Reflection loop: starting iteration {reflectState.CurrentIteration}/{reflectState.MaxIterations} " +
+                  $"(IsActive={reflectState.IsActive}, IsPaused={reflectState.IsPaused})");
             // Phase 1: Plan (first iteration) or Re-plan (subsequent)
             var iterDetail = $"Iteration {reflectState.CurrentIteration}/{reflectState.MaxIterations}";
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Planning, iterDetail));
@@ -1144,6 +1148,28 @@ public partial class CopilotService
 
             SaveOrganization();
             InvokeOnUI(() => OnStateChanged?.Invoke());
+
+            } // end try
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                Debug($"Reflection iteration {reflectState.CurrentIteration} error: {ex.GetType().Name}: {ex.Message}");
+                // Decrement so we retry the same iteration, not skip ahead
+                reflectState.CurrentIteration--;
+                // But limit retries per iteration to 3
+                if (reflectState.ConsecutiveStalls >= 3)
+                {
+                    reflectState.IsStalled = true;
+                    AddOrchestratorSystemMessage(orchestratorName,
+                        $"⚠️ Iteration failed after retries: {ex.Message}");
+                    break;
+                }
+                reflectState.ConsecutiveStalls++;
+                AddOrchestratorSystemMessage(orchestratorName,
+                    $"⚠️ Iteration {reflectState.CurrentIteration + 1} error: {ex.Message}. Retrying...");
+                InvokeOnUI(() => OnStateChanged?.Invoke());
+                await Task.Delay(2000, ct);
+            }
         }
 
         if (!reflectState.GoalMet && !reflectState.IsStalled && !reflectState.IsPaused)

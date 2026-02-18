@@ -438,8 +438,8 @@ public partial class CopilotService
                 var errMsg = err.Data?.Message ?? "Unknown error";
                 CancelProcessingWatchdog(state);
                 Invoke(() => OnError?.Invoke(sessionName, errMsg));
-                state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                 state.Info.IsProcessing = false;
+                state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                 Invoke(() => OnStateChanged?.Invoke());
                 break;
 
@@ -573,10 +573,13 @@ public partial class CopilotService
             if (!string.IsNullOrEmpty(state.Info.SessionId))
                 _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
         }
-        state.ResponseCompletion?.TrySetResult(response);
+        // Clear IsProcessing BEFORE completing the TCS — if the continuation runs
+        // synchronously (e.g., in orchestrator reflection loops), the next SendPromptAsync
+        // call must see IsProcessing=false or it throws "already processing".
         state.CurrentResponse.Clear();
         state.Info.IsProcessing = false;
         state.Info.LastUpdatedAt = DateTime.Now;
+        state.ResponseCompletion?.TrySetResult(response);
         OnStateChanged?.Invoke();
         
         // Fire completion notification
