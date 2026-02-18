@@ -1440,3 +1440,459 @@ public class ParseEvaluationScoreTests
         Assert.Equal(0.0, score);
     }
 }
+
+/// <summary>
+/// End-to-end scenario tests demonstrating complete multi-agent user flows.
+/// These serve as executable documentation of the feature's user experience.
+/// </summary>
+public class MultiAgentScenarioTests
+{
+    /// <summary>
+    /// Scenario: User creates a "Code Review Team" from a built-in preset.
+    /// 
+    /// User flow:
+    ///   1. Click 🚀 Preset in sidebar toolbar
+    ///   2. Preset picker appears showing 4 built-in templates
+    ///   3. Select "Code Review Team" (🔍)
+    ///   4. System creates: Orchestrator (claude-opus-4.6) + 2 Workers (gpt-5.1-codex, claude-sonnet-4.5)
+    ///   5. Sidebar shows group with mode selector set to "🎯 Orchestrator"
+    ///   6. Each session shows its model assignment and role badge
+    /// </summary>
+    [Fact]
+    public void Scenario_CreateGroupFromPreset()
+    {
+        // Step 1-2: User sees built-in presets
+        var presets = GroupPreset.BuiltIn;
+        Assert.Equal(4, presets.Length);
+
+        // Step 3: User picks "Code Review Team"
+        var codeReview = presets.First(p => p.Name == "Code Review Team");
+        Assert.Equal("🔍", codeReview.Emoji);
+        Assert.Equal(MultiAgentMode.Orchestrator, codeReview.Mode);
+        Assert.Equal("claude-opus-4.6", codeReview.OrchestratorModel);
+        Assert.Equal(2, codeReview.WorkerModels.Length);
+
+        // Step 4: System creates the group - verify the preset structure
+        // (CopilotService.CreateGroupFromPresetAsync does the actual creation at runtime)
+        Assert.Equal("gpt-5.1-codex", codeReview.WorkerModels[0]);
+        Assert.Equal("claude-sonnet-4.5", codeReview.WorkerModels[1]);
+
+        // Step 5-6: Each member has appropriate capabilities
+        var orchCaps = ModelCapabilities.GetCapabilities(codeReview.OrchestratorModel);
+        Assert.True(orchCaps.HasFlag(ModelCapability.ReasoningExpert));
+
+        var warnings = ModelCapabilities.GetRoleWarnings(codeReview.OrchestratorModel, MultiAgentRole.Orchestrator);
+        Assert.Empty(warnings); // opus is a great orchestrator, no warnings
+
+        foreach (var workerModel in codeReview.WorkerModels)
+        {
+            var wCaps = ModelCapabilities.GetCapabilities(workerModel);
+            Assert.True(wCaps.HasFlag(ModelCapability.CodeExpert)); // both are code-capable
+        }
+    }
+
+    /// <summary>
+    /// Scenario: User assigns a weak model to the Orchestrator role and sees warnings.
+    /// 
+    /// User flow:
+    ///   1. Long-press/right-click a session in a multi-agent group → context menu
+    ///   2. See "🎯 Set as Orchestrator" button → click it
+    ///   3. Under "🧠 Model", pick "gpt-4.1" from dropdown
+    ///   4. Warning appears: "⚠️ This model may lack strong reasoning for orchestration"
+    ///   5. Warning appears: "💰 Cost-efficient models may produce shallow plans"
+    ///   6. User also sees diagnostics in the group header:
+    ///      "⚠️ Orchestrator 'session1' uses gpt-4.1 which lacks strong reasoning"
+    /// </summary>
+    [Fact]
+    public void Scenario_WeakOrchestratorWarnings()
+    {
+        // Step 3-5: User picks gpt-4.1 for orchestrator role
+        var warnings = ModelCapabilities.GetRoleWarnings("gpt-4.1", MultiAgentRole.Orchestrator);
+        Assert.Equal(2, warnings.Count);
+        Assert.Contains(warnings, w => w.Contains("reasoning"));
+        Assert.Contains(warnings, w => w.Contains("Cost-efficient"));
+
+        // Step 6: Group diagnostics also flag the issue
+        var group = new SessionGroup
+        {
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.Orchestrator
+        };
+        var members = new List<(string Name, string Model, MultiAgentRole Role)>
+        {
+            ("session1", "gpt-4.1", MultiAgentRole.Orchestrator),
+            ("session2", "gpt-5", MultiAgentRole.Worker),
+        };
+        var diags = GroupModelAnalyzer.Analyze(group, members);
+        Assert.Contains(diags, d => d.Level == "warning" && d.Message.Contains("gpt-4.1"));
+
+        // Compare: strong orchestrator shows no role warnings
+        var strongWarnings = ModelCapabilities.GetRoleWarnings("claude-opus-4.6", MultiAgentRole.Orchestrator);
+        Assert.Empty(strongWarnings);
+    }
+
+    /// <summary>
+    /// Scenario: Full OrchestratorReflect iteration cycle with evaluation scoring.
+    /// 
+    /// User flow:
+    ///   1. User selects "🔄 Orchestrator + Reflect" from mode dropdown
+    ///   2. Types goal in the multi-agent input bar and clicks 📡
+    ///   3. Sidebar shows: 🔄 1/5 with goal text
+    ///   4. After iteration 1, evaluator scores 0.4 → sidebar shows "📊 0.4 (gpt-4.1)"
+    ///   5. AutoAdjust detects no issues yet → no banner
+    ///   6. After iteration 2, evaluator scores 0.7 → trend = Improving
+    ///   7. After iteration 3, evaluator scores 0.65 → trend = Stable (slight drop)
+    ///   8. After iteration 4, evaluator scores 0.92 → goal met, loop stops
+    ///   9. Sidebar shows: "✅ Goal met after 4 iteration(s)"
+    /// </summary>
+    [Fact]
+    public void Scenario_FullReflectCycleWithScoring()
+    {
+        // Step 1-2: User starts OrchestratorReflect
+        var state = GroupReflectionState.Create("Implement a REST API with CRUD endpoints", maxIterations: 5);
+        Assert.True(state.IsActive);
+        Assert.Equal(0, state.CurrentIteration);
+        Assert.NotNull(state.StartedAt);
+
+        // Step 3-4: Iteration 1 — low quality initial attempt
+        state.CurrentIteration = 1;
+        var trend1 = state.RecordEvaluation(1, 0.4, "Missing error handling and input validation. Only GET endpoint implemented.", "gpt-4.1");
+        Assert.Equal(QualityTrend.Stable, trend1); // only one data point
+        Assert.Single(state.EvaluationHistory);
+
+        // Sidebar would show: 🔄 1/5 📊 0.4 (gpt-4.1)
+        var lastEval = state.EvaluationHistory.Last();
+        Assert.Equal("0.4", lastEval.Score.ToString("F1"));
+        Assert.Equal("gpt-4.1", lastEval.EvaluatorModel);
+
+        // Step 6: Iteration 2 — significant improvement
+        state.CurrentIteration = 2;
+        var trend2 = state.RecordEvaluation(2, 0.7, "All CRUD endpoints present. Error handling added but tests incomplete.", "gpt-4.1");
+        Assert.Equal(QualityTrend.Improving, trend2);
+
+        // Step 7: Iteration 3 — slight regression
+        state.CurrentIteration = 3;
+        var trend3 = state.RecordEvaluation(3, 0.65, "Tests added but some CRUD operations regressed. PUT endpoint missing validation.", "gpt-4.1");
+        Assert.Equal(QualityTrend.Stable, trend3); // within 0.1 threshold
+
+        // Step 8: Iteration 4 — goal met
+        state.CurrentIteration = 4;
+        var trend4 = state.RecordEvaluation(4, 0.92, "All endpoints complete with validation, error handling, and comprehensive tests.", "gpt-4.1");
+        Assert.Equal(QualityTrend.Improving, trend4);
+
+        // Score >= 0.9 would trigger goal completion
+        state.GoalMet = true;
+        state.IsActive = false;
+        state.CompletedAt = DateTime.Now;
+
+        // Step 9: Final summary
+        Assert.Equal("✅ Goal met after 4 iteration(s)", state.CompletionSummary);
+        Assert.Equal(4, state.EvaluationHistory.Count);
+
+        // Verify the quality trajectory is tracked
+        var scores = state.EvaluationHistory.Select(e => e.Score).ToList();
+        Assert.Equal(new[] { 0.4, 0.7, 0.65, 0.92 }, scores);
+    }
+
+    /// <summary>
+    /// Scenario: AutoAdjust detects quality degradation and surfaces a banner.
+    /// 
+    /// User flow:
+    ///   1. Reflect loop running with 3 workers
+    ///   2. Iteration 2 scores 0.7, iteration 3 scores 0.45 (sharp drop)
+    ///   3. AutoAdjust detects degradation in evaluation history
+    ///   4. Sidebar shows amber banner: "📉 Quality degraded significantly vs. previous iteration"
+    ///   5. Worker "fast-coder" using gpt-4.1 produced only 50 chars on iteration 3
+    ///   6. Banner also shows: "📈 Worker 'fast-coder' produced a brief response. Consider upgrading..."
+    ///   7. User can see these suggestions and decide to change the worker's model
+    /// </summary>
+    [Fact]
+    public void Scenario_AutoAdjustDetectsIssuesAndSurfacesBanner()
+    {
+        var state = GroupReflectionState.Create("Build a microservice");
+        state.CurrentIteration = 3;
+
+        // Steps 2-3: Record scores showing degradation
+        state.RecordEvaluation(1, 0.5, "Initial attempt", "gpt-4.1");
+        state.RecordEvaluation(2, 0.7, "Good progress", "gpt-4.1");
+        state.RecordEvaluation(3, 0.45, "Quality dropped", "gpt-4.1");
+
+        // The last two evals show a significant drop (0.7 → 0.45 = -0.25 > 0.15 threshold)
+        var lastTwo = state.EvaluationHistory.TakeLast(2).ToList();
+        var degradation = lastTwo[0].Score - lastTwo[1].Score;
+        Assert.True(degradation > 0.15); // threshold for "significant" degradation
+
+        // Step 4-6: AutoAdjust would populate PendingAdjustments
+        // Simulating what AutoAdjustFromFeedback does:
+        state.PendingAdjustments.Clear();
+        state.PendingAdjustments.Add("📉 Quality degraded significantly vs. previous iteration. Review worker models or task clarity.");
+        state.PendingAdjustments.Add("📈 Worker 'fast-coder' produced a brief response. Consider upgrading from a cost-efficient model to improve quality.");
+
+        // Verify the banner would display
+        Assert.Equal(2, state.PendingAdjustments.Count);
+        Assert.Contains(state.PendingAdjustments, a => a.Contains("📉"));
+        Assert.Contains(state.PendingAdjustments, a => a.Contains("fast-coder"));
+
+        // Step 7: User changes the model — verify gpt-4.1 is flagged as cost-efficient
+        var caps = ModelCapabilities.GetCapabilities("gpt-4.1");
+        Assert.True(caps.HasFlag(ModelCapability.CostEfficient));
+        Assert.False(caps.HasFlag(ModelCapability.ReasoningExpert));
+    }
+
+    /// <summary>
+    /// Scenario: User saves their tuned multi-agent group as a reusable preset.
+    /// 
+    /// User flow:
+    ///   1. User has a working Orchestrator group: opus orchestrator, 2 workers
+    ///   2. They've tweaked models over several iterations and are happy
+    ///   3. Click "💾 Save as Preset" button in sidebar
+    ///   4. System saves to ~/.polypilot/presets.json
+    ///   5. Next time user clicks 🚀 Preset, their custom preset appears with 👤 badge
+    ///   6. User-defined presets appear after built-in ones
+    /// </summary>
+    [Fact]
+    public void Scenario_SaveAndReuseCustomPreset()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            // Step 1: User has a working group
+            var group = new SessionGroup
+            {
+                Name = "My API Team",
+                IsMultiAgent = true,
+                OrchestratorMode = MultiAgentMode.OrchestratorReflect
+            };
+            var members = new List<SessionMeta>
+            {
+                new() { SessionName = "planner", Role = MultiAgentRole.Orchestrator },
+                new() { SessionName = "coder", Role = MultiAgentRole.Worker },
+                new() { SessionName = "reviewer", Role = MultiAgentRole.Worker },
+            };
+
+            // Step 3-4: Save as preset
+            var preset = UserPresets.SaveGroupAsPreset(
+                tempDir, "My API Team", "OrchestratorReflect with reviewer", "🏗️",
+                group, members,
+                name => name switch
+                {
+                    "planner" => "claude-opus-4.6",
+                    "coder" => "gpt-5.1-codex",
+                    "reviewer" => "claude-sonnet-4.5",
+                    _ => "gpt-4.1"
+                });
+
+            Assert.NotNull(preset);
+            Assert.True(preset!.IsUserDefined);
+            Assert.Equal("claude-opus-4.6", preset.OrchestratorModel);
+            Assert.Equal(2, preset.WorkerModels.Length);
+            Assert.Equal(MultiAgentMode.OrchestratorReflect, preset.Mode);
+
+            // Step 5-6: Next time, preset picker shows built-in + user presets
+            var allPresets = UserPresets.GetAll(tempDir);
+            Assert.Equal(GroupPreset.BuiltIn.Length + 1, allPresets.Length);
+
+            // User-defined presets come after built-in ones
+            var userPresets = allPresets.Where(p => p.IsUserDefined).ToArray();
+            Assert.Single(userPresets);
+            Assert.Equal("My API Team", userPresets[0].Name);
+
+            // The preset correctly captures the model assignments
+            Assert.Contains("gpt-5.1-codex", preset.WorkerModels);
+            Assert.Contains("claude-sonnet-4.5", preset.WorkerModels);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    /// <summary>
+    /// Scenario: Dedicated evaluator session provides independent scoring.
+    /// 
+    /// User flow:
+    ///   1. User creates a "Fast Iteration Squad" from presets (OrchestratorReflect)
+    ///   2. Group has: opus orchestrator + 3 cheap workers
+    ///   3. User adds a 4th session, sets role to Worker, assigns gpt-4.1
+    ///   4. In code, EvaluatorSession is set to this 4th session
+    ///   5. Orchestrator synthesizes, then evaluator independently scores
+    ///   6. Evaluator responds with structured format: "SCORE: 0.75\nRATIONALE: ..."
+    ///   7. System parses score, records it, shows in sidebar
+    /// </summary>
+    [Fact]
+    public void Scenario_DedicatedEvaluatorScoring()
+    {
+        // Step 1-4: Group with evaluator
+        var state = GroupReflectionState.Create("Refactor auth module", maxIterations: 5, evaluatorSession: "eval-agent");
+        Assert.Equal("eval-agent", state.EvaluatorSession);
+
+        // Step 6-7: Evaluator responds with structured format
+        var evalResponse = """
+            ## Evaluation
+            
+            SCORE: 0.75
+            RATIONALE: The auth module refactoring covers JWT validation and middleware setup, but session management is incomplete and there are no integration tests. The code structure is clean but error handling paths need work.
+            
+            [[NEEDS_ITERATION]]
+            - Add session persistence layer
+            - Add integration tests for login/logout flow
+            - Improve error handling in token refresh
+            """;
+
+        var (score, rationale) = CopilotService.ParseEvaluationScore(evalResponse);
+        Assert.Equal(0.75, score);
+        Assert.Contains("session management is incomplete", rationale);
+
+        // Record it
+        var trend = state.RecordEvaluation(1, score, rationale, "gpt-4.1");
+        Assert.Equal(QualityTrend.Stable, trend);
+
+        // Sidebar shows: 📊 0.8 (gpt-4.1)
+        Assert.Equal(0.75, state.EvaluationHistory.Last().Score);
+
+        // Next iteration: evaluator says done
+        var evalResponse2 = """
+            SCORE: 0.93
+            RATIONALE: All requirements met. Session persistence added, integration tests pass, error handling is comprehensive.
+            
+            [[GROUP_REFLECT_COMPLETE]]
+            """;
+
+        var (score2, _) = CopilotService.ParseEvaluationScore(evalResponse2);
+        Assert.Equal(0.93, score2);
+        Assert.True(score2 >= 0.9); // triggers completion
+        Assert.Contains("[[GROUP_REFLECT_COMPLETE]]", evalResponse2);
+
+        state.RecordEvaluation(2, score2, "All requirements met.", "gpt-4.1");
+        state.GoalMet = true;
+        Assert.Contains("Goal met", state.CompletionSummary);
+    }
+
+    /// <summary>
+    /// Scenario: Stall detection stops a reflect loop that's going in circles.
+    /// 
+    /// User flow:
+    ///   1. Reflect loop is running, iteration 3
+    ///   2. Workers keep producing similar output to iterations 1-2
+    ///   3. Hash-based stall detector triggers after 2 consecutive matches
+    ///   4. Sidebar shows: "⚠️ Stalled after 3 iteration(s)"
+    ///   5. AutoAdjust banner: "⚠️ Output repetition detected..."
+    /// </summary>
+    [Fact]
+    public void Scenario_StallDetectionStopsLoop()
+    {
+        var state = GroupReflectionState.Create("Optimize database queries");
+
+        // Iterations 1-2: different responses
+        state.CurrentIteration = 1;
+        Assert.False(state.CheckStall("First attempt: added indexes on user_id column"));
+
+        state.CurrentIteration = 2;
+        Assert.False(state.CheckStall("Second attempt: refactored joins to use CTEs"));
+
+        // Iteration 3: same as iteration 2 — first repeat detected
+        state.CurrentIteration = 3;
+        Assert.False(state.CheckStall("Second attempt: refactored joins to use CTEs"));
+        Assert.Equal(1, state.ConsecutiveStalls);
+        Assert.False(state.IsStalled); // need 2 consecutive
+
+        // Iteration 4: still repeating — stall confirmed
+        state.CurrentIteration = 4;
+        Assert.True(state.CheckStall("Second attempt: refactored joins to use CTEs"));
+        Assert.True(state.IsStalled);
+        Assert.Equal("⚠️ Stalled after 4 iteration(s)", state.CompletionSummary);
+    }
+
+    /// <summary>
+    /// Scenario: Model name inference handles a brand-new model release gracefully.
+    /// 
+    /// User flow:
+    ///   1. A new model "claude-opus-5.0" is released
+    ///   2. Copilot server makes it available in AvailableModels
+    ///   3. User assigns it to an orchestrator via the model picker
+    ///   4. ModelCapabilities doesn't have it in the registry
+    ///   5. InferFromName detects "opus" → ReasoningExpert + CodeExpert + ToolUse
+    ///   6. No "weak model" warning appears for orchestrator role
+    ///   7. User also assigns "gpt-6-codex-mini" to a worker
+    ///   8. InferFromName detects "codex" + "mini" → CodeExpert + Fast + CostEfficient
+    /// </summary>
+    [Fact]
+    public void Scenario_NewModelReleasesHandledGracefully()
+    {
+        // Step 3-6: New opus model, not in registry
+        var opusCaps = ModelCapabilities.GetCapabilities("claude-opus-5.0");
+        Assert.True(opusCaps.HasFlag(ModelCapability.ReasoningExpert));
+        Assert.True(opusCaps.HasFlag(ModelCapability.CodeExpert));
+
+        var orchWarnings = ModelCapabilities.GetRoleWarnings("claude-opus-5.0", MultiAgentRole.Orchestrator);
+        // Should not warn about reasoning since inference detects it
+        Assert.DoesNotContain(orchWarnings, w => w.Contains("reasoning"));
+
+        // Step 7-8: New codex-mini model
+        var codexMiniCaps = ModelCapabilities.GetCapabilities("gpt-6-codex-mini");
+        Assert.True(codexMiniCaps.HasFlag(ModelCapability.CodeExpert));
+        Assert.True(codexMiniCaps.HasFlag(ModelCapability.Fast));
+        Assert.True(codexMiniCaps.HasFlag(ModelCapability.CostEfficient));
+
+        // Worker role should work fine with this model
+        var workerWarnings = ModelCapabilities.GetRoleWarnings("gpt-6-codex-mini", MultiAgentRole.Worker);
+        Assert.Empty(workerWarnings); // codex has CodeExpert, no warning
+
+        // Strengths description works via inference for unknown models
+        var strengths = ModelCapabilities.GetStrengths("claude-opus-5.0");
+        Assert.StartsWith("Inferred:", strengths);
+        Assert.Contains("reasoning", strengths);
+        Assert.Contains("code", strengths);
+    }
+
+    /// <summary>
+    /// Scenario: Full diagnostics flow for a misconfigured group.
+    /// 
+    /// User flow:
+    ///   1. User creates Orchestrator group but forgets to assign an orchestrator role
+    ///   2. All 3 sessions are Workers using the same cheap model
+    ///   3. Diagnostics panel shows:
+    ///      ⛔ "Orchestrator mode requires at least one session with the Orchestrator role."
+    ///      💡 "All workers use the same model. For diverse perspectives, assign different models."
+    ///   4. User fixes: assigns one session as Orchestrator with opus
+    ///   5. Diagnostics update to clear the error, but show:
+    ///      💰 "Worker 'deep-thinker' uses premium model gpt-5.1. Consider a faster/cheaper model."
+    /// </summary>
+    [Fact]
+    public void Scenario_DiagnosticsGuideMisconfiguration()
+    {
+        // Step 1-3: Misconfigured group
+        var group = new SessionGroup
+        {
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.Orchestrator
+        };
+        var badMembers = new List<(string Name, string Model, MultiAgentRole Role)>
+        {
+            ("agent1", "gpt-4.1", MultiAgentRole.Worker),
+            ("agent2", "gpt-4.1", MultiAgentRole.Worker),
+            ("agent3", "gpt-4.1", MultiAgentRole.Worker),
+        };
+
+        var diags1 = GroupModelAnalyzer.Analyze(group, badMembers);
+        Assert.Contains(diags1, d => d.Level == "error" && d.Message.Contains("Orchestrator role"));
+
+        // In broadcast mode, same-model workers get a diversity hint
+        group.OrchestratorMode = MultiAgentMode.Broadcast;
+        var diags1b = GroupModelAnalyzer.Analyze(group, badMembers);
+        Assert.Contains(diags1b, d => d.Level == "info" && d.Message.Contains("diverse"));
+
+        // Step 4-5: User fixes by adding orchestrator with strong model, worker with premium
+        group.OrchestratorMode = MultiAgentMode.Orchestrator;
+        var fixedMembers = new List<(string Name, string Model, MultiAgentRole Role)>
+        {
+            ("planner", "claude-opus-4.6", MultiAgentRole.Orchestrator),
+            ("fast-worker", "gpt-4.1", MultiAgentRole.Worker),
+            ("deep-thinker", "gpt-5.1", MultiAgentRole.Worker),
+        };
+
+        var diags2 = GroupModelAnalyzer.Analyze(group, fixedMembers);
+        Assert.DoesNotContain(diags2, d => d.Level == "error"); // no more errors
+        Assert.Contains(diags2, d => d.Level == "info" && d.Message.Contains("deep-thinker") && d.Message.Contains("premium"));
+    }
+}

@@ -93,6 +93,20 @@ public static class ModelCapabilities
                 key.StartsWith(modelSlug, StringComparison.OrdinalIgnoreCase))
                 return val.Strengths;
 
+        // Generate description from inferred capabilities
+        var inferred = InferFromName(modelSlug);
+        if (inferred != ModelCapability.None)
+        {
+            var parts = new List<string>();
+            if (inferred.HasFlag(ModelCapability.ReasoningExpert)) parts.Add("reasoning");
+            if (inferred.HasFlag(ModelCapability.CodeExpert)) parts.Add("code");
+            if (inferred.HasFlag(ModelCapability.Fast)) parts.Add("fast");
+            if (inferred.HasFlag(ModelCapability.CostEfficient)) parts.Add("cost-efficient");
+            if (inferred.HasFlag(ModelCapability.Vision)) parts.Add("multimodal");
+            if (inferred.HasFlag(ModelCapability.LargeContext)) parts.Add("large context");
+            return $"Inferred: {string.Join(", ", parts)}";
+        }
+
         return "Unknown model";
     }
 
