@@ -201,7 +201,7 @@ public partial class CopilotService : IAsyncDisposable
         public bool HasReceivedEventsSinceResume { get; set; }
         public string? LastMessageId { get; set; }
         public bool SkipReflectionEvaluationOnce { get; set; }
-        public DateTime LastEventAt { get; set; } = DateTime.UtcNow;
+        public long LastEventAtTicks = DateTime.UtcNow.Ticks;
         public CancellationTokenSource? ProcessingWatchdog { get; set; }
     }
 
@@ -395,6 +395,7 @@ public partial class CopilotService : IAsyncDisposable
         // Dispose existing sessions and client
         foreach (var state in _sessions.Values)
         {
+            CancelProcessingWatchdog(state);
             try { if (state.Session != null) await state.Session.DisposeAsync(); } catch { }
         }
         _sessions.Clear();
@@ -1461,6 +1462,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     if (!string.IsNullOrEmpty(state.Info.WorkingDirectory))
                         reconnectConfig.WorkingDirectory = state.Info.WorkingDirectory;
                     var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, reconnectConfig, cancellationToken);
+                    // Cancel old watchdog BEFORE creating new state — they share Info/TCS
+                    CancelProcessingWatchdog(state);
                     var newState = new SessionState
                     {
                         Session = newSession,
@@ -1471,7 +1474,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     _sessions[sessionName] = newState;
                     state = newState;
                     
-                    // Reset watchdog for the new connection
+                    // Start fresh watchdog for the new connection
                     StartProcessingWatchdog(state, sessionName);
                     
                     Debug($"Session '{sessionName}' reconnected, retrying prompt...");
@@ -1819,6 +1822,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         
         foreach (var state in _sessions.Values)
         {
+            CancelProcessingWatchdog(state);
             if (state.Session is not null)
                 try { await state.Session.DisposeAsync(); } catch { }
         }

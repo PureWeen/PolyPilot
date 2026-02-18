@@ -197,7 +197,7 @@ public partial class CopilotService
     private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
         state.HasReceivedEventsSinceResume = true;
-        state.LastEventAt = DateTime.UtcNow;
+        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         var sessionName = state.Info.Name;
         void Invoke(Action action)
         {
@@ -979,14 +979,18 @@ public partial class CopilotService
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
-        state.ProcessingWatchdog?.Cancel();
-        state.ProcessingWatchdog = null;
+        if (state.ProcessingWatchdog != null)
+        {
+            state.ProcessingWatchdog.Cancel();
+            state.ProcessingWatchdog.Dispose();
+            state.ProcessingWatchdog = null;
+        }
     }
 
     private void StartProcessingWatchdog(SessionState state, string sessionName)
     {
         CancelProcessingWatchdog(state);
-        state.LastEventAt = DateTime.UtcNow;
+        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         state.ProcessingWatchdog = new CancellationTokenSource();
         var ct = state.ProcessingWatchdog.Token;
         _ = RunProcessingWatchdogAsync(state, sessionName, ct);
@@ -1002,16 +1006,21 @@ public partial class CopilotService
 
                 if (!state.Info.IsProcessing) break;
 
-                var elapsed = (DateTime.UtcNow - state.LastEventAt).TotalSeconds;
+                var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
+                var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
                 if (elapsed >= WatchdogInactivityTimeoutSeconds)
                 {
                     Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s, clearing stuck processing state");
-                    state.Info.IsProcessing = false;
-                    state.Info.History.Add(ChatMessage.SystemMessage(
-                        "⚠️ Connection lost — no response received. You can try sending your message again."));
-                    state.ResponseCompletion?.TrySetResult("");
+                    // Marshal all state mutations to the UI thread to avoid
+                    // racing with CompleteResponse / HandleSessionEvent.
                     InvokeOnUI(() =>
                     {
+                        if (!state.Info.IsProcessing) return; // Already completed
+                        CancelProcessingWatchdog(state);
+                        state.Info.IsProcessing = false;
+                        state.Info.History.Add(ChatMessage.SystemMessage(
+                            "⚠️ Connection lost — no response received. You can try sending your message again."));
+                        state.ResponseCompletion?.TrySetResult("");
                         OnError?.Invoke(sessionName, "Connection appears lost — no events received for over 2 minutes.");
                         OnStateChanged?.Invoke();
                     });
