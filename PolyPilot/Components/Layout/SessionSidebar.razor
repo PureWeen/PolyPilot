@@ -210,7 +210,7 @@ else
                 @if (showPresetPicker)
                 {
                     <div class="preset-picker" @onclick:stopPropagation="true">
-                        @foreach (var preset in UserPresets.GetAll(CopilotService.PolyPilotBaseDir))
+                        @foreach (var preset in UserPresets.GetAll(CopilotService.BaseDir))
                         {
                             var p = preset;
                             <button class="preset-item" @onclick="() => CreateFromPreset(p)">
@@ -718,17 +718,12 @@ else
         createError = null;
         try
         {
-            var groupId = await CopilotService.CreateMultiAgentGroupAsync(
-                preset.Name, 
-                preset.OrchestratorModel, 
-                preset.WorkerModel, 
-                preset.WorkerCount, 
-                preset.Mode, 
-                preset.SystemPrompt);
-
-            // Expand the new group
-            CopilotService.ToggleGroupCollapsed(groupId); 
-            CopilotService.SaveUiState(currentPage);
+            var group = await CopilotService.CreateGroupFromPresetAsync(preset);
+            if (group != null)
+            {
+                CopilotService.ToggleGroupCollapsed(group.Id);
+                CopilotService.SaveUiState(currentPage);
+            }
         }
         catch (Exception ex)
         {
@@ -968,7 +963,7 @@ else
         StateHasChanged();
         try
         {
-            await CopilotService.CreateGroupFromPresetAsync(preset, CopilotService.GetActiveSessionWorkingDirectory());
+            await CopilotService.CreateGroupFromPresetAsync(preset);
         }
         catch (Exception ex)
         {

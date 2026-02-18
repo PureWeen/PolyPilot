@@ -33,6 +33,7 @@ public partial class CopilotService : IAsyncDisposable
     
     private static string? _polyPilotBaseDir;
     private static string PolyPilotBaseDir => _polyPilotBaseDir ??= GetPolyPilotBaseDir();
+    internal static string BaseDir => PolyPilotBaseDir;
 
     private static string GetCopilotBaseDir()
     {
