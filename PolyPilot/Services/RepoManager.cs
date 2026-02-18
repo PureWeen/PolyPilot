@@ -132,6 +132,11 @@ public class RepoManager
             try { await RunGitAsync(existing.BareClonePath, ct, "config", "remote.origin.fetch",
                 "+refs/heads/*:refs/remotes/origin/*"); } catch { }
             await RunGitWithProgressAsync(existing.BareClonePath, onProgress, ct, "fetch", "--progress", "origin");
+            // Ensure long paths are enabled for existing repos on Windows
+            if (OperatingSystem.IsWindows())
+            {
+                try { await RunGitAsync(existing.BareClonePath, ct, "config", "core.longpaths", "true"); } catch { }
+            }
             return existing;
         }
 
@@ -157,6 +162,12 @@ public class RepoManager
                 "+refs/heads/*:refs/remotes/origin/*");
             onProgress?.Invoke($"Fetching refs…");
             await RunGitWithProgressAsync(barePath, onProgress, ct, "fetch", "--progress", "origin");
+        }
+
+        // Enable long paths on Windows (repos like dotnet/maui exceed MAX_PATH)
+        if (OperatingSystem.IsWindows())
+        {
+            try { await RunGitAsync(barePath, ct, "config", "core.longpaths", "true"); } catch { }
         }
 
         var repo = new RepositoryInfo
