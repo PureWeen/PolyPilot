@@ -2126,6 +2126,44 @@ public class WorktreeTeamAssociationTests
     }
 
     [Fact]
+    public async Task CreateGroupFromPresetAsync_PreservesOrchestratorReflectMode()
+    {
+        var svc = CreateService();
+        var preset = new GroupPreset(
+            Name: "Reflect Test",
+            Emoji: "🔄",
+            Description: "Test reflect mode",
+            OrchestratorModel: "claude-opus-4.6",
+            WorkerModels: new[] { "gpt-4.1" },
+            Mode: MultiAgentMode.OrchestratorReflect
+        );
+
+        var group = await svc.CreateGroupFromPresetAsync(preset);
+
+        Assert.NotNull(group);
+        Assert.Equal(MultiAgentMode.OrchestratorReflect, group!.OrchestratorMode);
+    }
+
+    [Fact]
+    public void OrchestratorReflectMode_RoundTripsViaJson()
+    {
+        var state = new OrganizationState();
+        state.Groups.Add(new SessionGroup
+        {
+            Id = "g-reflect",
+            Name = "Reflect Team",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.OrchestratorReflect
+        });
+
+        var json = JsonSerializer.Serialize(state);
+        var restored = JsonSerializer.Deserialize<OrganizationState>(json)!;
+
+        var group = restored.Groups.First(g => g.Id == "g-reflect");
+        Assert.Equal(MultiAgentMode.OrchestratorReflect, group.OrchestratorMode);
+    }
+
+    [Fact]
     public void GroupHeader_ShowsWorktreeBadge_WhenWorktreeIdSet()
     {
         // Verify the data model supports worktree display in group headers
