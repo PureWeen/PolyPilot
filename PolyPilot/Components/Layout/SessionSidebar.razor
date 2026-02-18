@@ -414,6 +414,16 @@ else
                                     <option value="Orchestrator" selected="@(group.OrchestratorMode == MultiAgentMode.Orchestrator)">🎯 Orchestrate</option>
                                     <option value="OrchestratorReflect" selected="@(group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">🔄 Reflect</option>
                                 </select>
+                                @if (group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+                                {
+                                    <div class="reflect-iterations-bar">
+                                        <label class="reflect-iter-label">Max iterations:</label>
+                                        <input type="number" min="1" max="100" value="@GetGroupMaxIterations(maGroupId)"
+                                               class="reflect-iter-input"
+                                               @onchange="(e) => SetGroupMaxIterations(maGroupId, e)"
+                                               @onclick:stopPropagation="true" />
+                                    </div>
+                                }
                                 <div class="sidebar-ma-input-bar">
                                     <textarea id="sidebar-ma-input-@maGroupId" class="sidebar-ma-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)" rows="1" @onclick:stopPropagation="true"></textarea>
                                     <button class="sidebar-ma-send-btn" @onclick="() => SendToSidebarMultiAgentGroup(maGroupId)" @onclick:stopPropagation="true">📡</button>
@@ -1077,6 +1087,20 @@ else
         _ => "Enter prompt..."
     };
 
+    private Dictionary<string, int> _groupMaxIterations = new();
+
+    private int GetGroupMaxIterations(string groupId)
+    {
+        if (_groupMaxIterations.TryGetValue(groupId, out var val)) return val;
+        return 5;
+    }
+
+    private void SetGroupMaxIterations(string groupId, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var val) && val >= 1)
+            _groupMaxIterations[groupId] = val;
+    }
+
     private async Task SendToSidebarMultiAgentGroup(string groupId)
     {
         var inputId = $"sidebar-ma-input-{groupId}";
@@ -1084,6 +1108,14 @@ else
         if (string.IsNullOrWhiteSpace(prompt)) return;
 
         await JS.InvokeVoidAsync("clearElementValue", inputId);
+
+        // Auto-start reflection cycle when in Reflect mode
+        var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+        {
+            var maxIter = GetGroupMaxIterations(groupId);
+            CopilotService.StartGroupReflection(groupId, prompt.Trim(), maxIter);
+        }
 
         try
         {

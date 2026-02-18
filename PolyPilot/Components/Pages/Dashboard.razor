@@ -2172,6 +2172,15 @@
         _ => "Enter prompt..."
     };
 
+    private void AutoStartReflectionIfNeeded(string groupId, string prompt)
+    {
+        var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+        {
+            CopilotService.StartGroupReflection(groupId, prompt, 5);
+        }
+    }
+
     private async Task SendToMultiAgentGroup(string groupId)
     {
         var inputId = $"ma-input-{groupId}";
@@ -2179,6 +2188,7 @@
         if (string.IsNullOrWhiteSpace(prompt)) return;
 
         await JS.InvokeVoidAsync("clearElementValue", inputId);
+        AutoStartReflectionIfNeeded(groupId, prompt.Trim());
 
         try
         {
@@ -2206,6 +2216,7 @@
         if (string.IsNullOrWhiteSpace(prompt)) return;
 
         await JS.InvokeVoidAsync("clearElementValue", inputId);
+        AutoStartReflectionIfNeeded(groupId, prompt.Trim());
 
         try
         {

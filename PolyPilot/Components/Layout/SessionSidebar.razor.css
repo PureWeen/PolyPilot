@@ -451,6 +451,30 @@
     color: var(--text-primary);
 }
 
+.reflect-iterations-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0;
+}
+
+.reflect-iter-label {
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.reflect-iter-input {
+    width: 50px;
+    padding: 0.15rem 0.3rem;
+    border: 1px solid var(--control-border);
+    border-radius: 4px;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    font-size: var(--type-footnote);
+    text-align: center;
+}
+
 .sidebar-ma-input-bar {
     display: flex;
     gap: 0.25rem;
