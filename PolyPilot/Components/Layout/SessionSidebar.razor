@@ -352,6 +352,7 @@ else
                                     <option value="Broadcast">📡 Broadcast</option>
                                     <option value="Sequential">⏩ Sequential</option>
                                     <option value="Orchestrator">🎯 Orchestrator</option>
+                                    <option value="OrchestratorReflect">🔄 Orchestrator + Reflect</option>
                                 </select>
                                 <div class="sidebar-ma-input-bar">
                                     <textarea id="sidebar-ma-input-@maGroupId" class="sidebar-ma-input" placeholder="Send to all..." rows="1" @onclick:stopPropagation="true"></textarea>
@@ -360,6 +361,15 @@ else
                                 @if (_groupPhases.TryGetValue(maGroupId, out var sidebarPhase))
                                 {
                                     <span class="phase-indicator">@PhaseLabel(sidebarPhase.Phase, sidebarPhase.Detail)</span>
+                                }
+                                @if (group.ReflectionState is { IsActive: true } rs)
+                                {
+                                    <div class="group-reflect-status">
+                                        <span class="reflect-iter">🔄 @rs.CurrentIteration/@rs.MaxIterations</span>
+                                        <span class="reflect-goal" title="@rs.Goal">@(rs.Goal.Length > 40 ? rs.Goal[..40] + "…" : rs.Goal)</span>
+                                        <button class="reflect-stop-btn" @onclick="() => CopilotService.StopGroupReflection(maGroupId)" @onclick:stopPropagation="true">⏹</button>
+                                        <button class="reflect-pause-btn" @onclick="() => CopilotService.PauseGroupReflection(maGroupId, !rs.IsPaused)" @onclick:stopPropagation="true">@(rs.IsPaused ? "▶" : "⏸")</button>
+                                    </div>
                                 }
                             </div>
                         }

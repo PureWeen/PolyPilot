@@ -59,7 +59,11 @@
         </span>
         <div class="session-meta-row">
             <span class="session-meta">
-                @Session.MessageCount msgs@(Session.Model != "resumed" ? $" • {Session.Model}" : "")
+                @Session.MessageCount msgs@(Session.Model != "resumed" ? $" • {CopilotService.GetEffectiveModel(Session.Name)}" : "")
+                @if (Meta?.PreferredModel != null && Meta.PreferredModel != Session.Model)
+                {
+                    <span class="model-override" title="Model override: @Meta.PreferredModel">⚡</span>
+                }
                 @if (Session.IsProcessing)
                 {
                     <span class="processing"> • Working</span>
@@ -141,6 +145,17 @@
                             🎯 Set as Orchestrator
                         </button>
                     }
+                    <div class="menu-separator"></div>
+                    <span class="menu-item submenu-label">🧠 Model</span>
+                    <div class="model-picker-inline" @onclick:stopPropagation="true">
+                        <select value="@(Meta?.PreferredModel ?? "")" @onchange="OnPreferredModelChanged">
+                            <option value="">Default (@Session.Model)</option>
+                            @foreach (var model in CopilotService.AvailableModels)
+                            {
+                                <option value="@model">@model</option>
+                            }
+                        </select>
+                    </div>
                 }
                 <div class="menu-separator"></div>
                 {
@@ -184,6 +199,12 @@
     {
         if (e.Key == "Enter") await OnCommitRename.InvokeAsync();
         else if (e.Key == "Escape") await OnCloseMenu.InvokeAsync();
+    }
+
+    private void OnPreferredModelChanged(ChangeEventArgs e)
+    {
+        var slug = e.Value?.ToString();
+        CopilotService.SetSessionPreferredModel(Session.Name, string.IsNullOrEmpty(slug) ? null : slug);
     }
 
     private static string GetShortPath(string path)

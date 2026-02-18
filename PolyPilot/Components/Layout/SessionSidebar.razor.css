@@ -384,6 +384,39 @@
     50% { opacity: 1; }
 }
 
+.group-reflect-status {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0;
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+}
+
+.reflect-iter {
+    font-weight: 600;
+    color: var(--accent-primary);
+    white-space: nowrap;
+}
+
+.reflect-goal {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.reflect-stop-btn, .reflect-pause-btn {
+    all: unset;
+    cursor: pointer;
+    padding: 0.15rem 0.3rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+}
+.reflect-stop-btn:hover, .reflect-pause-btn:hover {
+    background: var(--control-bg);
+}
+
 .sidebar-ma-mode-select {
     width: 100%;
     padding: 0.25rem 0.4rem;

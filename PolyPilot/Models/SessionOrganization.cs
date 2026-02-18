@@ -22,6 +22,15 @@ public class SessionGroup
 
     /// <summary>Optional system prompt appended to all sessions in this multi-agent group.</summary>
     public string? OrchestratorPrompt { get; set; }
+
+    /// <summary>Default model for new worker sessions added to this group. Null = use app default.</summary>
+    public string? DefaultWorkerModel { get; set; }
+
+    /// <summary>Default model for the orchestrator role. Null = use app default.</summary>
+    public string? DefaultOrchestratorModel { get; set; }
+
+    /// <summary>Active reflection state for OrchestratorReflect mode. Null when not in a reflect loop.</summary>
+    public GroupReflectionState? ReflectionState { get; set; }
 }
 
 public class SessionMeta
@@ -35,6 +44,13 @@ public class SessionMeta
 
     /// <summary>Role of this session within a multi-agent group.</summary>
     public MultiAgentRole Role { get; set; } = MultiAgentRole.Worker;
+
+    /// <summary>
+    /// Preferred model for this session in multi-agent context.
+    /// Null = use whatever model the session was created with (no override).
+    /// When set, the model is switched before dispatch via EnsureSessionModelAsync.
+    /// </summary>
+    public string? PreferredModel { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -55,7 +71,9 @@ public enum MultiAgentMode
     /// <summary>Send the prompt to sessions one at a time in order.</summary>
     Sequential,
     /// <summary>An orchestrator session decides how to delegate work to other sessions.</summary>
-    Orchestrator
+    Orchestrator,
+    /// <summary>Orchestrator with iterative reflection: plan→dispatch→collect→evaluate→repeat until goal met.</summary>
+    OrchestratorReflect
 }
 
 /// <summary>Role of a session within a multi-agent group.</summary>
@@ -76,4 +94,66 @@ public class OrganizationState
     };
     public List<SessionMeta> Sessions { get; set; } = new();
     public SessionSortMode SortMode { get; set; } = SessionSortMode.LastActive;
+}
+
+/// <summary>
+/// Tracks iterative orchestration state for a multi-agent group in OrchestratorReflect mode.
+/// The orchestrator evaluates worker results against a goal and re-dispatches until satisfied.
+/// </summary>
+public class GroupReflectionState
+{
+    public string Goal { get; set; } = "";
+    public int MaxIterations { get; set; } = 5;
+    public int CurrentIteration { get; set; }
+    public bool IsActive { get; set; }
+    public bool GoalMet { get; set; }
+    public bool IsStalled { get; set; }
+    public bool IsPaused { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
+
+    /// <summary>The orchestrator's evaluation from the last iteration.</summary>
+    public string? LastEvaluation { get; set; }
+
+    /// <summary>Hash window for stall detection (last N response hashes).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal List<int> ResponseHashes { get; } = new();
+    internal const int StallWindowSize = 3;
+    internal int ConsecutiveStalls { get; set; }
+
+    public static GroupReflectionState Create(string goal, int maxIterations = 5) => new()
+    {
+        Goal = goal,
+        MaxIterations = maxIterations,
+        IsActive = true,
+        StartedAt = DateTime.Now
+    };
+
+    /// <summary>Check if the latest synthesis is repeating (stall detection).</summary>
+    public bool CheckStall(string synthesisResponse)
+    {
+        var hash = synthesisResponse.GetHashCode();
+        if (ResponseHashes.Contains(hash))
+        {
+            ConsecutiveStalls++;
+            if (ConsecutiveStalls >= 2)
+            {
+                IsStalled = true;
+                return true;
+            }
+        }
+        else
+        {
+            ConsecutiveStalls = 0;
+        }
+        ResponseHashes.Add(hash);
+        if (ResponseHashes.Count > StallWindowSize)
+            ResponseHashes.RemoveAt(0);
+        return false;
+    }
+
+    public string CompletionSummary =>
+        GoalMet ? $"✅ Goal met after {CurrentIteration} iteration(s)"
+        : IsStalled ? $"⚠️ Stalled after {CurrentIteration} iteration(s)"
+        : $"⏱️ Reached max iterations ({MaxIterations})";
 }

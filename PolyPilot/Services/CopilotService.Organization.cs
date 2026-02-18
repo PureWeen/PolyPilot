@@ -484,43 +484,53 @@ public partial class CopilotService
             case MultiAgentMode.Orchestrator:
                 await SendViaOrchestratorAsync(groupId, members, prompt, cancellationToken);
                 break;
+
+            case MultiAgentMode.OrchestratorReflect:
+                await SendViaOrchestratorReflectAsync(groupId, members, prompt, cancellationToken);
+                break;
         }
     }
 
     /// <summary>
     /// Build a multi-agent context prefix for a session in a group.
+    /// Includes model info for each member so agents know each other's capabilities.
     /// </summary>
     private string BuildMultiAgentPrefix(string sessionName, SessionGroup group, List<string> allMembers)
     {
         var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
         var role = meta?.Role ?? MultiAgentRole.Worker;
         var roleName = role == MultiAgentRole.Orchestrator ? "orchestrator" : "worker";
-        var others = allMembers.Where(m => m != sessionName).ToList();
-        var othersList = others.Count > 0 ? string.Join(", ", others) : "none";
-        return $"[Multi-agent context: You are '{sessionName}' ({roleName}) in group '{group.Name}'. Other members: {othersList}.]\n\n";
+        var memberDetails = allMembers.Where(m => m != sessionName)
+            .Select(m => $"'{m}' ({GetEffectiveModel(m)})")
+            .ToList();
+        var othersList = memberDetails.Count > 0 ? string.Join(", ", memberDetails) : "none";
+        return $"[Multi-agent context: You are '{sessionName}' ({roleName}, {GetEffectiveModel(sessionName)}) in group '{group.Name}'. Other members: {othersList}.]\n\n";
     }
 
     private async Task SendBroadcastAsync(SessionGroup group, List<string> sessionNames, string prompt, CancellationToken cancellationToken)
     {
-        var tasks = sessionNames.Select(name =>
+        var tasks = sessionNames.Select(async name =>
         {
             var session = GetSession(name);
-            if (session == null) return Task.CompletedTask;
+            if (session == null) return;
 
+            await EnsureSessionModelAsync(name, cancellationToken);
             var prefixedPrompt = BuildMultiAgentPrefix(name, group, sessionNames) + prompt;
 
             if (session.IsProcessing)
             {
                 EnqueueMessage(name, prefixedPrompt);
-                return Task.CompletedTask;
+                return;
             }
 
-            return SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken)
-                .ContinueWith(t =>
-                {
-                    if (t.IsFaulted)
-                        Debug($"Broadcast send failed for '{name}': {t.Exception?.InnerException?.Message}");
-                }, TaskScheduler.Default);
+            try
+            {
+                await SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Debug($"Broadcast send failed for '{name}': {ex.Message}");
+            }
         });
 
         await Task.WhenAll(tasks);
@@ -535,6 +545,7 @@ public partial class CopilotService
             var session = GetSession(name);
             if (session == null) continue;
 
+            await EnsureSessionModelAsync(name, cancellationToken);
             var prefixedPrompt = BuildMultiAgentPrefix(name, group, sessionNames) + prompt;
 
             if (session.IsProcessing)
@@ -608,7 +619,7 @@ public partial class CopilotService
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available:");
         foreach (var w in workerNames)
-            sb.AppendLine($"  - '{w}'");
+            sb.AppendLine($"  - '{w}' (model: {GetEffectiveModel(w)})");
         sb.AppendLine();
         sb.AppendLine("## User Request");
         sb.AppendLine(userPrompt);
@@ -664,6 +675,7 @@ public partial class CopilotService
     private async Task<WorkerResult> ExecuteWorkerAsync(string workerName, string task, string originalPrompt, CancellationToken cancellationToken)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        await EnsureSessionModelAsync(workerName, cancellationToken);
         var workerPrompt = $"You are a worker agent. Complete the following task thoroughly. Your response will be collected and synthesized with other workers' responses.\n\n## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
 
         try
@@ -746,6 +758,257 @@ public partial class CopilotService
         }
 
         return (members.Count, completed.Count, processing, completed);
+    }
+
+    #endregion
+
+    #region Per-Agent Model Assignment
+
+    /// <summary>
+    /// Set the preferred model for a session in a multi-agent group.
+    /// The model is applied at dispatch time via EnsureSessionModelAsync.
+    /// </summary>
+    public void SetSessionPreferredModel(string sessionName, string? modelSlug)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta == null) return;
+        meta.PreferredModel = modelSlug != null ? Models.ModelHelper.NormalizeToSlug(modelSlug) : null;
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Returns the model a session will use: PreferredModel if set, else live AgentSessionInfo.Model.
+    /// </summary>
+    public string GetEffectiveModel(string sessionName)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta?.PreferredModel != null) return meta.PreferredModel;
+        var session = GetSession(sessionName);
+        return session?.Model ?? DefaultModel;
+    }
+
+    /// <summary>
+    /// Ensures a session's live model matches its PreferredModel before dispatch.
+    /// No-op if PreferredModel is null or already matches.
+    /// </summary>
+    private async Task EnsureSessionModelAsync(string sessionName, CancellationToken ct)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta?.PreferredModel == null) return;
+
+        var session = GetSession(sessionName);
+        if (session == null) return;
+
+        var currentSlug = Models.ModelHelper.NormalizeToSlug(session.Model);
+        if (currentSlug == meta.PreferredModel) return;
+
+        try
+        {
+            await ChangeModelAsync(sessionName, meta.PreferredModel, ct);
+            Debug($"Switched '{sessionName}' model to '{meta.PreferredModel}' for multi-agent dispatch");
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to switch model for '{sessionName}': {ex.Message}");
+        }
+    }
+
+    #endregion
+
+    #region OrchestratorReflect Loop
+
+    /// <summary>
+    /// Start a reflection loop on a multi-agent group.
+    /// </summary>
+    public void StartGroupReflection(string groupId, string goal, int maxIterations = 5)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
+        if (group == null) return;
+
+        group.ReflectionState = GroupReflectionState.Create(goal, maxIterations);
+        group.OrchestratorMode = MultiAgentMode.OrchestratorReflect;
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Stop an active group reflection loop.
+    /// </summary>
+    public void StopGroupReflection(string groupId)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group?.ReflectionState == null) return;
+
+        group.ReflectionState.IsActive = false;
+        group.ReflectionState.CompletedAt = DateTime.Now;
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Pause/resume a group reflection loop.
+    /// </summary>
+    public void PauseGroupReflection(string groupId, bool paused)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group?.ReflectionState == null) return;
+        group.ReflectionState.IsPaused = paused;
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+    }
+
+    private async Task SendViaOrchestratorReflectAsync(string groupId, List<string> members, string prompt, CancellationToken ct)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group == null) return;
+
+        var reflectState = group.ReflectionState;
+        if (reflectState == null || !reflectState.IsActive)
+        {
+            // Not in reflect mode — fall back to regular orchestrator
+            await SendViaOrchestratorAsync(groupId, members, prompt, ct);
+            return;
+        }
+
+        var orchestratorName = GetOrchestratorSession(groupId);
+        if (orchestratorName == null)
+        {
+            await SendBroadcastAsync(group, members, prompt, ct);
+            return;
+        }
+
+        var workerNames = members.Where(m => m != orchestratorName).ToList();
+
+        while (reflectState.IsActive && !reflectState.IsPaused
+               && reflectState.CurrentIteration < reflectState.MaxIterations)
+        {
+            ct.ThrowIfCancellationRequested();
+            reflectState.CurrentIteration++;
+
+            // Phase 1: Plan (first iteration) or Re-plan (subsequent)
+            var iterDetail = $"Iteration {reflectState.CurrentIteration}/{reflectState.MaxIterations}";
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Planning, iterDetail));
+
+            string planPrompt;
+            if (reflectState.CurrentIteration == 1)
+            {
+                planPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group.OrchestratorPrompt);
+            }
+            else
+            {
+                planPrompt = BuildReplanPrompt(reflectState.LastEvaluation ?? "Continue iterating.", workerNames, prompt);
+            }
+
+            var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct);
+            var assignments = ParseTaskAssignments(planResponse, workerNames);
+
+            if (assignments.Count == 0)
+            {
+                // Orchestrator decided no more work needed
+                reflectState.GoalMet = true;
+                AddOrchestratorSystemMessage(orchestratorName, $"✅ Orchestrator completed without delegation (iteration {reflectState.CurrentIteration}).");
+                break;
+            }
+
+            // Phase 2-3: Dispatch + Collect
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Dispatching,
+                $"Sending tasks to {assignments.Count} worker(s) — {iterDetail}"));
+
+            var workerTasks = assignments.Select(a => ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, ct));
+            var results = await Task.WhenAll(workerTasks);
+
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, iterDetail));
+
+            // Phase 4: Synthesize + Evaluate
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, iterDetail));
+
+            var synthEvalPrompt = BuildSynthesisWithEvalPrompt(prompt, results.ToList(), reflectState);
+            var synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthEvalPrompt, ct);
+
+            // Check completion sentinel
+            if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase))
+            {
+                reflectState.GoalMet = true;
+                reflectState.IsActive = false;
+                AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.CompletionSummary}");
+                break;
+            }
+
+            // Extract evaluation for next iteration
+            reflectState.LastEvaluation = ExtractIterationEvaluation(synthesisResponse);
+
+            // Stall detection
+            if (reflectState.CheckStall(synthesisResponse))
+            {
+                AddOrchestratorSystemMessage(orchestratorName, $"⚠️ {reflectState.CompletionSummary}");
+                break;
+            }
+
+            SaveOrganization();
+            InvokeOnUI(() => OnStateChanged?.Invoke());
+        }
+
+        if (!reflectState.GoalMet && !reflectState.IsStalled && !reflectState.IsPaused)
+        {
+            AddOrchestratorSystemMessage(orchestratorName, $"⏱️ {reflectState.CompletionSummary}");
+        }
+
+        reflectState.IsActive = false;
+        reflectState.CompletedAt = DateTime.Now;
+        SaveOrganization();
+        InvokeOnUI(() =>
+        {
+            OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, reflectState.CompletionSummary);
+            OnStateChanged?.Invoke();
+        });
+    }
+
+    private string BuildSynthesisWithEvalPrompt(string originalPrompt, List<WorkerResult> results, GroupReflectionState state)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append(BuildSynthesisPrompt(originalPrompt, results));
+        sb.AppendLine();
+        sb.AppendLine($"## Evaluation Check (Iteration {state.CurrentIteration}/{state.MaxIterations})");
+        sb.AppendLine($"**Goal:** {state.Goal}");
+        sb.AppendLine();
+        sb.AppendLine("Evaluate whether the combined output satisfies the goal.");
+        sb.AppendLine("- If **YES**: Include `[[GROUP_REFLECT_COMPLETE]]` in your response with a final summary.");
+        sb.AppendLine("- If **NO**: Include `[[NEEDS_ITERATION]]` explaining what's missing, then provide revised `@worker` blocks for the next iteration.");
+        return sb.ToString();
+    }
+
+    private string BuildReplanPrompt(string lastEvaluation, List<string> workerNames, string originalPrompt)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("## Previous Iteration Evaluation");
+        sb.AppendLine(lastEvaluation);
+        sb.AppendLine();
+        sb.AppendLine("## Original Request (context)");
+        sb.AppendLine(originalPrompt);
+        sb.AppendLine();
+        sb.AppendLine($"Available workers ({workerNames.Count}):");
+        foreach (var w in workerNames)
+            sb.AppendLine($"  - '{w}' (model: {GetEffectiveModel(w)})");
+        sb.AppendLine();
+        sb.AppendLine("Assign refined tasks using `@worker:name` / `@end` blocks to address the gaps identified above.");
+        return sb.ToString();
+    }
+
+    private static string ExtractIterationEvaluation(string response)
+    {
+        // Extract text after [[NEEDS_ITERATION]] marker, or use full response as evaluation
+        var idx = response.IndexOf("[[NEEDS_ITERATION]]", StringComparison.OrdinalIgnoreCase);
+        if (idx >= 0)
+        {
+            var afterMarker = response[(idx + "[[NEEDS_ITERATION]]".Length)..].Trim();
+            // Take text up to first @worker block as the evaluation
+            var workerIdx = afterMarker.IndexOf("@worker:", StringComparison.OrdinalIgnoreCase);
+            return workerIdx >= 0 ? afterMarker[..workerIdx].Trim() : afterMarker;
+        }
+        // No marker — use last paragraph as evaluation
+        var lines = response.Split('\n');
+        return string.Join('\n', lines.TakeLast(5)).Trim();
     }
 
     #endregion

@@ -173,10 +173,11 @@ public class SessionOrganizationTests
     [Fact]
     public void MultiAgentMode_AllValues()
     {
-        Assert.Equal(3, Enum.GetValues<MultiAgentMode>().Length);
+        Assert.Equal(4, Enum.GetValues<MultiAgentMode>().Length);
         Assert.True(Enum.IsDefined(MultiAgentMode.Broadcast));
         Assert.True(Enum.IsDefined(MultiAgentMode.Sequential));
         Assert.True(Enum.IsDefined(MultiAgentMode.Orchestrator));
+        Assert.True(Enum.IsDefined(MultiAgentMode.OrchestratorReflect));
     }
 
     [Fact]
@@ -739,5 +740,264 @@ Do something.
 
         Assert.True(group.IsMultiAgent);
         Assert.Equal(MultiAgentMode.Broadcast, group.OrchestratorMode);
+    }
+}
+
+public class PerAgentModelAssignmentTests
+{
+    private readonly StubChatDatabase _chatDb = new();
+    private readonly StubServerManager _serverManager = new();
+    private readonly StubWsBridgeClient _bridgeClient = new();
+    private readonly StubDemoService _demoService = new();
+    private readonly IServiceProvider _serviceProvider;
+
+    public PerAgentModelAssignmentTests()
+    {
+        var services = new ServiceCollection();
+        _serviceProvider = services.BuildServiceProvider();
+    }
+
+    private CopilotService CreateService() =>
+        new CopilotService(_chatDb, _serverManager, _bridgeClient, new RepoManager(), _serviceProvider, _demoService);
+
+    [Fact]
+    public void SessionMeta_PreferredModel_DefaultsToNull()
+    {
+        var meta = new SessionMeta { SessionName = "test" };
+        Assert.Null(meta.PreferredModel);
+    }
+
+    [Fact]
+    public void SetSessionPreferredModel_StoresModel()
+    {
+        var svc = CreateService();
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "worker1" });
+
+        svc.SetSessionPreferredModel("worker1", "gpt-4.1");
+
+        var meta = svc.Organization.Sessions.First(m => m.SessionName == "worker1");
+        Assert.Equal("gpt-4.1", meta.PreferredModel);
+    }
+
+    [Fact]
+    public void SetSessionPreferredModel_Null_ClearsOverride()
+    {
+        var svc = CreateService();
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "worker1", PreferredModel = "gpt-4.1" });
+
+        svc.SetSessionPreferredModel("worker1", null);
+
+        var meta = svc.Organization.Sessions.First(m => m.SessionName == "worker1");
+        Assert.Null(meta.PreferredModel);
+    }
+
+    [Fact]
+    public void GetEffectiveModel_ReturnsPreferredModel_WhenSet()
+    {
+        var svc = CreateService();
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "worker1", PreferredModel = "claude-opus-4.6" });
+
+        var model = svc.GetEffectiveModel("worker1");
+        Assert.Equal("claude-opus-4.6", model);
+    }
+
+    [Fact]
+    public void GetEffectiveModel_ReturnsDefaultModel_WhenNoPreference()
+    {
+        var svc = CreateService();
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "worker1" });
+
+        var model = svc.GetEffectiveModel("worker1");
+        Assert.Equal(svc.DefaultModel, model);
+    }
+
+    [Fact]
+    public void SessionGroup_DefaultWorkerModel_DefaultsToNull()
+    {
+        var group = new SessionGroup { Name = "Test" };
+        Assert.Null(group.DefaultWorkerModel);
+        Assert.Null(group.DefaultOrchestratorModel);
+    }
+
+    [Fact]
+    public void PreferredModel_SurvivesSerialization()
+    {
+        var state = new OrganizationState();
+        state.Sessions.Add(new SessionMeta { SessionName = "worker1", PreferredModel = "gemini-3-pro" });
+
+        var json = JsonSerializer.Serialize(state);
+        var restored = JsonSerializer.Deserialize<OrganizationState>(json)!;
+
+        Assert.Equal("gemini-3-pro", restored.Sessions[0].PreferredModel);
+    }
+
+    [Fact]
+    public void SessionGroup_ModelDefaults_SurviveSerialization()
+    {
+        var state = new OrganizationState();
+        state.Groups.Add(new SessionGroup
+        {
+            Name = "Test",
+            IsMultiAgent = true,
+            DefaultWorkerModel = "gpt-4.1",
+            DefaultOrchestratorModel = "claude-opus-4.6"
+        });
+
+        var json = JsonSerializer.Serialize(state);
+        var restored = JsonSerializer.Deserialize<OrganizationState>(json)!;
+
+        var group = restored.Groups.First(g => g.Name == "Test");
+        Assert.Equal("gpt-4.1", group.DefaultWorkerModel);
+        Assert.Equal("claude-opus-4.6", group.DefaultOrchestratorModel);
+    }
+
+    [Fact]
+    public void Legacy_Deserialization_GracefullyHandlesNoPreferredModel()
+    {
+        // Simulate legacy JSON without PreferredModel
+        var json = """{"SessionName":"old-session","GroupId":"_default","IsPinned":false,"ManualOrder":0,"Role":"Worker"}""";
+        var meta = JsonSerializer.Deserialize<SessionMeta>(json)!;
+        Assert.Null(meta.PreferredModel);
+        Assert.Equal("old-session", meta.SessionName);
+    }
+}
+
+public class GroupReflectionStateTests
+{
+    [Fact]
+    public void Create_InitializesCorrectly()
+    {
+        var state = GroupReflectionState.Create("Build a REST API", 10);
+
+        Assert.Equal("Build a REST API", state.Goal);
+        Assert.Equal(10, state.MaxIterations);
+        Assert.Equal(0, state.CurrentIteration);
+        Assert.True(state.IsActive);
+        Assert.False(state.GoalMet);
+        Assert.False(state.IsStalled);
+        Assert.False(state.IsPaused);
+        Assert.NotNull(state.StartedAt);
+    }
+
+    [Fact]
+    public void CheckStall_ReturnsFalse_ForUniqueResponses()
+    {
+        var state = GroupReflectionState.Create("test");
+
+        Assert.False(state.CheckStall("response 1"));
+        Assert.False(state.CheckStall("response 2"));
+        Assert.False(state.CheckStall("response 3"));
+    }
+
+    [Fact]
+    public void CheckStall_DetectsRepeatedResponses()
+    {
+        var state = GroupReflectionState.Create("test");
+
+        state.CheckStall("same response");
+        state.CheckStall("same response"); // 1st stall
+        var stalled = state.CheckStall("same response"); // 2nd stall
+
+        Assert.True(stalled);
+        Assert.True(state.IsStalled);
+    }
+
+    [Fact]
+    public void CheckStall_ResetsOnProgress()
+    {
+        var state = GroupReflectionState.Create("test");
+
+        state.CheckStall("response A");
+        state.CheckStall("response A"); // 1st stall
+        state.CheckStall("response B"); // different — resets
+
+        Assert.False(state.IsStalled);
+        Assert.Equal(0, state.ConsecutiveStalls);
+    }
+
+    [Fact]
+    public void CompletionSummary_GoalMet()
+    {
+        var state = GroupReflectionState.Create("test");
+        state.CurrentIteration = 3;
+        state.GoalMet = true;
+
+        Assert.Contains("✅", state.CompletionSummary);
+        Assert.Contains("3", state.CompletionSummary);
+    }
+
+    [Fact]
+    public void CompletionSummary_Stalled()
+    {
+        var state = GroupReflectionState.Create("test");
+        state.CurrentIteration = 4;
+        state.IsStalled = true;
+
+        Assert.Contains("⚠️", state.CompletionSummary);
+    }
+
+    [Fact]
+    public void CompletionSummary_MaxReached()
+    {
+        var state = GroupReflectionState.Create("test", 5);
+        state.CurrentIteration = 5;
+
+        Assert.Contains("⏱️", state.CompletionSummary);
+        Assert.Contains("5", state.CompletionSummary);
+    }
+
+    [Fact]
+    public void OrchestratorReflect_ModeEnumValue_Exists()
+    {
+        var mode = MultiAgentMode.OrchestratorReflect;
+        Assert.Equal("OrchestratorReflect", mode.ToString());
+    }
+
+    [Fact]
+    public void OrchestratorReflect_SurvivesSerialization()
+    {
+        var group = new SessionGroup
+        {
+            Name = "Test",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.OrchestratorReflect,
+            ReflectionState = GroupReflectionState.Create("Build it", 10)
+        };
+
+        var json = JsonSerializer.Serialize(group);
+        var restored = JsonSerializer.Deserialize<SessionGroup>(json)!;
+
+        Assert.Equal(MultiAgentMode.OrchestratorReflect, restored.OrchestratorMode);
+        Assert.NotNull(restored.ReflectionState);
+        Assert.Equal("Build it", restored.ReflectionState!.Goal);
+        Assert.Equal(10, restored.ReflectionState.MaxIterations);
+        Assert.True(restored.ReflectionState.IsActive);
+    }
+
+    [Fact]
+    public void ExtractIterationEvaluation_ParsesNeedsIterationMarker()
+    {
+        var response = "The synthesis looks good but [[NEEDS_ITERATION]] Missing error handling in the API layer. @worker:alice\nAdd error handling.\n@end";
+
+        // Use reflection to test internal method
+        var method = typeof(CopilotService).GetMethod("ExtractIterationEvaluation",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = (string)method!.Invoke(null, new object[] { response })!;
+        Assert.Contains("Missing error handling", result);
+        Assert.DoesNotContain("@worker", result);
+    }
+
+    [Fact]
+    public void ExtractIterationEvaluation_FallsBackToLastLines()
+    {
+        var response = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nThe final evaluation.";
+
+        var method = typeof(CopilotService).GetMethod("ExtractIterationEvaluation",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        var result = (string)method!.Invoke(null, new object[] { response })!;
+
+        Assert.Contains("The final evaluation", result);
     }
 }
