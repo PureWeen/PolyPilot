@@ -292,6 +292,47 @@
     overflow: hidden;
 }
 
+/* Plan block — shown when plan mode is active */
+::deep .plan-block {
+    flex-shrink: 0;
+    margin: 0.15rem 1rem;
+    border-left: 2px solid rgba(139, 92, 246, 0.4);
+    padding-left: 0.6rem;
+    background: rgba(139, 92, 246, 0.06);
+    border-radius: 0 6px 6px 0;
+    padding: 0.25rem 0.6rem;
+}
+
+::deep .plan-header {
+    background: none;
+    border: none;
+    color: #a78bfa;
+    font-size: var(--type-body);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    width: 100%;
+}
+
+::deep .plan-title {
+    font-weight: 600;
+}
+
+::deep .plan-content {
+    font-size: var(--type-body);
+    color: var(--text-secondary);
+    line-height: 1.6;
+    padding: 0.25rem 0;
+}
+
+::deep .plan-content.preview {
+    max-height: 4.5em;
+    overflow: hidden;
+    white-space: pre-wrap;
+}
+
 ::deep .tool-card {
     flex-shrink: 0;
     margin: 0.25rem 1rem;
@@ -805,6 +846,7 @@
     max-width: 100%;
 }
 .chat-message-list.full.style-minimal ::deep .reasoning-block,
+.chat-message-list.full.style-minimal ::deep .plan-block,
 .chat-message-list.full.style-minimal ::deep .action-box,
 .chat-message-list.full.style-minimal ::deep .task-complete-card,
 .chat-message-list.full.style-minimal ::deep .error-card {
