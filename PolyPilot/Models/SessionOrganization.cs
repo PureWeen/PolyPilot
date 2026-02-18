@@ -29,6 +29,12 @@ public class SessionGroup
     /// <summary>Default model for the orchestrator role. Null = use app default.</summary>
     public string? DefaultOrchestratorModel { get; set; }
 
+    /// <summary>
+    /// Shared worktree for the entire multi-agent group. All sessions use this worktree's path as CWD.
+    /// Future: per-agent worktrees would move this to SessionMeta and add merge orchestration.
+    /// </summary>
+    public string? WorktreeId { get; set; }
+
     /// <summary>Active reflection state for OrchestratorReflect mode. Null when not in a reflect loop.</summary>
     public ReflectionCycle? ReflectionState { get; set; }
 }

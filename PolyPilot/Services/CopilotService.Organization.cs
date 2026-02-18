@@ -426,7 +426,7 @@ public partial class CopilotService
     /// <summary>
     /// Create a multi-agent group and optionally move existing sessions into it.
     /// </summary>
-    public SessionGroup CreateMultiAgentGroup(string name, MultiAgentMode mode = MultiAgentMode.Broadcast, string? orchestratorPrompt = null, List<string>? sessionNames = null)
+    public SessionGroup CreateMultiAgentGroup(string name, MultiAgentMode mode = MultiAgentMode.Broadcast, string? orchestratorPrompt = null, List<string>? sessionNames = null, string? worktreeId = null, string? repoId = null)
     {
         var group = new SessionGroup
         {
@@ -435,6 +435,8 @@ public partial class CopilotService
             IsMultiAgent = true,
             OrchestratorMode = mode,
             OrchestratorPrompt = orchestratorPrompt,
+            WorktreeId = worktreeId,
+            RepoId = repoId,
             SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
         };
         Organization.Groups.Add(group);
@@ -447,6 +449,8 @@ public partial class CopilotService
                 if (meta != null)
                 {
                     meta.GroupId = group.Id;
+                    if (worktreeId != null)
+                        meta.WorktreeId = worktreeId;
                 }
             }
         }
@@ -865,9 +869,9 @@ public partial class CopilotService
     /// <summary>
     /// Create a multi-agent group from a preset template, creating sessions with assigned models.
     /// </summary>
-    public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, CancellationToken ct = default)
+    public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, string? worktreeId = null, string? repoId = null, CancellationToken ct = default)
     {
-        var group = CreateMultiAgentGroup(preset.Name, preset.Mode);
+        var group = CreateMultiAgentGroup(preset.Name, preset.Mode, worktreeId: worktreeId, repoId: repoId);
         if (group == null) return null;
 
         // Create orchestrator session
@@ -878,6 +882,11 @@ public partial class CopilotService
             MoveSession(orchName, group.Id);
             SetSessionRole(orchName, MultiAgentRole.Orchestrator);
             SetSessionPreferredModel(orchName, preset.OrchestratorModel);
+            if (worktreeId != null)
+            {
+                var meta = GetSessionMeta(orchName);
+                if (meta != null) meta.WorktreeId = worktreeId;
+            }
         }
         catch (Exception ex)
         {
@@ -894,6 +903,11 @@ public partial class CopilotService
                 await CreateSessionAsync(workerName, workerModel, workingDirectory, ct);
                 MoveSession(workerName, group.Id);
                 SetSessionPreferredModel(workerName, workerModel);
+                if (worktreeId != null)
+                {
+                    var meta = GetSessionMeta(workerName);
+                    if (meta != null) meta.WorktreeId = worktreeId;
+                }
             }
             catch (Exception ex)
             {

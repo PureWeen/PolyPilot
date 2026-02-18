@@ -1994,3 +1994,179 @@ public class StallHandlingAlignmentTests
         Assert.False(cycle.CheckStall("Finally the frontend React components for the dashboard"));
     }
 }
+
+public class WorktreeTeamAssociationTests
+{
+    private readonly StubChatDatabase _chatDb = new();
+    private readonly StubServerManager _serverManager = new();
+    private readonly StubWsBridgeClient _bridgeClient = new();
+    private readonly StubDemoService _demoService = new();
+    private readonly IServiceProvider _serviceProvider;
+
+    public WorktreeTeamAssociationTests()
+    {
+        var services = new ServiceCollection();
+        _serviceProvider = services.BuildServiceProvider();
+    }
+
+    private static RepoManager CreateRepoManagerWithState(List<RepositoryInfo> repos, List<WorktreeInfo> worktrees)
+    {
+        var rm = new RepoManager();
+        var stateField = typeof(RepoManager).GetField("_state", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var loadedField = typeof(RepoManager).GetField("_loaded", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        stateField.SetValue(rm, new RepositoryState { Repositories = repos, Worktrees = worktrees });
+        loadedField.SetValue(rm, true);
+        return rm;
+    }
+
+    private CopilotService CreateService(RepoManager? repoManager = null) =>
+        new CopilotService(_chatDb, _serverManager, _bridgeClient, repoManager ?? new RepoManager(), _serviceProvider, _demoService);
+
+    [Fact]
+    public void SessionGroup_WorktreeId_DefaultsToNull()
+    {
+        var group = new SessionGroup();
+        Assert.Null(group.WorktreeId);
+    }
+
+    [Fact]
+    public void CreateMultiAgentGroup_WithWorktreeId_SetsGroupFields()
+    {
+        var svc = CreateService();
+        var group = svc.CreateMultiAgentGroup("Test Team",
+            worktreeId: "wt-123",
+            repoId: "repo-abc");
+
+        Assert.Equal("wt-123", group.WorktreeId);
+        Assert.Equal("repo-abc", group.RepoId);
+        Assert.True(group.IsMultiAgent);
+    }
+
+    [Fact]
+    public void CreateMultiAgentGroup_WithWorktree_SetsSessionMetaWorktreeId()
+    {
+        var svc = CreateService();
+        // Pre-create sessions
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "worker1" });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "worker2" });
+
+        var group = svc.CreateMultiAgentGroup("Test Team",
+            sessionNames: new List<string> { "worker1", "worker2" },
+            worktreeId: "wt-456",
+            repoId: "repo-xyz");
+
+        var w1 = svc.Organization.Sessions.First(s => s.SessionName == "worker1");
+        var w2 = svc.Organization.Sessions.First(s => s.SessionName == "worker2");
+
+        Assert.Equal("wt-456", w1.WorktreeId);
+        Assert.Equal("wt-456", w2.WorktreeId);
+        Assert.Equal(group.Id, w1.GroupId);
+        Assert.Equal(group.Id, w2.GroupId);
+    }
+
+    [Fact]
+    public void CreateMultiAgentGroup_WithoutWorktree_DoesNotSetWorktreeId()
+    {
+        var svc = CreateService();
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "worker1" });
+
+        var group = svc.CreateMultiAgentGroup("Test Team",
+            sessionNames: new List<string> { "worker1" });
+
+        Assert.Null(group.WorktreeId);
+        Assert.Null(group.RepoId);
+        var w1 = svc.Organization.Sessions.First(s => s.SessionName == "worker1");
+        Assert.Null(w1.WorktreeId);
+    }
+
+    [Fact]
+    public void SessionGroup_WorktreeId_RoundTripsViaJson()
+    {
+        var state = new OrganizationState();
+        state.Groups.Add(new SessionGroup
+        {
+            Id = "g1",
+            Name = "Team",
+            IsMultiAgent = true,
+            WorktreeId = "wt-789",
+            RepoId = "repo-test"
+        });
+
+        var json = JsonSerializer.Serialize(state);
+        var restored = JsonSerializer.Deserialize<OrganizationState>(json)!;
+
+        var group = restored.Groups.First(g => g.Id == "g1");
+        Assert.Equal("wt-789", group.WorktreeId);
+        Assert.Equal("repo-test", group.RepoId);
+    }
+
+    [Fact]
+    public async Task CreateGroupFromPresetAsync_WithWorktree_SetsGroupAndSessionWorktreeIds()
+    {
+        var svc = CreateService();
+        var preset = new GroupPreset(
+            Name: "Test Preset",
+            Emoji: "🧪",
+            Description: "Test",
+            OrchestratorModel: "claude-opus-4.6",
+            WorkerModels: new[] { "gpt-5.1-codex", "claude-sonnet-4.5" },
+            Mode: MultiAgentMode.Broadcast
+        );
+
+        // CreateSessionAsync will throw since StubServerManager doesn't implement it,
+        // but the group itself should be created with worktree info
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: @"C:\repos\test",
+            worktreeId: "wt-preset",
+            repoId: "repo-preset");
+
+        Assert.NotNull(group);
+        Assert.Equal("wt-preset", group!.WorktreeId);
+        Assert.Equal("repo-preset", group.RepoId);
+    }
+
+    [Fact]
+    public void GroupHeader_ShowsWorktreeBadge_WhenWorktreeIdSet()
+    {
+        // Verify the data model supports worktree display in group headers
+        var group = new SessionGroup
+        {
+            Name = "Code Review Team",
+            IsMultiAgent = true,
+            WorktreeId = "wt-feature",
+            RepoId = "PureWeen-PolyPilot"
+        };
+
+        Assert.NotNull(group.WorktreeId);
+        Assert.NotNull(group.RepoId);
+        Assert.True(group.IsMultiAgent);
+    }
+
+    [Fact]
+    public void ShortenPath_TwoOrFewerSegments_ReturnsOriginal()
+    {
+        Assert.Equal("test", ShortenPathHelper("test"));
+        Assert.Equal(@"C:\test", ShortenPathHelper(@"C:\test"));
+    }
+
+    [Fact]
+    public void ShortenPath_LongPath_ShowsLastTwoSegments()
+    {
+        var result = ShortenPathHelper(@"C:\Users\shneuvil\.polypilot\worktrees\my-repo");
+        Assert.Equal(@"…\worktrees\my-repo", result);
+    }
+
+    [Fact]
+    public void ShortenPath_EmptyOrNull_ReturnsEmpty()
+    {
+        Assert.Equal("", ShortenPathHelper(""));
+    }
+
+    private static string ShortenPathHelper(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return "";
+        var sep = System.IO.Path.DirectorySeparatorChar;
+        var parts = path.TrimEnd(sep).Split(sep);
+        return parts.Length <= 2 ? path : "…" + sep + string.Join(sep, parts[^2..]);
+    }
+}

@@ -189,32 +189,77 @@ else
                 <option value="Alphabetical" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Alphabetical)">↕ A–Z</option>
                 <option value="Manual" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Manual)">↕ Manual</option>
             </select>
-            @if (isAddingGroup)
+            @if (isAddingGroup && !isAddingMultiAgentGroup)
             {
                 <input type="text" class="new-group-input" id="newGroupInput"
-                       placeholder="@(isAddingMultiAgentGroup ? "Multi-agent group name..." : "Group name...")"
+                       placeholder="@(pendingMultiAgentWorktree != null ? $"Team name ({pendingMultiAgentWorktree.Branch})..." : "Group name...")"
                        @onblur="CommitNewGroup"
                        @onkeydown="HandleNewGroupKeyDown" />
+            }
+            else if (isAddingMultiAgentGroup)
+            {
+                <div class="worktree-picker" @onclick:stopPropagation="true">
+                    <div class="worktree-picker-header">
+                        <span>Select worktree for team:</span>
+                        <button class="worktree-cancel-btn" @onclick="CancelMultiAgentCreation">✕</button>
+                    </div>
+                    @foreach (var wt in RepoManager.Worktrees)
+                    {
+                        var w = wt;
+                        var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == w.RepoId);
+                        <button class="worktree-item" @onclick="() => SelectWorktreeForGroup(w)" title="@w.Path">
+                            <span class="worktree-branch">@(repo?.Name ?? w.RepoId)/@w.Branch</span>
+                            <span class="worktree-path">@ShortenPath(w.Path)</span>
+                        </button>
+                    }
+                    @if (!RepoManager.Worktrees.Any())
+                    {
+                        <div class="worktree-empty">No worktrees available. Add a repository first.</div>
+                    }
+                </div>
             }
             else
             {
                 <div class="toolbar-actions">
                     <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
                     <button class="new-group-btn" @onclick="StartAddMultiAgentGroup" title="New multi-agent group">🤖 Multi</button>
-                    <button class="new-group-btn" @onclick="() => showPresetPicker = !showPresetPicker" title="Create from template">🚀</button>
+                    <button class="new-group-btn" @onclick="TogglePresetPicker" title="Create from template">🚀</button>
                     <button class="new-group-btn" @onclick="() => showAddRepo = true" title="Add repository">+ Repo</button>
                     <button class="new-group-btn" @onclick="RefreshSessionsManually" title="Refresh sessions">↻</button>
                 </div>
                 @if (showPresetPicker)
                 {
-                    <div class="preset-picker" @onclick:stopPropagation="true">
-                        @foreach (var preset in UserPresets.GetAll(CopilotService.BaseDir))
+                    <div class="worktree-picker" @onclick:stopPropagation="true">
+                        <div class="worktree-picker-header">
+                            <span>@(selectedPreset != null ? $"📂 Worktree for \"{selectedPreset.Name}\":" : "Select worktree:")</span>
+                            <button class="worktree-cancel-btn" @onclick="() => { showPresetPicker = false; selectedPreset = null; }">✕</button>
+                        </div>
+                        @if (selectedPreset == null)
                         {
-                            var p = preset;
-                            <button class="preset-item" @onclick="() => CreateFromPreset(p)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
-                                <span class="preset-emoji">@p.Emoji</span>
-                                <span class="preset-name">@p.Name @(p.IsUserDefined ? "👤" : "")</span>
-                            </button>
+                            @foreach (var preset in UserPresets.GetAll(CopilotService.BaseDir))
+                            {
+                                var p = preset;
+                                <button class="preset-item" @onclick="() => selectedPreset = p" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                                    <span class="preset-emoji">@p.Emoji</span>
+                                    <span class="preset-name">@p.Name @(p.IsUserDefined ? "👤" : "")</span>
+                                </button>
+                            }
+                        }
+                        else
+                        {
+                            @foreach (var wt in RepoManager.Worktrees)
+                            {
+                                var w = wt;
+                                var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == w.RepoId);
+                                <button class="worktree-item" @onclick="() => CreateFromPresetWithWorktree(selectedPreset, w)">
+                                    <span class="worktree-branch">@(repo?.Name ?? w.RepoId)/@w.Branch</span>
+                                    <span class="worktree-path">@ShortenPath(w.Path)</span>
+                                </button>
+                            }
+                            @if (!RepoManager.Worktrees.Any())
+                            {
+                                <div class="worktree-empty">No worktrees available. Add a repository first.</div>
+                            }
                         }
                     </div>
                 }
@@ -296,6 +341,14 @@ else
                             @if (group.IsMultiAgent)
                             {
                                 <span class="group-repo-icon" title="Multi-agent group">🤖</span>
+                            }
+                            @if (!string.IsNullOrEmpty(group.WorktreeId))
+                            {
+                                var groupWt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == group.WorktreeId);
+                                if (groupWt != null)
+                                {
+                                    <span class="group-worktree-badge" title="@groupWt.Path">🌿 @groupWt.Branch</span>
+                                }
                             }
                             <span class="group-name">@group.Name</span>
                             <span class="group-count">@groupSessions.Count</span>
@@ -944,25 +997,72 @@ else
 
     private void StartAddMultiAgentGroup()
     {
-        isAddingGroup = true;
+        isAddingGroup = false;
         isAddingMultiAgentGroup = true;
         showPresetPicker = false;
+        selectedPreset = null;
+        pendingMultiAgentWorktree = null;
     }
 
+    private void TogglePresetPicker()
+    {
+        showPresetPicker = !showPresetPicker;
+        selectedPreset = null;
+    }
+
+    private void CancelMultiAgentCreation()
+    {
+        isAddingMultiAgentGroup = false;
+        pendingMultiAgentWorktree = null;
+    }
+
+    private async Task SelectWorktreeForGroup(WorktreeInfo wt)
+    {
+        // Worktree selected — now show name input
+        pendingMultiAgentWorktree = wt;
+        isAddingMultiAgentGroup = false; // hide worktree picker
+        isAddingGroup = true; // show name input
+        StateHasChanged();
+    }
+
+    private WorktreeInfo? pendingMultiAgentWorktree;
+
     private bool showPresetPicker;
+    private GroupPreset? selectedPreset;
 
     private async Task CreateFromPreset(GroupPreset preset)
     {
+        // Legacy path — should not be reached since we now require worktree
         showPresetPicker = false;
+        selectedPreset = null;
+        StateHasChanged();
+    }
+
+    private async Task CreateFromPresetWithWorktree(GroupPreset preset, WorktreeInfo wt)
+    {
+        showPresetPicker = false;
+        selectedPreset = null;
         StateHasChanged();
         try
         {
-            await CopilotService.CreateGroupFromPresetAsync(preset);
+            await CopilotService.CreateGroupFromPresetAsync(preset,
+                workingDirectory: wt.Path,
+                worktreeId: wt.Id,
+                repoId: wt.RepoId);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Failed to create from preset: {ex.Message}");
         }
+    }
+
+    private static string ShortenPath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return "";
+        // Show last 2 segments
+        var sep = Path.DirectorySeparatorChar;
+        var parts = path.TrimEnd(sep).Split(sep);
+        return parts.Length <= 2 ? path : "…" + sep + string.Join(sep, parts[^2..]);
     }
 
     private void PromptSaveAsPreset(string groupId)
@@ -1020,22 +1120,30 @@ else
     private async Task CommitNewGroup()
     {
         var name = await JS.InvokeAsync<string>("getElementValue", "newGroupInput");
-        var wasMultiAgent = isAddingMultiAgentGroup;
+        var wt = pendingMultiAgentWorktree;
         isAddingGroup = false;
         isAddingMultiAgentGroup = false;
+        pendingMultiAgentWorktree = null;
         if (!string.IsNullOrWhiteSpace(name))
         {
-            if (wasMultiAgent)
-                CopilotService.CreateMultiAgentGroup(name.Trim());
+            if (wt != null)
+            {
+                // Multi-agent group with worktree
+                CopilotService.CreateMultiAgentGroup(name.Trim(),
+                    worktreeId: wt.Id,
+                    repoId: wt.RepoId);
+            }
             else
+            {
                 CopilotService.CreateGroup(name.Trim());
+            }
         }
     }
 
     private async Task HandleNewGroupKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await CommitNewGroup();
-        else if (e.Key == "Escape") { isAddingGroup = false; isAddingMultiAgentGroup = false; }
+        else if (e.Key == "Escape") { isAddingGroup = false; isAddingMultiAgentGroup = false; pendingMultiAgentWorktree = null; }
     }
 
     private void ToggleSessionMenu(string sessionName)

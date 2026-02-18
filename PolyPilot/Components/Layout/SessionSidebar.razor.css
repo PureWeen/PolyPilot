@@ -251,6 +251,18 @@
 .group-count::before { content: "("; }
 .group-count::after { content: ")"; }
 
+.group-worktree-badge {
+    font-size: var(--type-caption2);
+    color: var(--text-dim);
+    background: var(--bg-tertiary);
+    padding: 0 0.25rem;
+    border-radius: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100px;
+}
+
 .group-busy-dot {
     width: 6px;
     height: 6px;
@@ -1387,8 +1399,8 @@
 .bug-report-submit:hover { opacity: 0.85; }
 .bug-report-submit:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* === Preset Picker === */
-.preset-picker {
+/* === Preset & Worktree Picker === */
+.worktree-picker {
     display: flex;
     flex-direction: column;
     flex-basis: 100%;
@@ -1400,8 +1412,56 @@
     margin-top: 0.2rem;
 }
 
-.preset-backdrop {
-    display: none;
+.worktree-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.15rem 0.3rem;
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+    font-weight: 600;
+}
+
+.worktree-cancel-btn {
+    all: unset;
+    cursor: pointer;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+}
+.worktree-cancel-btn:hover { background: var(--control-bg); color: var(--text-primary); }
+
+.worktree-item {
+    all: unset;
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+    padding: 0.25rem 0.4rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: var(--type-footnote);
+}
+.worktree-item:hover { background: var(--control-bg); }
+
+.worktree-branch {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.worktree-path {
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.worktree-empty {
+    padding: 0.4rem;
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+    text-align: center;
 }
 
 .preset-item {
