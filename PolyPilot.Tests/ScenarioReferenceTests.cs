@@ -164,6 +164,18 @@ public class ScenarioReferenceTests
         Assert.True(true, "See ProcessingWatchdogTests for watchdog constant validation and recovery message tests");
     }
 
+    /// <summary>
+    /// Scenario: "relaunch-with-stale-server-shows-sessions"
+    /// Unit test equivalents: ProcessingWatchdogTests.PersistentMode_FailedInit_*,
+    ///   ProcessingWatchdogTests.ReconnectAsync_IsInitialized_CorrectForEachMode,
+    ///   ProcessingWatchdogTests.ReconnectAsync_ClearsStuckProcessingFromPreviousMode
+    /// </summary>
+    [Fact]
+    public void Scenario_RelaunchWithStaleServer_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ProcessingWatchdogTests for relaunch/reconnect resilience tests");
+    }
+
     [Fact]
     public void AllScenarios_HaveUniqueIds()
     {

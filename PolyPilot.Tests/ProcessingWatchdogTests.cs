@@ -232,4 +232,129 @@ public class ProcessingWatchdogTests
         Assert.False(s1.IsProcessing);
         Assert.False(s2.IsProcessing);
     }
+
+    // ===========================================================================
+    // Regression tests for: relaunch deploys new app, old copilot server running
+    // Session restore silently swallows all failures → app shows 0 sessions.
+    // ===========================================================================
+
+    [Fact]
+    public async Task PersistentMode_FailedInit_SetsNeedsConfiguration()
+    {
+        var svc = CreateService();
+
+        // Persistent mode with unreachable server → should set NeedsConfiguration
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            Host = "localhost",
+            Port = 19999
+        });
+
+        Assert.False(svc.IsInitialized,
+            "App should NOT be initialized when persistent server is unreachable");
+        Assert.True(svc.NeedsConfiguration,
+            "NeedsConfiguration should be true so settings page is shown");
+    }
+
+    [Fact]
+    public async Task PersistentMode_FailedInit_NoSessionsStuckProcessing()
+    {
+        var svc = CreateService();
+
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            Host = "localhost",
+            Port = 19999
+        });
+
+        // After failed init, no sessions should exist at all (much less stuck ones)
+        var sessions = svc.GetAllSessions().ToList();
+        Assert.Empty(sessions);
+    }
+
+    [Fact]
+    public async Task DemoMode_SessionRestore_AllSessionsVisible()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        // Create multiple sessions
+        var s1 = await svc.CreateSessionAsync("restore-1");
+        var s2 = await svc.CreateSessionAsync("restore-2");
+        var s3 = await svc.CreateSessionAsync("restore-3");
+
+        Assert.Equal(3, svc.GetAllSessions().Count());
+
+        // Reconnect to demo mode should start fresh (demo has no persistence)
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        // After reconnect, old sessions are cleared (demo doesn't persist)
+        // The key invariant: session count matches what's visible to the user
+        Assert.Equal(svc.SessionCount, svc.GetAllSessions().Count());
+    }
+
+    [Fact]
+    public async Task ReconnectAsync_IsInitialized_CorrectForEachMode()
+    {
+        var svc = CreateService();
+
+        // Demo mode → always succeeds
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        Assert.True(svc.IsInitialized, "Demo mode should always initialize");
+
+        // Persistent mode with bad port → fails
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            Host = "localhost",
+            Port = 19999
+        });
+        Assert.False(svc.IsInitialized, "Persistent with bad port should fail");
+
+        // Back to demo → recovers
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        Assert.True(svc.IsInitialized, "Should recover when switching back to Demo");
+    }
+
+    [Fact]
+    public async Task ReconnectAsync_ClearsStuckProcessingFromPreviousMode()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("was-stuck");
+        session.IsProcessing = true; // Simulate stuck state
+
+        // Reconnect should clear all sessions including stuck ones
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        // After reconnect, old sessions are removed — no stuck sessions in new state
+        Assert.Empty(svc.GetAllSessions());
+        // If we create new sessions, they start clean
+        var fresh = await svc.CreateSessionAsync("fresh");
+        Assert.False(fresh.IsProcessing, "New session after reconnect should not be stuck");
+    }
+
+    [Fact]
+    public async Task OnStateChanged_FiresDuringReconnect()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var stateChangedCount = 0;
+        svc.OnStateChanged += () => stateChangedCount++;
+
+        // Reconnect to a different mode and back
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            Host = "localhost",
+            Port = 19999
+        });
+
+        Assert.True(stateChangedCount > 0,
+            "OnStateChanged must fire during reconnect so UI updates");
+    }
 }

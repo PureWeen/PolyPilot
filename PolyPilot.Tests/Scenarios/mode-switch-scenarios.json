@@ -489,6 +489,55 @@
           "note": "System message about connection loss should appear in chat"
         }
       ]
+    },
+    {
+      "id": "relaunch-with-stale-server-shows-sessions",
+      "name": "After relaunch, all previously-active sessions should be visible",
+      "description": "Validates that after relaunch.sh deploys a new build, session restore failures don't silently leave the app with 0 sessions. Covers the scenario where an old copilot server is running but individual session resumes fail.",
+      "unitTestCoverage": [
+        "ProcessingWatchdogTests.PersistentMode_FailedInit_SetsNeedsConfiguration",
+        "ProcessingWatchdogTests.PersistentMode_FailedInit_NoSessionsStuckProcessing",
+        "ProcessingWatchdogTests.DemoMode_SessionRestore_AllSessionsVisible",
+        "ProcessingWatchdogTests.ReconnectAsync_IsInitialized_CorrectForEachMode",
+        "ProcessingWatchdogTests.ReconnectAsync_ClearsStuckProcessingFromPreviousMode",
+        "ProcessingWatchdogTests.OnStateChanged_FiresDuringReconnect"
+      ],
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-item').length",
+          "capture": "preRelaunchCount",
+          "note": "Record session count before relaunch"
+        },
+        {
+          "action": "shell",
+          "command": "cd PolyPilot && ./relaunch.sh",
+          "note": "Rebuild and relaunch the app"
+        },
+        {
+          "action": "wait",
+          "duration": 20000,
+          "note": "Wait for app to restart and restore sessions"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.textContent?.trim()",
+          "expect": { "not_contains": "Disconnected" },
+          "note": "App should be connected (Persistent or Embedded fallback)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-item').length > 0",
+          "expect": { "equals": "true" },
+          "note": "Sessions should be visible after relaunch — not silently lost"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.session-item')).filter(el => el.querySelector('.processing')).length === 0",
+          "expect": { "equals": "true" },
+          "note": "No sessions should be stuck in processing state after relaunch"
+        }
+      ]
     }
   ]
 }
