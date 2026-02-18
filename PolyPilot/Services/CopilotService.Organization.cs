@@ -129,10 +129,13 @@ public partial class CopilotService
     /// Ensure every active session has a SessionMeta entry and clean up orphans.
     /// Only prunes metadata for sessions whose on-disk session directory no longer exists.
     /// </summary>
-    private void ReconcileOrganization()
+    internal void ReconcileOrganization()
     {
         var activeNames = _sessions.Where(kv => !kv.Value.Info.IsHidden).Select(kv => kv.Key).ToHashSet();
         bool changed = false;
+
+        // Build lookup of multi-agent group IDs so we can protect their sessions
+        var multiAgentGroupIds = Organization.Groups.Where(g => g.IsMultiAgent).Select(g => g.Id).ToHashSet();
 
         // Add missing sessions to default group and link to worktrees
         foreach (var name in activeNames)
@@ -148,6 +151,10 @@ public partial class CopilotService
                 Organization.Sessions.Add(meta);
                 changed = true;
             }
+
+            // Don't auto-reassign sessions that belong to a multi-agent group
+            if (multiAgentGroupIds.Contains(meta.GroupId))
+                continue;
             
             // Auto-link session to worktree if working directory matches
             if (meta.WorktreeId == null && _sessions.TryGetValue(name, out var sessionState))
@@ -174,8 +181,11 @@ public partial class CopilotService
                 }
             }
 
-            // Ensure sessions with worktrees are in the correct repo group
-            if (meta.WorktreeId != null && meta.GroupId == SessionGroup.DefaultId)
+            // Ensure sessions with worktrees are in the correct repo group.
+            // Skip sessions that were part of a multi-agent team (identifiable by having
+            // an Orchestrator role or a PreferredModel set — regular sessions never have these).
+            bool wasMultiAgent = meta.Role == MultiAgentRole.Orchestrator || meta.PreferredModel != null;
+            if (meta.WorktreeId != null && meta.GroupId == SessionGroup.DefaultId && !wasMultiAgent)
             {
                 var worktree = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
                 if (worktree != null)

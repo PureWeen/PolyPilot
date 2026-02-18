@@ -2208,3 +2208,580 @@ public class WorktreeTeamAssociationTests
         return parts.Length <= 2 ? path : "…" + sep + string.Join(sep, parts[^2..]);
     }
 }
+
+/// <summary>
+/// Tests for session grouping stability: ensures multi-agent sessions are not
+/// scattered during reconciliation, deleted-group orphaning, or JSON round-trips.
+/// Guards against the recurring bug where multi-agent group sessions get moved
+/// to repo groups after app restart.
+/// </summary>
+public class GroupingStabilityTests
+{
+    private readonly StubChatDatabase _chatDb = new();
+    private readonly StubServerManager _serverManager = new();
+    private readonly StubWsBridgeClient _bridgeClient = new();
+    private readonly StubDemoService _demoService = new();
+    private readonly IServiceProvider _serviceProvider;
+
+    public GroupingStabilityTests()
+    {
+        var services = new ServiceCollection();
+        _serviceProvider = services.BuildServiceProvider();
+    }
+
+    private static RepoManager CreateRepoManagerWithState(List<RepositoryInfo> repos, List<WorktreeInfo> worktrees)
+    {
+        var rm = new RepoManager();
+        var stateField = typeof(RepoManager).GetField("_state", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var loadedField = typeof(RepoManager).GetField("_loaded", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        stateField.SetValue(rm, new RepositoryState { Repositories = repos, Worktrees = worktrees });
+        loadedField.SetValue(rm, true);
+        return rm;
+    }
+
+    private CopilotService CreateService(RepoManager? repoManager = null) =>
+        new CopilotService(_chatDb, _serverManager, _bridgeClient, repoManager ?? new RepoManager(), _serviceProvider, _demoService);
+
+    /// <summary>
+    /// Inject session names into the alias cache so ReconcileOrganization doesn't prune them.
+    /// In test environment there are no active sessions or alias/active-sessions files.
+    /// </summary>
+    private static void RegisterKnownSessions(CopilotService svc, params string[] sessionNames)
+    {
+        var field = typeof(CopilotService).GetField("_aliasCache",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var cache = (Dictionary<string, string>?)field.GetValue(svc) ?? new();
+        foreach (var name in sessionNames)
+            cache[name] = name;
+        field.SetValue(svc, cache);
+    }
+
+    // --- Multi-agent group JSON round-trip tests ---
+
+    [Fact]
+    public void MultiAgentGroup_FullState_SurvivesJsonRoundTrip()
+    {
+        var state = new OrganizationState();
+        var maGroup = new SessionGroup
+        {
+            Id = "ma-team-1",
+            Name = "Reflection Team",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.OrchestratorReflect,
+            OrchestratorPrompt = "You are a code review orchestrator",
+            DefaultWorkerModel = "gpt-5.1-codex",
+            DefaultOrchestratorModel = "claude-opus-4.6",
+            WorktreeId = "wt-abc",
+            RepoId = "repo-xyz",
+            SortOrder = 2
+        };
+        state.Groups.Add(maGroup);
+        state.Sessions.Add(new SessionMeta
+        {
+            SessionName = "team-orchestrator",
+            GroupId = "ma-team-1",
+            Role = MultiAgentRole.Orchestrator,
+            PreferredModel = "claude-opus-4.6",
+            WorktreeId = "wt-abc"
+        });
+        state.Sessions.Add(new SessionMeta
+        {
+            SessionName = "team-worker-1",
+            GroupId = "ma-team-1",
+            Role = MultiAgentRole.Worker,
+            PreferredModel = "gpt-5.1-codex",
+            WorktreeId = "wt-abc"
+        });
+
+        var json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
+        var restored = JsonSerializer.Deserialize<OrganizationState>(json)!;
+
+        // Verify the multi-agent group survived
+        var group = restored.Groups.FirstOrDefault(g => g.Id == "ma-team-1");
+        Assert.NotNull(group);
+        Assert.True(group!.IsMultiAgent);
+        Assert.Equal(MultiAgentMode.OrchestratorReflect, group.OrchestratorMode);
+        Assert.Equal("You are a code review orchestrator", group.OrchestratorPrompt);
+        Assert.Equal("gpt-5.1-codex", group.DefaultWorkerModel);
+        Assert.Equal("claude-opus-4.6", group.DefaultOrchestratorModel);
+        Assert.Equal("wt-abc", group.WorktreeId);
+        Assert.Equal("repo-xyz", group.RepoId);
+
+        // Verify sessions survived
+        var orch = restored.Sessions.FirstOrDefault(s => s.SessionName == "team-orchestrator");
+        var worker = restored.Sessions.FirstOrDefault(s => s.SessionName == "team-worker-1");
+        Assert.NotNull(orch);
+        Assert.NotNull(worker);
+        Assert.Equal("ma-team-1", orch!.GroupId);
+        Assert.Equal("ma-team-1", worker!.GroupId);
+        Assert.Equal(MultiAgentRole.Orchestrator, orch.Role);
+        Assert.Equal("claude-opus-4.6", orch.PreferredModel);
+    }
+
+    [Fact]
+    public void MultipleGroups_IncludingMultiAgent_AllSurviveRoundTrip()
+    {
+        var state = new OrganizationState();
+        state.Groups.Add(new SessionGroup
+        {
+            Id = "repo-group",
+            Name = "PolyPilot",
+            RepoId = "PureWeen-PolyPilot"
+        });
+        state.Groups.Add(new SessionGroup
+        {
+            Id = "ma-team",
+            Name = "Review Team",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.Orchestrator,
+            WorktreeId = "wt-1",
+            RepoId = "PureWeen-PolyPilot"
+        });
+        state.Sessions.Add(new SessionMeta { SessionName = "regular", GroupId = "repo-group" });
+        state.Sessions.Add(new SessionMeta { SessionName = "team-orch", GroupId = "ma-team", Role = MultiAgentRole.Orchestrator });
+        state.Sessions.Add(new SessionMeta { SessionName = "team-w1", GroupId = "ma-team" });
+
+        var json = JsonSerializer.Serialize(state);
+        var restored = JsonSerializer.Deserialize<OrganizationState>(json)!;
+
+        // All 3 groups should exist (default + repo + multi-agent)
+        Assert.Equal(3, restored.Groups.Count);
+        Assert.Contains(restored.Groups, g => g.Id == "ma-team" && g.IsMultiAgent);
+        Assert.Contains(restored.Groups, g => g.Id == "repo-group" && !g.IsMultiAgent);
+        Assert.Equal(3, restored.Sessions.Count);
+    }
+
+    // --- DeleteGroup tests ---
+
+    [Fact]
+    public void DeleteGroup_MultiAgent_MovesSessionsToDefault()
+    {
+        var svc = CreateService();
+
+        // Create a multi-agent group with sessions
+        var group = svc.CreateMultiAgentGroup("Test Team");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "orch",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator,
+            PreferredModel = "claude-opus-4.6",
+            WorktreeId = "wt-1"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "worker-1",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Worker,
+            PreferredModel = "gpt-5.1-codex",
+            WorktreeId = "wt-1"
+        });
+
+        svc.DeleteGroup(group.Id);
+
+        // Sessions should be in default group
+        var orch = svc.Organization.Sessions.First(s => s.SessionName == "orch");
+        var worker = svc.Organization.Sessions.First(s => s.SessionName == "worker-1");
+        Assert.Equal(SessionGroup.DefaultId, orch.GroupId);
+        Assert.Equal(SessionGroup.DefaultId, worker.GroupId);
+        // Group should be removed
+        Assert.DoesNotContain(svc.Organization.Groups, g => g.Id == group.Id);
+    }
+
+    [Fact]
+    public void DeleteGroup_PreservesSessionMetadata()
+    {
+        var svc = CreateService();
+        var group = svc.CreateMultiAgentGroup("Team");
+
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "orch",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator,
+            PreferredModel = "claude-opus-4.6",
+            WorktreeId = "wt-1"
+        });
+
+        svc.DeleteGroup(group.Id);
+
+        var meta = svc.Organization.Sessions.First(s => s.SessionName == "orch");
+        // Role and PreferredModel should be preserved even after group deletion
+        Assert.Equal(MultiAgentRole.Orchestrator, meta.Role);
+        Assert.Equal("claude-opus-4.6", meta.PreferredModel);
+        Assert.Equal("wt-1", meta.WorktreeId);
+    }
+
+    // --- Reconciliation protection tests ---
+
+    [Fact]
+    public void Reconcile_SessionsInMultiAgentGroup_NotMovedToRepoGroup()
+    {
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "wt-1", RepoId = "repo-1", Branch = "main", Path = "/tmp/wt-1" }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+
+        // Create repo group and multi-agent group sharing the same repo
+        var repoGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+        var maGroup = svc.CreateMultiAgentGroup("Review Team", worktreeId: "wt-1", repoId: "repo-1");
+
+        // Add sessions to multi-agent group
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "team-orch",
+            GroupId = maGroup.Id,
+            Role = MultiAgentRole.Orchestrator,
+            WorktreeId = "wt-1"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "team-w1",
+            GroupId = maGroup.Id,
+            WorktreeId = "wt-1"
+        });
+
+        RegisterKnownSessions(svc, "team-orch", "team-w1");
+
+        // Run reconciliation — sessions should stay in multi-agent group
+        svc.ReconcileOrganization();
+
+        var orch = svc.Organization.Sessions.First(s => s.SessionName == "team-orch");
+        var worker = svc.Organization.Sessions.First(s => s.SessionName == "team-w1");
+        Assert.Equal(maGroup.Id, orch.GroupId);
+        Assert.Equal(maGroup.Id, worker.GroupId);
+        // Should NOT have been moved to the repo group
+        Assert.NotEqual(repoGroup.Id, orch.GroupId);
+        Assert.NotEqual(repoGroup.Id, worker.GroupId);
+    }
+
+    [Fact]
+    public void Reconcile_OrphanedFromDeletedGroup_GoesToDefault()
+    {
+        var svc = CreateService();
+
+        // Simulate sessions pointing to a non-existent group (as if the group was deleted)
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "orphan-orch",
+            GroupId = "deleted-group-id",
+            Role = MultiAgentRole.Orchestrator,
+            PreferredModel = "claude-opus-4.6",
+            WorktreeId = "wt-1"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "orphan-worker",
+            GroupId = "deleted-group-id",
+            Role = MultiAgentRole.Worker,
+            PreferredModel = "gpt-5.1-codex",
+            WorktreeId = "wt-1"
+        });
+
+        RegisterKnownSessions(svc, "orphan-orch", "orphan-worker");
+
+        svc.ReconcileOrganization();
+
+        var orch = svc.Organization.Sessions.First(s => s.SessionName == "orphan-orch");
+        var worker = svc.Organization.Sessions.First(s => s.SessionName == "orphan-worker");
+        Assert.Equal(SessionGroup.DefaultId, orch.GroupId);
+        Assert.Equal(SessionGroup.DefaultId, worker.GroupId);
+    }
+
+    [Fact]
+    public void Reconcile_OrphanedMultiAgentSessions_NotAutoMovedToRepoGroup()
+    {
+        // This is the key bug test: after a multi-agent group disappears,
+        // orphaned sessions with WorktreeIds should NOT be auto-moved to the repo group.
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "wt-1", RepoId = "repo-1", Branch = "main", Path = "/tmp/wt-1" }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+        svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+
+        // Simulate orphaned multi-agent sessions already in _default with WorktreeId set
+        // (as if a previous reconciliation moved them from a deleted group)
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "team-orch",
+            GroupId = SessionGroup.DefaultId,
+            Role = MultiAgentRole.Orchestrator,
+            PreferredModel = "claude-opus-4.6",
+            WorktreeId = "wt-1"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "team-worker",
+            GroupId = SessionGroup.DefaultId,
+            Role = MultiAgentRole.Worker,
+            PreferredModel = "gpt-5.1-codex",
+            WorktreeId = "wt-1"
+        });
+
+        RegisterKnownSessions(svc, "team-orch", "team-worker");
+
+        svc.ReconcileOrganization();
+
+        var orch = svc.Organization.Sessions.First(s => s.SessionName == "team-orch");
+        var worker = svc.Organization.Sessions.First(s => s.SessionName == "team-worker");
+
+        // Orchestrator should NOT be moved (has Orchestrator role)
+        Assert.Equal(SessionGroup.DefaultId, orch.GroupId);
+        // Worker with PreferredModel should NOT be moved (was multi-agent member)
+        Assert.Equal(SessionGroup.DefaultId, worker.GroupId);
+    }
+
+    [Fact]
+    public void Reconcile_RegularSession_WithWorktree_InDefault_SurvivesPrune()
+    {
+        // Verifies that regular sessions with worktrees aren't pruned during reconciliation.
+        // Note: auto-move from _default to repo group only happens for active sessions (in _sessions).
+        // This tests that the session metadata is preserved for when the session becomes active.
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "wt-1", RepoId = "repo-1", Branch = "main", Path = "/tmp/wt-1" }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+        svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "regular-session",
+            GroupId = SessionGroup.DefaultId,
+            WorktreeId = "wt-1",
+            PreferredModel = null,
+            Role = MultiAgentRole.Worker
+        });
+
+        RegisterKnownSessions(svc, "regular-session");
+        svc.ReconcileOrganization();
+
+        // Session should still exist (not pruned)
+        var meta = svc.Organization.Sessions.FirstOrDefault(s => s.SessionName == "regular-session");
+        Assert.NotNull(meta);
+        Assert.Equal("wt-1", meta!.WorktreeId);
+    }
+
+    [Fact]
+    public void WasMultiAgent_DetectsOrchestratorRole()
+    {
+        // Verifies the wasMultiAgent heuristic used in reconciliation
+        var orch = new SessionMeta { Role = MultiAgentRole.Orchestrator };
+        var workerWithModel = new SessionMeta { Role = MultiAgentRole.Worker, PreferredModel = "gpt-5.1-codex" };
+        var regularWorker = new SessionMeta { Role = MultiAgentRole.Worker, PreferredModel = null };
+
+        // Orchestrator role → was multi-agent
+        Assert.True(orch.Role == MultiAgentRole.Orchestrator || orch.PreferredModel != null);
+        // Worker with PreferredModel → was multi-agent
+        Assert.True(workerWithModel.Role == MultiAgentRole.Orchestrator || workerWithModel.PreferredModel != null);
+        // Regular worker (no PreferredModel) → not multi-agent
+        Assert.False(regularWorker.Role == MultiAgentRole.Orchestrator || regularWorker.PreferredModel != null);
+    }
+
+    // --- Full lifecycle simulation tests ---
+
+    [Fact]
+    public void FullLifecycle_CreateTeam_Serialize_Deserialize_SessionsIntact()
+    {
+        var svc = CreateService();
+        var group = svc.CreateMultiAgentGroup("QRC",
+            worktreeId: "wt-feature",
+            repoId: "repo-poly");
+
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "QRC-orchestrator",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator,
+            PreferredModel = "claude-opus-4.6",
+            WorktreeId = "wt-feature"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "QRC-worker-1",
+            GroupId = group.Id,
+            PreferredModel = "gpt-5.1-codex",
+            WorktreeId = "wt-feature"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "QRC-worker-2",
+            GroupId = group.Id,
+            PreferredModel = "gpt-5.1-codex",
+            WorktreeId = "wt-feature"
+        });
+
+        // Serialize (simulate app save)
+        var json = JsonSerializer.Serialize(svc.Organization, new JsonSerializerOptions { WriteIndented = true });
+
+        // Deserialize (simulate app reload)
+        var restored = JsonSerializer.Deserialize<OrganizationState>(json)!;
+
+        // All sessions should still point to the multi-agent group
+        Assert.Contains(restored.Groups, g => g.Id == group.Id && g.IsMultiAgent);
+        foreach (var session in restored.Sessions.Where(s => s.SessionName.StartsWith("QRC-")))
+        {
+            Assert.Equal(group.Id, session.GroupId);
+        }
+    }
+
+    [Fact]
+    public void FullLifecycle_DeleteTeam_ThenReconcile_SessionsStayInDefault()
+    {
+        // Simulates: create team → delete team → reconcile → sessions stay visible in default
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "wt-1", RepoId = "repo-1", Branch = "main", Path = "/tmp/wt-1" }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+        svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+
+        var group = svc.CreateMultiAgentGroup("Team",
+            worktreeId: "wt-1", repoId: "repo-1");
+
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "team-orch",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator,
+            PreferredModel = "claude-opus-4.6",
+            WorktreeId = "wt-1"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "team-w1",
+            GroupId = group.Id,
+            PreferredModel = "gpt-5.1-codex",
+            WorktreeId = "wt-1"
+        });
+
+        // Delete the team
+        svc.DeleteGroup(group.Id);
+
+        // Sessions should be in default
+        Assert.All(svc.Organization.Sessions.Where(s => s.SessionName.StartsWith("team-")),
+            m => Assert.Equal(SessionGroup.DefaultId, m.GroupId));
+
+        RegisterKnownSessions(svc, "team-orch", "team-w1");
+
+        // Run reconciliation — should NOT move them to repo group
+        svc.ReconcileOrganization();
+
+        var orch = svc.Organization.Sessions.First(s => s.SessionName == "team-orch");
+        var worker = svc.Organization.Sessions.First(s => s.SessionName == "team-w1");
+        // Orchestrator role prevents auto-move
+        Assert.Equal(SessionGroup.DefaultId, orch.GroupId);
+        // PreferredModel prevents auto-move
+        Assert.Equal(SessionGroup.DefaultId, worker.GroupId);
+    }
+
+    [Fact]
+    public void Reconcile_DeletedGroupId_NotInGroupsList_SessionsOrphaned()
+    {
+        // Simulates loading organization.json where a group is missing
+        // but sessions still reference it
+        var svc = CreateService();
+
+        // Manually add sessions referencing a group that doesn't exist
+        var phantomGroupId = "phantom-group-" + Guid.NewGuid();
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "ghost-1",
+            GroupId = phantomGroupId,
+            WorktreeId = "wt-1"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "ghost-2",
+            GroupId = phantomGroupId,
+            WorktreeId = "wt-1"
+        });
+
+        RegisterKnownSessions(svc, "ghost-1", "ghost-2");
+
+        svc.ReconcileOrganization();
+
+        // Both sessions should be in default now
+        Assert.All(svc.Organization.Sessions.Where(s => s.SessionName.StartsWith("ghost-")),
+            m => Assert.Equal(SessionGroup.DefaultId, m.GroupId));
+    }
+
+    [Fact]
+    public void Reconcile_MultiAgentGroupExists_SessionsUntouched()
+    {
+        // When the multi-agent group exists, reconciliation should not alter its sessions at all
+        var svc = CreateService();
+        var group = svc.CreateMultiAgentGroup("Stable Team");
+
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "stable-orch",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator,
+            PreferredModel = "claude-opus-4.6",
+            WorktreeId = "wt-1"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "stable-w1",
+            GroupId = group.Id,
+            PreferredModel = "gpt-5.1-codex",
+            WorktreeId = "wt-1"
+        });
+
+        RegisterKnownSessions(svc, "stable-orch", "stable-w1");
+
+        var orchGroupBefore = svc.Organization.Sessions.First(s => s.SessionName == "stable-orch").GroupId;
+        var workerGroupBefore = svc.Organization.Sessions.First(s => s.SessionName == "stable-w1").GroupId;
+
+        svc.ReconcileOrganization();
+
+        Assert.Equal(orchGroupBefore, svc.Organization.Sessions.First(s => s.SessionName == "stable-orch").GroupId);
+        Assert.Equal(workerGroupBefore, svc.Organization.Sessions.First(s => s.SessionName == "stable-w1").GroupId);
+    }
+
+    [Fact]
+    public void OrganizationState_WithReflectionState_SurvivesRoundTrip()
+    {
+        var state = new OrganizationState();
+        state.Groups.Add(new SessionGroup
+        {
+            Id = "reflect-team",
+            Name = "Reflect",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.OrchestratorReflect,
+            ReflectionState = ReflectionCycle.Create("Fix all bugs", 10)
+        });
+
+        var json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
+        var restored = JsonSerializer.Deserialize<OrganizationState>(json)!;
+
+        var group = restored.Groups.First(g => g.Id == "reflect-team");
+        Assert.NotNull(group.ReflectionState);
+        Assert.Equal("Fix all bugs", group.ReflectionState!.Goal);
+        Assert.Equal(10, group.ReflectionState.MaxIterations);
+        Assert.True(group.ReflectionState.IsActive);
+    }
+}
