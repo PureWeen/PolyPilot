@@ -374,6 +374,12 @@ else
                                                         ➕ New Session
                                                     </button>
                                                     <div class="group-menu-separator"></div>
+                                                    @if (group.IsMultiAgent)
+                                                    {
+                                                        <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
+                                                            🗑 Delete Team
+                                                        </button>
+                                                    }
                                                     <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; confirmRemoveRepoId = rId; }">
                                                         🗑 Remove Repo
                                                     </button>
@@ -388,7 +394,7 @@ else
                                                         <div class="group-menu-separator"></div>
                                                     }
                                                     <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
-                                                        🗑 Delete Group
+                                                        🗑 @(group.IsMultiAgent ? "Delete Team" : "Delete Group")
                                                     </button>
                                                 }
                                             </div>
