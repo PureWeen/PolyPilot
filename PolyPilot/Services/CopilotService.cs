@@ -201,6 +201,8 @@ public partial class CopilotService : IAsyncDisposable
         public bool HasReceivedEventsSinceResume { get; set; }
         public string? LastMessageId { get; set; }
         public bool SkipReflectionEvaluationOnce { get; set; }
+        public DateTime LastEventAt { get; set; } = DateTime.UtcNow;
+        public CancellationTokenSource? ProcessingWatchdog { get; set; }
     }
 
     private void Debug(string message)
@@ -1397,6 +1399,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.IsProcessing = true;
         state.ResponseCompletion = new TaskCompletionSource<string>();
         state.CurrentResponse.Clear();
+        StartProcessingWatchdog(state, sessionName);
 
         if (!skipHistoryMessage)
         {
@@ -1468,6 +1471,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     _sessions[sessionName] = newState;
                     state = newState;
                     
+                    // Reset watchdog for the new connection
+                    StartProcessingWatchdog(state, sessionName);
+                    
                     Debug($"Session '{sessionName}' reconnected, retrying prompt...");
                     await state.Session.SendAsync(new MessageOptions
                     {
@@ -1478,6 +1484,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 {
                     Console.WriteLine($"[DEBUG] Reconnect+retry failed: {retryEx.Message}");
                     OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {retryEx.Message}");
+                    CancelProcessingWatchdog(state);
                     state.Info.IsProcessing = false;
                     OnStateChanged?.Invoke();
                     throw;
@@ -1486,6 +1493,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             else
             {
                 OnError?.Invoke(sessionName, $"SendAsync failed: {ex.Message}");
+                CancelProcessingWatchdog(state);
                 state.Info.IsProcessing = false;
                 OnStateChanged?.Invoke();
                 throw;
