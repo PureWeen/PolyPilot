@@ -88,7 +88,7 @@
                     <span class="phase-indicator">@PhaseLabel(expPhase.Phase, expPhase.Detail)</span>
                 }
                 <input type="text" id="ma-input-expanded-@expandedGroupId" class="ma-expanded-toolbar-input"
-                       placeholder="Send to all sessions…"
+                       placeholder="@GetInputPlaceholder(expandedGroup.OrchestratorMode)"
                        @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") await SendToExpandedMultiAgentGroup(expandedGroupId); })"
                        @onclick:stopPropagation="true" />
                 <button class="ma-send-btn" @onclick="() => SendToExpandedMultiAgentGroup(expandedGroupId)" @onclick:stopPropagation="true">
@@ -245,7 +245,7 @@
                 @if (group.IsMultiAgent && showGroupHeaders)
                 {
                     <div class="multi-agent-input-bar" @onclick:stopPropagation="true">
-                        <textarea id="ma-input-@group.Id" class="ma-broadcast-input" placeholder="Send to all sessions in this group..."
+                        <textarea id="ma-input-@group.Id" class="ma-broadcast-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)"
                                   rows="1"></textarea>
                         <button class="ma-send-btn" @onclick="() => SendToMultiAgentGroup(group.Id)" title="Send to all sessions">
                             📡 Send All
@@ -2162,6 +2162,15 @@
             CopilotService.SetMultiAgentMode(groupId, mode);
         }
     }
+
+    private static string GetInputPlaceholder(MultiAgentMode mode) => mode switch
+    {
+        MultiAgentMode.Broadcast => "Send to all agents...",
+        MultiAgentMode.Sequential => "Send to agents in sequence...",
+        MultiAgentMode.Orchestrator => "Describe task for orchestrator...",
+        MultiAgentMode.OrchestratorReflect => "Describe goal for reflection cycle...",
+        _ => "Enter prompt..."
+    };
 
     private async Task SendToMultiAgentGroup(string groupId)
     {

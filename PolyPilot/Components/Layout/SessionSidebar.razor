@@ -415,7 +415,7 @@ else
                                     <option value="OrchestratorReflect" selected="@(group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">🔄 Reflect</option>
                                 </select>
                                 <div class="sidebar-ma-input-bar">
-                                    <textarea id="sidebar-ma-input-@maGroupId" class="sidebar-ma-input" placeholder="Send to all..." rows="1" @onclick:stopPropagation="true"></textarea>
+                                    <textarea id="sidebar-ma-input-@maGroupId" class="sidebar-ma-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)" rows="1" @onclick:stopPropagation="true"></textarea>
                                     <button class="sidebar-ma-send-btn" @onclick="() => SendToSidebarMultiAgentGroup(maGroupId)" @onclick:stopPropagation="true">📡</button>
                                 </div>
                                 @if (_groupPhases.TryGetValue(maGroupId, out var sidebarPhase))
@@ -1067,6 +1067,15 @@ else
             CopilotService.SetMultiAgentMode(groupId, mode);
         }
     }
+
+    private static string GetInputPlaceholder(MultiAgentMode mode) => mode switch
+    {
+        MultiAgentMode.Broadcast => "Send to all agents...",
+        MultiAgentMode.Sequential => "Send to agents in sequence...",
+        MultiAgentMode.Orchestrator => "Describe task for orchestrator...",
+        MultiAgentMode.OrchestratorReflect => "Describe goal for reflection cycle...",
+        _ => "Enter prompt..."
+    };
 
     private async Task SendToSidebarMultiAgentGroup(string groupId)
     {
