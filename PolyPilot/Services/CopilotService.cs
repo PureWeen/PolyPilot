@@ -221,13 +221,13 @@ public partial class CopilotService : IAsyncDisposable
         {
             try
             {
-                var logPath = Path.Combine(PolyPilotBaseDir, "event-diagnostics.log");
-                // Rotate at 10 MB to prevent unbounded growth
-                var fi = new FileInfo(logPath);
-                if (fi.Exists && fi.Length > 10 * 1024 * 1024)
-                    try { File.Delete(logPath); } catch { }
                 lock (_diagnosticLogLock)
                 {
+                    var logPath = Path.Combine(PolyPilotBaseDir, "event-diagnostics.log");
+                    // Rotate at 10 MB to prevent unbounded growth
+                    var fi = new FileInfo(logPath);
+                    if (fi.Exists && fi.Length > 10 * 1024 * 1024)
+                        try { File.Delete(logPath); } catch { }
                     File.AppendAllText(logPath,
                         $"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
                 }
