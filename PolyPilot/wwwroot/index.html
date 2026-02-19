@@ -789,25 +789,6 @@
         })();
     </script>
 
-    <script>
-        // Live elapsed timer for "Thinking" indicators — ticks every second
-        // independently of Blazor renders so the timer doesn't freeze when CLI is silent.
-        setInterval(function() {
-            var els = document.querySelectorAll('.live-timer[data-start]');
-            var now = Date.now();
-            for (var i = 0; i < els.length; i++) {
-                var start = Date.parse(els[i].getAttribute('data-start'));
-                if (isNaN(start)) continue;
-                var sec = Math.floor((now - start) / 1000);
-                if (sec < 5) { els[i].textContent = ''; continue; }
-                var m = Math.floor(sec / 60);
-                var s = sec % 60;
-                var txt = m > 0 ? '(' + m + 'm ' + s + 's)' : '(' + sec + 's)';
-                if (els[i].textContent !== txt) els[i].textContent = txt;
-            }
-        }, 1000);
-    </script>
-
 </body>
 
 </html>

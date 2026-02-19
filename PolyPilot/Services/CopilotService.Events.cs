@@ -646,7 +646,7 @@ public partial class CopilotService
         var response = state.CurrentResponse.ToString();
         if (!string.IsNullOrEmpty(response))
         {
-            var msg = new ChatMessage("assistant", response, DateTime.Now);
+            var msg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
             state.Info.History.Add(msg);
             state.Info.MessageCount = state.Info.History.Count;
             // If user is viewing this session, keep it read

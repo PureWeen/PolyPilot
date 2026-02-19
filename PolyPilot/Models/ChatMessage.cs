@@ -45,6 +45,9 @@ public class ChatMessage
     // Reasoning fields
     public string? ReasoningId { get; set; }
 
+    // Model that generated this message
+    public string? Model { get; set; }
+
     // Convenience properties
     public bool IsUser => Role == "user";
     public bool IsAssistant => Role == "assistant";
