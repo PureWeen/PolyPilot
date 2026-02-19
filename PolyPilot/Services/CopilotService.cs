@@ -207,6 +207,11 @@ public partial class CopilotService : IAsyncDisposable
         public CancellationTokenSource? ProcessingWatchdog { get; set; }
         /// <summary>Number of tool calls started but not yet completed this turn.</summary>
         public int ActiveToolCallCount;
+        /// <summary>True if any tool call has started during the current processing cycle.
+        /// Unlike ActiveToolCallCount which resets on AssistantTurnStartEvent, this stays
+        /// true until the response completes — so the watchdog uses the longer tool timeout
+        /// even between tool rounds when the model is thinking.</summary>
+        public bool HasUsedToolsThisTurn;
         /// <summary>
         /// Monotonically increasing counter incremented each time a new prompt is sent.
         /// Used by CompleteResponse to avoid completing a different turn than the one
