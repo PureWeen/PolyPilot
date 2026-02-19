@@ -919,4 +919,160 @@ public class MultiAgentRegressionTests
     }
 
     #endregion
+
+    #region Feature: Per-Worker System Prompts (Agent Personas)
+
+    /// <summary>
+    /// SystemPrompt on SessionMeta must survive JSON round-trip (serialization to org.json).
+    /// </summary>
+    [Fact]
+    public void SystemPrompt_SurvivesJsonRoundTrip()
+    {
+        var org = new OrganizationState();
+        var groupId = Guid.NewGuid().ToString();
+        org.Groups.Add(new SessionGroup { Id = groupId, Name = "Persona Team", IsMultiAgent = true });
+        org.Sessions.Add(new SessionMeta
+        {
+            SessionName = "worker-security",
+            GroupId = groupId,
+            Role = MultiAgentRole.Worker,
+            PreferredModel = "gpt-5.1-codex",
+            SystemPrompt = "You are a security auditor. Focus on vulnerabilities."
+        });
+        org.Sessions.Add(new SessionMeta
+        {
+            SessionName = "worker-perf",
+            GroupId = groupId,
+            Role = MultiAgentRole.Worker,
+            PreferredModel = "claude-sonnet-4.5",
+            SystemPrompt = "You are a performance optimizer. Focus on latency and memory."
+        });
+        org.Sessions.Add(new SessionMeta
+        {
+            SessionName = "worker-plain",
+            GroupId = groupId,
+            Role = MultiAgentRole.Worker,
+            PreferredModel = "gpt-4.1"
+            // No SystemPrompt — should remain null
+        });
+
+        var json = JsonSerializer.Serialize(org);
+        var restored = JsonSerializer.Deserialize<OrganizationState>(json)!;
+
+        var security = restored.Sessions.First(s => s.SessionName == "worker-security");
+        var perf = restored.Sessions.First(s => s.SessionName == "worker-perf");
+        var plain = restored.Sessions.First(s => s.SessionName == "worker-plain");
+
+        Assert.Equal("You are a security auditor. Focus on vulnerabilities.", security.SystemPrompt);
+        Assert.Equal("You are a performance optimizer. Focus on latency and memory.", perf.SystemPrompt);
+        Assert.Null(plain.SystemPrompt);
+    }
+
+    /// <summary>
+    /// Null SystemPrompt in old org.json files must not cause deserialization failure.
+    /// </summary>
+    [Fact]
+    public void SystemPrompt_NullInOldJson_DeserializesCleanly()
+    {
+        // Simulate an org.json from before SystemPrompt was added
+        var json = """{"Groups":[],"Sessions":[{"SessionName":"old-session","GroupId":"_default","Role":0,"PreferredModel":null}]}""";
+        var org = JsonSerializer.Deserialize<OrganizationState>(json)!;
+
+        Assert.Single(org.Sessions);
+        Assert.Null(org.Sessions[0].SystemPrompt);
+    }
+
+    /// <summary>
+    /// SetSessionSystemPrompt persists through Organization model.
+    /// </summary>
+    [Fact]
+    public void SetSessionSystemPrompt_PersistsOnMeta()
+    {
+        var svc = CreateService();
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "w1" });
+
+        svc.SetSessionSystemPrompt("w1", "You are a code reviewer.");
+
+        var meta = svc.Organization.Sessions.First(s => s.SessionName == "w1");
+        Assert.Equal("You are a code reviewer.", meta.SystemPrompt);
+    }
+
+    /// <summary>
+    /// SetSessionSystemPrompt with whitespace/null clears the prompt.
+    /// </summary>
+    [Fact]
+    public void SetSessionSystemPrompt_WhitespaceClears()
+    {
+        var svc = CreateService();
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "w1", SystemPrompt = "old" });
+
+        svc.SetSessionSystemPrompt("w1", "   ");
+        Assert.Null(svc.Organization.Sessions.First(s => s.SessionName == "w1").SystemPrompt);
+
+        svc.Organization.Sessions.First(s => s.SessionName == "w1").SystemPrompt = "restored";
+        svc.SetSessionSystemPrompt("w1", null);
+        Assert.Null(svc.Organization.Sessions.First(s => s.SessionName == "w1").SystemPrompt);
+    }
+
+    /// <summary>
+    /// BuildOrchestratorPlanningPrompt includes worker system prompts when present.
+    /// </summary>
+    [Fact]
+    public void OrchestratorPlanningPrompt_IncludesWorkerPersonas()
+    {
+        var svc = CreateService();
+        // Pre-create session metadata entries
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "orch" });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "sec-worker" });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "perf-worker" });
+
+        var group = svc.CreateMultiAgentGroup("Persona",
+            sessionNames: new List<string> { "orch", "sec-worker", "perf-worker" });
+
+        svc.SetSessionRole("orch", MultiAgentRole.Orchestrator);
+        svc.SetSessionSystemPrompt("sec-worker", "You are a security auditor.");
+        svc.SetSessionSystemPrompt("perf-worker", "You are a performance optimizer.");
+
+        // Use reflection to call private BuildOrchestratorPlanningPrompt
+        var method = typeof(CopilotService).GetMethod("BuildOrchestratorPlanningPrompt",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(method);
+
+        var workers = new List<string> { "sec-worker", "perf-worker" };
+        var result = (string)method!.Invoke(svc, new object?[] { "Review this code", workers, null })!;
+
+        Assert.Contains("security auditor", result);
+        Assert.Contains("performance optimizer", result);
+        Assert.Contains("specialization", result);
+    }
+
+    /// <summary>
+    /// Built-in presets with WorkerSystemPrompts have the right number of prompts.
+    /// </summary>
+    [Fact]
+    public void BuiltInPresets_WorkerSystemPrompts_MatchWorkerCount()
+    {
+        foreach (var preset in GroupPreset.BuiltIn)
+        {
+            if (preset.WorkerSystemPrompts == null) continue;
+            Assert.True(preset.WorkerSystemPrompts.Length <= preset.WorkerModels.Length,
+                $"Preset '{preset.Name}' has {preset.WorkerSystemPrompts.Length} system prompts but only {preset.WorkerModels.Length} workers");
+        }
+    }
+
+    /// <summary>
+    /// Code Review Team preset has distinct personas for each worker.
+    /// </summary>
+    [Fact]
+    public void CodeReviewTeam_Preset_HasDistinctPersonas()
+    {
+        var preset = GroupPreset.BuiltIn.First(p => p.Name == "Code Review Team");
+        Assert.NotNull(preset.WorkerSystemPrompts);
+        Assert.Equal(2, preset.WorkerSystemPrompts!.Length);
+        Assert.All(preset.WorkerSystemPrompts, p => Assert.False(string.IsNullOrWhiteSpace(p)));
+        // Each persona should be unique
+        Assert.NotEqual(preset.WorkerSystemPrompts[0], preset.WorkerSystemPrompts[1]);
+    }
+
+    #endregion
 }

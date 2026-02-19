@@ -14,7 +14,7 @@ PolyPilot's multi-agent system lets you create a **team of AI sessions** that wo
 | `PolyPilot/Models/SessionOrganization.cs` | `SessionGroup`, `SessionMeta`, `MultiAgentMode`, `MultiAgentRole` |
 | `PolyPilot/Models/ReflectionCycle.cs` | Reflection state, stall detection, sentinel parsing, evaluator prompts |
 | `PolyPilot/Services/CopilotService.Events.cs` | TCS completion (IsProcessing → TrySetResult ordering) |
-| `PolyPilot.Tests/MultiAgentRegressionTests.cs` | 30 regression tests covering all known bugs |
+| `PolyPilot.Tests/MultiAgentRegressionTests.cs` | 37 regression tests covering all known bugs |
 | `PolyPilot.Tests/SessionOrganizationTests.cs` | 14 grouping stability tests |
 | `PolyPilot.Tests/Scenarios/multi-agent-scenarios.json` | Executable CDP test scenarios |
 
@@ -46,7 +46,7 @@ Same as Orchestrator but **loops** until the goal is met, quality stalls, or max
 
 ### Participants
 - **1 Orchestrator** — Plans, delegates, synthesizes. Set via `SessionMeta.Role = Orchestrator`
-- **N Workers** — Execute assigned tasks in parallel. Each can use a different model (`SessionMeta.PreferredModel`)
+- **N Workers** — Execute assigned tasks in parallel. Each can use a different model (`SessionMeta.PreferredModel`) and have a **system prompt** (`SessionMeta.SystemPrompt`) that defines their specialization
 - **1 Evaluator** (optional) — Independent quality judge on a separate model (`ReflectionCycle.EvaluatorSessionName`)
 
 ### The Loop (runs in `SendViaOrchestratorReflectAsync`)
@@ -226,6 +226,7 @@ OrganizationState
     ├── GroupId (→ SessionGroup.Id)
     ├── Role (Worker/Orchestrator)
     ├── PreferredModel (e.g., "claude-opus-4.6")
+    ├── SystemPrompt (worker specialization, e.g., "You are a security auditor...")
     ├── WorktreeId
     └── IsPinned, ManualOrder
 ```
@@ -240,8 +241,13 @@ OrganizationState
 `CreateGroupFromPresetAsync(GroupPreset)` creates a full team:
 1. Creates `SessionGroup` with mode and metadata
 2. Creates orchestrator session with `Role = Orchestrator`, `PreferredModel` set
-3. Creates N worker sessions with `PreferredModel` set per worker
+3. Creates N worker sessions with `PreferredModel` and `SystemPrompt` set per worker
 4. All sessions get `WorktreeId` if provided
+
+**Worker System Prompts:** Each worker can have a `SystemPrompt` defining its specialization. This prompt is:
+- Included in `BuildOrchestratorPlanningPrompt` so the orchestrator knows each worker's expertise and routes tasks accordingly
+- Prepended to the worker's task in `ExecuteWorkerAsync` (replaces the generic "You are a worker agent" prompt)
+- Set via `SetSessionSystemPrompt(sessionName, prompt)` or via `GroupPreset.WorkerSystemPrompts`
 
 **Critical:** Both `Role` and `PreferredModel` must be set on all sessions. These are the markers that `ReconcileOrganization` uses to identify multi-agent sessions. Without them, sessions get scattered on restart.
 

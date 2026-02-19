@@ -712,7 +712,16 @@ public partial class CopilotService
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available:");
         foreach (var w in workerNames)
-            sb.AppendLine($"  - '{w}' (model: {GetEffectiveModel(w)})");
+        {
+            var meta = GetSessionMeta(w);
+            var model = GetEffectiveModel(w);
+            if (!string.IsNullOrEmpty(meta?.SystemPrompt))
+                sb.AppendLine($"  - '{w}' (model: {model}) — {meta.SystemPrompt}");
+            else
+                sb.AppendLine($"  - '{w}' (model: {model})");
+        }
+        sb.AppendLine();
+        sb.AppendLine("Route tasks to workers based on their specialization. If a worker has a described role, assign tasks that match their expertise.");
         sb.AppendLine();
         sb.AppendLine("## User Request");
         sb.AppendLine(userPrompt);
@@ -769,7 +778,13 @@ public partial class CopilotService
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         await EnsureSessionModelAsync(workerName, cancellationToken);
-        var workerPrompt = $"You are a worker agent. Complete the following task thoroughly. Your response will be collected and synthesized with other workers' responses.\n\n## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
+
+        // Use per-worker system prompt if set, otherwise generic
+        var meta = GetSessionMeta(workerName);
+        var identity = !string.IsNullOrEmpty(meta?.SystemPrompt)
+            ? meta.SystemPrompt
+            : "You are a worker agent. Complete the following task thoroughly.";
+        var workerPrompt = $"{identity}\n\nYour response will be collected and synthesized with other workers' responses.\n\n## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
 
         try
         {
@@ -870,6 +885,15 @@ public partial class CopilotService
         OnStateChanged?.Invoke();
     }
 
+    public void SetSessionSystemPrompt(string sessionName, string? systemPrompt)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta == null) return;
+        meta.SystemPrompt = string.IsNullOrWhiteSpace(systemPrompt) ? null : systemPrompt.Trim();
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+    }
+
     /// <summary>
     /// Returns the model a session will use: PreferredModel if set, else live AgentSessionInfo.Model.
     /// </summary>
@@ -918,10 +942,14 @@ public partial class CopilotService
                 await CreateSessionAsync(workerName, workerModel, workingDirectory, ct);
                 MoveSession(workerName, group.Id);
                 SetSessionPreferredModel(workerName, workerModel);
-                if (worktreeId != null)
+                // Apply per-worker system prompt from preset if available
+                var systemPrompt = preset.WorkerSystemPrompts != null && i < preset.WorkerSystemPrompts.Length
+                    ? preset.WorkerSystemPrompts[i] : null;
+                var meta = GetSessionMeta(workerName);
+                if (meta != null)
                 {
-                    var meta = GetSessionMeta(workerName);
-                    if (meta != null) meta.WorktreeId = worktreeId;
+                    if (worktreeId != null) meta.WorktreeId = worktreeId;
+                    if (systemPrompt != null) meta.SystemPrompt = systemPrompt;
                 }
             }
             catch (Exception ex)

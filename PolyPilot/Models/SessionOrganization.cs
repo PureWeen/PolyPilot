@@ -57,6 +57,13 @@ public class SessionMeta
     /// When set, the model is switched before dispatch via EnsureSessionModelAsync.
     /// </summary>
     public string? PreferredModel { get; set; }
+
+    /// <summary>
+    /// System prompt / charter that defines this worker's specialization.
+    /// Prepended to every task dispatched to this worker. Null = generic worker prompt.
+    /// Example: "You are a security auditor. Focus on vulnerabilities, input validation, and auth flaws."
+    /// </summary>
+    public string? SystemPrompt { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
