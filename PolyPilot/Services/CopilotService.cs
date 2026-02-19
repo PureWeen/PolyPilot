@@ -1034,15 +1034,15 @@ public partial class CopilotService : IAsyncDisposable
     {
         var config = new McpLocalServerConfig();
         if (element.TryGetProperty("command", out var cmd))
-            config.Command = cmd.GetString();
+            config.Command = cmd.GetString() ?? "";
         if (element.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Array)
             config.Args = args.EnumerateArray().Select(a => a.GetString() ?? "").ToList();
         if (element.TryGetProperty("env", out var env) && env.ValueKind == JsonValueKind.Object)
             config.Env = env.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString() ?? "");
         if (element.TryGetProperty("cwd", out var cwd))
-            config.Cwd = cwd.GetString();
+            config.Cwd = cwd.GetString() ?? "";
         if (element.TryGetProperty("type", out var type))
-            config.Type = type.GetString();
+            config.Type = type.GetString() ?? "";
         if (element.TryGetProperty("tools", out var tools) && tools.ValueKind == JsonValueKind.Array)
             config.Tools = tools.EnumerateArray().Select(t => t.GetString() ?? "").ToList();
         if (element.TryGetProperty("timeout", out var timeout) && timeout.TryGetInt32(out var tv))
