@@ -264,9 +264,6 @@
                 var path = ExtractJsonProp(root, "path") ?? "";
                 if (!string.IsNullOrEmpty(path))
                 {
-                    // Show relative path
-                    var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
-                    var dir = path.Contains('/') ? path[..path.LastIndexOf('/')] : "";
                     var oldStr = ExtractJsonProp(root, "old_str");
                     var newStr = ExtractJsonProp(root, "new_str");
                     var added = newStr?.Split('\n').Length ?? 0;
@@ -274,7 +271,7 @@
                     var delta = "";
                     if (added > 0 || removed > 0)
                         delta = $" (+{added} -{removed})";
-                    return $"{fileName}{delta}";
+                    return $"{TruncateHead(path, 60)}{delta}";
                 }
             }
             catch { }
@@ -292,14 +289,13 @@
                 using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
                 var root = doc.RootElement;
                 var path = ExtractJsonProp(root, "path") ?? "";
-                var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
                 // Check for view_range
                 if (root.TryGetProperty("view_range", out var range))
                 {
                     var rangeStr = range.ToString();
-                    return $"{fileName} lines {rangeStr}";
+                    return $"{TruncateHead(path, 50)} lines {rangeStr}";
                 }
-                return fileName;
+                return TruncateHead(path, 60);
             }
             catch { }
         }
@@ -311,8 +307,7 @@
                 using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
                 var root = doc.RootElement;
                 var path = ExtractJsonProp(root, "path") ?? "";
-                var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
-                return fileName;
+                return TruncateHead(path, 60);
             }
             catch { }
         }
@@ -329,6 +324,13 @@
             return $"↳ {lines} line{(lines != 1 ? "s" : "")}";
         }
         return "";
+    }
+
+    /// <summary>Truncates from the start, preserving the tail (most useful part of paths/commands).</summary>
+    internal static string TruncateHead(string s, int max)
+    {
+        if (string.IsNullOrEmpty(s) || s.Length <= max) return s;
+        return "…" + s[(s.Length - max + 1)..];
     }
 
     internal static string TruncateResult(string result, int maxLength = 1500)

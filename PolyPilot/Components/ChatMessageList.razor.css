@@ -416,8 +416,27 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
     font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
     font-size: var(--type-subhead);
+}
+
+/* Chevron indicator — hidden on desktop (output-toggle row handles it), shown on mobile */
+::deep .action-chevron {
+    display: none;
+    flex-shrink: 0;
+    font-size: 0.6em;
+    color: var(--text-muted);
+    margin-left: auto;
+    padding-left: 0.3rem;
+}
+
+::deep .action-header.expandable {
+    cursor: pointer;
+}
+
+::deep .action-header.expandable:hover {
+    background: rgba(255, 255, 255, 0.03);
 }
 
 ::deep .action-input {
@@ -472,6 +491,21 @@
     padding: 0.5rem 0.6rem;
     background: rgba(0, 0, 0, 0.15);
     border-top: 1px solid var(--control-bg);
+}
+
+::deep .action-full-input {
+    padding: 0.4rem 0.6rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid var(--control-bg);
+}
+
+::deep .action-full-input pre {
+    font-size: var(--type-subhead);
+    color: var(--text-bright);
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
 }
 
 ::deep .action-output pre {
@@ -737,6 +771,36 @@
 
     .chat-message-list.full ::deep .system-text {
         font-size: var(--type-callout);
+    }
+
+    /* === Mobile: compact single-line action boxes === */
+    .chat-message-list.full ::deep .action-box {
+        margin: 0.1rem 0.5rem;
+    }
+
+    .chat-message-list.full ::deep .action-header {
+        gap: 0.35rem;
+        padding: 0.3rem 0.5rem;
+        border-bottom: none;
+    }
+
+    /* On mobile, header with output gets a bottom border only when expanded */
+    .chat-message-list.full ::deep .action-box .action-header.expandable {
+        border-bottom: none;
+    }
+
+    /* Hide the separate input and output-toggle sections on mobile */
+    .chat-message-list.full ::deep .action-input {
+        display: none;
+    }
+
+    .chat-message-list.full ::deep .action-output-toggle {
+        display: none;
+    }
+
+    /* Show the chevron on mobile */
+    .chat-message-list.full ::deep .action-chevron {
+        display: block;
     }
 }
 
