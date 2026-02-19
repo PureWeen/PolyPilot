@@ -494,10 +494,14 @@ public partial class CopilotService
             case SessionErrorEvent err:
                 var errMsg = err.Data?.Message ?? "Unknown error";
                 CancelProcessingWatchdog(state);
-                Invoke(() => OnError?.Invoke(sessionName, errMsg));
-                state.ResponseCompletion?.TrySetException(new Exception(errMsg));
-                state.Info.IsProcessing = false;
-                Invoke(() => OnStateChanged?.Invoke());
+                InvokeOnUI(() =>
+                {
+                    OnError?.Invoke(sessionName, errMsg);
+                    state.ResponseCompletion?.TrySetException(new Exception(errMsg));
+                    Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
+                    state.Info.IsProcessing = false;
+                    OnStateChanged?.Invoke();
+                });
                 break;
 
             case SessionModelChangeEvent modelChange:
