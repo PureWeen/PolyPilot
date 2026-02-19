@@ -484,7 +484,7 @@ h1:focus {
 .image-viewer-overlay img.grabbing { cursor: grabbing; }
 .image-viewer-close {
     position: absolute;
-    top: env(safe-area-inset-top, 12px);
+    top: var(--status-bar-height, env(safe-area-inset-top, 12px));
     right: 16px;
     margin-top: 12px;
     width: 36px;

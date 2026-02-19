@@ -427,6 +427,7 @@
       "unitTestCoverage": [
         "ProcessingWatchdogTests.WatchdogCheckInterval_IsReasonable",
         "ProcessingWatchdogTests.WatchdogInactivityTimeout_IsReasonable",
+        "ProcessingWatchdogTests.WatchdogToolExecutionTimeout_IsReasonable",
         "ProcessingWatchdogTests.WatchdogTimeout_IsGreaterThanCheckInterval",
         "ProcessingWatchdogTests.SystemMessage_ConnectionLost_HasExpectedContent",
         "ProcessingWatchdogTests.SystemMessage_AddedToHistory_IsVisible"
@@ -469,12 +470,12 @@
         },
         {
           "action": "note",
-          "text": "To fully test: kill the persistent server process while session is processing, then wait up to 2 minutes for the watchdog to detect inactivity and clear the stuck state. The session should show a system message: 'Connection lost — no response received.'"
+          "text": "To fully test: kill the persistent server process while session is processing, then wait up to 2 minutes for the watchdog to detect inactivity and clear the stuck state (10 min if a tool is running). The session should show a system message: 'Session appears stuck — no response received.'"
         },
         {
           "action": "wait",
           "duration": 130000,
-          "note": "Wait for watchdog timeout (120s) + buffer. In manual testing, kill server during this wait."
+          "note": "Wait for watchdog timeout (120s when no tool running) + buffer. In manual testing, kill server during this wait."
         },
         {
           "action": "evaluate",
@@ -484,9 +485,9 @@
         },
         {
           "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('.chat-msg')).some(el => el.textContent.includes('Connection lost'))",
+          "script": "Array.from(document.querySelectorAll('.chat-msg')).some(el => el.textContent.includes('appears stuck'))",
           "expect": { "equals": "true" },
-          "note": "System message about connection loss should appear in chat"
+          "note": "System message about stuck session should appear in chat"
         }
       ]
     },

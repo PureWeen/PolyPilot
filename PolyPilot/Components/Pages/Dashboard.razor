@@ -919,6 +919,9 @@
         completedSessions.Add(sessionName);
         streamingBySession.Remove(sessionName);
         activityBySession.Remove(sessionName);
+        // Refresh sessions list immediately — RefreshState may have been throttled
+        // when OnStateChanged fired just before OnSessionComplete
+        sessions = CopilotService.GetAllSessions().ToList();
         ScheduleRender();
         _ = Task.Delay(10000).ContinueWith(_ =>
         {

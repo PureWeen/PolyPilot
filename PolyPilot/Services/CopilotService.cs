@@ -19,6 +19,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
     // Image paths queued alongside messages when session is busy (keyed by session name, list per queued message)
     private readonly ConcurrentDictionary<string, List<List<string>>> _queuedImagePaths = new();
+    private static readonly object _diagnosticLogLock = new();
     private readonly IChatDatabase _chatDb;
     private readonly IServerManager _serverManager;
     private readonly IWsBridgeClient _bridgeClient;
@@ -199,11 +200,19 @@ public partial class CopilotService : IAsyncDisposable
         public TaskCompletionSource<string>? ResponseCompletion { get; set; }
         public StringBuilder CurrentResponse { get; } = new();
         public bool HasReceivedDeltasThisTurn { get; set; }
-        public bool HasReceivedEventsSinceResume { get; set; }
+        public bool HasReceivedEventsSinceResume;
         public string? LastMessageId { get; set; }
         public bool SkipReflectionEvaluationOnce { get; set; }
         public long LastEventAtTicks = DateTime.UtcNow.Ticks;
         public CancellationTokenSource? ProcessingWatchdog { get; set; }
+        /// <summary>Number of tool calls started but not yet completed this turn.</summary>
+        public int ActiveToolCallCount;
+        /// <summary>
+        /// Monotonically increasing counter incremented each time a new prompt is sent.
+        /// Used by CompleteResponse to avoid completing a different turn than the one
+        /// that produced the SessionIdleEvent (race between SEND and queued COMPLETE).
+        /// </summary>
+        public long ProcessingGeneration;
     }
 
     private void Debug(string message)
@@ -211,14 +220,51 @@ public partial class CopilotService : IAsyncDisposable
         LastDebugMessage = message;
         Console.WriteLine($"[DEBUG] {message}");
         OnDebug?.Invoke(message);
+
+        // Persist lifecycle diagnostics to file for post-mortem analysis (DEBUG builds only)
+#if DEBUG
+        if (message.StartsWith("[EVT") || message.StartsWith("[IDLE") ||
+            message.StartsWith("[COMPLETE") || message.StartsWith("[SEND") ||
+            message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
+            message.Contains("watchdog"))
+        {
+            try
+            {
+                lock (_diagnosticLogLock)
+                {
+                    var logPath = Path.Combine(PolyPilotBaseDir, "event-diagnostics.log");
+                    // Rotate at 10 MB to prevent unbounded growth
+                    var fi = new FileInfo(logPath);
+                    if (fi.Exists && fi.Length > 10 * 1024 * 1024)
+                        try { File.Delete(logPath); } catch { }
+                    File.AppendAllText(logPath,
+                        $"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+                }
+            }
+            catch { /* Don't let logging failures cascade */ }
+        }
+#endif
     }
 
     private void InvokeOnUI(Action action)
     {
         if (_syncContext != null)
-            _syncContext.Post(_ => action(), null);
+            _syncContext.Post(_ =>
+            {
+                try { action(); }
+                catch (Exception ex)
+                {
+                    Debug($"[UI-ERR] InvokeOnUI callback threw: {ex}");
+                }
+            }, null);
         else
-            action();
+        {
+            try { action(); }
+            catch (Exception ex)
+            {
+                Debug($"[UI-ERR] InvokeOnUI inline callback threw: {ex}");
+            }
+        }
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -1122,17 +1168,28 @@ public partial class CopilotService : IAsyncDisposable
             state.ResponseCompletion = new TaskCompletionSource<string>();
             Debug($"Session '{displayName}' is still processing (was mid-turn when app restarted)");
 
+            // Start the processing watchdog so the session doesn't get stuck
+            // forever if the CLI goes silent after resume (same as SendPromptAsync).
+            StartProcessingWatchdog(state, displayName);
+
             _ = Task.Run(async () =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(10));
-                if (state.Info.IsProcessing && !state.HasReceivedEventsSinceResume)
+                // Marshal all state mutations to the UI thread to avoid racing with
+                // HandleSessionEvent / CompleteResponse (same pattern as the watchdog).
+                InvokeOnUI(() =>
                 {
-                    Debug($"Session '{displayName}' processing timeout — no new events after resume, clearing stale state");
-                    state.Info.IsProcessing = false;
-                    state.ResponseCompletion?.TrySetResult("timeout");
-                    state.Info.History.Add(ChatMessage.SystemMessage("⏹ Previous turn appears to have ended. Ready for new input."));
-                    InvokeOnUI(() => OnStateChanged?.Invoke());
-                }
+                    if (state.Info.IsProcessing && !Volatile.Read(ref state.HasReceivedEventsSinceResume))
+                    {
+                        Debug($"Session '{displayName}' processing timeout — no new events after resume, clearing stale state");
+                        CancelProcessingWatchdog(state);
+                        state.Info.IsProcessing = false;
+                        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                        state.ResponseCompletion?.TrySetResult("timeout");
+                        state.Info.History.Add(ChatMessage.SystemMessage("⏹ Previous turn appears to have ended. Ready for new input."));
+                        OnStateChanged?.Invoke();
+                    }
+                });
             });
         }
 
@@ -1399,6 +1456,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             throw new InvalidOperationException("Session is already processing a request.");
 
         state.Info.IsProcessing = true;
+        Interlocked.Increment(ref state.ProcessingGeneration);
+        Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
+        Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>();
         state.CurrentResponse.Clear();
         StartProcessingWatchdog(state, sessionName);
@@ -1465,6 +1525,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, reconnectConfig, cancellationToken);
                     // Cancel old watchdog BEFORE creating new state — they share Info/TCS
                     CancelProcessingWatchdog(state);
+                    Debug($"[RECONNECT] '{sessionName}' replacing state (old handler will be orphaned, " +
+                          $"old session disposed, new session={newSession.SessionId})");
                     var newState = new SessionState
                     {
                         Session = newSession,
@@ -1541,7 +1603,21 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             Debug($"Abort failed for '{sessionName}': {ex.Message}");
         }
 
+        // Flush any accumulated streaming content to history before clearing state.
+        // Without this, clicking Stop discards the partial response the user was waiting for.
+        var partialResponse = state.CurrentResponse.ToString();
+        if (!string.IsNullOrEmpty(partialResponse))
+        {
+            var msg = new ChatMessage("assistant", partialResponse, DateTime.Now);
+            state.Info.History.Add(msg);
+            state.Info.MessageCount = state.Info.History.Count;
+            if (!string.IsNullOrEmpty(state.Info.SessionId))
+                _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+        }
+        state.CurrentResponse.Clear();
+
         state.Info.IsProcessing = false;
+        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         CancelProcessingWatchdog(state);
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();
