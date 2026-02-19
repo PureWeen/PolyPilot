@@ -1455,6 +1455,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             throw new InvalidOperationException("Session is already processing a request.");
 
         state.Info.IsProcessing = true;
+        state.Info.ProcessingStartedAt = DateTime.Now;
         Interlocked.Increment(ref state.ProcessingGeneration);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");

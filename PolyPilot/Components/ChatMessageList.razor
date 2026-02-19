@@ -84,7 +84,7 @@
             {
                 <div class="chat-msg tool">
                     <span class="chat-msg-role">⏳</span>
-                    <span class="chat-msg-text">@(string.IsNullOrEmpty(ActivityText) ? "Thinking…" : ActivityText)</span>
+                    <span class="chat-msg-text">@(string.IsNullOrEmpty(ActivityText) ? "Thinking…" : ActivityText) @GetElapsedLabel()</span>
                 </div>
             }
             else
@@ -92,6 +92,7 @@
                 <div class="action-item action-default running">
                     <span class="action-dot"></span>
                     <span class="action-label">Thinking</span>
+                    <span class="action-desc">@GetElapsedLabel()</span>
                 </div>
             }
         }
@@ -106,6 +107,7 @@
     [Parameter] public List<ToolActivity> ToolActivities { get; set; } = new();
     [Parameter] public string ActivityText { get; set; } = "";
     [Parameter] public bool IsProcessing { get; set; }
+    [Parameter] public DateTime? ProcessingStartedAt { get; set; }
     [Parameter] public bool Compact { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
@@ -128,6 +130,15 @@
     {
         var historyCallIds = Messages.ToList().Where(m => m.ToolCallId != null).Select(m => m.ToolCallId).ToHashSet();
         return ToolActivities.Where(a => !historyCallIds.Contains(a.CallId));
+    }
+
+    private string GetElapsedLabel()
+    {
+        if (ProcessingStartedAt == null) return "";
+        var elapsed = DateTime.Now - ProcessingStartedAt.Value;
+        if (elapsed.TotalSeconds < 5) return "";
+        if (elapsed.TotalMinutes < 1) return $"({elapsed.Seconds}s)";
+        return $"({(int)elapsed.TotalMinutes}m {elapsed.Seconds}s)";
     }
 
     private static readonly MarkdownPipeline MdPipeline = new MarkdownPipelineBuilder()

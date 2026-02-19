@@ -111,7 +111,7 @@ public partial class CopilotService
         _bridgeClient.OnTurnStart += (s) =>
         {
             var session = GetRemoteSession(s);
-            if (session != null) session.IsProcessing = true;
+            if (session != null) { session.IsProcessing = true; session.ProcessingStartedAt = DateTime.Now; }
             InvokeOnUI(() => OnTurnStart?.Invoke(s));
         };
         _bridgeClient.OnTurnEnd += (s) =>

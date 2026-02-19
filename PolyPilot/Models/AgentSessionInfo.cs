@@ -7,6 +7,7 @@ public class AgentSessionInfo
     public DateTime CreatedAt { get; init; }
     public int MessageCount { get; set; }
     public bool IsProcessing { get; set; }
+    public DateTime? ProcessingStartedAt { get; set; }
     public List<ChatMessage> History { get; } = new();
     public List<string> MessageQueue { get; } = new();
     

@@ -53,6 +53,7 @@ public class DemoService : IDemoService
         if (!_sessions.TryGetValue(sessionName, out var session)) return;
 
         session.IsProcessing = true;
+        session.ProcessingStartedAt = DateTime.Now;
         Post(syncContext, () => OnStateChanged?.Invoke());
         Post(syncContext, () => OnTurnStart?.Invoke(sessionName));
 
