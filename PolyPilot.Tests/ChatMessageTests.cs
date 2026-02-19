@@ -169,6 +169,46 @@ public class ChatMessageTests
         var msg = ChatMessage.UserMessage("hello");
         Assert.Null(msg.Model);
     }
+
+    // --- Interrupted turn system messages ---
+
+    [Fact]
+    public void InterruptedTurn_SystemMessage_ContainsWarning()
+    {
+        var interruptMsg = "⚠️ Your previous request was interrupted by an app restart. You may need to resend your last message.";
+        var msg = ChatMessage.SystemMessage(interruptMsg);
+
+        Assert.Equal("system", msg.Role);
+        Assert.Equal(ChatMessageType.System, msg.MessageType);
+        Assert.Contains("interrupted by an app restart", msg.Content);
+        Assert.Contains("resend your last message", msg.Content);
+        Assert.True(msg.IsComplete);
+    }
+
+    [Fact]
+    public void InterruptedTurn_SystemMessage_IncludesLastPrompt()
+    {
+        var lastPrompt = "fix the authentication bug in UserController.cs";
+        var truncated = lastPrompt.Length > 80 ? lastPrompt[..80] + "…" : lastPrompt;
+        var interruptMsg = $"⚠️ Your previous request was interrupted by an app restart. You may need to resend your last message.\n📝 Last message: \"{truncated}\"";
+        var msg = ChatMessage.SystemMessage(interruptMsg);
+
+        Assert.Contains("Last message:", msg.Content);
+        Assert.Contains("fix the authentication bug", msg.Content);
+    }
+
+    [Fact]
+    public void InterruptedTurn_SystemMessage_TruncatesLongPrompt()
+    {
+        var longPrompt = new string('x', 200);
+        var truncated = longPrompt[..80] + "…";
+        var interruptMsg = $"⚠️ Your previous request was interrupted by an app restart. You may need to resend your last message.\n📝 Last message: \"{truncated}\"";
+        var msg = ChatMessage.SystemMessage(interruptMsg);
+
+        Assert.Contains("…", msg.Content);
+        // The truncated version should be 80 chars + ellipsis, not the full 200
+        Assert.DoesNotContain(longPrompt, msg.Content);
+    }
 }
 
 public class ToolActivityTests
