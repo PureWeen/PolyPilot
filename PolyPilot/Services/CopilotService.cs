@@ -1596,6 +1596,19 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             Debug($"Abort failed for '{sessionName}': {ex.Message}");
         }
 
+        // Flush any accumulated streaming content to history before clearing state.
+        // Without this, clicking Stop discards the partial response the user was waiting for.
+        var partialResponse = state.CurrentResponse.ToString();
+        if (!string.IsNullOrEmpty(partialResponse))
+        {
+            var msg = new ChatMessage("assistant", partialResponse, DateTime.Now);
+            state.Info.History.Add(msg);
+            state.Info.MessageCount = state.Info.History.Count;
+            if (!string.IsNullOrEmpty(state.Info.SessionId))
+                _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+        }
+        state.CurrentResponse.Clear();
+
         state.Info.IsProcessing = false;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         CancelProcessingWatchdog(state);
