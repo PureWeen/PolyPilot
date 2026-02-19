@@ -1160,8 +1160,13 @@ public partial class CopilotService : IAsyncDisposable
             Info = info
         };
 
-        // If still processing, set up ResponseCompletion so events flow properly
-        // but add a timeout — if no new events arrive, the old turn is gone
+        // Wire up event handler BEFORE starting watchdog/timeout so events
+        // arriving immediately after SDK resume are not missed.
+        copilotSession.On(evt => HandleSessionEvent(state, evt));
+
+        // If still processing, set up ResponseCompletion so events flow properly.
+        // The processing watchdog (120s inactivity / 600s tool timeout) handles
+        // stuck sessions — no separate short timeout needed.
         if (isStillProcessing)
         {
             state.ResponseCompletion = new TaskCompletionSource<string>();
@@ -1171,36 +1176,8 @@ public partial class CopilotService : IAsyncDisposable
             // forever if the CLI goes silent after resume (same as SendPromptAsync).
             StartProcessingWatchdog(state, displayName);
 
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(TimeSpan.FromSeconds(10));
-                // Marshal all state mutations to the UI thread to avoid racing with
-                // HandleSessionEvent / CompleteResponse (same pattern as the watchdog).
-                InvokeOnUI(() =>
-                {
-                    if (state.Info.IsProcessing && !Volatile.Read(ref state.HasReceivedEventsSinceResume))
-                    {
-                        Debug($"[INTERRUPTED] Session '{displayName}' processing timeout — no new events after resume, clearing stale state");
-                        CancelProcessingWatchdog(state);
-                        state.Info.IsProcessing = false;
-                        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-                        state.ResponseCompletion?.TrySetResult("timeout");
 
-                        var interruptMsg = "⚠️ Your previous request was interrupted by an app restart. You may need to resend your last message.";
-                        if (!string.IsNullOrEmpty(lastPrompt))
-                        {
-                            var truncated = lastPrompt.Length > 80 ? lastPrompt[..80] + "…" : lastPrompt;
-                            interruptMsg += $"\n📝 Last message: \"{truncated}\"";
-                        }
-                        state.Info.History.Add(ChatMessage.SystemMessage(interruptMsg));
-                        OnError?.Invoke(displayName, "Session was interrupted by app restart — previous turn lost");
-                        OnStateChanged?.Invoke();
-                    }
-                });
-            });
         }
-
-        copilotSession.On(evt => HandleSessionEvent(state, evt));
 
         if (!_sessions.TryAdd(displayName, state))
         {
