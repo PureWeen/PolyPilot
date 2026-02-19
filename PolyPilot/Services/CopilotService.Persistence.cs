@@ -22,7 +22,10 @@ public partial class CopilotService
                     SessionId = s.Info.SessionId!,
                     DisplayName = s.Info.Name,
                     Model = s.Info.Model,
-                    WorkingDirectory = s.Info.WorkingDirectory
+                    WorkingDirectory = s.Info.WorkingDirectory,
+                    LastPrompt = s.Info.IsProcessing
+                        ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
+                        : null
                 })
                 .ToList();
             
@@ -120,7 +123,7 @@ public partial class CopilotService
                                 continue;
                             }
 
-                            await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken);
+                            await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken, entry.LastPrompt);
                             Debug($"Restored session: {entry.DisplayName}");
                         }
                         catch (Exception ex)

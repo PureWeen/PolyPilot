@@ -120,6 +120,7 @@ public partial class CopilotService
             var session = GetRemoteSession(s);
             if (session != null)
             {
+                Debug($"[BRIDGE-COMPLETE] '{session.Name}' OnTurnEnd cleared IsProcessing");
                 session.IsProcessing = false;
                 // Mark last assistant message as complete
                 var lastAssistant = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);

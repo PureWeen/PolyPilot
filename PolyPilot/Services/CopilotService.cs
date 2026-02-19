@@ -1053,7 +1053,7 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>
     /// Resume an existing session by its GUID
     /// </summary>
-    public async Task<AgentSessionInfo> ResumeSessionAsync(string sessionId, string displayName, string? workingDirectory = null, string? model = null, CancellationToken cancellationToken = default)
+    public async Task<AgentSessionInfo> ResumeSessionAsync(string sessionId, string displayName, string? workingDirectory = null, string? model = null, CancellationToken cancellationToken = default, string? lastPrompt = null)
     {
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
@@ -1180,12 +1180,20 @@ public partial class CopilotService : IAsyncDisposable
                 {
                     if (state.Info.IsProcessing && !Volatile.Read(ref state.HasReceivedEventsSinceResume))
                     {
-                        Debug($"Session '{displayName}' processing timeout — no new events after resume, clearing stale state");
+                        Debug($"[INTERRUPTED] Session '{displayName}' processing timeout — no new events after resume, clearing stale state");
                         CancelProcessingWatchdog(state);
                         state.Info.IsProcessing = false;
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.ResponseCompletion?.TrySetResult("timeout");
-                        state.Info.History.Add(ChatMessage.SystemMessage("⏹ Previous turn appears to have ended. Ready for new input."));
+
+                        var interruptMsg = "⚠️ Your previous request was interrupted by an app restart. You may need to resend your last message.";
+                        if (!string.IsNullOrEmpty(lastPrompt))
+                        {
+                            var truncated = lastPrompt.Length > 80 ? lastPrompt[..80] + "…" : lastPrompt;
+                            interruptMsg += $"\n📝 Last message: \"{truncated}\"";
+                        }
+                        state.Info.History.Add(ChatMessage.SystemMessage(interruptMsg));
+                        OnError?.Invoke(displayName, "Session was interrupted by app restart — previous turn lost");
                         OnStateChanged?.Invoke();
                     }
                 });
@@ -1550,6 +1558,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Console.WriteLine($"[DEBUG] Reconnect+retry failed: {retryEx.Message}");
                     OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {retryEx.Message}");
                     CancelProcessingWatchdog(state);
+                    Debug($"[ERROR] '{sessionName}' reconnect+retry failed, clearing IsProcessing");
                     state.Info.IsProcessing = false;
                     OnStateChanged?.Invoke();
                     throw;
@@ -1559,6 +1568,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 OnError?.Invoke(sessionName, $"SendAsync failed: {ex.Message}");
                 CancelProcessingWatchdog(state);
+                Debug($"[ERROR] '{sessionName}' SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 state.Info.IsProcessing = false;
                 OnStateChanged?.Invoke();
                 throw;
@@ -1615,6 +1625,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
         state.CurrentResponse.Clear();
 
+        Debug($"[ABORT] '{sessionName}' user abort, clearing IsProcessing");
         state.Info.IsProcessing = false;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         CancelProcessingWatchdog(state);
@@ -1929,6 +1940,7 @@ public class ActiveSessionEntry
     public string DisplayName { get; set; } = "";
     public string Model { get; set; } = "";
     public string? WorkingDirectory { get; set; }
+    public string? LastPrompt { get; set; }
 }
 
 public class PersistedSessionInfo
