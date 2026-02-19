@@ -84,7 +84,7 @@
             {
                 <div class="chat-msg tool">
                     <span class="chat-msg-role">⏳</span>
-                    <span class="chat-msg-text">@(string.IsNullOrEmpty(ActivityText) ? "Thinking…" : ActivityText) @GetElapsedLabel()</span>
+                    <span class="chat-msg-text">@(string.IsNullOrEmpty(ActivityText) ? "Thinking…" : ActivityText) <span class="live-timer" data-start="@ProcessingStartedAt?.ToString("o")">@GetElapsedLabel()</span></span>
                 </div>
             }
             else
@@ -92,7 +92,7 @@
                 <div class="action-item action-default running">
                     <span class="action-dot"></span>
                     <span class="action-label">Thinking</span>
-                    <span class="action-desc">@GetElapsedLabel()</span>
+                    <span class="action-desc"><span class="live-timer" data-start="@ProcessingStartedAt?.ToString("o")">@GetElapsedLabel()</span></span>
                 </div>
             }
         }
