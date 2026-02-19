@@ -425,7 +425,6 @@
 ::deep .action-desc.truncate-head {
     direction: rtl;
     text-align: left;
-    unicode-bidi: plaintext;
 }
 
 /* Chevron indicator — hidden on desktop (output-toggle row handles it), shown on mobile */

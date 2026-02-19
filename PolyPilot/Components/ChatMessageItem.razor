@@ -109,7 +109,7 @@
                      @onclick:stopPropagation="true">
                     <span class="action-dot"></span>
                     <span class="action-label">@(ChatMessageList.GetActionLabel(Message.ToolName ?? "").Label)</span>
-                    <span class="action-desc @(ChatMessageList.IsPathTool(Message.ToolName ?? "") ? "truncate-head" : "")">@ChatMessageList.FormatActionDescription(Message.ToolName ?? "", Message.ToolInput, Message.Content, Message.IsComplete)</span>
+                    <span class="action-desc @(ChatMessageList.IsPathTool(Message.ToolName ?? "") ? "truncate-head" : "")">@ChatMessageList.FormatActionDescriptionCompact(Message.ToolName ?? "", Message.ToolInput, Message.Content, Message.IsComplete)</span>
                     @if (_hasOutput)
                     {
                         <span class="action-chevron">@(Message.IsCollapsed ? "▶" : "▼")</span>
