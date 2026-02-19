@@ -23,6 +23,8 @@ public class ChatMessageEntity
     public bool IsSuccess { get; set; }
     public string? ReasoningId { get; set; }
 
+    public string? Model { get; set; }
+
     public DateTime Timestamp { get; set; }
 
     // Cached rendered HTML for assistant markdown messages
@@ -43,7 +45,8 @@ public class ChatMessageEntity
             IsComplete = IsComplete,
             IsSuccess = IsSuccess,
             IsCollapsed = type is ChatMessageType.ToolCall or ChatMessageType.Reasoning,
-            ReasoningId = ReasoningId
+            ReasoningId = ReasoningId,
+            Model = Model
         };
         return msg;
     }
@@ -61,7 +64,8 @@ public class ChatMessageEntity
             IsComplete = msg.IsComplete,
             IsSuccess = msg.IsSuccess,
             ReasoningId = msg.ReasoningId,
-            Timestamp = msg.Timestamp
+            Timestamp = msg.Timestamp,
+            Model = msg.Model
         };
     }
 }

@@ -140,6 +140,35 @@ public class ChatMessageTests
         Assert.Null(msg.ReasoningId);
         Assert.Null(msg.ToolCallId);
     }
+
+    [Fact]
+    public void Model_DefaultsToNull()
+    {
+        var msg = ChatMessage.AssistantMessage("test");
+        Assert.Null(msg.Model);
+    }
+
+    [Fact]
+    public void Model_CanBeSetViaInitializer()
+    {
+        var msg = new ChatMessage("assistant", "test", DateTime.Now) { Model = "gpt-4.1" };
+        Assert.Equal("gpt-4.1", msg.Model);
+    }
+
+    [Fact]
+    public void Model_PreservedOnAssistantMessages()
+    {
+        var msg = new ChatMessage("assistant", "response", DateTime.Now) { Model = "claude-sonnet-4.5" };
+        Assert.True(msg.IsAssistant);
+        Assert.Equal("claude-sonnet-4.5", msg.Model);
+    }
+
+    [Fact]
+    public void Model_NullForUserMessages()
+    {
+        var msg = ChatMessage.UserMessage("hello");
+        Assert.Null(msg.Model);
+    }
 }
 
 public class ToolActivityTests
