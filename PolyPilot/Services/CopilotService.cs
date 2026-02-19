@@ -1616,6 +1616,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         Debug($"[ABORT] '{sessionName}' user abort, clearing IsProcessing");
         state.Info.IsProcessing = false;
+        state.Info.IsResumed = false;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         CancelProcessingWatchdog(state);

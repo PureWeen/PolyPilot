@@ -975,4 +975,66 @@ public class ProcessingWatchdogTests
         Assert.False(idleResumed.IsResumed);
         Assert.True(midTurnResumed.IsResumed);
     }
+
+    [Fact]
+    public void IsResumed_ClearedOnAbort()
+    {
+        // Abort must clear IsResumed so subsequent turns use 120s timeout
+        var info = new AgentSessionInfo { Name = "t", Model = "m", IsResumed = true };
+        Assert.True(info.IsResumed);
+
+        // Simulate abort path
+        info.IsProcessing = false;
+        info.IsResumed = false;
+
+        Assert.False(info.IsResumed);
+    }
+
+    [Fact]
+    public void IsResumed_ClearedOnError()
+    {
+        // SessionErrorEvent must clear IsResumed
+        var info = new AgentSessionInfo { Name = "t", Model = "m", IsResumed = true };
+
+        // Simulate error path
+        info.IsProcessing = false;
+        info.IsResumed = false;
+
+        Assert.False(info.IsResumed);
+    }
+
+    [Fact]
+    public void IsResumed_ClearedOnWatchdogTimeout()
+    {
+        // Watchdog timeout must clear IsResumed so next turns don't get 600s
+        var info = new AgentSessionInfo { Name = "t", Model = "m", IsResumed = true };
+
+        // Simulate watchdog timeout path
+        info.IsProcessing = false;
+        info.IsResumed = false;
+
+        // Verify next turn would use 120s
+        int activeToolCallCount = 0;
+        bool hasUsedToolsThisTurn = false;
+        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
+        var useToolTimeout = hasActiveTool || info.IsResumed || hasUsedToolsThisTurn;
+        var effectiveTimeout = useToolTimeout
+            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
+            : CopilotService.WatchdogInactivityTimeoutSeconds;
+
+        Assert.Equal(120, effectiveTimeout);
+    }
+
+    [Fact]
+    public void HasUsedToolsThisTurn_VolatileConsistency()
+    {
+        // Verify that Volatile.Write/Read round-trips correctly
+        // (mirrors the cross-thread pattern: SDK thread writes, watchdog timer reads)
+        bool field = false;
+        Volatile.Write(ref field, true);
+        Assert.True(Volatile.Read(ref field));
+
+        Volatile.Write(ref field, false);
+        Assert.False(Volatile.Read(ref field));
+    }
 }

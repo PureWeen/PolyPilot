@@ -275,7 +275,7 @@ public partial class CopilotService
             case ToolExecutionStartEvent toolStart:
                 if (toolStart.Data == null) break;
                 Interlocked.Increment(ref state.ActiveToolCallCount);
-                state.HasUsedToolsThisTurn = true;
+                Volatile.Write(ref state.HasUsedToolsThisTurn, true);
                 var startToolName = toolStart.Data.ToolName ?? "unknown";
                 var startCallId = toolStart.Data.ToolCallId ?? "";
                 var toolInput = ExtractToolInput(toolStart.Data);
@@ -501,6 +501,7 @@ public partial class CopilotService
                     state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                     Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
                     state.Info.IsProcessing = false;
+                    state.Info.IsResumed = false;
                     OnStateChanged?.Invoke();
                 });
                 break;
@@ -1110,7 +1111,7 @@ public partial class CopilotService
                 // 3. Tools have been executed this turn (HasUsedToolsThisTurn) — even between
                 //    tool rounds when ActiveToolCallCount is 0, the model may spend minutes
                 //    thinking about what tool to call next.
-                var useToolTimeout = hasActiveTool || state.Info.IsResumed || state.HasUsedToolsThisTurn;
+                var useToolTimeout = hasActiveTool || state.Info.IsResumed || Volatile.Read(ref state.HasUsedToolsThisTurn);
                 var effectiveTimeout = useToolTimeout
                     ? WatchdogToolExecutionTimeoutSeconds
                     : WatchdogInactivityTimeoutSeconds;
@@ -1139,6 +1140,7 @@ public partial class CopilotService
                         CancelProcessingWatchdog(state);
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
+                        state.Info.IsResumed = false;
                         state.Info.IsProcessing = false;
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
