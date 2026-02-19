@@ -1096,7 +1096,7 @@ public partial class CopilotService
 
             if (assignments.Count == 0)
             {
-                if (reflectState.CurrentIteration == 0)
+                if (reflectState.CurrentIteration == 1)
                 {
                     // First iteration with no assignments = orchestrator failed to delegate.
                     // Treat as error, not goal met, so we can retry.
@@ -1202,13 +1202,18 @@ public partial class CopilotService
             else
             {
                 reflectState.ConsecutiveStalls = 0;
+                reflectState.ConsecutiveErrors = 0;
             }
 
             SaveOrganization();
             InvokeOnUI(() => OnStateChanged?.Invoke());
 
             } // end try
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException)
+            {
+                reflectState.IsCancelled = true;
+                throw;
+            }
             catch (Exception ex)
             {
                 Debug($"Reflection iteration {reflectState.CurrentIteration} error: {ex.GetType().Name}: {ex.Message}");

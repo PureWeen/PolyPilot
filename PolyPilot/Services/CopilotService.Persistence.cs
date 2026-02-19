@@ -117,6 +117,7 @@ public partial class CopilotService
                             if (entry.DisplayName.StartsWith("__evaluator_") && !activeEvaluators.Contains(entry.DisplayName))
                             {
                                 Debug($"Pruning ghost evaluator session '{entry.DisplayName}' — not referenced by active cycle");
+                                _closedSessionIds[entry.SessionId] = 0; // prevent merge from re-adding
                                 continue;
                             }
                             // Skip if already active

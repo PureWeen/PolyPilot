@@ -61,7 +61,7 @@ public partial class ReflectionCycle
 
     /// <summary>
     /// Number of consecutive stalls detected. Exposed for diagnostics and warning UI.
-    /// Not serialized — private stall state (_recentHashes, _lastResponse) is not recoverable
+    /// Not serialized — private stall state (_recentResponses, _lastResponse) is not recoverable
     /// from JSON, so persisting this counter would create inconsistent state after restart.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
@@ -269,7 +269,7 @@ public partial class ReflectionCycle
 
     /// <summary>
     /// Checks if the response indicates a stall (repetitive or near-identical to previous).
-    /// Uses exact hash matching over a sliding window and Jaccard token similarity.
+    /// Uses exact string matching over a sliding window and Jaccard token similarity.
     /// </summary>
     public bool CheckStall(string response)
     {

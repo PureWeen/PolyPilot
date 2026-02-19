@@ -1783,7 +1783,7 @@ public class MultiAgentScenarioTests
     /// User flow:
     ///   1. Reflect loop is running, iteration 3
     ///   2. Workers keep producing similar output to iterations 1-2
-    ///   3. Hash-based stall detector triggers after 2 consecutive matches
+    ///   3. String-based stall detector triggers after 2 consecutive matches
     ///   4. Sidebar shows: "⚠️ Stalled after 3 iteration(s)"
     ///   5. AutoAdjust banner: "⚠️ Output repetition detected..."
     /// </summary>
@@ -1799,7 +1799,7 @@ public class MultiAgentScenarioTests
         state.CurrentIteration = 2;
         Assert.False(state.CheckStall("Second attempt: refactored joins to use CTEs"));
 
-        // Iteration 3: exact repeat of iteration 2 — CheckStall detects hash match immediately
+        // Iteration 3: exact repeat of iteration 2 — CheckStall detects string match immediately
         state.CurrentIteration = 3;
         Assert.True(state.CheckStall("Second attempt: refactored joins to use CTEs"));
         state.IsStalled = true; // In the real loop, Advance() sets this
