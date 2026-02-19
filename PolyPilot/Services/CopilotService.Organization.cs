@@ -1027,6 +1027,7 @@ public partial class CopilotService
         if (group?.ReflectionState == null) return;
 
         group.ReflectionState.IsActive = false;
+        group.ReflectionState.IsCancelled = true;
         group.ReflectionState.CompletedAt = DateTime.Now;
         SaveOrganization();
         OnStateChanged?.Invoke();
@@ -1095,7 +1096,21 @@ public partial class CopilotService
 
             if (assignments.Count == 0)
             {
-                // Orchestrator decided no more work needed
+                if (reflectState.CurrentIteration == 0)
+                {
+                    // First iteration with no assignments = orchestrator failed to delegate.
+                    // Treat as error, not goal met, so we can retry.
+                    AddOrchestratorSystemMessage(orchestratorName,
+                        "⚠️ No @worker assignments parsed from orchestrator response. Retrying...");
+                    reflectState.ConsecutiveErrors++;
+                    if (reflectState.ConsecutiveErrors >= 3)
+                    {
+                        reflectState.IsStalled = true;
+                        break;
+                    }
+                    continue;
+                }
+                // Later iterations: orchestrator decided no more work needed
                 reflectState.GoalMet = true;
                 AddOrchestratorSystemMessage(orchestratorName, $"✅ Orchestrator completed without delegation (iteration {reflectState.CurrentIteration}).");
                 break;
@@ -1199,15 +1214,15 @@ public partial class CopilotService
                 Debug($"Reflection iteration {reflectState.CurrentIteration} error: {ex.GetType().Name}: {ex.Message}");
                 // Decrement so we retry the same iteration, not skip ahead
                 reflectState.CurrentIteration--;
-                // But limit retries per iteration to 3
-                if (reflectState.ConsecutiveStalls >= 3)
+                // But limit retries per iteration to 3 (uses separate error counter)
+                if (reflectState.ConsecutiveErrors >= 3)
                 {
                     reflectState.IsStalled = true;
                     AddOrchestratorSystemMessage(orchestratorName,
                         $"⚠️ Iteration failed after retries: {ex.Message}");
                     break;
                 }
-                reflectState.ConsecutiveStalls++;
+                reflectState.ConsecutiveErrors++;
                 AddOrchestratorSystemMessage(orchestratorName,
                     $"⚠️ Iteration {reflectState.CurrentIteration + 1} error: {ex.Message}. Retrying...");
                 InvokeOnUI(() => OnStateChanged?.Invoke());

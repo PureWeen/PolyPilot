@@ -210,13 +210,18 @@ public partial class CopilotService
         }
 
         // Warn if receiving events on an orphaned (replaced) state object.
-        // We don't early-return here: both old and new SessionState share the same Info object
-        // (reconnect copies Info to newState), so CompleteResponse on the orphaned state still
-        // correctly clears IsProcessing on the live session's shared Info.
+        // After the generation-carry fix, stale callbacks on orphaned state would have
+        // matching generations and could incorrectly complete the new turn. Gate all
+        // terminal/mutating events to only fire on the current (live) state.
         if (!isCurrentState)
         {
             Debug($"[EVT-WARN] '{sessionName}' event {evt.GetType().Name} delivered to ORPHANED state " +
                   $"(not in _sessions). This handler should have been detached.");
+            // Allow non-mutating events (text deltas, tool output) to flow through
+            // since they only append to shared Info.History. But block terminal events
+            // that would clear IsProcessing or complete the TCS.
+            if (evt is SessionIdleEvent or SessionErrorEvent)
+                return;
         }
 
         void Invoke(Action action)
@@ -664,6 +669,8 @@ public partial class CopilotService
         // call must see IsProcessing=false or it throws "already processing".
         state.CurrentResponse.Clear();
         state.Info.IsProcessing = false;
+        state.Info.IsResumed = false; // After first successful completion, use normal watchdog timeouts
+        Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
         state.Info.LastUpdatedAt = DateTime.Now;
         state.ResponseCompletion?.TrySetResult(response);
         OnStateChanged?.Invoke();
@@ -841,7 +848,7 @@ public partial class CopilotService
             while (evalState.Info.IsProcessing && !cts.Token.IsCancellationRequested)
                 await Task.Delay(200, cts.Token);
 
-            evalState.ResponseCompletion = new TaskCompletionSource<string>();
+            evalState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             await SendPromptAsync(evaluatorName, evalPrompt, cancellationToken: cts.Token, skipHistoryMessage: true);
 
             // Wait for the evaluator response
@@ -1138,6 +1145,7 @@ public partial class CopilotService
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         state.Info.IsProcessing = false;
+                        Interlocked.Exchange(ref state.SendingFlag, 0);
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
                         state.ResponseCompletion?.TrySetResult("");

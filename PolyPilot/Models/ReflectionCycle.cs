@@ -55,9 +55,24 @@ public partial class ReflectionCycle
     public bool IsStalled { get; set; }
 
     /// <summary>
-    /// Number of consecutive stalls detected. Exposed for diagnostics and warning UI.
+    /// Whether the cycle was manually cancelled by the user via StopGroupReflection.
     /// </summary>
+    public bool IsCancelled { get; set; }
+
+    /// <summary>
+    /// Number of consecutive stalls detected. Exposed for diagnostics and warning UI.
+    /// Not serialized — private stall state (_recentHashes, _lastResponse) is not recoverable
+    /// from JSON, so persisting this counter would create inconsistent state after restart.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public int ConsecutiveStalls { get; internal set; }
+
+    /// <summary>
+    /// Number of consecutive errors in the reflection loop. Separate from ConsecutiveStalls
+    /// because stalls and errors have different thresholds and recovery strategies.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int ConsecutiveErrors { get; internal set; }
 
     /// <summary>
     /// Optional instructions on how to evaluate whether the goal has been met.
@@ -118,7 +133,7 @@ public partial class ReflectionCycle
     public List<string> PendingAdjustments { get; } = new();
 
     // Stall detection state (not serialized)
-    private readonly List<int> _recentHashes = new();
+    private readonly List<string> _recentResponses = new();
     private string _lastResponse = "";
 
     /// <summary>
@@ -127,9 +142,10 @@ public partial class ReflectionCycle
     /// </summary>
     public void ResetStallDetection()
     {
-        _recentHashes.Clear();
+        _recentResponses.Clear();
         _lastResponse = "";
         ConsecutiveStalls = 0;
+        ConsecutiveErrors = 0;
         ShouldWarnOnStall = false;
     }
 
@@ -262,16 +278,15 @@ public partial class ReflectionCycle
         bool isStall = false;
         LastSimilarity = 0.0;
 
-        // Exact repetition check over last 5 responses
-        int currentHash = response.GetHashCode();
-        if (_recentHashes.Contains(currentHash))
+        // Exact repetition check over last 5 responses (full string equality, no hash collisions)
+        if (_recentResponses.Contains(response))
         {
             isStall = true;
             LastSimilarity = 1.0;
         }
 
-        _recentHashes.Add(currentHash);
-        if (_recentHashes.Count > 5) _recentHashes.RemoveAt(0);
+        _recentResponses.Add(response);
+        if (_recentResponses.Count > 5) _recentResponses.RemoveAt(0);
 
         // Jaccard similarity with immediate predecessor
         if (!isStall && !string.IsNullOrEmpty(_lastResponse))
@@ -402,8 +417,8 @@ public partial class ReflectionCycle
     /// </summary>
     public string BuildCompletionSummary()
     {
-        var emoji = GoalMet ? "✅" : IsStalled ? "⚠️" : "⏱️";
-        var reasonText = GoalMet ? "Goal met" : IsStalled ? $"Stalled ({LastSimilarity:P0} similarity)" : $"Max iterations reached ({MaxIterations})";
+        var emoji = GoalMet ? "✅" : IsCancelled ? "⏹️" : IsStalled ? "⚠️" : "⏱️";
+        var reasonText = GoalMet ? "Goal met" : IsCancelled ? "Cancelled by user" : IsStalled ? $"Stalled ({LastSimilarity:P0} similarity)" : $"Max iterations reached ({MaxIterations})";
         var durationText = "";
         if (StartedAt.HasValue && CompletedAt.HasValue)
         {

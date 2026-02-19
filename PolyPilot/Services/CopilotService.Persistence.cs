@@ -101,10 +101,24 @@ public partial class CopilotService
                     Debug($"Restoring {entries.Count} previous sessions...");
                     IsRestoring = true;
 
+                    // Collect evaluator session names referenced by active reflection cycles
+                    var activeEvaluators = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var g in Organization.Groups)
+                    {
+                        if (g.ReflectionState?.IsActive == true && !string.IsNullOrEmpty(g.ReflectionState.EvaluatorSessionName))
+                            activeEvaluators.Add(g.ReflectionState.EvaluatorSessionName);
+                    }
+
                     foreach (var entry in entries)
                     {
                         try
                         {
+                            // Prune ghost evaluator sessions from crashed cycles
+                            if (entry.DisplayName.StartsWith("__evaluator_") && !activeEvaluators.Contains(entry.DisplayName))
+                            {
+                                Debug($"Pruning ghost evaluator session '{entry.DisplayName}' — not referenced by active cycle");
+                                continue;
+                            }
                             // Skip if already active
                             if (_sessions.ContainsKey(entry.DisplayName))
                             {
