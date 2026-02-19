@@ -204,6 +204,8 @@ public partial class CopilotService : IAsyncDisposable
         public bool SkipReflectionEvaluationOnce { get; set; }
         public long LastEventAtTicks = DateTime.UtcNow.Ticks;
         public CancellationTokenSource? ProcessingWatchdog { get; set; }
+        /// <summary>Number of tool calls started but not yet completed this turn.</summary>
+        public int ActiveToolCallCount;
     }
 
     private void Debug(string message)

@@ -40,9 +40,20 @@ public class ProcessingWatchdogTests
     [Fact]
     public void WatchdogInactivityTimeout_IsReasonable()
     {
-        // Timeout must be long enough for legitimate tool executions (>60s)
+        // Timeout must be long enough for legitimate pauses (>60s)
         // but short enough to recover from dead connections (<300s).
         Assert.InRange(CopilotService.WatchdogInactivityTimeoutSeconds, 60, 300);
+    }
+
+    [Fact]
+    public void WatchdogToolExecutionTimeout_IsReasonable()
+    {
+        // Tool execution timeout must be long enough for long-running tools
+        // (e.g., UI tests, builds) but not infinite.
+        Assert.InRange(CopilotService.WatchdogToolExecutionTimeoutSeconds, 300, 1800);
+        Assert.True(
+            CopilotService.WatchdogToolExecutionTimeoutSeconds > CopilotService.WatchdogInactivityTimeoutSeconds,
+            "Tool execution timeout must be greater than base inactivity timeout");
     }
 
     [Fact]
@@ -93,10 +104,10 @@ public class ProcessingWatchdogTests
     public void SystemMessage_ConnectionLost_HasExpectedContent()
     {
         var msg = ChatMessage.SystemMessage(
-            "⚠️ Connection lost — no response received. You can try sending your message again.");
+            "⚠️ Session appears stuck — no response received. You can try sending your message again.");
 
         Assert.Equal("system", msg.Role);
-        Assert.Contains("Connection lost", msg.Content);
+        Assert.Contains("appears stuck", msg.Content);
         Assert.Contains("try sending", msg.Content);
     }
 
@@ -188,12 +199,12 @@ public class ProcessingWatchdogTests
         // Simulate what the watchdog does when clearing stuck state
         info.IsProcessing = true;
         info.History.Add(ChatMessage.SystemMessage(
-            "⚠️ Connection lost — no response received. You can try sending your message again."));
+            "⚠️ Session appears stuck — no response received. You can try sending your message again."));
         info.IsProcessing = false;
 
         Assert.Single(info.History);
         Assert.Equal(ChatMessageType.System, info.History[0].MessageType);
-        Assert.Contains("Connection lost", info.History[0].Content);
+        Assert.Contains("appears stuck", info.History[0].Content);
         Assert.False(info.IsProcessing);
     }
 

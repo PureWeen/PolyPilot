@@ -155,6 +155,7 @@ public class ScenarioReferenceTests
     /// Scenario: "stuck-session-recovery-after-server-disconnect"
     /// Unit test equivalents: ProcessingWatchdogTests.WatchdogCheckInterval_IsReasonable,
     ///   ProcessingWatchdogTests.WatchdogInactivityTimeout_IsReasonable,
+    ///   ProcessingWatchdogTests.WatchdogToolExecutionTimeout_IsReasonable,
     ///   ProcessingWatchdogTests.SystemMessage_ConnectionLost_HasExpectedContent,
     ///   ProcessingWatchdogTests.SystemMessage_AddedToHistory_IsVisible
     /// </summary>

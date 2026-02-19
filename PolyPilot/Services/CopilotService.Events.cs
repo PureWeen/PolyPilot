@@ -274,6 +274,7 @@ public partial class CopilotService
 
             case ToolExecutionStartEvent toolStart:
                 if (toolStart.Data == null) break;
+                Interlocked.Increment(ref state.ActiveToolCallCount);
                 var startToolName = toolStart.Data.ToolName ?? "unknown";
                 var startCallId = toolStart.Data.ToolCallId ?? "";
                 var toolInput = ExtractToolInput(toolStart.Data);
@@ -309,6 +310,7 @@ public partial class CopilotService
 
             case ToolExecutionCompleteEvent toolDone:
                 if (toolDone.Data == null) break;
+                Interlocked.Decrement(ref state.ActiveToolCallCount);
                 var completeCallId = toolDone.Data.ToolCallId ?? "";
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
                 var resultStr = FormatToolResult(toolDone.Data!.Result);
@@ -351,6 +353,7 @@ public partial class CopilotService
 
             case AssistantTurnStartEvent:
                 state.HasReceivedDeltasThisTurn = false;
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 Invoke(() =>
                 {
                     OnTurnStart?.Invoke(sessionName);
@@ -1030,8 +1033,11 @@ public partial class CopilotService
 
     /// <summary>Interval between watchdog checks in seconds.</summary>
     internal const int WatchdogCheckIntervalSeconds = 15;
-    /// <summary>If no SDK events arrive for this many seconds, the session is considered stuck.</summary>
+    /// <summary>If no SDK events arrive for this many seconds (and no tool is running), the session is considered stuck.</summary>
     internal const int WatchdogInactivityTimeoutSeconds = 120;
+    /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
+    /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
+    internal const int WatchdogToolExecutionTimeoutSeconds = 600;
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
@@ -1064,9 +1070,14 @@ public partial class CopilotService
 
                 var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
                 var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
-                if (elapsed >= WatchdogInactivityTimeoutSeconds)
+                var hasActiveTool = Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0;
+                var effectiveTimeout = hasActiveTool ? WatchdogToolExecutionTimeoutSeconds : WatchdogInactivityTimeoutSeconds;
+
+                if (elapsed >= effectiveTimeout)
                 {
-                    Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s, clearing stuck processing state");
+                    var timeoutMinutes = effectiveTimeout / 60;
+                    Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
+                          $"(timeout={effectiveTimeout}s, hasActiveTool={hasActiveTool}), clearing stuck processing state");
                     // Marshal all state mutations to the UI thread to avoid
                     // racing with CompleteResponse / HandleSessionEvent.
                     InvokeOnUI(() =>
@@ -1075,9 +1086,9 @@ public partial class CopilotService
                         CancelProcessingWatchdog(state);
                         state.Info.IsProcessing = false;
                         state.Info.History.Add(ChatMessage.SystemMessage(
-                            "⚠️ Connection lost — no response received. You can try sending your message again."));
+                            "⚠️ Session appears stuck — no response received. You can try sending your message again."));
                         state.ResponseCompletion?.TrySetResult("");
-                        OnError?.Invoke(sessionName, $"Connection appears lost — no events received for over {WatchdogInactivityTimeoutSeconds / 60} minute(s).");
+                        OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutMinutes} minute(s).");
                         OnStateChanged?.Invoke();
                     });
                     break;
