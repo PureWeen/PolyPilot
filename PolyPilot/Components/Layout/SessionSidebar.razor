@@ -87,9 +87,16 @@ else
                 <div class="bug-report-inline">
                     <div class="bug-report-header">
                         <span>Report a Bug</span>
-                        <button class="flyout-close-btn" @onclick="CloseFooterPanel">✕</button>
+                        <button class="flyout-close-btn" @onclick="CloseFooterPanel" aria-label="Close panel">✕</button>
                     </div>
-                    <textarea class="bug-report-textarea" @bind="bugDescription" placeholder="Describe the issue you're seeing…"></textarea>
+                    <select class="bug-report-select" @bind="selectedBugSession" aria-label="Select session to report">
+                        <option value="">No specific session</option>
+                        @foreach (var s in CopilotService.GetAllSessions())
+                        {
+                            <option value="@s.Name">@s.Name@(s.IsProcessing ? " (Thinking)" : "")</option>
+                        }
+                    </select>
+                    <textarea class="bug-report-textarea" @bind="bugDescription" placeholder="Describe the issue you're seeing…" aria-label="Bug description"></textarea>
                     <details class="bug-report-details">
                         <summary>Debug info included</summary>
                         <pre class="bug-report-debug">@GetBugReportDebugInfo()</pre>
@@ -110,9 +117,16 @@ else
                 <div class="bug-report-inline">
                     <div class="bug-report-header">
                         <span>Fix a Bug / Add Feature</span>
-                        <button class="flyout-close-btn" @onclick="CloseFooterPanel">✕</button>
+                        <button class="flyout-close-btn" @onclick="CloseFooterPanel" aria-label="Close panel">✕</button>
                     </div>
-                    <textarea class="bug-report-textarea" @bind="bugDescription" placeholder="Describe what to fix or build…"></textarea>
+                    <select class="bug-report-select" @bind="selectedBugSession" aria-label="Select session">
+                        <option value="">No specific session</option>
+                        @foreach (var s in CopilotService.GetAllSessions())
+                        {
+                            <option value="@s.Name">@s.Name@(s.IsProcessing ? " (Thinking)" : "")</option>
+                        }
+                    </select>
+                    <textarea class="bug-report-textarea" @bind="bugDescription" placeholder="Describe what to fix or build…" aria-label="Description"></textarea>
                     <details class="bug-report-details">
                         <summary>Debug info included</summary>
                         <pre class="bug-report-debug">@GetBugReportDebugInfo()</pre>
@@ -345,7 +359,9 @@ else
                                              OnStartRename="() => StartRename(sName)"
                                              OnCommitRename="CommitRename"
                                              OnToggleMenu="() => ToggleSessionMenu(sName)"
-                                             OnCloseMenu="() => { openMenuSession = null; }" />
+                                             OnCloseMenu="() => { openMenuSession = null; }"
+                                             OnReportBug="() => OpenBugReportForSession(sName)"
+                                             OnFixWithCopilot="() => OpenFixItForSession(sName)" />
                         }
                     }
                 }
@@ -938,6 +954,7 @@ else
     private bool showBugReport;
     private bool showFixIt;
     private string bugDescription = "";
+    private string selectedBugSession = "";
     private bool footerSubmitting;
     private string? footerStatus;
 
@@ -946,6 +963,7 @@ else
         showBugReport = true;
         showFixIt = false;
         bugDescription = "";
+        selectedBugSession = "";
         footerStatus = null;
         StateHasChanged();
     }
@@ -955,7 +973,22 @@ else
         showFixIt = true;
         showBugReport = false;
         bugDescription = "";
+        selectedBugSession = "";
         footerStatus = null;
+        StateHasChanged();
+    }
+
+    private void OpenBugReportForSession(string sessionName)
+    {
+        OpenBugReport();
+        selectedBugSession = sessionName;
+        StateHasChanged();
+    }
+
+    private void OpenFixItForSession(string sessionName)
+    {
+        OpenFixIt();
+        selectedBugSession = sessionName;
         StateHasChanged();
     }
 
@@ -982,6 +1015,20 @@ else
         if (!string.IsNullOrEmpty(CopilotService.FallbackNotice))
             sb.AppendLine($"FallbackNotice: {CopilotService.FallbackNotice}");
         sb.AppendLine($"LastDebug: {CopilotService.LastDebugMessage}");
+
+        if (!string.IsNullOrEmpty(selectedBugSession))
+        {
+            var session = CopilotService.GetAllSessions().FirstOrDefault(s => s.Name == selectedBugSession);
+            if (session != null)
+            {
+                sb.AppendLine($"--- Selected Session: {session.Name} ---");
+                sb.AppendLine($"IsProcessing: {session.IsProcessing}");
+                sb.AppendLine($"Model: {session.Model}");
+                sb.AppendLine($"MessageCount: {session.MessageCount}");
+                sb.AppendLine($"LastUpdatedAt: {session.LastUpdatedAt:o}");
+                sb.AppendLine($"WorkingDirectory: {session.WorkingDirectory}");
+            }
+        }
 
         try
         {
@@ -1018,12 +1065,13 @@ else
         try
         {
             var debugInfo = GetBugReportDebugInfo();
+            var sessionLabel = !string.IsNullOrEmpty(selectedBugSession) ? $" [{selectedBugSession}]" : "";
             var body = $"## Description\n{bugDescription.Trim()}\n\n## Debug Info\n```\n{debugInfo}\n```";
             var title = bugDescription.Trim().Split('\n')[0];
             if (title.Length > 80) title = title[..80];
 
             var psi = new System.Diagnostics.ProcessStartInfo("gh",
-                $"issue create --repo PureWeen/PolyPilot --title \"[Bug Report] {EscapeForShell(title)}\" --body \"{EscapeForShell(body)}\" --label bug")
+                $"issue create --repo PureWeen/PolyPilot --title \"[Bug Report]{EscapeForShell(sessionLabel)} {EscapeForShell(title)}\" --body \"{EscapeForShell(body)}\" --label bug")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -1081,6 +1129,8 @@ else
         {
             var debugInfo = GetBugReportDebugInfo();
             var desc = bugDescription.Trim();
+            if (!string.IsNullOrEmpty(selectedBugSession))
+                desc = $"[Session: {selectedBugSession}] {desc}";
             var slugTitle = new string(desc.Split('\n')[0]
                 .Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '-')
                 .ToArray())

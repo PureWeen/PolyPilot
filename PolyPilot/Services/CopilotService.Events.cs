@@ -196,7 +196,7 @@ public partial class CopilotService
 
     private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
-        state.HasReceivedEventsSinceResume = true;
+        Volatile.Write(ref state.HasReceivedEventsSinceResume, true);
         Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         var sessionName = state.Info.Name;
         var isCurrentState = _sessions.TryGetValue(sessionName, out var current) && ReferenceEquals(current, state);
@@ -274,6 +274,7 @@ public partial class CopilotService
 
             case ToolExecutionStartEvent toolStart:
                 if (toolStart.Data == null) break;
+                Interlocked.Increment(ref state.ActiveToolCallCount);
                 var startToolName = toolStart.Data.ToolName ?? "unknown";
                 var startCallId = toolStart.Data.ToolCallId ?? "";
                 var toolInput = ExtractToolInput(toolStart.Data);
@@ -309,6 +310,7 @@ public partial class CopilotService
 
             case ToolExecutionCompleteEvent toolDone:
                 if (toolDone.Data == null) break;
+                Interlocked.Decrement(ref state.ActiveToolCallCount);
                 var completeCallId = toolDone.Data.ToolCallId ?? "";
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
                 var resultStr = FormatToolResult(toolDone.Data!.Result);
@@ -351,6 +353,7 @@ public partial class CopilotService
 
             case AssistantTurnStartEvent:
                 state.HasReceivedDeltasThisTurn = false;
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 Invoke(() =>
                 {
                     OnTurnStart?.Invoke(sessionName);
@@ -377,12 +380,17 @@ public partial class CopilotService
                 {
                     Debug($"[EVT-ERR] '{sessionName}' CompleteReasoningMessages threw before CompleteResponse: {ex}");
                 }
+                // Capture the generation at the time the IDLE event arrives (on the SDK thread).
+                // CompleteResponse will verify this matches the current generation to avoid
+                // completing a turn that was superseded by a new SendPromptAsync call.
+                var idleGeneration = Interlocked.Read(ref state.ProcessingGeneration);
                 Invoke(() =>
                 {
                     Debug($"[IDLE] '{sessionName}' CompleteResponse dispatched " +
                           $"(syncCtx={(_syncContext != null ? "UI" : "inline")}, " +
-                          $"IsProcessing={state.Info.IsProcessing}, thread={Environment.CurrentManagedThreadId})");
-                    CompleteResponse(state);
+                          $"IsProcessing={state.Info.IsProcessing}, gen={idleGeneration}/{Interlocked.Read(ref state.ProcessingGeneration)}, " +
+                          $"thread={Environment.CurrentManagedThreadId})");
+                    CompleteResponse(state, idleGeneration);
                 });
                 // Refresh git branch — agent may have switched branches
                 state.Info.GitBranch = GetGitBranch(state.Info.WorkingDirectory);
@@ -603,12 +611,32 @@ public partial class CopilotService
         state.HasReceivedDeltasThisTurn = false;
     }
 
-    private void CompleteResponse(SessionState state)
+    /// <summary>
+    /// Completes the current response for a session. The <paramref name="expectedGeneration"/>
+    /// parameter prevents a stale IDLE callback from completing a different turn than the one
+    /// that produced it. Pass <c>null</c> to skip the generation check (e.g. from error paths
+    /// or the watchdog where we always want to force-complete).
+    /// </summary>
+    private void CompleteResponse(SessionState state, long? expectedGeneration = null)
     {
         if (!state.Info.IsProcessing)
         {
             Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse skipped — IsProcessing already false");
             return; // Already completed (e.g. timeout)
+        }
+
+        // Guard against the SEND/COMPLETE race: if a new SendPromptAsync incremented the
+        // generation between when SessionIdleEvent was received and when this callback
+        // executes on the UI thread, this IDLE belongs to the OLD turn — skip it.
+        if (expectedGeneration.HasValue)
+        {
+            var currentGen = Interlocked.Read(ref state.ProcessingGeneration);
+            if (expectedGeneration.Value != currentGen)
+            {
+                Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse skipped — generation mismatch " +
+                      $"(idle={expectedGeneration.Value}, current={currentGen}). A new SEND superseded this turn.");
+                return;
+            }
         }
         
         Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse executing " +
@@ -1030,8 +1058,11 @@ public partial class CopilotService
 
     /// <summary>Interval between watchdog checks in seconds.</summary>
     internal const int WatchdogCheckIntervalSeconds = 15;
-    /// <summary>If no SDK events arrive for this many seconds, the session is considered stuck.</summary>
+    /// <summary>If no SDK events arrive for this many seconds (and no tool is running), the session is considered stuck.</summary>
     internal const int WatchdogInactivityTimeoutSeconds = 120;
+    /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
+    /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
+    internal const int WatchdogToolExecutionTimeoutSeconds = 600;
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
@@ -1064,20 +1095,37 @@ public partial class CopilotService
 
                 var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
                 var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
-                if (elapsed >= WatchdogInactivityTimeoutSeconds)
+                var hasActiveTool = Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0;
+                var effectiveTimeout = hasActiveTool ? WatchdogToolExecutionTimeoutSeconds : WatchdogInactivityTimeoutSeconds;
+
+                if (elapsed >= effectiveTimeout)
                 {
-                    Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s, clearing stuck processing state");
+                    var timeoutMinutes = effectiveTimeout / 60;
+                    Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
+                          $"(timeout={effectiveTimeout}s, hasActiveTool={hasActiveTool}), clearing stuck processing state");
+                    // Capture generation before posting — same guard pattern as CompleteResponse.
+                    // Prevents a stale watchdog callback from killing a new turn if the user
+                    // aborts + resends between the Post() and the callback execution.
+                    var watchdogGeneration = Interlocked.Read(ref state.ProcessingGeneration);
                     // Marshal all state mutations to the UI thread to avoid
                     // racing with CompleteResponse / HandleSessionEvent.
                     InvokeOnUI(() =>
                     {
                         if (!state.Info.IsProcessing) return; // Already completed
+                        var currentGen = Interlocked.Read(ref state.ProcessingGeneration);
+                        if (watchdogGeneration != currentGen)
+                        {
+                            Debug($"Session '{sessionName}' watchdog callback skipped — generation mismatch " +
+                                  $"(watchdog={watchdogGeneration}, current={currentGen}). A new SEND superseded this turn.");
+                            return;
+                        }
                         CancelProcessingWatchdog(state);
+                        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.Info.IsProcessing = false;
                         state.Info.History.Add(ChatMessage.SystemMessage(
-                            "⚠️ Connection lost — no response received. You can try sending your message again."));
+                            "⚠️ Session appears stuck — no response received. You can try sending your message again."));
                         state.ResponseCompletion?.TrySetResult("");
-                        OnError?.Invoke(sessionName, $"Connection appears lost — no events received for over {WatchdogInactivityTimeoutSeconds / 60} minute(s).");
+                        OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutMinutes} minute(s).");
                         OnStateChanged?.Invoke();
                     });
                     break;
