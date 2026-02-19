@@ -1167,6 +1167,10 @@ public partial class CopilotService : IAsyncDisposable
             state.ResponseCompletion = new TaskCompletionSource<string>();
             Debug($"Session '{displayName}' is still processing (was mid-turn when app restarted)");
 
+            // Start the processing watchdog so the session doesn't get stuck
+            // forever if the CLI goes silent after resume (same as SendPromptAsync).
+            StartProcessingWatchdog(state, displayName);
+
             _ = Task.Run(async () =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(10));
@@ -1174,6 +1178,7 @@ public partial class CopilotService : IAsyncDisposable
                 {
                     Debug($"Session '{displayName}' processing timeout — no new events after resume, clearing stale state");
                     state.Info.IsProcessing = false;
+                    Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                     state.ResponseCompletion?.TrySetResult("timeout");
                     state.Info.History.Add(ChatMessage.SystemMessage("⏹ Previous turn appears to have ended. Ready for new input."));
                     InvokeOnUI(() => OnStateChanged?.Invoke());
