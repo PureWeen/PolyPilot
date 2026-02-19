@@ -380,12 +380,17 @@ public partial class CopilotService
                 {
                     Debug($"[EVT-ERR] '{sessionName}' CompleteReasoningMessages threw before CompleteResponse: {ex}");
                 }
+                // Capture the generation at the time the IDLE event arrives (on the SDK thread).
+                // CompleteResponse will verify this matches the current generation to avoid
+                // completing a turn that was superseded by a new SendPromptAsync call.
+                var idleGeneration = Interlocked.Read(ref state.ProcessingGeneration);
                 Invoke(() =>
                 {
                     Debug($"[IDLE] '{sessionName}' CompleteResponse dispatched " +
                           $"(syncCtx={(_syncContext != null ? "UI" : "inline")}, " +
-                          $"IsProcessing={state.Info.IsProcessing}, thread={Environment.CurrentManagedThreadId})");
-                    CompleteResponse(state);
+                          $"IsProcessing={state.Info.IsProcessing}, gen={idleGeneration}/{Interlocked.Read(ref state.ProcessingGeneration)}, " +
+                          $"thread={Environment.CurrentManagedThreadId})");
+                    CompleteResponse(state, idleGeneration);
                 });
                 // Refresh git branch — agent may have switched branches
                 state.Info.GitBranch = GetGitBranch(state.Info.WorkingDirectory);
@@ -606,12 +611,32 @@ public partial class CopilotService
         state.HasReceivedDeltasThisTurn = false;
     }
 
-    private void CompleteResponse(SessionState state)
+    /// <summary>
+    /// Completes the current response for a session. The <paramref name="expectedGeneration"/>
+    /// parameter prevents a stale IDLE callback from completing a different turn than the one
+    /// that produced it. Pass <c>null</c> to skip the generation check (e.g. from error paths
+    /// or the watchdog where we always want to force-complete).
+    /// </summary>
+    private void CompleteResponse(SessionState state, long? expectedGeneration = null)
     {
         if (!state.Info.IsProcessing)
         {
             Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse skipped — IsProcessing already false");
             return; // Already completed (e.g. timeout)
+        }
+
+        // Guard against the SEND/COMPLETE race: if a new SendPromptAsync incremented the
+        // generation between when SessionIdleEvent was received and when this callback
+        // executes on the UI thread, this IDLE belongs to the OLD turn — skip it.
+        if (expectedGeneration.HasValue)
+        {
+            var currentGen = Interlocked.Read(ref state.ProcessingGeneration);
+            if (expectedGeneration.Value != currentGen)
+            {
+                Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse skipped — generation mismatch " +
+                      $"(idle={expectedGeneration.Value}, current={currentGen}). A new SEND superseded this turn.");
+                return;
+            }
         }
         
         Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse executing " +

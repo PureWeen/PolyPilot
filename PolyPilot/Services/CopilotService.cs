@@ -206,6 +206,12 @@ public partial class CopilotService : IAsyncDisposable
         public CancellationTokenSource? ProcessingWatchdog { get; set; }
         /// <summary>Number of tool calls started but not yet completed this turn.</summary>
         public int ActiveToolCallCount;
+        /// <summary>
+        /// Monotonically increasing counter incremented each time a new prompt is sent.
+        /// Used by CompleteResponse to avoid completing a different turn than the one
+        /// that produced the SessionIdleEvent (race between SEND and queued COMPLETE).
+        /// </summary>
+        public long ProcessingGeneration;
     }
 
     private void Debug(string message)
@@ -1438,7 +1444,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             throw new InvalidOperationException("Session is already processing a request.");
 
         state.Info.IsProcessing = true;
-        Debug($"[SEND] '{sessionName}' IsProcessing=true (thread={Environment.CurrentManagedThreadId})");
+        Interlocked.Increment(ref state.ProcessingGeneration);
+        Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>();
         state.CurrentResponse.Clear();
         StartProcessingWatchdog(state, sessionName);

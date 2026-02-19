@@ -368,4 +368,66 @@ public class ProcessingWatchdogTests
         Assert.True(stateChangedCount > 0,
             "OnStateChanged must fire during reconnect so UI updates");
     }
+
+    // ===========================================================================
+    // Regression tests for: SEND/COMPLETE race condition (generation counter)
+    //
+    // When SessionIdleEvent queues CompleteResponse via SyncContext.Post(),
+    // a new SendPromptAsync can sneak in before the callback executes.
+    // Without a generation counter, CompleteResponse would clear the NEW send's
+    // IsProcessing state, causing the new turn's events to become "ghost events".
+    //
+    // Evidence from diagnostic log (13:00:00 race):
+    //   13:00:00.238 [EVT] SessionIdleEvent   ← IDLE arrives
+    //   13:00:00.242 [IDLE] queued             ← Post() to UI thread
+    //   13:00:00.251 [SEND] IsProcessing=true  ← NEW SEND sneaks in!
+    //   13:00:00.261 [COMPLETE] responseLen=0  ← Completes WRONG turn
+    // ===========================================================================
+
+    [Fact]
+    public async Task DemoMode_RapidSends_NoGhostState()
+    {
+        // Verify that rapid sequential sends in demo mode don't leave
+        // IsProcessing in an inconsistent state.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("rapid-send");
+
+        for (int i = 0; i < 10; i++)
+        {
+            await svc.SendPromptAsync("rapid-send", $"Message {i}");
+            Assert.False(session.IsProcessing,
+                $"IsProcessing should be false after send {i} completes");
+        }
+
+        // All messages should have been processed
+        Assert.True(session.History.Count >= 10,
+            "All rapid sends should produce responses in demo mode");
+    }
+
+    [Fact]
+    public async Task DemoMode_SendAfterComplete_ProcessingStateClean()
+    {
+        // Simulates the scenario where a send follows immediately after
+        // a completion — the generation counter should prevent the old
+        // IDLE's CompleteResponse from affecting the new send.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("send-after-complete");
+
+        // First send completes normally
+        await svc.SendPromptAsync("send-after-complete", "First message");
+        Assert.False(session.IsProcessing, "First send should complete");
+
+        // Second send immediately after — in real code, a stale IDLE callback
+        // from the first turn could race with this send.
+        await svc.SendPromptAsync("send-after-complete", "Second message");
+        Assert.False(session.IsProcessing, "Second send should also complete");
+
+        // Both messages should be in history
+        Assert.True(session.History.Count >= 2,
+            "Both messages should produce responses");
+    }
 }
