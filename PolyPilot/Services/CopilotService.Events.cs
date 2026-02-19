@@ -1109,6 +1109,7 @@ public partial class CopilotService
                     {
                         if (!state.Info.IsProcessing) return; // Already completed
                         CancelProcessingWatchdog(state);
+                        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.Info.IsProcessing = false;
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
