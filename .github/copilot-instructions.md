@@ -56,6 +56,8 @@ For Android, always run `adb reverse tcp:9223 tcp:9223` after deploy.
 
 ## Architecture
 
+**See `docs/multi-agent-orchestration.md` for the multi-agent architecture spec** (orchestration modes, reflection loop, sentinel protocol, invariants). Test scenarios in `PolyPilot.Tests/Scenarios/multi-agent-scenarios.json`. Read these before modifying orchestration, reconciliation, or TCS completion logic.
+
 This is a .NET MAUI Blazor Hybrid app targeting Mac Catalyst, Android, and iOS. It manages multiple GitHub Copilot CLI sessions through a native GUI.
 
 ### Three-Layer Stack

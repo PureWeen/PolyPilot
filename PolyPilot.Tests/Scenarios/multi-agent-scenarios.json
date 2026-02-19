@@ -1,0 +1,174 @@
+{
+  "description": "Multi-agent orchestration scenarios for PolyPilot. Tests cover the OrchestratorReflect loop, stall detection, reconciliation stability, and group lifecycle. Each scenario can be executed against a running app using MauiDevFlow CDP commands. See docs/multi-agent-orchestration.md for the architecture spec.",
+  "prerequisites": {
+    "build": "cd PolyPilot && .\\relaunch.ps1",
+    "waitForAgent": "maui-devflow MAUI status",
+    "initialMode": "Persistent",
+    "notes": "App must be in Persistent or Demo mode. Multi-agent features require at least one worktree configured."
+  },
+  "scenarios": [
+    {
+      "id": "reflect-loop-completes-goal-met",
+      "name": "OrchestratorReflect loop runs to goal completion",
+      "description": "Verifies the full plan-dispatch-collect-evaluate loop runs and exits when the evaluator signals [[GROUP_REFLECT_COMPLETE]] or scores >= 0.9.",
+      "invariants": [
+        "ReflectionState.GoalMet == true on exit",
+        "ReflectionState.IsActive == false on exit",
+        "ReflectionState.CurrentIteration >= 1",
+        "All workers received prompts containing the original user request"
+      ],
+      "steps": [
+        { "action": "navigate", "route": "/multi-agent" },
+        { "action": "createGroup", "mode": "OrchestratorReflect", "workers": 2, "maxIterations": 3 },
+        { "action": "sendPrompt", "text": "Analyze the project structure and suggest improvements" },
+        { "action": "waitForPhase", "phase": "Planning", "timeout": 30 },
+        { "action": "waitForPhase", "phase": "Dispatching", "timeout": 60 },
+        { "action": "waitForPhase", "phase": "WaitingForWorkers", "timeout": 120 },
+        { "action": "waitForPhase", "phase": "Synthesizing", "timeout": 60 },
+        { "action": "waitForPhase", "phase": "Complete", "timeout": 600 },
+        { "action": "assertReflectionState", "field": "IsActive", "expected": false },
+        { "action": "assertReflectionState", "field": "CurrentIteration", "operator": ">=", "value": 1 }
+      ]
+    },
+    {
+      "id": "reflect-loop-max-iterations",
+      "name": "OrchestratorReflect stops at MaxIterations",
+      "description": "Verifies the loop exits when MaxIterations is reached without the goal being met.",
+      "invariants": [
+        "ReflectionState.CurrentIteration == MaxIterations on exit",
+        "ReflectionState.GoalMet == false",
+        "ReflectionState.IsActive == false"
+      ],
+      "steps": [
+        { "action": "createGroup", "mode": "OrchestratorReflect", "workers": 1, "maxIterations": 2 },
+        { "action": "sendPrompt", "text": "Write a perfect novel (intentionally impossible in 2 iterations)" },
+        { "action": "waitForPhase", "phase": "Complete", "timeout": 600 },
+        { "action": "assertReflectionState", "field": "CurrentIteration", "expected": 2 },
+        { "action": "assertReflectionState", "field": "GoalMet", "expected": false }
+      ]
+    },
+    {
+      "id": "stall-detection-triggers",
+      "name": "Stall detection fires after 2 consecutive similar responses",
+      "description": "Verifies that if the orchestrator synthesis is >90% similar (Jaccard) for 2 consecutive iterations, the loop stops with IsStalled=true.",
+      "invariants": [
+        "ReflectionState.IsStalled == true on exit",
+        "ReflectionState.ConsecutiveStalls >= 2",
+        "ReflectionState.LastSimilarity > 0.9"
+      ],
+      "steps": [
+        { "action": "createGroup", "mode": "OrchestratorReflect", "workers": 1, "maxIterations": 10 },
+        { "action": "sendPrompt", "text": "Repeat the same analysis over and over" },
+        { "action": "waitForPhase", "phase": "Complete", "timeout": 600 },
+        { "action": "assertReflectionState", "field": "IsStalled", "expected": true }
+      ]
+    },
+    {
+      "id": "group-survives-restart",
+      "name": "Multi-agent group persists across app restart",
+      "description": "Verifies that after creating a multi-agent group, killing the app, and relaunching, the group still exists with all sessions correctly assigned.",
+      "invariants": [
+        "Group.IsMultiAgent == true after restart",
+        "All sessions retain their GroupId",
+        "Orchestrator session retains Role == Orchestrator",
+        "Worker sessions retain PreferredModel values",
+        "No sessions scattered to repo groups"
+      ],
+      "steps": [
+        { "action": "createGroup", "mode": "OrchestratorReflect", "name": "Restart Test", "workers": 2 },
+        { "action": "captureGroupState", "capture": "beforeRestart" },
+        { "action": "restartApp" },
+        { "action": "waitForAgent", "timeout": 120 },
+        { "action": "captureGroupState", "capture": "afterRestart" },
+        { "action": "assertEqual", "left": "beforeRestart.groupCount", "right": "afterRestart.groupCount" },
+        { "action": "assertEqual", "left": "beforeRestart.sessionNames", "right": "afterRestart.sessionNames" },
+        { "action": "assertOrgJson", "check": "noSessionsInDefaultWithMultiAgentMarkers" }
+      ]
+    },
+    {
+      "id": "reconciliation-protects-multi-agent",
+      "name": "Reconciliation does not scatter multi-agent sessions",
+      "description": "Verifies that ReconcileOrganization() does not move sessions with Role=Orchestrator or PreferredModel!=null out of their multi-agent group into repo groups.",
+      "invariants": [
+        "Sessions with IsMultiAgent group membership are never auto-moved",
+        "Orphaned sessions with Role==Orchestrator or PreferredModel!=null stay in _default",
+        "Regular sessions (no markers) ARE auto-moved to repo groups normally"
+      ],
+      "steps": [
+        { "action": "createGroup", "mode": "Orchestrator", "workers": 2 },
+        { "action": "readOrgJson", "capture": "orgBefore" },
+        { "action": "restartApp" },
+        { "action": "readOrgJson", "capture": "orgAfter" },
+        { "action": "assertGroupMembership", "unchanged": true }
+      ]
+    },
+    {
+      "id": "delete-group-no-contamination",
+      "name": "Deleted group sessions don't contaminate new groups",
+      "description": "Verifies that deleting a multi-agent group and creating a new one produces a clean group with no leftover sessions from the old one.",
+      "steps": [
+        { "action": "createGroup", "mode": "OrchestratorReflect", "name": "Group A", "workers": 2 },
+        { "action": "captureGroupState", "capture": "groupA" },
+        { "action": "deleteGroup", "name": "Group A" },
+        { "action": "createGroup", "mode": "OrchestratorReflect", "name": "Group B", "workers": 2 },
+        { "action": "captureGroupState", "capture": "groupB" },
+        { "action": "assertNoOverlap", "left": "groupA.sessionNames", "right": "groupB.sessionNames" }
+      ]
+    },
+    {
+      "id": "broadcast-mode-all-receive",
+      "name": "Broadcast mode sends to all sessions",
+      "description": "Verifies that in Broadcast mode, the same prompt is sent to all sessions simultaneously.",
+      "steps": [
+        { "action": "createGroup", "mode": "Broadcast", "workers": 3 },
+        { "action": "sendPrompt", "text": "Hello from broadcast" },
+        { "action": "waitForAllSessions", "state": "idle", "timeout": 120 },
+        { "action": "assertAllSessionsReceived", "text": "Hello from broadcast" }
+      ]
+    },
+    {
+      "id": "orchestrator-single-pass",
+      "name": "Orchestrator mode runs one pass without iteration",
+      "description": "Verifies that Orchestrator (non-reflect) mode plans, dispatches, collects, and synthesizes exactly once.",
+      "steps": [
+        { "action": "createGroup", "mode": "Orchestrator", "workers": 2 },
+        { "action": "sendPrompt", "text": "Review this code" },
+        { "action": "waitForPhase", "phase": "Complete", "timeout": 300 },
+        { "action": "assertOrchestratorSynthesized" },
+        { "action": "assertNoReflectionLoop", "note": "Should not have iterated" }
+      ]
+    },
+    {
+      "id": "tcs-ordering-reflection-continues",
+      "name": "Reflection loop continues past iteration 1 (TCS ordering invariant)",
+      "description": "Regression test for the bug where IsProcessing was set to false AFTER TrySetResult, causing the next SendPromptAsync to throw. The loop must reach at least iteration 2.",
+      "invariants": [
+        "IsProcessing = false BEFORE TrySetResult in CompleteResponse",
+        "ReflectionState.CurrentIteration >= 2 (proves loop continued)"
+      ],
+      "steps": [
+        { "action": "createGroup", "mode": "OrchestratorReflect", "workers": 1, "maxIterations": 3 },
+        { "action": "sendPrompt", "text": "Iterate on this multiple times" },
+        { "action": "waitForPhase", "phase": "Complete", "timeout": 600 },
+        { "action": "assertReflectionState", "field": "CurrentIteration", "operator": ">=", "value": 2 }
+      ]
+    },
+    {
+      "id": "preset-creates-correct-markers",
+      "name": "Group preset sets Role and PreferredModel on all sessions",
+      "description": "Verifies that CreateGroupFromPresetAsync correctly sets Role=Orchestrator on the orchestrator session and PreferredModel on all sessions.",
+      "invariants": [
+        "Orchestrator session has Role == Orchestrator",
+        "Orchestrator session has PreferredModel == preset.OrchestratorModel",
+        "Worker sessions have PreferredModel == preset.WorkerModels[i]",
+        "All sessions have GroupId matching the new group"
+      ],
+      "steps": [
+        { "action": "createGroupFromPreset", "preset": "Quick Reflection Cycle" },
+        { "action": "readOrgJson", "capture": "org" },
+        { "action": "assertSessionMeta", "role": "Orchestrator", "hasPreferredModel": true },
+        { "action": "assertAllWorkers", "havePreferredModel": true }
+      ]
+    }
+  ]
+}
