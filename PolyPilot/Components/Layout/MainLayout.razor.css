@@ -64,7 +64,7 @@ main {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: var(--status-bar-height, env(safe-area-inset-top, 0px));
 }
 
 .flyout-panel.open {
