@@ -256,12 +256,11 @@
         
         if (toolName == "edit" && !string.IsNullOrEmpty(toolInput))
         {
-            // Try to extract path and show line changes
             try
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
                 var root = doc.RootElement;
-                var path = ExtractJsonProp(root, "path") ?? "";
+                var path = ExtractJsonPropFull(root, "path") ?? "";
                 if (!string.IsNullOrEmpty(path))
                 {
                     var oldStr = ExtractJsonProp(root, "old_str");
@@ -271,7 +270,7 @@
                     var delta = "";
                     if (added > 0 || removed > 0)
                         delta = $" (+{added} -{removed})";
-                    return $"{TruncateHead(path, 60)}{delta}";
+                    return $"{path}{delta}";
                 }
             }
             catch { }
@@ -288,14 +287,13 @@
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
                 var root = doc.RootElement;
-                var path = ExtractJsonProp(root, "path") ?? "";
-                // Check for view_range
+                var path = ExtractJsonPropFull(root, "path") ?? "";
                 if (root.TryGetProperty("view_range", out var range))
                 {
                     var rangeStr = range.ToString();
-                    return $"{TruncateHead(path, 50)} lines {rangeStr}";
+                    return $"{path} lines {rangeStr}";
                 }
-                return TruncateHead(path, 60);
+                return path;
             }
             catch { }
         }
@@ -306,8 +304,7 @@
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
                 var root = doc.RootElement;
-                var path = ExtractJsonProp(root, "path") ?? "";
-                return TruncateHead(path, 60);
+                return ExtractJsonPropFull(root, "path") ?? "";
             }
             catch { }
         }
@@ -326,12 +323,9 @@
         return "";
     }
 
-    /// <summary>Truncates from the start, preserving the tail (most useful part of paths/commands).</summary>
-    internal static string TruncateHead(string s, int max)
-    {
-        if (string.IsNullOrEmpty(s) || s.Length <= max) return s;
-        return "…" + s[(s.Length - max + 1)..];
-    }
+    /// <summary>Returns true for tools whose description is a file path (truncate from head).</summary>
+    internal static bool IsPathTool(string toolName) =>
+        toolName is "edit" or "create" or "view";
 
     internal static string TruncateResult(string result, int maxLength = 1500)
     {

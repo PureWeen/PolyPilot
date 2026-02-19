@@ -421,6 +421,13 @@
     font-size: var(--type-subhead);
 }
 
+/* Head-truncate: show tail of path with ellipsis on the left */
+::deep .action-desc.truncate-head {
+    direction: rtl;
+    text-align: left;
+    unicode-bidi: plaintext;
+}
+
 /* Chevron indicator — hidden on desktop (output-toggle row handles it), shown on mobile */
 ::deep .action-chevron {
     display: none;
