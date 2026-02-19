@@ -1113,13 +1113,15 @@ public partial class CopilotService : IAsyncDisposable
         var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory };
         var copilotSession = await _client.ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
 
+        var isStillProcessing = IsSessionStillProcessing(sessionId);
+
         var info = new AgentSessionInfo
         {
             Name = displayName,
             Model = resumeModel,
             CreatedAt = DateTime.Now,
             SessionId = sessionId,
-            IsResumed = true,
+            IsResumed = isStillProcessing,
             WorkingDirectory = resumeWorkingDirectory
         };
         info.GitBranch = GetGitBranch(info.WorkingDirectory);
@@ -1145,7 +1147,6 @@ public partial class CopilotService : IAsyncDisposable
 
         // Add reconnection indicator with status context
         var reconnectMsg = $"🔄 Session reconnected at {DateTime.Now.ToShortTimeString()}";
-        var isStillProcessing = IsSessionStillProcessing(sessionId);
         if (isStillProcessing)
         {
             var (lastTool, lastContent) = GetLastSessionActivity(sessionId);
@@ -1153,6 +1154,11 @@ public partial class CopilotService : IAsyncDisposable
                 reconnectMsg += $" — running {lastTool}";
             if (!string.IsNullOrEmpty(lastContent))
                 reconnectMsg += $"\n💬 Last: {(lastContent.Length > 100 ? lastContent[..100] + "…" : lastContent)}";
+            if (!string.IsNullOrEmpty(lastPrompt))
+            {
+                var truncated = lastPrompt.Length > 80 ? lastPrompt[..80] + "…" : lastPrompt;
+                reconnectMsg += $"\n📝 Last message: \"{truncated}\"";
+            }
         }
         info.History.Add(ChatMessage.SystemMessage(reconnectMsg));
 
@@ -1447,6 +1453,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.IsProcessing = true;
         Interlocked.Increment(ref state.ProcessingGeneration);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
+        state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>();
         state.CurrentResponse.Clear();
@@ -1610,6 +1617,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Debug($"[ABORT] '{sessionName}' user abort, clearing IsProcessing");
         state.Info.IsProcessing = false;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+        state.HasUsedToolsThisTurn = false;
         CancelProcessingWatchdog(state);
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();

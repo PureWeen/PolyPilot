@@ -649,6 +649,7 @@ public partial class CopilotService
         
         CancelProcessingWatchdog(state);
         state.HasUsedToolsThisTurn = false;
+        state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
         if (!string.IsNullOrWhiteSpace(response))
         {

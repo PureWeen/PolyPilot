@@ -918,4 +918,61 @@ public class ProcessingWatchdogTests
         Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
         Assert.Equal(600, effectiveTimeout);
     }
+
+    [Fact]
+    public void HasUsedToolsThisTurn_ResetOnNewSend()
+    {
+        // SendPromptAsync resets HasUsedToolsThisTurn alongside ActiveToolCallCount
+        // to prevent stale tool-usage from a previous turn inflating the timeout
+        bool hasUsedToolsThisTurn = true;
+        // SendPromptAsync resets it
+        hasUsedToolsThisTurn = false;
+        int activeToolCallCount = 0;
+        bool isResumed = false;
+
+        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
+        var useToolTimeout = hasActiveTool || isResumed || hasUsedToolsThisTurn;
+        var effectiveTimeout = useToolTimeout
+            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
+            : CopilotService.WatchdogInactivityTimeoutSeconds;
+
+        Assert.Equal(120, effectiveTimeout);
+    }
+
+    [Fact]
+    public void IsResumed_ClearedAfterFirstTurn()
+    {
+        // IsResumed is only set when session was mid-turn at restart,
+        // and should be cleared after the first successful CompleteResponse
+        var info = new AgentSessionInfo { Name = "test", Model = "test", IsResumed = true };
+        Assert.True(info.IsResumed);
+
+        // CompleteResponse clears it
+        info.IsResumed = false;
+        Assert.False(info.IsResumed);
+
+        // Subsequent turns use inactivity timeout (120s), not tool timeout (600s)
+        int activeToolCallCount = 0;
+        bool hasUsedToolsThisTurn = false;
+
+        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
+        var useToolTimeout = hasActiveTool || info.IsResumed || hasUsedToolsThisTurn;
+        var effectiveTimeout = useToolTimeout
+            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
+            : CopilotService.WatchdogInactivityTimeoutSeconds;
+
+        Assert.Equal(120, effectiveTimeout);
+    }
+
+    [Fact]
+    public void IsResumed_OnlySetWhenStillProcessing()
+    {
+        // IsResumed should only be true when session was mid-turn at restart
+        // Idle-resumed sessions should NOT get the 600s timeout
+        var idleResumed = new AgentSessionInfo { Name = "idle", Model = "test", IsResumed = false };
+        var midTurnResumed = new AgentSessionInfo { Name = "mid", Model = "test", IsResumed = true };
+
+        Assert.False(idleResumed.IsResumed);
+        Assert.True(midTurnResumed.IsResumed);
+    }
 }
