@@ -603,7 +603,7 @@ public partial class CopilotService
     private void FlushCurrentResponse(SessionState state)
     {
         var text = state.CurrentResponse.ToString();
-        if (string.IsNullOrEmpty(text)) return;
+        if (string.IsNullOrWhiteSpace(text)) return;
         
         var msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
         state.Info.History.Add(msg);
@@ -650,7 +650,7 @@ public partial class CopilotService
         CancelProcessingWatchdog(state);
         state.HasUsedToolsThisTurn = false;
         var response = state.CurrentResponse.ToString();
-        if (!string.IsNullOrEmpty(response))
+        if (!string.IsNullOrWhiteSpace(response))
         {
             var msg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
             state.Info.History.Add(msg);
