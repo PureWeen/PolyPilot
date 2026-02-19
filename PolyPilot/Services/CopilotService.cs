@@ -199,7 +199,7 @@ public partial class CopilotService : IAsyncDisposable
         public TaskCompletionSource<string>? ResponseCompletion { get; set; }
         public StringBuilder CurrentResponse { get; } = new();
         public bool HasReceivedDeltasThisTurn { get; set; }
-        public bool HasReceivedEventsSinceResume { get; set; }
+        public bool HasReceivedEventsSinceResume;
         public string? LastMessageId { get; set; }
         public bool SkipReflectionEvaluationOnce { get; set; }
         public long LastEventAtTicks = DateTime.UtcNow.Ticks;
@@ -1174,15 +1174,21 @@ public partial class CopilotService : IAsyncDisposable
             _ = Task.Run(async () =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(10));
-                if (state.Info.IsProcessing && !state.HasReceivedEventsSinceResume)
+                // Marshal all state mutations to the UI thread to avoid racing with
+                // HandleSessionEvent / CompleteResponse (same pattern as the watchdog).
+                InvokeOnUI(() =>
                 {
-                    Debug($"Session '{displayName}' processing timeout — no new events after resume, clearing stale state");
-                    state.Info.IsProcessing = false;
-                    Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-                    state.ResponseCompletion?.TrySetResult("timeout");
-                    state.Info.History.Add(ChatMessage.SystemMessage("⏹ Previous turn appears to have ended. Ready for new input."));
-                    InvokeOnUI(() => OnStateChanged?.Invoke());
-                }
+                    if (state.Info.IsProcessing && !Volatile.Read(ref state.HasReceivedEventsSinceResume))
+                    {
+                        Debug($"Session '{displayName}' processing timeout — no new events after resume, clearing stale state");
+                        CancelProcessingWatchdog(state);
+                        state.Info.IsProcessing = false;
+                        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                        state.ResponseCompletion?.TrySetResult("timeout");
+                        state.Info.History.Add(ChatMessage.SystemMessage("⏹ Previous turn appears to have ended. Ready for new input."));
+                        OnStateChanged?.Invoke();
+                    }
+                });
             });
         }
 

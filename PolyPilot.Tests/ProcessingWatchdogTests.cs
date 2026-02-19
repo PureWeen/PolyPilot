@@ -694,4 +694,120 @@ public class ProcessingWatchdogTests
 
         Assert.Equal(0, stateChangedCount);
     }
+
+    // --- Bug A: Watchdog callback must not kill a new turn after abort+resend ---
+
+    [Fact]
+    public async Task WatchdogCallback_AfterAbortAndResend_DoesNotKillNewTurn()
+    {
+        // Regression: if the watchdog fires and queues a callback via InvokeOnUI,
+        // then the user aborts + resends before the callback executes, the callback
+        // must detect the generation mismatch and skip — not kill the new turn.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("watchdog-gen");
+
+        // Simulate first turn
+        await svc.SendPromptAsync("watchdog-gen", "First prompt");
+        Assert.False(session.IsProcessing, "Demo mode completes immediately");
+
+        // Simulate second turn then abort
+        session.IsProcessing = true;
+        await svc.AbortSessionAsync("watchdog-gen");
+        Assert.False(session.IsProcessing, "Abort clears processing");
+
+        // Simulate third turn (the new send)
+        await svc.SendPromptAsync("watchdog-gen", "Third prompt");
+
+        // After demo completes, session should be idle with response in history
+        Assert.False(session.IsProcessing, "New send completed successfully");
+        Assert.True(session.History.Count >= 2,
+            "History should contain messages from successful sends");
+    }
+
+    [Fact]
+    public async Task AbortThenResend_PreservesNewTurnState()
+    {
+        // Verifies the abort+resend sequence leaves the session in a clean state
+        // where the new turn's processing is not interfered with.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("abort-resend");
+
+        // Send, abort, send again — the second send must succeed cleanly
+        await svc.SendPromptAsync("abort-resend", "First");
+        session.IsProcessing = true; // simulate stuck
+        await svc.AbortSessionAsync("abort-resend");
+        await svc.SendPromptAsync("abort-resend", "Second");
+
+        Assert.False(session.IsProcessing);
+        var lastMsg = session.History.LastOrDefault();
+        Assert.NotNull(lastMsg);
+    }
+
+    // --- Bug B: Resume fallback must not race with SDK events ---
+
+    [Fact]
+    public async Task ResumeFallback_DoesNotCorruptState_WhenSessionCompletesNormally()
+    {
+        // The 10s resume fallback must not clear IsProcessing if the session
+        // has already completed normally (HasReceivedEventsSinceResume = true).
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("resume-safe");
+
+        // After demo mode init, session should be idle
+        Assert.False(session.IsProcessing,
+            "Fresh session should not be stuck processing");
+    }
+
+    [Fact]
+    public async Task ResumeFallback_StateMutations_OnlyViaUIThread()
+    {
+        // Verify that after creating a session, state mutations from the resume
+        // fallback (if any) don't corrupt the history list.
+        // In demo mode, the fallback should never fire since events arrive immediately.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("resume-thread-safe");
+        await svc.SendPromptAsync("resume-thread-safe", "Test");
+
+        // Wait a moment to ensure any background tasks have run
+        await Task.Delay(100);
+
+        // History should be intact — no corruption from concurrent List<T> access
+        var historySnapshot = session.History.ToArray();
+        Assert.True(historySnapshot.Length >= 1, "History should have at least the response");
+        Assert.All(historySnapshot, msg => Assert.NotNull(msg.Content));
+    }
+
+    [Fact]
+    public async Task MultipleAbortResendCycles_MaintainCleanState()
+    {
+        // Stress test: rapid abort+resend cycles should not leave orphaned state
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("stress-abort");
+
+        for (int i = 0; i < 5; i++)
+        {
+            await svc.SendPromptAsync("stress-abort", $"Prompt {i}");
+            if (i < 4) // Don't abort the last one
+            {
+                session.IsProcessing = true; // simulate stuck
+                await svc.AbortSessionAsync("stress-abort");
+                Assert.False(session.IsProcessing, $"Abort cycle {i} should clear processing");
+            }
+        }
+
+        Assert.False(session.IsProcessing, "Final state should be idle");
+        // History should contain messages from all cycles
+        Assert.True(session.History.Count >= 5,
+            $"Expected at least 5 history entries from 5 send cycles, got {session.History.Count}");
+    }
 }

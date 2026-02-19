@@ -196,7 +196,7 @@ public partial class CopilotService
 
     private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
-        state.HasReceivedEventsSinceResume = true;
+        Volatile.Write(ref state.HasReceivedEventsSinceResume, true);
         Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         var sessionName = state.Info.Name;
         var isCurrentState = _sessions.TryGetValue(sessionName, out var current) && ReferenceEquals(current, state);
@@ -1103,11 +1103,22 @@ public partial class CopilotService
                     var timeoutMinutes = effectiveTimeout / 60;
                     Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
                           $"(timeout={effectiveTimeout}s, hasActiveTool={hasActiveTool}), clearing stuck processing state");
+                    // Capture generation before posting — same guard pattern as CompleteResponse.
+                    // Prevents a stale watchdog callback from killing a new turn if the user
+                    // aborts + resends between the Post() and the callback execution.
+                    var watchdogGeneration = Interlocked.Read(ref state.ProcessingGeneration);
                     // Marshal all state mutations to the UI thread to avoid
                     // racing with CompleteResponse / HandleSessionEvent.
                     InvokeOnUI(() =>
                     {
                         if (!state.Info.IsProcessing) return; // Already completed
+                        var currentGen = Interlocked.Read(ref state.ProcessingGeneration);
+                        if (watchdogGeneration != currentGen)
+                        {
+                            Debug($"Session '{sessionName}' watchdog callback skipped — generation mismatch " +
+                                  $"(watchdog={watchdogGeneration}, current={currentGen}). A new SEND superseded this turn.");
+                            return;
+                        }
                         CancelProcessingWatchdog(state);
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.Info.IsProcessing = false;
