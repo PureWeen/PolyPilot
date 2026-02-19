@@ -137,6 +137,40 @@ When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in
 5. `AssistantIntentEvent` → intent/plan updates
 6. `SessionIdleEvent` → turn complete, response finalized
 
+### Processing Watchdog
+The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has two timeout tiers:
+- **120 seconds** (inactivity timeout) — for sessions with no tool activity
+- **600 seconds** (tool execution timeout) — used when ANY of these are true:
+  - A tool call is actively running (`ActiveToolCallCount > 0`)
+  - The session was resumed mid-turn after app restart (`IsResumed`)
+  - Tools have been used this turn (`HasUsedToolsThisTurn`) — even between tool rounds when the model is thinking
+
+The 10-second resume timeout was removed — the watchdog handles all stuck-session detection.
+
+When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message. All code paths that set `IsProcessing = false` must go through the UI thread.
+
+### Diagnostic Log Tags
+The event diagnostics log (`~/.polypilot/event-diagnostics.log`) uses these tags:
+- `[SEND]` — prompt sent, IsProcessing set to true
+- `[EVT]` — SDK event received (only SessionIdleEvent, AssistantTurnEndEvent, SessionErrorEvent)
+- `[IDLE]` — SessionIdleEvent dispatched to CompleteResponse
+- `[COMPLETE]` — CompleteResponse executed or skipped
+- `[RECONNECT]` — session replaced after disconnect
+- `[ERROR]` — SessionErrorEvent or SendAsync/reconnect failure cleared IsProcessing
+- `[ABORT]` — user-initiated abort cleared IsProcessing
+- `[BRIDGE-COMPLETE]` — bridge OnTurnEnd cleared IsProcessing
+- `[INTERRUPTED]` — app restart detected interrupted turn (watchdog timeout after resume)
+
+Every code path that sets `IsProcessing = false` MUST have a diagnostic log entry. This is critical for debugging stuck-session issues.
+
+### Thread Safety: IsProcessing Mutations
+All mutations to `state.Info.IsProcessing` must be marshaled to the UI thread. SDK events arrive on background threads. Use `InvokeOnUI()` (not bare `Invoke()`) to combine state mutation + notification in a single callback. Key patterns:
+- **CompleteResponse**: Already runs on UI thread (dispatched via `Invoke()`)
+- **Watchdog callback**: Uses `InvokeOnUI()` with generation guard
+- **SessionErrorEvent**: Uses `InvokeOnUI()` to combine OnError + IsProcessing + OnStateChanged
+- **Resume fallback**: Removed (watchdog handles it)
+- **SendAsync error paths**: Run on UI thread inline (in SendPromptAsync's catch blocks)
+
 ### Model Selection
 The model is set at **session creation time** via `SessionConfig.Model`. The SDK does **not** support changing models per-message or mid-session — `MessageOptions` has no `Model` property. 
 
@@ -155,7 +189,7 @@ When a user changes the model via the UI dropdown:
 Avoid `@bind:event="oninput"` — causes round-trip lag per keystroke. Use plain HTML inputs with JS event listeners and read values via `JS.InvokeAsync<string>("eval", "document.getElementById('id')?.value")` on submit.
 
 ### Session Persistence
-- Active sessions: `~/.polypilot/active-sessions.json`
+- Active sessions: `~/.polypilot/active-sessions.json` (includes `LastPrompt` — last user message if session was processing during save)
 - Session state: `~/.copilot/session-state/<guid>/events.jsonl` (SDK-managed, stays in ~/.copilot)
 - UI state: `~/.polypilot/ui-state.json`
 - Settings: `~/.polypilot/settings.json`
@@ -206,6 +240,16 @@ Test files in `PolyPilot.Tests/`:
 - `PlatformHelperTests.cs` — Platform detection
 - `ToolResultFormattingTests.cs` — Tool output formatting
 - `UiStatePersistenceTests.cs` — UI state save/load
+- `ProcessingWatchdogTests.cs` — Watchdog constants, timeout selection, HasUsedToolsThisTurn, IsResumed
+- `CliPathResolutionTests.cs` — CLI path resolution
+- `InitializationModeTests.cs` — Mode initialization
+- `PersistentModeTests.cs` — Persistent mode behavior
+- `ReflectionCycleTests.cs` — Reflection cycle logic
+- `SessionDisposalResilienceTests.cs` — Session disposal
+- `RenderThrottleTests.cs` — Render throttling
+- `DevTunnelServiceTests.cs` — DevTunnel service
+- `WsBridgeServerAuthTests.cs` — Bridge auth
+- `ModelSelectionTests.cs` — Model selection
 
 UI scenario definitions live in `PolyPilot.Tests/Scenarios/mode-switch-scenarios.json` — executable via MauiDevFlow CDP commands against a running app.
 
