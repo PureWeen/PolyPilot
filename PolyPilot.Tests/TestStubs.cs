@@ -64,7 +64,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
 
     public event Action? OnStateChanged;
     public event Action<string, string>? OnContentReceived;
-    public event Action<string, string, string>? OnToolStarted;
+    public event Action<string, string, string, string?>? OnToolStarted;
     public event Action<string, string, string, bool>? OnToolCompleted;
     public event Action<string, string, string>? OnReasoningReceived;
     public event Action<string, string>? OnReasoningComplete;
