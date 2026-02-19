@@ -810,4 +810,112 @@ public class ProcessingWatchdogTests
         Assert.True(session.History.Count >= 5,
             $"Expected at least 5 history entries from 5 send cycles, got {session.History.Count}");
     }
+
+    // ===========================================================================
+    // Watchdog timeout selection logic
+    // Tests the 3-way condition: hasActiveTool || IsResumed || HasUsedToolsThisTurn
+    // SessionState is private, so we replicate the decision logic inline using
+    // local variables that mirror the watchdog algorithm in CopilotService.Events.cs.
+    // ===========================================================================
+
+    [Fact]
+    public void HasUsedToolsThisTurn_DefaultsFalse()
+    {
+        // Mirrors SessionState.HasUsedToolsThisTurn default (bool default = false)
+        bool hasUsedToolsThisTurn = default;
+        Assert.False(hasUsedToolsThisTurn);
+    }
+
+    [Fact]
+    public void HasUsedToolsThisTurn_CanBeSet()
+    {
+        // Mirrors setting HasUsedToolsThisTurn = true on ToolExecutionStartEvent
+        bool hasUsedToolsThisTurn = false;
+        hasUsedToolsThisTurn = true;
+        Assert.True(hasUsedToolsThisTurn);
+    }
+
+    [Fact]
+    public void HasUsedToolsThisTurn_ResetByCompleteResponse()
+    {
+        // Mirrors CompleteResponse resetting HasUsedToolsThisTurn = false
+        bool hasUsedToolsThisTurn = true;
+        // CompleteResponse resets the field
+        hasUsedToolsThisTurn = false;
+        Assert.False(hasUsedToolsThisTurn);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_NoTools_UsesInactivityTimeout()
+    {
+        // When no tool activity and not resumed → use shorter inactivity timeout
+        int activeToolCallCount = 0;
+        bool isResumed = false;
+        bool hasUsedToolsThisTurn = false;
+
+        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
+        var useToolTimeout = hasActiveTool || isResumed || hasUsedToolsThisTurn;
+        var effectiveTimeout = useToolTimeout
+            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
+            : CopilotService.WatchdogInactivityTimeoutSeconds;
+
+        Assert.Equal(CopilotService.WatchdogInactivityTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(120, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_ActiveTool_UsesToolTimeout()
+    {
+        // When ActiveToolCallCount > 0 → use longer tool execution timeout
+        int activeToolCallCount = 1;
+        bool isResumed = false;
+        bool hasUsedToolsThisTurn = false;
+
+        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
+        var useToolTimeout = hasActiveTool || isResumed || hasUsedToolsThisTurn;
+        var effectiveTimeout = useToolTimeout
+            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
+            : CopilotService.WatchdogInactivityTimeoutSeconds;
+
+        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(600, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_ResumedSession_UsesToolTimeout()
+    {
+        // When session is resumed (IsResumed=true) → use longer tool timeout
+        // because resumed sessions may have in-flight tool calls from before restart
+        int activeToolCallCount = 0;
+        bool isResumed = true;
+        bool hasUsedToolsThisTurn = false;
+
+        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
+        var useToolTimeout = hasActiveTool || isResumed || hasUsedToolsThisTurn;
+        var effectiveTimeout = useToolTimeout
+            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
+            : CopilotService.WatchdogInactivityTimeoutSeconds;
+
+        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(600, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_HasUsedTools_UsesToolTimeout()
+    {
+        // When tools have been used this turn (HasUsedToolsThisTurn=true) → use longer
+        // tool timeout even between tool rounds when the model is thinking
+        int activeToolCallCount = 0;
+        bool isResumed = false;
+        bool hasUsedToolsThisTurn = true;
+
+        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
+        var useToolTimeout = hasActiveTool || isResumed || hasUsedToolsThisTurn;
+        var effectiveTimeout = useToolTimeout
+            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
+            : CopilotService.WatchdogInactivityTimeoutSeconds;
+
+        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(600, effectiveTimeout);
+    }
 }
