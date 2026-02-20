@@ -660,6 +660,8 @@
 
 ::deep .markdown-body code {
     background: var(--control-border);
+    color: var(--text-bright);
+    border: 1px solid var(--border-subtle);
     padding: 0.15em 0.3em;
     border-radius: 3px;
     font-size: 0.85em;
@@ -667,6 +669,8 @@
 
 ::deep .markdown-body pre {
     background: var(--bg-tertiary);
+    color: var(--text-bright);
+    border: 1px solid var(--control-border);
     padding: 0.75rem;
     border-radius: 6px;
     overflow-x: auto;
@@ -674,6 +678,8 @@
 
 ::deep .markdown-body pre code {
     background: none;
+    color: inherit;
+    border: none;
     padding: 0;
 }
 

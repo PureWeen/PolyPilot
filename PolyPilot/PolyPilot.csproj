@@ -119,6 +119,33 @@
               SkipUnchangedFiles="true" />
     </Target>
 
+    <!-- The SDK registers the intermediate copilot binary as ContentWithTargetPath.
+         On Mac Catalyst this surfaces as a publish metadata warning; we already copy
+         the binary explicitly via custom targets above. -->
+    <Target Name="_ExcludeCopilotCliIntermediateFromMacCatalystPublish"
+            AfterTargets="_RegisterCopilotCliForCopy"
+            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' And '$(_CopilotPlatform)' != ''">
+        <PropertyGroup>
+            <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
+        </PropertyGroup>
+        <ItemGroup>
+            <ContentWithTargetPath Remove="$(_CopilotCacheDir)/$(_CopilotBinary)" />
+            <ContentWithTargetPath Remove="$(_CopilotCacheDir)\$(_CopilotBinary)" />
+        </ItemGroup>
+    </Target>
+
+    <Target Name="_ExcludeCopilotCliFromResolvedPublishForMacCatalyst"
+            BeforeTargets="_ComputePublishLocation"
+            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' And '$(_CopilotPlatform)' != ''">
+        <PropertyGroup>
+            <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
+        </PropertyGroup>
+        <ItemGroup>
+            <ResolvedFileToPublish Remove="$(_CopilotCacheDir)/$(_CopilotBinary)" />
+            <ResolvedFileToPublish Remove="$(_CopilotCacheDir)\$(_CopilotBinary)" />
+        </ItemGroup>
+    </Target>
+
     <!-- Ensure the copilot CLI binary is included in the Mac Catalyst .app bundle.
          MAUI flattens everything into MonoBundle, so runtimes/ paths don't work.
          Copy the binary directly into the .app bundle's MonoBundle. -->
