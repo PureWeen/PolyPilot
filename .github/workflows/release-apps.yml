@@ -97,6 +97,7 @@ jobs:
           dotnet publish ${{ env.MAUI_PROJECT_PATH }} \
             -f net10.0-android \
             -c Release \
+            -p:ApplicationId=nl.versluis.polypilot \
             -p:AndroidPackageFormat=aab \
             -p:AndroidKeyStore=true \
             -p:AndroidSigningKeyStore='${{ github.workspace }}/keystore.jks' \
@@ -130,7 +131,7 @@ jobs:
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: 'com.microsoft.PolyPilot'
+          packageName: 'nl.versluis.polypilot'
           releaseFiles: ./android-artifacts/*-Signed.aab
           track: beta
           status: completed
@@ -194,6 +195,7 @@ jobs:
             -f net10.0-ios \
             -c Release \
             -p:RuntimeIdentifier=ios-arm64 \
+            -p:ApplicationId=nl.versluis.polypilot \
             -p:CodesignKey="${{ secrets.IOS_CODESIGN_KEY }}" \
             -p:CodesignProvision="${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}" \
             -p:ArchiveOnBuild=true \
@@ -254,7 +256,7 @@ jobs:
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
-          APP_BUNDLE_ID: 'com.microsoft.PolyPilot'
+          APP_BUNDLE_ID: 'nl.versluis.polypilot'
           BUILD_NUMBER: ${{ steps.build.outputs.number }}
           APP_VERSION: ${{ env.APP_VERSION }}
           BETA_GROUP_NAME: 'MAUI Team'
