@@ -449,7 +449,15 @@ public class WsBridgeServer : IDisposable
                     if (changeModelReq != null && !string.IsNullOrWhiteSpace(changeModelReq.SessionName))
                     {
                         Console.WriteLine($"[WsBridge] Client changing model for '{changeModelReq.SessionName}' to '{changeModelReq.NewModel}'");
-                        await _copilot.ChangeModelAsync(changeModelReq.SessionName, changeModelReq.NewModel);
+                        var modelChanged = await _copilot.ChangeModelAsync(changeModelReq.SessionName, changeModelReq.NewModel);
+                        if (!modelChanged)
+                        {
+                            await SendToClientAsync(clientId, ws,
+                                BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                    new ErrorPayload { SessionName = changeModelReq.SessionName, Error = "Failed to change model. Session may be processing or model is invalid." }), ct);
+                        }
+                        // Always broadcast latest session state so client stays in sync
+                        BroadcastSessionsList();
                     }
                     break;
 

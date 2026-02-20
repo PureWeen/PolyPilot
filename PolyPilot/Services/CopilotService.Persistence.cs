@@ -312,6 +312,9 @@ public partial class CopilotService
 
     public bool DeletePersistedSession(string sessionId)
     {
+        // In demo mode, don't delete real session data from disk
+        if (IsDemoMode) return false;
+
         if (string.IsNullOrWhiteSpace(sessionId) || !Guid.TryParse(sessionId, out _))
             return false;
 

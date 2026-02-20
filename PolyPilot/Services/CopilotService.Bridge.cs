@@ -209,11 +209,13 @@ public partial class CopilotService
                     Info = info
                 };
             }
-            // Update processing state from server
+            // Update processing state and model from server
             if (_sessions.TryGetValue(rs.Name, out var state))
             {
                 state.Info.IsProcessing = rs.IsProcessing;
                 state.Info.MessageCount = rs.MessageCount;
+                if (!string.IsNullOrEmpty(rs.Model))
+                    state.Info.Model = rs.Model;
             }
         }
 

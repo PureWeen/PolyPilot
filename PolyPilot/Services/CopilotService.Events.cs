@@ -495,6 +495,8 @@ public partial class CopilotService
             case SessionErrorEvent err:
                 var errMsg = Models.ErrorMessageHelper.HumanizeMessage(err.Data?.Message ?? "Unknown error");
                 CancelProcessingWatchdog(state);
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                state.HasUsedToolsThisTurn = false;
                 InvokeOnUI(() =>
                 {
                     OnError?.Invoke(sessionName, errMsg);
