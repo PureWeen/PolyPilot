@@ -1528,10 +1528,19 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         Session = newSession,
                         Info = state.Info
                     };
-                    newState.ResponseCompletion = state.ResponseCompletion;
+                    newState.ResponseCompletion = new TaskCompletionSource<string>();
                     newSession.On(evt => HandleSessionEvent(newState, evt));
                     _sessions[sessionName] = newState;
                     state = newState;
+
+                    // Increment generation AFTER registering the event handler so that any
+                    // replayed SessionIdleEvent from the old turn captures the stale generation
+                    // (0) while the retry turn uses the new generation. This prevents the
+                    // replayed IDLE from clearing IsProcessing before the retry completes.
+                    Interlocked.Increment(ref state.ProcessingGeneration);
+                    state.Info.IsProcessing = true;
+                    state.CurrentResponse.Clear();
+                    Debug($"[RECONNECT] '{sessionName}' reset processing state: gen={Interlocked.Read(ref state.ProcessingGeneration)}");
                     
                     // Start fresh watchdog for the new connection
                     StartProcessingWatchdog(state, sessionName);
