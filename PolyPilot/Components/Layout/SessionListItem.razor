@@ -127,6 +127,12 @@
                     🔧 Fix with Copilot
                 </button>
                 <div class="menu-separator"></div>
+                @if (!string.IsNullOrEmpty(Session.SessionId))
+                {
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInCopilotConsole(); }">
+                        >_ Copilot Console
+                    </button>
+                }
                 @if (!string.IsNullOrEmpty(sessionDir))
                 {
                     <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInTerminal(); }">
@@ -204,6 +210,31 @@
                 FileName = "open",
                 ArgumentList = { "-a", "Terminal", dir },
                 UseShellExecute = false
+            });
+        }
+        catch { }
+    }
+
+    private void OpenInCopilotConsole()
+    {
+        var sessionId = Session.SessionId;
+        if (string.IsNullOrEmpty(sessionId)) return;
+        var dir = GetSessionDirectory() ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        try
+        {
+            var shellScript = Path.Combine(Path.GetTempPath(), $"polypilot-copilot-{Guid.NewGuid():N}.sh");
+            File.WriteAllText(shellScript,
+                "#!/bin/bash\n" +
+                $"cd \"{dir}\"\n" +
+                $"echo \"🔗 Resuming session: {Session.Name} ({sessionId})\"\n" +
+                $"echo \"─────────────────────────────────────────\"\n" +
+                $"echo \"\"\n" +
+                $"copilot --resume {sessionId} --yolo\n");
+            Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
+            Process.Start(new ProcessStartInfo("open", $"-a Terminal \"{shellScript}\"")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true
             });
         }
         catch { }
