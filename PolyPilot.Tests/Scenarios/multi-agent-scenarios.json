@@ -1,10 +1,10 @@
 {
-  "description": "Multi-agent orchestration scenarios for PolyPilot. Tests cover the OrchestratorReflect loop, stall detection, reconciliation stability, and group lifecycle. Each scenario can be executed against a running app using MauiDevFlow CDP commands. See docs/multi-agent-orchestration.md for the architecture spec.",
+  "description": "Multi-agent orchestration scenarios for PolyPilot. Tests cover the OrchestratorReflect loop, stall detection, reconciliation stability, group lifecycle, and Squad integration. Each scenario can be executed against a running app using MauiDevFlow CDP commands. See docs/multi-agent-orchestration.md for the architecture spec.",
   "prerequisites": {
     "build": "cd PolyPilot && .\\relaunch.ps1",
     "waitForAgent": "maui-devflow MAUI status",
     "initialMode": "Persistent",
-    "notes": "App must be in Persistent or Demo mode. Multi-agent features require at least one worktree configured."
+    "notes": "App must be in Persistent or Demo mode. Multi-agent features require at least one worktree configured. Squad scenarios require a worktree with a .squad/ directory."
   },
   "scenarios": [
     {
@@ -168,6 +168,105 @@
         { "action": "readOrgJson", "capture": "org" },
         { "action": "assertSessionMeta", "role": "Orchestrator", "hasPreferredModel": true },
         { "action": "assertAllWorkers", "havePreferredModel": true }
+      ]
+    },
+    {
+      "id": "squad-discovery-creates-preset",
+      "name": "Squad directory discovered as repo-level preset",
+      "description": "Verifies that when a worktree contains a .squad/ directory with team.md and agent charters, PolyPilot discovers it and presents it as a selectable preset in the multi-agent group creation flow.",
+      "invariants": [
+        "Squad preset appears in 'From Repo' section of preset picker",
+        "Preset has IsRepoLevel == true",
+        "Preset worker count matches number of non-scribe agents in .squad/agents/"
+      ],
+      "steps": [
+        { "action": "shell", "command": "mkdir -p .squad/agents/reviewer && echo '# Team\n| Member | Role |\n|--------|------|\n| reviewer | Code Reviewer |' > .squad/team.md && echo 'You are a code reviewer.' > .squad/agents/reviewer/charter.md" },
+        { "action": "navigate", "route": "/multi-agent" },
+        { "action": "selectWorktree", "worktree": "current" },
+        { "action": "assertPresetVisible", "section": "From Repo", "name": "Squad Team" },
+        { "action": "shell", "command": "rm -rf .squad" }
+      ]
+    },
+    {
+      "id": "squad-charter-becomes-system-prompt",
+      "name": "Squad agent charter.md becomes worker system prompt",
+      "description": "Verifies that when creating a group from a Squad-discovered preset, each agent's charter.md content is set as the worker's SessionMeta.SystemPrompt.",
+      "invariants": [
+        "Worker SystemPrompt contains charter.md content",
+        "Orchestrator planning prompt includes worker specializations"
+      ],
+      "steps": [
+        { "action": "shell", "command": "mkdir -p .squad/agents/security .squad/agents/perf && echo '# Team\n| Member | Role |\n|--------|------|\n| security | Security Auditor |\n| perf | Performance Analyst |' > .squad/team.md && echo 'You are a security auditor. Focus on OWASP Top 10.' > .squad/agents/security/charter.md && echo 'You are a performance analyst. Focus on latency and throughput.' > .squad/agents/perf/charter.md" },
+        { "action": "createGroupFromPreset", "preset": "Squad Team", "source": "repo" },
+        { "action": "readOrgJson", "capture": "org" },
+        { "action": "assertSessionMeta", "sessionNameContains": "security", "systemPromptContains": "OWASP Top 10" },
+        { "action": "assertSessionMeta", "sessionNameContains": "perf", "systemPromptContains": "latency and throughput" },
+        { "action": "shell", "command": "rm -rf .squad" }
+      ]
+    },
+    {
+      "id": "squad-decisions-shared-context",
+      "name": "Squad decisions.md injected as shared context",
+      "description": "Verifies that .squad/decisions.md content is prepended to all worker prompts as shared team knowledge.",
+      "invariants": [
+        "All workers receive decisions.md content in their prompt context",
+        "Decisions content appears before the worker's assigned task"
+      ],
+      "steps": [
+        { "action": "shell", "command": "mkdir -p .squad/agents/worker1 && echo '# Team\n| Member | Role |\n|--------|------|\n| worker1 | Developer |' > .squad/team.md && echo 'Always use TypeScript. Never use any.' > .squad/decisions.md && echo 'You are a developer.' > .squad/agents/worker1/charter.md" },
+        { "action": "createGroupFromPreset", "preset": "Squad Team", "source": "repo" },
+        { "action": "sendPrompt", "text": "Write a hello world" },
+        { "action": "waitForAllSessions", "state": "idle", "timeout": 120 },
+        { "action": "assertWorkerPromptContains", "text": "Always use TypeScript" },
+        { "action": "shell", "command": "rm -rf .squad" }
+      ]
+    },
+    {
+      "id": "squad-legacy-ai-team-compat",
+      "name": "Legacy .ai-team/ directory also discovered",
+      "description": "Verifies backward compatibility: .ai-team/ is discovered if .squad/ doesn't exist (Squad v0.4.x compat).",
+      "steps": [
+        { "action": "shell", "command": "mkdir -p .ai-team/agents/dev && echo '# Team\n| Member | Role |\n|--------|------|\n| dev | Developer |' > .ai-team/team.md && echo 'You are a developer.' > .ai-team/agents/dev/charter.md" },
+        { "action": "selectWorktree", "worktree": "current" },
+        { "action": "assertPresetVisible", "section": "From Repo", "name": "Squad Team" },
+        { "action": "shell", "command": "rm -rf .ai-team" }
+      ]
+    },
+    {
+      "id": "squad-preset-priority-over-builtin",
+      "name": "Squad preset shadows built-in with same name",
+      "description": "Verifies that if a Squad team has the same name as a built-in preset, the Squad version takes priority within that worktree.",
+      "steps": [
+        { "action": "shell", "command": "mkdir -p .squad/agents/reviewer && echo '# Team\nCode Review Team\n| Member | Role |\n|--------|------|\n| reviewer | Reviewer |' > .squad/team.md && echo 'Custom repo reviewer.' > .squad/agents/reviewer/charter.md" },
+        { "action": "selectWorktree", "worktree": "current" },
+        { "action": "assertPresetInSection", "name": "Code Review Team", "section": "From Repo", "note": "Repo version should shadow built-in" },
+        { "action": "shell", "command": "rm -rf .squad" }
+      ]
+    },
+    {
+      "id": "squad-missing-files-graceful",
+      "name": "Missing Squad files handled gracefully",
+      "description": "Verifies that partial .squad/ directories (missing team.md, missing charter.md) are handled without errors.",
+      "steps": [
+        { "action": "shell", "command": "mkdir -p .squad/agents/orphan" },
+        { "action": "selectWorktree", "worktree": "current" },
+        { "action": "assertNoPresetInSection", "section": "From Repo", "note": "No team.md = no preset" },
+        { "action": "shell", "command": "rm -rf .squad" }
+      ]
+    },
+    {
+      "id": "worker-system-prompt-in-orchestrator-plan",
+      "name": "Worker system prompts visible in orchestrator planning",
+      "description": "Verifies that BuildOrchestratorPlanningPrompt includes each worker's SystemPrompt description so the orchestrator can route tasks based on expertise.",
+      "invariants": [
+        "Orchestrator planning prompt lists worker names with their specializations",
+        "Workers with no SystemPrompt are listed as generic workers"
+      ],
+      "steps": [
+        { "action": "createGroupFromPreset", "preset": "Code Review Team" },
+        { "action": "sendPrompt", "text": "Review the authentication module" },
+        { "action": "waitForPhase", "phase": "Planning", "timeout": 30 },
+        { "action": "assertOrchestratorReceivedWorkerDescriptions" }
       ]
     }
   ]

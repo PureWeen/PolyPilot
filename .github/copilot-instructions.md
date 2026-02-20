@@ -56,7 +56,10 @@ For Android, always run `adb reverse tcp:9223 tcp:9223` after deploy.
 
 ## Architecture
 
-**See `docs/multi-agent-orchestration.md` for the multi-agent architecture spec** (orchestration modes, reflection loop, sentinel protocol, invariants). Test scenarios in `PolyPilot.Tests/Scenarios/multi-agent-scenarios.json`. Read these before modifying orchestration, reconciliation, or TCS completion logic.
+**See `docs/multi-agent-orchestration.md` for the multi-agent architecture spec** (orchestration modes, reflection loop, sentinel protocol, invariants, Squad integration). Test scenarios in `PolyPilot.Tests/Scenarios/multi-agent-scenarios.json`. Read these before modifying orchestration, reconciliation, or TCS completion logic.
+
+### Squad Integration
+PolyPilot discovers [bradygaster/squad](https://github.com/bradygaster/squad) team definitions from `.squad/` (or legacy `.ai-team/`) directories in the worktree root. Each agent's `charter.md` becomes a worker system prompt, `team.md` defines the roster, and `decisions.md` provides shared context. Repo-level teams appear as presets in the multi-agent group creation flow. PolyPilot never writes to `.squad/` — it's read-only.
 
 This is a .NET MAUI Blazor Hybrid app targeting Mac Catalyst, Android, and iOS. It manages multiple GitHub Copilot CLI sessions through a native GUI.
 

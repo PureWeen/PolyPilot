@@ -332,8 +332,9 @@ If no `@worker:` assignments are found, the orchestrator handled the request dir
 ## Testing
 
 ### Unit Tests
-- **`MultiAgentRegressionTests.cs`** (30 tests) — JSON corruption, reconciliation scattering, preset markers, mode enums, reflection loop logic, TCS ordering, lifecycle scenarios
+- **`MultiAgentRegressionTests.cs`** (37 tests) — JSON corruption, reconciliation scattering, preset markers, mode enums, reflection loop logic, TCS ordering, lifecycle scenarios, persona tests
 - **`SessionOrganizationTests.cs`** → `GroupingStabilityTests` (14 tests) — JSON round-trips, delete+reconcile, orphan handling
+- **`ScenarioReferenceTests.cs`** — Validates scenario JSON structure, unique IDs, Squad integration scenario presence
 
 ### Executable Scenarios
 - **`PolyPilot.Tests/Scenarios/multi-agent-scenarios.json`** — CDP-based scenarios for MauiDevFlow testing against a running app
@@ -344,3 +345,66 @@ If no `@worker:` assignments are found, the orchestrator handled the request dir
 3. **Changed TCS/event handling?** → Run `ProcessingWatchdogTests` + verify reflection loop completes
 4. **Changed sentinel parsing?** → Run `ReflectionCycleTests`
 5. **Changed session persistence?** → Run full suite, verify `organization.json` survives restart
+
+---
+
+## Squad Integration — Repo-Level Team Discovery
+
+### Overview
+
+PolyPilot can discover and load team definitions from [bradygaster/squad](https://github.com/bradygaster/squad) format directories (`.squad/` or the legacy `.ai-team/`). Any repository that has been "squadified" automatically gets its teams available as presets in PolyPilot's multi-agent group creation flow.
+
+### How Squad Maps to PolyPilot
+
+| Squad File | PolyPilot Concept | How It's Used |
+|------------|-------------------|---------------|
+| `.squad/team.md` | `SessionGroup` + workers | Roster parsed for agent names and roles |
+| `.squad/agents/{name}/charter.md` | `SessionMeta.SystemPrompt` | Charter content becomes worker system prompt |
+| `.squad/routing.md` | Orchestrator planning context | Injected into `BuildOrchestratorPlanningPrompt` |
+| `.squad/decisions.md` | Shared worker context | Prepended to all worker prompts as shared team knowledge |
+| Squad coordinator | `MultiAgentMode.OrchestratorReflect` | Squad's iterative coordinator maps to PolyPilot's reflect loop |
+
+### Discovery Flow
+
+1. User clicks **🤖 Multi** → selects a worktree
+2. `SquadDiscovery.Discover(worktreePath)` scans for `.squad/` or `.ai-team/`
+3. If found, parses `team.md` + agent charters → builds a `GroupPreset`
+4. Preset appears in the picker under **"📂 From Repo (Squad)"** section, above built-in presets
+5. User clicks the Squad preset → `CreateGroupFromPresetAsync` creates the group with all agents and their charters as system prompts
+
+### Preset Priority (Three-Tier Cascade)
+
+```
+Built-in presets  <  User presets (~/.polypilot/presets.json)  <  Repo teams (.squad/)
+```
+
+Repo teams shadow built-in/user presets with the same name when working in that repo's worktree.
+
+### What PolyPilot Does NOT Do with Squad
+
+- **Never writes to `.squad/`** — PolyPilot is read-only; the repo files are the source of truth
+- **No `history.md` persistence** — Squad agents accumulate learnings; PolyPilot sessions are stateless across restarts
+- **No Scribe agent** — Squad's silent decision-logger is not replicated
+- **No GitHub Actions integration** — Squad's label triage workflows are out of scope
+- **No casting system** — Squad's thematic name universes; PolyPilot uses agent names as-is
+
+### Security
+
+- Agent charters (system prompts) are capped at 4,000 characters
+- Model slugs are validated against `ModelCapabilities.AllModels`; unknown slugs fall back to app default
+- Repo presets show a **📂** source badge so users know the definition came from the repo
+- No file-read directives or code execution from parsed files
+
+### GroupPreset Extensions for Squad Support
+
+```csharp
+public record GroupPreset(...)
+{
+    public bool IsUserDefined { get; init; }
+    public bool IsRepoLevel { get; init; }           // NEW: loaded from .squad/
+    public string? SourcePath { get; init; }          // NEW: path to .squad/ dir
+    public string?[]? WorkerSystemPrompts { get; init; }
+    public string?[]? WorkerSystemPromptFiles { get; init; }  // NEW: file refs
+    public string? SharedContext { get; init; }        // NEW: from decisions.md
+}
+```

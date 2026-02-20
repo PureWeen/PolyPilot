@@ -189,4 +189,33 @@ public class ScenarioReferenceTests
 
         Assert.Equal(ids.Count, ids.Distinct().Count());
     }
+
+    [Fact]
+    public void MultiAgentScenarios_HaveUniqueIds()
+    {
+        var json = File.ReadAllText(Path.Combine(ScenariosDir, "multi-agent-scenarios.json"));
+        var doc = JsonDocument.Parse(json);
+        var ids = doc.RootElement.GetProperty("scenarios")
+            .EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString())
+            .ToList();
+
+        Assert.Equal(ids.Count, ids.Distinct().Count());
+    }
+
+    [Fact]
+    public void MultiAgentScenarios_IncludeSquadIntegration()
+    {
+        var json = File.ReadAllText(Path.Combine(ScenariosDir, "multi-agent-scenarios.json"));
+        var doc = JsonDocument.Parse(json);
+        var ids = doc.RootElement.GetProperty("scenarios")
+            .EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString())
+            .ToHashSet();
+
+        Assert.Contains("squad-discovery-creates-preset", ids);
+        Assert.Contains("squad-charter-becomes-system-prompt", ids);
+        Assert.Contains("squad-decisions-shared-context", ids);
+        Assert.Contains("squad-legacy-ai-team-compat", ids);
+    }
 }
