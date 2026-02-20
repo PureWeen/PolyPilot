@@ -8,14 +8,14 @@ on:
         required: true
         default: '1.0.0'
       build_number:
-        description: 'Build number / version code (integer, must increment each release)'
-        required: true
-        default: '1'
+        description: 'Build number / version code (leave empty to use auto-incrementing run number)'
+        required: false
 
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   MAUI_PROJECT_PATH: 'PolyPilot/PolyPilot.csproj'
+  BUILD_NUMBER: ${{ inputs.build_number || github.run_number }}
 
 jobs:
   # ─────────────────────────────────────────────
@@ -59,7 +59,7 @@ jobs:
             -p:AndroidSigningKeyPass='${{ secrets.ANDROID_KEY_PASSWORD }}' \
             -p:AndroidSigningStorePass='${{ secrets.ANDROID_KEYSTORE_PASSWORD }}' \
             -p:ApplicationDisplayVersion='${{ inputs.version }}' \
-            -p:ApplicationVersion='${{ inputs.build_number }}'
+            -p:ApplicationVersion='${{ env.BUILD_NUMBER }}'
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
@@ -145,7 +145,7 @@ jobs:
             -p:CodesignProvision="${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}" \
             -p:ArchiveOnBuild=true \
             -p:ApplicationDisplayVersion='${{ inputs.version }}' \
-            -p:ApplicationVersion='${{ inputs.build_number }}'
+            -p:ApplicationVersion='${{ env.BUILD_NUMBER }}'
 
       - name: Find IPA file
         id: find_ipa
@@ -195,7 +195,7 @@ jobs:
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
           APP_BUNDLE_ID: 'com.microsoft.PolyPilot'
-          BUILD_NUMBER: ${{ inputs.build_number }}
+          BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
           APP_VERSION: ${{ inputs.version }}
           BETA_GROUP_NAME: 'MAUI Team'
         run: |
