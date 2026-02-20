@@ -146,7 +146,10 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
 
     public void Stop()
     {
-        _cts?.Cancel();
+        var oldCts = _cts;
+        _cts = null;
+        oldCts?.Cancel();
+        try { oldCts?.Dispose(); } catch { }
         HasReceivedSessionsList = false;
         if (_ws?.State == WebSocketState.Open)
         {

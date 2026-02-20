@@ -11,6 +11,8 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, SessionState> _sessions = new();
     // Sessions optimistically added during remote create/resume — protected from removal by SyncRemoteSessions
     private readonly ConcurrentDictionary<string, byte> _pendingRemoteSessions = new();
+    // Old names from optimistic renames — protected from re-addition by SyncRemoteSessions
+    private readonly ConcurrentDictionary<string, byte> _pendingRemoteRenames = new();
     // Sessions currently receiving streaming content via bridge events — history sync skipped to avoid duplicates
     private readonly ConcurrentDictionary<string, byte> _remoteStreamingSessions = new();
     // Sessions for which history has already been requested — prevents duplicate request storms
@@ -1660,7 +1662,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // In remote mode, delegate to bridge server
         if (IsRemoteMode)
         {
-            _ = _bridgeClient.QueueMessageAsync(sessionName, prompt);
+            if (imagePaths != null && imagePaths.Count > 0)
+                Console.WriteLine($"[CopilotService] Warning: image attachments not supported in remote mode, {imagePaths.Count} image(s) dropped");
+            _ = _bridgeClient.QueueMessageAsync(sessionName, prompt)
+                .ContinueWith(t => Console.WriteLine($"[CopilotService] QueueMessage bridge error: {t.Exception?.InnerException?.Message}"),
+                    TaskContinuationOptions.OnlyOnFaulted);
             return;
         }
 
@@ -1835,6 +1841,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             remoteState.Info.Name = newName;
             _sessions[newName] = remoteState;
             _pendingRemoteSessions[newName] = 0;
+            _pendingRemoteRenames[oldName] = 0;
             if (_activeSessionName == oldName)
                 _activeSessionName = newName;
             var remoteMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == oldName);
@@ -1846,6 +1853,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 .ContinueWith(t => Console.WriteLine($"[CopilotService] RenameSession bridge error: {t.Exception?.InnerException?.Message}"),
                     TaskContinuationOptions.OnlyOnFaulted);
             _ = Task.Delay(30_000).ContinueWith(t => { _pendingRemoteSessions.TryRemove(newName, out _); });
+            _ = Task.Delay(30_000).ContinueWith(t => { _pendingRemoteRenames.TryRemove(oldName, out _); });
             return true;
         }
 

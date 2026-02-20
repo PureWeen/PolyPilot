@@ -222,7 +222,7 @@ public partial class CopilotService
         // Add/update sessions from remote
         foreach (var rs in remoteSessions)
         {
-            if (!_sessions.ContainsKey(rs.Name))
+            if (!_sessions.ContainsKey(rs.Name) && !_pendingRemoteRenames.ContainsKey(rs.Name))
             {
                 Debug($"SyncRemoteSessions: Adding session '{rs.Name}'");
                 var info = new AgentSessionInfo
@@ -261,6 +261,12 @@ public partial class CopilotService
         // Clear pending flag for sessions confirmed by server
         foreach (var rs in remoteSessions)
             _pendingRemoteSessions.TryRemove(rs.Name, out _);
+        // Clear pending renames when old name no longer appears on server (rename confirmed)
+        foreach (var oldName in _pendingRemoteRenames.Keys.ToList())
+        {
+            if (!remoteNames.Contains(oldName))
+                _pendingRemoteRenames.TryRemove(oldName, out _);
+        }
 
         // Sync history from WsBridgeClient cache
         // Don't overwrite if local history has messages not yet reflected by server
