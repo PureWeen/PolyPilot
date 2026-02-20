@@ -188,3 +188,86 @@ jobs:
           issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
           api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
           api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+
+      - name: Distribute to external testers (MAUI Team)
+        env:
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          APP_BUNDLE_ID: 'com.microsoft.PolyPilot'
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          APP_VERSION: ${{ inputs.version }}
+          BETA_GROUP_NAME: 'MAUI Team'
+        run: |
+          set -euo pipefail
+
+          # --- Generate JWT for App Store Connect API ---
+          HEADER=$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$APPSTORE_KEY_ID" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+          NOW=$(date +%s)
+          EXP=$((NOW + 1200))
+          PAYLOAD=$(printf '{"iss":"%s","iat":%d,"exp":%d,"aud":"appstoreconnect-v1"}' "$APPSTORE_ISSUER_ID" "$NOW" "$EXP" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+
+          # Write private key to temp file for signing
+          KEY_FILE=$(mktemp)
+          echo "$APPSTORE_PRIVATE_KEY" > "$KEY_FILE"
+          SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign "$KEY_FILE" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+          rm -f "$KEY_FILE"
+
+          JWT="${HEADER}.${PAYLOAD}.${SIGNATURE}"
+          AUTH="Authorization: Bearer $JWT"
+          API="https://api.appstoreconnect.apple.com/v1"
+
+          # --- Find the app ---
+          echo "Looking up app with bundle ID: $APP_BUNDLE_ID"
+          APP_ID=$(curl -s -H "$AUTH" "$API/apps?filter[bundleId]=$APP_BUNDLE_ID&fields[apps]=bundleId" | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])")
+          echo "App ID: $APP_ID"
+
+          # --- Find the beta group "MAUI Team" ---
+          echo "Looking up beta group: $BETA_GROUP_NAME"
+          GROUP_RESPONSE=$(curl -s -H "$AUTH" "$API/apps/$APP_ID/betaGroups?filter[name]=$BETA_GROUP_NAME&fields[betaGroups]=name")
+          GROUP_ID=$(echo "$GROUP_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin)['data']; print(data[0]['id'] if data else '')")
+          if [ -z "$GROUP_ID" ]; then
+            echo "::error::Beta group '$BETA_GROUP_NAME' not found. Create it in App Store Connect first."
+            exit 1
+          fi
+          echo "Beta group ID: $GROUP_ID"
+
+          # --- Wait for build to finish processing ---
+          echo "Waiting for build $APP_VERSION ($BUILD_NUMBER) to finish processing..."
+          MAX_ATTEMPTS=60  # 30 minutes max (30s intervals)
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            BUILD_RESPONSE=$(curl -s -H "$AUTH" "$API/builds?filter[app]=$APP_ID&filter[version]=$BUILD_NUMBER&filter[preReleaseVersion.version]=$APP_VERSION&fields[builds]=processingState,version")
+            BUILD_STATE=$(echo "$BUILD_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin)['data']; print(data[0]['attributes']['processingState'] if data else 'NOT_FOUND')")
+            BUILD_ID=$(echo "$BUILD_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin)['data']; print(data[0]['id'] if data else '')")
+
+            echo "  Attempt $i/$MAX_ATTEMPTS — state: $BUILD_STATE"
+
+            if [ "$BUILD_STATE" = "VALID" ]; then
+              echo "Build is ready!"
+              break
+            elif [ "$BUILD_STATE" = "FAILED" ] || [ "$BUILD_STATE" = "INVALID" ]; then
+              echo "::error::Build processing failed with state: $BUILD_STATE"
+              exit 1
+            fi
+
+            if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
+              echo "::error::Timed out waiting for build to process after 30 minutes"
+              exit 1
+            fi
+            sleep 30
+          done
+
+          # --- Add build to beta group ---
+          echo "Adding build to '$BETA_GROUP_NAME'..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "$AUTH" \
+            -H "Content-Type: application/json" \
+            -d "{\"data\":[{\"type\":\"builds\",\"id\":\"$BUILD_ID\"}]}" \
+            "$API/betaGroups/$GROUP_ID/relationships/builds")
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "✅ Build distributed to '$BETA_GROUP_NAME' external testers"
+          else
+            echo "::error::Failed to add build to beta group (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
