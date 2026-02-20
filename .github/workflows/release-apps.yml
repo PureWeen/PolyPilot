@@ -3,10 +3,9 @@ name: Release to TestFlight & Google Play
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'App display version (e.g. 1.0.0)'
-        required: true
-        default: '1.0.0'
+      version_override:
+        description: 'Override app version (leave empty to use APP_VERSION repo variable)'
+        required: false
       build_number_offset:
         description: 'Offset added to run number (increase if you need to jump ahead, default: repo var BUILD_NUMBER_OFFSET or 0)'
         required: false
@@ -17,7 +16,7 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   MAUI_PROJECT_PATH: 'PolyPilot/PolyPilot.csproj'
-  APP_VERSION: ${{ inputs.version || vars.APP_VERSION || '1.0.0' }}
+  APP_VERSION: ${{ inputs.version_override || vars.APP_VERSION || '1.0.0' }}
 
 jobs:
   # ─────────────────────────────────────────────
@@ -98,6 +97,7 @@ jobs:
           dotnet publish ${{ env.MAUI_PROJECT_PATH }} \
             -f net10.0-android \
             -c Release \
+            -p:ApplicationId=nl.versluis.polypilot \
             -p:AndroidPackageFormat=aab \
             -p:AndroidKeyStore=true \
             -p:AndroidSigningKeyStore='${{ github.workspace }}/keystore.jks' \
@@ -131,7 +131,7 @@ jobs:
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: 'com.microsoft.PolyPilot'
+          packageName: 'nl.versluis.polypilot'
           releaseFiles: ./android-artifacts/*-Signed.aab
           track: beta
           status: completed
@@ -158,15 +158,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode
-        run: |
-          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -rV | head -1)
-          if [ -z "$XCODE_PATH" ]; then
-            XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -rV | head -1)
-          fi
-          echo "Selected Xcode: $XCODE_PATH"
-          sudo xcode-select -s "$XCODE_PATH"
-          sudo xcodebuild -license accept 2>/dev/null || true
-          xcodebuild -version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -175,7 +169,9 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Install MAUI workload
-        run: dotnet workload install maui
+        run: |
+          dotnet workload update
+          dotnet workload install maui
 
       - name: Import signing certificate
         uses: apple-actions/import-codesign-certs@v2
@@ -183,13 +179,11 @@ jobs:
           p12-file-base64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
           p12-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
 
-      - name: Download provisioning profile
-        uses: apple-actions/download-provisioning-profiles@v2
-        with:
-          bundle-id: 'com.microsoft.PolyPilot'
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+      - name: Install provisioning profile
+        run: |
+          PP_PATH="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PP_PATH"
+          echo "${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}" | base64 -d > "$PP_PATH/profile.mobileprovision"
 
       - name: Publish iOS IPA
         run: |
@@ -197,6 +191,7 @@ jobs:
             -f net10.0-ios \
             -c Release \
             -p:RuntimeIdentifier=ios-arm64 \
+            -p:ApplicationId=nl.versluis.polypilot \
             -p:CodesignKey="${{ secrets.IOS_CODESIGN_KEY }}" \
             -p:CodesignProvision="${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}" \
             -p:ArchiveOnBuild=true \
@@ -253,84 +248,39 @@ jobs:
           api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
 
       - name: Distribute to external testers (MAUI Team)
+        continue-on-error: true
         env:
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
-          APP_BUNDLE_ID: 'com.microsoft.PolyPilot'
+          APP_BUNDLE_ID: 'nl.versluis.polypilot'
           BUILD_NUMBER: ${{ steps.build.outputs.number }}
           APP_VERSION: ${{ env.APP_VERSION }}
           BETA_GROUP_NAME: 'MAUI Team'
         run: |
           set -euo pipefail
 
-          # --- Generate JWT for App Store Connect API ---
-          HEADER=$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$APPSTORE_KEY_ID" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
-          NOW=$(date +%s)
-          EXP=$((NOW + 1200))
-          PAYLOAD=$(printf '{"iss":"%s","iat":%d,"exp":%d,"aud":"appstoreconnect-v1"}' "$APPSTORE_ISSUER_ID" "$NOW" "$EXP" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+          # Install fastlane
+          gem install fastlane --no-document
 
-          # Write private key to temp file for signing
-          KEY_FILE=$(mktemp)
-          echo "$APPSTORE_PRIVATE_KEY" > "$KEY_FILE"
-          SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign "$KEY_FILE" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
-          rm -f "$KEY_FILE"
+          # Write API key JSON for fastlane
+          mkdir -p private_keys
+          echo "$APPSTORE_PRIVATE_KEY" > "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+          cat > api_key.json <<APIEOF
+          {
+            "key_id": "${APPSTORE_KEY_ID}",
+            "issuer_id": "${APPSTORE_ISSUER_ID}",
+            "key_filepath": "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+          }
+          APIEOF
 
-          JWT="${HEADER}.${PAYLOAD}.${SIGNATURE}"
-          AUTH="Authorization: Bearer $JWT"
-          API="https://api.appstoreconnect.apple.com/v1"
+          echo "Waiting for build processing before distributing..."
+          fastlane pilot distribute \
+            --api_key_path api_key.json \
+            --app_identifier "$APP_BUNDLE_ID" \
+            --build_number "$BUILD_NUMBER" \
+            --app_version "$APP_VERSION" \
+            --groups "$BETA_GROUP_NAME" \
+            --distribute_only
 
-          # --- Find the app ---
-          echo "Looking up app with bundle ID: $APP_BUNDLE_ID"
-          APP_ID=$(curl -s -H "$AUTH" "$API/apps?filter[bundleId]=$APP_BUNDLE_ID&fields[apps]=bundleId" | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])")
-          echo "App ID: $APP_ID"
-
-          # --- Find the beta group "MAUI Team" ---
-          echo "Looking up beta group: $BETA_GROUP_NAME"
-          GROUP_RESPONSE=$(curl -s -H "$AUTH" "$API/apps/$APP_ID/betaGroups?filter[name]=$BETA_GROUP_NAME&fields[betaGroups]=name")
-          GROUP_ID=$(echo "$GROUP_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin)['data']; print(data[0]['id'] if data else '')")
-          if [ -z "$GROUP_ID" ]; then
-            echo "::error::Beta group '$BETA_GROUP_NAME' not found. Create it in App Store Connect first."
-            exit 1
-          fi
-          echo "Beta group ID: $GROUP_ID"
-
-          # --- Wait for build to finish processing ---
-          echo "Waiting for build $APP_VERSION ($BUILD_NUMBER) to finish processing..."
-          MAX_ATTEMPTS=60  # 30 minutes max (30s intervals)
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            BUILD_RESPONSE=$(curl -s -H "$AUTH" "$API/builds?filter[app]=$APP_ID&filter[version]=$BUILD_NUMBER&filter[preReleaseVersion.version]=$APP_VERSION&fields[builds]=processingState,version")
-            BUILD_STATE=$(echo "$BUILD_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin)['data']; print(data[0]['attributes']['processingState'] if data else 'NOT_FOUND')")
-            BUILD_ID=$(echo "$BUILD_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin)['data']; print(data[0]['id'] if data else '')")
-
-            echo "  Attempt $i/$MAX_ATTEMPTS — state: $BUILD_STATE"
-
-            if [ "$BUILD_STATE" = "VALID" ]; then
-              echo "Build is ready!"
-              break
-            elif [ "$BUILD_STATE" = "FAILED" ] || [ "$BUILD_STATE" = "INVALID" ]; then
-              echo "::error::Build processing failed with state: $BUILD_STATE"
-              exit 1
-            fi
-
-            if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
-              echo "::error::Timed out waiting for build to process after 30 minutes"
-              exit 1
-            fi
-            sleep 30
-          done
-
-          # --- Add build to beta group ---
-          echo "Adding build to '$BETA_GROUP_NAME'..."
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-            -H "$AUTH" \
-            -H "Content-Type: application/json" \
-            -d "{\"data\":[{\"type\":\"builds\",\"id\":\"$BUILD_ID\"}]}" \
-            "$API/betaGroups/$GROUP_ID/relationships/builds")
-
-          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
-            echo "✅ Build distributed to '$BETA_GROUP_NAME' external testers"
-          else
-            echo "::error::Failed to add build to beta group (HTTP $HTTP_STATUS)"
-            exit 1
-          fi
+          rm -rf private_keys api_key.json

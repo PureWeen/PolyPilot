@@ -428,7 +428,7 @@ public partial class CopilotService
                     state.Info.Model = normalizedStartModel;
                     Debug($"Session model from start event: {startModel} → {normalizedStartModel}");
                 }
-                if (!IsRestoring) SaveActiveSessionsToDisk();
+                Invoke(() => { if (!IsRestoring) SaveActiveSessionsToDisk(); });
                 break;
 
             case SessionUsageInfoEvent usageInfo:
@@ -498,10 +498,14 @@ public partial class CopilotService
             case SessionErrorEvent err:
                 var errMsg = Models.ErrorMessageHelper.HumanizeMessage(err.Data?.Message ?? "Unknown error");
                 CancelProcessingWatchdog(state);
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                state.HasUsedToolsThisTurn = false;
                 InvokeOnUI(() =>
                 {
                     OnError?.Invoke(sessionName, errMsg);
                     state.ResponseCompletion?.TrySetException(new Exception(errMsg));
+                    // Flush any accumulated partial response before clearing processing state
+                    FlushCurrentResponse(state);
                     Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
@@ -630,7 +634,19 @@ public partial class CopilotService
     {
         if (!state.Info.IsProcessing)
         {
-            Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse skipped — IsProcessing already false");
+            // Still flush any accumulated content — delta events may have arrived
+            // after IsProcessing was cleared prematurely by watchdog/error handler.
+            if (state.CurrentResponse.Length > 0)
+            {
+                Debug($"[COMPLETE] '{state.Info.Name}' IsProcessing already false but flushing " +
+                      $"{state.CurrentResponse.Length} chars of accumulated content");
+                FlushCurrentResponse(state);
+                OnStateChanged?.Invoke();
+            }
+            else
+            {
+                Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse skipped — IsProcessing already false");
+            }
             return; // Already completed (e.g. timeout)
         }
 
@@ -1155,6 +1171,8 @@ public partial class CopilotService
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         state.Info.IsResumed = false;
+                        // Flush any accumulated partial response before clearing processing state
+                        FlushCurrentResponse(state);
                         state.Info.IsProcessing = false;
                         Interlocked.Exchange(ref state.SendingFlag, 0);
                         state.Info.History.Add(ChatMessage.SystemMessage(

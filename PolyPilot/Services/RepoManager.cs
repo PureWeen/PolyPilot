@@ -85,15 +85,21 @@ public class RepoManager
     /// </summary>
     public static string RepoIdFromUrl(string url)
     {
-        // Handle SSH: git@github.com:Owner/Repo.git
-        if (url.Contains(':') && url.Contains('@'))
+        // Handle SCP-style SSH: git@github.com:Owner/Repo.git (no :// protocol prefix)
+        if (url.Contains('@') && url.Contains(':') && !url.Contains("://"))
         {
             var path = url.Split(':').Last();
-            return path.Replace('/', '-').TrimEnd('/').Replace(".git", "");
+            var id = path.Replace('/', '-').TrimEnd('/');
+            if (id.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+                id = id[..^4];
+            return id;
         }
-        // Handle HTTPS: https://github.com/Owner/Repo.git
+        // Handle HTTPS, ssh://, and other protocol URLs
         var uri = new Uri(url);
-        return uri.AbsolutePath.Trim('/').Replace('/', '-').Replace(".git", "");
+        var result = uri.AbsolutePath.Trim('/').Replace('/', '-');
+        if (result.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+            result = result[..^4];
+        return result;
     }
 
     /// <summary>

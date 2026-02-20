@@ -107,6 +107,7 @@ When switching between Embedded and Persistent modes (via Settings → Save & Re
 - **NEVER use `git push --force`** — always use `git push --force-with-lease` instead when a force push is needed (e.g., after a rebase). This prevents overwriting remote changes made by others.
 - **NEVER commit screenshots, images, or binary files** — use `git diff --stat` or `git status` before committing to verify no `.png`, `.jpg`, `.bmp`, or other image files are staged. Screenshots from PolyPilot (e.g., `screenshot_*.png`) are generated locally and must NEVER be committed. The `.gitignore` blocks common patterns, but always double-check.
 - **NEVER use `git add -A` or `git add .` blindly** — always review what's being staged first with `git status`. Prefer `git add <specific-files>` when possible to avoid accidentally committing generated files.
+- **When creating a new branch for a PR**, always base it on `upstream/main` (or `origin/main`). Do NOT branch from whatever HEAD happens to be — the repo may be on a feature branch. Use `git checkout -b <branch> upstream/main`. After creating the branch, verify with `git log --oneline upstream/main..HEAD` that only your commits appear.
 - When contributing to an existing PR, prefer adding commits on top. Rebase only when explicitly asked.
 - Use `git add -f` when adding files matched by `.gitignore` patterns (e.g., `*.app/` catches `PolyPilot/`).
 

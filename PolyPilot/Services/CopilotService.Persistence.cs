@@ -10,6 +10,10 @@ public partial class CopilotService
     /// </summary>
     private void SaveActiveSessionsToDisk()
     {
+        // Skip persistence in demo mode — demo sessions are transient
+        // and writing here would corrupt the real active-sessions.json
+        if (IsDemoMode || IsRestoring) return;
+
         try
         {
             // Ensure directory exists (required on iOS where it may not exist by default)
@@ -334,6 +338,9 @@ public partial class CopilotService
 
     public bool DeletePersistedSession(string sessionId)
     {
+        // In demo mode, don't delete real session data from disk
+        if (IsDemoMode) return false;
+
         if (string.IsNullOrWhiteSpace(sessionId) || !Guid.TryParse(sessionId, out _))
             return false;
 

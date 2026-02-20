@@ -55,9 +55,10 @@ internal class StubServerManager : IServerManager
 internal class StubWsBridgeClient : IWsBridgeClient
 {
     public bool IsConnected { get; set; }
+    public bool HasReceivedSessionsList { get; set; }
     public List<SessionSummary> Sessions { get; set; } = new();
     public string? ActiveSessionName { get; set; }
-    public Dictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
+    public System.Collections.Concurrent.ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
     public List<PersistedSessionSummary> PersistedSessions { get; set; } = new();
     public string? GitHubAvatarUrl { get; set; }
     public string? GitHubLogin { get; set; }
@@ -102,7 +103,27 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public Task ResumeSessionAsync(string sessionId, string? displayName = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task CloseSessionAsync(string name, CancellationToken ct = default) => Task.CompletedTask;
     public Task AbortSessionAsync(string sessionName, CancellationToken ct = default) => Task.CompletedTask;
+    public string? LastChangedModelSession { get; private set; }
+    public string? LastChangedModel { get; private set; }
+    public int ChangeModelCallCount { get; private set; }
+    public Task ChangeModelAsync(string sessionName, string newModel, CancellationToken ct = default)
+    {
+        LastChangedModelSession = sessionName;
+        LastChangedModel = newModel;
+        ChangeModelCallCount++;
+        return Task.CompletedTask;
+    }
     public Task SendOrganizationCommandAsync(OrganizationCommandPayload payload, CancellationToken ct = default) => Task.CompletedTask;
+    public string? LastRenamedOldName { get; private set; }
+    public string? LastRenamedNewName { get; private set; }
+    public int RenameSessionCallCount { get; private set; }
+    public Task RenameSessionAsync(string oldName, string newName, CancellationToken ct = default)
+    {
+        LastRenamedOldName = oldName;
+        LastRenamedNewName = newName;
+        RenameSessionCallCount++;
+        return Task.CompletedTask;
+    }
     public Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
         => Task.FromResult(new DirectoriesListPayload());
 }
@@ -135,7 +156,18 @@ internal class StubDemoService : IDemoService
 
     public void SetActiveSession(string name) { if (_sessions.ContainsKey(name)) ActiveSessionName = name; }
 
-    public Task SimulateResponseAsync(string sessionName, string prompt, SynchronizationContext? syncContext = null, CancellationToken ct = default)
-        => Task.CompletedTask;
+    public async Task SimulateResponseAsync(string sessionName, string prompt, SynchronizationContext? syncContext = null, CancellationToken ct = default)
+    {
+        await Task.Delay(10, ct);
+        OnTurnStart?.Invoke(sessionName);
+        OnContentReceived?.Invoke(sessionName, "Demo response");
+        if (_sessions.TryGetValue(sessionName, out var info))
+        {
+            info.History.Add(ChatMessage.AssistantMessage("Demo response"));
+            info.IsProcessing = false;
+        }
+        OnTurnEnd?.Invoke(sessionName);
+        OnStateChanged?.Invoke();
+    }
 }
 #pragma warning restore CS0067

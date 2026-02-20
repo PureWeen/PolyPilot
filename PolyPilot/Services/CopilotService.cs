@@ -11,6 +11,8 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, SessionState> _sessions = new();
     // Sessions optimistically added during remote create/resume — protected from removal by SyncRemoteSessions
     private readonly ConcurrentDictionary<string, byte> _pendingRemoteSessions = new();
+    // Old names from optimistic renames — protected from re-addition by SyncRemoteSessions
+    private readonly ConcurrentDictionary<string, byte> _pendingRemoteRenames = new();
     // Sessions currently receiving streaming content via bridge events — history sync skipped to avoid duplicates
     private readonly ConcurrentDictionary<string, byte> _remoteStreamingSessions = new();
     // Sessions for which history has already been requested — prevents duplicate request storms
@@ -1222,6 +1224,8 @@ public partial class CopilotService : IAsyncDisposable
             var demoState = new SessionState { Session = null!, Info = demoInfo };
             _sessions[name] = demoState;
             _activeSessionName ??= name;
+            if (!Organization.Sessions.Any(m => m.SessionName == name))
+                Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
             OnStateChanged?.Invoke();
             return demoInfo;
         }
@@ -1369,15 +1373,48 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     /// </summary>
     public async Task<bool> ChangeModelAsync(string sessionName, string newModel, CancellationToken cancellationToken = default)
     {
+        if (IsRemoteMode)
+        {
+            if (!_bridgeClient.IsConnected) return false;
+            var remoteModel = Models.ModelHelper.NormalizeToSlug(newModel);
+            if (string.IsNullOrEmpty(remoteModel)) return false;
+            // Guard: don't change model while processing or if already the same
+            if (!_sessions.TryGetValue(sessionName, out var remoteState)) return false;
+            if (remoteState.Info.IsProcessing) return false;
+            if (remoteState.Info.Model == remoteModel) return true;
+            try
+            {
+                await _bridgeClient.ChangeModelAsync(sessionName, remoteModel, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Debug($"ChangeModelAsync remote error: {ex.Message}");
+                return false;
+            }
+            // Update local state optimistically
+            remoteState.Info.Model = remoteModel;
+            OnStateChanged?.Invoke();
+            return true;
+        }
+
         if (!_sessions.TryGetValue(sessionName, out var state)) return false;
         if (state.Info.IsProcessing) return false;
-        if (string.IsNullOrEmpty(state.Info.SessionId)) return false;
 
         var normalizedModel = Models.ModelHelper.NormalizeToSlug(newModel);
         if (string.IsNullOrEmpty(normalizedModel)) return false;
 
         // Already on this model — no-op
         if (state.Info.Model == normalizedModel) return true;
+
+        // Demo mode: just update the model label (no SDK session to resume)
+        if (IsDemoMode)
+        {
+            state.Info.Model = normalizedModel;
+            OnStateChanged?.Invoke();
+            return true;
+        }
+
+        if (string.IsNullOrEmpty(state.Info.SessionId)) return false;
 
         Debug($"Switching model for '{sessionName}': {state.Info.Model} → {normalizedModel}");
 
@@ -1545,15 +1582,24 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         Session = newSession,
                         Info = state.Info
                     };
-                    newState.ResponseCompletion = state.ResponseCompletion;
+                    newState.ResponseCompletion = new TaskCompletionSource<string>();
                     // Carry forward ProcessingGeneration so stale callbacks on the
                     // orphaned old state can't pass generation checks on the new state.
                     Interlocked.Exchange(ref newState.ProcessingGeneration,
                         Interlocked.Read(ref state.ProcessingGeneration));
                     newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn;
-                    _sessions[sessionName] = newState;
                     newSession.On(evt => HandleSessionEvent(newState, evt));
+                    _sessions[sessionName] = newState;
                     state = newState;
+
+                    // Increment generation AFTER registering the event handler so that any
+                    // replayed SessionIdleEvent from the old turn captures the stale generation
+                    // (0) while the retry turn uses the new generation. This prevents the
+                    // replayed IDLE from clearing IsProcessing before the retry completes.
+                    Interlocked.Increment(ref state.ProcessingGeneration);
+                    state.Info.IsProcessing = true;
+                    state.CurrentResponse.Clear();
+                    Debug($"[RECONNECT] '{sessionName}' reset processing state: gen={Interlocked.Read(ref state.ProcessingGeneration)}");
                     
                     // Start fresh watchdog for the new connection
                     StartProcessingWatchdog(state, sessionName);
@@ -1620,14 +1666,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!state.Info.IsProcessing) return;
 
-        try
+        // In demo mode, Session is null — skip the SDK abort call
+        if (!IsDemoMode)
         {
-            await state.Session.AbortAsync();
-            Debug($"Aborted session '{sessionName}'");
-        }
-        catch (Exception ex)
-        {
-            Debug($"Abort failed for '{sessionName}': {ex.Message}");
+            try
+            {
+                await state.Session.AbortAsync();
+                Debug($"Aborted session '{sessionName}'");
+            }
+            catch (Exception ex)
+            {
+                Debug($"Abort failed for '{sessionName}': {ex.Message}");
+            }
         }
 
         // Flush any accumulated streaming content to history before clearing state.
@@ -1655,6 +1705,17 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public void EnqueueMessage(string sessionName, string prompt, List<string>? imagePaths = null)
     {
+        // In remote mode, delegate to bridge server
+        if (IsRemoteMode)
+        {
+            if (imagePaths != null && imagePaths.Count > 0)
+                Console.WriteLine($"[CopilotService] Warning: image attachments not supported in remote mode, {imagePaths.Count} image(s) dropped");
+            _ = _bridgeClient.QueueMessageAsync(sessionName, prompt)
+                .ContinueWith(t => Console.WriteLine($"[CopilotService] QueueMessage bridge error: {t.Exception?.InnerException?.Message}"),
+                    TaskContinuationOptions.OnlyOnFaulted);
+            return;
+        }
+
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
 
@@ -1823,6 +1884,35 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (oldName == newName)
             return true;
 
+        // In remote mode, delegate to bridge server
+        if (IsRemoteMode)
+        {
+            if (!_bridgeClient.IsConnected)
+                return false;
+            if (_sessions.ContainsKey(newName))
+                return false;
+            // Optimistically rename locally for immediate UI feedback
+            if (!_sessions.TryRemove(oldName, out var remoteState))
+                return false;
+            remoteState.Info.Name = newName;
+            _sessions[newName] = remoteState;
+            _pendingRemoteSessions[newName] = 0;
+            _pendingRemoteRenames[oldName] = 0;
+            if (_activeSessionName == oldName)
+                _activeSessionName = newName;
+            var remoteMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == oldName);
+            if (remoteMeta != null)
+                remoteMeta.SessionName = newName;
+            OnStateChanged?.Invoke();
+            // Send to server (fire-and-forget with error logging)
+            _ = _bridgeClient.RenameSessionAsync(oldName, newName)
+                .ContinueWith(t => Console.WriteLine($"[CopilotService] RenameSession bridge error: {t.Exception?.InnerException?.Message}"),
+                    TaskContinuationOptions.OnlyOnFaulted);
+            _ = Task.Delay(30_000).ContinueWith(t => { _pendingRemoteSessions.TryRemove(newName, out _); });
+            _ = Task.Delay(30_000).ContinueWith(t => { _pendingRemoteRenames.TryRemove(oldName, out _); });
+            return true;
+        }
+
         if (_sessions.ContainsKey(newName))
             return false;
 
@@ -1894,7 +1984,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         StopReflectionCycle(name);
 
         // In remote mode, send close request to server
-        if (_bridgeClient != null && _bridgeClient.IsConnected)
+        if (IsRemoteMode)
         {
             await _bridgeClient.CloseSessionAsync(name);
         }

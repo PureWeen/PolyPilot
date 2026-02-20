@@ -675,6 +675,10 @@
         if (devTunnelAvailable)
             tunnelLoggedIn = await DevTunnelService.IsLoggedInAsync();
 
+        // Regenerate direct QR code now that local IPs are available
+        if (WsBridgeServer.IsRunning && string.IsNullOrEmpty(directQrCodeDataUri))
+            GenerateDirectQrCode();
+
         await InvokeAsync(StateHasChanged);
     }
 
@@ -778,7 +782,7 @@
         var result = await QrScanner.ScanAsync();
         if (string.IsNullOrEmpty(result)) return;
 
-        // QR code contains JSON { url, token } or a plain URL string
+        // QR code contains JSON { url, token }, a polypilot:// URI, or a plain URL string
         string? url = null;
         try
         {
@@ -790,7 +794,17 @@
         }
         catch
         {
-            url = result;
+            if (result.StartsWith("polypilot://", StringComparison.OrdinalIgnoreCase)
+                && Uri.TryCreate(result, UriKind.Absolute, out var uri))
+            {
+                var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                url = query["url"];
+                settings.RemoteToken = query["token"];
+            }
+            else
+            {
+                url = result;
+            }
         }
 
         if (!string.IsNullOrEmpty(url))
@@ -1152,7 +1166,7 @@
             using var qr = new QRCoder.QRCodeGenerator();
             using var data = qr.CreateQrCode(connectUrl, QRCoder.QRCodeGenerator.ECCLevel.M);
             using var png = new QRCoder.PngByteQRCode(data);
-            var bytes = png.GetGraphic(8, new byte[] { 255, 255, 255 }, new byte[] { 30, 30, 30 });
+            var bytes = png.GetGraphic(12, new byte[] { 0, 0, 0 }, new byte[] { 255, 255, 255 });
             directQrCodeDataUri = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
         }
         catch { }

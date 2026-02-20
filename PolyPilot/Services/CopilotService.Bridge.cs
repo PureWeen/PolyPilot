@@ -5,6 +5,8 @@ namespace PolyPilot.Services;
 
 public partial class CopilotService
 {
+    private bool _bridgeEventsWired;
+
     /// <summary>
     /// Initialize in Remote mode: connect WsBridgeClient for state-sync with server.
     /// </summary>
@@ -15,10 +17,18 @@ public partial class CopilotService
             wsUrl = "wss://" + wsUrl[8..];
         else if (wsUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
             wsUrl = "ws://" + wsUrl[7..];
+        else if (wsUrl.StartsWith("wss://", StringComparison.OrdinalIgnoreCase)
+              || wsUrl.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+            { /* already a WebSocket URL */ }
         else
             wsUrl = "wss://" + wsUrl;
 
         Debug($"Remote mode: connecting to {wsUrl}");
+
+        // Wire WsBridgeClient events only once (survives reconnects)
+        if (!_bridgeEventsWired)
+        {
+            _bridgeEventsWired = true;
 
         // Wire WsBridgeClient events to our events
         _bridgeClient.OnStateChanged += () =>
@@ -163,12 +173,33 @@ public partial class CopilotService
             });
         };
 
+        } // end if (!_bridgeEventsWired)
+
         await _bridgeClient.ConnectAsync(wsUrl, settings.RemoteToken, ct);
 
-        IsInitialized = true;
+        // Wait for initial session list from server (arrives immediately after connect)
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!_bridgeClient.HasReceivedSessionsList && DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+            await Task.Delay(50, ct);
+
+        // Allow time for SessionHistory messages to follow the SessionsList
+        if (_bridgeClient.HasReceivedSessionsList && _bridgeClient.Sessions.Any())
+        {
+            var histDeadline = DateTime.UtcNow.AddSeconds(3);
+            while (_bridgeClient.SessionHistories.Count < _bridgeClient.Sessions.Count(s => s.MessageCount > 0)
+                   && DateTime.UtcNow < histDeadline && !ct.IsCancellationRequested)
+                await Task.Delay(50, ct);
+        }
+
+        // Set IsRemoteMode before SyncRemoteSessions to prevent ReconcileOrganization from running
         IsRemoteMode = true;
+
+        // Sync all received history into local sessions before returning
+        SyncRemoteSessions();
+
+        IsInitialized = true;
         NeedsConfiguration = false;
-        Debug("Connected to remote server via WebSocket bridge");
+        Debug($"Connected to remote server via WebSocket bridge ({_bridgeClient.Sessions.Count} sessions, {_bridgeClient.SessionHistories.Count} histories)");
         OnStateChanged?.Invoke();
     }
 
@@ -191,7 +222,7 @@ public partial class CopilotService
         // Add/update sessions from remote
         foreach (var rs in remoteSessions)
         {
-            if (!_sessions.ContainsKey(rs.Name))
+            if (!_sessions.ContainsKey(rs.Name) && !_pendingRemoteRenames.ContainsKey(rs.Name))
             {
                 Debug($"SyncRemoteSessions: Adding session '{rs.Name}'");
                 var info = new AgentSessionInfo
@@ -209,11 +240,13 @@ public partial class CopilotService
                     Info = info
                 };
             }
-            // Update processing state from server
+            // Update processing state and model from server
             if (_sessions.TryGetValue(rs.Name, out var state))
             {
                 state.Info.IsProcessing = rs.IsProcessing;
                 state.Info.MessageCount = rs.MessageCount;
+                if (!string.IsNullOrEmpty(rs.Model))
+                    state.Info.Model = rs.Model;
             }
         }
 
@@ -228,6 +261,13 @@ public partial class CopilotService
         // Clear pending flag for sessions confirmed by server
         foreach (var rs in remoteSessions)
             _pendingRemoteSessions.TryRemove(rs.Name, out _);
+        // Clear pending renames when old name disappears from server (rename confirmed).
+        // If rename fails, old name stays on server and the 30s TTL cleanup handles it.
+        foreach (var oldName in _pendingRemoteRenames.Keys.ToList())
+        {
+            if (!remoteNames.Contains(oldName))
+                _pendingRemoteRenames.TryRemove(oldName, out _);
+        }
 
         // Sync history from WsBridgeClient cache
         // Don't overwrite if local history has messages not yet reflected by server
