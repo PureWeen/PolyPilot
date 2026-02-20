@@ -591,4 +591,97 @@ public class WsBridgeIntegrationTests : IDisposable
         Assert.Null(_copilot.GetSession("traversal-test"));
         client.Stop();
     }
+
+    // ========== BUG FIX REGRESSION TESTS ==========
+
+    [Fact]
+    public async Task AbortSession_InDemoMode_DoesNotThrowNRE()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("abort-demo", "gpt-4.1");
+
+        // Start a message so IsProcessing becomes true
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await _copilot.SendPromptAsync("abort-demo", "Hello");
+        await Task.Delay(50, cts.Token); // let demo start processing
+
+        // This should NOT throw NullReferenceException (Session is null in demo mode)
+        await _copilot.AbortSessionAsync("abort-demo");
+
+        var session = _copilot.GetSession("abort-demo");
+        Assert.NotNull(session);
+        Assert.False(session!.IsProcessing);
+    }
+
+    [Fact]
+    public async Task RenameSession_ViaClient_RenamesOnServer()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("old-name", "gpt-4.1");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        await client.RenameSessionAsync("old-name", "new-name", cts.Token);
+        await Task.Delay(500, cts.Token);
+
+        Assert.Null(_copilot.GetSession("old-name"));
+        Assert.NotNull(_copilot.GetSession("new-name"));
+        client.Stop();
+    }
+
+    [Fact]
+    public async Task RenameSession_ViaClient_UpdatesSessionList()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("rename-list", "gpt-4.1");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        await client.RenameSessionAsync("rename-list", "renamed-list", cts.Token);
+        await Task.Delay(500, cts.Token);
+
+        // Client should receive updated session list with new name
+        Assert.Contains(client.Sessions, s => s.Name == "renamed-list");
+        Assert.DoesNotContain(client.Sessions, s => s.Name == "rename-list");
+        client.Stop();
+    }
+
+    [Fact]
+    public async Task CloseSession_InDemoMode_DoesNotSendBridgeMessage()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("close-demo", "gpt-4.1");
+
+        // Close should work in demo mode without trying to use the bridge
+        var result = await _copilot.CloseSessionAsync("close-demo");
+        Assert.True(result);
+        Assert.Null(_copilot.GetSession("close-demo"));
+    }
+
+    [Fact]
+    public async Task ListDirectories_ConcurrentCalls_BothComplete()
+    {
+        await InitDemoMode();
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var client = await ConnectClientAsync(cts.Token);
+
+        // Fire two concurrent directory listing requests
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var tmp = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        var t1 = client.ListDirectoriesAsync(home, cts.Token);
+        var t2 = client.ListDirectoriesAsync(tmp, cts.Token);
+
+        var results = await Task.WhenAll(t1, t2);
+
+        // Both should complete without hanging
+        Assert.All(results, r => Assert.Null(r.Error));
+        // Verify we got results for both paths (order may vary)
+        var paths = results.Select(r => r.Path).ToHashSet();
+        Assert.Contains(home, paths);
+        Assert.Contains(tmp, paths);
+        client.Stop();
+    }
 }

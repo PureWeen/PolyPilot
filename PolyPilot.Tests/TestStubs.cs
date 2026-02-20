@@ -113,6 +113,16 @@ internal class StubWsBridgeClient : IWsBridgeClient
         return Task.CompletedTask;
     }
     public Task SendOrganizationCommandAsync(OrganizationCommandPayload payload, CancellationToken ct = default) => Task.CompletedTask;
+    public string? LastRenamedOldName { get; private set; }
+    public string? LastRenamedNewName { get; private set; }
+    public int RenameSessionCallCount { get; private set; }
+    public Task RenameSessionAsync(string oldName, string newName, CancellationToken ct = default)
+    {
+        LastRenamedOldName = oldName;
+        LastRenamedNewName = newName;
+        RenameSessionCallCount++;
+        return Task.CompletedTask;
+    }
     public Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
         => Task.FromResult(new DirectoriesListPayload());
 }

@@ -453,6 +453,17 @@ public class WsBridgeServer : IDisposable
                     }
                     break;
 
+                case BridgeMessageTypes.RenameSession:
+                    var renameReq = msg.GetPayload<RenameSessionPayload>();
+                    if (renameReq != null && !string.IsNullOrWhiteSpace(renameReq.OldName) && !string.IsNullOrWhiteSpace(renameReq.NewName))
+                    {
+                        Console.WriteLine($"[WsBridge] Client renaming session '{renameReq.OldName}' to '{renameReq.NewName}'");
+                        _copilot.RenameSession(renameReq.OldName, renameReq.NewName);
+                        BroadcastSessionsList();
+                        BroadcastOrganizationState();
+                    }
+                    break;
+
                 case BridgeMessageTypes.OrganizationCommand:
                     var orgCmd = msg.GetPayload<OrganizationCommandPayload>();
                     if (orgCmd != null)
@@ -468,7 +479,7 @@ public class WsBridgeServer : IDisposable
                     if (string.IsNullOrWhiteSpace(dirPath))
                         dirPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-                    var dirResult = new DirectoriesListPayload { Path = dirPath! };
+                    var dirResult = new DirectoriesListPayload { Path = dirPath!, RequestId = dirReq?.RequestId };
                     try
                     {
                         if (!Path.IsPathRooted(dirPath!) || dirPath!.Contains(".."))

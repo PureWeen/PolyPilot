@@ -194,20 +194,33 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ChangeModel,
             new ChangeModelPayload { SessionName = sessionName, NewModel = newModel }), ct);
 
+    public async Task RenameSessionAsync(string oldName, string newName, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.RenameSession,
+            new RenameSessionPayload { OldName = oldName, NewName = newName }), ct);
+
     public async Task SendOrganizationCommandAsync(OrganizationCommandPayload cmd, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.OrganizationCommand, cmd), ct);
 
-    private TaskCompletionSource<DirectoriesListPayload>? _dirListTcs;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<DirectoriesListPayload>> _dirListRequests = new();
 
     public async Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
     {
-        _dirListTcs = new TaskCompletionSource<DirectoriesListPayload>();
-        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ListDirectories,
-            new ListDirectoriesPayload { Path = path }), ct);
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
-        linked.Token.Register(() => _dirListTcs.TrySetCanceled());
-        return await _dirListTcs.Task;
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<DirectoriesListPayload>();
+        _dirListRequests[requestId] = tcs;
+        try
+        {
+            await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ListDirectories,
+                new ListDirectoriesPayload { Path = path, RequestId = requestId }), ct);
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+            linked.Token.Register(() => tcs.TrySetCanceled());
+            return await tcs.Task;
+        }
+        finally
+        {
+            _dirListRequests.TryRemove(requestId, out _);
+        }
     }
 
     // --- Receive loop ---
@@ -452,7 +465,23 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             case BridgeMessageTypes.DirectoriesList:
                 var dirList = msg.GetPayload<DirectoriesListPayload>();
                 if (dirList != null)
-                    _dirListTcs?.TrySetResult(dirList);
+                {
+                    var reqId = dirList.RequestId;
+                    if (reqId != null && _dirListRequests.TryRemove(reqId, out var tcs))
+                        tcs.TrySetResult(dirList);
+                    else
+                    {
+                        // Fallback: complete the first pending request (backwards compat)
+                        foreach (var kvp in _dirListRequests)
+                        {
+                            if (_dirListRequests.TryRemove(kvp.Key, out var fallbackTcs))
+                            {
+                                fallbackTcs.TrySetResult(dirList);
+                                break;
+                            }
+                        }
+                    }
+                }
                 break;
 
             case BridgeMessageTypes.AttentionNeeded:

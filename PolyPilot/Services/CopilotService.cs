@@ -1615,14 +1615,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!state.Info.IsProcessing) return;
 
-        try
+        // In demo mode, Session is null — skip the SDK abort call
+        if (!IsDemoMode)
         {
-            await state.Session.AbortAsync();
-            Debug($"Aborted session '{sessionName}'");
-        }
-        catch (Exception ex)
-        {
-            Debug($"Abort failed for '{sessionName}': {ex.Message}");
+            try
+            {
+                await state.Session.AbortAsync();
+                Debug($"Aborted session '{sessionName}'");
+            }
+            catch (Exception ex)
+            {
+                Debug($"Abort failed for '{sessionName}': {ex.Message}");
+            }
         }
 
         // Flush any accumulated streaming content to history before clearing state.
@@ -1650,6 +1654,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public void EnqueueMessage(string sessionName, string prompt, List<string>? imagePaths = null)
     {
+        // In remote mode, delegate to bridge server
+        if (IsRemoteMode)
+        {
+            _ = _bridgeClient.QueueMessageAsync(sessionName, prompt);
+            return;
+        }
+
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
 
@@ -1808,6 +1819,25 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (oldName == newName)
             return true;
 
+        // In remote mode, delegate to bridge server
+        if (IsRemoteMode)
+        {
+            _ = _bridgeClient.RenameSessionAsync(oldName, newName);
+            // Optimistically rename locally for immediate UI feedback
+            if (_sessions.TryRemove(oldName, out var remoteState))
+            {
+                remoteState.Info.Name = newName;
+                _sessions[newName] = remoteState;
+                if (_activeSessionName == oldName)
+                    _activeSessionName = newName;
+                var remoteMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == oldName);
+                if (remoteMeta != null)
+                    remoteMeta.SessionName = newName;
+                OnStateChanged?.Invoke();
+            }
+            return true;
+        }
+
         if (_sessions.ContainsKey(newName))
             return false;
 
@@ -1876,7 +1906,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         StopReflectionCycle(name);
 
         // In remote mode, send close request to server
-        if (_bridgeClient != null && _bridgeClient.IsConnected)
+        if (IsRemoteMode)
         {
             await _bridgeClient.CloseSessionAsync(name);
         }

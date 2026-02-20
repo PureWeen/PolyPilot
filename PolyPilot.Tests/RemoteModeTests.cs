@@ -47,6 +47,7 @@ public class RemoteModeTests
             BridgeMessageTypes.CloseSession,
             BridgeMessageTypes.AbortSession,
             BridgeMessageTypes.ChangeModel,
+            BridgeMessageTypes.RenameSession,
             BridgeMessageTypes.OrganizationCommand,
             BridgeMessageTypes.ListDirectories,
         };
@@ -800,5 +801,54 @@ public class ChatMessageSerializationTests
 
         Assert.Contains("\"sessionName\"", json);
         Assert.Contains("\"newModel\"", json);
+    }
+
+    // ========== RenameSession Protocol Tests ==========
+
+    [Fact]
+    public void RenameSession_MessageType_IsCorrect()
+    {
+        Assert.Equal("rename_session", BridgeMessageTypes.RenameSession);
+    }
+
+    [Fact]
+    public void RenameSession_RoundTrip()
+    {
+        var payload = new RenameSessionPayload { OldName = "old-name", NewName = "new-name" };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.RenameSession, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json);
+
+        Assert.NotNull(restored);
+        Assert.Equal(BridgeMessageTypes.RenameSession, restored!.Type);
+
+        var restoredPayload = restored.GetPayload<RenameSessionPayload>();
+        Assert.NotNull(restoredPayload);
+        Assert.Equal("old-name", restoredPayload!.OldName);
+        Assert.Equal("new-name", restoredPayload.NewName);
+    }
+
+    [Fact]
+    public void RenameSessionPayload_DefaultValues()
+    {
+        var payload = new RenameSessionPayload();
+        Assert.Equal("", payload.OldName);
+        Assert.Equal("", payload.NewName);
+    }
+
+    [Fact]
+    public void DirectoriesListPayload_HasRequestId()
+    {
+        var request = new ListDirectoriesPayload { Path = "/tmp", RequestId = "abc123" };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.ListDirectories, request);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<ListDirectoriesPayload>();
+        Assert.Equal("abc123", restored!.RequestId);
+
+        var response = new DirectoriesListPayload { Path = "/tmp", RequestId = "abc123" };
+        var respMsg = BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, response);
+        var respJson = respMsg.Serialize();
+        var restoredResp = BridgeMessage.Deserialize(respJson)!.GetPayload<DirectoriesListPayload>();
+        Assert.Equal("abc123", restoredResp!.RequestId);
     }
 }

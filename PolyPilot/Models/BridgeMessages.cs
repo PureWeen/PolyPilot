@@ -82,6 +82,7 @@ public static class BridgeMessageTypes
     public const string OrganizationCommand = "organization_command";
     public const string ListDirectories = "list_directories";
     public const string ChangeModel = "change_model";
+    public const string RenameSession = "rename_session";
 
     // Server → Client (response)
     public const string DirectoriesList = "directories_list";
@@ -249,6 +250,12 @@ public class ChangeModelPayload
     public string NewModel { get; set; } = "";
 }
 
+public class RenameSessionPayload
+{
+    public string OldName { get; set; } = "";
+    public string NewName { get; set; } = "";
+}
+
 // --- Organization bridge payloads ---
 
 public class OrganizationCommandPayload
@@ -265,6 +272,7 @@ public class OrganizationCommandPayload
 public class ListDirectoriesPayload
 {
     public string? Path { get; set; }
+    public string? RequestId { get; set; }
 }
 
 public class DirectoriesListPayload
@@ -273,6 +281,7 @@ public class DirectoriesListPayload
     public List<DirectoryEntry> Directories { get; set; } = new();
     public bool IsGitRepo { get; set; }
     public string? Error { get; set; }
+    public string? RequestId { get; set; }
 }
 
 public class DirectoryEntry
