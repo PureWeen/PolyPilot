@@ -817,19 +817,25 @@
 
     private void HandleComplete(string sessionName, string summary)
     {
-        completedSessions.Add(sessionName);
-        streamingBySession.Remove(sessionName);
-        activityBySession.Remove(sessionName);
-        // Refresh sessions list and render immediately — ScheduleRender goes through
-        // a debounced timer that can fail to fire, leaving cards stuck on "processing".
-        // Use InvokeAsync for thread safety in case the callback arrives off-UI-thread.
-        sessions = CopilotService.GetAllSessions().ToList();
-        InvokeAsync(StateHasChanged);
-        _ = Task.Delay(10000).ContinueWith(_ =>
+        // Marshal all state mutations + render onto the UI thread.
+        // HandleComplete can be called from background threads (SDK event dispatch).
+        // Collections like completedSessions/streamingBySession are not thread-safe.
+        InvokeAsync(() =>
         {
-            completedSessions.Remove(sessionName);
-            InvokeAsync(StateHasChanged);
+            if (_disposed) return;
+            completedSessions.Add(sessionName);
+            streamingBySession.Remove(sessionName);
+            activityBySession.Remove(sessionName);
+            sessions = CopilotService.GetAllSessions().ToList();
+            StateHasChanged();
         });
+        _ = Task.Delay(10000).ContinueWith(_ =>
+            InvokeAsync(() =>
+            {
+                if (_disposed) return;
+                completedSessions.Remove(sessionName);
+                StateHasChanged();
+            }));
     }
 
     private void HandleContent(string sessionName, string content)
