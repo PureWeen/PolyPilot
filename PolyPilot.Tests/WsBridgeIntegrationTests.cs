@@ -164,7 +164,7 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.CreateSessionAsync("new-session", "gpt-4.1", null, cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => _copilot.GetSession("new-session") != null, cts.Token);
 
         Assert.NotNull(_copilot.GetSession("new-session"));
         client.Stop();
@@ -178,7 +178,7 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.CreateSessionAsync("model-create", "claude-sonnet-4-5", null, cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => _copilot.GetSession("model-create") != null, cts.Token);
 
         var session = _copilot.GetSession("model-create");
         Assert.NotNull(session);
@@ -293,10 +293,10 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.SendMessageAsync("msg-test", "Hello from mobile", cts.Token);
-        await Task.Delay(500, cts.Token);
 
         var session = _copilot.GetSession("msg-test");
         Assert.NotNull(session);
+        await WaitForAsync(() => session!.History.Any(m => m.Content?.Contains("Hello from mobile") == true), cts.Token);
         Assert.Contains(session!.History, m => m.Content?.Contains("Hello from mobile") == true);
         client.Stop();
     }
@@ -753,7 +753,7 @@ public class WsBridgeIntegrationTests : IDisposable
         client.OnError += (s, e) => errorMsg = e;
 
         await client.ResumeSessionAsync("../../../etc/passwd", "hack", cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => errorMsg != null, cts.Token);
 
         Assert.NotNull(errorMsg);
         Assert.Contains("Invalid session ID format", errorMsg);
@@ -771,7 +771,7 @@ public class WsBridgeIntegrationTests : IDisposable
         client.OnError += (s, e) => errorMsg = e;
 
         await client.ResumeSessionAsync(Guid.NewGuid().ToString(), "test", cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => errorMsg != null, cts.Token);
 
         Assert.NotNull(errorMsg);
         Assert.Contains("Resume failed", errorMsg);
@@ -838,7 +838,7 @@ public class WsBridgeIntegrationTests : IDisposable
         client.OnError += (s, e) => errorMsg = e;
 
         await client.ChangeModelAsync("model-busy", "claude-opus-4.6", cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => errorMsg != null, cts.Token);
 
         Assert.NotNull(errorMsg);
         client.Stop();
