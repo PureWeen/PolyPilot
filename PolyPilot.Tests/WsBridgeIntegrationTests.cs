@@ -959,4 +959,68 @@ public class WsBridgeIntegrationTests : IDisposable
 
         Assert.True(remoteService.IsInitialized);
     }
+
+    // ========== TURN END BROADCAST ==========
+
+    [Fact]
+    public async Task SendPrompt_Demo_ClientReceivesTurnEnd()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("turn-test", "gpt-4.1");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        var turnEndReceived = new TaskCompletionSource<string>();
+        client.OnTurnEnd += session =>
+        {
+            if (session == "turn-test")
+                turnEndReceived.TrySetResult(session);
+        };
+
+        await _copilot.SendPromptAsync("turn-test", "test prompt", cancellationToken: cts.Token);
+        var result = await Task.WhenAny(turnEndReceived.Task, Task.Delay(5000, cts.Token));
+
+        Assert.Equal(turnEndReceived.Task, result);
+        Assert.Equal("turn-test", await turnEndReceived.Task);
+        client.Stop();
+    }
+
+    // ========== AUTH TOKEN (LOOPBACK BYPASS) ==========
+
+    [Fact]
+    public async Task Connect_WithAccessTokenSet_LoopbackBypassWorks()
+    {
+        _server.AccessToken = "test-secret-token-12345";
+        await InitDemoMode();
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        // Connect without providing the token — should still work via loopback bypass
+        var client = await ConnectClientAsync(cts.Token);
+        Assert.True(client.IsConnected);
+        client.Stop();
+
+        _server.AccessToken = null;
+    }
+
+    // ========== SWITCH SESSION BROADCAST ==========
+
+    [Fact]
+    public async Task SwitchSession_BroadcastsUpdatedActiveSession()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("switch-a", "gpt-4.1");
+        await _copilot.CreateSessionAsync("switch-b", "gpt-4.1");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+        await Task.Delay(200, cts.Token);
+
+        await client.SwitchSessionAsync("switch-b", cts.Token);
+        await WaitForAsync(() => client.Sessions.Any(s => s.Name == "switch-b"), cts.Token);
+
+        // The server should have broadcast session list with updated active session
+        Assert.Contains(client.Sessions, s => s.Name == "switch-b");
+        client.Stop();
+    }
 }
