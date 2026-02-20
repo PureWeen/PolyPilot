@@ -7,15 +7,14 @@ on:
         description: 'App display version (e.g. 1.0.0)'
         required: true
         default: '1.0.0'
-      build_number:
-        description: 'Build number / version code (leave empty to use auto-incrementing run number)'
+      build_number_offset:
+        description: 'Offset added to run number (increase if you need to jump ahead, default: repo var BUILD_NUMBER_OFFSET or 0)'
         required: false
 
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   MAUI_PROJECT_PATH: 'PolyPilot/PolyPilot.csproj'
-  BUILD_NUMBER: ${{ inputs.build_number || github.run_number }}
 
 jobs:
   # ─────────────────────────────────────────────
@@ -26,6 +25,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Compute build number
+        id: build
+        run: |
+          OFFSET=${{ inputs.build_number_offset || vars.BUILD_NUMBER_OFFSET || '0' }}
+          BUILD=$(( ${{ github.run_number }} + OFFSET ))
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
+          echo "Build number: ${{ github.run_number }} + $OFFSET = $BUILD"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -59,7 +66,7 @@ jobs:
             -p:AndroidSigningKeyPass='${{ secrets.ANDROID_KEY_PASSWORD }}' \
             -p:AndroidSigningStorePass='${{ secrets.ANDROID_KEYSTORE_PASSWORD }}' \
             -p:ApplicationDisplayVersion='${{ inputs.version }}' \
-            -p:ApplicationVersion='${{ env.BUILD_NUMBER }}'
+            -p:ApplicationVersion='${{ steps.build.outputs.number }}'
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
@@ -98,6 +105,14 @@ jobs:
     runs-on: macos-26
 
     steps:
+      - name: Compute build number
+        id: build
+        run: |
+          OFFSET=${{ inputs.build_number_offset || vars.BUILD_NUMBER_OFFSET || '0' }}
+          BUILD=$(( ${{ github.run_number }} + OFFSET ))
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
+          echo "Build number: ${{ github.run_number }} + $OFFSET = $BUILD"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -145,7 +160,7 @@ jobs:
             -p:CodesignProvision="${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}" \
             -p:ArchiveOnBuild=true \
             -p:ApplicationDisplayVersion='${{ inputs.version }}' \
-            -p:ApplicationVersion='${{ env.BUILD_NUMBER }}'
+            -p:ApplicationVersion='${{ steps.build.outputs.number }}'
 
       - name: Find IPA file
         id: find_ipa
@@ -168,6 +183,13 @@ jobs:
     environment: ios-release
 
     steps:
+      - name: Compute build number
+        id: build
+        run: |
+          OFFSET=${{ inputs.build_number_offset || vars.BUILD_NUMBER_OFFSET || '0' }}
+          BUILD=$(( ${{ github.run_number }} + OFFSET ))
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
+
       - name: Download IPA artifact
         uses: actions/download-artifact@v4
         with:
@@ -195,7 +217,7 @@ jobs:
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
           APP_BUNDLE_ID: 'com.microsoft.PolyPilot'
-          BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
+          BUILD_NUMBER: ${{ steps.build.outputs.number }}
           APP_VERSION: ${{ inputs.version }}
           BETA_GROUP_NAME: 'MAUI Team'
         run: |
