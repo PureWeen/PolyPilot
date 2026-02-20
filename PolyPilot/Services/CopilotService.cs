@@ -1374,13 +1374,22 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!_sessions.TryGetValue(sessionName, out var state)) return false;
         if (state.Info.IsProcessing) return false;
-        if (string.IsNullOrEmpty(state.Info.SessionId)) return false;
 
         var normalizedModel = Models.ModelHelper.NormalizeToSlug(newModel);
         if (string.IsNullOrEmpty(normalizedModel)) return false;
 
         // Already on this model — no-op
         if (state.Info.Model == normalizedModel) return true;
+
+        // Demo mode: just update the model label (no SDK session to resume)
+        if (IsDemoMode)
+        {
+            state.Info.Model = normalizedModel;
+            OnStateChanged?.Invoke();
+            return true;
+        }
+
+        if (string.IsNullOrEmpty(state.Info.SessionId)) return false;
 
         Debug($"Switching model for '{sessionName}': {state.Info.Model} → {normalizedModel}");
 
