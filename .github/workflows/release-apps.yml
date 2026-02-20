@@ -1,0 +1,190 @@
+name: Release to TestFlight & Google Play
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'App display version (e.g. 1.0.0)'
+        required: true
+        default: '1.0.0'
+      build_number:
+        description: 'Build number / version code (integer, must increment each release)'
+        required: true
+        default: '1'
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  MAUI_PROJECT_PATH: 'PolyPilot/PolyPilot.csproj'
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Android → Google Play (Internal Testing)
+  # ─────────────────────────────────────────────
+  build-android:
+    name: Build Android AAB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui-android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+
+      - name: Decode Android keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > ${{ github.workspace }}/keystore.jks
+
+      - name: Publish Android AAB
+        run: |
+          dotnet publish ${{ env.MAUI_PROJECT_PATH }} \
+            -f net10.0-android \
+            -c Release \
+            -p:AndroidPackageFormat=aab \
+            -p:AndroidKeyStore=true \
+            -p:AndroidSigningKeyStore='${{ github.workspace }}/keystore.jks' \
+            -p:AndroidSigningKeyAlias='${{ secrets.ANDROID_KEY_ALIAS }}' \
+            -p:AndroidSigningKeyPass='${{ secrets.ANDROID_KEY_PASSWORD }}' \
+            -p:AndroidSigningStorePass='${{ secrets.ANDROID_KEYSTORE_PASSWORD }}' \
+            -p:ApplicationDisplayVersion='${{ inputs.version }}' \
+            -p:ApplicationVersion='${{ inputs.build_number }}'
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-aab
+          path: PolyPilot/bin/Release/net10.0-android/publish/*-Signed.aab
+          retention-days: 30
+
+  deploy-android:
+    name: Deploy to Google Play
+    runs-on: ubuntu-latest
+    needs: build-android
+    environment: android-release
+
+    steps:
+      - name: Download AAB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: android-aab
+          path: ./android-artifacts/
+
+      - name: Upload to Google Play (Internal Testing)
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: 'com.microsoft.PolyPilot'
+          releaseFiles: ./android-artifacts/*-Signed.aab
+          track: internal
+          status: completed
+
+  # ─────────────────────────────────────────────
+  # iOS → TestFlight
+  # ─────────────────────────────────────────────
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -rV | head -1)
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -rV | head -1)
+          fi
+          echo "Selected Xcode: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          sudo xcodebuild -license accept 2>/dev/null || true
+          xcodebuild -version
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui
+
+      - name: Import signing certificate
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+
+      - name: Download provisioning profile
+        uses: apple-actions/download-provisioning-profiles@v2
+        with:
+          bundle-id: 'com.microsoft.PolyPilot'
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+
+      - name: Publish iOS IPA
+        run: |
+          dotnet publish ${{ env.MAUI_PROJECT_PATH }} \
+            -f net10.0-ios \
+            -c Release \
+            -p:RuntimeIdentifier=ios-arm64 \
+            -p:CodesignKey="${{ secrets.IOS_CODESIGN_KEY }}" \
+            -p:CodesignProvision="${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}" \
+            -p:ArchiveOnBuild=true \
+            -p:ApplicationDisplayVersion='${{ inputs.version }}' \
+            -p:ApplicationVersion='${{ inputs.build_number }}'
+
+      - name: Find IPA file
+        id: find_ipa
+        run: |
+          IPA_PATH=$(find PolyPilot/bin/Release/net10.0-ios -name "*.ipa" | head -1)
+          echo "IPA_PATH=$IPA_PATH" >> $GITHUB_OUTPUT
+          echo "Found IPA at: $IPA_PATH"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ${{ steps.find_ipa.outputs.IPA_PATH }}
+          retention-days: 30
+
+  deploy-ios:
+    name: Deploy to TestFlight
+    runs-on: macos-26
+    needs: build-ios
+    environment: ios-release
+
+    steps:
+      - name: Download IPA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-ipa
+          path: ./ios-artifacts/
+
+      - name: Find IPA file
+        id: find_ipa
+        run: |
+          IPA_PATH=$(find ./ios-artifacts -name "*.ipa" | head -1)
+          echo "IPA_PATH=$IPA_PATH" >> $GITHUB_OUTPUT
+          echo "Found IPA at: $IPA_PATH"
+
+      - name: Upload to TestFlight
+        uses: apple-actions/upload-testflight-build@v3
+        with:
+          app-path: ${{ steps.find_ipa.outputs.IPA_PATH }}
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
