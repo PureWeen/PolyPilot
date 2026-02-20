@@ -169,7 +169,7 @@ public partial class CopilotService : IAsyncDisposable
     // UI preferences
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
     public ChatStyle ChatStyle { get; set; } = ChatStyle.Normal;
-    public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
+    public UiTheme Theme { get; set; } = UiTheme.System;
 
     // Session organization (groups, pinning, sorting)
     public OrganizationState Organization { get; private set; } = new();

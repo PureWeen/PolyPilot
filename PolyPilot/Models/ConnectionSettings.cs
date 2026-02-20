@@ -53,7 +53,7 @@ public class ConnectionSettings
     public bool DirectSharingEnabled { get; set; } = false;
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
     public ChatStyle ChatStyle { get; set; } = ChatStyle.Normal;
-    public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
+    public UiTheme Theme { get; set; } = UiTheme.System;
     public bool AutoUpdateFromMain { get; set; } = false;
     public CliSourceMode CliSource { get; set; } = CliSourceMode.BuiltIn;
     public List<string> DisabledMcpServers { get; set; } = new();
