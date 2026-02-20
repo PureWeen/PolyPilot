@@ -218,4 +218,18 @@ public class ScenarioReferenceTests
         Assert.Contains("squad-decisions-shared-context", ids);
         Assert.Contains("squad-legacy-ai-team-compat", ids);
     }
+
+    [Fact]
+    public void MultiAgentScenarios_IncludeGroupDeletion()
+    {
+        var json = File.ReadAllText(Path.Combine(ScenariosDir, "multi-agent-scenarios.json"));
+        var doc = JsonDocument.Parse(json);
+        var ids = doc.RootElement.GetProperty("scenarios")
+            .EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString())
+            .ToHashSet();
+
+        Assert.Contains("delete-group-no-contamination", ids);
+        Assert.Contains("delete-multi-agent-group-closes-sessions", ids);
+    }
 }

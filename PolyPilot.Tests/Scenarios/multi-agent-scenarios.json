@@ -116,6 +116,24 @@
       ]
     },
     {
+      "id": "delete-multi-agent-group-closes-sessions",
+      "name": "Deleting multi-agent group removes sessions entirely",
+      "description": "Verifies that deleting a multi-agent group closes all its sessions and removes them from the organization, rather than orphaning them in the default Sessions group.",
+      "invariants": [
+        "No sessions with the deleted group's ID remain in organization.json",
+        "No orphaned orchestrator/worker sessions appear in the default Sessions group",
+        "Non-multi-agent group deletion still moves sessions to default (different behavior)"
+      ],
+      "steps": [
+        { "action": "createGroup", "mode": "OrchestratorReflect", "name": "Temp Team", "workers": 2 },
+        { "action": "captureGroupState", "capture": "beforeDelete" },
+        { "action": "deleteGroup", "name": "Temp Team" },
+        { "action": "readOrgJson", "capture": "orgAfter" },
+        { "action": "assertNoSessionsWithGroupId", "groupId": "beforeDelete.groupId" },
+        { "action": "assertNoSessionsInDefault", "nameContains": "Temp Team", "note": "Sessions should be gone, not orphaned" }
+      ]
+    },
+    {
       "id": "broadcast-mode-all-receive",
       "name": "Broadcast mode sends to all sessions",
       "description": "Verifies that in Broadcast mode, the same prompt is sent to all sessions simultaneously.",

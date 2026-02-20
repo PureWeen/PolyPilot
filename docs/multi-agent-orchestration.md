@@ -10,12 +10,16 @@ PolyPilot's multi-agent system lets you create a **team of AI sessions** that wo
 
 | File | Purpose |
 |------|---------|
-| `PolyPilot/Services/CopilotService.Organization.cs` | Orchestration engine (dispatch, reflection loop, reconciliation) |
+| `PolyPilot/Services/CopilotService.Organization.cs` | Orchestration engine (dispatch, reflection loop, reconciliation, group deletion) |
 | `PolyPilot/Models/SessionOrganization.cs` | `SessionGroup`, `SessionMeta`, `MultiAgentMode`, `MultiAgentRole` |
 | `PolyPilot/Models/ReflectionCycle.cs` | Reflection state, stall detection, sentinel parsing, evaluator prompts |
+| `PolyPilot/Models/ModelCapabilities.cs` | `GroupPreset`, `UserPresets` (three-tier merge), built-in presets |
+| `PolyPilot/Models/SquadDiscovery.cs` | Squad directory parser (`.squad/` → `GroupPreset`) |
 | `PolyPilot/Services/CopilotService.Events.cs` | TCS completion (IsProcessing → TrySetResult ordering) |
+| `PolyPilot/Components/Layout/SessionSidebar.razor` | Preset picker UI (sectioned: From Repo / Built-in / My Presets) |
 | `PolyPilot.Tests/MultiAgentRegressionTests.cs` | 37 regression tests covering all known bugs |
-| `PolyPilot.Tests/SessionOrganizationTests.cs` | 14 grouping stability tests |
+| `PolyPilot.Tests/SessionOrganizationTests.cs` | 15 grouping stability tests |
+| `PolyPilot.Tests/SquadDiscoveryTests.cs` | 22 Squad discovery tests |
 | `PolyPilot.Tests/Scenarios/multi-agent-scenarios.json` | Executable CDP test scenarios |
 
 ---
@@ -253,6 +257,8 @@ OrganizationState
 │   ├── OrchestratorMode (Broadcast/Sequential/Orchestrator/OrchestratorReflect)
 │   ├── OrchestratorPrompt (optional system prompt for orchestrator)
 │   ├── ReflectionState: ReflectionCycle? (active cycle state)
+│   ├── SharedContext (from decisions.md — prepended to worker prompts)
+│   ├── RoutingContext (from routing.md — injected into orchestrator planning)
 │   ├── WorktreeId, RepoId (links to repo/worktree)
 │   └── SortOrder
 │
@@ -285,6 +291,16 @@ OrganizationState
 - Set via `SetSessionSystemPrompt(sessionName, prompt)` or via `GroupPreset.WorkerSystemPrompts`
 
 **Critical:** Both `Role` and `PreferredModel` must be set on all sessions. These are the markers that `ReconcileOrganization` uses to identify multi-agent sessions. Without them, sessions get scattered on restart.
+
+### Group Deletion
+
+Deleting a group via `DeleteGroup(groupId)` behaves differently based on group type:
+
+- **Multi-agent groups (`IsMultiAgent == true`):** All sessions in the group are **removed from the organization and closed asynchronously**. Multi-agent sessions are meaningless without their group — they have orchestrator/worker roles, preferred models, and system prompts that only make sense within the team context. Leaving them orphaned in the default group (the old behavior) caused confusion in the sidebar.
+
+- **Regular groups (repo groups, etc.):** Sessions are **moved to the default group**. These are standalone sessions that the user may still want to access.
+
+**Invariant:** After `DeleteGroup` on a multi-agent group, `Organization.Sessions` must contain zero entries with the deleted group's ID. The async close fires `CloseSessionAsync` on each session (disposing the SDK session, cleaning up image queues, and tracking closed session IDs to prevent merge re-addition).
 
 ---
 
@@ -333,7 +349,8 @@ If no `@worker:` assignments are found, the orchestrator handled the request dir
 
 ### Unit Tests
 - **`MultiAgentRegressionTests.cs`** (37 tests) — JSON corruption, reconciliation scattering, preset markers, mode enums, reflection loop logic, TCS ordering, lifecycle scenarios, persona tests
-- **`SessionOrganizationTests.cs`** → `GroupingStabilityTests` (14 tests) — JSON round-trips, delete+reconcile, orphan handling
+- **`SessionOrganizationTests.cs`** → `GroupingStabilityTests` (15 tests) — JSON round-trips, delete+cleanup, orphan handling, multi-agent vs regular group deletion
+- **`SquadDiscoveryTests.cs`** (22 tests) — Squad directory discovery, team.md parsing, charter→system-prompt, decisions/routing context, three-tier merge, legacy `.ai-team/` compat
 - **`ScenarioReferenceTests.cs`** — Validates scenario JSON structure, unique IDs, Squad integration scenario presence
 
 ### Executable Scenarios
@@ -401,10 +418,10 @@ Repo teams shadow built-in/user presets with the same name when working in that 
 public record GroupPreset(...)
 {
     public bool IsUserDefined { get; init; }
-    public bool IsRepoLevel { get; init; }           // NEW: loaded from .squad/
-    public string? SourcePath { get; init; }          // NEW: path to .squad/ dir
+    public bool IsRepoLevel { get; init; }           // Loaded from .squad/
+    public string? SourcePath { get; init; }          // Path to .squad/ dir
     public string?[]? WorkerSystemPrompts { get; init; }
-    public string?[]? WorkerSystemPromptFiles { get; init; }  // NEW: file refs
-    public string? SharedContext { get; init; }        // NEW: from decisions.md
+    public string? SharedContext { get; init; }        // From decisions.md
+    public string? RoutingContext { get; init; }       // From routing.md
 }
 ```
