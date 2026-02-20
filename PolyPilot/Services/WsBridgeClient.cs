@@ -261,6 +261,12 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         }
 
         Console.WriteLine("[WsBridgeClient] Receive loop ended");
+        // Cancel any pending directory list requests so callers don't hang
+        foreach (var kvp in _dirListRequests)
+        {
+            if (_dirListRequests.TryRemove(kvp.Key, out var tcs))
+                tcs.TrySetCanceled();
+        }
         OnStateChanged?.Invoke();
 
         // Auto-reconnect if not intentionally stopped

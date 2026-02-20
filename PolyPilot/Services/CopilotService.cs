@@ -1367,15 +1367,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var remoteModel = Models.ModelHelper.NormalizeToSlug(newModel);
             if (string.IsNullOrEmpty(remoteModel)) return false;
             // Guard: don't change model while processing or if already the same
-            if (_sessions.TryGetValue(sessionName, out var remoteState))
-            {
-                if (remoteState.Info.IsProcessing) return false;
-                if (remoteState.Info.Model == remoteModel) return true;
-            }
+            if (!_sessions.TryGetValue(sessionName, out var remoteState)) return false;
+            if (remoteState.Info.IsProcessing) return false;
+            if (remoteState.Info.Model == remoteModel) return true;
             await _bridgeClient.ChangeModelAsync(sessionName, remoteModel, cancellationToken);
             // Update local state optimistically
-            if (remoteState != null)
-                remoteState.Info.Model = remoteModel;
+            remoteState.Info.Model = remoteModel;
             OnStateChanged?.Invoke();
             return true;
         }
@@ -1835,15 +1832,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // Optimistically rename locally for immediate UI feedback
             if (!_sessions.TryRemove(oldName, out var remoteState))
                 return false;
-            _ = _bridgeClient.RenameSessionAsync(oldName, newName);
             remoteState.Info.Name = newName;
             _sessions[newName] = remoteState;
+            _pendingRemoteSessions[newName] = 0;
             if (_activeSessionName == oldName)
                 _activeSessionName = newName;
             var remoteMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == oldName);
             if (remoteMeta != null)
                 remoteMeta.SessionName = newName;
             OnStateChanged?.Invoke();
+            // Send to server (fire-and-forget with error logging)
+            _ = _bridgeClient.RenameSessionAsync(oldName, newName)
+                .ContinueWith(t => Console.WriteLine($"[CopilotService] RenameSession bridge error: {t.Exception?.InnerException?.Message}"),
+                    TaskContinuationOptions.OnlyOnFaulted);
+            _ = Task.Delay(30_000).ContinueWith(t => { _pendingRemoteSessions.TryRemove(newName, out _); });
             return true;
         }
 

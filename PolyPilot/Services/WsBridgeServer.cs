@@ -477,7 +477,13 @@ public class WsBridgeServer : IDisposable
                     if (renameReq != null && !string.IsNullOrWhiteSpace(renameReq.OldName) && !string.IsNullOrWhiteSpace(renameReq.NewName))
                     {
                         Console.WriteLine($"[WsBridge] Client renaming session '{renameReq.OldName}' to '{renameReq.NewName}'");
-                        _copilot.RenameSession(renameReq.OldName, renameReq.NewName);
+                        var renamed = _copilot.RenameSession(renameReq.OldName, renameReq.NewName);
+                        if (!renamed)
+                        {
+                            await SendToClientAsync(clientId, ws,
+                                BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                    new ErrorPayload { SessionName = renameReq.OldName, Error = "Failed to rename session. Name may already exist." }), ct);
+                        }
                         BroadcastSessionsList();
                         BroadcastOrganizationState();
                     }
@@ -560,7 +566,11 @@ public class WsBridgeServer : IDisposable
         if (!_clientSendLocks.TryGetValue(clientId, out var sendLock)) return;
 
         var bytes = Encoding.UTF8.GetBytes(msg.Serialize());
-        await sendLock.WaitAsync(ct);
+        try
+        {
+            await sendLock.WaitAsync(ct);
+        }
+        catch (ObjectDisposedException) { return; }
         try
         {
             if (ws.State == WebSocketState.Open)
@@ -568,7 +578,7 @@ public class WsBridgeServer : IDisposable
         }
         finally
         {
-            sendLock.Release();
+            try { sendLock.Release(); } catch (ObjectDisposedException) { }
         }
     }
 

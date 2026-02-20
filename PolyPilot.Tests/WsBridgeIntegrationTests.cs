@@ -128,7 +128,8 @@ public class WsBridgeIntegrationTests : IDisposable
         await InitDemoMode();
         await _copilot.CreateSessionAsync("session-with-history", "gpt-4.1");
         await _copilot.SendPromptAsync("session-with-history", "Test message");
-        await Task.Delay(100); // Let demo response complete
+        using var delayCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await WaitForAsync(() => _copilot.GetSession("session-with-history")?.History.Count > 1, delayCts.Token);
 
         // Simulate mobile: create a remote CopilotService that connects to the bridge
         var remoteService = new CopilotService(
@@ -1017,10 +1018,10 @@ public class WsBridgeIntegrationTests : IDisposable
         await Task.Delay(200, cts.Token);
 
         await client.SwitchSessionAsync("switch-b", cts.Token);
-        await WaitForAsync(() => client.Sessions.Any(s => s.Name == "switch-b"), cts.Token);
+        await WaitForAsync(() => client.ActiveSessionName == "switch-b", cts.Token);
 
         // The server should have broadcast session list with updated active session
-        Assert.Contains(client.Sessions, s => s.Name == "switch-b");
+        Assert.Equal("switch-b", client.ActiveSessionName);
         client.Stop();
     }
 }
