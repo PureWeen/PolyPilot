@@ -43,6 +43,7 @@ public interface IWsBridgeClient
     Task ResumeSessionAsync(string sessionId, string? displayName = null, CancellationToken ct = default);
     Task CloseSessionAsync(string name, CancellationToken ct = default);
     Task AbortSessionAsync(string sessionName, CancellationToken ct = default);
+    Task ChangeModelAsync(string sessionName, string newModel, CancellationToken ct = default);
     Task SendOrganizationCommandAsync(OrganizationCommandPayload payload, CancellationToken ct = default);
     Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default);
 }

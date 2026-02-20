@@ -1359,6 +1359,19 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     /// </summary>
     public async Task<bool> ChangeModelAsync(string sessionName, string newModel, CancellationToken cancellationToken = default)
     {
+        if (IsRemoteMode)
+        {
+            if (!_bridgeClient.IsConnected) return false;
+            var remoteModel = Models.ModelHelper.NormalizeToSlug(newModel);
+            if (string.IsNullOrEmpty(remoteModel)) return false;
+            await _bridgeClient.ChangeModelAsync(sessionName, remoteModel, cancellationToken);
+            // Update local state optimistically
+            if (_sessions.TryGetValue(sessionName, out var remoteState))
+                remoteState.Info.Model = remoteModel;
+            OnStateChanged?.Invoke();
+            return true;
+        }
+
         if (!_sessions.TryGetValue(sessionName, out var state)) return false;
         if (state.Info.IsProcessing) return false;
         if (string.IsNullOrEmpty(state.Info.SessionId)) return false;

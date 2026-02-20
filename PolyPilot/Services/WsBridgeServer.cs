@@ -444,6 +444,15 @@ public class WsBridgeServer : IDisposable
                     }
                     break;
 
+                case BridgeMessageTypes.ChangeModel:
+                    var changeModelReq = msg.GetPayload<ChangeModelPayload>();
+                    if (changeModelReq != null && !string.IsNullOrWhiteSpace(changeModelReq.SessionName))
+                    {
+                        Console.WriteLine($"[WsBridge] Client changing model for '{changeModelReq.SessionName}' to '{changeModelReq.NewModel}'");
+                        await _copilot.ChangeModelAsync(changeModelReq.SessionName, changeModelReq.NewModel);
+                    }
+                    break;
+
                 case BridgeMessageTypes.OrganizationCommand:
                     var orgCmd = msg.GetPayload<OrganizationCommandPayload>();
                     if (orgCmd != null)

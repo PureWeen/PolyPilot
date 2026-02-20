@@ -102,6 +102,16 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public Task ResumeSessionAsync(string sessionId, string? displayName = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task CloseSessionAsync(string name, CancellationToken ct = default) => Task.CompletedTask;
     public Task AbortSessionAsync(string sessionName, CancellationToken ct = default) => Task.CompletedTask;
+    public string? LastChangedModelSession { get; private set; }
+    public string? LastChangedModel { get; private set; }
+    public int ChangeModelCallCount { get; private set; }
+    public Task ChangeModelAsync(string sessionName, string newModel, CancellationToken ct = default)
+    {
+        LastChangedModelSession = sessionName;
+        LastChangedModel = newModel;
+        ChangeModelCallCount++;
+        return Task.CompletedTask;
+    }
     public Task SendOrganizationCommandAsync(OrganizationCommandPayload payload, CancellationToken ct = default) => Task.CompletedTask;
     public Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
         => Task.FromResult(new DirectoriesListPayload());

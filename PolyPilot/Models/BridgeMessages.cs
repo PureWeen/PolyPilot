@@ -81,6 +81,7 @@ public static class BridgeMessageTypes
     public const string AbortSession = "abort_session";
     public const string OrganizationCommand = "organization_command";
     public const string ListDirectories = "list_directories";
+    public const string ChangeModel = "change_model";
 
     // Server → Client (response)
     public const string DirectoriesList = "directories_list";
@@ -240,6 +241,12 @@ public class ResumeSessionPayload
 {
     public string SessionId { get; set; } = "";
     public string? DisplayName { get; set; }
+}
+
+public class ChangeModelPayload
+{
+    public string SessionName { get; set; } = "";
+    public string NewModel { get; set; } = "";
 }
 
 // --- Organization bridge payloads ---
