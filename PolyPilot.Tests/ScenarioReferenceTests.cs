@@ -232,4 +232,19 @@ public class ScenarioReferenceTests
         Assert.Contains("delete-group-no-contamination", ids);
         Assert.Contains("delete-multi-agent-group-closes-sessions", ids);
     }
+
+    [Fact]
+    public void MultiAgentScenarios_IncludeSquadWriteBack()
+    {
+        var json = File.ReadAllText(Path.Combine(ScenariosDir, "multi-agent-scenarios.json"));
+        var doc = JsonDocument.Parse(json);
+        var ids = doc.RootElement.GetProperty("scenarios")
+            .EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString())
+            .ToHashSet();
+
+        Assert.Contains("save-preset-creates-squad-dir", ids);
+        Assert.Contains("round-trip-squad-write-read", ids);
+        Assert.Contains("squad-write-sanitizes-names", ids);
+    }
 }

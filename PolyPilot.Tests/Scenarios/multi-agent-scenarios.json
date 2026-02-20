@@ -286,6 +286,59 @@
         { "action": "waitForPhase", "phase": "Planning", "timeout": 30 },
         { "action": "assertOrchestratorReceivedWorkerDescriptions" }
       ]
+    },
+    {
+      "id": "save-preset-creates-squad-dir",
+      "name": "Saving preset writes .squad/ directory",
+      "description": "Verifies that SaveGroupAsPreset creates a .squad/ directory with team.md, agent charters, and optional decisions.md/routing.md in the worktree root.",
+      "invariants": [
+        ".squad/team.md is created with team name and roster table",
+        ".squad/agents/{name}/charter.md is created for each worker",
+        "Agent names are sanitized (lowercase, hyphens)",
+        "Preset is also saved to presets.json as backup"
+      ],
+      "steps": [
+        { "action": "createGroupFromPreset", "preset": "Code Review Team" },
+        { "action": "saveGroupAsPreset", "name": "My Code Review" },
+        { "action": "assertFileExists", "path": ".squad/team.md" },
+        { "action": "assertFileContains", "path": ".squad/team.md", "text": "My Code Review" },
+        { "action": "assertDirectoryExists", "path": ".squad/agents" },
+        { "action": "shell", "command": "rm -rf .squad" }
+      ]
+    },
+    {
+      "id": "round-trip-squad-write-read",
+      "name": "Round-trip: write then discover Squad team",
+      "description": "Verifies that a team saved via SquadWriter can be discovered back via SquadDiscovery with matching data.",
+      "invariants": [
+        "Written team.md can be parsed back by SquadDiscovery",
+        "Written charter.md content matches original system prompts",
+        "decisions.md and routing.md survive the round-trip"
+      ],
+      "steps": [
+        { "action": "createGroupFromPreset", "preset": "Code Review Team" },
+        { "action": "saveGroupAsPreset", "name": "Round Trip Test" },
+        { "action": "assertFileExists", "path": ".squad/team.md" },
+        { "action": "selectWorktree", "worktree": "current" },
+        { "action": "assertPresetInSection", "section": "From Repo", "name": "Round Trip Test" },
+        { "action": "shell", "command": "rm -rf .squad" }
+      ]
+    },
+    {
+      "id": "squad-write-sanitizes-names",
+      "name": "Squad writer sanitizes agent names",
+      "description": "Verifies that SquadWriter strips team-name prefixes and sanitizes agent directory names (lowercase, hyphens instead of special chars).",
+      "invariants": [
+        "Team-name prefix stripped from session names",
+        "Directory names are lowercase with hyphens",
+        "No spaces or special characters in directory names"
+      ],
+      "steps": [
+        { "action": "createGroupFromPreset", "preset": "Code Review Team" },
+        { "action": "saveGroupAsPreset", "name": "Test Team" },
+        { "action": "assertNoDirectoryContains", "path": ".squad/agents", "pattern": " " },
+        { "action": "shell", "command": "rm -rf .squad" }
+      ]
     }
   ]
 }

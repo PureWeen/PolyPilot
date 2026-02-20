@@ -59,7 +59,9 @@ For Android, always run `adb reverse tcp:9223 tcp:9223` after deploy.
 **See `docs/multi-agent-orchestration.md` for the multi-agent architecture spec** (orchestration modes, reflection loop, sentinel protocol, invariants, Squad integration). Test scenarios in `PolyPilot.Tests/Scenarios/multi-agent-scenarios.json`. Read these before modifying orchestration, reconciliation, or TCS completion logic.
 
 ### Squad Integration
-PolyPilot discovers [bradygaster/squad](https://github.com/bradygaster/squad) team definitions from `.squad/` (or legacy `.ai-team/`) directories in the worktree root. Each agent's `charter.md` becomes a worker system prompt, `team.md` defines the roster, `decisions.md` provides shared context injected into all worker prompts, and `routing.md` is injected into the orchestrator's planning prompt. Repo-level teams appear in a **"📂 From Repo"** section in the preset picker, above built-in presets. PolyPilot never writes to `.squad/` — it's read-only.
+PolyPilot discovers [bradygaster/squad](https://github.com/bradygaster/squad) team definitions from `.squad/` (or legacy `.ai-team/`) directories in the worktree root. Each agent's `charter.md` becomes a worker system prompt, `team.md` defines the roster, `decisions.md` provides shared context injected into all worker prompts, and `routing.md` is injected into the orchestrator's planning prompt. Repo-level teams appear in a **"📂 From Repo"** section in the preset picker, above built-in presets.
+
+**Squad write-back:** When saving a multi-agent group as a preset, PolyPilot writes the team definition back to `.squad/` format in the worktree root via `SquadWriter`. This creates `team.md`, `agents/{name}/charter.md`, and optional `decisions.md`/`routing.md`. The preset is also saved to `presets.json` as a personal backup. This enables round-tripping: discover → modify → save back → share via repo.
 
 **Preset priority (three-tier merge):** Built-in presets < User presets (`~/.polypilot/presets.json`) < Repo teams (`.squad/`). Repo teams shadow presets with the same name. The preset picker shows three sections: "📂 From Repo", "⚙️ Built-in", and "👤 My Presets".
 

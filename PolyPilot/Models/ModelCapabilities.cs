@@ -267,7 +267,8 @@ public static class UserPresets
 
     /// <summary>Save the current multi-agent group as a reusable preset.</summary>
     public static GroupPreset? SaveGroupAsPreset(string baseDir, string name, string description,
-        string emoji, SessionGroup group, List<SessionMeta> members, Func<string, string> getEffectiveModel)
+        string emoji, SessionGroup group, List<SessionMeta> members, Func<string, string> getEffectiveModel,
+        string? worktreeRoot = null)
     {
         var orchestrator = members.FirstOrDefault(m => m.Role == MultiAgentRole.Orchestrator);
         var workers = members.Where(m => m.Role != MultiAgentRole.Orchestrator).ToList();
@@ -278,10 +279,27 @@ public static class UserPresets
             name, description, emoji, group.OrchestratorMode,
             orchestrator != null ? getEffectiveModel(orchestrator.SessionName) : "claude-opus-4.6",
             workers.Select(w => getEffectiveModel(w.SessionName)).ToArray())
-        { IsUserDefined = true };
+        {
+            IsUserDefined = true,
+            WorkerSystemPrompts = workers.Select(w => w.SystemPrompt).ToArray(),
+            SharedContext = group.SharedContext,
+            RoutingContext = group.RoutingContext,
+        };
 
+        // Write as .squad/ directory if worktree is available
+        if (!string.IsNullOrEmpty(worktreeRoot) && Directory.Exists(worktreeRoot))
+        {
+            try
+            {
+                SquadWriter.WriteFromGroup(worktreeRoot, name, group, members, getEffectiveModel);
+                preset = preset with { IsRepoLevel = true, SourcePath = Path.Combine(worktreeRoot, ".squad") };
+            }
+            catch { /* Fall through to JSON save */ }
+        }
+
+        // Always save to presets.json too (personal backup)
         var existing = Load(baseDir);
-        existing.RemoveAll(p => p.Name == name); // replace if same name
+        existing.RemoveAll(p => p.Name == name);
         existing.Add(preset);
         Save(baseDir, existing);
         return preset;

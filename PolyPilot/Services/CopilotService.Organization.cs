@@ -1526,8 +1526,16 @@ public partial class CopilotService
             .Where(m => m != null)
             .ToList();
 
+        // Resolve worktree path for .squad/ write-back
+        string? worktreeRoot = null;
+        if (!string.IsNullOrEmpty(group.WorktreeId))
+        {
+            var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == group.WorktreeId);
+            if (wt != null) worktreeRoot = wt.Path;
+        }
+
         return Models.UserPresets.SaveGroupAsPreset(PolyPilotBaseDir, name, description, emoji,
-            group, members!, GetEffectiveModel);
+            group, members!, GetEffectiveModel, worktreeRoot);
     }
 
     #endregion

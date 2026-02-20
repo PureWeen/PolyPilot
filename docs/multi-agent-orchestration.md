@@ -15,11 +15,13 @@ PolyPilot's multi-agent system lets you create a **team of AI sessions** that wo
 | `PolyPilot/Models/ReflectionCycle.cs` | Reflection state, stall detection, sentinel parsing, evaluator prompts |
 | `PolyPilot/Models/ModelCapabilities.cs` | `GroupPreset`, `UserPresets` (three-tier merge), built-in presets |
 | `PolyPilot/Models/SquadDiscovery.cs` | Squad directory parser (`.squad/` → `GroupPreset`) |
+| `PolyPilot/Models/SquadWriter.cs` | Squad directory writer (`GroupPreset` → `.squad/`) |
 | `PolyPilot/Services/CopilotService.Events.cs` | TCS completion (IsProcessing → TrySetResult ordering) |
 | `PolyPilot/Components/Layout/SessionSidebar.razor` | Preset picker UI (sectioned: From Repo / Built-in / My Presets) |
 | `PolyPilot.Tests/MultiAgentRegressionTests.cs` | 37 regression tests covering all known bugs |
 | `PolyPilot.Tests/SessionOrganizationTests.cs` | 15 grouping stability tests |
 | `PolyPilot.Tests/SquadDiscoveryTests.cs` | 22 Squad discovery tests |
+| `PolyPilot.Tests/SquadWriterTests.cs` | 15 Squad write-back tests |
 | `PolyPilot.Tests/Scenarios/multi-agent-scenarios.json` | Executable CDP test scenarios |
 
 ---
@@ -397,9 +399,24 @@ Built-in presets  <  User presets (~/.polypilot/presets.json)  <  Repo teams (.s
 
 Repo teams shadow built-in/user presets with the same name when working in that repo's worktree.
 
+### Squad Write-Back
+
+When a user saves a multi-agent group as a preset and the group is associated with a worktree, PolyPilot writes the team definition back to `.squad/` format in the worktree root:
+
+1. **`SaveGroupAsPreset`** resolves the worktree path from the group's `WorktreeId`
+2. **`SquadWriter.WriteFromGroup`** converts the live `SessionGroup` + `SessionMeta` into Squad files:
+   - `.squad/team.md` — Team name + agent roster table (Name | Role | Model)
+   - `.squad/agents/{name}/charter.md` — Worker system prompt as charter
+   - `.squad/decisions.md` — Shared context (from `GroupPreset.SharedContext`)
+   - `.squad/routing.md` — Routing context (from `GroupPreset.RoutingContext`)
+3. The preset is also saved to `presets.json` as a personal backup
+
+Agent names are sanitized: team-name prefixes are stripped (e.g., "Code Review Team-worker-1" → "worker-1"), names are lowercased and non-alphanumeric characters replaced with hyphens. Roles are derived from the first sentence of the system prompt, stripping "You are a/an" prefix.
+
+This enables round-tripping: discover a Squad team → modify it in PolyPilot → save back → others can use the updated team definition from the repo.
+
 ### What PolyPilot Does NOT Do with Squad
 
-- **Never writes to `.squad/`** — PolyPilot is read-only; the repo files are the source of truth
 - **No `history.md` persistence** — Squad agents accumulate learnings; PolyPilot sessions are stateless across restarts
 - **No Scribe agent** — Squad's silent decision-logger is not replicated
 - **No GitHub Actions integration** — Squad's label triage workflows are out of scope
