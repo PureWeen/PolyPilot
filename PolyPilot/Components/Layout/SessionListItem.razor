@@ -123,17 +123,20 @@
                 <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnReportBug.InvokeAsync(); }">
                     🐛 Report Bug
                 </button>
-                <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnFixWithCopilot.InvokeAsync(); }">
-                    🔧 Fix with Copilot
-                </button>
+                @if (PlatformHelper.IsDesktop)
+                {
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnFixWithCopilot.InvokeAsync(); }">
+                        🔧 Fix with Copilot
+                    </button>
+                }
                 <div class="menu-separator"></div>
-                @if (!string.IsNullOrEmpty(Session.SessionId))
+                @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(Session.SessionId))
                 {
                     <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInCopilotConsole(); }">
                         >_ Copilot Console
                     </button>
                 }
-                @if (!string.IsNullOrEmpty(sessionDir))
+                @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(sessionDir))
                 {
                     <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInTerminal(); }">
                         >_ Terminal

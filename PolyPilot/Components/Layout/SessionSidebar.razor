@@ -1070,35 +1070,48 @@ else
             var title = bugDescription.Trim().Split('\n')[0];
             if (title.Length > 80) title = title[..80];
 
-            var psi = new System.Diagnostics.ProcessStartInfo("gh",
-                $"issue create --repo PureWeen/PolyPilot --title \"[Bug Report]{EscapeForShell(sessionLabel)} {EscapeForShell(title)}\" --body \"{EscapeForShell(body)}\" --label bug")
+            if (PlatformHelper.IsMobile)
             {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            var process = System.Diagnostics.Process.Start(psi);
-            if (process != null)
-            {
-                var output = await process.StandardOutput.ReadToEndAsync();
-                var error = await process.StandardError.ReadToEndAsync();
-                await process.WaitForExitAsync();
-
-                if (process.ExitCode == 0)
-                {
-                    footerStatus = $"✓ {output.Trim()}";
-                    bugDescription = "";
-                }
-                else
-                {
-                    footerStatus = $"✗ {error.Trim()}";
-                }
+                // Mobile: open browser to pre-filled GitHub issue
+                var issueTitle = Uri.EscapeDataString($"[Bug Report]{sessionLabel} {title}");
+                var issueBody = Uri.EscapeDataString(body);
+                var url = $"https://github.com/PureWeen/PolyPilot/issues/new?title={issueTitle}&body={issueBody}&labels=bug";
+                await Launcher.Default.OpenAsync(new Uri(url));
+                footerStatus = "✓ Opened in browser";
+                bugDescription = "";
             }
             else
             {
-                footerStatus = "✗ Could not start gh CLI";
+                var psi = new System.Diagnostics.ProcessStartInfo("gh",
+                    $"issue create --repo PureWeen/PolyPilot --title \"[Bug Report]{EscapeForShell(sessionLabel)} {EscapeForShell(title)}\" --body \"{EscapeForShell(body)}\" --label bug")
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                var process = System.Diagnostics.Process.Start(psi);
+                if (process != null)
+                {
+                    var output = await process.StandardOutput.ReadToEndAsync();
+                    var error = await process.StandardError.ReadToEndAsync();
+                    await process.WaitForExitAsync();
+
+                    if (process.ExitCode == 0)
+                    {
+                        footerStatus = $"✓ {output.Trim()}";
+                        bugDescription = "";
+                    }
+                    else
+                    {
+                        footerStatus = $"✗ {error.Trim()}";
+                    }
+                }
+                else
+                {
+                    footerStatus = "✗ Could not start gh CLI";
+                }
             }
         }
         catch (Exception ex)
