@@ -18,7 +18,7 @@ public interface IWsBridgeClient
     // Events
     event Action? OnStateChanged;
     event Action<string, string>? OnContentReceived;
-    event Action<string, string, string>? OnToolStarted;
+    event Action<string, string, string, string?>? OnToolStarted;
     event Action<string, string, string, bool>? OnToolCompleted;
     event Action<string, string, string>? OnReasoningReceived;
     event Action<string, string>? OnReasoningComplete;

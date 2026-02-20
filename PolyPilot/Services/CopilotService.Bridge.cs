@@ -43,11 +43,11 @@ public partial class CopilotService
             }
             InvokeOnUI(() => OnContentReceived?.Invoke(s, c));
         };
-        _bridgeClient.OnToolStarted += (s, tool, id) =>
+        _bridgeClient.OnToolStarted += (s, tool, id, input) =>
         {
             var session = GetRemoteSession(s);
-            session?.History.Add(ChatMessage.ToolCallMessage(tool, id));
-            InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id, null));
+            session?.History.Add(ChatMessage.ToolCallMessage(tool, id, input));
+            InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id, input));
         };
         _bridgeClient.OnToolCompleted += (s, id, result, success) =>
         {

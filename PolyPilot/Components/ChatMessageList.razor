@@ -256,17 +256,13 @@
         
         if (toolName == "edit" && !string.IsNullOrEmpty(toolInput))
         {
-            // Try to extract path and show line changes
             try
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
                 var root = doc.RootElement;
-                var path = ExtractJsonProp(root, "path") ?? "";
+                var path = ExtractJsonPropFull(root, "path") ?? "";
                 if (!string.IsNullOrEmpty(path))
                 {
-                    // Show relative path
-                    var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
-                    var dir = path.Contains('/') ? path[..path.LastIndexOf('/')] : "";
                     var oldStr = ExtractJsonProp(root, "old_str");
                     var newStr = ExtractJsonProp(root, "new_str");
                     var added = newStr?.Split('\n').Length ?? 0;
@@ -274,7 +270,7 @@
                     var delta = "";
                     if (added > 0 || removed > 0)
                         delta = $" (+{added} -{removed})";
-                    return $"{fileName}{delta}";
+                    return $"{path}{delta}";
                 }
             }
             catch { }
@@ -291,15 +287,13 @@
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
                 var root = doc.RootElement;
-                var path = ExtractJsonProp(root, "path") ?? "";
-                var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
-                // Check for view_range
+                var path = ExtractJsonPropFull(root, "path") ?? "";
                 if (root.TryGetProperty("view_range", out var range))
                 {
                     var rangeStr = range.ToString();
-                    return $"{fileName} lines {rangeStr}";
+                    return $"{path} lines {rangeStr}";
                 }
-                return fileName;
+                return path;
             }
             catch { }
         }
@@ -310,9 +304,7 @@
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
                 var root = doc.RootElement;
-                var path = ExtractJsonProp(root, "path") ?? "";
-                var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
-                return fileName;
+                return ExtractJsonPropFull(root, "path") ?? "";
             }
             catch { }
         }
@@ -330,6 +322,10 @@
         }
         return "";
     }
+
+    /// <summary>Returns true for tools whose description is a file path (truncate from head).</summary>
+    internal static bool IsPathTool(string toolName) =>
+        toolName is "edit" or "create" or "view";
 
     internal static string TruncateResult(string result, int maxLength = 1500)
     {

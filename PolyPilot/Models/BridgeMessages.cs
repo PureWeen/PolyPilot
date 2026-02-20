@@ -134,6 +134,7 @@ public class ToolStartedPayload
     public string SessionName { get; set; } = "";
     public string ToolName { get; set; } = "";
     public string CallId { get; set; } = "";
+    public string? ToolInput { get; set; }
 }
 
 public class ToolCompletedPayload
