@@ -87,4 +87,29 @@ public class RenderThrottleTests
         throttle.SetLastRefresh(DateTime.UtcNow.AddMilliseconds(-1100));
         Assert.True(throttle.ShouldRefresh(isSessionSwitch: false, hasCompletedSessions: false));
     }
+
+    [Fact]
+    public void CompletionRace_OnStateChangedThrottledButHandleCompleteRenders()
+    {
+        // Documents the race condition that caused stuck "Thinking" indicators:
+        // 1. Streaming events (AssistantTurnEndEvent) fire OnStateChanged rapidly
+        // 2. CompleteResponse fires OnStateChanged (throttled — dropped!)
+        // 3. CompleteResponse fires OnSessionComplete → HandleComplete
+        //
+        // The fix: HandleComplete calls StateHasChanged() directly instead of
+        // going through ScheduleRender(), guaranteeing the completion renders.
+        //
+        // This test verifies the throttle DOES drop the OnStateChanged from step 2:
+        var throttle = new RenderThrottle(500);
+
+        // Step 1: Streaming event refresh passes (first in window)
+        Assert.True(throttle.ShouldRefresh(isSessionSwitch: false, hasCompletedSessions: false));
+
+        // Step 2: CompleteResponse's OnStateChanged arrives <500ms later — THROTTLED
+        // completedSessions is empty at this point because HandleComplete hasn't run yet
+        Assert.False(throttle.ShouldRefresh(isSessionSwitch: false, hasCompletedSessions: false));
+
+        // Step 3: HandleComplete runs, adds to completedSessions, calls StateHasChanged directly
+        // (bypasses RefreshState/throttle entirely — this is the fix)
+    }
 }

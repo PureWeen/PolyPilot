@@ -820,14 +820,15 @@
         completedSessions.Add(sessionName);
         streamingBySession.Remove(sessionName);
         activityBySession.Remove(sessionName);
-        // Refresh sessions list immediately — RefreshState may have been throttled
-        // when OnStateChanged fired just before OnSessionComplete
+        // Refresh sessions list and render immediately — ScheduleRender goes through
+        // a debounced timer that can fail to fire, leaving cards stuck on "processing".
+        // StateHasChanged is safe here: we're on the UI thread via OnSessionComplete.
         sessions = CopilotService.GetAllSessions().ToList();
-        ScheduleRender();
+        StateHasChanged();
         _ = Task.Delay(10000).ContinueWith(_ =>
         {
             completedSessions.Remove(sessionName);
-            ScheduleRender();
+            InvokeAsync(StateHasChanged);
         });
     }
 
