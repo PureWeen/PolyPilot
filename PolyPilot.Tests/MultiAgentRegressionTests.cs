@@ -641,9 +641,8 @@ public class MultiAgentRegressionTests
 
         // Verify no cross-contamination
         Assert.NotEqual(group1.Id, group2.Id);
-        var alpha = svc.Organization.Sessions.First(s => s.SessionName == "alpha-orch");
+        Assert.DoesNotContain(svc.Organization.Sessions, s => s.SessionName == "alpha-orch"); // removed with group
         var beta = svc.Organization.Sessions.First(s => s.SessionName == "beta-orch");
-        Assert.Equal(SessionGroup.DefaultId, alpha.GroupId); // moved to default
         Assert.Equal(group2.Id, beta.GroupId); // in new group
     }
 

@@ -2354,7 +2354,7 @@ public class GroupingStabilityTests
     // --- DeleteGroup tests ---
 
     [Fact]
-    public void DeleteGroup_MultiAgent_MovesSessionsToDefault()
+    public void DeleteGroup_MultiAgent_RemovesSessions()
     {
         var svc = CreateService();
 
@@ -2379,17 +2379,15 @@ public class GroupingStabilityTests
 
         svc.DeleteGroup(group.Id);
 
-        // Sessions should be in default group
-        var orch = svc.Organization.Sessions.First(s => s.SessionName == "orch");
-        var worker = svc.Organization.Sessions.First(s => s.SessionName == "worker-1");
-        Assert.Equal(SessionGroup.DefaultId, orch.GroupId);
-        Assert.Equal(SessionGroup.DefaultId, worker.GroupId);
+        // Multi-agent sessions should be removed, not orphaned
+        Assert.DoesNotContain(svc.Organization.Sessions, s => s.SessionName == "orch");
+        Assert.DoesNotContain(svc.Organization.Sessions, s => s.SessionName == "worker-1");
         // Group should be removed
         Assert.DoesNotContain(svc.Organization.Groups, g => g.Id == group.Id);
     }
 
     [Fact]
-    public void DeleteGroup_PreservesSessionMetadata()
+    public void DeleteGroup_MultiAgent_RemovesSessionMetadata()
     {
         var svc = CreateService();
         var group = svc.CreateMultiAgentGroup("Team");
@@ -2405,11 +2403,8 @@ public class GroupingStabilityTests
 
         svc.DeleteGroup(group.Id);
 
-        var meta = svc.Organization.Sessions.First(s => s.SessionName == "orch");
-        // Role and PreferredModel should be preserved even after group deletion
-        Assert.Equal(MultiAgentRole.Orchestrator, meta.Role);
-        Assert.Equal("claude-opus-4.6", meta.PreferredModel);
-        Assert.Equal("wt-1", meta.WorktreeId);
+        // Multi-agent sessions should be removed entirely, not orphaned
+        Assert.DoesNotContain(svc.Organization.Sessions, s => s.SessionName == "orch");
     }
 
     // --- Reconciliation protection tests ---
@@ -2680,21 +2675,31 @@ public class GroupingStabilityTests
         // Delete the team
         svc.DeleteGroup(group.Id);
 
-        // Sessions should be in default
-        Assert.All(svc.Organization.Sessions.Where(s => s.SessionName.StartsWith("team-")),
-            m => Assert.Equal(SessionGroup.DefaultId, m.GroupId));
+        // Multi-agent sessions should be removed entirely
+        Assert.DoesNotContain(svc.Organization.Sessions, s => s.SessionName == "team-orch");
+        Assert.DoesNotContain(svc.Organization.Sessions, s => s.SessionName == "team-w1");
 
-        RegisterKnownSessions(svc, "team-orch", "team-w1");
+        // Group should be gone
+        Assert.DoesNotContain(svc.Organization.Groups, g => g.Id == group.Id);
+    }
 
-        // Run reconciliation — should NOT move them to repo group
-        svc.ReconcileOrganization();
+    [Fact]
+    public void DeleteGroup_NonMultiAgent_MovesSessionsToDefault()
+    {
+        var svc = CreateService();
+        var group = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "s1",
+            GroupId = group.Id,
+            WorktreeId = "wt-1"
+        });
 
-        var orch = svc.Organization.Sessions.First(s => s.SessionName == "team-orch");
-        var worker = svc.Organization.Sessions.First(s => s.SessionName == "team-w1");
-        // Orchestrator role prevents auto-move
-        Assert.Equal(SessionGroup.DefaultId, orch.GroupId);
-        // PreferredModel prevents auto-move
-        Assert.Equal(SessionGroup.DefaultId, worker.GroupId);
+        svc.DeleteGroup(group.Id);
+
+        // Non-multi-agent: sessions move to default
+        var s = svc.Organization.Sessions.First(s => s.SessionName == "s1");
+        Assert.Equal(SessionGroup.DefaultId, s.GroupId);
     }
 
     [Fact]

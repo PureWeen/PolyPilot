@@ -322,10 +322,32 @@ public partial class CopilotService
     {
         if (groupId == SessionGroup.DefaultId) return;
 
-        // Move all sessions in this group to default
-        foreach (var meta in Organization.Sessions.Where(m => m.GroupId == groupId))
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        var isMultiAgent = group?.IsMultiAgent ?? false;
+
+        if (isMultiAgent)
         {
-            meta.GroupId = SessionGroup.DefaultId;
+            // Multi-agent sessions are meaningless without their group — close them
+            var sessionNames = Organization.Sessions
+                .Where(m => m.GroupId == groupId)
+                .Select(m => m.SessionName)
+                .ToList();
+            // Fire-and-forget: close sessions asynchronously
+            _ = Task.Run(async () =>
+            {
+                foreach (var name in sessionNames)
+                    await CloseSessionAsync(name);
+            });
+            // Remove from organization immediately so UI updates
+            Organization.Sessions.RemoveAll(m => sessionNames.Contains(m.SessionName));
+        }
+        else
+        {
+            // Non-multi-agent: move sessions to default group
+            foreach (var meta in Organization.Sessions.Where(m => m.GroupId == groupId))
+            {
+                meta.GroupId = SessionGroup.DefaultId;
+            }
         }
 
         Organization.Groups.RemoveAll(g => g.Id == groupId);
