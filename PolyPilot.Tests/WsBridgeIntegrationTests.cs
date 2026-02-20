@@ -111,6 +111,39 @@ public class WsBridgeIntegrationTests : IDisposable
         client.Stop();
     }
 
+    [Fact]
+    public async Task Connect_RemoteService_HasHistoryImmediately()
+    {
+        // Simulate desktop: create sessions with messages
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("session-with-history", "gpt-4.1");
+        await _copilot.SendPromptAsync("session-with-history", "Test message");
+        await Task.Delay(100); // Let demo response complete
+
+        // Simulate mobile: create a remote CopilotService that connects to the bridge
+        var remoteService = new CopilotService(
+            new StubChatDatabase(),
+            new StubServerManager(),
+            new WsBridgeClient(),
+            new RepoManager(),
+            new ServiceCollection().BuildServiceProvider(),
+            new StubDemoService());
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await remoteService.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = $"http://localhost:{_port}/"
+        }, cts.Token);
+
+        // History should be available immediately after ReconnectAsync returns
+        var session = remoteService.GetSession("session-with-history");
+        Assert.NotNull(session);
+        Assert.True(session!.History.Count > 0,
+            "History should be synced into the remote service before ReconnectAsync returns");
+        Assert.Contains(session.History, m => m.Content.Contains("Test message"));
+    }
+
     // ========== SESSION LIFECYCLE ==========
 
     [Fact]

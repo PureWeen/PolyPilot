@@ -165,10 +165,27 @@ public partial class CopilotService
 
         await _bridgeClient.ConnectAsync(wsUrl, settings.RemoteToken, ct);
 
+        // Wait for initial session list from server (arrives immediately after connect)
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!_bridgeClient.Sessions.Any() && DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+            await Task.Delay(50, ct);
+
+        // Allow time for SessionHistory messages to follow the SessionsList
+        if (_bridgeClient.Sessions.Any())
+        {
+            var histDeadline = DateTime.UtcNow.AddSeconds(3);
+            while (_bridgeClient.SessionHistories.Count < _bridgeClient.Sessions.Count(s => s.MessageCount > 0)
+                   && DateTime.UtcNow < histDeadline && !ct.IsCancellationRequested)
+                await Task.Delay(50, ct);
+        }
+
+        // Sync all received history into local sessions before returning
+        SyncRemoteSessions();
+
         IsInitialized = true;
         IsRemoteMode = true;
         NeedsConfiguration = false;
-        Debug("Connected to remote server via WebSocket bridge");
+        Debug($"Connected to remote server via WebSocket bridge ({_bridgeClient.Sessions.Count} sessions, {_bridgeClient.SessionHistories.Count} histories)");
         OnStateChanged?.Invoke();
     }
 
