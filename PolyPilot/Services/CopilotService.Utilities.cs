@@ -85,15 +85,36 @@ public partial class CopilotService
     }
 
     /// <summary>
-    /// Check if a session was still processing when the app last closed
+    /// Check if a session was still processing when the app last closed.
+    /// Returns false if the events file is stale (not modified recently),
+    /// preventing sessions from being incorrectly marked as processing
+    /// after long app restarts.
     /// </summary>
-    private bool IsSessionStillProcessing(string sessionId)
+    internal bool IsSessionStillProcessing(string sessionId) =>
+        IsSessionStillProcessing(sessionId, SessionStatePath);
+
+    /// <summary>
+    /// Testable overload that accepts a custom base path.
+    /// </summary>
+    internal bool IsSessionStillProcessing(string sessionId, string basePath)
     {
-        var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        var eventsFile = Path.Combine(basePath, sessionId, "events.jsonl");
         if (!File.Exists(eventsFile)) return false;
 
         try
         {
+            // Staleness check: if the file hasn't been modified recently,
+            // the CLI finished processing long ago — don't mark as still active.
+            var lastWrite = File.GetLastWriteTimeUtc(eventsFile);
+            var staleness = (DateTime.UtcNow - lastWrite).TotalSeconds;
+            if (staleness > WatchdogToolExecutionTimeoutSeconds)
+            {
+                Debug($"[RESTORE] events.jsonl for '{sessionId}' is stale " +
+                      $"({staleness:F0}s old > {WatchdogToolExecutionTimeoutSeconds}s threshold), " +
+                      $"treating session as idle");
+                return false;
+            }
+
             string? lastLine = null;
             foreach (var line in File.ReadLines(eventsFile))
             {
