@@ -112,4 +112,59 @@ public class RenderThrottleTests
         // Step 3: HandleComplete runs, adds to completedSessions, calls StateHasChanged directly
         // (bypasses RefreshState/throttle entirely — this is the fix)
     }
+
+    [Fact]
+    public void HandleComplete_MustNotUseInvokeAsync_RegressionGuard()
+    {
+        // Regression guard: HandleComplete is called from CompleteResponse which is
+        // already marshaled to the UI thread via Invoke(SynchronizationContext.Post).
+        // Wrapping the body in InvokeAsync DEFERS execution, causing StateHasChanged()
+        // to run too late — after other RefreshState calls consume the dirty flag.
+        // The DOM then never updates with IsProcessing=false ("stuck Thinking" bug).
+        //
+        // Only the delayed 10-second cleanup callback should use InvokeAsync
+        // (because Task.Delay.ContinueWith runs on the thread pool).
+        var dashboardPath = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..",
+            "PolyPilot", "Components", "Pages", "Dashboard.razor");
+        Assert.True(File.Exists(dashboardPath), $"Dashboard.razor not found at {dashboardPath}");
+
+        var source = File.ReadAllText(dashboardPath);
+
+        // Extract the HandleComplete method body (from signature to next "private " or "protected ")
+        var methodStart = source.IndexOf("private void HandleComplete(", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0, "HandleComplete method not found in Dashboard.razor");
+
+        // Find the next method definition after HandleComplete
+        var afterSignature = source.IndexOf('\n', methodStart) + 1;
+        var nextMethod = source.IndexOf("\n    private ", afterSignature, StringComparison.Ordinal);
+        if (nextMethod < 0) nextMethod = source.Length;
+        var methodBody = source.Substring(methodStart, nextMethod - methodStart);
+
+        // Count InvokeAsync calls — should have exactly 1 (the delayed cleanup only)
+        var invokeAsyncCount = 0;
+        var searchFrom = 0;
+        while (true)
+        {
+            var idx = methodBody.IndexOf("InvokeAsync(", searchFrom, StringComparison.Ordinal);
+            if (idx < 0) break;
+            invokeAsyncCount++;
+            searchFrom = idx + 1;
+        }
+
+        Assert.True(invokeAsyncCount <= 1,
+            $"HandleComplete has {invokeAsyncCount} InvokeAsync calls — expected at most 1 (the delayed cleanup). " +
+            "The synchronous body must NOT use InvokeAsync because HandleComplete is already on the UI thread " +
+            "(called from CompleteResponse via Invoke/SynchronizationContext.Post). " +
+            "InvokeAsync defers execution and causes stale renders (stuck 'Thinking' indicators).");
+
+        // The one allowed InvokeAsync must be inside a Task.Delay continuation
+        if (invokeAsyncCount == 1)
+        {
+            var invokeIdx = methodBody.IndexOf("InvokeAsync(", StringComparison.Ordinal);
+            var precedingContext = methodBody.Substring(Math.Max(0, invokeIdx - 100), Math.Min(100, invokeIdx));
+            Assert.Contains("Task.Delay", precedingContext,
+                StringComparison.Ordinal);
+        }
+    }
 }
