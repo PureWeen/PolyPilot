@@ -145,7 +145,17 @@ internal class StubDemoService : IDemoService
 
     public void SetActiveSession(string name) { if (_sessions.ContainsKey(name)) ActiveSessionName = name; }
 
-    public Task SimulateResponseAsync(string sessionName, string prompt, SynchronizationContext? syncContext = null, CancellationToken ct = default)
-        => Task.CompletedTask;
+    public async Task SimulateResponseAsync(string sessionName, string prompt, SynchronizationContext? syncContext = null, CancellationToken ct = default)
+    {
+        await Task.Delay(10, ct);
+        OnContentReceived?.Invoke(sessionName, "Demo response");
+        if (_sessions.TryGetValue(sessionName, out var info))
+        {
+            info.History.Add(ChatMessage.AssistantMessage("Demo response"));
+            info.IsProcessing = false;
+        }
+        OnTurnEnd?.Invoke(sessionName);
+        OnStateChanged?.Invoke();
+    }
 }
 #pragma warning restore CS0067

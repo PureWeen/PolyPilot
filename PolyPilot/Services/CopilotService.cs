@@ -1212,6 +1212,8 @@ public partial class CopilotService : IAsyncDisposable
             var demoState = new SessionState { Session = null!, Info = demoInfo };
             _sessions[name] = demoState;
             _activeSessionName ??= name;
+            if (!Organization.Sessions.Any(m => m.SessionName == name))
+                Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
             OnStateChanged?.Invoke();
             return demoInfo;
         }
