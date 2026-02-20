@@ -936,7 +936,7 @@
 .hamburger-btn {
     background: none;
     border: none;
-    color: rgba(200,216,240,0.6);
+    color: var(--text-dim);
     cursor: pointer;
     padding: 0.3rem;
     display: flex;
@@ -966,7 +966,7 @@
     padding: 0.35rem;
     border-radius: 6px;
     background: transparent;
-    color: rgba(200,216,240,0.4);
+    color: var(--text-dim);
     text-decoration: none;
     display: flex;
     align-items: center;
