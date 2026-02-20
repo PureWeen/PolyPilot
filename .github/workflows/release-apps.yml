@@ -87,7 +87,7 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: 'com.microsoft.PolyPilot'
           releaseFiles: ./android-artifacts/*-Signed.aab
-          track: internal
+          track: beta
           status: completed
 
   # ─────────────────────────────────────────────
