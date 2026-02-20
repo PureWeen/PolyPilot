@@ -1366,9 +1366,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             if (!_bridgeClient.IsConnected) return false;
             var remoteModel = Models.ModelHelper.NormalizeToSlug(newModel);
             if (string.IsNullOrEmpty(remoteModel)) return false;
+            // Guard: don't change model while processing or if already the same
+            if (_sessions.TryGetValue(sessionName, out var remoteState))
+            {
+                if (remoteState.Info.IsProcessing) return false;
+                if (remoteState.Info.Model == remoteModel) return true;
+            }
             await _bridgeClient.ChangeModelAsync(sessionName, remoteModel, cancellationToken);
             // Update local state optimistically
-            if (_sessions.TryGetValue(sessionName, out var remoteState))
+            if (remoteState != null)
                 remoteState.Info.Model = remoteModel;
             OnStateChanged?.Invoke();
             return true;
@@ -1822,6 +1828,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // In remote mode, delegate to bridge server
         if (IsRemoteMode)
         {
+            if (_sessions.ContainsKey(newName))
+                return false;
             _ = _bridgeClient.RenameSessionAsync(oldName, newName);
             // Optimistically rename locally for immediate UI feedback
             if (_sessions.TryRemove(oldName, out var remoteState))

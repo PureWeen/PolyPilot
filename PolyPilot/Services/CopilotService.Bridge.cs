@@ -182,11 +182,13 @@ public partial class CopilotService
                 await Task.Delay(50, ct);
         }
 
+        // Set IsRemoteMode before SyncRemoteSessions to prevent ReconcileOrganization from running
+        IsRemoteMode = true;
+
         // Sync all received history into local sessions before returning
         SyncRemoteSessions();
 
         IsInitialized = true;
-        IsRemoteMode = true;
         NeedsConfiguration = false;
         Debug($"Connected to remote server via WebSocket bridge ({_bridgeClient.Sessions.Count} sessions, {_bridgeClient.SessionHistories.Count} histories)");
         OnStateChanged?.Invoke();

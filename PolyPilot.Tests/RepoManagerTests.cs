@@ -24,6 +24,15 @@ public class RepoManagerTests
     }
 
     [Theory]
+    [InlineData("ssh://git@github.com/Owner/Repo.git", "Owner-Repo")]
+    [InlineData("https://user@github.com/Owner/Repo.git", "Owner-Repo")]
+    [InlineData("https://user:token@github.com/Owner/Repo", "Owner-Repo")]
+    public void RepoIdFromUrl_ProtocolWithCredentials_ExtractsCorrectId(string url, string expected)
+    {
+        Assert.Equal(expected, RepoManager.RepoIdFromUrl(url));
+    }
+
+    [Theory]
     [InlineData("dotnet/maui", "https://github.com/dotnet/maui")]
     [InlineData("PureWeen/PolyPilot", "https://github.com/PureWeen/PolyPilot")]
     public void NormalizeRepoUrl_Shorthand_ExpandsToGitHub(string input, string expected)

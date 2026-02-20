@@ -266,10 +266,20 @@ public class WsBridgeServer : IDisposable
             Console.WriteLine($"[WsBridge] Client {clientId} connected ({_clients.Count} total)");
 
             // Send initial state
-            await SendToClientAsync(clientId, ws,
-                BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
-            await SendToClientAsync(clientId, ws,
-                BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot?.Organization ?? new OrganizationState()), ct);
+            if (_copilot != null)
+            {
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot.Organization), ct);
+            }
+            else
+            {
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.SessionsList, new SessionsListPayload()), ct);
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.OrganizationState, new OrganizationState()), ct);
+            }
             await SendPersistedToClient(clientId, ws, ct);
 
             // Send history for all active sessions so mobile has full state on connect
@@ -380,6 +390,7 @@ public class WsBridgeServer : IDisposable
                     if (switchReq != null)
                     {
                         _copilot.SetActiveSession(switchReq.SessionName);
+                        BroadcastSessionsList();
                         await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, ct);
                     }
                     break;
@@ -694,13 +705,14 @@ public class WsBridgeServer : IDisposable
             var clientId = id;
             _ = Task.Run(async () =>
             {
-                await sendLock.WaitAsync();
                 try
                 {
+                    await sendLock.WaitAsync();
                     if (ws.State == WebSocketState.Open)
                         await ws.SendAsync(new ArraySegment<byte>(bytes),
                             WebSocketMessageType.Text, true, CancellationToken.None);
                 }
+                catch (ObjectDisposedException) { return; }
                 catch
                 {
                     _clients.TryRemove(clientId, out _);

@@ -138,6 +138,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             throw;
         }
         Console.WriteLine($"[WsBridgeClient] Connected");
+        invoker?.Dispose();
 
         _receiveTask = ReceiveLoopAsync(_cts.Token);
     }
@@ -272,11 +273,18 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         var maxDelay = 30_000;
         var delay = 2_000;
 
-        while (!(_cts?.IsCancellationRequested ?? true))
+        // Capture the CTS at the start to prevent ConnectAsync from replacing it mid-loop
+        var cts = _cts;
+        if (cts == null || cts.IsCancellationRequested) return;
+
+        while (!cts.IsCancellationRequested)
         {
             Console.WriteLine($"[WsBridgeClient] Reconnecting in {delay / 1000}s...");
-            try { await Task.Delay(delay, _cts!.Token); }
+            try { await Task.Delay(delay, cts.Token); }
             catch (OperationCanceledException) { return; }
+
+            // If a new ConnectAsync replaced _cts, this reconnect loop is stale
+            if (_cts != cts) return;
 
             try
             {
@@ -306,7 +314,8 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                         }
                     };
                     invoker = new HttpMessageInvoker(handler);
-                    await _ws.ConnectAsync(uri, invoker, _cts!.Token);
+                    await _ws.ConnectAsync(uri, invoker, cts.Token);
+                    invoker.Dispose();
                 }
                 catch
                 {
@@ -316,17 +325,17 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                     _ws = new ClientWebSocket();
                     if (!string.IsNullOrEmpty(_authToken))
                         _ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {_authToken}");
-                    await _ws.ConnectAsync(uri, _cts!.Token);
+                    await _ws.ConnectAsync(uri, cts.Token);
                 }
 
                 Console.WriteLine("[WsBridgeClient] Reconnected");
                 OnStateChanged?.Invoke();
 
                 // Request fresh state
-                await RequestSessionsAsync(_cts!.Token);
+                await RequestSessionsAsync(cts.Token);
 
                 // Resume receive loop
-                _receiveTask = ReceiveLoopAsync(_cts!.Token);
+                _receiveTask = ReceiveLoopAsync(cts.Token);
                 return;
             }
             catch (Exception ex)
@@ -517,6 +526,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     {
         Stop();
         _cts?.Dispose();
+        _sendLock.Dispose();
         GC.SuppressFinalize(this);
     }
 }
