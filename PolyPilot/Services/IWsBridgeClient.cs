@@ -8,9 +8,10 @@ namespace PolyPilot.Services;
 public interface IWsBridgeClient
 {
     bool IsConnected { get; }
+    bool HasReceivedSessionsList { get; }
     List<SessionSummary> Sessions { get; }
     string? ActiveSessionName { get; }
-    Dictionary<string, List<ChatMessage>> SessionHistories { get; }
+    System.Collections.Concurrent.ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; }
     List<PersistedSessionSummary> PersistedSessions { get; }
     string? GitHubAvatarUrl { get; }
     string? GitHubLogin { get; }
@@ -43,6 +44,8 @@ public interface IWsBridgeClient
     Task ResumeSessionAsync(string sessionId, string? displayName = null, CancellationToken ct = default);
     Task CloseSessionAsync(string name, CancellationToken ct = default);
     Task AbortSessionAsync(string sessionName, CancellationToken ct = default);
+    Task ChangeModelAsync(string sessionName, string newModel, CancellationToken ct = default);
+    Task RenameSessionAsync(string oldName, string newName, CancellationToken ct = default);
     Task SendOrganizationCommandAsync(OrganizationCommandPayload payload, CancellationToken ct = default);
     Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default);
 }

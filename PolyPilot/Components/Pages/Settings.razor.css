@@ -723,9 +723,11 @@
 }
 
 .qr-code img {
-    width: 200px;
-    height: 200px;
+    width: 280px;
+    height: 280px;
     border-radius: 8px;
+    padding: 12px;
+    background: #fff;
 }
 
 .qr-hint {

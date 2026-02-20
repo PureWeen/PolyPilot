@@ -46,6 +46,8 @@ public class RemoteModeTests
             BridgeMessageTypes.QueueMessage,
             BridgeMessageTypes.CloseSession,
             BridgeMessageTypes.AbortSession,
+            BridgeMessageTypes.ChangeModel,
+            BridgeMessageTypes.RenameSession,
             BridgeMessageTypes.OrganizationCommand,
             BridgeMessageTypes.ListDirectories,
         };
@@ -757,5 +759,96 @@ public class ChatMessageSerializationTests
         bool shouldSync = !isProcessing && cachedHistory.Count >= history.Count;
 
         Assert.False(shouldSync, "Should NOT sync when cache has fewer messages than local history");
+    }
+
+    [Fact]
+    public void ChangeModel_MessageType_IsCorrect()
+    {
+        Assert.Equal("change_model", BridgeMessageTypes.ChangeModel);
+    }
+
+    [Fact]
+    public void ChangeModel_RoundTrip()
+    {
+        var payload = new ChangeModelPayload { SessionName = "my-session", NewModel = "claude-sonnet-4-5" };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.ChangeModel, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json);
+
+        Assert.NotNull(restored);
+        Assert.Equal(BridgeMessageTypes.ChangeModel, restored!.Type);
+
+        var restoredPayload = restored.GetPayload<ChangeModelPayload>();
+        Assert.NotNull(restoredPayload);
+        Assert.Equal("my-session", restoredPayload!.SessionName);
+        Assert.Equal("claude-sonnet-4-5", restoredPayload.NewModel);
+    }
+
+    [Fact]
+    public void ChangeModelPayload_DefaultValues()
+    {
+        var payload = new ChangeModelPayload();
+        Assert.Equal("", payload.SessionName);
+        Assert.Equal("", payload.NewModel);
+    }
+
+    [Fact]
+    public void ChangeModel_Serialization_CamelCase()
+    {
+        var payload = new ChangeModelPayload { SessionName = "test", NewModel = "gpt-4-1" };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.ChangeModel, payload);
+        var json = msg.Serialize();
+
+        Assert.Contains("\"sessionName\"", json);
+        Assert.Contains("\"newModel\"", json);
+    }
+
+    // ========== RenameSession Protocol Tests ==========
+
+    [Fact]
+    public void RenameSession_MessageType_IsCorrect()
+    {
+        Assert.Equal("rename_session", BridgeMessageTypes.RenameSession);
+    }
+
+    [Fact]
+    public void RenameSession_RoundTrip()
+    {
+        var payload = new RenameSessionPayload { OldName = "old-name", NewName = "new-name" };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.RenameSession, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json);
+
+        Assert.NotNull(restored);
+        Assert.Equal(BridgeMessageTypes.RenameSession, restored!.Type);
+
+        var restoredPayload = restored.GetPayload<RenameSessionPayload>();
+        Assert.NotNull(restoredPayload);
+        Assert.Equal("old-name", restoredPayload!.OldName);
+        Assert.Equal("new-name", restoredPayload.NewName);
+    }
+
+    [Fact]
+    public void RenameSessionPayload_DefaultValues()
+    {
+        var payload = new RenameSessionPayload();
+        Assert.Equal("", payload.OldName);
+        Assert.Equal("", payload.NewName);
+    }
+
+    [Fact]
+    public void DirectoriesListPayload_HasRequestId()
+    {
+        var request = new ListDirectoriesPayload { Path = "/tmp", RequestId = "abc123" };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.ListDirectories, request);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<ListDirectoriesPayload>();
+        Assert.Equal("abc123", restored!.RequestId);
+
+        var response = new DirectoriesListPayload { Path = "/tmp", RequestId = "abc123" };
+        var respMsg = BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, response);
+        var respJson = respMsg.Serialize();
+        var restoredResp = BridgeMessage.Deserialize(respJson)!.GetPayload<DirectoriesListPayload>();
+        Assert.Equal("abc123", restoredResp!.RequestId);
     }
 }

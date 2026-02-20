@@ -425,7 +425,7 @@ public partial class CopilotService
                     state.Info.Model = normalizedStartModel;
                     Debug($"Session model from start event: {startModel} → {normalizedStartModel}");
                 }
-                if (!IsRestoring) SaveActiveSessionsToDisk();
+                Invoke(() => { if (!IsRestoring) SaveActiveSessionsToDisk(); });
                 break;
 
             case SessionUsageInfoEvent usageInfo:
@@ -495,6 +495,8 @@ public partial class CopilotService
             case SessionErrorEvent err:
                 var errMsg = Models.ErrorMessageHelper.HumanizeMessage(err.Data?.Message ?? "Unknown error");
                 CancelProcessingWatchdog(state);
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                state.HasUsedToolsThisTurn = false;
                 InvokeOnUI(() =>
                 {
                     OnError?.Invoke(sessionName, errMsg);

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using PolyPilot.Models;
@@ -16,13 +17,15 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     private Task? _receiveTask;
     private string? _remoteWsUrl;
     private string? _authToken;
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     public bool IsConnected => _ws?.State == WebSocketState.Open;
+    public bool HasReceivedSessionsList { get; private set; }
 
     // --- State mirroring CopilotService ---
     public List<SessionSummary> Sessions { get; private set; } = new();
     public string? ActiveSessionName { get; private set; }
-    public Dictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
+    public ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
     public List<PersistedSessionSummary> PersistedSessions { get; private set; } = new();
     public string? GitHubAvatarUrl { get; private set; }
     public string? GitHubLogin { get; private set; }
@@ -136,13 +139,18 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             throw;
         }
         Console.WriteLine($"[WsBridgeClient] Connected");
+        invoker?.Dispose();
 
         _receiveTask = ReceiveLoopAsync(_cts.Token);
     }
 
     public void Stop()
     {
-        _cts?.Cancel();
+        var oldCts = _cts;
+        _cts = null;
+        oldCts?.Cancel();
+        try { oldCts?.Dispose(); } catch { }
+        HasReceivedSessionsList = false;
         if (_ws?.State == WebSocketState.Open)
         {
             try { _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None).Wait(1000); }
@@ -190,20 +198,37 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.AbortSession,
             new SessionNamePayload { SessionName = sessionName }), ct);
 
+    public async Task ChangeModelAsync(string sessionName, string newModel, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ChangeModel,
+            new ChangeModelPayload { SessionName = sessionName, NewModel = newModel }), ct);
+
+    public async Task RenameSessionAsync(string oldName, string newName, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.RenameSession,
+            new RenameSessionPayload { OldName = oldName, NewName = newName }), ct);
+
     public async Task SendOrganizationCommandAsync(OrganizationCommandPayload cmd, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.OrganizationCommand, cmd), ct);
 
-    private TaskCompletionSource<DirectoriesListPayload>? _dirListTcs;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<DirectoriesListPayload>> _dirListRequests = new();
 
     public async Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
     {
-        _dirListTcs = new TaskCompletionSource<DirectoriesListPayload>();
-        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ListDirectories,
-            new ListDirectoriesPayload { Path = path }), ct);
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
-        linked.Token.Register(() => _dirListTcs.TrySetCanceled());
-        return await _dirListTcs.Task;
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<DirectoriesListPayload>();
+        _dirListRequests[requestId] = tcs;
+        try
+        {
+            await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ListDirectories,
+                new ListDirectoriesPayload { Path = path, RequestId = requestId }), ct);
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+            linked.Token.Register(() => tcs.TrySetCanceled());
+            return await tcs.Task;
+        }
+        finally
+        {
+            _dirListRequests.TryRemove(requestId, out _);
+        }
     }
 
     // --- Receive loop ---
@@ -239,6 +264,12 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         }
 
         Console.WriteLine("[WsBridgeClient] Receive loop ended");
+        // Cancel any pending directory list requests so callers don't hang
+        foreach (var kvp in _dirListRequests)
+        {
+            if (_dirListRequests.TryRemove(kvp.Key, out var tcs))
+                tcs.TrySetCanceled();
+        }
         OnStateChanged?.Invoke();
 
         // Auto-reconnect if not intentionally stopped
@@ -253,11 +284,18 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         var maxDelay = 30_000;
         var delay = 2_000;
 
-        while (!(_cts?.IsCancellationRequested ?? true))
+        // Capture the CTS at the start to prevent ConnectAsync from replacing it mid-loop
+        var cts = _cts;
+        if (cts == null || cts.IsCancellationRequested) return;
+
+        while (!cts.IsCancellationRequested)
         {
             Console.WriteLine($"[WsBridgeClient] Reconnecting in {delay / 1000}s...");
-            try { await Task.Delay(delay, _cts!.Token); }
+            try { await Task.Delay(delay, cts.Token); }
             catch (OperationCanceledException) { return; }
+
+            // If a new ConnectAsync replaced _cts, this reconnect loop is stale
+            if (_cts != cts) return;
 
             try
             {
@@ -287,7 +325,8 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                         }
                     };
                     invoker = new HttpMessageInvoker(handler);
-                    await _ws.ConnectAsync(uri, invoker, _cts!.Token);
+                    await _ws.ConnectAsync(uri, invoker, cts.Token);
+                    invoker.Dispose();
                 }
                 catch
                 {
@@ -297,17 +336,17 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                     _ws = new ClientWebSocket();
                     if (!string.IsNullOrEmpty(_authToken))
                         _ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {_authToken}");
-                    await _ws.ConnectAsync(uri, _cts!.Token);
+                    await _ws.ConnectAsync(uri, cts.Token);
                 }
 
                 Console.WriteLine("[WsBridgeClient] Reconnected");
                 OnStateChanged?.Invoke();
 
                 // Request fresh state
-                await RequestSessionsAsync(_cts!.Token);
+                await RequestSessionsAsync(cts.Token);
 
                 // Resume receive loop
-                _receiveTask = ReceiveLoopAsync(_cts!.Token);
+                _receiveTask = ReceiveLoopAsync(cts.Token);
                 return;
             }
             catch (Exception ex)
@@ -339,6 +378,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                     ActiveSessionName = sessions.ActiveSession;
                     GitHubAvatarUrl = sessions.GitHubAvatarUrl;
                     GitHubLogin = sessions.GitHubLogin;
+                    HasReceivedSessionsList = true;
                     Console.WriteLine($"[WsBridgeClient] Got {Sessions.Count} sessions, active={ActiveSessionName}");
                     OnStateChanged?.Invoke();
                 }
@@ -448,7 +488,23 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             case BridgeMessageTypes.DirectoriesList:
                 var dirList = msg.GetPayload<DirectoriesListPayload>();
                 if (dirList != null)
-                    _dirListTcs?.TrySetResult(dirList);
+                {
+                    var reqId = dirList.RequestId;
+                    if (reqId != null && _dirListRequests.TryRemove(reqId, out var tcs))
+                        tcs.TrySetResult(dirList);
+                    else if (reqId == null)
+                    {
+                        // Fallback: complete the first pending request (legacy server without RequestId)
+                        foreach (var kvp in _dirListRequests)
+                        {
+                            if (_dirListRequests.TryRemove(kvp.Key, out var fallbackTcs))
+                            {
+                                fallbackTcs.TrySetResult(dirList);
+                                break;
+                            }
+                        }
+                    }
+                }
                 break;
 
             case BridgeMessageTypes.AttentionNeeded:
@@ -466,13 +522,27 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     {
         if (_ws?.State != WebSocketState.Open) return;
         var bytes = Encoding.UTF8.GetBytes(msg.Serialize());
-        await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
+        try
+        {
+            await _sendLock.WaitAsync(ct);
+        }
+        catch (ObjectDisposedException) { return; }
+        try
+        {
+            if (_ws?.State == WebSocketState.Open)
+                await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
+        }
+        finally
+        {
+            try { _sendLock.Release(); } catch (ObjectDisposedException) { }
+        }
     }
 
     public void Dispose()
     {
         Stop();
         _cts?.Dispose();
+        _sendLock.Dispose();
         GC.SuppressFinalize(this);
     }
 }

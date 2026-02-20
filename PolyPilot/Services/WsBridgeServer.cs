@@ -266,10 +266,20 @@ public class WsBridgeServer : IDisposable
             Console.WriteLine($"[WsBridge] Client {clientId} connected ({_clients.Count} total)");
 
             // Send initial state
-            await SendToClientAsync(clientId, ws,
-                BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
-            await SendToClientAsync(clientId, ws,
-                BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot?.Organization ?? new OrganizationState()), ct);
+            if (_copilot != null)
+            {
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot.Organization), ct);
+            }
+            else
+            {
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.SessionsList, new SessionsListPayload()), ct);
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.OrganizationState, new OrganizationState()), ct);
+            }
             await SendPersistedToClient(clientId, ws, ct);
 
             // Send history for all active sessions so mobile has full state on connect
@@ -380,6 +390,7 @@ public class WsBridgeServer : IDisposable
                     if (switchReq != null)
                     {
                         _copilot.SetActiveSession(switchReq.SessionName);
+                        BroadcastSessionsList();
                         await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, ct);
                     }
                     break;
@@ -428,7 +439,7 @@ public class WsBridgeServer : IDisposable
 
                 case BridgeMessageTypes.CloseSession:
                     var closeReq = msg.GetPayload<SessionNamePayload>();
-                    if (closeReq != null)
+                    if (closeReq != null && !string.IsNullOrWhiteSpace(closeReq.SessionName))
                     {
                         Console.WriteLine($"[WsBridge] Client closing session '{closeReq.SessionName}'");
                         await _copilot.CloseSessionAsync(closeReq.SessionName);
@@ -441,6 +452,40 @@ public class WsBridgeServer : IDisposable
                     {
                         Console.WriteLine($"[WsBridge] Client aborting session '{abortReq.SessionName}'");
                         await _copilot.AbortSessionAsync(abortReq.SessionName);
+                    }
+                    break;
+
+                case BridgeMessageTypes.ChangeModel:
+                    var changeModelReq = msg.GetPayload<ChangeModelPayload>();
+                    if (changeModelReq != null && !string.IsNullOrWhiteSpace(changeModelReq.SessionName))
+                    {
+                        Console.WriteLine($"[WsBridge] Client changing model for '{changeModelReq.SessionName}' to '{changeModelReq.NewModel}'");
+                        var modelChanged = await _copilot.ChangeModelAsync(changeModelReq.SessionName, changeModelReq.NewModel);
+                        if (!modelChanged)
+                        {
+                            await SendToClientAsync(clientId, ws,
+                                BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                    new ErrorPayload { SessionName = changeModelReq.SessionName, Error = "Failed to change model. Session may be processing or model is invalid." }), ct);
+                        }
+                        // Always broadcast latest session state so client stays in sync
+                        BroadcastSessionsList();
+                    }
+                    break;
+
+                case BridgeMessageTypes.RenameSession:
+                    var renameReq = msg.GetPayload<RenameSessionPayload>();
+                    if (renameReq != null && !string.IsNullOrWhiteSpace(renameReq.OldName) && !string.IsNullOrWhiteSpace(renameReq.NewName))
+                    {
+                        Console.WriteLine($"[WsBridge] Client renaming session '{renameReq.OldName}' to '{renameReq.NewName}'");
+                        var renamed = _copilot.RenameSession(renameReq.OldName, renameReq.NewName);
+                        if (!renamed)
+                        {
+                            await SendToClientAsync(clientId, ws,
+                                BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                    new ErrorPayload { SessionName = renameReq.OldName, Error = "Failed to rename session. Name may already exist." }), ct);
+                        }
+                        BroadcastSessionsList();
+                        BroadcastOrganizationState();
                     }
                     break;
 
@@ -459,7 +504,7 @@ public class WsBridgeServer : IDisposable
                     if (string.IsNullOrWhiteSpace(dirPath))
                         dirPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-                    var dirResult = new DirectoriesListPayload { Path = dirPath! };
+                    var dirResult = new DirectoriesListPayload { Path = dirPath!, RequestId = dirReq?.RequestId };
                     try
                     {
                         if (!Path.IsPathRooted(dirPath!) || dirPath!.Contains(".."))
@@ -521,7 +566,11 @@ public class WsBridgeServer : IDisposable
         if (!_clientSendLocks.TryGetValue(clientId, out var sendLock)) return;
 
         var bytes = Encoding.UTF8.GetBytes(msg.Serialize());
-        await sendLock.WaitAsync(ct);
+        try
+        {
+            await sendLock.WaitAsync(ct);
+        }
+        catch (ObjectDisposedException) { return; }
         try
         {
             if (ws.State == WebSocketState.Open)
@@ -529,7 +578,7 @@ public class WsBridgeServer : IDisposable
         }
         finally
         {
-            sendLock.Release();
+            try { sendLock.Release(); } catch (ObjectDisposedException) { }
         }
     }
 
@@ -666,21 +715,28 @@ public class WsBridgeServer : IDisposable
             var clientId = id;
             _ = Task.Run(async () =>
             {
-                await sendLock.WaitAsync();
                 try
                 {
+                    await sendLock.WaitAsync();
                     if (ws.State == WebSocketState.Open)
                         await ws.SendAsync(new ArraySegment<byte>(bytes),
                             WebSocketMessageType.Text, true, CancellationToken.None);
                 }
+                catch (ObjectDisposedException)
+                {
+                    _clients.TryRemove(clientId, out _);
+                    return;
+                }
                 catch
                 {
                     _clients.TryRemove(clientId, out _);
-                    if (_clientSendLocks.TryRemove(clientId, out var lk2)) lk2.Dispose();
                 }
                 finally
                 {
-                    sendLock.Release();
+                    try { sendLock.Release(); } catch (ObjectDisposedException) { }
+                    // Clean up lock for removed clients
+                    if (!_clients.ContainsKey(clientId))
+                        if (_clientSendLocks.TryRemove(clientId, out var lk)) lk.Dispose();
                 }
             });
         }

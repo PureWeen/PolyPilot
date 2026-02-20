@@ -454,6 +454,7 @@
 
         try
         {
+            // Try JSON format first: { "url": "...", "token": "..." }
             var doc = System.Text.Json.JsonDocument.Parse(result);
             if (doc.RootElement.TryGetProperty("url", out var urlProp))
                 mobileRemoteUrl = urlProp.GetString() ?? "";
@@ -462,7 +463,18 @@
         }
         catch
         {
-            mobileRemoteUrl = result;
+            // Try polypilot:// URI format: polypilot://connect?url=...&token=...
+            if (result.StartsWith("polypilot://", StringComparison.OrdinalIgnoreCase)
+                && Uri.TryCreate(result, UriKind.Absolute, out var uri))
+            {
+                var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                mobileRemoteUrl = query["url"] ?? "";
+                mobileRemoteToken = query["token"] ?? "";
+            }
+            else
+            {
+                mobileRemoteUrl = result;
+            }
         }
 
         // Auto-connect after scan
@@ -789,6 +801,13 @@
                 _needsScrollToBottom = true;
                 _ = Task.Run(() => CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid));
             }
+            // Ensure expandedSession stays in sync with active session (e.g., sidebar flyout selection on mobile)
+            else if (active != null && expandedSession != null && expandedSession != active && sessions.Any(s => s.Name == active))
+            {
+                _lastActiveSession = active;
+                expandedSession = active;
+                _needsScrollToBottom = true;
+            }
             
             if (_lastActiveSession == null && active != null)
             {
@@ -817,18 +836,15 @@
 
     private void HandleComplete(string sessionName, string summary)
     {
-        // Marshal all state mutations + render onto the UI thread.
-        // HandleComplete can be called from background threads (SDK event dispatch).
-        // Collections like completedSessions/streamingBySession are not thread-safe.
-        InvokeAsync(() =>
-        {
-            if (_disposed) return;
-            completedSessions.Add(sessionName);
-            streamingBySession.Remove(sessionName);
-            activityBySession.Remove(sessionName);
-            sessions = CopilotService.GetAllSessions().ToList();
-            StateHasChanged();
-        });
+        // Already on UI thread (called from CompleteResponse via Invoke/SynchronizationContext.Post).
+        // Must be synchronous — InvokeAsync defers and causes stale renders.
+        if (_disposed) return;
+        completedSessions.Add(sessionName);
+        streamingBySession.Remove(sessionName);
+        activityBySession.Remove(sessionName);
+        sessions = CopilotService.GetAllSessions().ToList();
+        StateHasChanged();
+        // This callback runs on thread-pool — DOES need InvokeAsync.
         _ = Task.Delay(10000).ContinueWith(_ =>
             InvokeAsync(() =>
             {
