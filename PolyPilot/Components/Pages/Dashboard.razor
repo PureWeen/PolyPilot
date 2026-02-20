@@ -454,6 +454,7 @@
 
         try
         {
+            // Try JSON format first: { "url": "...", "token": "..." }
             var doc = System.Text.Json.JsonDocument.Parse(result);
             if (doc.RootElement.TryGetProperty("url", out var urlProp))
                 mobileRemoteUrl = urlProp.GetString() ?? "";
@@ -462,7 +463,18 @@
         }
         catch
         {
-            mobileRemoteUrl = result;
+            // Try polypilot:// URI format: polypilot://connect?url=...&token=...
+            if (result.StartsWith("polypilot://", StringComparison.OrdinalIgnoreCase)
+                && Uri.TryCreate(result, UriKind.Absolute, out var uri))
+            {
+                var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                mobileRemoteUrl = query["url"] ?? "";
+                mobileRemoteToken = query["token"] ?? "";
+            }
+            else
+            {
+                mobileRemoteUrl = result;
+            }
         }
 
         // Auto-connect after scan
@@ -788,6 +800,13 @@
                 _focusedInputId = $"input-{active!.Replace(" ", "-")}";
                 _needsScrollToBottom = true;
                 _ = Task.Run(() => CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid));
+            }
+            // Ensure expandedSession stays in sync with active session (e.g., sidebar flyout selection on mobile)
+            else if (active != null && expandedSession != null && expandedSession != active && sessions.Any(s => s.Name == active))
+            {
+                _lastActiveSession = active;
+                expandedSession = active;
+                _needsScrollToBottom = true;
             }
             
             if (_lastActiveSession == null && active != null)

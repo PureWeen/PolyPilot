@@ -483,9 +483,9 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                     var reqId = dirList.RequestId;
                     if (reqId != null && _dirListRequests.TryRemove(reqId, out var tcs))
                         tcs.TrySetResult(dirList);
-                    else
+                    else if (reqId == null)
                     {
-                        // Fallback: complete the first pending request (backwards compat)
+                        // Fallback: complete the first pending request (legacy server without RequestId)
                         foreach (var kvp in _dirListRequests)
                         {
                             if (_dirListRequests.TryRemove(kvp.Key, out var fallbackTcs))
@@ -513,7 +513,11 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     {
         if (_ws?.State != WebSocketState.Open) return;
         var bytes = Encoding.UTF8.GetBytes(msg.Serialize());
-        await _sendLock.WaitAsync(ct);
+        try
+        {
+            await _sendLock.WaitAsync(ct);
+        }
+        catch (ObjectDisposedException) { return; }
         try
         {
             if (_ws?.State == WebSocketState.Open)
@@ -521,7 +525,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         }
         finally
         {
-            _sendLock.Release();
+            try { _sendLock.Release(); } catch (ObjectDisposedException) { }
         }
     }
 

@@ -1828,21 +1828,22 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // In remote mode, delegate to bridge server
         if (IsRemoteMode)
         {
+            if (!_bridgeClient.IsConnected)
+                return false;
             if (_sessions.ContainsKey(newName))
                 return false;
-            _ = _bridgeClient.RenameSessionAsync(oldName, newName);
             // Optimistically rename locally for immediate UI feedback
-            if (_sessions.TryRemove(oldName, out var remoteState))
-            {
-                remoteState.Info.Name = newName;
-                _sessions[newName] = remoteState;
-                if (_activeSessionName == oldName)
-                    _activeSessionName = newName;
-                var remoteMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == oldName);
-                if (remoteMeta != null)
-                    remoteMeta.SessionName = newName;
-                OnStateChanged?.Invoke();
-            }
+            if (!_sessions.TryRemove(oldName, out var remoteState))
+                return false;
+            _ = _bridgeClient.RenameSessionAsync(oldName, newName);
+            remoteState.Info.Name = newName;
+            _sessions[newName] = remoteState;
+            if (_activeSessionName == oldName)
+                _activeSessionName = newName;
+            var remoteMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == oldName);
+            if (remoteMeta != null)
+                remoteMeta.SessionName = newName;
+            OnStateChanged?.Invoke();
             return true;
         }
 

@@ -712,7 +712,11 @@ public class WsBridgeServer : IDisposable
                         await ws.SendAsync(new ArraySegment<byte>(bytes),
                             WebSocketMessageType.Text, true, CancellationToken.None);
                 }
-                catch (ObjectDisposedException) { return; }
+                catch (ObjectDisposedException)
+                {
+                    _clients.TryRemove(clientId, out _);
+                    return;
+                }
                 catch
                 {
                     _clients.TryRemove(clientId, out _);

@@ -5,6 +5,8 @@ namespace PolyPilot.Services;
 
 public partial class CopilotService
 {
+    private bool _bridgeEventsWired;
+
     /// <summary>
     /// Initialize in Remote mode: connect WsBridgeClient for state-sync with server.
     /// </summary>
@@ -22,6 +24,11 @@ public partial class CopilotService
             wsUrl = "wss://" + wsUrl;
 
         Debug($"Remote mode: connecting to {wsUrl}");
+
+        // Wire WsBridgeClient events only once (survives reconnects)
+        if (!_bridgeEventsWired)
+        {
+            _bridgeEventsWired = true;
 
         // Wire WsBridgeClient events to our events
         _bridgeClient.OnStateChanged += () =>
@@ -165,6 +172,8 @@ public partial class CopilotService
                 }
             });
         };
+
+        } // end if (!_bridgeEventsWired)
 
         await _bridgeClient.ConnectAsync(wsUrl, settings.RemoteToken, ct);
 

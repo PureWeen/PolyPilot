@@ -262,7 +262,7 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.ChangeModelAsync("model-switch", "claude-sonnet-4-5", cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => _copilot.GetSession("model-switch")?.Model == "claude-sonnet-4-5", cts.Token);
 
         Assert.Equal("claude-sonnet-4-5", _copilot.GetSession("model-switch")!.Model);
         client.Stop();
