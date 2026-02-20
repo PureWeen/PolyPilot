@@ -159,11 +159,8 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Prefer Xcode 26.2 to match .NET iOS SDK requirement
-          XCODE_PATH=$(ls -d /Applications/Xcode_26.2*.app 2>/dev/null | sort -rV | head -1)
-          if [ -z "$XCODE_PATH" ]; then
-            XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | head -1)
-          fi
+          # Use the newest available Xcode on the runner
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -rV | head -1)
           if [ -z "$XCODE_PATH" ]; then
             XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -rV | head -1)
           fi
@@ -179,7 +176,9 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Install MAUI workload
-        run: dotnet workload install maui
+        run: |
+          dotnet workload update
+          dotnet workload install maui
 
       - name: Import signing certificate
         uses: apple-actions/import-codesign-certs@v2
