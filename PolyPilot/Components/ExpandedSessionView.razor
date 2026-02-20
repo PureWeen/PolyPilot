@@ -174,7 +174,7 @@
             <input type="file" id="file-@Session.Name.Replace(" ", "-")" accept="image/*" multiple style="display:none" />
             <textarea id="input-@Session.Name.Replace(" ", "-")"
                       data-fiesta-workers="@FiestaAutocompleteWorkers"
-                      autocorrect="off" autocapitalize="off" spellcheck="false"
+                      autocomplete="off"
                       placeholder="@(Session.IsProcessing ? "Message will be queued…" : PlatformHelper.IsMobile ? "Message..." : "Message... (↵ send, ⇧↵ newline)")"
                       rows="1"></textarea>
             <button class="attach-btn" @onclick="() => OnAttach.InvokeAsync(Session.Name)" title="Attach image">
