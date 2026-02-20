@@ -836,18 +836,15 @@
 
     private void HandleComplete(string sessionName, string summary)
     {
-        // Marshal all state mutations + render onto the UI thread.
-        // HandleComplete can be called from background threads (SDK event dispatch).
-        // Collections like completedSessions/streamingBySession are not thread-safe.
-        InvokeAsync(() =>
-        {
-            if (_disposed) return;
-            completedSessions.Add(sessionName);
-            streamingBySession.Remove(sessionName);
-            activityBySession.Remove(sessionName);
-            sessions = CopilotService.GetAllSessions().ToList();
-            StateHasChanged();
-        });
+        // Already on UI thread (called from CompleteResponse via Invoke/SynchronizationContext.Post).
+        // Must be synchronous — InvokeAsync defers and causes stale renders.
+        if (_disposed) return;
+        completedSessions.Add(sessionName);
+        streamingBySession.Remove(sessionName);
+        activityBySession.Remove(sessionName);
+        sessions = CopilotService.GetAllSessions().ToList();
+        StateHasChanged();
+        // This callback runs on thread-pool — DOES need InvokeAsync.
         _ = Task.Delay(10000).ContinueWith(_ =>
             InvokeAsync(() =>
             {
