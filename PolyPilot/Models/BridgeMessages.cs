@@ -117,6 +117,9 @@ public class SessionSummary
     public string? SessionId { get; set; }
     public string? WorkingDirectory { get; set; }
     public int QueueCount { get; set; }
+    public DateTime? ProcessingStartedAt { get; set; }
+    public int TurnRoundCount { get; set; }
+    public bool HasReceivedFirstEvent { get; set; }
 }
 
 public class SessionHistoryPayload

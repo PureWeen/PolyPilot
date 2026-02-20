@@ -354,6 +354,7 @@ public partial class CopilotService
 
             case AssistantTurnStartEvent:
                 state.HasReceivedDeltasThisTurn = false;
+                state.Info.HasReceivedFirstEvent = true;
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 Invoke(() =>
                 {
@@ -363,6 +364,7 @@ public partial class CopilotService
                 break;
 
             case AssistantTurnEndEvent:
+                state.Info.TurnRoundCount++;
                 try { CompleteReasoningMessages(state, sessionName); }
                 catch (Exception ex)
                 {
@@ -684,6 +686,9 @@ public partial class CopilotService
         state.ResponseCompletion?.TrySetResult(response);
         state.CurrentResponse.Clear();
         state.Info.IsProcessing = false;
+        state.Info.ProcessingStartedAt = null;
+        state.Info.TurnRoundCount = 0;
+        state.Info.HasReceivedFirstEvent = false;
         state.Info.LastUpdatedAt = DateTime.Now;
         OnStateChanged?.Invoke();
         

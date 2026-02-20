@@ -20,6 +20,11 @@ public class AgentSessionInfo
     // Timestamp of last state change (message received, turn end, etc.)
     public DateTime LastUpdatedAt { get; set; } = DateTime.Now;
     
+    // Processing progress tracking
+    public DateTime? ProcessingStartedAt { get; set; }
+    public int TurnRoundCount { get; set; }
+    public bool HasReceivedFirstEvent { get; set; }
+    
     // Accumulated token usage across all turns
     public int TotalInputTokens { get; set; }
     public int TotalOutputTokens { get; set; }

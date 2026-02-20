@@ -636,6 +636,9 @@ public class WsBridgeServer : IDisposable
             SessionId = s.SessionId,
             WorkingDirectory = s.WorkingDirectory,
             QueueCount = s.MessageQueue.Count,
+            ProcessingStartedAt = s.ProcessingStartedAt,
+            TurnRoundCount = s.TurnRoundCount,
+            HasReceivedFirstEvent = s.HasReceivedFirstEvent,
         }).ToList();
 
         return new SessionsListPayload

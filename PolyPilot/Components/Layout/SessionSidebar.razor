@@ -978,8 +978,20 @@ else
         StateHasChanged();
     }
 
-    private void OpenBugReportForSession(string sessionName)
+    private async void OpenBugReportForSession(string sessionName)
     {
+        if (PlatformHelper.IsMobile)
+        {
+            // On mobile, skip the inline form and open GitHub directly
+            var debugInfo = GetBugReportDebugInfo();
+            var sessionLabel = $" [{sessionName}]";
+            var body = $"## Description\n(Describe the issue here)\n\n## Session\n{sessionName}\n\n## Debug Info\n```\n{debugInfo}\n```";
+            var title = Uri.EscapeDataString($"[Bug Report]{sessionLabel}");
+            var issueBody = Uri.EscapeDataString(body);
+            var url = $"https://github.com/PureWeen/PolyPilot/issues/new?title={title}&body={issueBody}&labels=bug";
+            try { await Launcher.Default.OpenAsync(new Uri(url)); } catch { }
+            return;
+        }
         OpenBugReport();
         selectedBugSession = sessionName;
         StateHasChanged();

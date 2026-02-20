@@ -58,7 +58,7 @@
                 @Session.MessageCount msgs@(Session.Model != "resumed" ? $" • {Session.Model}" : "")
                 @if (Session.IsProcessing)
                 {
-                    <span class="processing"> • Working</span>
+                    <span class="processing"> • @GetShortProcessingStatus()</span>
                 }
                 @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
                 {
@@ -187,6 +187,24 @@
         var parts = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (parts.Length <= 2) return path;
         return "…/" + parts[^1];
+    }
+
+    private string GetShortProcessingStatus()
+    {
+        if (!Session.HasReceivedFirstEvent)
+            return "Waiting…";
+        var parts = new List<string>();
+        if (Session.ProcessingStartedAt.HasValue)
+        {
+            var elapsed = DateTime.UtcNow - Session.ProcessingStartedAt.Value;
+            if (elapsed.TotalMinutes >= 1)
+                parts.Add($"{(int)elapsed.TotalMinutes}m");
+            else if (elapsed.TotalSeconds >= 5)
+                parts.Add($"{(int)elapsed.TotalSeconds}s");
+        }
+        if (Session.TurnRoundCount > 0)
+            parts.Add($"{Session.TurnRoundCount} rounds");
+        return parts.Count > 0 ? string.Join(" · ", parts) : "Working";
     }
 
     private string? GetSessionDirectory()
