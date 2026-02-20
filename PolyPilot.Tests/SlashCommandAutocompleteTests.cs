@@ -150,10 +150,12 @@ public class SlashCommandAutocompleteTests
     [Fact]
     public void AutocompleteDropdown_OpensAboveInput()
     {
-        // Verify the dropdown positioning code places it above the input (like VS Code command palette)
         var html = File.ReadAllText(IndexHtmlPath);
-        // The updateDropdownPosition should calculate top based on rect.top (above input)
-        Assert.Contains("rect.top - visibleHeight", html);
+        // Scope to slash autocomplete section only — the Fiesta autocomplete also has positioning code
+        var slashSection = html.Substring(html.IndexOf("ensureSlashCommandAutocomplete", StringComparison.Ordinal));
+        // The dropdown uses bottom-anchoring to stick to the textarea
+        Assert.Contains("style.bottom", slashSection);
+        Assert.Contains("rect.top", slashSection);
     }
 
     [Fact]
@@ -176,5 +178,46 @@ public class SlashCommandAutocompleteTests
         // Should target both expanded view textarea and card view input
         Assert.Contains(".input-row textarea", html);
         Assert.Contains(".card-input input", html);
+    }
+
+    [Fact]
+    public void LockedMode_DoesNotInterceptEnter()
+    {
+        // When the user has typed a command + args (locked mode), Enter should NOT be
+        // intercepted by the autocomplete — it must pass through to send the message.
+        // The keydown handler must check the current context mode and skip Enter in 'locked' mode.
+        var html = File.ReadAllText(IndexHtmlPath);
+        var slashSection = html.Substring(html.IndexOf("ensureSlashCommandAutocomplete", StringComparison.Ordinal));
+        // The keydown handler must check for locked mode before intercepting Enter/Tab
+        // Look for the guard in the keydown handler section (near Enter/Tab handling)
+        var keydownStart = slashSection.IndexOf("document.addEventListener('keydown'", StringComparison.Ordinal);
+        Assert.True(keydownStart >= 0, "keydown handler not found in slash autocomplete");
+        var keydownSection = slashSection.Substring(keydownStart, 600);
+        // Must check context mode before processing Enter/Tab
+        Assert.Contains("locked", keydownSection);
+    }
+
+    [Fact]
+    public void LastValue_IsPerElement_NotGlobal()
+    {
+        // In card/grid view, multiple session cards each have their own input.
+        // The debounce cache (_lastValue or equivalent) must be per-element, not a single
+        // global variable, to avoid skipping updates when two cards have the same value.
+        var html = File.ReadAllText(IndexHtmlPath);
+        var slashSection = html.Substring(html.IndexOf("ensureSlashCommandAutocomplete", StringComparison.Ordinal));
+        // Should store last value on the element itself (e.g., target._lastSlashValue)
+        // and NOT use a bare `var _lastValue` shared across all inputs
+        Assert.Contains("_lastSlashValue", slashSection);
+    }
+
+    [Fact]
+    public void CardView_SendButton_HasSendBtnClass()
+    {
+        // The autocomplete's chooseOption uses querySelector('.send-btn:not(.stop-btn)')
+        // to find the send button. The card view's send button must have this class.
+        var cardRazor = File.ReadAllText(Path.Combine(
+            RepoRoot, "PolyPilot", "Components", "SessionCard.razor"));
+        // The send button in card view must have class="send-btn" for auto-send to work
+        Assert.Matches(@"class=""[^""]*send-btn[^""]*""[^>]*>➤</button>", cardRazor);
     }
 }

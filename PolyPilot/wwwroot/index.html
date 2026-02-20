@@ -712,10 +712,17 @@
 
             function showGhost(el, hintCmd) {
                 if (!el) return;
+                var text = (el.value || '');
+                // Hide ghost once user starts typing arguments (text after "/cmd ")
+                var spaceIdx = text.indexOf(' ');
+                if (spaceIdx !== -1 && text.slice(spaceIdx + 1).length > 0) {
+                    removeGhost(el);
+                    return;
+                }
                 var match = hintCmd || null;
                 if (!match) {
-                    var text = (el.value || '').trimEnd();
-                    var m = text.match(/^(\/\w+)\s*$/);
+                    var trimmed = text.trimEnd();
+                    var m = trimmed.match(/^(\/\w+)\s*$/);
                     if (!m) { removeGhost(el); return; }
                     var cmd = m[1].toLowerCase();
                     match = COMMANDS.find(function(c) { return c.cmd === cmd && c.usage; });
@@ -769,12 +776,16 @@
                 var text = el && typeof el.value === 'string' ? el.value : '';
                 var cursor = (el && typeof el.selectionStart === 'number') ? el.selectionStart : text.length;
                 var left = text.slice(0, cursor);
-                // Only trigger when "/" is at position 0
                 if (left.length === 0 || left.charAt(0) !== '/') return null;
-                // No spaces before cursor — user is still typing the command name
-                if (left.indexOf(' ') !== -1) return null;
-                var query = left.slice(1).toLowerCase();
-                return { query: query };
+
+                var spaceIdx = left.indexOf(' ');
+                if (spaceIdx === -1) {
+                    // Still typing command name — filter mode
+                    return { query: left.slice(1).toLowerCase(), mode: 'filter' };
+                }
+                // Already have a complete command — show its entry while typing args
+                var cmdPart = left.slice(0, spaceIdx).toLowerCase();
+                return { query: cmdPart.slice(1), mode: 'locked' };
             }
 
             function ensureDropdown() {
@@ -809,11 +820,11 @@
                 var left = Math.max(8, Math.min(rect.left, window.innerWidth - 360));
                 var spaceAbove = rect.top - 8;
                 var maxHeight = Math.min(360, Math.max(120, spaceAbove));
-                var contentHeight = state.dropdown.scrollHeight || state.dropdown.offsetHeight || 120;
-                var visibleHeight = Math.min(maxHeight, contentHeight);
-                var top = Math.max(8, rect.top - visibleHeight - 6);
+                // Anchor bottom of dropdown to top of textarea
+                var top = rect.top - 6;
                 state.dropdown.style.left = left + 'px';
-                state.dropdown.style.top = top + 'px';
+                state.dropdown.style.bottom = (window.innerHeight - top) + 'px';
+                state.dropdown.style.top = 'auto';
                 state.dropdown.style.maxHeight = maxHeight + 'px';
                 state.dropdown._posTarget = target;
                 state.dropdown._posValid = true;
@@ -937,9 +948,18 @@
                 }
 
                 var q = context.query;
-                var filtered = COMMANDS.filter(function(c) {
-                    return c.cmd.slice(1).indexOf(q) === 0;
-                });
+                var filtered;
+                if (context.mode === 'locked') {
+                    // User is typing args — show only the exact matched command
+                    filtered = COMMANDS.filter(function(c) {
+                        return c.cmd.slice(1) === q;
+                    });
+                } else {
+                    // Still typing command name — prefix filter
+                    filtered = COMMANDS.filter(function(c) {
+                        return c.cmd.slice(1).indexOf(q) === 0;
+                    });
+                }
 
                 if (filtered.length === 0) {
                     hideDropdown();
@@ -953,7 +973,6 @@
             }
 
             var _rafPending = 0;
-            var _lastValue = '';
             document.addEventListener('input', function(e) {
                 var target = e.target;
                 if (!isSlashTarget(target)) {
@@ -961,8 +980,8 @@
                     return;
                 }
                 var val = target.value || '';
-                if (val === _lastValue) return;
-                _lastValue = val;
+                if (val === target._lastSlashValue) return;
+                target._lastSlashValue = val;
                 if (_rafPending) cancelAnimationFrame(_rafPending);
                 _rafPending = requestAnimationFrame(function() {
                     _rafPending = 0;
@@ -994,21 +1013,25 @@
                     return;
                 }
 
-                if (e.key === 'ArrowDown') {
+                // In locked mode (user typing args), don't intercept Enter/Tab — let them send
+                var ctx = getSlashContext(state.target);
+                var isLocked = ctx && ctx.mode === 'locked';
+
+                if (e.key === 'ArrowDown' && !isLocked) {
                     e.preventDefault();
                     e.stopPropagation();
                     state.selectedIndex = (state.selectedIndex + 1) % state.options.length;
                     renderDropdown();
                     return;
                 }
-                if (e.key === 'ArrowUp') {
+                if (e.key === 'ArrowUp' && !isLocked) {
                     e.preventDefault();
                     e.stopPropagation();
                     state.selectedIndex = (state.selectedIndex - 1 + state.options.length) % state.options.length;
                     renderDropdown();
                     return;
                 }
-                if (e.key === 'Tab' || e.key === 'Enter') {
+                if ((e.key === 'Tab' || e.key === 'Enter') && !isLocked) {
                     e.preventDefault();
                     e.stopPropagation();
                     chooseOption(state.selectedIndex);
