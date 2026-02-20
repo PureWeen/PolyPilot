@@ -1545,7 +1545,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 catch (Exception retryEx)
                 {
                     Console.WriteLine($"[DEBUG] Reconnect+retry failed: {retryEx.Message}");
-                    OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {retryEx.Message}");
+                    OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {Models.ErrorMessageHelper.Humanize(retryEx)}");
                     CancelProcessingWatchdog(state);
                     Debug($"[ERROR] '{sessionName}' reconnect+retry failed, clearing IsProcessing");
                     state.Info.IsProcessing = false;
@@ -1555,7 +1555,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             }
             else
             {
-                OnError?.Invoke(sessionName, $"SendAsync failed: {ex.Message}");
+                OnError?.Invoke(sessionName, $"SendAsync failed: {Models.ErrorMessageHelper.Humanize(ex)}");
                 CancelProcessingWatchdog(state);
                 Debug($"[ERROR] '{sessionName}' SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 state.Info.IsProcessing = false;

@@ -417,7 +417,7 @@
         }
         catch (Exception ex)
         {
-            initError = ex.Message;
+            initError = Models.ErrorMessageHelper.Humanize(ex);
             Console.WriteLine($"Init error: {ex}");
             _initializationComplete = true; // Even on error, allow normal operation
         }

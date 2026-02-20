@@ -51,6 +51,7 @@
     <Compile Include="../PolyPilot/Services/DevTunnelService.cs" Link="Shared/DevTunnelService.cs" />
     <Compile Include="../PolyPilot/Services/FiestaService.cs" Link="Shared/FiestaService.cs" />
     <Compile Include="../PolyPilot/Models/ReflectionCycle.cs" Link="Shared/ReflectionCycle.cs" />
+    <Compile Include="../PolyPilot/Models/ErrorMessageHelper.cs" Link="Shared/ErrorMessageHelper.cs" />
     <Compile Include="../PolyPilot/BuildInfo.cs" Link="Shared/BuildInfo.cs" />
   </ItemGroup>
 

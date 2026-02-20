@@ -493,7 +493,7 @@ public partial class CopilotService
                 break;
 
             case SessionErrorEvent err:
-                var errMsg = err.Data?.Message ?? "Unknown error";
+                var errMsg = Models.ErrorMessageHelper.HumanizeMessage(err.Data?.Message ?? "Unknown error");
                 CancelProcessingWatchdog(state);
                 InvokeOnUI(() =>
                 {

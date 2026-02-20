@@ -1087,7 +1087,7 @@
         }
         catch (Exception ex)
         {
-            ShowStatus($"Connection failed: {ex.Message}", "error", 8000);
+            ShowStatus($"Connection failed: {Models.ErrorMessageHelper.Humanize(ex)}", "error", 8000);
         }
     }
 
