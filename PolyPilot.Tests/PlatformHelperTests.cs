@@ -51,4 +51,36 @@ public class PlatformHelperTests
             Assert.Contains(ConnectionMode.Remote, PlatformHelper.AvailableModes);
         }
     }
+
+    [Fact]
+    public void ShellEscape_PlainText_WrapsSingleQuotes()
+    {
+        Assert.Equal("'hello'", PlatformHelper.ShellEscape("hello"));
+    }
+
+    [Fact]
+    public void ShellEscape_SingleQuote_EscapedCorrectly()
+    {
+        // Bash single-quote escaping: close quote, double-quote the apostrophe, reopen quote
+        Assert.Equal("'it'\"'\"'s a test'", PlatformHelper.ShellEscape("it's a test"));
+    }
+
+    [Fact]
+    public void ShellEscape_SpecialChars_NotExpanded()
+    {
+        // Dollar signs, backticks, semicolons, pipes — all neutralized inside single quotes
+        Assert.Equal("'$HOME;rm -rf /|`whoami`'", PlatformHelper.ShellEscape("$HOME;rm -rf /|`whoami`"));
+    }
+
+    [Fact]
+    public void ShellEscape_EmptyString_ReturnsEmptyQuotes()
+    {
+        Assert.Equal("''", PlatformHelper.ShellEscape(""));
+    }
+
+    [Fact]
+    public void ShellEscape_MultipleSingleQuotes_AllEscaped()
+    {
+        Assert.Equal("''\"'\"''\"'\"''", PlatformHelper.ShellEscape("''"));
+    }
 }

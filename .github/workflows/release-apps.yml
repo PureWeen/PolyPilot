@@ -1,0 +1,336 @@
+name: Release to TestFlight & Google Play
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'App display version (e.g. 1.0.0)'
+        required: true
+        default: '1.0.0'
+      build_number_offset:
+        description: 'Offset added to run number (increase if you need to jump ahead, default: repo var BUILD_NUMBER_OFFSET or 0)'
+        required: false
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 06:00 UTC
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  MAUI_PROJECT_PATH: 'PolyPilot/PolyPilot.csproj'
+  APP_VERSION: ${{ inputs.version || vars.APP_VERSION || '1.0.0' }}
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Check if there are new commits (skips on schedule if nothing changed)
+  # ─────────────────────────────────────────────
+  check-changes:
+    name: Check for new commits
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for commits in last 24 hours
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual trigger — always release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          COUNT=$(git log --oneline --since="24 hours ago" | wc -l | tr -d ' ')
+          echo "Commits in last 24 hours: $COUNT"
+
+          if [ "$COUNT" -gt 0 ]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            git log --oneline --since="24 hours ago"
+          else
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "No new commits — skipping release"
+          fi
+
+  # ─────────────────────────────────────────────
+  # Android → Google Play (Open Testing)
+  # ─────────────────────────────────────────────
+  build-android:
+    name: Build Android AAB
+    runs-on: ubuntu-latest
+    needs: check-changes
+    if: needs.check-changes.outputs.should_release == 'true'
+
+    steps:
+      - name: Compute build number
+        id: build
+        run: |
+          OFFSET=${{ inputs.build_number_offset || vars.BUILD_NUMBER_OFFSET || '0' }}
+          BUILD=$(( ${{ github.run_number }} + OFFSET ))
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
+          echo "Build number: ${{ github.run_number }} + $OFFSET = $BUILD"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui-android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+
+      - name: Decode Android keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > ${{ github.workspace }}/keystore.jks
+
+      - name: Publish Android AAB
+        run: |
+          dotnet publish ${{ env.MAUI_PROJECT_PATH }} \
+            -f net10.0-android \
+            -c Release \
+            -p:AndroidPackageFormat=aab \
+            -p:AndroidKeyStore=true \
+            -p:AndroidSigningKeyStore='${{ github.workspace }}/keystore.jks' \
+            -p:AndroidSigningKeyAlias='${{ secrets.ANDROID_KEY_ALIAS }}' \
+            -p:AndroidSigningKeyPass='${{ secrets.ANDROID_KEY_PASSWORD }}' \
+            -p:AndroidSigningStorePass='${{ secrets.ANDROID_KEYSTORE_PASSWORD }}' \
+            -p:ApplicationDisplayVersion='${{ env.APP_VERSION }}' \
+            -p:ApplicationVersion='${{ steps.build.outputs.number }}'
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-aab
+          path: PolyPilot/bin/Release/net10.0-android/publish/*-Signed.aab
+          retention-days: 30
+
+  deploy-android:
+    name: Deploy to Google Play
+    runs-on: ubuntu-latest
+    needs: build-android
+    environment: android-release
+
+    steps:
+      - name: Download AAB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: android-aab
+          path: ./android-artifacts/
+
+      - name: Upload to Google Play (Internal Testing)
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: 'com.microsoft.PolyPilot'
+          releaseFiles: ./android-artifacts/*-Signed.aab
+          track: beta
+          status: completed
+
+  # ─────────────────────────────────────────────
+  # iOS → TestFlight
+  # ─────────────────────────────────────────────
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-26
+    needs: check-changes
+    if: needs.check-changes.outputs.should_release == 'true'
+
+    steps:
+      - name: Compute build number
+        id: build
+        run: |
+          OFFSET=${{ inputs.build_number_offset || vars.BUILD_NUMBER_OFFSET || '0' }}
+          BUILD=$(( ${{ github.run_number }} + OFFSET ))
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
+          echo "Build number: ${{ github.run_number }} + $OFFSET = $BUILD"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -rV | head -1)
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -rV | head -1)
+          fi
+          echo "Selected Xcode: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          sudo xcodebuild -license accept 2>/dev/null || true
+          xcodebuild -version
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui
+
+      - name: Import signing certificate
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+
+      - name: Download provisioning profile
+        uses: apple-actions/download-provisioning-profiles@v2
+        with:
+          bundle-id: 'com.microsoft.PolyPilot'
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+
+      - name: Publish iOS IPA
+        run: |
+          dotnet publish ${{ env.MAUI_PROJECT_PATH }} \
+            -f net10.0-ios \
+            -c Release \
+            -p:RuntimeIdentifier=ios-arm64 \
+            -p:CodesignKey="${{ secrets.IOS_CODESIGN_KEY }}" \
+            -p:CodesignProvision="${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}" \
+            -p:ArchiveOnBuild=true \
+            -p:ApplicationDisplayVersion='${{ env.APP_VERSION }}' \
+            -p:ApplicationVersion='${{ steps.build.outputs.number }}'
+
+      - name: Find IPA file
+        id: find_ipa
+        run: |
+          IPA_PATH=$(find PolyPilot/bin/Release/net10.0-ios -name "*.ipa" | head -1)
+          echo "IPA_PATH=$IPA_PATH" >> $GITHUB_OUTPUT
+          echo "Found IPA at: $IPA_PATH"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ${{ steps.find_ipa.outputs.IPA_PATH }}
+          retention-days: 30
+
+  deploy-ios:
+    name: Deploy to TestFlight
+    runs-on: macos-26
+    needs: build-ios
+    environment: ios-release
+
+    steps:
+      - name: Compute build number
+        id: build
+        run: |
+          OFFSET=${{ inputs.build_number_offset || vars.BUILD_NUMBER_OFFSET || '0' }}
+          BUILD=$(( ${{ github.run_number }} + OFFSET ))
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
+
+      - name: Download IPA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-ipa
+          path: ./ios-artifacts/
+
+      - name: Find IPA file
+        id: find_ipa
+        run: |
+          IPA_PATH=$(find ./ios-artifacts -name "*.ipa" | head -1)
+          echo "IPA_PATH=$IPA_PATH" >> $GITHUB_OUTPUT
+          echo "Found IPA at: $IPA_PATH"
+
+      - name: Upload to TestFlight
+        uses: apple-actions/upload-testflight-build@v3
+        with:
+          app-path: ${{ steps.find_ipa.outputs.IPA_PATH }}
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+
+      - name: Distribute to external testers (MAUI Team)
+        env:
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          APP_BUNDLE_ID: 'com.microsoft.PolyPilot'
+          BUILD_NUMBER: ${{ steps.build.outputs.number }}
+          APP_VERSION: ${{ env.APP_VERSION }}
+          BETA_GROUP_NAME: 'MAUI Team'
+        run: |
+          set -euo pipefail
+
+          # --- Generate JWT for App Store Connect API ---
+          HEADER=$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$APPSTORE_KEY_ID" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+          NOW=$(date +%s)
+          EXP=$((NOW + 1200))
+          PAYLOAD=$(printf '{"iss":"%s","iat":%d,"exp":%d,"aud":"appstoreconnect-v1"}' "$APPSTORE_ISSUER_ID" "$NOW" "$EXP" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+
+          # Write private key to temp file for signing
+          KEY_FILE=$(mktemp)
+          echo "$APPSTORE_PRIVATE_KEY" > "$KEY_FILE"
+          SIGNATURE=$(printf '%s.%s' "$HEADER" "$PAYLOAD" | openssl dgst -sha256 -sign "$KEY_FILE" | openssl base64 -e -A | tr '+/' '-_' | tr -d '=')
+          rm -f "$KEY_FILE"
+
+          JWT="${HEADER}.${PAYLOAD}.${SIGNATURE}"
+          AUTH="Authorization: Bearer $JWT"
+          API="https://api.appstoreconnect.apple.com/v1"
+
+          # --- Find the app ---
+          echo "Looking up app with bundle ID: $APP_BUNDLE_ID"
+          APP_ID=$(curl -s -H "$AUTH" "$API/apps?filter[bundleId]=$APP_BUNDLE_ID&fields[apps]=bundleId" | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])")
+          echo "App ID: $APP_ID"
+
+          # --- Find the beta group "MAUI Team" ---
+          echo "Looking up beta group: $BETA_GROUP_NAME"
+          GROUP_RESPONSE=$(curl -s -H "$AUTH" "$API/apps/$APP_ID/betaGroups?filter[name]=$BETA_GROUP_NAME&fields[betaGroups]=name")
+          GROUP_ID=$(echo "$GROUP_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin)['data']; print(data[0]['id'] if data else '')")
+          if [ -z "$GROUP_ID" ]; then
+            echo "::error::Beta group '$BETA_GROUP_NAME' not found. Create it in App Store Connect first."
+            exit 1
+          fi
+          echo "Beta group ID: $GROUP_ID"
+
+          # --- Wait for build to finish processing ---
+          echo "Waiting for build $APP_VERSION ($BUILD_NUMBER) to finish processing..."
+          MAX_ATTEMPTS=60  # 30 minutes max (30s intervals)
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            BUILD_RESPONSE=$(curl -s -H "$AUTH" "$API/builds?filter[app]=$APP_ID&filter[version]=$BUILD_NUMBER&filter[preReleaseVersion.version]=$APP_VERSION&fields[builds]=processingState,version")
+            BUILD_STATE=$(echo "$BUILD_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin)['data']; print(data[0]['attributes']['processingState'] if data else 'NOT_FOUND')")
+            BUILD_ID=$(echo "$BUILD_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin)['data']; print(data[0]['id'] if data else '')")
+
+            echo "  Attempt $i/$MAX_ATTEMPTS — state: $BUILD_STATE"
+
+            if [ "$BUILD_STATE" = "VALID" ]; then
+              echo "Build is ready!"
+              break
+            elif [ "$BUILD_STATE" = "FAILED" ] || [ "$BUILD_STATE" = "INVALID" ]; then
+              echo "::error::Build processing failed with state: $BUILD_STATE"
+              exit 1
+            fi
+
+            if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
+              echo "::error::Timed out waiting for build to process after 30 minutes"
+              exit 1
+            fi
+            sleep 30
+          done
+
+          # --- Add build to beta group ---
+          echo "Adding build to '$BETA_GROUP_NAME'..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "$AUTH" \
+            -H "Content-Type: application/json" \
+            -d "{\"data\":[{\"type\":\"builds\",\"id\":\"$BUILD_ID\"}]}" \
+            "$API/betaGroups/$GROUP_ID/relationships/builds")
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "✅ Build distributed to '$BETA_GROUP_NAME' external testers"
+          else
+            echo "::error::Failed to add build to beta group (HTTP $HTTP_STATUS)"
+            exit 1
+          fi

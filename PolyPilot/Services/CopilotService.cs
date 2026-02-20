@@ -171,7 +171,7 @@ public partial class CopilotService : IAsyncDisposable
     // UI preferences
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
     public ChatStyle ChatStyle { get; set; } = ChatStyle.Normal;
-    public UiTheme Theme { get; set; } = UiTheme.PolyPilotDark;
+    public UiTheme Theme { get; set; } = UiTheme.System;
 
     // Session organization (groups, pinning, sorting)
     public OrganizationState Organization { get; private set; } = new();
@@ -1050,15 +1050,15 @@ public partial class CopilotService : IAsyncDisposable
     {
         var config = new McpLocalServerConfig();
         if (element.TryGetProperty("command", out var cmd))
-            config.Command = cmd.GetString();
+            config.Command = cmd.GetString() ?? "";
         if (element.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Array)
             config.Args = args.EnumerateArray().Select(a => a.GetString() ?? "").ToList();
         if (element.TryGetProperty("env", out var env) && env.ValueKind == JsonValueKind.Object)
             config.Env = env.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString() ?? "");
         if (element.TryGetProperty("cwd", out var cwd))
-            config.Cwd = cwd.GetString();
+            config.Cwd = cwd.GetString() ?? "";
         if (element.TryGetProperty("type", out var type))
-            config.Type = type.GetString();
+            config.Type = type.GetString() ?? "";
         if (element.TryGetProperty("tools", out var tools) && tools.ValueKind == JsonValueKind.Array)
             config.Tools = tools.EnumerateArray().Select(t => t.GetString() ?? "").ToList();
         if (element.TryGetProperty("timeout", out var timeout) && timeout.TryGetInt32(out var tv))
@@ -1069,7 +1069,7 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>
     /// Resume an existing session by its GUID
     /// </summary>
-    public async Task<AgentSessionInfo> ResumeSessionAsync(string sessionId, string displayName, string? workingDirectory = null, string? model = null, CancellationToken cancellationToken = default)
+    public async Task<AgentSessionInfo> ResumeSessionAsync(string sessionId, string displayName, string? workingDirectory = null, string? model = null, CancellationToken cancellationToken = default, string? lastPrompt = null)
     {
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
@@ -1124,13 +1124,15 @@ public partial class CopilotService : IAsyncDisposable
         var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory };
         var copilotSession = await _client.ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
 
+        var isStillProcessing = IsSessionStillProcessing(sessionId);
+
         var info = new AgentSessionInfo
         {
             Name = displayName,
             Model = resumeModel,
             CreatedAt = DateTime.Now,
             SessionId = sessionId,
-            IsResumed = true,
+            IsResumed = isStillProcessing,
             WorkingDirectory = resumeWorkingDirectory
         };
         info.GitBranch = GetGitBranch(info.WorkingDirectory);
@@ -1156,7 +1158,6 @@ public partial class CopilotService : IAsyncDisposable
 
         // Add reconnection indicator with status context
         var reconnectMsg = $"🔄 Session reconnected at {DateTime.Now.ToShortTimeString()}";
-        var isStillProcessing = IsSessionStillProcessing(sessionId);
         if (isStillProcessing)
         {
             var (lastTool, lastContent) = GetLastSessionActivity(sessionId);
@@ -1164,6 +1165,11 @@ public partial class CopilotService : IAsyncDisposable
                 reconnectMsg += $" — running {lastTool}";
             if (!string.IsNullOrEmpty(lastContent))
                 reconnectMsg += $"\n💬 Last: {(lastContent.Length > 100 ? lastContent[..100] + "…" : lastContent)}";
+            if (!string.IsNullOrEmpty(lastPrompt))
+            {
+                var truncated = lastPrompt.Length > 80 ? lastPrompt[..80] + "…" : lastPrompt;
+                reconnectMsg += $"\n📝 Last message: \"{truncated}\"";
+            }
         }
         info.History.Add(ChatMessage.SystemMessage(reconnectMsg));
 
@@ -1191,8 +1197,9 @@ public partial class CopilotService : IAsyncDisposable
             // Start the processing watchdog so the session doesn't get stuck
             // forever if the CLI goes silent after resume (same as SendPromptAsync).
             StartProcessingWatchdog(state, displayName);
-        }
 
+
+        }
         if (!_sessions.TryAdd(displayName, state))
         {
             try { await copilotSession.DisposeAsync(); } catch { }
@@ -1463,6 +1470,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.IsProcessing = true;
         Interlocked.Increment(ref state.ProcessingGeneration);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
+        state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         state.CurrentResponse.Clear();
@@ -1559,8 +1567,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 catch (Exception retryEx)
                 {
                     Console.WriteLine($"[DEBUG] Reconnect+retry failed: {retryEx.Message}");
-                    OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {retryEx.Message}");
+                    OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {Models.ErrorMessageHelper.Humanize(retryEx)}");
                     CancelProcessingWatchdog(state);
+                    Debug($"[ERROR] '{sessionName}' reconnect+retry failed, clearing IsProcessing");
                     state.Info.IsProcessing = false;
                     OnStateChanged?.Invoke();
                     throw;
@@ -1568,8 +1577,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             }
             else
             {
-                OnError?.Invoke(sessionName, $"SendAsync failed: {ex.Message}");
+                OnError?.Invoke(sessionName, $"SendAsync failed: {Models.ErrorMessageHelper.Humanize(ex)}");
                 CancelProcessingWatchdog(state);
+                Debug($"[ERROR] '{sessionName}' SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 state.Info.IsProcessing = false;
                 OnStateChanged?.Invoke();
                 throw;
@@ -1625,7 +1635,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         var partialResponse = state.CurrentResponse.ToString();
         if (!string.IsNullOrEmpty(partialResponse))
         {
-            var msg = new ChatMessage("assistant", partialResponse, DateTime.Now);
+            var msg = new ChatMessage("assistant", partialResponse, DateTime.Now) { Model = state.Info.Model };
             state.Info.History.Add(msg);
             state.Info.MessageCount = state.Info.History.Count;
             if (!string.IsNullOrEmpty(state.Info.SessionId))
@@ -1633,8 +1643,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
         state.CurrentResponse.Clear();
 
+        Debug($"[ABORT] '{sessionName}' user abort, clearing IsProcessing");
         state.Info.IsProcessing = false;
+        state.Info.IsResumed = false;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+        state.HasUsedToolsThisTurn = false;
         CancelProcessingWatchdog(state);
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();
@@ -1963,6 +1976,7 @@ public class ActiveSessionEntry
     public string DisplayName { get; set; } = "";
     public string Model { get; set; } = "";
     public string? WorkingDirectory { get; set; }
+    public string? LastPrompt { get; set; }
 }
 
 public class PersistedSessionInfo

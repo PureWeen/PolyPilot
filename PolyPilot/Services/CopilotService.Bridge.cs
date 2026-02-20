@@ -43,11 +43,11 @@ public partial class CopilotService
             }
             InvokeOnUI(() => OnContentReceived?.Invoke(s, c));
         };
-        _bridgeClient.OnToolStarted += (s, tool, id) =>
+        _bridgeClient.OnToolStarted += (s, tool, id, input) =>
         {
             var session = GetRemoteSession(s);
-            session?.History.Add(ChatMessage.ToolCallMessage(tool, id));
-            InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id, null));
+            session?.History.Add(ChatMessage.ToolCallMessage(tool, id, input));
+            InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id, input));
         };
         _bridgeClient.OnToolCompleted += (s, id, result, success) =>
         {
@@ -111,7 +111,7 @@ public partial class CopilotService
         _bridgeClient.OnTurnStart += (s) =>
         {
             var session = GetRemoteSession(s);
-            if (session != null) session.IsProcessing = true;
+            if (session != null) { session.IsProcessing = true; }
             InvokeOnUI(() => OnTurnStart?.Invoke(s));
         };
         _bridgeClient.OnTurnEnd += (s) =>
@@ -120,10 +120,11 @@ public partial class CopilotService
             var session = GetRemoteSession(s);
             if (session != null)
             {
+                Debug($"[BRIDGE-COMPLETE] '{session.Name}' OnTurnEnd cleared IsProcessing");
                 session.IsProcessing = false;
                 // Mark last assistant message as complete
                 var lastAssistant = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
-                if (lastAssistant != null) lastAssistant.IsComplete = true;
+                if (lastAssistant != null) { lastAssistant.IsComplete = true; lastAssistant.Model = session.Model; }
             }
             InvokeOnUI(() => OnTurnEnd?.Invoke(s));
         };

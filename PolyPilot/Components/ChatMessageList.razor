@@ -36,7 +36,7 @@
                     <div class="action-item @(GetActionLabel(activity.Name).CssClass) @(activity.IsComplete ? (activity.IsSuccess ? "done" : "failed") : "running")">
                         <span class="action-dot"></span>
                         <span class="action-label">@(GetActionLabel(activity.Name).Label)</span>
-                        <span class="action-desc">@FormatActionDescription(activity.Name, activity.Input, activity.Result, activity.IsComplete)</span>
+                        <span class="action-desc">@FormatActionDescriptionCompact(activity.Name, activity.Input, activity.Result, activity.IsComplete)</span>
                     </div>
                 }
             }
@@ -256,17 +256,13 @@
         
         if (toolName == "edit" && !string.IsNullOrEmpty(toolInput))
         {
-            // Try to extract path and show line changes
             try
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
                 var root = doc.RootElement;
-                var path = ExtractJsonProp(root, "path") ?? "";
+                var path = (ExtractJsonPropFull(root, "path") ?? "").TrimStart('/');
                 if (!string.IsNullOrEmpty(path))
                 {
-                    // Show relative path
-                    var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
-                    var dir = path.Contains('/') ? path[..path.LastIndexOf('/')] : "";
                     var oldStr = ExtractJsonProp(root, "old_str");
                     var newStr = ExtractJsonProp(root, "new_str");
                     var added = newStr?.Split('\n').Length ?? 0;
@@ -274,7 +270,7 @@
                     var delta = "";
                     if (added > 0 || removed > 0)
                         delta = $" (+{added} -{removed})";
-                    return $"{fileName}{delta}";
+                    return $"{path}{delta}";
                 }
             }
             catch { }
@@ -291,15 +287,13 @@
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
                 var root = doc.RootElement;
-                var path = ExtractJsonProp(root, "path") ?? "";
-                var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
-                // Check for view_range
+                var path = (ExtractJsonPropFull(root, "path") ?? "").TrimStart('/');
                 if (root.TryGetProperty("view_range", out var range))
                 {
                     var rangeStr = range.ToString();
-                    return $"{fileName} lines {rangeStr}";
+                    return $"{path} lines {rangeStr}";
                 }
-                return fileName;
+                return path;
             }
             catch { }
         }
@@ -310,9 +304,7 @@
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
                 var root = doc.RootElement;
-                var path = ExtractJsonProp(root, "path") ?? "";
-                var fileName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
-                return fileName;
+                return (ExtractJsonPropFull(root, "path") ?? "").TrimStart('/');
             }
             catch { }
         }
@@ -330,6 +322,44 @@
         }
         return "";
     }
+
+    /// <summary>Compact version for the mobile header line — just the path/command, no metadata suffixes like "(+3 -2)" or "lines [1,5]".</summary>
+    internal static string FormatActionDescriptionCompact(string toolName, string? toolInput, string? result, bool isComplete)
+    {
+        if (!string.IsNullOrEmpty(toolInput))
+        {
+            // For path-based tools, return just the path
+            if (toolName is "edit" or "view" or "create")
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(toolInput);
+                    var root = doc.RootElement;
+                    return (ExtractJsonPropFull(root, "path") ?? "").TrimStart('/');
+                }
+                catch { }
+            }
+
+            var summary = SummarizeToolInput(toolName, toolInput);
+            if (toolName == "bash" && !string.IsNullOrEmpty(summary))
+                return $"$ {summary}";
+            if (toolName == "grep" && !string.IsNullOrEmpty(summary))
+                return summary;
+            if (!string.IsNullOrEmpty(summary))
+                return summary;
+        }
+
+        if (isComplete && !string.IsNullOrEmpty(result) && !IsUnusableResult(result))
+        {
+            var lines = LineCount(result);
+            return $"↳ {lines} line{(lines != 1 ? "s" : "")}";
+        }
+        return "";
+    }
+
+    /// <summary>Returns true for tools whose description is a file path (truncate from head).</summary>
+    internal static bool IsPathTool(string toolName) =>
+        toolName is "edit" or "create" or "view";
 
     internal static string TruncateResult(string result, int maxLength = 1500)
     {
@@ -438,15 +468,37 @@
         {
             using var doc = System.Text.Json.JsonDocument.Parse(input);
             var root = doc.RootElement;
-            return toolName switch
+            switch (toolName)
             {
-                "bash" => $"$ {ExtractJsonPropFull(root, "command") ?? input}",
-                "edit" or "create" => ExtractJsonPropFull(root, "path") ?? input,
-                "view" => ExtractJsonPropFull(root, "path") ?? input,
-                "grep" => $"grep '{ExtractJsonPropFull(root, "pattern")}' {ExtractJsonPropFull(root, "glob") ?? ExtractJsonPropFull(root, "path") ?? "."}",
-                "sql" => ExtractJsonPropFull(root, "query") ?? input,
-                _ => input.Length > 2000 ? input[..2000] + "…" : input
-            };
+                case "bash":
+                    return $"$ {ExtractJsonPropFull(root, "command") ?? input}";
+                case "edit":
+                {
+                    var path = ExtractJsonPropFull(root, "path") ?? input;
+                    var oldStr = ExtractJsonProp(root, "old_str");
+                    var newStr = ExtractJsonProp(root, "new_str");
+                    var added = newStr?.Split('\n').Length ?? 0;
+                    var removed = oldStr?.Split('\n').Length ?? 0;
+                    if (added > 0 || removed > 0)
+                        return $"{path} (+{added} -{removed})";
+                    return path;
+                }
+                case "create":
+                    return ExtractJsonPropFull(root, "path") ?? input;
+                case "view":
+                {
+                    var path = ExtractJsonPropFull(root, "path") ?? input;
+                    if (root.TryGetProperty("view_range", out var range))
+                        return $"{path} lines {range}";
+                    return path;
+                }
+                case "grep":
+                    return $"grep '{ExtractJsonPropFull(root, "pattern")}' {ExtractJsonPropFull(root, "glob") ?? ExtractJsonPropFull(root, "path") ?? "."}";
+                case "sql":
+                    return ExtractJsonPropFull(root, "query") ?? input;
+                default:
+                    return input.Length > 2000 ? input[..2000] + "…" : input;
+            }
         }
         catch { return input.Length > 2000 ? input[..2000] + "…" : input; }
     }

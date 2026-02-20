@@ -90,7 +90,7 @@ public class WsBridgeServer : IDisposable
                 new ContentDeltaPayload { SessionName = session, Content = content }));
         _copilot.OnToolStarted += (session, tool, callId, input) =>
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ToolStarted,
-                new ToolStartedPayload { SessionName = session, ToolName = tool, CallId = callId }));
+                new ToolStartedPayload { SessionName = session, ToolName = tool, CallId = callId, ToolInput = input }));
         _copilot.OnToolCompleted += (session, callId, result, success) =>
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ToolCompleted,
                 new ToolCompletedPayload { SessionName = session, CallId = callId, Result = result, Success = success }));

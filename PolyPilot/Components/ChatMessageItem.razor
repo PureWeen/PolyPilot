@@ -48,7 +48,7 @@
                 <div class="chat-msg-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content))</div>
                 @if (!Compact && !IsStreaming)
                 {
-                    <div class="chat-msg-time">@Message.Timestamp.ToShortTimeString()</div>
+                    <div class="chat-msg-time">@Message.Timestamp.ToShortTimeString()@(!string.IsNullOrEmpty(Message.Model) ? $" · {Message.Model}" : "")</div>
                 }
             </div>
         </div>
@@ -101,12 +101,19 @@
         }
         else
         {
+            var _hasOutput = Message.IsComplete && !string.IsNullOrEmpty(Message.Content) && !ChatMessageList.IsUnusableResult(Message.Content);
             @* Unified command box: header + input always visible, output collapsible *@
             <div class="action-box @(ChatMessageList.GetActionLabel(Message.ToolName ?? "").CssClass) @(Message.IsComplete ? (Message.IsSuccess ? "done" : "failed") : "running")">
-                <div class="action-header">
+                <div class="action-header @(_hasOutput ? "expandable" : "")"
+                     @onclick="() => { if (_hasOutput) Message.IsCollapsed = !Message.IsCollapsed; }"
+                     @onclick:stopPropagation="true">
                     <span class="action-dot"></span>
                     <span class="action-label">@(ChatMessageList.GetActionLabel(Message.ToolName ?? "").Label)</span>
-                    <span class="action-desc">@ChatMessageList.FormatActionDescription(Message.ToolName ?? "", Message.ToolInput, Message.Content, Message.IsComplete)</span>
+                    <span class="action-desc @(ChatMessageList.IsPathTool(Message.ToolName ?? "") ? "truncate-head" : "")">@ChatMessageList.FormatActionDescriptionCompact(Message.ToolName ?? "", Message.ToolInput, Message.Content, Message.IsComplete)</span>
+                    @if (_hasOutput)
+                    {
+                        <span class="action-chevron">@(Message.IsCollapsed ? "▶" : "▼")</span>
+                    }
                 </div>
                 @if (!string.IsNullOrEmpty(Message.ToolInput) && Message.ToolName != "bash")
                 {
@@ -114,7 +121,7 @@
                         <pre>@ChatMessageList.FormatToolInputExpanded(Message.ToolName ?? "", Message.ToolInput)</pre>
                     </div>
                 }
-                @if (Message.IsComplete && !string.IsNullOrEmpty(Message.Content) && !ChatMessageList.IsUnusableResult(Message.Content))
+                @if (_hasOutput)
                 {
                     <div class="action-output-toggle" @onclick="() => Message.IsCollapsed = !Message.IsCollapsed" @onclick:stopPropagation="true">
                         <span class="toggle-icon">@(Message.IsCollapsed ? "▶" : "▼")</span>
@@ -130,6 +137,12 @@
                     </div>
                     @if (!Message.IsCollapsed)
                     {
+                        @if (!string.IsNullOrEmpty(Message.ToolInput))
+                        {
+                            <div class="action-full-input">
+                                <pre>@ChatMessageList.FormatToolInputExpanded(Message.ToolName ?? "", Message.ToolInput)</pre>
+                            </div>
+                        }
                         @if (ChatMessageList.GetImagePath(Message.Content) is string imgPath2 && ChatMessageList.FileToDataUri(imgPath2) is string dataUri2)
                         {
                             <div class="action-output">

@@ -516,7 +516,7 @@
         }
         catch (Exception ex)
         {
-            initError = ex.Message;
+            initError = Models.ErrorMessageHelper.Humanize(ex);
             Console.WriteLine($"Init error: {ex}");
             _initializationComplete = true; // Even on error, allow normal operation
         }
@@ -916,18 +916,25 @@
 
     private void HandleComplete(string sessionName, string summary)
     {
-        completedSessions.Add(sessionName);
-        streamingBySession.Remove(sessionName);
-        activityBySession.Remove(sessionName);
-        // Refresh sessions list immediately — RefreshState may have been throttled
-        // when OnStateChanged fired just before OnSessionComplete
-        sessions = CopilotService.GetAllSessions().ToList();
-        ScheduleRender();
-        _ = Task.Delay(10000).ContinueWith(_ =>
+        // Marshal all state mutations + render onto the UI thread.
+        // HandleComplete can be called from background threads (SDK event dispatch).
+        // Collections like completedSessions/streamingBySession are not thread-safe.
+        InvokeAsync(() =>
         {
-            completedSessions.Remove(sessionName);
-            ScheduleRender();
+            if (_disposed) return;
+            completedSessions.Add(sessionName);
+            streamingBySession.Remove(sessionName);
+            activityBySession.Remove(sessionName);
+            sessions = CopilotService.GetAllSessions().ToList();
+            StateHasChanged();
         });
+        _ = Task.Delay(10000).ContinueWith(_ =>
+            InvokeAsync(() =>
+            {
+                if (_disposed) return;
+                completedSessions.Remove(sessionName);
+                StateHasChanged();
+            }));
     }
 
     private void HandleContent(string sessionName, string content)
@@ -1036,7 +1043,7 @@
     private void HandleError(string sessionName, string error)
     {
         if (error.Contains("cancell", StringComparison.OrdinalIgnoreCase)) return;
-        errorBySession[sessionName] = error;
+        errorBySession[sessionName] = Models.ErrorMessageHelper.HumanizeMessage(error);
         ScheduleRender();
     }
 

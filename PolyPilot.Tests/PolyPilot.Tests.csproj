@@ -53,6 +53,7 @@
     <Compile Include="../PolyPilot/Models/ReflectionCycle.cs" Link="Shared/ReflectionCycle.cs" />
     <Compile Include="../PolyPilot/Models/ModelCapabilities.cs" Link="Shared/ModelCapabilities.cs" />
     <Compile Include="../PolyPilot/Models/SquadDiscovery.cs" Link="Shared/SquadDiscovery.cs" />
+    <Compile Include="../PolyPilot/Models/ErrorMessageHelper.cs" Link="Shared/ErrorMessageHelper.cs" />
     <Compile Include="../PolyPilot/BuildInfo.cs" Link="Shared/BuildInfo.cs" />
   </ItemGroup>
 

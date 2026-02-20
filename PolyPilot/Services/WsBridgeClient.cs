@@ -30,7 +30,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     // --- Events matching CopilotService signatures ---
     public event Action? OnStateChanged;
     public event Action<string, string>? OnContentReceived;
-    public event Action<string, string, string>? OnToolStarted;
+    public event Action<string, string, string, string?>? OnToolStarted;
     public event Action<string, string, string, bool>? OnToolCompleted;
     public event Action<string, string, string>? OnReasoningReceived;
     public event Action<string, string>? OnReasoningComplete;
@@ -381,7 +381,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             case BridgeMessageTypes.ToolStarted:
                 var toolStart = msg.GetPayload<ToolStartedPayload>();
                 if (toolStart != null)
-                    OnToolStarted?.Invoke(toolStart.SessionName, toolStart.ToolName, toolStart.CallId);
+                    OnToolStarted?.Invoke(toolStart.SessionName, toolStart.ToolName, toolStart.CallId, toolStart.ToolInput);
                 break;
 
             case BridgeMessageTypes.ToolCompleted:

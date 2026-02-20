@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
@@ -279,5 +280,72 @@ public class SessionPersistenceTests
 
         Assert.Single(result);
         Assert.Equal("active-no-dir", result[0].SessionId);
+    }
+
+    // --- ActiveSessionEntry.LastPrompt ---
+
+    [Fact]
+    public void ActiveSessionEntry_LastPrompt_RoundTrips()
+    {
+        var entry = new ActiveSessionEntry
+        {
+            SessionId = "s1",
+            DisplayName = "Session1",
+            Model = "gpt-4.1",
+            WorkingDirectory = "/w",
+            LastPrompt = "fix the bug in main.cs"
+        };
+
+        var json = JsonSerializer.Serialize(entry);
+        var deserialized = JsonSerializer.Deserialize<ActiveSessionEntry>(json)!;
+
+        Assert.Equal("fix the bug in main.cs", deserialized.LastPrompt);
+        Assert.Equal("s1", deserialized.SessionId);
+        Assert.Equal("Session1", deserialized.DisplayName);
+    }
+
+    [Fact]
+    public void ActiveSessionEntry_LastPrompt_NullByDefault()
+    {
+        var entry = new ActiveSessionEntry
+        {
+            SessionId = "s2",
+            DisplayName = "Session2",
+            Model = "m",
+            WorkingDirectory = "/w"
+        };
+
+        Assert.Null(entry.LastPrompt);
+
+        // Also verify null survives round-trip
+        var json = JsonSerializer.Serialize(entry);
+        var deserialized = JsonSerializer.Deserialize<ActiveSessionEntry>(json)!;
+        Assert.Null(deserialized.LastPrompt);
+    }
+
+    [Fact]
+    public void MergeSessionEntries_PreservesLastPrompt()
+    {
+        // Persisted entry has a LastPrompt (session was mid-turn when app died).
+        // Active list is empty (app just restarted, nothing in memory yet).
+        // Merge should preserve the persisted entry including its LastPrompt.
+        var active = new List<ActiveSessionEntry>();
+        var persisted = new List<ActiveSessionEntry>
+        {
+            new()
+            {
+                SessionId = "mid-turn",
+                DisplayName = "MidTurn",
+                Model = "m",
+                WorkingDirectory = "/w",
+                LastPrompt = "deploy to production"
+            }
+        };
+        var closed = new HashSet<string>();
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+
+        Assert.Single(result);
+        Assert.Equal("deploy to production", result[0].LastPrompt);
     }
 }
