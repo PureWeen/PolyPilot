@@ -822,9 +822,9 @@
         activityBySession.Remove(sessionName);
         // Refresh sessions list and render immediately — ScheduleRender goes through
         // a debounced timer that can fail to fire, leaving cards stuck on "processing".
-        // StateHasChanged is safe here: we're on the UI thread via OnSessionComplete.
+        // Use InvokeAsync for thread safety in case the callback arrives off-UI-thread.
         sessions = CopilotService.GetAllSessions().ToList();
-        StateHasChanged();
+        InvokeAsync(StateHasChanged);
         _ = Task.Delay(10000).ContinueWith(_ =>
         {
             completedSessions.Remove(sessionName);

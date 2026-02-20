@@ -222,14 +222,19 @@
         var dir = GetSessionDirectory() ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         try
         {
+            // Shell-escape all dynamic values using single quotes to prevent injection.
+            var safeDir = PlatformHelper.ShellEscape(dir);
+            var safeName = PlatformHelper.ShellEscape(Session.Name);
+            var safeId = PlatformHelper.ShellEscape(sessionId);
+
             var shellScript = Path.Combine(Path.GetTempPath(), $"polypilot-copilot-{Guid.NewGuid():N}.sh");
             File.WriteAllText(shellScript,
                 "#!/bin/bash\n" +
-                $"cd \"{dir}\"\n" +
-                $"echo \"🔗 Resuming session: {Session.Name} ({sessionId})\"\n" +
-                $"echo \"─────────────────────────────────────────\"\n" +
-                $"echo \"\"\n" +
-                $"copilot --resume {sessionId} --yolo\n");
+                $"cd {safeDir}\n" +
+                $"echo '🔗 Resuming session:' {safeName} '('{safeId}')'\n" +
+                "echo '─────────────────────────────────────────'\n" +
+                "echo ''\n" +
+                $"copilot --resume {safeId} --yolo\n");
             Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
             Process.Start(new ProcessStartInfo("open", $"-a Terminal \"{shellScript}\"")
             {
