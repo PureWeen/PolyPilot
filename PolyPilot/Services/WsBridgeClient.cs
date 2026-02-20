@@ -20,6 +20,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     public bool IsConnected => _ws?.State == WebSocketState.Open;
+    public bool HasReceivedSessionsList { get; private set; }
 
     // --- State mirroring CopilotService ---
     public List<SessionSummary> Sessions { get; private set; } = new();
@@ -146,6 +147,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     public void Stop()
     {
         _cts?.Cancel();
+        HasReceivedSessionsList = false;
         if (_ws?.State == WebSocketState.Open)
         {
             try { _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None).Wait(1000); }
@@ -367,6 +369,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                     ActiveSessionName = sessions.ActiveSession;
                     GitHubAvatarUrl = sessions.GitHubAvatarUrl;
                     GitHubLogin = sessions.GitHubLogin;
+                    HasReceivedSessionsList = true;
                     Console.WriteLine($"[WsBridgeClient] Got {Sessions.Count} sessions, active={ActiveSessionName}");
                     OnStateChanged?.Invoke();
                 }

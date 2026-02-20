@@ -170,11 +170,11 @@ public partial class CopilotService
 
         // Wait for initial session list from server (arrives immediately after connect)
         var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!_bridgeClient.Sessions.Any() && DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+        while (!_bridgeClient.HasReceivedSessionsList && DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
             await Task.Delay(50, ct);
 
         // Allow time for SessionHistory messages to follow the SessionsList
-        if (_bridgeClient.Sessions.Any())
+        if (_bridgeClient.HasReceivedSessionsList && _bridgeClient.Sessions.Any())
         {
             var histDeadline = DateTime.UtcNow.AddSeconds(3);
             while (_bridgeClient.SessionHistories.Count < _bridgeClient.Sessions.Count(s => s.MessageCount > 0)

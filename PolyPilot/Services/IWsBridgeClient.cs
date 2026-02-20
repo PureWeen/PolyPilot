@@ -8,6 +8,7 @@ namespace PolyPilot.Services;
 public interface IWsBridgeClient
 {
     bool IsConnected { get; }
+    bool HasReceivedSessionsList { get; }
     List<SessionSummary> Sessions { get; }
     string? ActiveSessionName { get; }
     System.Collections.Concurrent.ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; }

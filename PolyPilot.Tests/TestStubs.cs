@@ -55,6 +55,7 @@ internal class StubServerManager : IServerManager
 internal class StubWsBridgeClient : IWsBridgeClient
 {
     public bool IsConnected { get; set; }
+    public bool HasReceivedSessionsList { get; set; }
     public List<SessionSummary> Sessions { get; set; } = new();
     public string? ActiveSessionName { get; set; }
     public System.Collections.Concurrent.ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
