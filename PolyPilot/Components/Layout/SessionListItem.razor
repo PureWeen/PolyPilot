@@ -119,29 +119,32 @@
                         }
                     </div>
                 }
-                <div class="menu-separator"></div>
-                <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnReportBug.InvokeAsync(); }">
-                    🐛 Report Bug
-                </button>
-                <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnFixWithCopilot.InvokeAsync(); }">
-                    🔧 Fix with Copilot
-                </button>
-                <div class="menu-separator"></div>
-                @if (!string.IsNullOrEmpty(Session.SessionId))
+                @if (!PlatformHelper.IsMobile)
                 {
-                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInCopilotConsole(); }">
-                        >_ Copilot Console
+                    <div class="menu-separator"></div>
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnReportBug.InvokeAsync(); }">
+                        🐛 Report Bug
                     </button>
-                }
-                @if (!string.IsNullOrEmpty(sessionDir))
-                {
-                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInTerminal(); }">
-                        >_ Terminal
-                    </button>
-                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInVSCode(); }">
-                        ⌨ VS Code
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnFixWithCopilot.InvokeAsync(); }">
+                        🔧 Fix with Copilot
                     </button>
                     <div class="menu-separator"></div>
+                    @if (!string.IsNullOrEmpty(Session.SessionId))
+                    {
+                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInCopilotConsole(); }">
+                            >_ Copilot Console
+                        </button>
+                    }
+                    @if (!string.IsNullOrEmpty(sessionDir))
+                    {
+                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInTerminal(); }">
+                            >_ Terminal
+                        </button>
+                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInVSCode(); }">
+                            ⌨ VS Code
+                        </button>
+                        <div class="menu-separator"></div>
+                    }
                 }
                 <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnClose.InvokeAsync(); }">
                     ✕ Close Session
