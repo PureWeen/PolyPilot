@@ -1157,7 +1157,19 @@ else
                     return;
                 }
                 worktreePath = repoRoot;
-                await RunProcessAsync("git", $"checkout -b {branchName}", repoRoot);
+                // Determine the upstream default branch to base the fix on.
+                // Try upstream/main, origin/main, then fall back to current HEAD.
+                var baseBranch = await GetDefaultRemoteBranch(repoRoot);
+                if (baseBranch != null)
+                {
+                    // Fetch latest and create branch from the upstream default
+                    await RunProcessAsync("git", "fetch --quiet upstream 2>/dev/null || git fetch --quiet origin", repoRoot);
+                    await RunProcessAsync("git", $"checkout -b {branchName} {baseBranch}", repoRoot);
+                }
+                else
+                {
+                    await RunProcessAsync("git", $"checkout -b {branchName}", repoRoot);
+                }
             }
 
             footerStatus = "⏳ Launching copilot…";
@@ -1204,8 +1216,9 @@ You are fixing a bug in the PolyPilot app (a .NET MAUI Blazor Hybrid app).
 5. Add UI scenario definitions to `PolyPilot.Tests/Scenarios/mode-switch-scenarios.json` if the bug involves mode switching, settings, or UI flows.
 6. Run `cd PolyPilot.Tests && dotnet test` to verify all tests pass (existing + new).
 7. Run `cd PolyPilot && dotnet build -f {(OperatingSystem.IsWindows() ? "net10.0-windows10.0.19041.0" : "net10.0-maccatalyst")}` to verify the app builds.
-8. Commit your changes to branch `{branchName}` with a descriptive commit message.
-9. Push the branch and create a PR against `main` in the PureWeen/PolyPilot repository using `gh pr create`.
+8. **Verify your branch is based on `main`** — run `git log --oneline upstream/main..HEAD` (or `origin/main..HEAD`) and confirm only YOUR commits appear. If unrelated commits are included, the branch was created from the wrong base. Fix it: create a new branch from `upstream/main` and cherry-pick your commits onto it.
+9. Commit your changes to branch `{branchName}` with a descriptive commit message.
+10. Push the branch and create a PR against `main` in the PureWeen/PolyPilot repository using `gh pr create`.
 
 Important conventions:
 - Never use `static readonly` fields that call platform APIs (use lazy `??=` properties instead).
@@ -1293,6 +1306,37 @@ Important conventions:
         };
         var p = System.Diagnostics.Process.Start(psi);
         if (p != null) await p.WaitForExitAsync();
+    }
+
+    /// <summary>
+    /// Find the upstream default branch ref (e.g. "upstream/main", "origin/main").
+    /// Returns null if no suitable remote branch is found.
+    /// </summary>
+    private static async Task<string?> GetDefaultRemoteBranch(string repoRoot)
+    {
+        // Prefer upstream/main (fork convention), then origin/main
+        foreach (var candidate in new[] { "upstream/main", "upstream/master", "origin/main", "origin/master" })
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo("git", $"rev-parse --verify {candidate}")
+                {
+                    WorkingDirectory = repoRoot,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                var p = System.Diagnostics.Process.Start(psi);
+                if (p != null)
+                {
+                    await p.WaitForExitAsync();
+                    if (p.ExitCode == 0) return candidate;
+                }
+            }
+            catch { }
+        }
+        return null;
     }
 
     private static string EscapeForAppleScript(string s) =>
