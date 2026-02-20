@@ -152,11 +152,27 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     /// <summary>Whether this is a user-created preset (vs built-in).</summary>
     public bool IsUserDefined { get; init; }
 
+    /// <summary>Whether this preset was loaded from a repo-level team definition (.squad/).</summary>
+    public bool IsRepoLevel { get; init; }
+
+    /// <summary>Path to the source directory (e.g., ".squad/") for repo-level presets.</summary>
+    public string? SourcePath { get; init; }
+
     /// <summary>
     /// Per-worker system prompts, indexed to match WorkerModels.
     /// Null or shorter array = remaining workers get generic prompt.
     /// </summary>
     public string?[]? WorkerSystemPrompts { get; init; }
+
+    /// <summary>
+    /// Shared context from decisions.md or similar, prepended to all worker prompts.
+    /// </summary>
+    public string? SharedContext { get; init; }
+
+    /// <summary>
+    /// Routing rules from routing.md, injected into orchestrator planning prompt.
+    /// </summary>
+    public string? RoutingContext { get; init; }
 
     public static readonly GroupPreset[] BuiltIn = new[]
     {
@@ -235,11 +251,18 @@ public static class UserPresets
         catch { /* best-effort persistence */ }
     }
 
-    /// <summary>Get all presets: built-in + user-defined.</summary>
-    public static GroupPreset[] GetAll(string baseDir)
+    /// <summary>Get all presets: built-in + user-defined + repo-level (Squad). Repo overrides by name.</summary>
+    public static GroupPreset[] GetAll(string baseDir, string? repoWorkingDirectory = null)
     {
-        var user = Load(baseDir);
-        return GroupPreset.BuiltIn.Concat(user).ToArray();
+        var merged = new Dictionary<string, GroupPreset>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in GroupPreset.BuiltIn) merged[p.Name] = p;
+        foreach (var p in Load(baseDir)) merged[p.Name] = p;
+        if (repoWorkingDirectory != null)
+        {
+            foreach (var p in SquadDiscovery.Discover(repoWorkingDirectory))
+                merged[p.Name] = p;
+        }
+        return merged.Values.ToArray();
     }
 
     /// <summary>Save the current multi-agent group as a reusable preset.</summary>

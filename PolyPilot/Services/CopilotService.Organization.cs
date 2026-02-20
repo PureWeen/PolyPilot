@@ -675,7 +675,7 @@ public partial class CopilotService
         // Phase 1: Planning — ask orchestrator to analyze and assign tasks
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Planning, null));
 
-        var planningPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group?.OrchestratorPrompt);
+        var planningPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group?.OrchestratorPrompt, group?.RoutingContext);
         var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken);
 
         // Phase 2: Parse task assignments from orchestrator response
@@ -707,7 +707,7 @@ public partial class CopilotService
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
     }
 
-    private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions)
+    private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions, string? routingContext = null)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available:");
@@ -730,6 +730,12 @@ public partial class CopilotService
             sb.AppendLine();
             sb.AppendLine("## Additional Orchestration Instructions");
             sb.AppendLine(additionalInstructions);
+        }
+        if (!string.IsNullOrEmpty(routingContext))
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Work Routing (from team definition)");
+            sb.AppendLine(routingContext);
         }
         sb.AppendLine();
         sb.AppendLine("## Your Task");
@@ -779,12 +785,21 @@ public partial class CopilotService
         var sw = System.Diagnostics.Stopwatch.StartNew();
         await EnsureSessionModelAsync(workerName, cancellationToken);
 
-        // Use per-worker system prompt if set, otherwise generic
+        // Use per-worker system prompt if set, otherwise generic.
+        // Note: .github/copilot-instructions.md is auto-loaded by the SDK for each session's working directory,
+        // so workers already inherit repo-level copilot instructions without explicit injection here.
         var meta = GetSessionMeta(workerName);
         var identity = !string.IsNullOrEmpty(meta?.SystemPrompt)
             ? meta.SystemPrompt
             : "You are a worker agent. Complete the following task thoroughly.";
-        var workerPrompt = $"{identity}\n\nYour response will be collected and synthesized with other workers' responses.\n\n## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
+
+        // Inject shared context (e.g., Squad decisions.md) if the group has it
+        var group = meta != null ? Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId) : null;
+        var sharedPrefix = !string.IsNullOrEmpty(group?.SharedContext)
+            ? $"## Team Context (shared knowledge)\n{group.SharedContext}\n\n"
+            : "";
+
+        var workerPrompt = $"{identity}\n\nYour response will be collected and synthesized with other workers' responses.\n\n{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
 
         try
         {
@@ -912,6 +927,10 @@ public partial class CopilotService
     {
         var group = CreateMultiAgentGroup(preset.Name, preset.Mode, worktreeId: worktreeId, repoId: repoId);
         if (group == null) return null;
+
+        // Store Squad context (routing, decisions) on the group for use during orchestration
+        group.SharedContext = preset.SharedContext;
+        group.RoutingContext = preset.RoutingContext;
 
         // Create orchestrator session
         var orchName = $"{preset.Name}-orchestrator";
@@ -1084,7 +1103,7 @@ public partial class CopilotService
             string planPrompt;
             if (reflectState.CurrentIteration == 1)
             {
-                planPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group.OrchestratorPrompt);
+                planPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext);
             }
             else
             {

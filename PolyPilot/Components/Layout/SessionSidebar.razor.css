@@ -1534,6 +1534,25 @@
     text-overflow: ellipsis;
 }
 
+.preset-section-header {
+    font-size: var(--type-caption2);
+    color: var(--text-muted);
+    padding: 0.15rem 0.4rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.preset-repo {
+    border-left: 2px solid var(--accent-blue, #58a6ff);
+    padding-left: 0.3rem;
+}
+
+.preset-badge {
+    font-size: 0.65rem;
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
 .preset-divider {
     font-size: var(--type-caption2);
     color: var(--text-muted);

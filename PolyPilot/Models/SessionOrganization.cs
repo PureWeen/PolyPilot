@@ -37,6 +37,16 @@ public class SessionGroup
 
     /// <summary>Active reflection state for OrchestratorReflect mode. Null when not in a reflect loop.</summary>
     public ReflectionCycle? ReflectionState { get; set; }
+
+    /// <summary>
+    /// Shared context from Squad decisions.md or similar, prepended to all worker prompts.
+    /// </summary>
+    public string? SharedContext { get; set; }
+
+    /// <summary>
+    /// Routing context from Squad routing.md, injected into orchestrator planning prompt.
+    /// </summary>
+    public string? RoutingContext { get; set; }
 }
 
 public class SessionMeta

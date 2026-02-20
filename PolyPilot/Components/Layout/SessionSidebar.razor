@@ -241,13 +241,51 @@ else
                         <span>🌿 @pendingMultiAgentWorktree.Branch</span>
                         <button class="worktree-cancel-btn" @onclick="CancelMultiAgentCreation">✕</button>
                     </div>
-                    @foreach (var preset in UserPresets.GetAll(CopilotService.BaseDir))
+                    @{
+                        var allPresets = UserPresets.GetAll(CopilotService.BaseDir, pendingMultiAgentWorktree?.Path);
+                        var repoPresets = allPresets.Where(p => p.IsRepoLevel).ToArray();
+                        var builtInPresets = allPresets.Where(p => !p.IsRepoLevel && !p.IsUserDefined).ToArray();
+                        var userPresets = allPresets.Where(p => p.IsUserDefined).ToArray();
+                    }
+                    @if (repoPresets.Any())
                     {
-                        var p = preset;
-                        <button class="preset-item" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
-                            <span class="preset-emoji">@p.Emoji</span>
-                            <span class="preset-name">@p.Name</span>
-                        </button>
+                        <div class="preset-section-header">📂 From Repo</div>
+                        @foreach (var preset in repoPresets)
+                        {
+                            var p = preset;
+                            <button class="preset-item preset-repo" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                                <span class="preset-emoji">@p.Emoji</span>
+                                <span class="preset-name">@p.Name</span>
+                                <span class="preset-badge">🫡</span>
+                            </button>
+                        }
+                    }
+                    @if (builtInPresets.Any())
+                    {
+                        @if (repoPresets.Any())
+                        {
+                            <div class="preset-section-header">⚙️ Built-in</div>
+                        }
+                        @foreach (var preset in builtInPresets)
+                        {
+                            var p = preset;
+                            <button class="preset-item" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                                <span class="preset-emoji">@p.Emoji</span>
+                                <span class="preset-name">@p.Name</span>
+                            </button>
+                        }
+                    }
+                    @if (userPresets.Any())
+                    {
+                        <div class="preset-section-header">👤 My Presets</div>
+                        @foreach (var preset in userPresets)
+                        {
+                            var p = preset;
+                            <button class="preset-item" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                                <span class="preset-emoji">@p.Emoji</span>
+                                <span class="preset-name">@p.Name</span>
+                            </button>
+                        }
                     }
                     <div class="preset-divider">or create empty team:</div>
                     <input type="text" class="new-group-input" id="newGroupInput"
