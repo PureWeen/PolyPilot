@@ -89,11 +89,17 @@ public class RepoManager
         if (url.Contains(':') && url.Contains('@'))
         {
             var path = url.Split(':').Last();
-            return path.Replace('/', '-').TrimEnd('/').Replace(".git", "");
+            var id = path.Replace('/', '-').TrimEnd('/');
+            if (id.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+                id = id[..^4];
+            return id;
         }
         // Handle HTTPS: https://github.com/Owner/Repo.git
         var uri = new Uri(url);
-        return uri.AbsolutePath.Trim('/').Replace('/', '-').Replace(".git", "");
+        var result = uri.AbsolutePath.Trim('/').Replace('/', '-');
+        if (result.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+            result = result[..^4];
+        return result;
     }
 
     /// <summary>

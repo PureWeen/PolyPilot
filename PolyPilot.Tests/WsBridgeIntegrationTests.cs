@@ -18,6 +18,16 @@ public class WsBridgeIntegrationTests : IDisposable
     private readonly int _port;
     private static int _portCounter = 19100;
 
+    /// <summary>
+    /// Polls until a condition is true, with a timeout. Replaces fixed Task.Delay for reliability under load.
+    /// </summary>
+    private static async Task WaitForAsync(Func<bool> condition, CancellationToken ct, int pollMs = 50, int maxMs = 4000)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (!condition() && sw.ElapsedMilliseconds < maxMs)
+            await Task.Delay(pollMs, ct);
+    }
+
     public WsBridgeIntegrationTests()
     {
         _port = Interlocked.Increment(ref _portCounter);
@@ -184,7 +194,7 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.CreateSessionAsync("broadcast-test", "gpt-4.1", null, cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => client.Sessions.Any(s => s.Name == "broadcast-test"), cts.Token);
 
         Assert.Contains(client.Sessions, s => s.Name == "broadcast-test");
         client.Stop();
@@ -200,7 +210,7 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.CloseSessionAsync("close-me", cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => _copilot.GetSession("close-me") == null, cts.Token);
 
         Assert.Null(_copilot.GetSession("close-me"));
         client.Stop();
@@ -324,10 +334,10 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.QueueMessageAsync("queue-test", "queued msg", cts.Token);
-        await Task.Delay(300, cts.Token);
 
         var session = _copilot.GetSession("queue-test");
         Assert.NotNull(session);
+        await WaitForAsync(() => session!.MessageQueue.Any(m => m.Contains("queued msg")), cts.Token);
         Assert.Contains(session!.MessageQueue, m => m.Contains("queued msg"));
         client.Stop();
     }
@@ -410,7 +420,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "create_group", Name = "Mobile Group" }, cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => _copilot.Organization.Groups.Any(g => g.Name == "Mobile Group"), cts.Token);
 
         Assert.Contains(_copilot.Organization.Groups, g => g.Name == "Mobile Group");
         client.Stop();
@@ -427,7 +437,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "pin", SessionName = "pin-me" }, cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => _copilot.Organization.Sessions.FirstOrDefault(s => s.SessionName == "pin-me")?.IsPinned == true, cts.Token);
 
         var meta = _copilot.Organization.Sessions.FirstOrDefault(s => s.SessionName == "pin-me");
         Assert.NotNull(meta);
@@ -486,9 +496,15 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "rename_group", GroupId = group.Id, Name = "NewName" }, cts.Token);
-        await Task.Delay(500, cts.Token);
 
-        var renamed = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id);
+        // Poll until the rename takes effect (server processes asynchronously)
+        SessionGroup? renamed = null;
+        for (int i = 0; i < 40; i++)
+        {
+            renamed = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id);
+            if (renamed?.Name == "NewName") break;
+            await Task.Delay(100, cts.Token);
+        }
         Assert.NotNull(renamed);
         Assert.Equal("NewName", renamed!.Name);
         client.Stop();
@@ -505,7 +521,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "delete_group", GroupId = group.Id }, cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => !_copilot.Organization.Groups.Any(g => g.Id == group.Id), cts.Token);
 
         Assert.DoesNotContain(_copilot.Organization.Groups, g => g.Id == group.Id);
         client.Stop();
@@ -523,7 +539,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "toggle_collapsed", GroupId = group.Id }, cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id)?.IsCollapsed == true, cts.Token);
 
         var updated = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id);
         Assert.NotNull(updated);
@@ -542,7 +558,13 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "set_sort", SortMode = "Alphabetical" }, cts.Token);
-        await Task.Delay(500, cts.Token);
+
+        // Poll until the sort mode takes effect
+        for (int i = 0; i < 40; i++)
+        {
+            if (_copilot.Organization.SortMode == SessionSortMode.Alphabetical) break;
+            await Task.Delay(100, cts.Token);
+        }
 
         Assert.Equal(SessionSortMode.Alphabetical, _copilot.Organization.SortMode);
         client.Stop();
@@ -656,7 +678,7 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.RenameSessionAsync("old-name", "new-name", cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => _copilot.GetSession("new-name") != null, cts.Token);
 
         Assert.Null(_copilot.GetSession("old-name"));
         Assert.NotNull(_copilot.GetSession("new-name"));

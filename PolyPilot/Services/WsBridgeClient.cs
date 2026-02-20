@@ -17,6 +17,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     private Task? _receiveTask;
     private string? _remoteWsUrl;
     private string? _authToken;
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     public bool IsConnected => _ws?.State == WebSocketState.Open;
 
@@ -500,7 +501,16 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     {
         if (_ws?.State != WebSocketState.Open) return;
         var bytes = Encoding.UTF8.GetBytes(msg.Serialize());
-        await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
+        await _sendLock.WaitAsync(ct);
+        try
+        {
+            if (_ws?.State == WebSocketState.Open)
+                await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
     }
 
     public void Dispose()

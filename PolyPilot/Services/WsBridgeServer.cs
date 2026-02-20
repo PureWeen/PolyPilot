@@ -704,11 +704,13 @@ public class WsBridgeServer : IDisposable
                 catch
                 {
                     _clients.TryRemove(clientId, out _);
-                    if (_clientSendLocks.TryRemove(clientId, out var lk2)) lk2.Dispose();
                 }
                 finally
                 {
-                    sendLock.Release();
+                    try { sendLock.Release(); } catch (ObjectDisposedException) { }
+                    // Clean up lock for removed clients
+                    if (!_clients.ContainsKey(clientId))
+                        if (_clientSendLocks.TryRemove(clientId, out var lk)) lk.Dispose();
                 }
             });
         }
