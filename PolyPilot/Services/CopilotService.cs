@@ -1372,7 +1372,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             if (!_sessions.TryGetValue(sessionName, out var remoteState)) return false;
             if (remoteState.Info.IsProcessing) return false;
             if (remoteState.Info.Model == remoteModel) return true;
-            await _bridgeClient.ChangeModelAsync(sessionName, remoteModel, cancellationToken);
+            try
+            {
+                await _bridgeClient.ChangeModelAsync(sessionName, remoteModel, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Debug($"ChangeModelAsync remote error: {ex.Message}");
+                return false;
+            }
             // Update local state optimistically
             remoteState.Info.Model = remoteModel;
             OnStateChanged?.Invoke();

@@ -261,7 +261,8 @@ public partial class CopilotService
         // Clear pending flag for sessions confirmed by server
         foreach (var rs in remoteSessions)
             _pendingRemoteSessions.TryRemove(rs.Name, out _);
-        // Clear pending renames when old name no longer appears on server (rename confirmed)
+        // Clear pending renames when old name disappears from server (rename confirmed).
+        // If rename fails, old name stays on server and the 30s TTL cleanup handles it.
         foreach (var oldName in _pendingRemoteRenames.Keys.ToList())
         {
             if (!remoteNames.Contains(oldName))
