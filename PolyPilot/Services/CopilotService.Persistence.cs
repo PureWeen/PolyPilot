@@ -118,6 +118,13 @@ public partial class CopilotService
                             {
                                 Debug($"Pruning ghost evaluator session '{entry.DisplayName}' — not referenced by active cycle");
                                 _closedSessionIds[entry.SessionId] = 0; // prevent merge from re-adding
+                                // Clean up persisted session directory
+                                var ghostDir = Path.Combine(SessionStatePath, entry.SessionId);
+                                if (Directory.Exists(ghostDir))
+                                {
+                                    try { Directory.Delete(ghostDir, recursive: true); }
+                                    catch (Exception delEx) { Debug($"Failed to delete ghost session dir: {delEx.Message}"); }
+                                }
                                 continue;
                             }
                             // Skip if already active

@@ -64,7 +64,8 @@ while (IsActive && !IsPaused && CurrentIteration < MaxIterations):
         @worker:worker-2 Write tests for the auth module
     
     ParseTaskAssignments extracts these → List<TaskAssignment>
-    If no assignments parsed → orchestrator decided goal is met → break
+    If no assignments AND iteration == 1 → error (retry up to 3 times)
+    If no assignments AND iteration > 1 → orchestrator decided goal is met → break
 
     Phase 2: DISPATCH
     └── Send each assignment to its worker in parallel (Task.WhenAll)
@@ -103,11 +104,13 @@ while (IsActive && !IsPaused && CurrentIteration < MaxIterations):
 | Condition | How Detected | State |
 |-----------|-------------|-------|
 | ✅ Goal met | Evaluator score ≥ 0.9 or `[[GROUP_REFLECT_COMPLETE]]` sentinel | `GoalMet = true` |
-| ⏱️ Max iterations | `CurrentIteration >= MaxIterations` | `IsActive = false` |
-| ⚠️ Stalled | 2 consecutive responses with >90% Jaccard similarity | `IsStalled = true` |
-| ⚠️ Error budget | 3 consecutive errors within a single iteration | `IsStalled = true` |
-| 🛑 Cancelled | CancellationToken triggered | `OperationCanceledException` |
+| ⏱️ Max iterations | `CurrentIteration >= MaxIterations` | `IsCancelled = true` |
+| ⚠️ Stalled | 2 consecutive responses with >90% Jaccard similarity | `IsStalled = true, IsCancelled = true` |
+| ⚠️ Error budget | 3 consecutive errors within a single iteration | `IsStalled = true, IsCancelled = true` |
+| 🛑 Cancelled | CancellationToken triggered or user `StopGroupReflection` | `IsCancelled = true` |
 | ⏸️ Paused | User set `IsPaused = true` | Loop condition fails |
+
+**IsCancelled invariant:** Every non-success exit MUST set `IsCancelled = true`. This allows `BuildCompletionSummary()` to distinguish successful completion from abnormal termination. `GoalMet = true` paths must NOT set `IsCancelled`.
 
 ---
 
@@ -173,13 +176,45 @@ You are a worker agent. Complete the following task thoroughly.
 {task}
 ```
 
+### 6. Orphaned Event Handlers Must Not Mutate State
+
+**Where:** `CopilotService.Events.cs` → `HandleSessionEvent`, `isCurrentState` gate
+
+**The rule:** When a session is reconnected, the old session's event handler becomes orphaned. ALL events from orphaned handlers must be blocked (not just terminal events). The `isCurrentState` check compares the captured state object with `_sessions[sessionName]` — if they don't match, the handler is orphaned.
+
+**Why:** Orphaned handlers can produce ghost text deltas, phantom tool executions, and stale history entries that corrupt the current session's state.
+
+### 7. Session Reconnect: Swap `_sessions` Before Wiring Handler
+
+**Where:** `CopilotService.cs` → reconnect logic
+
+**The rule:** `_sessions[sessionName] = newState` MUST execute BEFORE `newSession.On(evt => HandleSessionEvent(newState, evt))`. If the handler is wired first, early events from the new session see `isCurrentState=false` (because `_sessions` still points to old state) and get incorrectly dropped.
+
+### 8. Image Queue: ALL Mutations Under `_imageQueueLock`
+
+**Where:** `CopilotService.cs` and `CopilotService.Events.cs` — all `_queuedImagePaths` access
+
+**The rule:** Every mutation of `_queuedImagePaths` (enqueue, dequeue, remove, clear, rename, close) must be inside `lock (_imageQueueLock)`. The inner lists (`List<List<string>>`) are not thread-safe.
+
+### 9. `IsResumed` Must Be Cleared on ALL Terminal Paths
+
+**Where:** `CopilotService.Events.cs` → `CompleteResponse`, `SessionErrorEvent`, watchdog timeout
+
+**The rule:** `state.Info.IsResumed = false` must be set in every code path that sets `IsProcessing = false`. Otherwise, subsequent turns inherit the resumed session's 600s tool timeout.
+
+### 10. All TCS Must Use `RunContinuationsAsynchronously`
+
+**Where:** All `new TaskCompletionSource()` in `CopilotService.Events.cs`
+
+**The rule:** Always use `new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)`. Without this, TCS continuations can run inline on the completing thread, causing reentrancy and stack overflows in reflection loops.
+
 ---
 
 ## Stall Detection
 
 Two mechanisms, both in `ReflectionCycle.CheckStall()`:
 
-1. **Exact hash match** — Sliding window of last 5 response hashes. If current hash matches any → stall.
+1. **Exact string match** — Sliding window of last 5 full response strings. If current response matches any (full string equality, no hash) → stall.
 2. **Jaccard token similarity** — Tokenize current and previous response by whitespace. If intersection/union > 0.9 → stall.
 
 **Tolerance:** 2 consecutive stalls required before stopping. First stall generates a warning. This prevents false positives from models that happen to produce similar phrasing once.
@@ -259,19 +294,23 @@ OrganizationState
 try {
     // ... full iteration (plan → dispatch → collect → evaluate)
 }
-catch (OperationCanceledException) { throw; }  // User cancellation propagates
+catch (OperationCanceledException) {
+    IsCancelled = true;        // Mark as cancelled for BuildCompletionSummary
+    throw;                     // User cancellation propagates
+}
 catch (Exception ex) {
     CurrentIteration--;        // Retry same iteration, don't skip ahead
-    ConsecutiveStalls++;       // Borrow stall counter as error counter
-    if (ConsecutiveStalls >= 3) {
+    ConsecutiveErrors++;       // Separate error counter (ConsecutiveStalls tracks repetition)
+    if (ConsecutiveErrors >= 3) {
         IsStalled = true;      // Give up after 3 retries
+        IsCancelled = true;    // Non-success termination
         break;
     }
     await Task.Delay(2000);    // Back off before retry
 }
 ```
 
-This prevents a single transient error (network hiccup, model timeout) from killing the entire reflection cycle.
+This prevents a single transient error (network hiccup, model timeout) from killing the entire reflection cycle. `ConsecutiveErrors` resets to 0 on successful iterations (alongside `ConsecutiveStalls`), so errors must be truly consecutive.
 
 ---
 

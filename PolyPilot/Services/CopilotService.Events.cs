@@ -217,11 +217,9 @@ public partial class CopilotService
         {
             Debug($"[EVT-WARN] '{sessionName}' event {evt.GetType().Name} delivered to ORPHANED state " +
                   $"(not in _sessions). This handler should have been detached.");
-            // Allow non-mutating events (text deltas, tool output) to flow through
-            // since they only append to shared Info.History. But block terminal events
-            // that would clear IsProcessing or complete the TCS.
-            if (evt is SessionIdleEvent or SessionErrorEvent)
-                return;
+            // Block ALL events from orphaned state — stale deltas, tool events, and
+            // terminal events can all produce ghost mutations on shared Info.History.
+            return;
         }
 
         void Invoke(Action action)
@@ -502,6 +500,8 @@ public partial class CopilotService
                 CancelProcessingWatchdog(state);
                 Invoke(() => OnError?.Invoke(sessionName, errMsg));
                 state.Info.IsProcessing = false;
+                state.Info.IsResumed = false;
+                Interlocked.Exchange(ref state.SendingFlag, 0);
                 state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                 Invoke(() => OnStateChanged?.Invoke());
                 break;
@@ -726,12 +726,15 @@ public partial class CopilotService
             state.Info.MessageQueue.RemoveAt(0);
             // Retrieve any queued image paths for this message
             List<string>? nextImagePaths = null;
-            if (_queuedImagePaths.TryGetValue(state.Info.Name, out var imageQueue) && imageQueue.Count > 0)
+            lock (_imageQueueLock)
             {
-                nextImagePaths = imageQueue[0];
-                imageQueue.RemoveAt(0);
-                if (imageQueue.Count == 0)
-                    _queuedImagePaths.TryRemove(state.Info.Name, out _);
+                if (_queuedImagePaths.TryGetValue(state.Info.Name, out var imageQueue) && imageQueue.Count > 0)
+                {
+                    nextImagePaths = imageQueue[0];
+                    imageQueue.RemoveAt(0);
+                    if (imageQueue.Count == 0)
+                        _queuedImagePaths.TryRemove(state.Info.Name, out _);
+                }
             }
 
             var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
@@ -747,7 +750,7 @@ public partial class CopilotService
                     await Task.Delay(100);
                     if (_syncContext != null)
                     {
-                        var tcs = new TaskCompletionSource();
+                        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                         _syncContext.Post(async _ =>
                         {
                             try
@@ -775,8 +778,11 @@ public partial class CopilotService
                         state.Info.MessageQueue.Insert(0, nextPrompt);
                         if (nextImagePaths != null)
                         {
-                            var images = _queuedImagePaths.GetOrAdd(state.Info.Name, _ => new List<List<string>>());
-                            images.Insert(0, nextImagePaths);
+                            lock (_imageQueueLock)
+                            {
+                                var images = _queuedImagePaths.GetOrAdd(state.Info.Name, _ => new List<List<string>>());
+                                images.Insert(0, nextImagePaths);
+                            }
                         }
                     });
                 }
@@ -998,7 +1004,7 @@ public partial class CopilotService
                         await Task.Delay(100);
                         if (_syncContext != null)
                         {
-                            var tcs = new TaskCompletionSource();
+                            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                             _syncContext.Post(async _ =>
                             {
                                 try
@@ -1145,6 +1151,7 @@ public partial class CopilotService
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         state.Info.IsProcessing = false;
+                        state.Info.IsResumed = false;
                         Interlocked.Exchange(ref state.SendingFlag, 0);
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));

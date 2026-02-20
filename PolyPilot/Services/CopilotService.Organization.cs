@@ -1106,6 +1106,7 @@ public partial class CopilotService
                     if (reflectState.ConsecutiveErrors >= 3)
                     {
                         reflectState.IsStalled = true;
+                        reflectState.IsCancelled = true;
                         break;
                     }
                     continue;
@@ -1193,6 +1194,7 @@ public partial class CopilotService
                 if (reflectState.ConsecutiveStalls >= 2)
                 {
                     reflectState.IsStalled = true;
+                    reflectState.IsCancelled = true;
                     AddOrchestratorSystemMessage(orchestratorName, $"⚠️ {reflectState.BuildCompletionSummary()}");
                     break;
                 }
@@ -1220,14 +1222,15 @@ public partial class CopilotService
                 // Decrement so we retry the same iteration, not skip ahead
                 reflectState.CurrentIteration--;
                 // But limit retries per iteration to 3 (uses separate error counter)
+                reflectState.ConsecutiveErrors++;
                 if (reflectState.ConsecutiveErrors >= 3)
                 {
                     reflectState.IsStalled = true;
+                    reflectState.IsCancelled = true;
                     AddOrchestratorSystemMessage(orchestratorName,
                         $"⚠️ Iteration failed after retries: {ex.Message}");
                     break;
                 }
-                reflectState.ConsecutiveErrors++;
                 AddOrchestratorSystemMessage(orchestratorName,
                     $"⚠️ Iteration {reflectState.CurrentIteration + 1} error: {ex.Message}. Retrying...");
                 InvokeOnUI(() => OnStateChanged?.Invoke());
@@ -1237,6 +1240,9 @@ public partial class CopilotService
 
         if (!reflectState.GoalMet && !reflectState.IsStalled && !reflectState.IsPaused)
         {
+            // Max-iteration exit without goal met — mark as cancelled so callers
+            // can distinguish "ran out of iterations" from "succeeded".
+            reflectState.IsCancelled = true;
             AddOrchestratorSystemMessage(orchestratorName, $"⏱️ {reflectState.BuildCompletionSummary()}");
         }
 

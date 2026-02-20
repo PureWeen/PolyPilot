@@ -83,12 +83,14 @@ public partial class ReflectionCycle
     /// <summary>
     /// True only on the advance where the first stall is detected.
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public bool ShouldWarnOnStall { get; private set; }
 
     /// <summary>
     /// The Jaccard similarity score from the last stall check (0.0–1.0).
     /// Exposed so the UI can show "91% similar to previous response".
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public double LastSimilarity { get; private set; }
 
     /// <summary>

@@ -459,7 +459,10 @@ public partial class CopilotService : IAsyncDisposable
         }
         _sessions.Clear();
         _closedSessionIds.Clear();
-        _queuedImagePaths.Clear();
+        lock (_imageQueueLock)
+        {
+            _queuedImagePaths.Clear();
+        }
         _activeSessionName = null;
 
         if (_client != null)
@@ -1540,8 +1543,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Interlocked.Exchange(ref newState.ProcessingGeneration,
                         Interlocked.Read(ref state.ProcessingGeneration));
                     newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn;
-                    newSession.On(evt => HandleSessionEvent(newState, evt));
                     _sessions[sessionName] = newState;
+                    newSession.On(evt => HandleSessionEvent(newState, evt));
                     state = newState;
                     
                     // Start fresh watchdog for the new connection
@@ -1693,7 +1696,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (_sessions.TryGetValue(sessionName, out var state))
         {
             state.Info.MessageQueue.Clear();
-            _queuedImagePaths.TryRemove(sessionName, out _);
+            lock (_imageQueueLock)
+            {
+                _queuedImagePaths.TryRemove(sessionName, out _);
+            }
             OnStateChanged?.Invoke();
         }
     }
@@ -1753,6 +1759,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             var evaluatorName = state.Info.ReflectionCycle.EvaluatorSessionName;
             state.Info.ReflectionCycle.IsActive = false;
+            state.Info.ReflectionCycle.IsCancelled = true;
+            state.Info.ReflectionCycle.CompletedAt = DateTime.Now;
             // Purge any queued reflection follow-up prompts to prevent zombie iterations
             state.Info.MessageQueue.RemoveAll(p => ReflectionCycle.IsReflectionFollowUpPrompt(p));
             Debug($"Reflection cycle stopped for '{sessionName}'");
@@ -1811,8 +1819,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.Name = newName;
 
         // Move queued image paths to new name
-        if (_queuedImagePaths.TryRemove(oldName, out var imageQueue))
-            _queuedImagePaths[newName] = imageQueue;
+        lock (_imageQueueLock)
+        {
+            if (_queuedImagePaths.TryRemove(oldName, out var imageQueue))
+                _queuedImagePaths[newName] = imageQueue;
+        }
 
         if (!_sessions.TryAdd(newName, state))
         {
@@ -1879,7 +1890,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             return false;
 
         // Clean up any queued image paths for this session
-        _queuedImagePaths.TryRemove(name, out _);
+        lock (_imageQueueLock)
+        {
+            _queuedImagePaths.TryRemove(name, out _);
+        }
 
         // Track as explicitly closed so merge doesn't re-add from file
         if (state.Info.SessionId != null)
