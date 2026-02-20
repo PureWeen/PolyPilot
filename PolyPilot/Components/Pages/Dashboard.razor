@@ -937,7 +937,7 @@
     private void HandleError(string sessionName, string error)
     {
         if (error.Contains("cancell", StringComparison.OrdinalIgnoreCase)) return;
-        errorBySession[sessionName] = error;
+        errorBySession[sessionName] = Models.ErrorMessageHelper.HumanizeMessage(error);
         ScheduleRender();
     }
 

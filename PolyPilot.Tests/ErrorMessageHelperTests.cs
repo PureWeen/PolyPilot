@@ -150,4 +150,32 @@ public class ErrorMessageHelperTests
         var result = ErrorMessageHelper.HumanizeMessage("nodename nor servname provided, or not known");
         Assert.Contains("resolve", result, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void LinuxDnsFailure_ReturnsHumanReadableMessage()
+    {
+        var result = ErrorMessageHelper.HumanizeMessage("Name or service not known");
+        Assert.Contains("resolve", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void NoRouteToHost_ReturnsHumanReadableMessage()
+    {
+        var result = ErrorMessageHelper.HumanizeMessage("No route to host");
+        Assert.Contains("reach", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void HostIsDown_ReturnsHumanReadableMessage()
+    {
+        var result = ErrorMessageHelper.HumanizeMessage("Host is down");
+        Assert.Contains("down", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UnknownNetWebStatus_ReturnsCatchAllNetworkError()
+    {
+        var result = ErrorMessageHelper.HumanizeMessage("net_webstatus_SomethingUnexpected");
+        Assert.Equal("A network error occurred. Check your connection and try again.", result);
+    }
 }

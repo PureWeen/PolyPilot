@@ -53,11 +53,22 @@ public static class ErrorMessageHelper
             return "Connection refused — the server is not reachable. Check the address and make sure the server is running.";
 
         if (message.Contains("No such host is known", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("nodename nor servname provided", StringComparison.OrdinalIgnoreCase))
+            || message.Contains("nodename nor servname provided", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("Name or service not known", StringComparison.OrdinalIgnoreCase))
             return "Could not resolve the server address. Check the URL and your network connection.";
 
         if (message.Contains("Network is unreachable", StringComparison.OrdinalIgnoreCase))
             return "Network is unreachable. Check your internet connection.";
+
+        if (message.Contains("No route to host", StringComparison.OrdinalIgnoreCase))
+            return "Cannot reach the server. Check the address and your network connection.";
+
+        if (message.Contains("Host is down", StringComparison.OrdinalIgnoreCase))
+            return "The server appears to be down. Try again later.";
+
+        // Catch-all for any other net_webstatus_ codes we haven't mapped
+        if (message.Contains("net_webstatus_", StringComparison.OrdinalIgnoreCase))
+            return "A network error occurred. Check your connection and try again.";
 
         return message;
     }
