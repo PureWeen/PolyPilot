@@ -10,19 +10,58 @@ on:
       build_number_offset:
         description: 'Offset added to run number (increase if you need to jump ahead, default: repo var BUILD_NUMBER_OFFSET or 0)'
         required: false
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 06:00 UTC
 
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   MAUI_PROJECT_PATH: 'PolyPilot/PolyPilot.csproj'
+  APP_VERSION: ${{ inputs.version || vars.APP_VERSION || '1.0.0' }}
 
 jobs:
   # ─────────────────────────────────────────────
-  # Android → Google Play (Internal Testing)
+  # Check if there are new commits (skips on schedule if nothing changed)
+  # ─────────────────────────────────────────────
+  check-changes:
+    name: Check for new commits
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for commits in last 24 hours
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual trigger — always release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          COUNT=$(git log --oneline --since="24 hours ago" | wc -l | tr -d ' ')
+          echo "Commits in last 24 hours: $COUNT"
+
+          if [ "$COUNT" -gt 0 ]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            git log --oneline --since="24 hours ago"
+          else
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "No new commits — skipping release"
+          fi
+
+  # ─────────────────────────────────────────────
+  # Android → Google Play (Open Testing)
   # ─────────────────────────────────────────────
   build-android:
     name: Build Android AAB
     runs-on: ubuntu-latest
+    needs: check-changes
+    if: needs.check-changes.outputs.should_release == 'true'
 
     steps:
       - name: Compute build number
@@ -65,7 +104,7 @@ jobs:
             -p:AndroidSigningKeyAlias='${{ secrets.ANDROID_KEY_ALIAS }}' \
             -p:AndroidSigningKeyPass='${{ secrets.ANDROID_KEY_PASSWORD }}' \
             -p:AndroidSigningStorePass='${{ secrets.ANDROID_KEYSTORE_PASSWORD }}' \
-            -p:ApplicationDisplayVersion='${{ inputs.version }}' \
+            -p:ApplicationDisplayVersion='${{ env.APP_VERSION }}' \
             -p:ApplicationVersion='${{ steps.build.outputs.number }}'
 
       - name: Upload AAB artifact
@@ -103,6 +142,8 @@ jobs:
   build-ios:
     name: Build iOS IPA
     runs-on: macos-26
+    needs: check-changes
+    if: needs.check-changes.outputs.should_release == 'true'
 
     steps:
       - name: Compute build number
@@ -159,7 +200,7 @@ jobs:
             -p:CodesignKey="${{ secrets.IOS_CODESIGN_KEY }}" \
             -p:CodesignProvision="${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}" \
             -p:ArchiveOnBuild=true \
-            -p:ApplicationDisplayVersion='${{ inputs.version }}' \
+            -p:ApplicationDisplayVersion='${{ env.APP_VERSION }}' \
             -p:ApplicationVersion='${{ steps.build.outputs.number }}'
 
       - name: Find IPA file
@@ -218,7 +259,7 @@ jobs:
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
           APP_BUNDLE_ID: 'com.microsoft.PolyPilot'
           BUILD_NUMBER: ${{ steps.build.outputs.number }}
-          APP_VERSION: ${{ inputs.version }}
+          APP_VERSION: ${{ env.APP_VERSION }}
           BETA_GROUP_NAME: 'MAUI Team'
         run: |
           set -euo pipefail
