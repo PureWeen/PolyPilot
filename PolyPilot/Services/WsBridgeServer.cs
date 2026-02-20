@@ -428,7 +428,7 @@ public class WsBridgeServer : IDisposable
 
                 case BridgeMessageTypes.CloseSession:
                     var closeReq = msg.GetPayload<SessionNamePayload>();
-                    if (closeReq != null)
+                    if (closeReq != null && !string.IsNullOrWhiteSpace(closeReq.SessionName))
                     {
                         Console.WriteLine($"[WsBridge] Client closing session '{closeReq.SessionName}'");
                         await _copilot.CloseSessionAsync(closeReq.SessionName);

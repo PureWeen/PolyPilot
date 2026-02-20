@@ -15,6 +15,9 @@ public partial class CopilotService
             wsUrl = "wss://" + wsUrl[8..];
         else if (wsUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
             wsUrl = "ws://" + wsUrl[7..];
+        else if (wsUrl.StartsWith("wss://", StringComparison.OrdinalIgnoreCase)
+              || wsUrl.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+            { /* already a WebSocket URL */ }
         else
             wsUrl = "wss://" + wsUrl;
 

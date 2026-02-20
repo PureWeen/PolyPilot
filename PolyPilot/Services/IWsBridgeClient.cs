@@ -10,7 +10,7 @@ public interface IWsBridgeClient
     bool IsConnected { get; }
     List<SessionSummary> Sessions { get; }
     string? ActiveSessionName { get; }
-    Dictionary<string, List<ChatMessage>> SessionHistories { get; }
+    System.Collections.Concurrent.ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; }
     List<PersistedSessionSummary> PersistedSessions { get; }
     string? GitHubAvatarUrl { get; }
     string? GitHubLogin { get; }

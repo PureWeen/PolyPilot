@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using PolyPilot.Models;
@@ -22,7 +23,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     // --- State mirroring CopilotService ---
     public List<SessionSummary> Sessions { get; private set; } = new();
     public string? ActiveSessionName { get; private set; }
-    public Dictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
+    public ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
     public List<PersistedSessionSummary> PersistedSessions { get; private set; } = new();
     public string? GitHubAvatarUrl { get; private set; }
     public string? GitHubLogin { get; private set; }

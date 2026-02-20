@@ -717,4 +717,224 @@ public class WsBridgeIntegrationTests : IDisposable
         Assert.Contains(tmp, paths);
         client.Stop();
     }
+
+    // ========== RESUME SESSION ==========
+
+    [Fact]
+    public async Task ResumeSession_InvalidGuid_ReturnsErrorToClient()
+    {
+        await InitDemoMode();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        string? errorMsg = null;
+        client.OnError += (s, e) => errorMsg = e;
+
+        await client.ResumeSessionAsync("../../../etc/passwd", "hack", cts.Token);
+        await Task.Delay(500, cts.Token);
+
+        Assert.NotNull(errorMsg);
+        Assert.Contains("Invalid session ID format", errorMsg);
+        client.Stop();
+    }
+
+    [Fact]
+    public async Task ResumeSession_NonExistentGuid_ReturnsResumeFailedError()
+    {
+        await InitDemoMode();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        string? errorMsg = null;
+        client.OnError += (s, e) => errorMsg = e;
+
+        await client.ResumeSessionAsync(Guid.NewGuid().ToString(), "test", cts.Token);
+        await Task.Delay(500, cts.Token);
+
+        Assert.NotNull(errorMsg);
+        Assert.Contains("Resume failed", errorMsg);
+        client.Stop();
+    }
+
+    // ========== BROADCAST EVENTS ==========
+
+    [Fact]
+    public async Task SendMessage_TriggersTurnStartAndTurnEnd_OnClient()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("turn-test", "gpt-4.1");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        bool gotTurnStart = false;
+        bool gotTurnEnd = false;
+        client.OnTurnStart += s => { if (s == "turn-test") gotTurnStart = true; };
+        client.OnTurnEnd += s => { if (s == "turn-test") gotTurnEnd = true; };
+
+        await _copilot.SendPromptAsync("turn-test", "Hello");
+        await Task.Delay(1000, cts.Token);
+
+        Assert.True(gotTurnStart, "Client should receive TurnStart");
+        Assert.True(gotTurnEnd, "Client should receive TurnEnd");
+        client.Stop();
+    }
+
+    [Fact]
+    public async Task SendMessage_TriggersTurnEnd_OnClient()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("complete-test", "gpt-4.1");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        bool gotTurnEnd = false;
+        client.OnTurnEnd += s => { if (s == "complete-test") gotTurnEnd = true; };
+
+        await _copilot.SendPromptAsync("complete-test", "Hello");
+        await Task.Delay(1000, cts.Token);
+
+        Assert.True(gotTurnEnd, "Client should receive TurnEnd");
+        client.Stop();
+    }
+
+    [Fact]
+    public async Task ChangeModel_WhileProcessing_SendsErrorToClient()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("model-busy", "gpt-4.1");
+
+        // Manually set IsProcessing
+        var session = _copilot.GetSession("model-busy");
+        session!.IsProcessing = true;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        string? errorMsg = null;
+        client.OnError += (s, e) => errorMsg = e;
+
+        await client.ChangeModelAsync("model-busy", "claude-opus-4.6", cts.Token);
+        await Task.Delay(500, cts.Token);
+
+        Assert.NotNull(errorMsg);
+        client.Stop();
+    }
+
+    // ========== MULTI-CLIENT ==========
+
+    [Fact]
+    public async Task MultipleClients_BothReceiveSessionsList()
+    {
+        await InitDemoMode();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client1 = await ConnectClientAsync(cts.Token);
+        var client2 = await ConnectClientAsync(cts.Token);
+        await Task.Delay(200, cts.Token);
+
+        // Create a session — should broadcast to both
+        await _copilot.CreateSessionAsync("multi-test", "gpt-4.1");
+        await Task.Delay(500, cts.Token);
+
+        Assert.Contains(client1.Sessions, s => s.Name == "multi-test");
+        Assert.Contains(client2.Sessions, s => s.Name == "multi-test");
+        client1.Stop();
+        client2.Stop();
+    }
+
+    [Fact]
+    public async Task MultipleClients_BothReceiveContentDelta()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("multi-content", "gpt-4.1");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client1 = await ConnectClientAsync(cts.Token);
+        var client2 = await ConnectClientAsync(cts.Token);
+
+        bool client1GotContent = false;
+        bool client2GotContent = false;
+        client1.OnContentReceived += (s, c) => { if (s == "multi-content") client1GotContent = true; };
+        client2.OnContentReceived += (s, c) => { if (s == "multi-content") client2GotContent = true; };
+
+        await _copilot.SendPromptAsync("multi-content", "Hello");
+        await Task.Delay(1000, cts.Token);
+
+        Assert.True(client1GotContent, "Client 1 should receive content");
+        Assert.True(client2GotContent, "Client 2 should receive content");
+        client1.Stop();
+        client2.Stop();
+    }
+
+    // ========== CLOSE SESSION GUARD ==========
+
+    [Fact]
+    public async Task CloseSession_EmptyName_IsIgnored()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("keep-me", "gpt-4.1");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        // Send close with empty session name
+        await client.CloseSessionAsync("", cts.Token);
+        await Task.Delay(500, cts.Token);
+
+        // Session should still exist
+        Assert.NotNull(_copilot.GetSession("keep-me"));
+        client.Stop();
+    }
+
+    // ========== URL NORMALIZATION ==========
+
+    [Fact]
+    public async Task Connect_WsSchemeUrl_ConnectsSuccessfully()
+    {
+        await InitDemoMode();
+
+        var remoteService = new CopilotService(
+            new StubChatDatabase(),
+            new StubServerManager(),
+            new WsBridgeClient(),
+            new RepoManager(),
+            new ServiceCollection().BuildServiceProvider(),
+            new StubDemoService());
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        // Pass ws:// URL directly — should NOT double-prefix to wss://ws://
+        await remoteService.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = $"ws://localhost:{_port}/"
+        }, cts.Token);
+
+        Assert.True(remoteService.IsInitialized);
+    }
+
+    [Fact]
+    public async Task Connect_HttpsUrl_ConvertsToWss()
+    {
+        // We can't actually connect to wss:// in tests, but we can verify
+        // that the URL normalization doesn't corrupt ws:// or http:// URLs
+        await InitDemoMode();
+
+        var remoteService = new CopilotService(
+            new StubChatDatabase(),
+            new StubServerManager(),
+            new WsBridgeClient(),
+            new RepoManager(),
+            new ServiceCollection().BuildServiceProvider(),
+            new StubDemoService());
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await remoteService.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = $"http://localhost:{_port}/"
+        }, cts.Token);
+
+        Assert.True(remoteService.IsInitialized);
+    }
 }

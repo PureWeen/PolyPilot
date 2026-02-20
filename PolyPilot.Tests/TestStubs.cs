@@ -57,7 +57,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public bool IsConnected { get; set; }
     public List<SessionSummary> Sessions { get; set; } = new();
     public string? ActiveSessionName { get; set; }
-    public Dictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
+    public System.Collections.Concurrent.ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
     public List<PersistedSessionSummary> PersistedSessions { get; set; } = new();
     public string? GitHubAvatarUrl { get; set; }
     public string? GitHubLogin { get; set; }
@@ -158,6 +158,7 @@ internal class StubDemoService : IDemoService
     public async Task SimulateResponseAsync(string sessionName, string prompt, SynchronizationContext? syncContext = null, CancellationToken ct = default)
     {
         await Task.Delay(10, ct);
+        OnTurnStart?.Invoke(sessionName);
         OnContentReceived?.Invoke(sessionName, "Demo response");
         if (_sessions.TryGetValue(sessionName, out var info))
         {
