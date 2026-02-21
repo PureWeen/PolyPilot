@@ -1133,18 +1133,23 @@ public partial class CopilotService
 
                 if (!state.Info.IsProcessing) break;
 
-                // After events have started flowing on a resumed session, clear IsResumed
-                // so the watchdog transitions from the long 600s timeout to the shorter 120s.
-                // HasUsedToolsThisTurn still preserves the 600s timeout for active tool executions.
-                if (state.Info.IsResumed && Volatile.Read(ref state.HasReceivedEventsSinceResume))
-                {
-                    Debug($"[WATCHDOG] '{sessionName}' clearing IsResumed — events have arrived since resume");
-                    state.Info.IsResumed = false;
-                }
-
                 var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
                 var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
                 var hasActiveTool = Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0;
+
+                // After events have started flowing on a resumed session, clear IsResumed
+                // so the watchdog transitions from the long 600s timeout to the shorter 120s.
+                // Guard: don't clear if tools are active or have been used this turn — the session
+                // may have been resumed mid-tool-execution, and the deduplication path in
+                // ToolExecutionStartEvent skips ActiveToolCallCount++, so hasActiveTool can be 0
+                // even though a tool is genuinely running. Keep the longer timeout until the turn
+                // completes without tool activity.
+                if (state.Info.IsResumed && Volatile.Read(ref state.HasReceivedEventsSinceResume)
+                    && !hasActiveTool && !Volatile.Read(ref state.HasUsedToolsThisTurn))
+                {
+                    Debug($"[WATCHDOG] '{sessionName}' clearing IsResumed — events have arrived since resume with no tool activity");
+                    InvokeOnUI(() => state.Info.IsResumed = false);
+                }
                 // Use the longer tool-execution timeout if:
                 // 1. A tool call is actively running (hasActiveTool), OR
                 // 2. This is a resumed session that was mid-turn (agent sessions routinely

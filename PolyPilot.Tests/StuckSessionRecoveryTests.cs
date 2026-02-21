@@ -182,10 +182,12 @@ public class StuckSessionRecoveryTests
     // --- Watchdog IsResumed clearing ---
 
     [Fact]
-    public void AgentSessionInfo_IsResumed_ClearedAfterEventsArrive()
+    public void IsResumed_NotCleared_When_ToolsActiveOnResume()
     {
-        // Simulate: session is resumed with IsResumed=true,
-        // then events arrive, watchdog should clear IsResumed.
+        // Simulates the watchdog condition: even after events arrive,
+        // IsResumed should NOT be cleared if tools are active or have been used.
+        // This mirrors the guard in RunProcessingWatchdogAsync:
+        //   if (IsResumed && HasReceivedEventsSinceResume && !hasActiveTool && !HasUsedToolsThisTurn)
         var info = new AgentSessionInfo
         {
             Name = "test",
@@ -194,26 +196,24 @@ public class StuckSessionRecoveryTests
             IsProcessing = true
         };
 
-        // Before events: IsResumed is true
-        Assert.True(info.IsResumed);
+        bool hasReceivedEvents = true;
+        bool hasActiveTool = true;      // Tool still running
+        bool hasUsedToolsThisTurn = true;
 
-        bool hasReceivedEvents = false;
-
-        // Simulate event arriving
-        hasReceivedEvents = true;
-
-        // Simulate what the watchdog does: clear IsResumed when events have arrived
-        if (info.IsResumed && hasReceivedEvents)
+        // Watchdog guard: should NOT clear IsResumed when tools are active
+        if (info.IsResumed && hasReceivedEvents && !hasActiveTool && !hasUsedToolsThisTurn)
         {
             info.IsResumed = false;
         }
 
-        Assert.False(info.IsResumed, "IsResumed should be cleared after events arrive");
+        Assert.True(info.IsResumed, "IsResumed must stay true when tools are active (prevents premature timeout downgrade)");
     }
 
     [Fact]
-    public void AgentSessionInfo_IsResumed_NotClearedWithoutEvents()
+    public void IsResumed_Cleared_When_EventsArrive_NoToolActivity()
     {
+        // When events have arrived and there's no tool activity,
+        // the watchdog should clear IsResumed to transition from 600s to 120s timeout.
         var info = new AgentSessionInfo
         {
             Name = "test",
@@ -222,15 +222,67 @@ public class StuckSessionRecoveryTests
             IsProcessing = true
         };
 
-        bool hasReceivedEvents = false;
+        bool hasReceivedEvents = true;
+        bool hasActiveTool = false;     // No active tools
+        bool hasUsedToolsThisTurn = false;
 
-        // Watchdog check: should NOT clear IsResumed
-        if (info.IsResumed && hasReceivedEvents)
+        // Watchdog guard: should clear IsResumed
+        if (info.IsResumed && hasReceivedEvents && !hasActiveTool && !hasUsedToolsThisTurn)
         {
             info.IsResumed = false;
         }
 
-        Assert.True(info.IsResumed, "IsResumed should stay true when no events have arrived");
+        Assert.False(info.IsResumed, "IsResumed should be cleared when events arrive with no tool activity");
+    }
+
+    [Fact]
+    public void IsResumed_NotCleared_When_NoEventsYet()
+    {
+        // Before any events arrive, IsResumed should stay true
+        // even with no tool activity — the session just resumed.
+        var info = new AgentSessionInfo
+        {
+            Name = "test",
+            Model = "test-model",
+            IsResumed = true,
+            IsProcessing = true
+        };
+
+        bool hasReceivedEvents = false; // No events yet
+        bool hasActiveTool = false;
+        bool hasUsedToolsThisTurn = false;
+
+        if (info.IsResumed && hasReceivedEvents && !hasActiveTool && !hasUsedToolsThisTurn)
+        {
+            info.IsResumed = false;
+        }
+
+        Assert.True(info.IsResumed, "IsResumed should stay true when no events have arrived yet");
+    }
+
+    [Fact]
+    public void IsResumed_NotCleared_When_HasUsedToolsThisTurn()
+    {
+        // Even after events arrive, if tools have been used this turn
+        // (between tool rounds), keep the longer 600s timeout.
+        var info = new AgentSessionInfo
+        {
+            Name = "test",
+            Model = "test-model",
+            IsResumed = true,
+            IsProcessing = true
+        };
+
+        bool hasReceivedEvents = true;
+        bool hasActiveTool = false;     // No tool actively running right now
+        bool hasUsedToolsThisTurn = true; // But tools were used earlier in this turn
+
+        if (info.IsResumed && hasReceivedEvents && !hasActiveTool && !hasUsedToolsThisTurn)
+        {
+            info.IsResumed = false;
+        }
+
+        Assert.True(info.IsResumed, "IsResumed must stay true when tools were used this turn (even between rounds)");
     }
 
     // --- Staleness threshold validation ---
