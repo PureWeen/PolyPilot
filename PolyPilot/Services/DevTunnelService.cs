@@ -18,6 +18,7 @@ public partial class DevTunnelService : IDisposable
 {
     private readonly WsBridgeServer _bridge;
     private readonly CopilotService _copilot;
+    private readonly RepoManager _repoManager;
     private Process? _hostProcess;
     private string? _tunnelUrl;
     private string? _tunnelId;
@@ -27,10 +28,11 @@ public partial class DevTunnelService : IDisposable
 
     public const int BridgePort = 4322;
 
-    public DevTunnelService(WsBridgeServer bridge, CopilotService copilot)
+    public DevTunnelService(WsBridgeServer bridge, CopilotService copilot, RepoManager repoManager)
     {
         _bridge = bridge;
         _copilot = copilot;
+        _repoManager = repoManager;
     }
 
     public TunnelState State => _state;
@@ -205,6 +207,7 @@ public partial class DevTunnelService : IDisposable
         {
             // Hook bridge to CopilotService for state sync
             _bridge.SetCopilotService(_copilot);
+            _bridge.SetRepoManager(_repoManager);
 
             // Start WebSocket bridge: WS on BridgePort for remote viewer clients
             _bridge.Start(BridgePort, copilotPort);

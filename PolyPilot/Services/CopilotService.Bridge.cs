@@ -339,4 +339,39 @@ public partial class CopilotService
 
     private AgentSessionInfo? GetRemoteSession(string name) =>
         _sessions.TryGetValue(name, out var state) ? state.Info : null;
+
+    // --- Remote repo operations ---
+
+    public async Task<(string RepoId, string RepoName)?> AddRepoRemoteAsync(string url, Action<string>? onProgress = null, CancellationToken ct = default)
+    {
+        if (!IsRemoteMode)
+        {
+            var repo = await _repoManager.AddRepositoryAsync(url, onProgress, ct);
+            GetOrCreateRepoGroup(repo.Id, repo.Name);
+            return (repo.Id, repo.Name);
+        }
+
+        var result = await _bridgeClient.AddRepoAsync(url, onProgress, ct);
+        // Server already created the group — request updated organization
+        try { await _bridgeClient.RequestSessionsAsync(ct); } catch { }
+        return (result.RepoId, result.RepoName);
+    }
+
+    public async Task RemoveRepoRemoteAsync(string repoId, string groupId, bool deleteFromDisk, CancellationToken ct = default)
+    {
+        if (!IsRemoteMode)
+        {
+            await _repoManager.RemoveRepositoryAsync(repoId, deleteFromDisk, ct);
+            DeleteGroup(groupId);
+            return;
+        }
+
+        await _bridgeClient.RemoveRepoAsync(repoId, deleteFromDisk, groupId, ct);
+        try { await _bridgeClient.RequestSessionsAsync(ct); } catch { }
+    }
+
+    public bool RepoExistsById(string repoId)
+    {
+        return _repoManager.Repositories.Any(r => r.Id == repoId);
+    }
 }

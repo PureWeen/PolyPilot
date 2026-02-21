@@ -126,6 +126,32 @@ internal class StubWsBridgeClient : IWsBridgeClient
     }
     public Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
         => Task.FromResult(new DirectoriesListPayload());
+
+    // Repo operations
+    public event Action<ReposListPayload>? OnReposListReceived;
+    public string? LastAddedRepoUrl { get; private set; }
+    public int AddRepoCallCount { get; private set; }
+    public Task<RepoAddedPayload> AddRepoAsync(string url, Action<string>? onProgress = null, CancellationToken ct = default)
+    {
+        LastAddedRepoUrl = url;
+        AddRepoCallCount++;
+        var id = url.Split('/').Last();
+        return Task.FromResult(new RepoAddedPayload { RequestId = "test", RepoId = id, RepoName = id, Url = url });
+    }
+    public string? LastRemovedRepoId { get; private set; }
+    public int RemoveRepoCallCount { get; private set; }
+    public Task RemoveRepoAsync(string repoId, bool deleteFromDisk, string? groupId = null, CancellationToken ct = default)
+    {
+        LastRemovedRepoId = repoId;
+        RemoveRepoCallCount++;
+        return Task.CompletedTask;
+    }
+    public int RequestReposCallCount { get; private set; }
+    public Task RequestReposAsync(CancellationToken ct = default)
+    {
+        RequestReposCallCount++;
+        return Task.CompletedTask;
+    }
 }
 
 internal class StubDemoService : IDemoService

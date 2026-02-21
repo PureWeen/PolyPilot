@@ -1740,6 +1740,37 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         return await _bridgeClient.ListDirectoriesAsync(path, ct);
     }
 
+    /// <summary>
+    /// Add a repository. In remote mode, delegates to bridge client; otherwise should be called via direct RepoManager access from UI.
+    /// </summary>
+    public async Task<RepoAddedPayload> AddRepositoryViaBridgeAsync(string url, Action<string>? onProgress = null, CancellationToken ct = default)
+    {
+        if (!IsRemoteMode || !_bridgeClient.IsConnected)
+            throw new InvalidOperationException("AddRepositoryViaBridgeAsync only works in remote mode with active bridge connection.");
+        return await _bridgeClient.AddRepoAsync(url, onProgress, ct);
+    }
+
+    /// <summary>
+    /// Remove a repository. In remote mode, delegates to bridge client; otherwise should be called via direct RepoManager access from UI.
+    /// </summary>
+    public async Task RemoveRepositoryViaBridgeAsync(string repoId, bool deleteFromDisk, string? groupId = null, CancellationToken ct = default)
+    {
+        if (!IsRemoteMode || !_bridgeClient.IsConnected)
+            throw new InvalidOperationException("RemoveRepositoryViaBridgeAsync only works in remote mode with active bridge connection.");
+        await _bridgeClient.RemoveRepoAsync(repoId, deleteFromDisk, groupId, ct);
+    }
+
+    /// <summary>
+    /// Request repos list from remote server.
+    /// </summary>
+    public async Task RequestReposListAsync(CancellationToken ct = default)
+    {
+        if (IsRemoteMode && _bridgeClient.IsConnected)
+        {
+            await _bridgeClient.RequestReposAsync(ct);
+        }
+    }
+
     public void RemoveQueuedMessage(string sessionName, int index)
     {
         if (!_sessions.TryGetValue(sessionName, out var state))

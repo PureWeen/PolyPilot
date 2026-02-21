@@ -45,6 +45,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     public event Action<string, string>? OnError;
     public event Action<OrganizationState>? OnOrganizationStateReceived;
     public event Action<AttentionNeededPayload>? OnAttentionNeeded;
+    public event Action<ReposListPayload>? OnReposListReceived;
 
     /// <summary>
     /// Connect to the remote WsBridgeServer.
@@ -210,6 +211,8 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.OrganizationCommand, cmd), ct);
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<DirectoriesListPayload>> _dirListRequests = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<RepoAddedPayload>> _addRepoRequests = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Action<string>> _repoProgressCallbacks = new();
 
     public async Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
     {
@@ -230,6 +233,37 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             _dirListRequests.TryRemove(requestId, out _);
         }
     }
+
+    public async Task<RepoAddedPayload> AddRepoAsync(string url, Action<string>? onProgress = null, CancellationToken ct = default)
+    {
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<RepoAddedPayload>();
+        _addRepoRequests[requestId] = tcs;
+        if (onProgress != null)
+            _repoProgressCallbacks[requestId] = onProgress;
+        try
+        {
+            await SendAsync(BridgeMessage.Create(BridgeMessageTypes.AddRepo,
+                new AddRepoPayload { Url = url, RequestId = requestId }), ct);
+            // Cloning can take a while — 5 minute timeout
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+            linked.Token.Register(() => tcs.TrySetCanceled());
+            return await tcs.Task;
+        }
+        finally
+        {
+            _addRepoRequests.TryRemove(requestId, out _);
+            _repoProgressCallbacks.TryRemove(requestId, out _);
+        }
+    }
+
+    public async Task RemoveRepoAsync(string repoId, bool deleteFromDisk, string? groupId = null, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.RemoveRepo,
+            new RemoveRepoPayload { RepoId = repoId, DeleteFromDisk = deleteFromDisk, GroupId = groupId }), ct);
+
+    public async Task RequestReposAsync(CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ListRepos, new ListReposPayload()), ct);
 
     // --- Receive loop ---
 
@@ -270,6 +304,13 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             if (_dirListRequests.TryRemove(kvp.Key, out var tcs))
                 tcs.TrySetCanceled();
         }
+        // Cancel any pending repo add requests
+        foreach (var kvp in _addRepoRequests)
+        {
+            if (_addRepoRequests.TryRemove(kvp.Key, out var tcs))
+                tcs.TrySetCanceled();
+        }
+        _repoProgressCallbacks.Clear();
         OnStateChanged?.Invoke();
 
         // Auto-reconnect if not intentionally stopped
@@ -514,6 +555,30 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                     Console.WriteLine($"[WsBridgeClient] Attention needed: {attention.SessionName} - {attention.Reason}");
                     OnAttentionNeeded?.Invoke(attention);
                 }
+                break;
+
+            case BridgeMessageTypes.ReposList:
+                var reposListPayload = msg.GetPayload<ReposListPayload>();
+                if (reposListPayload != null)
+                    OnReposListReceived?.Invoke(reposListPayload);
+                break;
+
+            case BridgeMessageTypes.RepoAdded:
+                var repoAddedPayload = msg.GetPayload<RepoAddedPayload>();
+                if (repoAddedPayload != null && _addRepoRequests.TryRemove(repoAddedPayload.RequestId, out var addTcs))
+                    addTcs.TrySetResult(repoAddedPayload);
+                break;
+
+            case BridgeMessageTypes.RepoProgress:
+                var repoProgressPayload = msg.GetPayload<RepoProgressPayload>();
+                if (repoProgressPayload != null && _repoProgressCallbacks.TryGetValue(repoProgressPayload.RequestId, out var progressCb))
+                    progressCb(repoProgressPayload.Message);
+                break;
+
+            case BridgeMessageTypes.RepoError:
+                var repoErrorPayload = msg.GetPayload<RepoErrorPayload>();
+                if (repoErrorPayload != null && _addRepoRequests.TryRemove(repoErrorPayload.RequestId, out var errTcs))
+                    errTcs.TrySetException(new InvalidOperationException(repoErrorPayload.Error));
                 break;
         }
     }
