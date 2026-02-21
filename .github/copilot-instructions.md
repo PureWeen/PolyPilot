@@ -157,58 +157,10 @@ All three are reset in `SendPromptAsync` (new turn) and cleared in `CompleteResp
 The UI shows: "Sending…" → "Server connected…" → "Thinking…" → "Working · Xm Xs · N tool calls…".
 
 ### Abort Behavior
-`AbortSessionAsync` must clear ALL processing state:
-- `IsProcessing = false`, `IsResumed = false`
-- `ProcessingStartedAt = null`, `ToolCallCount = 0`, `ProcessingPhase = 0`
-- `ActiveToolCallCount = 0`, `HasUsedToolsThisTurn = false`
-- `MessageQueue.Clear()` — prevents queued messages from auto-sending after abort
-- `_queuedImagePaths.TryRemove()` — clears associated image attachments
-- `CancelProcessingWatchdog()` and `ResponseCompletion.TrySetCanceled()`
-- `FlushCurrentResponse()` — preserves partial response before clearing
+`AbortSessionAsync` must clear ALL processing state — see `.claude/skills/processing-state-safety/SKILL.md` for the full cleanup checklist and the 7 paths that clear `IsProcessing`.
 
-In remote mode, the mobile client optimistically clears all fields and delegates to the bridge server.
-
-### ⚠️ IsProcessing Cleanup Invariant (CRITICAL — read before modifying ANY processing path)
-
-**History**: This is the single most recurring bug category — 7 PRs across 16 fix/regression cycles. Every time one cleanup path is modified, the others fall behind and sessions get permanently stuck in "Thinking..." state.
-
-**The invariant**: Every code path that sets `IsProcessing = false` MUST perform ALL of these cleanup steps:
-
-```
-FlushCurrentResponse(state)          // BEFORE clearing IsProcessing — saves accumulated response
-CancelProcessingWatchdog(state)
-Interlocked.Exchange(ref state.ActiveToolCallCount, 0)
-state.HasUsedToolsThisTurn = false
-state.Info.IsResumed = false
-state.Info.IsProcessing = false
-state.Info.ProcessingStartedAt = null
-state.Info.ToolCallCount = 0
-state.Info.ProcessingPhase = 0
-```
-
-**The 7 paths that clear IsProcessing** (search for these when modifying cleanup logic):
-
-| # | Path | Location | Notes |
-|---|------|----------|-------|
-| 1 | CompleteResponse | Events.cs ~L699 | Normal completion (SessionIdleEvent) |
-| 2 | SessionErrorEvent | Events.cs ~L517 | SDK error — wrapped in InvokeOnUI |
-| 3 | Watchdog timeout | Events.cs ~L1192 | No events for 120s/600s — InvokeOnUI + generation guard |
-| 4 | AbortSessionAsync (local) | CopilotService.cs ~L1681 | User clicks Stop |
-| 5 | AbortSessionAsync (remote) | CopilotService.cs ~L1638 | Remote mode optimistic clear |
-| 6 | SendAsync reconnect failure | CopilotService.cs ~L1600 | Reconnect+retry failed |
-| 7 | SendAsync initial failure | CopilotService.cs ~L1613 | First send attempt failed |
-
-**If you add a new path that clears IsProcessing, or modify an existing one, check ALL 7 paths.**
-
-**Common mistakes that have caused regressions:**
-
-1. **Forgetting fields**: Adding ProcessingPhase/ToolCallCount but forgetting IsResumed/HasUsedToolsThisTurn on error paths (happened in PRs #148, #158, #164)
-2. **Missing FlushCurrentResponse**: Without this, accumulated `CurrentResponse` content is silently lost (happened in PR #158)
-3. **Using `ActiveToolCallCount` alone as tool signal**: The `ToolExecutionStartEvent` dedup path on resume skips `ActiveToolCallCount++`, so it can be 0 even with a tool running. Always check `HasUsedToolsThisTurn` too (happened in PRs #148, #163)
-4. **Adding hardcoded short timeouts**: The 10s resume timeout killed active tool executions. NEVER add timeouts shorter than the watchdog's 120s tier (happened in PR #148)
-5. **Mutating state on background threads**: SDK events arrive on worker threads. ALL `IsProcessing` mutations must go through `InvokeOnUI()` (happened in PRs #147, #148, #163)
-6. **Clearing `IsResumed` without checking tool activity**: After resume, tools may be running but `ActiveToolCallCount` is 0 due to dedup. Guard with `!hasActiveTool && !HasUsedToolsThisTurn` (happened in PR #163)
-7. **InvokeAsync in HandleComplete**: `HandleComplete` is already on UI thread via `CompleteResponse→Invoke(SyncContext.Post)`. `InvokeAsync` defers and causes stale "Thinking" renders (happened in PR #153)
+### ⚠️ IsProcessing Cleanup Invariant
+**CRITICAL**: Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (7 PRs, 16 fix/regression cycles). **Read `.claude/skills/processing-state-safety/SKILL.md` before modifying ANY processing path.**
 
 ### Processing Watchdog
 The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has two timeout tiers:
@@ -218,13 +170,7 @@ The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.
   - The session was resumed mid-turn after app restart (`IsResumed`)
   - Tools have been used this turn (`HasUsedToolsThisTurn`) — even between tool rounds when the model is thinking
 
-The 10-second resume timeout was removed — the watchdog handles all stuck-session detection.
-
 When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message.
-
-**Staleness check on restore**: `IsSessionStillProcessing` checks `File.GetLastWriteTimeUtc` of `events.jsonl`. If the file hasn't been modified in over 600s (matching the watchdog tool-execution timeout), the session is treated as idle regardless of the last event type. This prevents sessions from being stuck in "Thinking" forever after long app restarts.
-
-**IsResumed clearing**: After events start flowing on a resumed session (`HasReceivedEventsSinceResume`), the watchdog clears `IsResumed` to transition from 600s → 120s timeout. This is guarded by `!hasActiveTool && !HasUsedToolsThisTurn` to prevent premature downgrade on resumed mid-tool sessions (where the dedup path leaves `ActiveToolCallCount` at 0).
 
 ### Diagnostic Log Tags
 The event diagnostics log (`~/.polypilot/event-diagnostics.log`) uses these tags:
@@ -248,10 +194,6 @@ All mutations to `state.Info.IsProcessing` must be marshaled to the UI thread. S
 - **SessionErrorEvent**: Uses `InvokeOnUI()` to combine OnError + IsProcessing + OnStateChanged
 - **Resume fallback**: Removed (watchdog handles it)
 - **SendAsync error paths**: Run on UI thread inline (in SendPromptAsync's catch blocks)
-
-**Cross-thread volatile fields**: `HasUsedToolsThisTurn` and `HasReceivedEventsSinceResume` are written on SDK background threads and read on the watchdog timer thread. Use `Volatile.Write` on set and `Volatile.Read` on check to ensure visibility on ARM processors.
-
-**ProcessingGeneration guard**: `SyncContext.Post` is async — a new `SendPromptAsync` can execute between the Post() and the callback. Always capture `ProcessingGeneration` before posting, and verify it matches inside the callback before clearing `IsProcessing`. This prevents stale `SessionIdleEvent` callbacks from killing a new turn.
 
 ### Model Selection
 The model is set at **session creation time** via `SessionConfig.Model`. The SDK does **not** support changing models per-message or mid-session — `MessageOptions` has no `Model` property. 
