@@ -678,6 +678,7 @@ public partial class CopilotService
               $"(responseLen={state.CurrentResponse.Length}, thread={Environment.CurrentManagedThreadId})");
         
         CancelProcessingWatchdog(state);
+        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
@@ -1136,6 +1137,19 @@ public partial class CopilotService
                 var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
                 var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
                 var hasActiveTool = Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0;
+
+                // After events have started flowing on a resumed session, clear IsResumed
+                // so the watchdog transitions from the long 600s timeout to the shorter 120s.
+                // Guard: don't clear if tools are active or have been used this turn — between
+                // tool rounds, ActiveToolCallCount returns to 0 when AssistantTurnStartEvent
+                // resets it, but the model may still be reasoning about the next tool call.
+                // HasUsedToolsThisTurn persists across rounds and prevents premature downgrade.
+                if (state.Info.IsResumed && Volatile.Read(ref state.HasReceivedEventsSinceResume)
+                    && !hasActiveTool && !Volatile.Read(ref state.HasUsedToolsThisTurn))
+                {
+                    Debug($"[WATCHDOG] '{sessionName}' clearing IsResumed — events have arrived since resume with no tool activity");
+                    InvokeOnUI(() => state.Info.IsResumed = false);
+                }
                 // Use the longer tool-execution timeout if:
                 // 1. A tool call is actively running (hasActiveTool), OR
                 // 2. This is a resumed session that was mid-turn (agent sessions routinely

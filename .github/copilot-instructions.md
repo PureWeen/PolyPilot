@@ -157,14 +157,10 @@ All three are reset in `SendPromptAsync` (new turn) and cleared in `CompleteResp
 The UI shows: "Sending…" → "Server connected…" → "Thinking…" → "Working · Xm Xs · N tool calls…".
 
 ### Abort Behavior
-`AbortSessionAsync` must clear ALL processing state:
-- `IsProcessing = false`, `IsResumed = false`
-- `ProcessingStartedAt = null`, `ToolCallCount = 0`, `ProcessingPhase = 0`
-- `MessageQueue.Clear()` — prevents queued messages from auto-sending after abort
-- `_queuedImagePaths.TryRemove()` — clears associated image attachments
-- `CancelProcessingWatchdog()` and `ResponseCompletion.TrySetCanceled()`
+`AbortSessionAsync` must clear ALL processing state — see `.claude/skills/processing-state-safety/SKILL.md` for the full cleanup checklist and the 7 paths that clear `IsProcessing`.
 
-In remote mode, the mobile client optimistically clears all fields and delegates to the bridge server.
+### ⚠️ IsProcessing Cleanup Invariant
+**CRITICAL**: Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (7 PRs, 16 fix/regression cycles). **Read `.claude/skills/processing-state-safety/SKILL.md` before modifying ANY processing path.** There are 8 such paths across CopilotService.cs, Events.cs, and Bridge.cs.
 
 ### Processing Watchdog
 The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has two timeout tiers:
@@ -174,9 +170,7 @@ The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.
   - The session was resumed mid-turn after app restart (`IsResumed`)
   - Tools have been used this turn (`HasUsedToolsThisTurn`) — even between tool rounds when the model is thinking
 
-The 10-second resume timeout was removed — the watchdog handles all stuck-session detection.
-
-When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message. All code paths that set `IsProcessing = false` must go through the UI thread.
+When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message.
 
 ### Diagnostic Log Tags
 The event diagnostics log (`~/.polypilot/event-diagnostics.log`) uses these tags:
@@ -189,6 +183,7 @@ The event diagnostics log (`~/.polypilot/event-diagnostics.log`) uses these tags
 - `[ABORT]` — user-initiated abort cleared IsProcessing
 - `[BRIDGE-COMPLETE]` — bridge OnTurnEnd cleared IsProcessing
 - `[INTERRUPTED]` — app restart detected interrupted turn (watchdog timeout after resume)
+- `[WATCHDOG]` — watchdog clearing IsResumed or timing out a stuck session
 
 Every code path that sets `IsProcessing = false` MUST have a diagnostic log entry. This is critical for debugging stuck-session issues.
 

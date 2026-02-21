@@ -602,6 +602,34 @@
           "note": "Processing status text (elapsed time / tool rounds / waiting) should be visible"
         }
       ]
+    },
+    {
+      "id": "stale-session-not-marked-processing-on-restore",
+      "name": "Stale sessions are NOT marked as processing on restore",
+      "description": "When a session's events.jsonl hasn't been modified in over 10 minutes, the session should not be restored with IsProcessing=true, even if the last event was an 'active' type. This prevents hours-old sessions from showing a permanent 'Thinking' indicator.",
+      "unitTestCoverage": [
+        "StuckSessionRecoveryTests.IsSessionStillProcessing_StaleFile_ReturnsFalse",
+        "StuckSessionRecoveryTests.IsSessionStillProcessing_RecentFile_ActiveEvent_ReturnsTrue",
+        "StuckSessionRecoveryTests.IsSessionStillProcessing_RecentFile_IdleEvent_ReturnsFalse",
+        "StuckSessionRecoveryTests.StalenessThreshold_UsesWatchdogToolExecutionTimeout"
+      ],
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.className",
+          "expect": { "contains": "connected" },
+          "note": "App should be connected"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.session-card.processing, .session-item .processing-dot')).length",
+          "note": "Count sessions showing processing state — stale sessions should not be here"
+        },
+        {
+          "action": "note",
+          "text": "Manual verification: check debug info for any sessions with IsProcessing=true where LastUpdatedAt is over 10 minutes old. Such sessions should have been detected as stale during restore."
+        }
+      ]
     }
   ]
 }
