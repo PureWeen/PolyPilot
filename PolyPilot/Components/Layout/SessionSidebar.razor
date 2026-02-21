@@ -588,7 +588,6 @@ else
                     _sidebarRefreshPending = false;
                     _lastSidebarRefresh = DateTime.UtcNow;
                     sessions = CopilotService.GetAllSessions().ToList();
-                    LoadPersistedSessions();
                     StateHasChanged();
                 }));
             }
@@ -596,7 +595,7 @@ else
         }
         _lastSidebarRefresh = now;
         sessions = CopilotService.GetAllSessions().ToList();
-        LoadPersistedSessions();
+        // Don't reload persisted sessions on every state change — it scans all session directories
         InvokeAsync(StateHasChanged);
     }
 
@@ -613,6 +612,7 @@ else
     private void TogglePersistedSessions()
     {
         showPersistedSessions = !showPersistedSessions;
+        if (showPersistedSessions) LoadPersistedSessions();
     }
 
     private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt) args)
