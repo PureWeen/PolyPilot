@@ -729,6 +729,23 @@ public class WsBridgeServer : IDisposable
         var session = _copilot.GetSession(sessionName);
         if (session == null) return;
 
+        // Populate ImageDataUri for Image messages so mobile can render them
+        foreach (var m in session.History)
+        {
+            if (m.MessageType == ChatMessageType.Image && string.IsNullOrEmpty(m.ImageDataUri) && !string.IsNullOrEmpty(m.ImagePath))
+            {
+                try
+                {
+                    if (File.Exists(m.ImagePath))
+                    {
+                        var bytes = await File.ReadAllBytesAsync(m.ImagePath);
+                        m.ImageDataUri = $"data:{ImageMimeType(m.ImagePath)};base64,{Convert.ToBase64String(bytes)}";
+                    }
+                }
+                catch { /* best effort */ }
+            }
+        }
+
         var payload = new SessionHistoryPayload
         {
             SessionName = sessionName,
