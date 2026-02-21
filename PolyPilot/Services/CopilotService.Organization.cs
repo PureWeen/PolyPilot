@@ -369,14 +369,21 @@ public partial class CopilotService
                 .Where(m => m.GroupId == groupId)
                 .Select(m => m.SessionName)
                 .ToList();
+            // Remove org metadata first so UI updates immediately
+            Organization.Sessions.RemoveAll(m => sessionNames.Contains(m.SessionName));
+            // Mark sessions as hidden so ReconcileOrganization won't re-add them
+            // to the default group while CloseSessionAsync is still running
+            foreach (var name in sessionNames)
+            {
+                if (_sessions.TryGetValue(name, out var s))
+                    s.Info.IsHidden = true;
+            }
             // Fire-and-forget: close sessions asynchronously
             _ = Task.Run(async () =>
             {
                 foreach (var name in sessionNames)
                     await CloseSessionAsync(name);
             });
-            // Remove from organization immediately so UI updates
-            Organization.Sessions.RemoveAll(m => sessionNames.Contains(m.SessionName));
         }
         else
         {
@@ -755,7 +762,12 @@ public partial class CopilotService
         var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken);
 
         // Phase 2: Parse task assignments from orchestrator response
-        var assignments = ParseTaskAssignments(planResponse, workerNames);
+        var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
+        // Deduplicate: merge multiple tasks for the same worker into one prompt
+        var assignments = rawAssignments
+            .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
+            .ToList();
         if (assignments.Count == 0)
         {
             // Orchestrator handled it without delegation — add a system note
@@ -768,11 +780,11 @@ public partial class CopilotService
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Dispatching,
             $"Sending tasks to {assignments.Count} worker(s)"));
 
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, null));
+
         var workerTasks = assignments.Select(a =>
             ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
         var results = await Task.WhenAll(workerTasks);
-
-        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, null));
 
         // Phase 4: Synthesize — send worker results back to orchestrator
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
@@ -890,19 +902,12 @@ public partial class CopilotService
 
     private async Task<string> SendPromptAndWaitAsync(string sessionName, string prompt, CancellationToken cancellationToken)
     {
-        if (!_sessions.TryGetValue(sessionName, out var state))
-            throw new InvalidOperationException($"Session '{sessionName}' not found.");
-
-        await SendPromptAsync(sessionName, prompt, cancellationToken: cancellationToken);
-
-        // Wait for the response to complete via the existing ResponseCompletion TCS
-        if (state.ResponseCompletion != null)
-        {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromMinutes(10));
-            return await state.ResponseCompletion.Task.WaitAsync(cts.Token);
-        }
-        return "";
+        // Use SendPromptAsync directly — it already awaits ResponseCompletion internally.
+        // Do NOT capture state and await its TCS separately: reconnection replaces the state
+        // object, orphaning the old TCS and causing a 10-minute hang.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromMinutes(10));
+        return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token);
     }
 
     private string BuildSynthesisPrompt(string originalPrompt, List<WorkerResult> results)
@@ -1187,7 +1192,12 @@ public partial class CopilotService
             }
 
             var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct);
-            var assignments = ParseTaskAssignments(planResponse, workerNames);
+            var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
+            // Deduplicate: merge multiple tasks for the same worker into one prompt
+            var assignments = rawAssignments
+                .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
+                .ToList();
 
             if (assignments.Count == 0)
             {
@@ -1216,10 +1226,10 @@ public partial class CopilotService
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Dispatching,
                 $"Sending tasks to {assignments.Count} worker(s) — {iterDetail}"));
 
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, iterDetail));
+
             var workerTasks = assignments.Select(a => ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, ct));
             var results = await Task.WhenAll(workerTasks);
-
-            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, iterDetail));
 
             // Phase 4: Synthesize + Evaluate
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, iterDetail));

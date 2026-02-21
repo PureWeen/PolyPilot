@@ -1594,7 +1594,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         Session = newSession,
                         Info = state.Info
                     };
-                    newState.ResponseCompletion = new TaskCompletionSource<string>();
+                    newState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
                     // Carry forward ProcessingGeneration so stale callbacks on the
                     // orphaned old state can't pass generation checks on the new state.
                     Interlocked.Exchange(ref newState.ProcessingGeneration,
@@ -2065,6 +2065,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             _queuedImagePaths.TryRemove(name, out _);
         }
+
+        // Clean up per-session model switch lock
+        if (_modelSwitchLocks.TryRemove(name, out var sem))
+            sem.Dispose();
 
         // Track as explicitly closed so merge doesn't re-add from file
         if (state.Info.SessionId != null)

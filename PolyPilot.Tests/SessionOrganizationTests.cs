@@ -2225,8 +2225,11 @@ public class WorktreeTeamAssociationTests
     [Fact]
     public void ShortenPath_LongPath_ShowsLastTwoSegments()
     {
-        var result = ShortenPathHelper(@"C:\Users\shneuvil\.polypilot\worktrees\my-repo");
-        Assert.Equal(@"…\worktrees\my-repo", result);
+        // Use platform-native path to avoid separator mismatch
+        var path = System.IO.Path.Combine("C:", "Users", "shneuvil", ".polypilot", "worktrees", "my-repo");
+        var result = ShortenPathHelper(path);
+        var sep = System.IO.Path.DirectorySeparatorChar;
+        Assert.Equal($"…{sep}worktrees{sep}my-repo", result);
     }
 
     [Fact]
