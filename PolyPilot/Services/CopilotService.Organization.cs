@@ -43,6 +43,7 @@ public partial class CopilotService
 
     public void SaveOrganization()
     {
+        InvalidateOrganizedSessionsCache();
         _saveOrgDebounce?.Dispose();
         _saveOrgDebounce = new Timer(_ => SaveOrganizationCore(), null, 2000, Timeout.Infinite);
     }
@@ -78,10 +79,10 @@ public partial class CopilotService
     {
         var activeNames = _sessions.Where(kv => !kv.Value.Info.IsHidden).Select(kv => kv.Key).ToHashSet();
         
-        // Quick check: skip if active session set hasn't changed
+        // Quick check: skip if active session set hasn't changed (order-independent XOR hash)
         var currentHash = activeNames.Count;
-        foreach (var name in activeNames) currentHash = HashCode.Combine(currentHash, name.GetHashCode());
-        if (currentHash == _lastReconcileSessionHash) return;
+        foreach (var name in activeNames) currentHash ^= name.GetHashCode();
+        if (currentHash == _lastReconcileSessionHash && currentHash != 0) return;
         _lastReconcileSessionHash = currentHash;
         bool changed = false;
 

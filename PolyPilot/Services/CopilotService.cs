@@ -2056,6 +2056,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         FlushSaveActiveSessionsToDisk();
         FlushSaveOrganization();
         _saveUiStateDebounce?.Dispose();
+        _saveUiStateDebounce = null;
+        FlushUiState();
         
         foreach (var state in _sessions.Values)
         {

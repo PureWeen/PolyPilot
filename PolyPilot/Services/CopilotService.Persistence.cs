@@ -236,6 +236,11 @@ public partial class CopilotService
 
     public UiState? LoadUiState()
     {
+        // Return pending (debounced) state if available — avoids stale disk reads
+        lock (_uiStateLock)
+        {
+            if (_pendingUiState != null) return _pendingUiState;
+        }
         try
         {
             if (!File.Exists(UiStateFile)) return null;
