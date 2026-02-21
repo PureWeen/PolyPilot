@@ -6,17 +6,32 @@ namespace PolyPilot.Services;
 public partial class CopilotService
 {
     /// <summary>
-    /// Save active session list to disk so we can restore on relaunch
+    /// Save active session list to disk so we can restore on relaunch.
+    /// Uses a 2-second debounce — multiple calls within the window coalesce into a single write.
     /// </summary>
     private void SaveActiveSessionsToDisk()
     {
-        // Skip persistence in demo mode — demo sessions are transient
-        // and writing here would corrupt the real active-sessions.json
         if (IsDemoMode || IsRestoring) return;
+        _saveSessionsDebounce?.Dispose();
+        _saveSessionsDebounce = new Timer(_ => SaveActiveSessionsToDiskCore(), null, 2000, Timeout.Infinite);
+    }
+
+    /// <summary>
+    /// Flush pending session save immediately (used during dispose/shutdown).
+    /// </summary>
+    private void FlushSaveActiveSessionsToDisk()
+    {
+        _saveSessionsDebounce?.Dispose();
+        _saveSessionsDebounce = null;
+        SaveActiveSessionsToDiskCore();
+    }
+
+    private void SaveActiveSessionsToDiskCore()
+    {
+        if (IsDemoMode) return;
 
         try
         {
-            // Ensure directory exists (required on iOS where it may not exist by default)
             Directory.CreateDirectory(PolyPilotBaseDir);
             
             var entries = _sessions.Values
@@ -33,10 +48,6 @@ public partial class CopilotService
                 })
                 .ToList();
             
-            // Merge: preserve entries from the existing file that aren't currently in memory
-            // but whose session directory still exists on disk. This prevents data loss when
-            // sessions fail to restore (e.g. during mode switches) or if the app is killed
-            // mid-restore.
             try
             {
                 if (File.Exists(ActiveSessionsFile))
@@ -174,7 +185,6 @@ public partial class CopilotService
     {
         try
         {
-            // Ensure directory exists (critical for iOS where it doesn't exist by default)
             Directory.CreateDirectory(PolyPilotBaseDir);
             
             var existing = LoadUiState();
@@ -190,6 +200,31 @@ public partial class CopilotService
                     ? new Dictionary<string, string>(inputModes)
                     : existing?.InputModes ?? new Dictionary<string, string>()
             };
+
+            lock (_uiStateLock)
+            {
+                _pendingUiState = state;
+            }
+            _saveUiStateDebounce?.Dispose();
+            _saveUiStateDebounce = new Timer(_ => FlushUiState(), null, 1000, Timeout.Infinite);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to prepare UI state: {ex.Message}");
+        }
+    }
+
+    private void FlushUiState()
+    {
+        UiState? state;
+        lock (_uiStateLock)
+        {
+            state = _pendingUiState;
+            _pendingUiState = null;
+        }
+        if (state == null) return;
+        try
+        {
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);
         }

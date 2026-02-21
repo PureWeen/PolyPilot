@@ -247,7 +247,7 @@ else
 
         <div class="session-list">
             @{
-                var organized = CopilotService.GetOrganizedSessions().ToList();
+                var organized = CopilotService.GetOrganizedSessions();
                 var showGroupHeaders = CopilotService.HasMultipleGroups;
                 var sessionIndex = 0;
             }

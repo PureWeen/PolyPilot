@@ -155,7 +155,7 @@
                 </div>
             </div>
         </div>
-        @foreach (var (group, groupSessions) in CopilotService.GetOrganizedSessions().ToList())
+        @foreach (var (group, groupSessions) in CopilotService.GetOrganizedSessions())
         {
             var showGroupHeaders = CopilotService.HasMultipleGroups;
             @if (showGroupHeaders)
@@ -2295,7 +2295,7 @@
     public async Task JsSwitchToSessionByIndex(int index)
     {
         // Use organized sessions to match sidebar badge ordering
-        var organized = CopilotService.GetOrganizedSessions().ToList();
+        var organized = CopilotService.GetOrganizedSessions();
         var sessionIndex = 0;
         foreach (var (group, groupSessions) in organized)
         {
