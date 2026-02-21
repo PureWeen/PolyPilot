@@ -1596,7 +1596,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Console.WriteLine($"[DEBUG] Reconnect+retry failed: {retryEx.Message}");
                     OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {Models.ErrorMessageHelper.Humanize(retryEx)}");
                     CancelProcessingWatchdog(state);
+                    FlushCurrentResponse(state);
                     Debug($"[ERROR] '{sessionName}' reconnect+retry failed, clearing IsProcessing");
+                    Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                    state.HasUsedToolsThisTurn = false;
+                    state.Info.IsResumed = false;
                     state.Info.IsProcessing = false;
                     state.Info.ProcessingStartedAt = null;
                     state.Info.ToolCallCount = 0;
@@ -1609,7 +1613,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 OnError?.Invoke(sessionName, $"SendAsync failed: {Models.ErrorMessageHelper.Humanize(ex)}");
                 CancelProcessingWatchdog(state);
+                FlushCurrentResponse(state);
                 Debug($"[ERROR] '{sessionName}' SendAsync failed, clearing IsProcessing (error={ex.Message})");
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                state.HasUsedToolsThisTurn = false;
+                state.Info.IsResumed = false;
                 state.Info.IsProcessing = false;
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ToolCallCount = 0;
@@ -1636,6 +1644,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             if (_sessions.TryGetValue(sessionName, out var remoteState))
             {
                 remoteState.Info.IsProcessing = false;
+                remoteState.Info.IsResumed = false;
                 remoteState.Info.ProcessingStartedAt = null;
                 remoteState.Info.ToolCallCount = 0;
                 remoteState.Info.ProcessingPhase = 0;

@@ -678,6 +678,7 @@ public partial class CopilotService
               $"(responseLen={state.CurrentResponse.Length}, thread={Environment.CurrentManagedThreadId})");
         
         CancelProcessingWatchdog(state);
+        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
