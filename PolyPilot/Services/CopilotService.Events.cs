@@ -279,6 +279,11 @@ public partial class CopilotService
                 if (toolStart.Data == null) break;
                 Interlocked.Increment(ref state.ActiveToolCallCount);
                 Volatile.Write(ref state.HasUsedToolsThisTurn, true);
+                if (state.Info.ProcessingPhase < 3)
+                {
+                    state.Info.ProcessingPhase = 3; // Working
+                    Invoke(() => OnStateChanged?.Invoke());
+                }
                 var startToolName = toolStart.Data.ToolName ?? "unknown";
                 var startCallId = toolStart.Data.ToolCallId ?? "";
                 var toolInput = ExtractToolInput(toolStart.Data);
@@ -315,6 +320,7 @@ public partial class CopilotService
             case ToolExecutionCompleteEvent toolDone:
                 if (toolDone.Data == null) break;
                 Interlocked.Decrement(ref state.ActiveToolCallCount);
+                Interlocked.Increment(ref state.Info._toolCallCount);
                 var completeCallId = toolDone.Data.ToolCallId ?? "";
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
                 var resultStr = FormatToolResult(toolDone.Data!.Result);
@@ -357,11 +363,14 @@ public partial class CopilotService
 
             case AssistantTurnStartEvent:
                 state.HasReceivedDeltasThisTurn = false;
+                var phaseAdvancedToThinking = state.Info.ProcessingPhase < 2;
+                if (phaseAdvancedToThinking) state.Info.ProcessingPhase = 2; // Thinking
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 Invoke(() =>
                 {
                     OnTurnStart?.Invoke(sessionName);
                     OnActivity?.Invoke(sessionName, "🤔 Thinking...");
+                    if (phaseAdvancedToThinking) OnStateChanged?.Invoke();
                 });
                 break;
 
@@ -432,6 +441,7 @@ public partial class CopilotService
                 break;
 
             case SessionUsageInfoEvent usageInfo:
+                if (state.Info.ProcessingPhase < 1) state.Info.ProcessingPhase = 1; // Server acknowledged
                 var uData = usageInfo.Data;
                 if (uData != null)
                 {
@@ -509,6 +519,9 @@ public partial class CopilotService
                     Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
+                    state.Info.ProcessingStartedAt = null;
+                    state.Info.ToolCallCount = 0;
+                    state.Info.ProcessingPhase = 0;
                     OnStateChanged?.Invoke();
                 });
                 break;
@@ -668,6 +681,7 @@ public partial class CopilotService
               $"(responseLen={state.CurrentResponse.Length}, thread={Environment.CurrentManagedThreadId})");
         
         CancelProcessingWatchdog(state);
+        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
@@ -691,6 +705,9 @@ public partial class CopilotService
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false; // After first successful completion, use normal watchdog timeouts
         Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
+        state.Info.ProcessingStartedAt = null;
+        state.Info.ToolCallCount = 0;
+        state.Info.ProcessingPhase = 0;
         state.Info.LastUpdatedAt = DateTime.Now;
         state.ResponseCompletion?.TrySetResult(response);
         OnStateChanged?.Invoke();
@@ -1134,6 +1151,19 @@ public partial class CopilotService
                 var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
                 var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
                 var hasActiveTool = Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0;
+
+                // After events have started flowing on a resumed session, clear IsResumed
+                // so the watchdog transitions from the long 600s timeout to the shorter 120s.
+                // Guard: don't clear if tools are active or have been used this turn — between
+                // tool rounds, ActiveToolCallCount returns to 0 when AssistantTurnStartEvent
+                // resets it, but the model may still be reasoning about the next tool call.
+                // HasUsedToolsThisTurn persists across rounds and prevents premature downgrade.
+                if (state.Info.IsResumed && Volatile.Read(ref state.HasReceivedEventsSinceResume)
+                    && !hasActiveTool && !Volatile.Read(ref state.HasUsedToolsThisTurn))
+                {
+                    Debug($"[WATCHDOG] '{sessionName}' clearing IsResumed — events have arrived since resume with no tool activity");
+                    InvokeOnUI(() => state.Info.IsResumed = false);
+                }
                 // Use the longer tool-execution timeout if:
                 // 1. A tool call is actively running (hasActiveTool), OR
                 // 2. This is a resumed session that was mid-turn (agent sessions routinely
@@ -1175,6 +1205,9 @@ public partial class CopilotService
                         FlushCurrentResponse(state);
                         state.Info.IsProcessing = false;
                         Interlocked.Exchange(ref state.SendingFlag, 0);
+                        state.Info.ProcessingStartedAt = null;
+                        state.Info.ToolCallCount = 0;
+                        state.Info.ProcessingPhase = 0;
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
                         state.ResponseCompletion?.TrySetResult("");

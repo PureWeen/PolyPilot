@@ -85,7 +85,10 @@ public class BridgeMessageTests
             Model = "gpt-5",
             IsProcessing = true,
             MessageCount = 5,
-            QueueCount = 2
+            QueueCount = 2,
+            ProcessingStartedAt = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc),
+            ToolCallCount = 7,
+            ProcessingPhase = 3
         };
         var msg = BridgeMessage.Create(BridgeMessageTypes.SessionsList, payload);
         var json = msg.Serialize();
@@ -97,6 +100,9 @@ public class BridgeMessageTests
         Assert.Contains("\"model\"", json);
         Assert.Contains("\"isProcessing\"", json);
         Assert.Contains("\"messageCount\"", json);
+        Assert.Contains("\"processingStartedAt\"", json);
+        Assert.Contains("\"toolCallCount\"", json);
+        Assert.Contains("\"processingPhase\"", json);
 
         // Verify null values are excluded (JsonIgnoreCondition.WhenWritingNull)
         Assert.DoesNotContain("\"sessionId\"", json);
@@ -164,6 +170,7 @@ public class BridgePayloadTests
     [Fact]
     public void SessionsListPayload_RoundTrip()
     {
+        var startedAt = new DateTime(2025, 6, 15, 10, 30, 0, DateTimeKind.Utc);
         var payload = new SessionsListPayload
         {
             ActiveSession = "main",
@@ -177,7 +184,10 @@ public class BridgePayloadTests
                     MessageCount = 10,
                     IsProcessing = false,
                     SessionId = "abc-123",
-                    QueueCount = 0
+                    QueueCount = 0,
+                    ProcessingStartedAt = null,
+                    ToolCallCount = 0,
+                    ProcessingPhase = 0
                 },
                 new()
                 {
@@ -186,7 +196,10 @@ public class BridgePayloadTests
                     CreatedAt = new DateTime(2025, 1, 1, 13, 0, 0, DateTimeKind.Utc),
                     MessageCount = 3,
                     IsProcessing = true,
-                    QueueCount = 2
+                    QueueCount = 2,
+                    ProcessingStartedAt = startedAt,
+                    ToolCallCount = 5,
+                    ProcessingPhase = 3
                 }
             }
         };
@@ -202,6 +215,14 @@ public class BridgePayloadTests
         Assert.Equal("claude-opus-4.6", restoredPayload.Sessions[0].Model);
         Assert.True(restoredPayload.Sessions[1].IsProcessing);
         Assert.Equal(2, restoredPayload.Sessions[1].QueueCount);
+
+        // Verify processing status fields survive round-trip
+        Assert.Null(restoredPayload.Sessions[0].ProcessingStartedAt);
+        Assert.Equal(0, restoredPayload.Sessions[0].ToolCallCount);
+        Assert.Equal(0, restoredPayload.Sessions[0].ProcessingPhase);
+        Assert.Equal(startedAt, restoredPayload.Sessions[1].ProcessingStartedAt);
+        Assert.Equal(5, restoredPayload.Sessions[1].ToolCallCount);
+        Assert.Equal(3, restoredPayload.Sessions[1].ProcessingPhase);
     }
 
     [Fact]

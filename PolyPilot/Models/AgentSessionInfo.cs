@@ -20,6 +20,16 @@ public class AgentSessionInfo
     // Timestamp of last state change (message received, turn end, etc.)
     public DateTime LastUpdatedAt { get; set; } = DateTime.Now;
     
+    // Processing progress tracking
+    public DateTime? ProcessingStartedAt { get; set; }
+    public int _toolCallCount;
+    public int ToolCallCount { get => Volatile.Read(ref _toolCallCount); set => Volatile.Write(ref _toolCallCount, value); }
+    /// <summary>
+    /// Processing phase: 0=Sending, 1=ServerConnected (UsageInfo received),
+    /// 2=Thinking (TurnStart), 3=Working (tools running)
+    /// </summary>
+    public int ProcessingPhase { get; set; }
+    
     // Accumulated token usage across all turns
     public int TotalInputTokens { get; set; }
     public int TotalOutputTokens { get; set; }

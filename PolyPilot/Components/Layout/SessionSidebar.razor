@@ -344,7 +344,7 @@ else
 
         <div class="session-list">
             @{
-                var organized = CopilotService.GetOrganizedSessions().ToList();
+                var organized = CopilotService.GetOrganizedSessions();
                 var showGroupHeaders = CopilotService.HasMultipleGroups;
                 var sessionIndex = 0;
             }
@@ -788,7 +788,6 @@ else
                     _sidebarRefreshPending = false;
                     _lastSidebarRefresh = DateTime.UtcNow;
                     sessions = CopilotService.GetAllSessions().ToList();
-                    LoadPersistedSessions();
                     StateHasChanged();
                 }));
             }
@@ -796,7 +795,7 @@ else
         }
         _lastSidebarRefresh = now;
         sessions = CopilotService.GetAllSessions().ToList();
-        LoadPersistedSessions();
+        // Don't reload persisted sessions on every state change — it scans all session directories
         InvokeAsync(StateHasChanged);
     }
 
@@ -813,6 +812,7 @@ else
     private void TogglePersistedSessions()
     {
         showPersistedSessions = !showPersistedSessions;
+        if (showPersistedSessions) LoadPersistedSessions();
     }
 
     private async Task HandleCreateGroup(GroupPreset preset)
@@ -1011,8 +1011,8 @@ else
         CopilotService.SwitchSession(name);
         var session = CopilotService.GetSession(name);
         if (session != null) session.LastReadMessageCount = session.History.Count;
-        // Fire-and-forget to avoid blocking UI
-        _ = Task.Run(() => CopilotService.SaveUiState("/", name));
+        // SaveUiState is debounced (in-memory + timer) — no need for Task.Run
+        CopilotService.SaveUiState("/", name);
         await OnSessionSelected.InvokeAsync();
         if (currentPage != "/")
             Nav.NavigateTo("/");
@@ -1241,15 +1241,18 @@ else
         if (isAddingRepo || string.IsNullOrWhiteSpace(newRepoUrl)) return;
         addRepoError = null;
 
-        // Check if repo already exists
-        var normalizedUrl = RepoManager.NormalizeRepoUrl(newRepoUrl.Trim());
-        var id = RepoManager.RepoIdFromUrl(normalizedUrl);
-        var existing = RepoManager.Repositories.FirstOrDefault(r => r.Id == id);
-        if (existing != null)
+        // Check if repo already exists (local mode only — in remote mode the server handles duplicates)
+        if (!CopilotService.IsRemoteMode)
         {
-            confirmRepoReplace = true;
-            confirmRepoName = existing.Name;
-            return;
+            var normalizedUrl = RepoManager.NormalizeRepoUrl(newRepoUrl.Trim());
+            var id = RepoManager.RepoIdFromUrl(normalizedUrl);
+            var existing = RepoManager.Repositories.FirstOrDefault(r => r.Id == id);
+            if (existing != null)
+            {
+                confirmRepoReplace = true;
+                confirmRepoName = existing.Name;
+                return;
+            }
         }
 
         await DoAddRepository();
@@ -1268,12 +1271,11 @@ else
         addRepoProgress = null;
         try
         {
-            var repo = await RepoManager.AddRepositoryAsync(newRepoUrl.Trim(), progress =>
+            await CopilotService.AddRepoRemoteAsync(newRepoUrl.Trim(), progress =>
             {
                 addRepoProgress = progress;
                 InvokeAsync(StateHasChanged);
             });
-            CopilotService.GetOrCreateRepoGroup(repo.Id, repo.Name);
             showAddRepo = false;
             newRepoUrl = "";
         }
@@ -1293,8 +1295,7 @@ else
         confirmRemoveRepoId = null;
         try
         {
-            await RepoManager.RemoveRepositoryAsync(repoId, deleteFromDisk);
-            CopilotService.DeleteGroup(groupId);
+            await CopilotService.RemoveRepoRemoteAsync(repoId, groupId, deleteFromDisk);
         }
         catch (Exception ex)
         {
@@ -1349,8 +1350,20 @@ else
         StateHasChanged();
     }
 
-    private void OpenBugReportForSession(string sessionName)
+    private async void OpenBugReportForSession(string sessionName)
     {
+        if (PlatformHelper.IsMobile)
+        {
+            // On mobile, skip the inline form and open GitHub directly
+            var debugInfo = GetBugReportDebugInfo();
+            var sessionLabel = $" [{sessionName}]";
+            var body = $"## Description\n(Describe the issue here)\n\n## Session\n{sessionName}\n\n## Debug Info\n```\n{debugInfo}\n```";
+            var title = Uri.EscapeDataString($"[Bug Report]{sessionLabel}");
+            var issueBody = Uri.EscapeDataString(body);
+            var url = $"https://github.com/PureWeen/PolyPilot/issues/new?title={title}&body={issueBody}&labels=bug";
+            try { await Launcher.Default.OpenAsync(new Uri(url)); } catch { }
+            return;
+        }
         OpenBugReport();
         selectedBugSession = sessionName;
         StateHasChanged();
@@ -1441,35 +1454,48 @@ else
             var title = bugDescription.Trim().Split('\n')[0];
             if (title.Length > 80) title = title[..80];
 
-            var psi = new System.Diagnostics.ProcessStartInfo("gh",
-                $"issue create --repo PureWeen/PolyPilot --title \"[Bug Report]{EscapeForShell(sessionLabel)} {EscapeForShell(title)}\" --body \"{EscapeForShell(body)}\" --label bug")
+            if (PlatformHelper.IsMobile)
             {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            var process = System.Diagnostics.Process.Start(psi);
-            if (process != null)
-            {
-                var output = await process.StandardOutput.ReadToEndAsync();
-                var error = await process.StandardError.ReadToEndAsync();
-                await process.WaitForExitAsync();
-
-                if (process.ExitCode == 0)
-                {
-                    footerStatus = $"✓ {output.Trim()}";
-                    bugDescription = "";
-                }
-                else
-                {
-                    footerStatus = $"✗ {error.Trim()}";
-                }
+                // Mobile: open browser to pre-filled GitHub issue
+                var issueTitle = Uri.EscapeDataString($"[Bug Report]{sessionLabel} {title}");
+                var issueBody = Uri.EscapeDataString(body);
+                var url = $"https://github.com/PureWeen/PolyPilot/issues/new?title={issueTitle}&body={issueBody}&labels=bug";
+                await Launcher.Default.OpenAsync(new Uri(url));
+                footerStatus = "✓ Opened in browser";
+                bugDescription = "";
             }
             else
             {
-                footerStatus = "✗ Could not start gh CLI";
+                var psi = new System.Diagnostics.ProcessStartInfo("gh",
+                    $"issue create --repo PureWeen/PolyPilot --title \"[Bug Report]{EscapeForShell(sessionLabel)} {EscapeForShell(title)}\" --body \"{EscapeForShell(body)}\" --label bug")
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                var process = System.Diagnostics.Process.Start(psi);
+                if (process != null)
+                {
+                    var output = await process.StandardOutput.ReadToEndAsync();
+                    var error = await process.StandardError.ReadToEndAsync();
+                    await process.WaitForExitAsync();
+
+                    if (process.ExitCode == 0)
+                    {
+                        footerStatus = $"✓ {output.Trim()}";
+                        bugDescription = "";
+                    }
+                    else
+                    {
+                        footerStatus = $"✗ {error.Trim()}";
+                    }
+                }
+                else
+                {
+                    footerStatus = "✗ Could not start gh CLI";
+                }
             }
         }
         catch (Exception ex)

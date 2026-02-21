@@ -93,6 +93,9 @@
                          ToolActivities="@ToolActivities"
                          ActivityText="@ActivityText"
                          IsProcessing="Session.IsProcessing"
+                         ProcessingStartedAt="Session.ProcessingStartedAt"
+                         ToolCallCount="Session.ToolCallCount"
+                         ProcessingPhase="Session.ProcessingPhase"
                          Compact="true"
                          UserAvatarUrl="@UserAvatarUrl"
                          Layout="@Layout"
@@ -138,7 +141,7 @@
 
     <div class="card-input">
         <input type="text" id="input-@Session.Name.Replace(" ", "-")"
-               autocorrect="off" autocapitalize="off" spellcheck="false"
+               autocomplete="off"
                placeholder="@(Session.IsProcessing ? "Queue a message…" : $"Send to {Session.Name}...")"
                @onkeyup="HandleInputKeyUp" />
         @if (Session.IsProcessing)

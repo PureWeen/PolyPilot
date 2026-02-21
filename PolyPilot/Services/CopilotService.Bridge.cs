@@ -127,16 +127,23 @@ public partial class CopilotService
         _bridgeClient.OnTurnEnd += (s) =>
         {
             _remoteStreamingSessions.TryRemove(s, out _);
-            var session = GetRemoteSession(s);
-            if (session != null)
+            InvokeOnUI(() =>
             {
-                Debug($"[BRIDGE-COMPLETE] '{session.Name}' OnTurnEnd cleared IsProcessing");
-                session.IsProcessing = false;
-                // Mark last assistant message as complete
-                var lastAssistant = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
-                if (lastAssistant != null) { lastAssistant.IsComplete = true; lastAssistant.Model = session.Model; }
-            }
-            InvokeOnUI(() => OnTurnEnd?.Invoke(s));
+                var session = GetRemoteSession(s);
+                if (session != null)
+                {
+                    Debug($"[BRIDGE-COMPLETE] '{session.Name}' OnTurnEnd cleared IsProcessing");
+                    session.IsProcessing = false;
+                    session.IsResumed = false;
+                    session.ProcessingStartedAt = null;
+                    session.ToolCallCount = 0;
+                    session.ProcessingPhase = 0;
+                    // Mark last assistant message as complete
+                    var lastAssistant = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
+                    if (lastAssistant != null) { lastAssistant.IsComplete = true; lastAssistant.Model = session.Model; }
+                }
+                OnTurnEnd?.Invoke(s);
+            });
         };
         _bridgeClient.OnSessionComplete += (s, sum) => InvokeOnUI(() => OnSessionComplete?.Invoke(s, sum));
         _bridgeClient.OnError += (s, e) => InvokeOnUI(() => OnError?.Invoke(s, e));
@@ -244,6 +251,9 @@ public partial class CopilotService
             if (_sessions.TryGetValue(rs.Name, out var state))
             {
                 state.Info.IsProcessing = rs.IsProcessing;
+                state.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
+                state.Info.ToolCallCount = rs.ToolCallCount;
+                state.Info.ProcessingPhase = rs.ProcessingPhase;
                 state.Info.MessageCount = rs.MessageCount;
                 if (!string.IsNullOrEmpty(rs.Model))
                     state.Info.Model = rs.Model;
@@ -329,4 +339,39 @@ public partial class CopilotService
 
     private AgentSessionInfo? GetRemoteSession(string name) =>
         _sessions.TryGetValue(name, out var state) ? state.Info : null;
+
+    // --- Remote repo operations ---
+
+    public async Task<(string RepoId, string RepoName)?> AddRepoRemoteAsync(string url, Action<string>? onProgress = null, CancellationToken ct = default)
+    {
+        if (!IsRemoteMode)
+        {
+            var repo = await _repoManager.AddRepositoryAsync(url, onProgress, ct);
+            GetOrCreateRepoGroup(repo.Id, repo.Name);
+            return (repo.Id, repo.Name);
+        }
+
+        var result = await _bridgeClient.AddRepoAsync(url, onProgress, ct);
+        // Server already created the group — request updated organization
+        try { await _bridgeClient.RequestSessionsAsync(ct); } catch { }
+        return (result.RepoId, result.RepoName);
+    }
+
+    public async Task RemoveRepoRemoteAsync(string repoId, string groupId, bool deleteFromDisk, CancellationToken ct = default)
+    {
+        if (!IsRemoteMode)
+        {
+            await _repoManager.RemoveRepositoryAsync(repoId, deleteFromDisk, ct);
+            DeleteGroup(groupId);
+            return;
+        }
+
+        await _bridgeClient.RemoveRepoAsync(repoId, deleteFromDisk, groupId, ct);
+        try { await _bridgeClient.RequestSessionsAsync(ct); } catch { }
+    }
+
+    public bool RepoExistsById(string repoId)
+    {
+        return _repoManager.Repositories.Any(r => r.Id == repoId);
+    }
 }

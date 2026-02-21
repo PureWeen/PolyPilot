@@ -113,12 +113,28 @@ public partial class CopilotService
 
     public void SaveOrganization()
     {
+        InvalidateOrganizedSessionsCache();
+        // Snapshot JSON on caller's thread to avoid concurrent mutation during serialization
+        string json;
+        try { json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true }); }
+        catch { return; }
+        _saveOrgDebounce?.Dispose();
+        _saveOrgDebounce = new Timer(_ => WriteOrgFile(json), null, 2000, Timeout.Infinite);
+    }
+
+    private void FlushSaveOrganization()
+    {
+        _saveOrgDebounce?.Dispose();
+        _saveOrgDebounce = null;
+        SaveOrganizationCore();
+    }
+
+    private void SaveOrganizationCore()
+    {
         try
         {
-            // Ensure directory exists (required on iOS where it may not exist by default)
-            Directory.CreateDirectory(PolyPilotBaseDir);
             var json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(OrganizationFile, json);
+            WriteOrgFile(json);
         }
         catch (Exception ex)
         {
@@ -126,13 +142,34 @@ public partial class CopilotService
         }
     }
 
+    private void WriteOrgFile(string json)
+    {
+        try
+        {
+            Directory.CreateDirectory(PolyPilotBaseDir);
+            File.WriteAllText(OrganizationFile, json);
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to write organization file: {ex.Message}");
+        }
+    }
+
     /// <summary>
     /// Ensure every active session has a SessionMeta entry and clean up orphans.
     /// Only prunes metadata for sessions whose on-disk session directory no longer exists.
+    /// Skips work if the active session set hasn't changed since last reconciliation.
     /// </summary>
+    private int _lastReconcileSessionHash;
     internal void ReconcileOrganization()
     {
         var activeNames = _sessions.Where(kv => !kv.Value.Info.IsHidden).Select(kv => kv.Key).ToHashSet();
+        
+        // Quick check: skip if active session set hasn't changed (order-independent additive hash)
+        var currentHash = activeNames.Count;
+        unchecked { foreach (var name in activeNames) currentHash += name.GetHashCode() * 31; }
+        if (currentHash == _lastReconcileSessionHash && currentHash != 0) return;
+        _lastReconcileSessionHash = currentHash;
         bool changed = false;
 
         // Build lookup of multi-agent group IDs so we can protect their sessions
@@ -396,11 +433,25 @@ public partial class CopilotService
 
     /// <summary>
     /// Returns sessions organized by group, with pinned sessions first and sorted by the current sort mode.
+    /// Results are cached and invalidated when sessions or organization change.
     /// </summary>
-    public IEnumerable<(SessionGroup Group, List<AgentSessionInfo> Sessions)> GetOrganizedSessions()
+    private List<(SessionGroup Group, List<AgentSessionInfo> Sessions)>? _organizedSessionsCache;
+    private int _organizedSessionsCacheKey;
+
+    public void InvalidateOrganizedSessionsCache() => _organizedSessionsCache = null;
+
+    public IReadOnlyList<(SessionGroup Group, List<AgentSessionInfo> Sessions)> GetOrganizedSessions()
     {
+        // Compute a lightweight cache key from session count + group count + sort mode
+        var key = HashCode.Combine(_sessions.Count, Organization.Groups.Count, Organization.SortMode);
+        foreach (var s in _sessions) key = HashCode.Combine(key, s.Key.GetHashCode(), s.Value.Info.IsProcessing ? 1 : 0);
+
+        if (_organizedSessionsCache != null && key == _organizedSessionsCacheKey)
+            return _organizedSessionsCache;
+
         var metas = Organization.Sessions.ToDictionary(m => m.SessionName);
         var allSessions = GetAllSessions().ToList();
+        var result = new List<(SessionGroup Group, List<AgentSessionInfo> Sessions)>();
 
         foreach (var group in Organization.Groups.OrderBy(g => g.SortOrder))
         {
@@ -408,14 +459,17 @@ public partial class CopilotService
                 .Where(s => metas.TryGetValue(s.Name, out var m) && m.GroupId == group.Id)
                 .ToList();
 
-            // Pinned first, then apply sort mode within each partition
             var sorted = groupSessions
                 .OrderByDescending(s => metas.TryGetValue(s.Name, out var m) && m.IsPinned)
                 .ThenBy(s => ApplySort(s, metas))
                 .ToList();
 
-            yield return (group, sorted);
+            result.Add((group, sorted));
         }
+
+        _organizedSessionsCache = result;
+        _organizedSessionsCacheKey = key;
+        return result;
     }
 
     private object ApplySort(AgentSessionInfo session, Dictionary<string, SessionMeta> metas)

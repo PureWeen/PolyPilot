@@ -58,7 +58,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
 
         Assert.Equal(TunnelState.NotStarted, service.State);
         Assert.Null(service.TunnelUrl);
@@ -179,7 +179,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         InvokeTryExtractInfo(service, "Connect via browser: https://my-tunnel.devtunnels.ms", tcs);
@@ -194,7 +194,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         InvokeTryExtractInfo(service, "Ready at https://abc.devtunnels.ms", tcs);
@@ -209,7 +209,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         InvokeTryExtractInfo(service, "Tunnel ID: my-cool-tunnel", tcs);
@@ -224,7 +224,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         InvokeTryExtractInfo(service, "Hosting port for tunnel: alt-id-123", tcs);
@@ -237,7 +237,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         // First line: tunnel ID
@@ -257,7 +257,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         InvokeTryExtractInfo(service, "Connect via browser: https://first.devtunnels.ms", tcs);
@@ -274,7 +274,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         InvokeTryExtractInfo(service, "Tunnel ID: first-id", tcs);
@@ -289,7 +289,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         InvokeTryExtractInfo(service, "Just some random log output", tcs);
@@ -304,7 +304,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         InvokeTryExtractInfo(service, "Connect via browser: https://trimtest.devtunnels.ms/", tcs);
@@ -319,7 +319,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
 
         // Simulate some state via TryExtractInfo
         var tcs = new TaskCompletionSource<bool>();
@@ -340,7 +340,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
 
         int stateChangedCount = 0;
         service.OnStateChanged += () => stateChangedCount++;
@@ -358,7 +358,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
 
         int stateChangedCount = 0;
         service.OnStateChanged += () => stateChangedCount++;
@@ -534,7 +534,7 @@ public class DevTunnelServiceTests
 
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         foreach (var line in lines)
@@ -550,7 +550,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         InvokeTryExtractInfo(service,
@@ -627,7 +627,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
 
         // Set state to Running via reflection
         SetState(service, TunnelState.Running);
@@ -645,7 +645,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         // This line matches both ConnectUrlRegex and TunnelUrlRegex
@@ -663,7 +663,7 @@ public class DevTunnelServiceTests
     {
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
-        var service = new DevTunnelService(bridge, copilot);
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
         var tcs = new TaskCompletionSource<bool>();
 
         // This matches TunnelIdRegex directly

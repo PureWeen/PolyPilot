@@ -18,6 +18,7 @@ public class WsBridgeServer : IDisposable
     private int _bridgePort;
     private CopilotService? _copilot;
     private FiestaService? _fiestaService;
+    private RepoManager? _repoManager;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
 
@@ -135,6 +136,11 @@ public class WsBridgeServer : IDisposable
     public void SetFiestaService(FiestaService fiestaService)
     {
         _fiestaService ??= fiestaService;
+    }
+
+    public void SetRepoManager(RepoManager repoManager)
+    {
+        _repoManager ??= repoManager;
     }
 
     public void Stop()
@@ -568,6 +574,72 @@ public class WsBridgeServer : IDisposable
                     }
                     break;
 
+                case BridgeMessageTypes.ListRepos:
+                    if (_repoManager != null)
+                    {
+                        var listReq = msg.GetPayload<ListReposPayload>();
+                        var repos = _repoManager.Repositories.Select(r => new RepoSummary
+                        {
+                            Id = r.Id, Name = r.Name, Url = r.Url
+                        }).ToList();
+                        await SendToClientAsync(clientId, ws,
+                            BridgeMessage.Create(BridgeMessageTypes.ReposList,
+                                new ReposListPayload { RequestId = listReq?.RequestId, Repos = repos }), ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.AddRepo:
+                    var addReq = msg.GetPayload<AddRepoPayload>();
+                    if (addReq != null && _repoManager != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var repo = await _repoManager.AddRepositoryAsync(addReq.Url, progress =>
+                                {
+                                    _ = SendToClientAsync(clientId, ws,
+                                        BridgeMessage.Create(BridgeMessageTypes.RepoProgress,
+                                            new RepoProgressPayload { RequestId = addReq.RequestId, Message = progress }), ct);
+                                }, ct);
+                                _copilot?.GetOrCreateRepoGroup(repo.Id, repo.Name);
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.RepoAdded,
+                                        new RepoAddedPayload
+                                        {
+                                            RequestId = addReq.RequestId,
+                                            RepoId = repo.Id,
+                                            RepoName = repo.Name,
+                                            Url = repo.Url
+                                        }), ct);
+                            }
+                            catch (Exception ex)
+                            {
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.RepoError,
+                                        new RepoErrorPayload { RequestId = addReq.RequestId, Error = ex.Message }), ct);
+                            }
+                        }, ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.RemoveRepo:
+                    var removeReq = msg.GetPayload<RemoveRepoPayload>();
+                    if (removeReq != null && _repoManager != null)
+                    {
+                        try
+                        {
+                            await _repoManager.RemoveRepositoryAsync(removeReq.RepoId, removeReq.DeleteFromDisk, ct);
+                            if (!string.IsNullOrEmpty(removeReq.GroupId))
+                                _copilot?.DeleteGroup(removeReq.GroupId);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[WsBridgeServer] RemoveRepo error: {ex.Message}");
+                        }
+                    }
+                    break;
+
                 case BridgeMessageTypes.FiestaAssign:
                 case BridgeMessageTypes.FiestaPing:
                     if (_fiestaService != null)
@@ -662,6 +734,9 @@ public class WsBridgeServer : IDisposable
             SessionId = s.SessionId,
             WorkingDirectory = s.WorkingDirectory,
             QueueCount = s.MessageQueue.Count,
+            ProcessingStartedAt = s.ProcessingStartedAt,
+            ToolCallCount = s.ToolCallCount,
+            ProcessingPhase = s.ProcessingPhase,
         }).ToList();
 
         return new SessionsListPayload

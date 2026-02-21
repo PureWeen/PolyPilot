@@ -23,6 +23,12 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, List<List<string>>> _queuedImagePaths = new();
     private readonly object _imageQueueLock = new();
     private static readonly object _diagnosticLogLock = new();
+    // Debounce timers for disk I/O — coalesce rapid-fire saves into a single write
+    private Timer? _saveSessionsDebounce;
+    private Timer? _saveOrgDebounce;
+    private Timer? _saveUiStateDebounce;
+    private UiState? _pendingUiState;
+    private readonly object _uiStateLock = new();
     private readonly IChatDatabase _chatDb;
     private readonly IServerManager _serverManager;
     private readonly IWsBridgeClient _bridgeClient;
@@ -1505,6 +1511,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         try
         {
         state.Info.IsProcessing = true;
+        state.Info.ProcessingStartedAt = DateTime.UtcNow;
+        state.Info.ToolCallCount = 0;
+        state.Info.ProcessingPhase = 0; // Sending
         Interlocked.Increment(ref state.ProcessingGeneration);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
@@ -1615,8 +1624,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Console.WriteLine($"[DEBUG] Reconnect+retry failed: {retryEx.Message}");
                     OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {Models.ErrorMessageHelper.Humanize(retryEx)}");
                     CancelProcessingWatchdog(state);
+                    FlushCurrentResponse(state);
                     Debug($"[ERROR] '{sessionName}' reconnect+retry failed, clearing IsProcessing");
+                    Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                    state.HasUsedToolsThisTurn = false;
+                    state.Info.IsResumed = false;
                     state.Info.IsProcessing = false;
+                    state.Info.ProcessingStartedAt = null;
+                    state.Info.ToolCallCount = 0;
+                    state.Info.ProcessingPhase = 0;
                     OnStateChanged?.Invoke();
                     throw;
                 }
@@ -1625,8 +1641,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 OnError?.Invoke(sessionName, $"SendAsync failed: {Models.ErrorMessageHelper.Humanize(ex)}");
                 CancelProcessingWatchdog(state);
+                FlushCurrentResponse(state);
                 Debug($"[ERROR] '{sessionName}' SendAsync failed, clearing IsProcessing (error={ex.Message})");
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                state.HasUsedToolsThisTurn = false;
+                state.Info.IsResumed = false;
                 state.Info.IsProcessing = false;
+                state.Info.ProcessingStartedAt = null;
+                state.Info.ToolCallCount = 0;
+                state.Info.ProcessingPhase = 0;
                 OnStateChanged?.Invoke();
                 throw;
             }
@@ -1652,10 +1675,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (IsRemoteMode)
         {
             await _bridgeClient.AbortSessionAsync(sessionName);
-            // Optimistically clear processing state
+            // Optimistically clear processing state and queue
             if (_sessions.TryGetValue(sessionName, out var remoteState))
             {
                 remoteState.Info.IsProcessing = false;
+                remoteState.Info.IsResumed = false;
+                remoteState.Info.ProcessingStartedAt = null;
+                remoteState.Info.ToolCallCount = 0;
+                remoteState.Info.ProcessingPhase = 0;
+                remoteState.Info.MessageQueue.Clear();
                 OnStateChanged?.Invoke();
             }
             return;
@@ -1696,8 +1724,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Debug($"[ABORT] '{sessionName}' user abort, clearing IsProcessing");
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false;
+        state.Info.ProcessingStartedAt = null;
+        state.Info.ToolCallCount = 0;
+        state.Info.ProcessingPhase = 0;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
+        // Clear queued messages so they don't auto-send after abort
+        state.Info.MessageQueue.Clear();
+        _queuedImagePaths.TryRemove(sessionName, out _);
         CancelProcessingWatchdog(state);
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();
@@ -1741,6 +1775,37 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!IsRemoteMode || !_bridgeClient.IsConnected)
             return null;
         return await _bridgeClient.ListDirectoriesAsync(path, ct);
+    }
+
+    /// <summary>
+    /// Add a repository. In remote mode, delegates to bridge client; otherwise should be called via direct RepoManager access from UI.
+    /// </summary>
+    public async Task<RepoAddedPayload> AddRepositoryViaBridgeAsync(string url, Action<string>? onProgress = null, CancellationToken ct = default)
+    {
+        if (!IsRemoteMode || !_bridgeClient.IsConnected)
+            throw new InvalidOperationException("AddRepositoryViaBridgeAsync only works in remote mode with active bridge connection.");
+        return await _bridgeClient.AddRepoAsync(url, onProgress, ct);
+    }
+
+    /// <summary>
+    /// Remove a repository. In remote mode, delegates to bridge client; otherwise should be called via direct RepoManager access from UI.
+    /// </summary>
+    public async Task RemoveRepositoryViaBridgeAsync(string repoId, bool deleteFromDisk, string? groupId = null, CancellationToken ct = default)
+    {
+        if (!IsRemoteMode || !_bridgeClient.IsConnected)
+            throw new InvalidOperationException("RemoveRepositoryViaBridgeAsync only works in remote mode with active bridge connection.");
+        await _bridgeClient.RemoveRepoAsync(repoId, deleteFromDisk, groupId, ct);
+    }
+
+    /// <summary>
+    /// Request repos list from remote server.
+    /// </summary>
+    public async Task RequestReposListAsync(CancellationToken ct = default)
+    {
+        if (IsRemoteMode && _bridgeClient.IsConnected)
+        {
+            await _bridgeClient.RequestReposAsync(ct);
+        }
     }
 
     public void RemoveQueuedMessage(string sessionName, int index)
@@ -2032,7 +2097,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public async ValueTask DisposeAsync()
     {
-        SaveActiveSessionsToDisk();
+        // Flush any pending debounced writes immediately
+        FlushSaveActiveSessionsToDisk();
+        FlushSaveOrganization();
+        _saveUiStateDebounce?.Dispose();
+        _saveUiStateDebounce = null;
+        FlushUiState();
         
         foreach (var state in _sessions.Values)
         {

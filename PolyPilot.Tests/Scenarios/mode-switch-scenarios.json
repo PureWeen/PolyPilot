@@ -539,6 +539,97 @@
           "note": "No sessions should be stuck in processing state after relaunch"
         }
       ]
+    },
+    {
+      "id": "abort-clears-queue-and-status",
+      "name": "Stop button clears message queue and processing status",
+      "description": "When user clicks Stop on an active session, the message queue is cleared so no more messages auto-send, and processing status fields (elapsed time, tool rounds) are reset.",
+      "category": "session-management",
+      "unitTestCoverage": [
+        "ProcessingWatchdogTests.AbortSessionAsync_ClearsQueueAndProcessingStatus",
+        "ProcessingWatchdogTests.AbortSessionAsync_WorksRegardlessOfGeneration"
+      ],
+      "steps": [
+        {
+          "action": "note",
+          "note": "A session must be actively processing (IsProcessing=true)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.send-btn.stop-btn') !== null",
+          "expect": { "equals": "true" },
+          "note": "Stop button should be visible for processing sessions"
+        },
+        {
+          "action": "click",
+          "target": ".send-btn.stop-btn",
+          "note": "Click the stop button"
+        },
+        {
+          "action": "evaluate",
+          "script": "!document.querySelector('.expanded-card.processing')",
+          "expect": { "equals": "true" },
+          "note": "Session card should no longer show processing state after stop"
+        }
+      ]
+    },
+    {
+      "id": "processing-status-indicator",
+      "name": "Processing sessions show elapsed time and tool round count",
+      "description": "When a session is processing, the UI shows a status indicator with elapsed time and tool round count. Before the first SDK event, it shows 'Waiting for first response'. Processing status fields are synced via bridge to mobile.",
+      "category": "session-management",
+      "unitTestCoverage": [
+        "AgentSessionInfoTests.NewSession_HasDefaultProcessingStatusFields",
+        "AgentSessionInfoTests.ProcessingStatusFields_CanBeSetAndCleared",
+        "BridgeMessageTests.Serialize_CamelCaseNaming",
+        "BridgeMessageTests.SessionsListPayload_RoundTrip"
+      ],
+      "steps": [
+        {
+          "action": "note",
+          "note": "A session must be actively processing"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.expanded-card.processing') !== null",
+          "expect": { "equals": "true" },
+          "note": "Active session should show processing card state"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.processing-status') !== null || document.querySelector('.chat-message-list')?.textContent?.includes('Working') || document.querySelector('.chat-message-list')?.textContent?.includes('Waiting')",
+          "expect": { "equals": "true" },
+          "note": "Processing status text (elapsed time / tool rounds / waiting) should be visible"
+        }
+      ]
+    },
+    {
+      "id": "stale-session-not-marked-processing-on-restore",
+      "name": "Stale sessions are NOT marked as processing on restore",
+      "description": "When a session's events.jsonl hasn't been modified in over 10 minutes, the session should not be restored with IsProcessing=true, even if the last event was an 'active' type. This prevents hours-old sessions from showing a permanent 'Thinking' indicator.",
+      "unitTestCoverage": [
+        "StuckSessionRecoveryTests.IsSessionStillProcessing_StaleFile_ReturnsFalse",
+        "StuckSessionRecoveryTests.IsSessionStillProcessing_RecentFile_ActiveEvent_ReturnsTrue",
+        "StuckSessionRecoveryTests.IsSessionStillProcessing_RecentFile_IdleEvent_ReturnsFalse",
+        "StuckSessionRecoveryTests.StalenessThreshold_UsesWatchdogToolExecutionTimeout"
+      ],
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.className",
+          "expect": { "contains": "connected" },
+          "note": "App should be connected"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.session-card.processing, .session-item .processing-dot')).length",
+          "note": "Count sessions showing processing state — stale sessions should not be here"
+        },
+        {
+          "action": "note",
+          "text": "Manual verification: check debug info for any sessions with IsProcessing=true where LastUpdatedAt is over 10 minutes old. Such sessions should have been detected as stale during restore."
+        }
+      ]
     }
   ]
 }

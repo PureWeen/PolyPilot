@@ -87,6 +87,17 @@ public static class BridgeMessageTypes
     public const string ChangeModel = "change_model";
     public const string RenameSession = "rename_session";
 
+    // Client → Server (repo operations)
+    public const string AddRepo = "add_repo";
+    public const string RemoveRepo = "remove_repo";
+    public const string ListRepos = "list_repos";
+
+    // Server → Client (repo responses)
+    public const string ReposList = "repos_list";
+    public const string RepoAdded = "repo_added";
+    public const string RepoProgress = "repo_progress";
+    public const string RepoError = "repo_error";
+
     // Server → Client (response)
     public const string DirectoriesList = "directories_list";
     public const string MultiAgentProgress = "multi_agent_progress";
@@ -121,6 +132,9 @@ public class SessionSummary
     public string? SessionId { get; set; }
     public string? WorkingDirectory { get; set; }
     public int QueueCount { get; set; }
+    public DateTime? ProcessingStartedAt { get; set; }
+    public int ToolCallCount { get; set; }
+    public int ProcessingPhase { get; set; }
 }
 
 public class SessionHistoryPayload
@@ -390,4 +404,57 @@ public class FiestaPingPayload
 public class FiestaPongPayload
 {
     public string Sender { get; set; } = "";
+}
+
+// --- Repo bridge payloads ---
+
+public class AddRepoPayload
+{
+    public string Url { get; set; } = "";
+    public string RequestId { get; set; } = "";
+}
+
+public class RemoveRepoPayload
+{
+    public string RepoId { get; set; } = "";
+    public bool DeleteFromDisk { get; set; }
+    public string? GroupId { get; set; }
+}
+
+public class ListReposPayload
+{
+    public string? RequestId { get; set; }
+}
+
+public class ReposListPayload
+{
+    public string? RequestId { get; set; }
+    public List<RepoSummary> Repos { get; set; } = new();
+}
+
+public class RepoSummary
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Url { get; set; } = "";
+}
+
+public class RepoAddedPayload
+{
+    public string RequestId { get; set; } = "";
+    public string RepoId { get; set; } = "";
+    public string RepoName { get; set; } = "";
+    public string Url { get; set; } = "";
+}
+
+public class RepoProgressPayload
+{
+    public string RequestId { get; set; } = "";
+    public string Message { get; set; } = "";
+}
+
+public class RepoErrorPayload
+{
+    public string RequestId { get; set; } = "";
+    public string Error { get; set; } = "";
 }

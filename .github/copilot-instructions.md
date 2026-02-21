@@ -101,6 +101,11 @@ When switching between Embedded and Persistent modes (via Settings → Save & Re
 ### Platform Differences
 `Models/PlatformHelper.cs` exposes `IsDesktop`/`IsMobile` and controls which `ConnectionMode`s are available. Mobile can only use Remote mode. Desktop defaults to Persistent.
 
+**Mobile-only behavior:**
+- Desktop menu items (Fix with Copilot, Copilot Console, Terminal, VS Code) are hidden via `PlatformHelper.IsDesktop` guards in `SessionListItem.razor`.
+- Report Bug opens the browser with a pre-filled GitHub issue URL via `Launcher.Default.OpenAsync` instead of the inline sidebar form.
+- Processing status indicator shows elapsed time and tool round count, synced via bridge.
+
 ## Critical Conventions
 
 ### Git Workflow
@@ -142,12 +147,31 @@ Disabled in `Platforms/MacCatalyst/Entitlements.plist` — required for spawning
 
 ### SDK Event Flow
 When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in order:
-1. `AssistantTurnStartEvent` → "Thinking..." indicator
-2. `AssistantMessageDeltaEvent` → streaming content chunks
-3. `AssistantMessageEvent` → full message (may include tool requests)
-4. `ToolExecutionStartEvent` / `ToolExecutionCompleteEvent` → tool activity
-5. `AssistantIntentEvent` → intent/plan updates
-6. `SessionIdleEvent` → turn complete, response finalized
+1. `SessionUsageInfoEvent` → server acknowledged, sets `ProcessingPhase=1`
+2. `AssistantTurnStartEvent` → model generating, sets `ProcessingPhase=2`
+3. `AssistantMessageDeltaEvent` → streaming content chunks
+4. `AssistantMessageEvent` → full message (may include tool requests)
+5. `ToolExecutionStartEvent` → tool activity starts, sets `ProcessingPhase=3`, increments `ToolCallCount` on complete
+6. `ToolExecutionCompleteEvent` → tool done, increments `ToolCallCount`
+7. `AssistantIntentEvent` → intent/plan updates
+8. `AssistantTurnEndEvent` → end of a sub-turn, tool loop continues
+9. `SessionIdleEvent` → turn complete, response finalized
+
+### Processing Status Indicator
+`AgentSessionInfo` tracks three fields for the processing status UI:
+- `ProcessingStartedAt` (DateTime?) — set to `DateTime.UtcNow` in `SendPromptAsync`
+- `ToolCallCount` (int) — incremented on each `ToolExecutionCompleteEvent`
+- `ProcessingPhase` (int) — 0=Sending, 1=ServerConnected, 2=Thinking, 3=Working
+
+All three are reset in `SendPromptAsync` (new turn) and cleared in `CompleteResponse` (turn done) and `AbortSessionAsync` (user stop). They're synced to mobile via `SessionSummary` in the bridge protocol.
+
+The UI shows: "Sending…" → "Server connected…" → "Thinking…" → "Working · Xm Xs · N tool calls…".
+
+### Abort Behavior
+`AbortSessionAsync` must clear ALL processing state — see `.claude/skills/processing-state-safety/SKILL.md` for the full cleanup checklist and the 7 paths that clear `IsProcessing`.
+
+### ⚠️ IsProcessing Cleanup Invariant
+**CRITICAL**: Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (7 PRs, 16 fix/regression cycles). **Read `.claude/skills/processing-state-safety/SKILL.md` before modifying ANY processing path.** There are 8 such paths across CopilotService.cs, Events.cs, and Bridge.cs.
 
 ### Processing Watchdog
 The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has two timeout tiers:
@@ -157,9 +181,7 @@ The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.
   - The session was resumed mid-turn after app restart (`IsResumed`)
   - Tools have been used this turn (`HasUsedToolsThisTurn`) — even between tool rounds when the model is thinking
 
-The 10-second resume timeout was removed — the watchdog handles all stuck-session detection.
-
-When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message. All code paths that set `IsProcessing = false` must go through the UI thread.
+When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message.
 
 ### Diagnostic Log Tags
 The event diagnostics log (`~/.polypilot/event-diagnostics.log`) uses these tags:
@@ -172,6 +194,7 @@ The event diagnostics log (`~/.polypilot/event-diagnostics.log`) uses these tags
 - `[ABORT]` — user-initiated abort cleared IsProcessing
 - `[BRIDGE-COMPLETE]` — bridge OnTurnEnd cleared IsProcessing
 - `[INTERRUPTED]` — app restart detected interrupted turn (watchdog timeout after resume)
+- `[WATCHDOG]` — watchdog clearing IsResumed or timing out a stuck session
 
 Every code path that sets `IsProcessing = false` MUST have a diagnostic log entry. This is critical for debugging stuck-session issues.
 
@@ -199,6 +222,11 @@ When a user changes the model via the UI dropdown:
 
 ### Blazor Input Performance
 Avoid `@bind:event="oninput"` — causes round-trip lag per keystroke. Use plain HTML inputs with JS event listeners and read values via `JS.InvokeAsync<string>("eval", "document.getElementById('id')?.value")` on submit.
+
+### Render Performance
+`SaveActiveSessionsToDisk`, `SaveOrganization`, and `SaveUiState` use timer-based debounce (2s/2s/1s) — **must flush in DisposeAsync**. `LoadPersistedSessions()` scans all session directories (750+) — **never call from render-triggered paths**. `GetOrganizedSessions()` is cached with hash-key invalidation. `_sessionSwitching` flag must stay true until `SafeRefreshAsync` reads it. See `.claude/skills/performance-optimization/SKILL.md` for detailed invariants.
+
+For detailed stuck-session debugging knowledge (8 invariants from 7 PRs of fix cycles), see `.claude/skills/processing-state-safety/SKILL.md`.
 
 ### Session Persistence
 - Active sessions: `~/.polypilot/active-sessions.json` (includes `LastPrompt` — last user message if session was processing during save)
@@ -242,7 +270,7 @@ Test files in `PolyPilot.Tests/`:
 - `BridgeMessageTests.cs` — Bridge protocol serialization, type constants
 - `RemoteModeTests.cs` — Remote mode payloads, organization state, chat serialization
 - `ChatMessageTests.cs` — Chat message factory methods, state transitions
-- `AgentSessionInfoTests.cs` — Session info properties, history, queue
+- `AgentSessionInfoTests.cs` — Session info properties, history, queue, processing status fields
 - `SessionOrganizationTests.cs` — Groups, sorting, metadata
 - `ConnectionSettingsTests.cs` — Settings persistence
 - `CopilotServiceInitializationTests.cs` — Initialization error handling, mode switching, fallback notices, CLI source persistence
@@ -252,7 +280,7 @@ Test files in `PolyPilot.Tests/`:
 - `PlatformHelperTests.cs` — Platform detection
 - `ToolResultFormattingTests.cs` — Tool output formatting
 - `UiStatePersistenceTests.cs` — UI state save/load
-- `ProcessingWatchdogTests.cs` — Watchdog constants, timeout selection, HasUsedToolsThisTurn, IsResumed
+- `ProcessingWatchdogTests.cs` — Watchdog constants, timeout selection, HasUsedToolsThisTurn, IsResumed, abort clears queue and processing status
 - `CliPathResolutionTests.cs` — CLI path resolution
 - `InitializationModeTests.cs` — Mode initialization
 - `PersistentModeTests.cs` — Persistent mode behavior

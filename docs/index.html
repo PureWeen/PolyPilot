@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PolyPilot — Your AI Fleet Commander</title>
+  <meta name="description" content="Run an army of GitHub Copilot agents from a single app. Multi-agent orchestration, real-time streaming, cross-platform.">
+  <link rel="icon" href="logo.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-deep: #06090f;
+      --bg-surface: #0c1219;
+      --bg-card: #111a24;
+      --bg-card-hover: #162030;
+      --border-subtle: rgba(56, 189, 248, 0.08);
+      --border-glow: rgba(56, 189, 248, 0.2);
+      --cyan: #38bdf8;
+      --cyan-bright: #7dd3fc;
+      --cyan-dim: #0c4a6e;
+      --amber: #f59e0b;
+      --amber-bright: #fbbf24;
+      --green: #34d399;
+      --rose: #fb7185;
+      --text-primary: #e8edf3;
+      --text-secondary: #8b9bb4;
+      --text-tertiary: #506480;
+      --font-display: 'Outfit', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-display);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── Grid background ─── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        linear-gradient(rgba(56, 189, 248, 0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 189, 248, 0.015) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ─── Utility ─── */
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+    /* ─── Navigation ─── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(6, 9, 15, 0.8);
+      backdrop-filter: blur(20px) saturate(1.4);
+      border-bottom: 1px solid var(--border-subtle);
+      transition: background 0.3s;
+    }
+    nav .container {
+      display: flex; align-items: center; justify-content: space-between;
+      height: 64px;
+    }
+    .nav-brand {
+      display: flex; align-items: center; gap: 12px;
+      text-decoration: none; color: var(--text-primary);
+    }
+    .nav-brand img { height: 32px; width: 32px; border-radius: 8px; }
+    .nav-brand span { font-weight: 700; font-size: 1.15rem; letter-spacing: -0.02em; }
+    .nav-links { display: flex; align-items: center; gap: 32px; list-style: none; }
+    .nav-links a {
+      color: var(--text-secondary); text-decoration: none; font-size: 0.9rem;
+      font-weight: 500; transition: color 0.2s; letter-spacing: 0.01em;
+    }
+    .nav-links a:hover { color: var(--text-primary); }
+    .nav-cta {
+      background: var(--cyan); color: var(--bg-deep) !important;
+      padding: 8px 20px; border-radius: 8px; font-weight: 600 !important;
+      transition: background 0.2s, transform 0.15s !important;
+    }
+    .nav-cta:hover { background: var(--cyan-bright); transform: translateY(-1px); }
+    .nav-hamburger { display: none; background: none; border: none; color: var(--text-primary); cursor: pointer; }
+
+    /* ─── Hero ─── */
+    .hero {
+      padding: 160px 0 100px;
+      text-align: center;
+      position: relative;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      width: 800px; height: 600px;
+      background: radial-gradient(ellipse, rgba(56, 189, 248, 0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.15);
+      border-radius: 100px; padding: 6px 18px 6px 8px;
+      font-size: 0.82rem; color: var(--cyan-bright); font-weight: 500;
+      margin-bottom: 32px; letter-spacing: 0.02em;
+    }
+    .hero-badge .dot {
+      width: 8px; height: 8px; background: var(--green); border-radius: 50%;
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.4); }
+      50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(52, 211, 153, 0); }
+    }
+    .hero h1 {
+      font-size: clamp(3rem, 7vw, 5.5rem); font-weight: 900;
+      line-height: 1.05; letter-spacing: -0.04em;
+      margin-bottom: 24px;
+    }
+    .hero h1 .gradient {
+      background: linear-gradient(135deg, var(--cyan) 0%, var(--cyan-bright) 40%, var(--amber) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-sub {
+      font-size: clamp(1.05rem, 2vw, 1.3rem); color: var(--text-secondary);
+      max-width: 680px; margin: 0 auto 48px; line-height: 1.7;
+      font-weight: 400;
+    }
+    .hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 14px 32px; border-radius: 12px; font-size: 1rem;
+      font-weight: 600; text-decoration: none; transition: all 0.2s;
+      border: none; cursor: pointer; font-family: var(--font-display);
+      letter-spacing: -0.01em;
+    }
+    .btn-primary {
+      background: var(--cyan); color: var(--bg-deep);
+      box-shadow: 0 0 30px rgba(56, 189, 248, 0.15), 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .btn-primary:hover {
+      background: var(--cyan-bright); transform: translateY(-2px);
+      box-shadow: 0 0 40px rgba(56, 189, 248, 0.25), 0 8px 20px rgba(0,0,0,0.3);
+    }
+    .btn-secondary {
+      background: var(--bg-card); color: var(--text-primary);
+      border: 1px solid var(--border-glow);
+    }
+    .btn-secondary:hover {
+      background: var(--bg-card-hover); border-color: var(--cyan);
+      transform: translateY(-2px);
+    }
+    .btn svg { width: 20px; height: 20px; }
+
+    /* ─── Hero Terminal ─── */
+    .hero-terminal {
+      max-width: 720px; margin: 64px auto 0;
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-radius: 16px; overflow: hidden; text-align: left;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.4), 0 0 80px rgba(56, 189, 248, 0.04);
+    }
+    .terminal-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 14px 20px; background: rgba(0,0,0,0.3);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .terminal-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .terminal-dot:nth-child(1) { background: #ff5f57; }
+    .terminal-dot:nth-child(2) { background: #ffbd2e; }
+    .terminal-dot:nth-child(3) { background: #28c840; }
+    .terminal-title {
+      flex: 1; text-align: center; font-size: 0.78rem;
+      color: var(--text-tertiary); font-family: var(--font-mono);
+    }
+    .terminal-body {
+      padding: 24px; font-family: var(--font-mono); font-size: 0.85rem;
+      line-height: 1.8; color: var(--text-secondary);
+    }
+    .terminal-body .prompt { color: var(--green); }
+    .terminal-body .cmd { color: var(--text-primary); }
+    .terminal-body .flag { color: var(--amber); }
+    .terminal-body .comment { color: var(--text-tertiary); font-style: italic; }
+    .terminal-body .output { color: var(--cyan-bright); }
+    .terminal-body .cursor {
+      display: inline-block; width: 8px; height: 17px;
+      background: var(--cyan); margin-left: 2px;
+      animation: blink 1s step-end infinite; vertical-align: text-bottom;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* ─── Stats Bar ─── */
+    .stats {
+      padding: 48px 0;
+      border-top: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .stats .container {
+      display: flex; justify-content: center; gap: 64px; flex-wrap: wrap;
+    }
+    .stat { text-align: center; }
+    .stat-value {
+      font-size: 2.2rem; font-weight: 800; letter-spacing: -0.03em;
+      background: linear-gradient(135deg, var(--cyan), var(--amber));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .stat-label { font-size: 0.85rem; color: var(--text-tertiary); margin-top: 4px; font-weight: 500; }
+
+    /* ─── Section common ─── */
+    section { padding: 120px 0; }
+    .section-label {
+      font-family: var(--font-mono); font-size: 0.78rem; font-weight: 600;
+      color: var(--cyan); letter-spacing: 0.12em; text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-size: clamp(2rem, 4vw, 3rem); font-weight: 800;
+      letter-spacing: -0.03em; line-height: 1.15; margin-bottom: 20px;
+    }
+    .section-desc {
+      font-size: 1.1rem; color: var(--text-secondary); max-width: 600px;
+      line-height: 1.7;
+    }
+
+    /* ─── Features Grid ─── */
+    .features-header { text-align: center; margin-bottom: 72px; }
+    .features-header .section-desc { margin: 0 auto; }
+    .features-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+    }
+    .feature-card {
+      background: var(--bg-card); border: 1px solid var(--border-subtle);
+      border-radius: 16px; padding: 36px 32px;
+      transition: all 0.3s ease; position: relative; overflow: hidden;
+    }
+    .feature-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .feature-card:hover {
+      border-color: var(--border-glow); background: var(--bg-card-hover);
+      transform: translateY(-4px);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3), 0 0 40px rgba(56, 189, 248, 0.03);
+    }
+    .feature-card:hover::before { opacity: 1; }
+    .feature-icon {
+      width: 48px; height: 48px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem; margin-bottom: 20px;
+      background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.1);
+    }
+    .feature-card h3 {
+      font-size: 1.1rem; font-weight: 700; margin-bottom: 10px;
+      letter-spacing: -0.02em;
+    }
+    .feature-card p { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.6; }
+    .feature-card.featured {
+      grid-column: span 2; grid-row: span 2;
+      padding: 48px 44px;
+      background: linear-gradient(135deg, var(--bg-card) 0%, rgba(56, 189, 248, 0.03) 100%);
+    }
+    .feature-card.featured h3 { font-size: 1.5rem; }
+    .feature-card.featured p { font-size: 1rem; }
+    .feature-card.featured .feature-visual {
+      margin-top: 32px; background: var(--bg-deep);
+      border: 1px solid var(--border-subtle); border-radius: 12px;
+      padding: 24px; font-family: var(--font-mono); font-size: 0.82rem;
+      line-height: 1.7; color: var(--text-secondary);
+    }
+
+    /* ─── Showcase (side-by-side) ─── */
+    .showcase { position: relative; }
+    .showcase::before {
+      content: ''; position: absolute; left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(245, 158, 11, 0.04) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .showcase-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 80px;
+      align-items: center;
+    }
+    .showcase-grid.reverse .showcase-content { order: 2; }
+    .showcase-grid.reverse .showcase-visual { order: 1; }
+    .showcase-visual {
+      background: var(--bg-card); border: 1px solid var(--border-subtle);
+      border-radius: 16px; overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+    }
+    .showcase-visual-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 16px 20px; background: rgba(0,0,0,0.2);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .showcase-visual-header .tab {
+      font-size: 0.75rem; padding: 4px 12px; border-radius: 6px;
+      color: var(--text-tertiary); font-family: var(--font-mono);
+    }
+    .showcase-visual-header .tab.active {
+      background: rgba(56, 189, 248, 0.1); color: var(--cyan-bright);
+    }
+    .showcase-visual-body {
+      padding: 28px 24px; font-family: var(--font-mono);
+      font-size: 0.82rem; line-height: 1.8;
+    }
+    .showcase-content .section-label { margin-bottom: 12px; }
+    .showcase-content .section-title { margin-bottom: 16px; }
+    .showcase-content .section-desc { margin-bottom: 28px; }
+    .showcase-content ul {
+      list-style: none; display: flex; flex-direction: column; gap: 12px;
+    }
+    .showcase-content li {
+      display: flex; align-items: flex-start; gap: 12px;
+      font-size: 0.95rem; color: var(--text-secondary);
+    }
+    .showcase-content li .check {
+      width: 22px; height: 22px; min-width: 22px; border-radius: 6px;
+      background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.2);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--green); font-size: 0.75rem; margin-top: 2px;
+    }
+
+    /* ─── Platforms ─── */
+    .platforms { text-align: center; }
+    .platforms-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;
+      margin-top: 56px;
+    }
+    .platform-card {
+      background: var(--bg-card); border: 1px solid var(--border-subtle);
+      border-radius: 16px; padding: 40px 24px;
+      transition: all 0.3s;
+    }
+    .platform-card:hover {
+      border-color: var(--border-glow); transform: translateY(-4px);
+      box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+    }
+    .platform-icon {
+      font-size: 2.4rem; margin-bottom: 16px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .platform-card h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; }
+    .platform-card p { font-size: 0.82rem; color: var(--text-tertiary); }
+    .platform-badge {
+      display: inline-block; margin-top: 14px; padding: 4px 12px;
+      border-radius: 100px; font-size: 0.72rem; font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+    .platform-badge.primary {
+      background: rgba(52, 211, 153, 0.1); color: var(--green);
+      border: 1px solid rgba(52, 211, 153, 0.2);
+    }
+    .platform-badge.supported {
+      background: rgba(56, 189, 248, 0.08); color: var(--cyan);
+      border: 1px solid rgba(56, 189, 248, 0.15);
+    }
+    .platform-badge.remote {
+      background: rgba(245, 158, 11, 0.08); color: var(--amber);
+      border: 1px solid rgba(245, 158, 11, 0.15);
+    }
+
+    /* ─── Getting Started ─── */
+    .getting-started { position: relative; }
+    .getting-started::before {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(180deg, transparent, rgba(56, 189, 248, 0.02), transparent);
+      pointer-events: none;
+    }
+    .steps {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+      margin-top: 56px;
+    }
+    .step {
+      background: var(--bg-card); border: 1px solid var(--border-subtle);
+      border-radius: 16px; padding: 36px 28px; position: relative;
+    }
+    .step-number {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.15);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-mono); font-size: 0.85rem; font-weight: 700;
+      color: var(--cyan); margin-bottom: 20px;
+    }
+    .step h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 12px; }
+    .step p { font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px; }
+    .step code {
+      display: block; background: var(--bg-deep); border: 1px solid var(--border-subtle);
+      border-radius: 8px; padding: 12px 16px; font-family: var(--font-mono);
+      font-size: 0.78rem; color: var(--cyan-bright); line-height: 1.6;
+      word-break: break-all;
+    }
+
+    /* ─── CTA Banner ─── */
+    .cta-banner {
+      padding: 120px 0; text-align: center; position: relative;
+    }
+    .cta-banner::before {
+      content: ''; position: absolute; left: 50%; top: 50%;
+      transform: translate(-50%, -50%); width: 700px; height: 400px;
+      background: radial-gradient(ellipse, rgba(56, 189, 248, 0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .cta-banner h2 {
+      font-size: clamp(2.2rem, 5vw, 3.5rem); font-weight: 900;
+      letter-spacing: -0.04em; margin-bottom: 20px;
+    }
+    .cta-banner p {
+      font-size: 1.15rem; color: var(--text-secondary); margin-bottom: 40px;
+      max-width: 500px; margin-left: auto; margin-right: auto;
+    }
+
+    /* ─── Footer ─── */
+    footer {
+      border-top: 1px solid var(--border-subtle);
+      padding: 48px 0; text-align: center;
+    }
+    .footer-content {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 20px;
+    }
+    .footer-brand { display: flex; align-items: center; gap: 10px; }
+    .footer-brand img { height: 24px; width: 24px; border-radius: 6px; }
+    .footer-brand span { font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); }
+    .footer-links { display: flex; gap: 24px; }
+    .footer-links a {
+      color: var(--text-tertiary); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.2s;
+    }
+    .footer-links a:hover { color: var(--text-primary); }
+    .footer-copy { font-size: 0.8rem; color: var(--text-tertiary); }
+
+    /* ─── Desktop Screenshot Hero ─── */
+    .hero-screenshot {
+      max-width: 1060px; margin: 64px auto 0;
+      border-radius: 16px; overflow: hidden;
+      border: 1px solid var(--border-subtle);
+      box-shadow: 0 30px 80px rgba(0,0,0,0.5), 0 0 80px rgba(56, 189, 248, 0.04);
+      position: relative;
+    }
+    .hero-screenshot img {
+      display: block; width: 100%; height: auto;
+    }
+    .hero-screenshot::after {
+      content: '';
+      position: absolute; bottom: 0; left: 0; right: 0; height: 80px;
+      background: linear-gradient(transparent, var(--bg-deep));
+      pointer-events: none;
+    }
+
+    /* ─── Mobile Showcase ─── */
+    .mobile-showcase {
+      display: flex; justify-content: center; gap: 24px;
+      flex-wrap: wrap; margin-top: 64px;
+    }
+    .mobile-frame {
+      width: 240px; border-radius: 24px; overflow: hidden;
+      border: 1px solid var(--border-subtle);
+      box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+      transition: transform 0.4s ease, box-shadow 0.4s ease;
+      position: relative;
+    }
+    .mobile-frame:hover {
+      transform: translateY(-8px) scale(1.02);
+      box-shadow: 0 30px 60px rgba(0,0,0,0.5), 0 0 40px rgba(56, 189, 248, 0.06);
+    }
+    .mobile-frame img { display: block; width: 100%; height: auto; }
+    .mobile-frame-label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: linear-gradient(transparent, rgba(6, 9, 15, 0.95));
+      padding: 40px 16px 16px; text-align: center;
+      font-size: 0.82rem; font-weight: 600; color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    /* ─── Desktop Screenshots Section ─── */
+    .desktop-screenshots {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+      margin-top: 56px;
+    }
+    .desktop-frame {
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--border-subtle);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.35);
+      transition: transform 0.4s ease, box-shadow 0.4s ease;
+      position: relative;
+    }
+    .desktop-frame:hover {
+      transform: translateY(-6px);
+      box-shadow: 0 24px 50px rgba(0,0,0,0.45), 0 0 30px rgba(56, 189, 248, 0.04);
+    }
+    .desktop-frame img { display: block; width: 100%; height: auto; }
+    .desktop-frame-label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: linear-gradient(transparent, rgba(6, 9, 15, 0.95));
+      padding: 48px 20px 20px; text-align: center;
+    }
+    .desktop-frame-label span {
+      font-size: 0.9rem; font-weight: 600; color: var(--text-primary);
+    }
+    .desktop-frame-label p {
+      font-size: 0.78rem; color: var(--text-secondary); margin-top: 4px;
+    }
+    @media (max-width: 768px) {
+      .mobile-frame { width: 180px; }
+      .desktop-screenshots { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .mobile-frame { width: 150px; }
+      .mobile-showcase { gap: 12px; }
+    }
+
+    /* ─── Scroll Animations ─── */
+    .reveal {
+      opacity: 0; transform: translateY(32px);
+      transition: opacity 0.7s ease, transform 0.7s ease;
+    }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+    .reveal-delay-1 { transition-delay: 0.1s; }
+    .reveal-delay-2 { transition-delay: 0.2s; }
+    .reveal-delay-3 { transition-delay: 0.3s; }
+    .reveal-delay-4 { transition-delay: 0.4s; }
+
+    /* ─── Agent Status Indicator ─── */
+    .agent-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 0; border-bottom: 1px solid var(--border-subtle);
+    }
+    .agent-row:last-child { border-bottom: none; }
+    .agent-status {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+    .agent-status.active { background: var(--green); box-shadow: 0 0 8px rgba(52, 211, 153, 0.4); }
+    .agent-status.thinking { background: var(--amber); box-shadow: 0 0 8px rgba(245, 158, 11, 0.4); animation: pulse-dot 1.5s ease-in-out infinite; }
+    .agent-status.queued { background: var(--text-tertiary); }
+    .agent-name { color: var(--text-primary); font-size: 0.82rem; flex: 1; }
+    .agent-model { color: var(--text-tertiary); font-size: 0.72rem; }
+    .agent-task { color: var(--cyan-bright); font-size: 0.72rem; }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 1024px) {
+      .features-grid { grid-template-columns: repeat(2, 1fr); }
+      .feature-card.featured { grid-column: span 2; grid-row: span 1; }
+      .showcase-grid { grid-template-columns: 1fr; gap: 48px; }
+      .showcase-grid.reverse .showcase-content,
+      .showcase-grid.reverse .showcase-visual { order: unset; }
+    }
+
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .nav-hamburger { display: block; }
+      nav.open .nav-links {
+        display: flex; flex-direction: column; position: absolute;
+        top: 64px; left: 0; right: 0; background: rgba(6, 9, 15, 0.98);
+        padding: 24px; gap: 16px; border-bottom: 1px solid var(--border-subtle);
+      }
+      .hero { padding: 120px 0 60px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .feature-card.featured { grid-column: span 1; }
+      .platforms-grid { grid-template-columns: repeat(2, 1fr); }
+      .steps { grid-template-columns: 1fr; }
+      .stats .container { gap: 40px; }
+      .footer-content { flex-direction: column; text-align: center; }
+    }
+
+    @media (max-width: 480px) {
+      .platforms-grid { grid-template-columns: 1fr; }
+      .hero-actions { flex-direction: column; align-items: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── Navigation ─── -->
+  <nav id="navbar">
+    <div class="container">
+      <a href="#" class="nav-brand">
+        <img src="logo.png" alt="PolyPilot">
+        <span>PolyPilot</span>
+      </a>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#orchestration">Orchestration</a></li>
+        <li><a href="#platforms">Platforms</a></li>
+        <li><a href="#get-started">Get Started</a></li>
+        <li><a href="https://github.com/PureWeen/PolyPilot" class="nav-cta">GitHub</a></li>
+      </ul>
+      <button class="nav-hamburger" onclick="document.getElementById('navbar').classList.toggle('open')" aria-label="Menu">
+        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ─── Hero ─── -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-badge reveal">
+        <span class="dot"></span>
+        Open Source &amp; Free
+      </div>
+      <h1 class="reveal reveal-delay-1">
+        Your AI<br><span class="gradient">Fleet Commander</span>
+      </h1>
+      <p class="hero-sub reveal reveal-delay-2">
+        Run an army of GitHub Copilot agents from a single app.<br>
+        Multi-agent orchestration, real-time streaming, cross-platform.
+      </p>
+      <div class="hero-actions reveal reveal-delay-3">
+        <a href="https://github.com/PureWeen/PolyPilot#getting-started" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Get Started
+        </a>
+        <a href="https://github.com/PureWeen/PolyPilot" class="btn btn-secondary">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          View on GitHub
+        </a>
+      </div>
+
+      <!-- Desktop Screenshot -->
+      <div class="hero-screenshot reveal reveal-delay-4">
+        <img src="desktop-chat.png" alt="PolyPilot desktop app — multi-agent chat interface with session sidebar" loading="lazy">
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Stats ─── -->
+  <div class="stats">
+    <div class="container">
+      <div class="stat reveal">
+        <div class="stat-value">10+</div>
+        <div class="stat-label">Parallel Agents</div>
+      </div>
+      <div class="stat reveal reveal-delay-1">
+        <div class="stat-value">4</div>
+        <div class="stat-label">Platforms</div>
+      </div>
+      <div class="stat reveal reveal-delay-2">
+        <div class="stat-value">∞</div>
+        <div class="stat-label">Sessions</div>
+      </div>
+      <div class="stat reveal reveal-delay-3">
+        <div class="stat-value">3+</div>
+        <div class="stat-label">AI Models</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Features Grid ─── -->
+  <section id="features">
+    <div class="container">
+      <div class="features-header">
+        <p class="section-label reveal">Features</p>
+        <h2 class="section-title reveal reveal-delay-1">Everything you need to<br>command your AI fleet</h2>
+        <p class="section-desc reveal reveal-delay-2">From orchestrating dozens of agents to monitoring them from your phone — PolyPilot gives you full control over your AI-powered development workflow.</p>
+      </div>
+
+      <div class="features-grid">
+        <!-- Featured Card -->
+        <div class="feature-card featured reveal">
+          <div class="feature-icon">🎛️</div>
+          <h3>Multi-Session Orchestrator Dashboard</h3>
+          <p>A real-time grid view of all active agents. Each card shows streaming output, tool execution status, token usage, and queue depth. Send targeted prompts to individual agents from a single dashboard.</p>
+          <div class="feature-visual">
+            <div class="agent-row">
+              <span class="agent-status active"></span>
+              <span class="agent-name">agent-frontend</span>
+              <span class="agent-model">Claude Sonnet</span>
+              <span class="agent-task">Refactoring components</span>
+            </div>
+            <div class="agent-row">
+              <span class="agent-status thinking"></span>
+              <span class="agent-name">agent-api</span>
+              <span class="agent-model">GPT-5.2</span>
+              <span class="agent-task">💭 Thinking...</span>
+            </div>
+            <div class="agent-row">
+              <span class="agent-status active"></span>
+              <span class="agent-name">agent-tests</span>
+              <span class="agent-model">Gemini Pro</span>
+              <span class="agent-task">Running test suite</span>
+            </div>
+            <div class="agent-row">
+              <span class="agent-status queued"></span>
+              <span class="agent-name">agent-docs</span>
+              <span class="agent-model">Claude Opus</span>
+              <span class="agent-task">Queued</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="feature-card reveal reveal-delay-1">
+          <div class="feature-icon">💬</div>
+          <h3>Rich Chat Interface</h3>
+          <p>Streaming responses, Markdown rendering, code blocks, real-time activity indicators, and auto-scrolling. See exactly what each agent is doing.</p>
+        </div>
+
+        <div class="feature-card reveal reveal-delay-2">
+          <div class="feature-icon">🔧</div>
+          <h3>Live Activity Feed</h3>
+          <p>Watch agents work in real time — thinking, running tools, completing tasks. Full visibility into multi-step agentic workflows.</p>
+        </div>
+
+        <div class="feature-card reveal reveal-delay-1">
+          <div class="feature-icon">💾</div>
+          <h3>Session Persistence</h3>
+          <p>Sessions survive app restarts. Active sessions are automatically saved, restored, and history is reconstructed from event logs.</p>
+        </div>
+
+        <div class="feature-card reveal reveal-delay-2">
+          <div class="feature-icon">🧠</div>
+          <h3>Multi-Model Support</h3>
+          <p>Assign Claude to one task, GPT to another, Gemini to a third — all running in parallel in the same workspace.</p>
+        </div>
+
+        <div class="feature-card reveal reveal-delay-3">
+          <div class="feature-icon">🎉</div>
+          <h3>Fiesta Mode</h3>
+          <p>Discover and link PolyPilot instances on your LAN. Fan out work to linked worker machines via @mention routing.</p>
+        </div>
+
+        <div class="feature-card reveal reveal-delay-1">
+          <div class="feature-icon">🛡️</div>
+          <h3>Auto-Reconnect</h3>
+          <p>If an agent's process dies mid-conversation, PolyPilot automatically resumes the session and retries — transparent to you.</p>
+        </div>
+
+        <div class="feature-card reveal reveal-delay-2">
+          <div class="feature-icon">⌨️</div>
+          <h3>Slash Commands</h3>
+          <p>Built-in commands for quick control: /help, /clear, /version, /compact, /new, /sessions, /rename, /diff, /status, and more.</p>
+        </div>
+
+        <div class="feature-card reveal reveal-delay-3">
+          <div class="feature-icon">🔔</div>
+          <h3>Smart Notifications</h3>
+          <p>Get notified when agents finish tasks, encounter errors, or need your attention — even in the background.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Desktop App in Action ─── -->
+  <section style="padding-top: 40px;">
+    <div class="container">
+      <div style="text-align: center;">
+        <p class="section-label reveal">In Action</p>
+        <h2 class="section-title reveal reveal-delay-1">See PolyPilot at work</h2>
+        <p class="section-desc reveal reveal-delay-2" style="margin: 0 auto;">Multiple active sessions, 223 saved sessions, tool execution, GitHub integration — all running simultaneously from one interface.</p>
+      </div>
+      <div class="desktop-screenshots">
+        <div class="desktop-frame reveal">
+          <img src="desktop-chat.png" alt="PolyPilot desktop — Chat interface with multiple active sessions" loading="lazy">
+          <div class="desktop-frame-label">
+            <span>Chat Interface</span>
+            <p>Rich conversations with AI reasoning, tool calls, and session management</p>
+          </div>
+        </div>
+        <div class="desktop-frame reveal reveal-delay-1">
+          <img src="desktop-sessions.png" alt="PolyPilot desktop — Multi-session view with GitHub integration" loading="lazy">
+          <div class="desktop-frame-label">
+            <span>Multi-Session View</span>
+            <p>GitHub tool calls, issue creation, PR analysis — all streaming in parallel</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Remote Access Showcase ─── -->
+  <section id="orchestration" class="showcase">
+    <div class="container">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <p class="section-label reveal">Remote Access</p>
+        <h2 class="section-title reveal reveal-delay-1">Control your fleet<br>from anywhere</h2>
+        <p class="section-desc reveal reveal-delay-2" style="margin: 0 auto;">Run agents on your desktop, monitor from your phone. PolyPilot runs natively on iOS and Android — QR code scanning, full chat, model switching, and session orchestration in your pocket.</p>
+      </div>
+
+      <div class="mobile-showcase">
+        <div class="mobile-frame reveal">
+          <img src="mobile-orchestrator.jpeg" alt="PolyPilot mobile — Session Orchestrator with active agents" loading="lazy">
+          <div class="mobile-frame-label">Orchestrator</div>
+        </div>
+        <div class="mobile-frame reveal reveal-delay-1">
+          <img src="mobile-chat.jpeg" alt="PolyPilot mobile — Rich chat with AI reasoning and tool calls" loading="lazy">
+          <div class="mobile-frame-label">Chat &amp; Tools</div>
+        </div>
+        <div class="mobile-frame reveal reveal-delay-2">
+          <img src="mobile-models.jpeg" alt="PolyPilot mobile — Multi-model selection" loading="lazy">
+          <div class="mobile-frame-label">Model Picker</div>
+        </div>
+        <div class="mobile-frame reveal reveal-delay-3">
+          <img src="mobile-welcome.jpeg" alt="PolyPilot mobile — Welcome screen with QR scan" loading="lazy">
+          <div class="mobile-frame-label">QR Connect</div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Self-Building Showcase ─── -->
+  <section class="showcase" style="padding-top: 60px;">
+    <div class="container">
+      <div class="showcase-grid reverse">
+        <div class="showcase-content reveal">
+          <p class="section-label">Self-Building</p>
+          <h2 class="section-title">Built by AI,<br>for AI agents</h2>
+          <p class="section-desc">PolyPilot is designed to be developed from within itself. Open a Copilot session pointed at the repo, make changes, and use the relaunch script for seamless rebuilds.</p>
+          <ul>
+            <li><span class="check">✓</span> Hot-relaunch script for iterative development</li>
+            <li><span class="check">✓</span> Automatic build, copy, launch, and handoff</li>
+            <li><span class="check">✓</span> Git auto-update from main branch</li>
+            <li><span class="check">✓</span> Tight feedback loop for AI-driven development</li>
+          </ul>
+        </div>
+        <div class="showcase-visual reveal reveal-delay-2">
+          <div class="showcase-visual-header">
+            <span class="tab active">relaunch.sh</span>
+          </div>
+          <div class="showcase-visual-body" style="color: var(--text-secondary);">
+            <div><span style="color: var(--green);">❯</span> <span style="color: var(--text-primary);">./relaunch.sh</span></div>
+            <br>
+            <div><span style="color: var(--cyan-bright);">[1/5]</span> Building project...</div>
+            <div><span style="color: var(--cyan-bright);">[2/5]</span> Copying app to staging...</div>
+            <div><span style="color: var(--cyan-bright);">[3/5]</span> Launching new instance...</div>
+            <div><span style="color: var(--cyan-bright);">[4/5]</span> Verifying stability...</div>
+            <div><span style="color: var(--cyan-bright);">[5/5]</span> Terminating old instance</div>
+            <br>
+            <div style="color: var(--green);">✓ Seamless handoff complete</div>
+            <div style="color: var(--text-tertiary);">New PolyPilot instance running</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Platforms ─── -->
+  <section id="platforms" class="platforms">
+    <div class="container">
+      <p class="section-label reveal">Cross-Platform</p>
+      <h2 class="section-title reveal reveal-delay-1">One app. Every platform.</h2>
+      <p class="section-desc reveal reveal-delay-2" style="margin: 0 auto;">Built with .NET MAUI and Blazor for native performance on every device. Run your agent fleet on your workstation, control it from your pocket.</p>
+
+      <div class="platforms-grid">
+        <div class="platform-card reveal">
+          <div class="platform-icon">🍎</div>
+          <h3>macOS</h3>
+          <p>Mac Catalyst</p>
+          <span class="platform-badge primary">Primary</span>
+        </div>
+        <div class="platform-card reveal reveal-delay-1">
+          <div class="platform-icon">🪟</div>
+          <h3>Windows</h3>
+          <p>Native WinUI</p>
+          <span class="platform-badge supported">Supported</span>
+        </div>
+        <div class="platform-card reveal reveal-delay-2">
+          <div class="platform-icon">🤖</div>
+          <h3>Android</h3>
+          <p>Remote Mode</p>
+          <span class="platform-badge remote">Remote</span>
+        </div>
+        <div class="platform-card reveal reveal-delay-3">
+          <div class="platform-icon">📱</div>
+          <h3>iOS</h3>
+          <p>Remote Mode</p>
+          <span class="platform-badge remote">Remote</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Getting Started ─── -->
+  <section id="get-started" class="getting-started">
+    <div class="container">
+      <div style="text-align: center; margin-bottom: 16px;">
+        <p class="section-label reveal">Quick Start</p>
+        <h2 class="section-title reveal reveal-delay-1">Up and running in minutes</h2>
+      </div>
+
+      <div class="steps">
+        <div class="step reveal">
+          <div class="step-number">01</div>
+          <h3>Install Prerequisites</h3>
+          <p>Get .NET 10 SDK and the MAUI workload installed.</p>
+          <code>dotnet workload install maui</code>
+        </div>
+        <div class="step reveal reveal-delay-1">
+          <div class="step-number">02</div>
+          <h3>Clone &amp; Build</h3>
+          <p>Clone the repo and build for your platform.</p>
+          <code>git clone https://github.com/PureWeen/PolyPilot.git<br>cd PolyPilot<br>dotnet build -f net10.0-maccatalyst</code>
+        </div>
+        <div class="step reveal reveal-delay-2">
+          <div class="step-number">03</div>
+          <h3>Launch &amp; Command</h3>
+          <p>Open the app and start orchestrating your Copilot agents.</p>
+          <code>open bin/Debug/net10.0-maccatalyst/<br>&nbsp;&nbsp;maccatalyst-arm64/PolyPilot.app</code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── CTA Banner ─── -->
+  <section class="cta-banner">
+    <div class="container">
+      <h2 class="reveal"><span class="gradient">Ready to command</span><br>your AI fleet?</h2>
+      <p class="reveal reveal-delay-1">Get started with PolyPilot today. Open source, free, and built by AI agents for AI agents.</p>
+      <div class="hero-actions reveal reveal-delay-2">
+        <a href="https://github.com/PureWeen/PolyPilot" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          Get PolyPilot on GitHub
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Footer ─── -->
+  <footer>
+    <div class="container">
+      <div class="footer-content">
+        <div class="footer-brand">
+          <img src="logo.png" alt="PolyPilot">
+          <span>PolyPilot</span>
+        </div>
+        <div class="footer-links">
+          <a href="https://github.com/PureWeen/PolyPilot">GitHub</a>
+          <a href="https://github.com/PureWeen/PolyPilot/issues">Issues</a>
+          <a href="https://github.com/PureWeen/PolyPilot#getting-started">Docs</a>
+        </div>
+        <div class="footer-copy">
+          Built with 🤖 by AI agents, for AI agents.
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ─── Scroll Reveal ─── -->
+  <script>
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+    // Navbar background on scroll
+    window.addEventListener('scroll', () => {
+      const nav = document.getElementById('navbar');
+      nav.style.background = window.scrollY > 50
+        ? 'rgba(6, 9, 15, 0.95)'
+        : 'rgba(6, 9, 15, 0.8)';
+    });
+  </script>
+</body>
+</html>

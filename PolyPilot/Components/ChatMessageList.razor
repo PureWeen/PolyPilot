@@ -84,14 +84,14 @@
             {
                 <div class="chat-msg tool">
                     <span class="chat-msg-role">⏳</span>
-                    <span class="chat-msg-text">@(string.IsNullOrEmpty(ActivityText) ? "Thinking…" : ActivityText)</span>
+                    <span class="chat-msg-text">@(string.IsNullOrEmpty(ActivityText) ? GetProcessingStatus() : ActivityText)</span>
                 </div>
             }
             else
             {
                 <div class="action-item action-default running">
                     <span class="action-dot"></span>
-                    <span class="action-label">Thinking</span>
+                    <span class="action-label">@GetProcessingStatus()</span>
                 </div>
             }
         }
@@ -110,6 +110,33 @@
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
     [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
+    [Parameter] public DateTime? ProcessingStartedAt { get; set; }
+    [Parameter] public int ToolCallCount { get; set; }
+    [Parameter] public int ProcessingPhase { get; set; }
+
+    private string GetProcessingStatus()
+    {
+        // Phase 0: Sending, 1: Server connected, 2: Thinking, 3: Working (tools)
+        if (ProcessingPhase == 0)
+            return "Sending…";
+        if (ProcessingPhase == 1)
+            return "Server connected…";
+        if (ProcessingPhase == 2 && ToolCallCount == 0)
+            return "Thinking…";
+
+        var parts = new List<string> { "Working" };
+        if (ProcessingStartedAt.HasValue)
+        {
+            var elapsed = DateTime.UtcNow - ProcessingStartedAt.Value;
+            if (elapsed.TotalMinutes >= 1)
+                parts.Add($"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s");
+            else if (elapsed.TotalSeconds >= 5)
+                parts.Add($"{(int)elapsed.TotalSeconds}s");
+        }
+        if (ToolCallCount > 0)
+            parts.Add($"{ToolCallCount} tool call{(ToolCallCount != 1 ? "s" : "")}");
+        return string.Join(" · ", parts) + "…";
+    }
 
     private string GetLayoutClass() => Layout switch
     {
@@ -134,7 +161,10 @@
         .UseAdvancedExtensions().Build();
 
     private static readonly Dictionary<string, string> _imageCache = new();
-    private static readonly Dictionary<int, string> _markdownCache = new();
+    // LRU markdown cache: uses content string as key (no hash collisions), with eviction at 1000 entries
+    private static readonly Dictionary<string, string> _markdownCache = new();
+    private static readonly LinkedList<string> _markdownCacheLru = new();
+    private const int MarkdownCacheMaxSize = 1000;
 
     private static readonly System.Text.RegularExpressions.Regex ImagePathRegex = new(
         @"(?<!\(|""|\w)((?:/[\w\-. ]+)+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|tiff))(?!\)|""|\w)",
@@ -143,8 +173,7 @@
     internal static string RenderMarkdown(string content)
     {
         if (string.IsNullOrEmpty(content)) return "";
-        var key = content.GetHashCode();
-        if (_markdownCache.TryGetValue(key, out var cached)) return cached;
+        if (_markdownCache.TryGetValue(content, out var cached)) return cached;
         try
         {
             var html = Markdig.Markdown.ToHtml(content, MdPipeline);
@@ -156,7 +185,18 @@
                     return $"<img src=\"{dataUri}\" alt=\"{System.IO.Path.GetFileName(path)}\" />";
                 return match.Value;
             });
-            if (_markdownCache.Count < 500) _markdownCache[key] = html;
+            // LRU eviction: remove oldest when at capacity
+            if (_markdownCache.Count >= MarkdownCacheMaxSize)
+            {
+                var oldest = _markdownCacheLru.First;
+                if (oldest != null)
+                {
+                    _markdownCache.Remove(oldest.Value);
+                    _markdownCacheLru.RemoveFirst();
+                }
+            }
+            _markdownCache[content] = html;
+            _markdownCacheLru.AddLast(content);
             return html;
         }
         catch { return System.Net.WebUtility.HtmlEncode(content).Replace("\n", "<br/>"); }

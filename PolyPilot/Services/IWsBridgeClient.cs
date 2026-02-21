@@ -48,4 +48,10 @@ public interface IWsBridgeClient
     Task RenameSessionAsync(string oldName, string newName, CancellationToken ct = default);
     Task SendOrganizationCommandAsync(OrganizationCommandPayload payload, CancellationToken ct = default);
     Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default);
+
+    // Repo operations
+    event Action<ReposListPayload>? OnReposListReceived;
+    Task<RepoAddedPayload> AddRepoAsync(string url, Action<string>? onProgress = null, CancellationToken ct = default);
+    Task RemoveRepoAsync(string repoId, bool deleteFromDisk, string? groupId = null, CancellationToken ct = default);
+    Task RequestReposAsync(CancellationToken ct = default);
 }
