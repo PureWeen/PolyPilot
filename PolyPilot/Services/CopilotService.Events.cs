@@ -1104,6 +1104,17 @@ public partial class CopilotService
     /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
     /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
     internal const int WatchdogToolExecutionTimeoutSeconds = 600;
+    /// <summary>Maximum seconds to wait for SDK AbortAsync before proceeding with state cleanup.
+    /// Prevents the stop button from hanging when the SDK session/WebSocket is broken.</summary>
+    internal const int AbortTimeoutSeconds = 5;
+    /// <summary>Milliseconds to wait after posting watchdog cleanup to InvokeOnUI before
+    /// falling back to direct state clearing. Handles the case where the Blazor circuit
+    /// is dead and InvokeOnUI callbacks are never processed.</summary>
+    internal const int WatchdogFallbackDelayMs = 2000;
+    /// <summary>Seconds to wait for events on a resumed session before declaring it stale.
+    /// If the CLI backend finished (or crashed) while the app was closed, no events will
+    /// arrive after resume. This short grace period avoids the full 600s tool timeout.</summary>
+    internal const int ResumeGracePeriodSeconds = 30;
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
@@ -1157,10 +1168,21 @@ public partial class CopilotService
                 // 3. Tools have been executed this turn (HasUsedToolsThisTurn) — even between
                 //    tool rounds when ActiveToolCallCount is 0, the model may spend minutes
                 //    thinking about what tool to call next.
-                var useToolTimeout = hasActiveTool || state.Info.IsResumed || Volatile.Read(ref state.HasUsedToolsThisTurn);
-                var effectiveTimeout = useToolTimeout
-                    ? WatchdogToolExecutionTimeoutSeconds
-                    : WatchdogInactivityTimeoutSeconds;
+                // Exception: resumed sessions that have NOT received any events since resume
+                // get a short grace period instead — if the CLI finished or crashed while the
+                // app was closed, no events will arrive and we shouldn't wait 600s.
+                int effectiveTimeout;
+                if (state.Info.IsResumed && !Volatile.Read(ref state.HasReceivedEventsSinceResume))
+                {
+                    effectiveTimeout = ResumeGracePeriodSeconds;
+                }
+                else
+                {
+                    var useToolTimeout = hasActiveTool || state.Info.IsResumed || Volatile.Read(ref state.HasUsedToolsThisTurn);
+                    effectiveTimeout = useToolTimeout
+                        ? WatchdogToolExecutionTimeoutSeconds
+                        : WatchdogInactivityTimeoutSeconds;
+                }
 
                 if (elapsed >= effectiveTimeout)
                 {
@@ -1198,6 +1220,33 @@ public partial class CopilotService
                         state.ResponseCompletion?.TrySetResult("");
                         OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutMinutes} minute(s).");
                         OnStateChanged?.Invoke();
+                    });
+
+                    // Fallback: if the UI thread is dead (e.g. Blazor circuit crashed),
+                    // the InvokeOnUI callback may never execute. Wait briefly and then
+                    // clear the critical IsProcessing flag directly so the session doesn't
+                    // stay stuck forever. This is safe because the generation guard above
+                    // prevents double-clearing, and IsProcessing is a simple bool.
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(WatchdogFallbackDelayMs, ct);
+                            if (state.Info.IsProcessing &&
+                                Interlocked.Read(ref state.ProcessingGeneration) == watchdogGeneration)
+                            {
+                                Debug($"[WATCHDOG-FALLBACK] '{sessionName}' UI callback didn't clear IsProcessing after {WatchdogFallbackDelayMs}ms — clearing directly");
+                                state.Info.IsProcessing = false;
+                                state.Info.ProcessingStartedAt = null;
+                                state.Info.ProcessingPhase = 0;
+                                state.Info.ToolCallCount = 0;
+                                state.Info.IsResumed = false;
+                                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                                state.HasUsedToolsThisTurn = false;
+                                state.ResponseCompletion?.TrySetResult("");
+                            }
+                        }
+                        catch { /* best-effort fallback */ }
                     });
                     break;
                 }

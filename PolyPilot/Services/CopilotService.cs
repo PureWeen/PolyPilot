@@ -1665,13 +1665,19 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!state.Info.IsProcessing) return;
 
-        // In demo mode, Session is null — skip the SDK abort call
+        // In demo mode, Session is null — skip the SDK abort call.
+        // Use a timeout to prevent hanging forever if the SDK session/WebSocket is broken.
         if (!IsDemoMode)
         {
             try
             {
-                await state.Session.AbortAsync();
+                using var abortCts = new CancellationTokenSource(TimeSpan.FromSeconds(AbortTimeoutSeconds));
+                await state.Session.AbortAsync().WaitAsync(abortCts.Token);
                 Debug($"Aborted session '{sessionName}'");
+            }
+            catch (OperationCanceledException)
+            {
+                Debug($"Abort timed out for '{sessionName}' after {AbortTimeoutSeconds}s — proceeding with cleanup");
             }
             catch (Exception ex)
             {

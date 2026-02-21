@@ -113,6 +113,7 @@
     [Parameter] public DateTime? ProcessingStartedAt { get; set; }
     [Parameter] public int ToolCallCount { get; set; }
     [Parameter] public int ProcessingPhase { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
 
     private string GetProcessingStatus()
     {

@@ -630,6 +630,96 @@
           "text": "Manual verification: check debug info for any sessions with IsProcessing=true where LastUpdatedAt is over 10 minutes old. Such sessions should have been detected as stale during restore."
         }
       ]
+    },
+    {
+      "id": "stop-button-responsive-when-sdk-broken",
+      "name": "Stop button clears stuck 'Sending' state even when SDK session is broken",
+      "description": "When a session is stuck at ProcessingPhase=0 ('Sending') because the SDK session or WebSocket is broken, clicking the stop button should still clear the processing state within 5 seconds thanks to the abort timeout. Previously, AbortAsync() could hang forever, making the stop button non-functional.",
+      "category": "session-management",
+      "unitTestCoverage": [
+        "AbortTimeoutAndWatchdogFallbackTests.AbortTimeoutSeconds_IsReasonable",
+        "AbortTimeoutAndWatchdogFallbackTests.AbortTimeoutSeconds_IsLessThanWatchdogInactivityTimeout",
+        "AbortTimeoutAndWatchdogFallbackTests.AbortSessionAsync_InDemoMode_ClearsIsProcessing",
+        "AbortTimeoutAndWatchdogFallbackTests.AbortSessionAsync_ClearsStuckSendingState",
+        "AbortTimeoutAndWatchdogFallbackTests.AbortSessionAsync_ClearsAllCompanionFields",
+        "AbortTimeoutAndWatchdogFallbackTests.AbortSessionAsync_ClearsMessageQueue"
+      ],
+      "steps": [
+        {
+          "action": "note",
+          "note": "Session must be stuck at 'Sending' (ProcessingPhase=0, IsProcessing=true)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.send-btn.stop-btn') !== null",
+          "expect": { "equals": "true" },
+          "note": "Stop button should be visible for processing sessions"
+        },
+        {
+          "action": "click",
+          "target": ".send-btn.stop-btn",
+          "note": "Click the stop button"
+        },
+        {
+          "action": "wait",
+          "duration": 6000,
+          "note": "Wait for abort timeout (5s) + buffer"
+        },
+        {
+          "action": "evaluate",
+          "script": "!document.querySelector('.expanded-card.processing')",
+          "expect": { "equals": "true" },
+          "note": "Session should no longer show processing state — abort timeout ensures cleanup"
+        }
+      ]
+    },
+    {
+      "id": "watchdog-fallback-clears-stuck-session",
+      "name": "Watchdog fallback clears IsProcessing when Blazor circuit is crashed",
+      "description": "When the Blazor rendering circuit crashes (e.g., ThrowForUnknownIncomingParameterName), the watchdog's InvokeOnUI callback cannot execute. A fallback mechanism clears IsProcessing directly from the background thread after 2 seconds, preventing sessions from being stuck forever.",
+      "category": "session-management",
+      "unitTestCoverage": [
+        "AbortTimeoutAndWatchdogFallbackTests.WatchdogFallbackDelayMs_IsReasonable",
+        "AbortTimeoutAndWatchdogFallbackTests.WatchdogFallback_ClearsIsProcessing_WhenUICallbackDoesNotRun",
+        "AbortTimeoutAndWatchdogFallbackTests.WatchdogFallback_SkipsClearing_WhenGenerationMismatch",
+        "AbortTimeoutAndWatchdogFallbackTests.WatchdogFallback_SkipsClearing_WhenAlreadyCleared"
+      ],
+      "steps": [
+        {
+          "action": "note",
+          "note": "This scenario is primarily validated by unit tests. The fallback activates automatically when the UI thread cannot process watchdog callbacks."
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.session-card.processing')).length",
+          "note": "Count sessions in processing state — should be 0 if watchdog fallback worked"
+        }
+      ]
+    },
+    {
+      "id": "resume-grace-period-clears-stale-session",
+      "name": "Resumed sessions clear quickly when CLI backend is gone",
+      "description": "When the app restarts and a session was mid-turn, the watchdog uses a 30-second grace period instead of the full 600-second tool timeout. If no events arrive from the CLI backend within the grace period, the session is marked as idle. This prevents sessions from appearing stuck for 10 minutes after restart.",
+      "category": "session-management",
+      "unitTestCoverage": [
+        "AbortTimeoutAndWatchdogFallbackTests.ResumeGracePeriodSeconds_IsReasonable",
+        "AbortTimeoutAndWatchdogFallbackTests.ResumeGracePeriodSeconds_IsLessThanToolExecutionTimeout",
+        "AbortTimeoutAndWatchdogFallbackTests.ResumeGracePeriodSeconds_IsLessThanInactivityTimeout",
+        "AbortTimeoutAndWatchdogFallbackTests.ResumedSession_NoEvents_UsesGracePeriodTimeout",
+        "AbortTimeoutAndWatchdogFallbackTests.ResumedSession_WithEvents_UsesToolExecutionTimeout",
+        "AbortTimeoutAndWatchdogFallbackTests.NonResumedSession_UsesInactivityTimeout"
+      ],
+      "steps": [
+        {
+          "action": "note",
+          "note": "Restart the app while a session is processing. Within ~30 seconds, the session should transition from 'Processing' to idle if the CLI is no longer active."
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.session-card.processing')).length",
+          "note": "After restart + 30s wait, no sessions should be stuck in processing state"
+        }
+      ]
     }
   ]
 }
