@@ -44,8 +44,12 @@ public partial class CopilotService
     public void SaveOrganization()
     {
         InvalidateOrganizedSessionsCache();
+        // Snapshot JSON on caller's thread to avoid concurrent mutation during serialization
+        string json;
+        try { json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true }); }
+        catch { return; }
         _saveOrgDebounce?.Dispose();
-        _saveOrgDebounce = new Timer(_ => SaveOrganizationCore(), null, 2000, Timeout.Infinite);
+        _saveOrgDebounce = new Timer(_ => WriteOrgFile(json), null, 2000, Timeout.Infinite);
     }
 
     private void FlushSaveOrganization()
@@ -59,13 +63,25 @@ public partial class CopilotService
     {
         try
         {
-            Directory.CreateDirectory(PolyPilotBaseDir);
             var json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(OrganizationFile, json);
+            WriteOrgFile(json);
         }
         catch (Exception ex)
         {
             Debug($"Failed to save organization: {ex.Message}");
+        }
+    }
+
+    private void WriteOrgFile(string json)
+    {
+        try
+        {
+            Directory.CreateDirectory(PolyPilotBaseDir);
+            File.WriteAllText(OrganizationFile, json);
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to write organization file: {ex.Message}");
         }
     }
 
@@ -79,9 +95,9 @@ public partial class CopilotService
     {
         var activeNames = _sessions.Where(kv => !kv.Value.Info.IsHidden).Select(kv => kv.Key).ToHashSet();
         
-        // Quick check: skip if active session set hasn't changed (order-independent XOR hash)
+        // Quick check: skip if active session set hasn't changed (order-independent additive hash)
         var currentHash = activeNames.Count;
-        foreach (var name in activeNames) currentHash ^= name.GetHashCode();
+        unchecked { foreach (var name in activeNames) currentHash += name.GetHashCode() * 31; }
         if (currentHash == _lastReconcileSessionHash && currentHash != 0) return;
         _lastReconcileSessionHash = currentHash;
         bool changed = false;

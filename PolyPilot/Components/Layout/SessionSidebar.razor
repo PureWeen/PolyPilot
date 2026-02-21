@@ -787,8 +787,8 @@ else
         CopilotService.SwitchSession(name);
         var session = CopilotService.GetSession(name);
         if (session != null) session.LastReadMessageCount = session.History.Count;
-        // Fire-and-forget to avoid blocking UI
-        _ = Task.Run(() => CopilotService.SaveUiState("/", name));
+        // SaveUiState is debounced (in-memory + timer) — no need for Task.Run
+        CopilotService.SaveUiState("/", name);
         await OnSessionSelected.InvokeAsync();
         if (currentPage != "/")
             Nav.NavigateTo("/");

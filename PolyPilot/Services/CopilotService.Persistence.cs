@@ -8,12 +8,32 @@ public partial class CopilotService
     /// <summary>
     /// Save active session list to disk so we can restore on relaunch.
     /// Uses a 2-second debounce — multiple calls within the window coalesce into a single write.
+    /// Snapshots session data on the caller's thread for thread safety.
     /// </summary>
     private void SaveActiveSessionsToDisk()
     {
         if (IsDemoMode || IsRestoring) return;
+        // Snapshot entries on caller's thread to avoid concurrent mutation during timer callback
+        List<ActiveSessionEntry> entries;
+        try
+        {
+            entries = _sessions.Values
+                .Where(s => s.Info.SessionId != null && !s.Info.IsHidden)
+                .Select(s => new ActiveSessionEntry
+                {
+                    SessionId = s.Info.SessionId!,
+                    DisplayName = s.Info.Name,
+                    Model = s.Info.Model,
+                    WorkingDirectory = s.Info.WorkingDirectory,
+                    LastPrompt = s.Info.IsProcessing
+                        ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
+                        : null
+                })
+                .ToList();
+        }
+        catch { return; }
         _saveSessionsDebounce?.Dispose();
-        _saveSessionsDebounce = new Timer(_ => SaveActiveSessionsToDiskCore(), null, 2000, Timeout.Infinite);
+        _saveSessionsDebounce = new Timer(_ => WriteActiveSessionsFile(entries), null, 2000, Timeout.Infinite);
     }
 
     /// <summary>
@@ -23,6 +43,7 @@ public partial class CopilotService
     {
         _saveSessionsDebounce?.Dispose();
         _saveSessionsDebounce = null;
+        if (IsRestoring) return;
         SaveActiveSessionsToDiskCore();
     }
 
@@ -32,8 +53,6 @@ public partial class CopilotService
 
         try
         {
-            Directory.CreateDirectory(PolyPilotBaseDir);
-            
             var entries = _sessions.Values
                 .Where(s => s.Info.SessionId != null && !s.Info.IsHidden)
                 .Select(s => new ActiveSessionEntry
@@ -47,7 +66,24 @@ public partial class CopilotService
                         : null
                 })
                 .ToList();
-            
+            WriteActiveSessionsFile(entries);
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to save active sessions: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Write entries to disk, merging with existing file to preserve sessions not in memory.
+    /// Safe to call from any thread — only does file I/O on pre-built data.
+    /// </summary>
+    private void WriteActiveSessionsFile(List<ActiveSessionEntry> entries)
+    {
+        if (IsDemoMode) return;
+        try
+        {
+            Directory.CreateDirectory(PolyPilotBaseDir);
             try
             {
                 if (File.Exists(ActiveSessionsFile))

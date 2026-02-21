@@ -799,7 +799,7 @@
                 expandedSession = active;
                 _focusedInputId = $"input-{active!.Replace(" ", "-")}";
                 _needsScrollToBottom = true;
-                _ = Task.Run(() => CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid));
+                CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid);
             }
             // Ensure expandedSession stays in sync with active session (e.g., sidebar flyout selection on mobile)
             else if (active != null && expandedSession != null && expandedSession != active && sessions.Any(s => s.Name == active))
@@ -1983,7 +1983,7 @@
         var session = CopilotService.GetSession(sessionName);
         if (session != null) session.LastReadMessageCount = session.History.Count;
         // Defer UI state persistence to avoid blocking on file I/O
-        _ = Task.Run(() => CopilotService.SaveUiState("/dashboard", activeSession: sessionName, expandedSession: sessionName, expandedGrid: !isCompactGrid));
+        CopilotService.SaveUiState("/dashboard", activeSession: sessionName, expandedSession: sessionName, expandedGrid: !isCompactGrid);
     }
 
     private async Task CollapseExpanded()
