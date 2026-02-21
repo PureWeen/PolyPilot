@@ -155,7 +155,7 @@
                 </div>
             </div>
         </div>
-        @foreach (var (group, groupSessions) in CopilotService.GetOrganizedSessions().ToList())
+        @foreach (var (group, groupSessions) in CopilotService.GetOrganizedSessions())
         {
             var showGroupHeaders = CopilotService.HasMultipleGroups;
             @if (showGroupHeaders)
@@ -799,7 +799,7 @@
                 expandedSession = active;
                 _focusedInputId = $"input-{active!.Replace(" ", "-")}";
                 _needsScrollToBottom = true;
-                _ = Task.Run(() => CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid));
+                CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid);
             }
             // Ensure expandedSession stays in sync with active session (e.g., sidebar flyout selection on mobile)
             else if (active != null && expandedSession != null && expandedSession != active && sessions.Any(s => s.Name == active))
@@ -820,13 +820,15 @@
             }
             if (sessionSwitched)
             {
-                _sessionSwitching = false;
+                // _sessionSwitching stays true until SafeRefreshAsync reads it — 
+                // this skips the expensive JS draft capture round-trip during switches
                 _needsScrollToBottom = true;
                 // CSS toggle already done by sidebar/ExpandSession — suppress renders during cooldown
                 var newCooldown = Environment.TickCount64 + 300;
                 long current;
                 do { current = Interlocked.Read(ref _switchCooldownUntil); }
                 while (newCooldown > current && Interlocked.CompareExchange(ref _switchCooldownUntil, newCooldown, current) != current);
+                ScheduleRender(); // Will be deferred past cooldown by SafeRefreshAsync
             }
             else
                 ScheduleRender();
@@ -1981,7 +1983,7 @@
         var session = CopilotService.GetSession(sessionName);
         if (session != null) session.LastReadMessageCount = session.History.Count;
         // Defer UI state persistence to avoid blocking on file I/O
-        _ = Task.Run(() => CopilotService.SaveUiState("/dashboard", activeSession: sessionName, expandedSession: sessionName, expandedGrid: !isCompactGrid));
+        CopilotService.SaveUiState("/dashboard", activeSession: sessionName, expandedSession: sessionName, expandedGrid: !isCompactGrid);
     }
 
     private async Task CollapseExpanded()
@@ -2295,7 +2297,7 @@
     public async Task JsSwitchToSessionByIndex(int index)
     {
         // Use organized sessions to match sidebar badge ordering
-        var organized = CopilotService.GetOrganizedSessions().ToList();
+        var organized = CopilotService.GetOrganizedSessions();
         var sessionIndex = 0;
         foreach (var (group, groupSessions) in organized)
         {

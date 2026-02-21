@@ -1,67 +1,43 @@
-# Regression History & Common Mistakes
+# Regression History — Stuck Session Fixes
 
-## 7 Mistakes That Keep Recurring
+## PR #141 — Original Watchdog
+- **Fix**: 120s inactivity watchdog checks every 15s, clears IsProcessing
+- **Regression**: 120s too aggressive for tool executions (builds run 5+ min)
 
-### 1. Forgetting companion fields on error paths
-**What happens**: Clear `IsProcessing` and `ProcessingPhase` but forget `IsResumed` or
-`HasUsedToolsThisTurn`. Next turn inherits stale 600s timeout or stale tool state.
-**PRs where this happened**: #148, #158, #164
+## PR #147 — Tool Timeout + SEND/COMPLETE Race
+- Two-tier timeout: 120s inactivity, 600s tool execution
+- ProcessingGeneration counter prevents stale IDLE from clearing new turn
+- Start watchdog on restored sessions (was missing → stuck forever)
+- Watchdog callback needs generation guard + InvokeOnUI
+- **Regression**: Watchdog callback originally lacked generation guard
 
-### 2. Missing FlushCurrentResponse before clearing
-**What happens**: Accumulated `CurrentResponse` (StringBuilder) content is silently lost.
-User sees "Thinking..." then nothing — the partial response vanishes.
-**PRs where this happened**: #158
+## PR #148 — Resume Timeouts + IsResumed
+- Remove 10s resume timeout (killed active sessions)
+- HasUsedToolsThisTurn flag (ActiveToolCallCount resets between tool rounds)
+- Scope IsResumed to mid-turn only
+- **Regression 1**: 10s resume timeout killed actively working sessions
+- **Regression 2**: 120s timeout during tool loops (ActiveToolCallCount reset)
+- **Regression 3**: IsResumed not cleared on abort/error/watchdog
 
-### 3. Using ActiveToolCallCount alone as tool signal
-**What happens**: `AssistantTurnStartEvent` resets `ActiveToolCallCount` to 0 between tool rounds
-(line ~365 in Events.cs). Between rounds, the model reasons about the next tool call, so
-`hasActiveTool` is 0 even though the session is actively working.
-`HasUsedToolsThisTurn` persists across tool rounds and is the reliable signal.
-**PRs where this happened**: #148, #163
+## PR #153 — Thread Safety
+- Session freezing from InvokeAsync in HandleComplete
+- **Regression**: InvokeAsync defers StateHasChanged → stale renders
 
-### 4. Adding hardcoded short timeouts for resume
-**What happens**: A 10s timeout kills sessions that are legitimately processing (tool calls
-take 30-60s between events). The watchdog's tiered 120s/600s approach is the correct mechanism.
-**PRs where this happened**: #148
+## PR #158 — Response Lost
+- FlushCurrentResponse BEFORE clearing IsProcessing on all paths
+- **Root cause**: Accumulated CurrentResponse silently lost
 
-### 5. Mutating state on background threads
-**What happens**: SDK events arrive on worker threads. `IsProcessing` write on a background
-thread races with Blazor rendering on the UI thread. Use `InvokeOnUI()` for all `state.Info.*`
-mutations from background code.
-**PRs where this happened**: #147, #148, #163
+## PR #164 — Processing Status Fields
+- ProcessingPhase, ToolCallCount, ProcessingStartedAt
+- **Regression caught in review**: ToolCallCount needs Interlocked
 
-### 6. Clearing IsResumed without checking tool activity
-**What happens**: After resume, the dedup path leaves `ActiveToolCallCount` at 0, so
-`hasActiveTool` is false. If you clear `IsResumed` based only on `HasReceivedEventsSinceResume`,
-the 600s timeout drops to 120s and kills resumed mid-tool sessions.
-**Guard condition**: `!hasActiveTool && !HasUsedToolsThisTurn`
-**PRs where this happened**: #163
+## PR #163 — Staleness Check + IsResumed Clearing
+- Staleness check on events.jsonl (>600s = idle)
+- Clear IsResumed after events flow
+- **Regression caught in review**: IsResumed clearing didn't guard on tool activity
+- Fixed: Guard on `!hasActiveTool && !HasUsedToolsThisTurn`, InvokeOnUI
+- Bridge OnTurnEnd (8th path) identified as missing full cleanup
 
-### 7. InvokeAsync in HandleComplete (Dashboard.razor)
-**What happens**: `HandleComplete` is called from `CompleteResponse` via
-`Invoke(SyncContext.Post)` — already on UI thread. Wrapping in `InvokeAsync` defers
-`StateHasChanged()` to next render cycle, causing stale "Thinking" indicators.
-**PRs where this happened**: #153
-
-## Full Regression Timeline
-
-| PR | What broke | Root cause |
-|----|-----------|------------|
-| #141 | 120s timeout killed tool executions | Single timeout tier too aggressive |
-| #147 | Stale IDLE killed new turns | Missing ProcessingGeneration guard |
-| #148 | 10s resume timeout killed active sessions | Hardcoded short timeout |
-| #148 | 120s during tool loops | ActiveToolCallCount reset between rounds |
-| #148 | IsResumed leaked → permanent 600s | Not cleared on abort/error/watchdog |
-| #153 | Stale "Thinking" renders | InvokeAsync deferred StateHasChanged |
-| #158 | Response content silently lost | No FlushCurrentResponse before clearing |
-| #163 | Resumed mid-tool killed at 120s | IsResumed cleared without tool guard |
-| #164 | Processing fields not reset on error | New fields added to only some paths |
-
-## Thread Safety Details
-
-1. **All `state.Info.*` mutations from background threads** → `InvokeOnUI()`
-2. **`HasUsedToolsThisTurn`, `HasReceivedEventsSinceResume`** → `Volatile.Write` on set, `Volatile.Read` on check (ARM memory model)
-3. **`ActiveToolCallCount`** → `Interlocked.Increment`/`Decrement`/`Exchange` (concurrent tool starts/completions)
-4. **`LastEventAtTicks`** → `Interlocked.Exchange`/`Read` (long requires atomic ops)
-5. **`ProcessingGeneration`** → `Interlocked.Increment` on send, `Interlocked.Read` on check
-6. **`ProcessingGeneration` guard**: `SyncContext.Post` is async — a new `SendPromptAsync` can execute between the Post() and the callback. Capture generation before posting, verify inside callback.
+## Known Remaining Issues
+- `HasUsedToolsThisTurn` resets use plain assignment (not Volatile.Write)
+- InvokeOnUI dispatch for IsResumed adds 15s delay (one watchdog cycle)

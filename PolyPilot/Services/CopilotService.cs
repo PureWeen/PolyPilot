@@ -22,6 +22,12 @@ public partial class CopilotService : IAsyncDisposable
     // Image paths queued alongside messages when session is busy (keyed by session name, list per queued message)
     private readonly ConcurrentDictionary<string, List<List<string>>> _queuedImagePaths = new();
     private static readonly object _diagnosticLogLock = new();
+    // Debounce timers for disk I/O — coalesce rapid-fire saves into a single write
+    private Timer? _saveSessionsDebounce;
+    private Timer? _saveOrgDebounce;
+    private Timer? _saveUiStateDebounce;
+    private UiState? _pendingUiState;
+    private readonly object _uiStateLock = new();
     private readonly IChatDatabase _chatDb;
     private readonly IServerManager _serverManager;
     private readonly IWsBridgeClient _bridgeClient;
@@ -2046,7 +2052,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public async ValueTask DisposeAsync()
     {
-        SaveActiveSessionsToDisk();
+        // Flush any pending debounced writes immediately
+        FlushSaveActiveSessionsToDisk();
+        FlushSaveOrganization();
+        _saveUiStateDebounce?.Dispose();
+        _saveUiStateDebounce = null;
+        FlushUiState();
         
         foreach (var state in _sessions.Values)
         {

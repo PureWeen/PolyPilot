@@ -247,7 +247,7 @@ else
 
         <div class="session-list">
             @{
-                var organized = CopilotService.GetOrganizedSessions().ToList();
+                var organized = CopilotService.GetOrganizedSessions();
                 var showGroupHeaders = CopilotService.HasMultipleGroups;
                 var sessionIndex = 0;
             }
@@ -588,7 +588,6 @@ else
                     _sidebarRefreshPending = false;
                     _lastSidebarRefresh = DateTime.UtcNow;
                     sessions = CopilotService.GetAllSessions().ToList();
-                    LoadPersistedSessions();
                     StateHasChanged();
                 }));
             }
@@ -596,7 +595,7 @@ else
         }
         _lastSidebarRefresh = now;
         sessions = CopilotService.GetAllSessions().ToList();
-        LoadPersistedSessions();
+        // Don't reload persisted sessions on every state change — it scans all session directories
         InvokeAsync(StateHasChanged);
     }
 
@@ -613,6 +612,7 @@ else
     private void TogglePersistedSessions()
     {
         showPersistedSessions = !showPersistedSessions;
+        if (showPersistedSessions) LoadPersistedSessions();
     }
 
     private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt) args)
@@ -787,8 +787,8 @@ else
         CopilotService.SwitchSession(name);
         var session = CopilotService.GetSession(name);
         if (session != null) session.LastReadMessageCount = session.History.Count;
-        // Fire-and-forget to avoid blocking UI
-        _ = Task.Run(() => CopilotService.SaveUiState("/", name));
+        // SaveUiState is debounced (in-memory + timer) — no need for Task.Run
+        CopilotService.SaveUiState("/", name);
         await OnSessionSelected.InvokeAsync();
         if (currentPage != "/")
             Nav.NavigateTo("/");
