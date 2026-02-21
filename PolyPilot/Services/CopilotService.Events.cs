@@ -343,7 +343,8 @@ public partial class CopilotService
                 var histToolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == completeCallId);
                 if (histToolMsg != null)
                 {
-                    if (completeToolName == ShowImageTool.ToolName && !hasError)
+                    var effectiveToolName = completeToolName ?? histToolMsg.ToolName;
+                    if (effectiveToolName == ShowImageTool.ToolName && !hasError)
                     {
                         // Convert tool call placeholder into an Image message
                         (string? imgPath, string? imgCaption) = ShowImageTool.ParseResult(resultStr);

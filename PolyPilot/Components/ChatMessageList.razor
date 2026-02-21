@@ -284,6 +284,7 @@
             "store_memory" => ("Memory", "action-memory"),
             "report_intent" => ("Intent", "action-intent"),
             "skill" => ("Skill", "action-agent"),
+            "show_image" or "ShowImageAsync" => ("Preview", "action-read"),
             _ when toolName.StartsWith("github-mcp") => ("GitHub", "action-fetch"),
             _ when toolName.StartsWith("context7") => ("Docs", "action-read"),
             _ => (FormatToolName(toolName), "action-default"),

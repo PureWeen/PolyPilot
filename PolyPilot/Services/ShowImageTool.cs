@@ -23,7 +23,7 @@ public static class ShowImageTool
     {
         return AIFunctionFactory.Create(
             ShowImageAsync,
-            nameof(ShowImageAsync),
+            ToolName,
             "Display an image to the user in the chat. Use this when you want to show the user a screenshot, diagram, or any image as part of the conversation. Accepts either a file path or base64-encoded image data.");
     }
 
