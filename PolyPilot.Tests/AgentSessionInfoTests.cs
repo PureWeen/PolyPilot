@@ -16,6 +16,39 @@ public class AgentSessionInfoTests
     }
 
     [Fact]
+    public void NewSession_HasDefaultProcessingStatusFields()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+
+        Assert.Null(session.ProcessingStartedAt);
+        Assert.Equal(0, session.TurnRoundCount);
+        Assert.False(session.HasReceivedFirstEvent);
+    }
+
+    [Fact]
+    public void ProcessingStatusFields_CanBeSetAndCleared()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+
+        session.ProcessingStartedAt = DateTime.UtcNow;
+        session.TurnRoundCount = 5;
+        session.HasReceivedFirstEvent = true;
+
+        Assert.NotNull(session.ProcessingStartedAt);
+        Assert.Equal(5, session.TurnRoundCount);
+        Assert.True(session.HasReceivedFirstEvent);
+
+        // Clear (as abort/complete would)
+        session.ProcessingStartedAt = null;
+        session.TurnRoundCount = 0;
+        session.HasReceivedFirstEvent = false;
+
+        Assert.Null(session.ProcessingStartedAt);
+        Assert.Equal(0, session.TurnRoundCount);
+        Assert.False(session.HasReceivedFirstEvent);
+    }
+
+    [Fact]
     public void History_CanAddMessages()
     {
         var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };

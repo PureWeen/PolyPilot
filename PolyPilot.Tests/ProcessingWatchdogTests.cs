@@ -472,6 +472,33 @@ public class ProcessingWatchdogTests
     }
 
     [Fact]
+    public async Task AbortSessionAsync_ClearsQueueAndProcessingStatus()
+    {
+        // Abort must clear the message queue so queued messages don't auto-send,
+        // and reset processing status fields so the UI shows idle state.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("abort-queue");
+
+        // Simulate active processing with queued messages
+        session.IsProcessing = true;
+        session.ProcessingStartedAt = DateTime.UtcNow;
+        session.TurnRoundCount = 5;
+        session.HasReceivedFirstEvent = true;
+        session.MessageQueue.Add("queued message 1");
+        session.MessageQueue.Add("queued message 2");
+
+        await svc.AbortSessionAsync("abort-queue");
+
+        Assert.False(session.IsProcessing);
+        Assert.Null(session.ProcessingStartedAt);
+        Assert.Equal(0, session.TurnRoundCount);
+        Assert.False(session.HasReceivedFirstEvent);
+        Assert.Empty(session.MessageQueue);
+    }
+
+    [Fact]
     public async Task AbortSessionAsync_AllowsSubsequentSend()
     {
         // After aborting a stuck session, user should be able to send a new message.

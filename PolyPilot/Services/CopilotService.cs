@@ -1626,10 +1626,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (IsRemoteMode)
         {
             await _bridgeClient.AbortSessionAsync(sessionName);
-            // Optimistically clear processing state
+            // Optimistically clear processing state and queue
             if (_sessions.TryGetValue(sessionName, out var remoteState))
             {
                 remoteState.Info.IsProcessing = false;
+                remoteState.Info.ProcessingStartedAt = null;
+                remoteState.Info.TurnRoundCount = 0;
+                remoteState.Info.HasReceivedFirstEvent = false;
+                remoteState.Info.MessageQueue.Clear();
                 OnStateChanged?.Invoke();
             }
             return;
@@ -1670,8 +1674,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Debug($"[ABORT] '{sessionName}' user abort, clearing IsProcessing");
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false;
+        state.Info.ProcessingStartedAt = null;
+        state.Info.TurnRoundCount = 0;
+        state.Info.HasReceivedFirstEvent = false;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
+        // Clear queued messages so they don't auto-send after abort
+        state.Info.MessageQueue.Clear();
+        _queuedImagePaths.TryRemove(sessionName, out _);
         CancelProcessingWatchdog(state);
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();

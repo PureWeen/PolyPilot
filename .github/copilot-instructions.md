@@ -90,6 +90,11 @@ When switching between Embedded and Persistent modes (via Settings → Save & Re
 ### Platform Differences
 `Models/PlatformHelper.cs` exposes `IsDesktop`/`IsMobile` and controls which `ConnectionMode`s are available. Mobile can only use Remote mode. Desktop defaults to Persistent.
 
+**Mobile-only behavior:**
+- Desktop menu items (Fix with Copilot, Copilot Console, Terminal, VS Code) are hidden via `PlatformHelper.IsDesktop` guards in `SessionListItem.razor`.
+- Report Bug opens the browser with a pre-filled GitHub issue URL via `Launcher.Default.OpenAsync` instead of the inline sidebar form.
+- Processing status indicator shows elapsed time and tool round count, synced via bridge.
+
 ## Critical Conventions
 
 ### Git Workflow
@@ -131,12 +136,33 @@ Disabled in `Platforms/MacCatalyst/Entitlements.plist` — required for spawning
 
 ### SDK Event Flow
 When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in order:
-1. `AssistantTurnStartEvent` → "Thinking..." indicator
+1. `AssistantTurnStartEvent` → "Thinking..." indicator, sets `HasReceivedFirstEvent`
 2. `AssistantMessageDeltaEvent` → streaming content chunks
 3. `AssistantMessageEvent` → full message (may include tool requests)
 4. `ToolExecutionStartEvent` / `ToolExecutionCompleteEvent` → tool activity
 5. `AssistantIntentEvent` → intent/plan updates
-6. `SessionIdleEvent` → turn complete, response finalized
+6. `AssistantTurnEndEvent` → end of a sub-turn (increments `TurnRoundCount`), tool loop continues
+7. `SessionIdleEvent` → turn complete, response finalized
+
+### Processing Status Indicator
+`AgentSessionInfo` tracks three fields for the processing status UI:
+- `ProcessingStartedAt` (DateTime?) — set to `DateTime.UtcNow` in `SendPromptAsync`
+- `TurnRoundCount` (int) — incremented on each `AssistantTurnEndEvent` (counts tool rounds)
+- `HasReceivedFirstEvent` (bool) — set on first `AssistantTurnStartEvent`
+
+All three are reset in `SendPromptAsync` (new turn) and cleared in `CompleteResponse` (turn done) and `AbortSessionAsync` (user stop). They're synced to mobile via `SessionSummary` in the bridge protocol.
+
+The UI shows: "Waiting for first response…" (before `HasReceivedFirstEvent`), then "Working · Xm Xs · N tool rounds…" (during processing).
+
+### Abort Behavior
+`AbortSessionAsync` must clear ALL processing state:
+- `IsProcessing = false`, `IsResumed = false`
+- `ProcessingStartedAt = null`, `TurnRoundCount = 0`, `HasReceivedFirstEvent = false`
+- `MessageQueue.Clear()` — prevents queued messages from auto-sending after abort
+- `_queuedImagePaths.TryRemove()` — clears associated image attachments
+- `CancelProcessingWatchdog()` and `ResponseCompletion.TrySetCanceled()`
+
+In remote mode, the mobile client optimistically clears all fields and delegates to the bridge server.
 
 ### Processing Watchdog
 The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has two timeout tiers:
@@ -231,7 +257,7 @@ Test files in `PolyPilot.Tests/`:
 - `BridgeMessageTests.cs` — Bridge protocol serialization, type constants
 - `RemoteModeTests.cs` — Remote mode payloads, organization state, chat serialization
 - `ChatMessageTests.cs` — Chat message factory methods, state transitions
-- `AgentSessionInfoTests.cs` — Session info properties, history, queue
+- `AgentSessionInfoTests.cs` — Session info properties, history, queue, processing status fields
 - `SessionOrganizationTests.cs` — Groups, sorting, metadata
 - `ConnectionSettingsTests.cs` — Settings persistence
 - `CopilotServiceInitializationTests.cs` — Initialization error handling, mode switching, fallback notices, CLI source persistence
@@ -241,7 +267,7 @@ Test files in `PolyPilot.Tests/`:
 - `PlatformHelperTests.cs` — Platform detection
 - `ToolResultFormattingTests.cs` — Tool output formatting
 - `UiStatePersistenceTests.cs` — UI state save/load
-- `ProcessingWatchdogTests.cs` — Watchdog constants, timeout selection, HasUsedToolsThisTurn, IsResumed
+- `ProcessingWatchdogTests.cs` — Watchdog constants, timeout selection, HasUsedToolsThisTurn, IsResumed, abort clears queue and processing status
 - `CliPathResolutionTests.cs` — CLI path resolution
 - `InitializationModeTests.cs` — Mode initialization
 - `PersistentModeTests.cs` — Persistent mode behavior

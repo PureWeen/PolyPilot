@@ -539,6 +539,69 @@
           "note": "No sessions should be stuck in processing state after relaunch"
         }
       ]
+    },
+    {
+      "id": "abort-clears-queue-and-status",
+      "name": "Stop button clears message queue and processing status",
+      "description": "When user clicks Stop on an active session, the message queue is cleared so no more messages auto-send, and processing status fields (elapsed time, tool rounds) are reset.",
+      "category": "session-management",
+      "unitTestCoverage": [
+        "ProcessingWatchdogTests.AbortSessionAsync_ClearsQueueAndProcessingStatus",
+        "ProcessingWatchdogTests.AbortSessionAsync_WorksRegardlessOfGeneration"
+      ],
+      "steps": [
+        {
+          "action": "note",
+          "note": "A session must be actively processing (IsProcessing=true)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.send-btn.stop-btn') !== null",
+          "expect": { "equals": "true" },
+          "note": "Stop button should be visible for processing sessions"
+        },
+        {
+          "action": "click",
+          "target": ".send-btn.stop-btn",
+          "note": "Click the stop button"
+        },
+        {
+          "action": "evaluate",
+          "script": "!document.querySelector('.expanded-card.processing')",
+          "expect": { "equals": "true" },
+          "note": "Session card should no longer show processing state after stop"
+        }
+      ]
+    },
+    {
+      "id": "processing-status-indicator",
+      "name": "Processing sessions show elapsed time and tool round count",
+      "description": "When a session is processing, the UI shows a status indicator with elapsed time and tool round count. Before the first SDK event, it shows 'Waiting for first response'. Processing status fields are synced via bridge to mobile.",
+      "category": "session-management",
+      "unitTestCoverage": [
+        "AgentSessionInfoTests.NewSession_HasDefaultProcessingStatusFields",
+        "AgentSessionInfoTests.ProcessingStatusFields_CanBeSetAndCleared",
+        "BridgeMessageTests.Serialize_CamelCaseNaming",
+        "BridgeMessageTests.SessionsListPayload_RoundTrip"
+      ],
+      "steps": [
+        {
+          "action": "note",
+          "note": "A session must be actively processing"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.expanded-card.processing') !== null",
+          "expect": { "equals": "true" },
+          "note": "Active session should show processing card state"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.processing-status') !== null || document.querySelector('.chat-message-list')?.textContent?.includes('Working') || document.querySelector('.chat-message-list')?.textContent?.includes('Waiting')",
+          "expect": { "equals": "true" },
+          "note": "Processing status text (elapsed time / tool rounds / waiting) should be visible"
+        }
+      ]
     }
   ]
 }
