@@ -127,16 +127,23 @@ public partial class CopilotService
         _bridgeClient.OnTurnEnd += (s) =>
         {
             _remoteStreamingSessions.TryRemove(s, out _);
-            var session = GetRemoteSession(s);
-            if (session != null)
+            InvokeOnUI(() =>
             {
-                Debug($"[BRIDGE-COMPLETE] '{session.Name}' OnTurnEnd cleared IsProcessing");
-                session.IsProcessing = false;
-                // Mark last assistant message as complete
-                var lastAssistant = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
-                if (lastAssistant != null) { lastAssistant.IsComplete = true; lastAssistant.Model = session.Model; }
-            }
-            InvokeOnUI(() => OnTurnEnd?.Invoke(s));
+                var session = GetRemoteSession(s);
+                if (session != null)
+                {
+                    Debug($"[BRIDGE-COMPLETE] '{session.Name}' OnTurnEnd cleared IsProcessing");
+                    session.IsProcessing = false;
+                    session.IsResumed = false;
+                    session.ProcessingStartedAt = null;
+                    session.ToolCallCount = 0;
+                    session.ProcessingPhase = 0;
+                    // Mark last assistant message as complete
+                    var lastAssistant = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
+                    if (lastAssistant != null) { lastAssistant.IsComplete = true; lastAssistant.Model = session.Model; }
+                }
+                OnTurnEnd?.Invoke(s);
+            });
         };
         _bridgeClient.OnSessionComplete += (s, sum) => InvokeOnUI(() => OnSessionComplete?.Invoke(s, sum));
         _bridgeClient.OnError += (s, e) => InvokeOnUI(() => OnError?.Invoke(s, e));

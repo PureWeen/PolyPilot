@@ -13,8 +13,9 @@ User sees "Thinking..." then nothing — the partial response vanishes.
 **PRs where this happened**: #158
 
 ### 3. Using ActiveToolCallCount alone as tool signal
-**What happens**: `ToolExecutionStartEvent` dedup path on resume **skips `ActiveToolCallCount++`**
-(line ~295 in Events.cs). So `hasActiveTool` is 0 even with a tool genuinely running.
+**What happens**: `AssistantTurnStartEvent` resets `ActiveToolCallCount` to 0 between tool rounds
+(line ~365 in Events.cs). Between rounds, the model reasons about the next tool call, so
+`hasActiveTool` is 0 even though the session is actively working.
 `HasUsedToolsThisTurn` persists across tool rounds and is the reliable signal.
 **PRs where this happened**: #148, #163
 

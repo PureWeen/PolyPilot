@@ -43,15 +43,16 @@ Skip any field not applicable to the path (e.g., remote mode has no `ActiveToolC
 
 | # | Path | Location | Notes |
 |---|------|----------|-------|
-| 1 | CompleteResponse | Events.cs ~L699 | Normal completion via SessionIdleEvent |
+| 1 | CompleteResponse | Events.cs ~L699 | Normal completion via SessionIdleEvent (saves response inline, not via FlushCurrentResponse) |
 | 2 | SessionErrorEvent | Events.cs ~L517 | SDK error — wrapped in InvokeOnUI |
 | 3 | Watchdog timeout | Events.cs ~L1192 | InvokeOnUI + generation guard |
 | 4 | AbortSessionAsync (local) | CopilotService.cs ~L1681 | User clicks Stop |
 | 5 | AbortSessionAsync (remote) | CopilotService.cs ~L1638 | Remote mode optimistic clear |
 | 6 | SendAsync reconnect failure | CopilotService.cs ~L1600 | Reconnect+retry failed |
 | 7 | SendAsync initial failure | CopilotService.cs ~L1613 | First send attempt failed |
+| 8 | Bridge OnTurnEnd | Bridge.cs ~L127 | Remote mode normal turn completion — InvokeOnUI |
 
-**When adding a new field to AgentSessionInfo or SessionState**, add its reset to ALL 7 paths.
+**When adding a new field to AgentSessionInfo or SessionState**, add its reset to ALL 8 paths.
 **When adding a new cleanup path**, copy the full checklist from an existing path (path 3 is the most complete).
 
 ## Key Watchdog Rules
@@ -59,7 +60,7 @@ Skip any field not applicable to the path (e.g., remote mode has no `ActiveToolC
 - **Two timeout tiers**: 120s inactivity, 600s tool execution
 - **600s triggers when**: `ActiveToolCallCount > 0` OR `IsResumed` OR `HasUsedToolsThisTurn`
 - **Never add timeouts shorter than 120s** for resume — tool calls gap 30-60s between events
-- **`ActiveToolCallCount` is unreliable after resume** — dedup path skips increment. Always check `HasUsedToolsThisTurn` too
+- **`ActiveToolCallCount` returns to 0 between tool rounds** — `AssistantTurnStartEvent` resets it to 0 (line ~365). Between rounds the model reasons about the next tool call, so `hasActiveTool` is 0 even though the session is actively working. Always check `HasUsedToolsThisTurn` too
 - **IsResumed clearing** must guard on `!hasActiveTool && !HasUsedToolsThisTurn`
 - **Staleness check**: `IsSessionStillProcessing` uses `File.GetLastWriteTimeUtc` >600s = idle
 

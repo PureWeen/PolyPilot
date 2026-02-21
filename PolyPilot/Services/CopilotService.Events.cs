@@ -1140,11 +1140,10 @@ public partial class CopilotService
 
                 // After events have started flowing on a resumed session, clear IsResumed
                 // so the watchdog transitions from the long 600s timeout to the shorter 120s.
-                // Guard: don't clear if tools are active or have been used this turn — the session
-                // may have been resumed mid-tool-execution, and the deduplication path in
-                // ToolExecutionStartEvent skips ActiveToolCallCount++, so hasActiveTool can be 0
-                // even though a tool is genuinely running. Keep the longer timeout until the turn
-                // completes without tool activity.
+                // Guard: don't clear if tools are active or have been used this turn — between
+                // tool rounds, ActiveToolCallCount returns to 0 when AssistantTurnStartEvent
+                // resets it, but the model may still be reasoning about the next tool call.
+                // HasUsedToolsThisTurn persists across rounds and prevents premature downgrade.
                 if (state.Info.IsResumed && Volatile.Read(ref state.HasReceivedEventsSinceResume)
                     && !hasActiveTool && !Volatile.Read(ref state.HasUsedToolsThisTurn))
                 {
