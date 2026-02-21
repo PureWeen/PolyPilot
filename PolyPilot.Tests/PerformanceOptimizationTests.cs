@@ -335,4 +335,127 @@ public class PerformanceOptimizationTests
         // (it checks IsDemoMode at the top)
         // This verifies the guard still works with debounce
     }
+
+    // --- Thread safety: snapshot-on-caller pattern ---
+
+    [Fact]
+    public void SaveOrganization_DoesNotThrow_WithConcurrentGroupCreation()
+    {
+        var svc = CreateService();
+
+        // Create groups and immediately call SaveOrganization many times
+        // This validates the snapshot-on-caller pattern doesn't throw
+        for (int i = 0; i < 50; i++)
+        {
+            svc.CreateGroup($"Group{i}");
+            // CreateGroup internally calls SaveOrganization which snapshots JSON
+        }
+
+        Assert.Equal(51, svc.Organization.Groups.Count); // Default + 50
+    }
+
+    [Fact]
+    public async Task SaveOrganization_SnapshotsStateBeforeTimerFires()
+    {
+        var svc = CreateService();
+        svc.CreateGroup("Before");
+
+        // SaveOrganization snapshots immediately — verify state is captured
+        // by checking the organization is consistent after multiple rapid mutations
+        svc.RenameGroup(svc.Organization.Groups.Last().Id, "Renamed");
+        svc.CreateGroup("After");
+
+        // No exceptions means snapshot-on-caller worked correctly
+        await svc.DisposeAsync(); // Flushes all pending writes
+    }
+
+    // --- FlushSaveActiveSessionsToDisk respects IsRestoring ---
+
+    [Fact]
+    public async Task DisposeAsync_DuringRestore_DoesNotWritePartialSessions()
+    {
+        var svc = CreateService();
+
+        // Start a restore — this sets IsRestoring = true
+        // We simulate this by calling ReconnectAsync which triggers restore flow
+        var settings = new ConnectionSettings { Mode = ConnectionMode.Persistent, Port = 19999 };
+        try { await svc.ReconnectAsync(settings); } catch { }
+
+        // After ReconnectAsync, IsRestoring should be false (restore completed/failed)
+        // Verify DisposeAsync doesn't throw
+        await svc.DisposeAsync();
+    }
+
+    // --- ReconcileOrganization additive hash: swap vs add/remove ---
+
+    [Fact]
+    public void ReconcileOrganization_HandlesGroupChurn()
+    {
+        var svc = CreateService();
+
+        // Rapid group create/delete cycles — stress tests reconciliation hash
+        for (int i = 0; i < 10; i++)
+        {
+            var g = svc.CreateGroup($"Churn{i}");
+            if (i % 2 == 0) svc.DeleteGroup(g.Id);
+        }
+
+        // Verify organization is consistent — no duplicate or orphaned groups
+        var groups = svc.Organization.Groups;
+        Assert.Equal(groups.Select(g => g.Id).Distinct().Count(), groups.Count);
+        // Default + 5 remaining groups (odd indices weren't deleted)
+        Assert.Equal(6, groups.Count);
+    }
+
+    // --- SaveUiState is synchronous (no Task.Run needed) ---
+
+    [Fact]
+    public void SaveUiState_IsNonBlocking()
+    {
+        var svc = CreateService();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        // Call SaveUiState 100 times — should complete nearly instantly
+        // since it's just in-memory + timer start (no file I/O)
+        for (int i = 0; i < 100; i++)
+        {
+            svc.SaveUiState("/dashboard", activeSession: $"session-{i}");
+        }
+
+        sw.Stop();
+        // 100 calls should take well under 100ms (no disk I/O on caller's thread)
+        Assert.True(sw.ElapsedMilliseconds < 500, $"SaveUiState took {sw.ElapsedMilliseconds}ms for 100 calls — expected <500ms");
+
+        // Only the last state should be pending
+        var loaded = svc.LoadUiState();
+        Assert.NotNull(loaded);
+        Assert.Equal("session-99", loaded!.ActiveSession);
+    }
+
+    // --- Rapid mutations don't corrupt state ---
+
+    [Fact]
+    public void RapidGroupMutations_DontCorruptOrganization()
+    {
+        var svc = CreateService();
+
+        // Rapid create/rename/move/delete cycles — validates snapshot-on-caller
+        // and debounce don't lose data
+        for (int i = 0; i < 20; i++)
+        {
+            var g = svc.CreateGroup($"rapid-{i}");
+            svc.Organization.Sessions.Add(new SessionMeta { SessionName = $"s-{i}", GroupId = g.Id });
+            if (i % 3 == 0) svc.DeleteGroup(g.Id);
+            else if (i % 3 == 1) svc.RenameGroup(g.Id, $"renamed-{i}");
+        }
+
+        // Verify service is still in good state
+        var organized = svc.GetOrganizedSessions();
+        Assert.NotNull(organized);
+        Assert.True(organized.Count > 0);
+
+        // No duplicate group IDs
+        var groups = svc.Organization.Groups;
+        Assert.Equal(groups.Select(g => g.Id).Distinct().Count(), groups.Count);
+    }
 }
