@@ -4,6 +4,7 @@
 @inject RepoManager RepoManager
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@implements IDisposable
 
 @if (IsMobileTopBar)
 {
@@ -170,6 +171,17 @@ else
     [Parameter] public int FontSize { get; set; } = 20;
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
 
+    private Dictionary<string, (OrchestratorPhase Phase, string? Detail)> _groupPhases = new();
+
+    private static string PhaseLabel(OrchestratorPhase phase, string? detail) => phase switch
+    {
+        OrchestratorPhase.Planning => "🎯 Planning...",
+        OrchestratorPhase.Dispatching => "📡 Dispatching..." + (detail != null ? $" {detail}" : ""),
+        OrchestratorPhase.WaitingForWorkers => "⏳ Waiting for workers...",
+        OrchestratorPhase.Synthesizing => "🔄 Synthesizing...",
+        _ => ""
+    };
+
     private async Task IncreaseFontSize()
     {
         if (FontSize < 24)
@@ -191,19 +203,104 @@ else
                 <option value="Alphabetical" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Alphabetical)">↕ A–Z</option>
                 <option value="Manual" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Manual)">↕ Manual</option>
             </select>
-            @if (isAddingGroup)
+            @if (isAddingGroup && !isAddingMultiAgentGroup && pendingMultiAgentWorktree == null)
             {
                 <input type="text" class="new-group-input" id="newGroupInput"
                        placeholder="Group name..."
                        @onblur="CommitNewGroup"
                        @onkeydown="HandleNewGroupKeyDown" />
             }
+            else if (isAddingMultiAgentGroup && pendingMultiAgentWorktree == null)
+            {
+                @* Step 1: Pick a worktree *@
+                <div class="worktree-picker" @onclick:stopPropagation="true">
+                    <div class="worktree-picker-header">
+                        <span>Select worktree for team:</span>
+                        <button class="worktree-cancel-btn" @onclick="CancelMultiAgentCreation">✕</button>
+                    </div>
+                    @foreach (var wt in RepoManager.Worktrees)
+                    {
+                        var w = wt;
+                        var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == w.RepoId);
+                        <button class="worktree-item" @onclick="() => SelectWorktreeForGroup(w)" title="@w.Path">
+                            <span class="worktree-branch">@(repo?.Name ?? w.RepoId)/@w.Branch</span>
+                            <span class="worktree-path">@ShortenPath(w.Path)</span>
+                        </button>
+                    }
+                    @if (!RepoManager.Worktrees.Any())
+                    {
+                        <div class="worktree-empty">No worktrees available. Add a repository first.</div>
+                    }
+                </div>
+            }
+            else if (pendingMultiAgentWorktree != null)
+            {
+                @* Step 2: Pick a preset or enter a custom name *@
+                <div class="worktree-picker" @onclick:stopPropagation="true">
+                    <div class="worktree-picker-header">
+                        <span>🌿 @pendingMultiAgentWorktree.Branch</span>
+                        <button class="worktree-cancel-btn" @onclick="CancelMultiAgentCreation">✕</button>
+                    </div>
+                    @{
+                        var allPresets = UserPresets.GetAll(CopilotService.BaseDir, pendingMultiAgentWorktree?.Path);
+                        var repoPresets = allPresets.Where(p => p.IsRepoLevel).ToArray();
+                        var builtInPresets = allPresets.Where(p => !p.IsRepoLevel && !p.IsUserDefined).ToArray();
+                        var userPresets = allPresets.Where(p => p.IsUserDefined).ToArray();
+                    }
+                    @if (repoPresets.Any())
+                    {
+                        <div class="preset-section-header">📂 From Repo</div>
+                        @foreach (var preset in repoPresets)
+                        {
+                            var p = preset;
+                            <button class="preset-item preset-repo" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                                <span class="preset-emoji">@p.Emoji</span>
+                                <span class="preset-name">@p.Name</span>
+                                <span class="preset-badge">🫡</span>
+                            </button>
+                        }
+                    }
+                    @if (builtInPresets.Any())
+                    {
+                        @if (repoPresets.Any())
+                        {
+                            <div class="preset-section-header">⚙️ Built-in</div>
+                        }
+                        @foreach (var preset in builtInPresets)
+                        {
+                            var p = preset;
+                            <button class="preset-item" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                                <span class="preset-emoji">@p.Emoji</span>
+                                <span class="preset-name">@p.Name</span>
+                            </button>
+                        }
+                    }
+                    @if (userPresets.Any())
+                    {
+                        <div class="preset-section-header">👤 My Presets</div>
+                        @foreach (var preset in userPresets)
+                        {
+                            var p = preset;
+                            <button class="preset-item" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                                <span class="preset-emoji">@p.Emoji</span>
+                                <span class="preset-name">@p.Name</span>
+                            </button>
+                        }
+                    }
+                    <div class="preset-divider">or create empty team:</div>
+                    <input type="text" class="new-group-input" id="newGroupInput"
+                           placeholder="Custom team name..."
+                           @onblur="CommitNewGroup"
+                           @onkeydown="HandleNewGroupKeyDown" />
+                </div>
+            }
             else
             {
                 <div class="toolbar-actions">
                     <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
+                    <button class="new-group-btn" @onclick="StartAddMultiAgentGroup" title="New multi-agent group">🤖 Multi</button>
                     <button class="new-group-btn" @onclick="() => showAddRepo = true" title="Add repository">+ Repo</button>
-                    <button class="new-group-btn" @onclick="RefreshSessionsManually" title="Refresh sessions">↻ Refresh</button>
+                    <button class="new-group-btn" @onclick="RefreshSessionsManually" title="Refresh sessions">↻</button>
                 </div>
             }
         </div>
@@ -280,6 +377,18 @@ else
                             {
                                 <span class="group-repo-icon" title="Repository">⌥</span>
                             }
+                            @if (group.IsMultiAgent)
+                            {
+                                <span class="group-repo-icon" title="Multi-agent group">🤖</span>
+                            }
+                            @if (!string.IsNullOrEmpty(group.WorktreeId))
+                            {
+                                var groupWt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == group.WorktreeId);
+                                if (groupWt != null)
+                                {
+                                    <span class="group-worktree-badge" title="@groupWt.Path">🌿 @groupWt.Branch</span>
+                                }
+                            }
                             <span class="group-name">@group.Name</span>
                             <span class="group-count">@groupSessions.Count</span>
                             @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
@@ -317,14 +426,27 @@ else
                                                         ➕ New Session
                                                     </button>
                                                     <div class="group-menu-separator"></div>
+                                                    @if (group.IsMultiAgent)
+                                                    {
+                                                        <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
+                                                            🗑 Delete Team
+                                                        </button>
+                                                    }
                                                     <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; confirmRemoveRepoId = rId; }">
                                                         🗑 Remove Repo
                                                     </button>
                                                 }
                                                 else
                                                 {
+                                                    @if (!group.IsMultiAgent)
+                                                    {
+                                                        <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; CopilotService.ConvertToMultiAgent(gId); }">
+                                                            🤖 Convert to Multi-Agent
+                                                        </button>
+                                                        <div class="group-menu-separator"></div>
+                                                    }
                                                     <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
-                                                        🗑 Delete Group
+                                                        🗑 @(group.IsMultiAgent ? "Delete Team" : "Delete Group")
                                                     </button>
                                                 }
                                             </div>
@@ -333,6 +455,73 @@ else
                                 }
                             }
                         </div>
+
+                        @if (group.IsMultiAgent && !group.IsCollapsed)
+                        {
+                            var maGroupId = group.Id;
+                            <div class="sidebar-ma-controls" @onclick:stopPropagation="true">
+                                <select class="sidebar-ma-mode-select" @onchange="(e) => OnSidebarMultiAgentModeChanged(maGroupId, e)">
+                                    <option value="Broadcast" selected="@(group.OrchestratorMode == MultiAgentMode.Broadcast)">📡 Broadcast</option>
+                                    <option value="Sequential" selected="@(group.OrchestratorMode == MultiAgentMode.Sequential)">⏩ Sequential</option>
+                                    <option value="Orchestrator" selected="@(group.OrchestratorMode == MultiAgentMode.Orchestrator)">🎯 Orchestrate</option>
+                                    <option value="OrchestratorReflect" selected="@(group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">🔄 Reflect</option>
+                                </select>
+                                @if (group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+                                {
+                                    <div class="reflect-iterations-bar">
+                                        <label class="reflect-iter-label">Max iterations:</label>
+                                        <input type="number" min="1" max="100" value="@GetGroupMaxIterations(maGroupId)"
+                                               class="reflect-iter-input"
+                                               @onchange="(e) => SetGroupMaxIterations(maGroupId, e)"
+                                               @onclick:stopPropagation="true" />
+                                    </div>
+                                }
+                                <div class="sidebar-ma-input-bar">
+                                    <textarea id="sidebar-ma-input-@maGroupId" class="sidebar-ma-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)" rows="1" @onclick:stopPropagation="true"></textarea>
+                                    <button class="sidebar-ma-send-btn" @onclick="() => SendToSidebarMultiAgentGroup(maGroupId)" @onclick:stopPropagation="true">📡</button>
+                                </div>
+                                @if (_groupPhases.TryGetValue(maGroupId, out var sidebarPhase))
+                                {
+                                    <span class="phase-indicator">@PhaseLabel(sidebarPhase.Phase, sidebarPhase.Detail)</span>
+                                }
+                                @if (group.ReflectionState is { IsActive: true } rs)
+                                {
+                                    <div class="group-reflect-status">
+                                        <span class="reflect-iter">🔄 @rs.CurrentIteration/@rs.MaxIterations</span>
+                                        @if (rs.EvaluationHistory.Count > 0)
+                                        {
+                                            var lastEval = rs.EvaluationHistory.Last();
+                                            <span class="reflect-score" title="@lastEval.Rationale">📊 @lastEval.Score.ToString("F1") (@lastEval.EvaluatorModel)</span>
+                                        }
+                                        <span class="reflect-goal" title="@rs.Goal">@(rs.Goal.Length > 40 ? rs.Goal[..40] + "…" : rs.Goal)</span>
+                                        <button class="reflect-stop-btn" @onclick="() => CopilotService.StopGroupReflection(maGroupId)" @onclick:stopPropagation="true">⏹</button>
+                                        <button class="reflect-pause-btn" @onclick="() => CopilotService.PauseGroupReflection(maGroupId, !rs.IsPaused)" @onclick:stopPropagation="true">@(rs.IsPaused ? "▶" : "⏸")</button>
+                                    </div>
+                                    @if (rs.PendingAdjustments.Count > 0)
+                                    {
+                                        <div class="adjust-banner">
+                                            @foreach (var adj in rs.PendingAdjustments)
+                                            {
+                                                <span>@adj</span>
+                                            }
+                                        </div>
+                                    }
+                                }
+                                @{
+                                    var diags = CopilotService.GetGroupDiagnostics(maGroupId);
+                                }
+                                @if (diags.Count > 0)
+                                {
+                                    <div class="group-diagnostics">
+                                        @foreach (var d in diags)
+                                        {
+                                            <span class="diag-@d.Level">@d.Message</span>
+                                        }
+                                    </div>
+                                }
+                                <button class="save-preset-btn" @onclick="() => PromptSaveAsPreset(maGroupId)" @onclick:stopPropagation="true" title="Save this group as a reusable preset">💾 Save as Preset</button>
+                            </div>
+                        }
                     }
 
                     @if (!group.IsCollapsed || !showGroupHeaders)
@@ -441,6 +630,7 @@ else
     private string? resumeError = null;
     private string currentPage = "/";
     private bool isAddingGroup = false;
+    private bool isAddingMultiAgentGroup = false;
     private string? openMenuSession = null;
     private string? openGroupMenuId = null;
     private CreateSessionForm? createSessionFormRef;
@@ -501,6 +691,7 @@ else
         CopilotService.OnStateChanged += RefreshSessions;
         CopilotService.OnSessionComplete += HandleSessionComplete;
         CopilotService.OnUsageInfoChanged += HandleUsageInfoChanged;
+        CopilotService.OnOrchestratorPhaseChanged += HandleOrchestratorPhaseChanged;
         RepoManager.OnStateChanged += OnRepoStateChanged;
         RepoManager.Load();
         RefreshSessions();
@@ -548,6 +739,15 @@ else
             completedSessions.Remove(sessionName);
             InvokeAsync(StateHasChanged);
         });
+    }
+
+    private void HandleOrchestratorPhaseChanged(string groupId, OrchestratorPhase phase, string? detail)
+    {
+        if (phase == OrchestratorPhase.Complete)
+            _groupPhases.Remove(groupId);
+        else
+            _groupPhases[groupId] = (phase, detail);
+        InvokeAsync(StateHasChanged);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -613,6 +813,30 @@ else
     {
         showPersistedSessions = !showPersistedSessions;
         if (showPersistedSessions) LoadPersistedSessions();
+    }
+
+    private async Task HandleCreateGroup(GroupPreset preset)
+    {
+        if (isCreating) return;
+        isCreating = true;
+        createError = null;
+        try
+        {
+            var group = await CopilotService.CreateGroupFromPresetAsync(preset);
+            if (group != null)
+            {
+                CopilotService.ToggleGroupCollapsed(group.Id);
+                CopilotService.SaveUiState(currentPage);
+            }
+        }
+        catch (Exception ex)
+        {
+            createError = ex.Message;
+        }
+        finally
+        {
+            isCreating = false;
+        }
     }
 
     private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt) args)
@@ -825,22 +1049,169 @@ else
     private void StartAddGroup()
     {
         isAddingGroup = true;
+        isAddingMultiAgentGroup = false;
+    }
+
+    private void StartAddMultiAgentGroup()
+    {
+        isAddingGroup = false;
+        isAddingMultiAgentGroup = true;
+        pendingMultiAgentWorktree = null;
+    }
+
+    private void CancelMultiAgentCreation()
+    {
+        isAddingMultiAgentGroup = false;
+        pendingMultiAgentWorktree = null;
+    }
+
+    private async Task SelectWorktreeForGroup(WorktreeInfo wt)
+    {
+        // Worktree selected — advance to step 2 (presets + custom name)
+        pendingMultiAgentWorktree = wt;
+        isAddingMultiAgentGroup = false;
+        isAddingGroup = false;
+        StateHasChanged();
+    }
+
+    private WorktreeInfo? pendingMultiAgentWorktree;
+
+    private async Task CreateFromPresetWithWorktree(GroupPreset preset, WorktreeInfo wt)
+    {
+        pendingMultiAgentWorktree = null;
+        StateHasChanged();
+        try
+        {
+            await CopilotService.CreateGroupFromPresetAsync(preset,
+                workingDirectory: wt.Path,
+                worktreeId: wt.Id,
+                repoId: wt.RepoId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to create from preset: {ex.Message}");
+        }
+    }
+
+    private static string ShortenPath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return "";
+        // Show last 2 segments
+        var sep = Path.DirectorySeparatorChar;
+        var parts = path.TrimEnd(sep).Split(sep);
+        return parts.Length <= 2 ? path : "…" + sep + string.Join(sep, parts[^2..]);
+    }
+
+    private void PromptSaveAsPreset(string groupId)
+    {
+        var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group == null) return;
+
+        // Save with the group's current name and a generated description
+        var members = CopilotService.GetMultiAgentGroupMembers(groupId);
+        var desc = $"{group.OrchestratorMode} group with {members.Count} agent(s)";
+        var preset = CopilotService.SaveGroupAsPreset(groupId, group.Name, desc, "⭐");
+        if (preset != null)
+        {
+            var orchestratorName = CopilotService.GetOrchestratorSession(groupId);
+            if (orchestratorName != null)
+            {
+                var session = CopilotService.GetSession(orchestratorName);
+                if (session != null)
+                    session.History.Add(ChatMessage.SystemMessage($"💾 Group saved as preset: \"{preset.Name}\" (🎯 {preset.OrchestratorModel} + 👷 {string.Join(", ", preset.WorkerModels)})"));
+            }
+        }
+        StateHasChanged();
+    }
+
+    private void OnSidebarMultiAgentModeChanged(string groupId, ChangeEventArgs e)
+    {
+        if (e.Value is string val && Enum.TryParse<MultiAgentMode>(val, out var mode))
+        {
+            CopilotService.SetMultiAgentMode(groupId, mode);
+        }
+    }
+
+    private static string GetInputPlaceholder(MultiAgentMode mode) => mode switch
+    {
+        MultiAgentMode.Broadcast => "Send to all agents...",
+        MultiAgentMode.Sequential => "Send to agents in sequence...",
+        MultiAgentMode.Orchestrator => "Describe task for orchestrator...",
+        MultiAgentMode.OrchestratorReflect => "Describe goal for reflection cycle...",
+        _ => "Enter prompt..."
+    };
+
+    private Dictionary<string, int> _groupMaxIterations = new();
+
+    private int GetGroupMaxIterations(string groupId)
+    {
+        if (_groupMaxIterations.TryGetValue(groupId, out var val)) return val;
+        return 5;
+    }
+
+    private void SetGroupMaxIterations(string groupId, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var val) && val >= 1)
+            _groupMaxIterations[groupId] = val;
+    }
+
+    private async Task SendToSidebarMultiAgentGroup(string groupId)
+    {
+        var inputId = $"sidebar-ma-input-{groupId}";
+        var prompt = await JS.InvokeAsync<string>("getElementValue", inputId);
+        if (string.IsNullOrWhiteSpace(prompt)) return;
+
+        await JS.InvokeVoidAsync("clearElementValue", inputId);
+
+        // Auto-start reflection cycle when in Reflect mode
+        var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+        {
+            var maxIter = GetGroupMaxIterations(groupId);
+            CopilotService.StartGroupReflection(groupId, prompt.Trim(), maxIter);
+        }
+
+        try
+        {
+            _ = CopilotService.SendToMultiAgentGroupAsync(groupId, prompt.Trim()).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                    InvokeAsync(() => Console.WriteLine($"Error sending to multi-agent group: {t.Exception?.InnerException?.Message}"));
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error sending to multi-agent group: {ex.Message}");
+        }
     }
 
     private async Task CommitNewGroup()
     {
         var name = await JS.InvokeAsync<string>("getElementValue", "newGroupInput");
+        var wt = pendingMultiAgentWorktree;
         isAddingGroup = false;
+        isAddingMultiAgentGroup = false;
+        pendingMultiAgentWorktree = null;
         if (!string.IsNullOrWhiteSpace(name))
         {
-            CopilotService.CreateGroup(name.Trim());
+            if (wt != null)
+            {
+                // Multi-agent group with worktree
+                CopilotService.CreateMultiAgentGroup(name.Trim(),
+                    worktreeId: wt.Id,
+                    repoId: wt.RepoId);
+            }
+            else
+            {
+                CopilotService.CreateGroup(name.Trim());
+            }
         }
     }
 
     private async Task HandleNewGroupKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await CommitNewGroup();
-        else if (e.Key == "Escape") isAddingGroup = false;
+        else if (e.Key == "Escape") { isAddingGroup = false; isAddingMultiAgentGroup = false; pendingMultiAgentWorktree = null; }
     }
 
     private void ToggleSessionMenu(string sessionName)
@@ -1376,6 +1747,7 @@ Important conventions:
         CopilotService.OnStateChanged -= RefreshSessions;
         CopilotService.OnSessionComplete -= HandleSessionComplete;
         CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;
+        CopilotService.OnOrchestratorPhaseChanged -= HandleOrchestratorPhaseChanged;
         RepoManager.OnStateChanged -= OnRepoStateChanged;
     }
 }

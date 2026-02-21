@@ -566,6 +566,32 @@ public class WsBridgeServer : IDisposable
                         BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, dirResult), ct);
                     break;
 
+                case BridgeMessageTypes.MultiAgentBroadcast:
+                    var maReq = msg.GetPayload<MultiAgentBroadcastPayload>();
+                    if (maReq != null && _copilot != null)
+                    {
+                        _ = _copilot.SendToMultiAgentGroupAsync(maReq.GroupId, maReq.Message, ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.MultiAgentCreateGroup:
+                    var maCreateReq = msg.GetPayload<MultiAgentCreateGroupPayload>();
+                    if (maCreateReq != null && _copilot != null)
+                    {
+                        var mode = Enum.TryParse<MultiAgentMode>(maCreateReq.Mode, out var m) ? m : MultiAgentMode.Broadcast;
+                        _copilot.CreateMultiAgentGroup(maCreateReq.Name, mode, maCreateReq.OrchestratorPrompt, maCreateReq.SessionNames);
+                    }
+                    break;
+
+                case BridgeMessageTypes.MultiAgentSetRole:
+                    var maRoleReq = msg.GetPayload<MultiAgentSetRolePayload>();
+                    if (maRoleReq != null && _copilot != null)
+                    {
+                        var role = Enum.TryParse<MultiAgentRole>(maRoleReq.Role, out var r) ? r : MultiAgentRole.Worker;
+                        _copilot.SetSessionRole(maRoleReq.SessionName, role);
+                    }
+                    break;
+
                 case BridgeMessageTypes.FetchImage:
                     var imgReq = msg.GetPayload<FetchImagePayload>();
                     if (imgReq != null)

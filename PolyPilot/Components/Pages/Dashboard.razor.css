@@ -391,6 +391,118 @@
     color: var(--text-muted);
 }
 
+/* Multi-agent group styles */
+.group-divider.multi-agent-group {
+    border-bottom-color: rgba(99, 102, 241, 0.3);
+    background: linear-gradient(90deg, rgba(99, 102, 241, 0.05) 0%, transparent 100%);
+}
+.group-divider.multi-agent-group:hover {
+    border-bottom-color: rgba(99, 102, 241, 0.5);
+}
+.group-divider-badge {
+    font-size: var(--type-callout);
+    flex-shrink: 0;
+}
+.group-divider-mode {
+    flex-shrink: 0;
+}
+.ma-mode-select {
+    background: var(--control-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: var(--type-footnote);
+    padding: 0.2rem 0.4rem;
+    cursor: pointer;
+    min-width: 120px;
+}
+
+.reflect-iter-inline {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.reflect-iter-input {
+    width: 50px;
+    padding: 0.15rem 0.3rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    font-size: var(--type-footnote);
+    text-align: center;
+}
+
+.group-divider-progress {
+    font-size: var(--type-caption1);
+    color: rgba(99, 102, 241, 0.8);
+    font-weight: 500;
+}
+
+/* Orchestrator phase indicator */
+.phase-indicator {
+    font-size: 0.75rem;
+    color: var(--accent-primary);
+    white-space: nowrap;
+    animation: phase-pulse 2s ease-in-out infinite;
+}
+
+@keyframes phase-pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+.multi-agent-input-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    padding: 0.5rem 0.25rem;
+    margin-bottom: 0.5rem;
+}
+.ma-broadcast-input {
+    flex: 1;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-size: var(--type-body);
+    font-family: inherit;
+    resize: none;
+    min-height: 2.2rem;
+    line-height: 1.4;
+}
+.ma-broadcast-input:focus {
+    outline: none;
+    border-color: rgba(99, 102, 241, 0.6);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+.ma-broadcast-input::placeholder {
+    color: var(--text-muted);
+}
+.ma-send-btn {
+    background: rgba(99, 102, 241, 0.15);
+    color: rgba(99, 102, 241, 0.9);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 8px;
+    padding: 0.45rem 0.85rem;
+    font-size: var(--type-callout);
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+.ma-send-btn:hover {
+    background: rgba(99, 102, 241, 0.25);
+    border-color: rgba(99, 102, 241, 0.5);
+}
+.multi-agent-btn {
+    color: rgba(99, 102, 241, 0.9) !important;
+}
+
 /* Pinned card styles */
 .session-card.pinned {
     border-color: rgba(251,191,36,0.25);
@@ -1274,4 +1386,50 @@
 .keep-alive-slot {
     height: 100%;
     width: 100%;
+}
+
+/* Multi-agent expanded toolbar */
+.ma-expanded-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    height: 40px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(99, 102, 241, 0.08);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+    flex-shrink: 0;
+}
+.ma-expanded-toolbar-label {
+    font-size: var(--type-callout);
+    font-weight: 600;
+    color: rgba(99, 102, 241, 0.9);
+    white-space: nowrap;
+}
+.ma-expanded-toolbar-progress {
+    font-size: var(--type-caption1);
+    color: rgba(99, 102, 241, 0.8);
+    font-weight: 500;
+    white-space: nowrap;
+}
+.ma-expanded-toolbar-input {
+    flex: 1;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.25rem 0.5rem;
+    font-size: var(--type-callout);
+    font-family: inherit;
+    min-width: 0;
+}
+.ma-expanded-toolbar-input:focus {
+    outline: none;
+    border-color: rgba(99, 102, 241, 0.6);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+.ma-expanded-toolbar-input::placeholder {
+    color: var(--text-muted);
 }

@@ -47,6 +47,10 @@
             else
             {
                 <span class="session-name-text" @ondblclick="() => OnStartRename.InvokeAsync()" @ondblclick:stopPropagation="true">@Session.Name</span>
+                @if (Meta?.Role == MultiAgentRole.Orchestrator)
+                {
+                    <span class="role-badge orchestrator" title="Orchestrator">🎯</span>
+                }
                 @if (Session.UnreadCount > 0)
                 {
                     <span class="unread-badge">@Session.UnreadCount</span>
@@ -55,7 +59,11 @@
         </span>
         <div class="session-meta-row">
             <span class="session-meta">
-                @Session.MessageCount msgs@(Session.Model != "resumed" ? $" • {Session.Model}" : "")
+                @Session.MessageCount msgs@(Session.Model != "resumed" ? $" • {CopilotService.GetEffectiveModel(Session.Name)}" : "")
+                @if (Meta?.PreferredModel != null && Meta.PreferredModel != Session.Model)
+                {
+                    <span class="model-override" title="Model override: @Meta.PreferredModel">⚡</span>
+                }
                 @if (Session.IsProcessing)
                 {
                     <span class="processing"> • @GetShortProcessingStatus()</span>
@@ -119,6 +127,52 @@
                         }
                     </div>
                 }
+                @{
+                    var currentGroup = Groups?.FirstOrDefault(g => g.Id == Meta?.GroupId);
+                }
+                @if (currentGroup is { IsMultiAgent: true })
+                {
+                    <div class="menu-separator"></div>
+                    @if (Meta?.Role == MultiAgentRole.Orchestrator)
+                    {
+                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionRole(Session.Name, MultiAgentRole.Worker); }">
+                            👷 Set as Worker
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionRole(Session.Name, MultiAgentRole.Orchestrator); }">
+                            🎯 Set as Orchestrator
+                        </button>
+                    }
+                    <div class="menu-separator"></div>
+                    <span class="menu-item submenu-label">🧠 Model</span>
+                    <div class="model-picker-inline" @onclick:stopPropagation="true">
+                        <select value="@(Meta?.PreferredModel ?? "")" @onchange="OnPreferredModelChanged">
+                            <option value="">Default (@Session.Model)</option>
+                            @foreach (var model in CopilotService.AvailableModels)
+                            {
+                                var strengths = ModelCapabilities.GetStrengths(model);
+                                <option value="@model" title="@strengths">@model</option>
+                            }
+                        </select>
+                        @{
+                            var effectiveModel = CopilotService.GetEffectiveModel(Session.Name);
+                            var warnings = ModelCapabilities.GetRoleWarnings(effectiveModel, Meta?.Role ?? MultiAgentRole.Worker);
+                        }
+                        @if (warnings.Count > 0)
+                        {
+                            @foreach (var w in warnings)
+                            {
+                                <div class="model-warning">@w</div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="model-strengths">@ModelCapabilities.GetStrengths(effectiveModel)</div>
+                        }
+                    </div>
+                }
                 <div class="menu-separator"></div>
                 <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnReportBug.InvokeAsync(); }">
                     🐛 Report Bug
@@ -177,6 +231,12 @@
     {
         if (e.Key == "Enter") await OnCommitRename.InvokeAsync();
         else if (e.Key == "Escape") await OnCloseMenu.InvokeAsync();
+    }
+
+    private void OnPreferredModelChanged(ChangeEventArgs e)
+    {
+        var slug = e.Value?.ToString();
+        CopilotService.SetSessionPreferredModel(Session.Name, string.IsNullOrEmpty(slug) ? null : slug);
     }
 
     private static string GetShortPath(string path)

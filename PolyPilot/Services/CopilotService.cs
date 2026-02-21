@@ -21,6 +21,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
     // Image paths queued alongside messages when session is busy (keyed by session name, list per queued message)
     private readonly ConcurrentDictionary<string, List<List<string>>> _queuedImagePaths = new();
+    private readonly object _imageQueueLock = new();
     private static readonly object _diagnosticLogLock = new();
     // Debounce timers for disk I/O — coalesce rapid-fire saves into a single write
     private Timer? _saveSessionsDebounce;
@@ -42,6 +43,7 @@ public partial class CopilotService : IAsyncDisposable
     
     private static string? _polyPilotBaseDir;
     private static string PolyPilotBaseDir => _polyPilotBaseDir ??= GetPolyPilotBaseDir();
+    internal static string BaseDir => PolyPilotBaseDir;
 
     private static string GetCopilotBaseDir()
     {
@@ -225,6 +227,12 @@ public partial class CopilotService : IAsyncDisposable
         /// that produced the SessionIdleEvent (race between SEND and queued COMPLETE).
         /// </summary>
         public long ProcessingGeneration;
+        /// <summary>
+        /// Atomic flag for SendPromptAsync entry. Prevents TOCTOU race where two
+        /// concurrent callers both see IsProcessing=false and both enter.
+        /// 0 = idle, 1 = sending. Set via Interlocked.CompareExchange.
+        /// </summary>
+        public int SendingFlag;
     }
 
     private void Debug(string message)
@@ -459,7 +467,10 @@ public partial class CopilotService : IAsyncDisposable
         }
         _sessions.Clear();
         _closedSessionIds.Clear();
-        _queuedImagePaths.Clear();
+        lock (_imageQueueLock)
+        {
+            _queuedImagePaths.Clear();
+        }
         _activeSessionName = null;
 
         if (_client != null)
@@ -1188,7 +1199,7 @@ public partial class CopilotService : IAsyncDisposable
         // stuck sessions — no separate short timeout needed.
         if (isStillProcessing)
         {
-            state.ResponseCompletion = new TaskCompletionSource<string>();
+            state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             Debug($"Session '{displayName}' is still processing (was mid-turn when app restarted)");
 
             // Start the processing watchdog so the session doesn't get stuck
@@ -1197,7 +1208,6 @@ public partial class CopilotService : IAsyncDisposable
 
 
         }
-
         if (!_sessions.TryAdd(displayName, state))
         {
             try { await copilotSession.DisposeAsync(); } catch { }
@@ -1495,6 +1505,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (state.Info.IsProcessing)
             throw new InvalidOperationException("Session is already processing a request.");
 
+        // Atomic check-and-set to prevent TOCTOU race: two callers could both see
+        // IsProcessing=false and both enter without this guard.
+        if (Interlocked.CompareExchange(ref state.SendingFlag, 1, 0) != 0)
+            throw new InvalidOperationException("Session is already processing a request.");
+
+        try
+        {
         state.Info.IsProcessing = true;
         state.Info.ProcessingStartedAt = DateTime.UtcNow;
         state.Info.ToolCallCount = 0;
@@ -1503,7 +1520,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
-        state.ResponseCompletion = new TaskCompletionSource<string>();
+        state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         state.CurrentResponse.Clear();
         StartProcessingWatchdog(state, sessionName);
 
@@ -1578,6 +1595,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         Info = state.Info
                     };
                     newState.ResponseCompletion = new TaskCompletionSource<string>();
+                    // Carry forward ProcessingGeneration so stale callbacks on the
+                    // orphaned old state can't pass generation checks on the new state.
+                    Interlocked.Exchange(ref newState.ProcessingGeneration,
+                        Interlocked.Read(ref state.ProcessingGeneration));
+                    newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn;
                     newSession.On(evt => HandleSessionEvent(newState, evt));
                     _sessions[sessionName] = newState;
                     state = newState;
@@ -1641,6 +1663,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (state.ResponseCompletion == null)
             return ""; // Response already completed via events
         return await state.ResponseCompletion.Task;
+        }
+        catch
+        {
+            // Reset atomic send flag on any exception so the session isn't permanently locked
+            Interlocked.Exchange(ref state.SendingFlag, 0);
+            throw;
+        }
     }
 
     public async Task AbortSessionAsync(string sessionName)
@@ -1732,11 +1761,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Track image paths alongside the queued message
         if (imagePaths != null && imagePaths.Count > 0)
         {
-            var queue = _queuedImagePaths.GetOrAdd(sessionName, _ => new List<List<string>>());
-            // Pad with empty lists for any prior messages without images
-            while (queue.Count < state.Info.MessageQueue.Count - 1)
-                queue.Add(new List<string>());
-            queue.Add(imagePaths);
+            lock (_imageQueueLock)
+            {
+                var queue = _queuedImagePaths.GetOrAdd(sessionName, _ => new List<List<string>>());
+                while (queue.Count < state.Info.MessageQueue.Count - 1)
+                    queue.Add(new List<string>());
+                queue.Add(imagePaths);
+            }
         }
         
         OnStateChanged?.Invoke();
@@ -1789,11 +1820,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             state.Info.MessageQueue.RemoveAt(index);
             // Keep queued image paths in sync
-            if (_queuedImagePaths.TryGetValue(sessionName, out var imageQueue) && index < imageQueue.Count)
+            lock (_imageQueueLock)
             {
-                imageQueue.RemoveAt(index);
-                if (imageQueue.Count == 0)
-                    _queuedImagePaths.TryRemove(sessionName, out _);
+                if (_queuedImagePaths.TryGetValue(sessionName, out var imageQueue) && index < imageQueue.Count)
+                {
+                    imageQueue.RemoveAt(index);
+                    if (imageQueue.Count == 0)
+                        _queuedImagePaths.TryRemove(sessionName, out _);
+                }
             }
             OnStateChanged?.Invoke();
         }
@@ -1804,7 +1838,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (_sessions.TryGetValue(sessionName, out var state))
         {
             state.Info.MessageQueue.Clear();
-            _queuedImagePaths.TryRemove(sessionName, out _);
+            lock (_imageQueueLock)
+            {
+                _queuedImagePaths.TryRemove(sessionName, out _);
+            }
             OnStateChanged?.Invoke();
         }
     }
@@ -1864,6 +1901,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             var evaluatorName = state.Info.ReflectionCycle.EvaluatorSessionName;
             state.Info.ReflectionCycle.IsActive = false;
+            state.Info.ReflectionCycle.IsCancelled = true;
+            state.Info.ReflectionCycle.CompletedAt = DateTime.Now;
             // Purge any queued reflection follow-up prompts to prevent zombie iterations
             state.Info.MessageQueue.RemoveAll(p => ReflectionCycle.IsReflectionFollowUpPrompt(p));
             Debug($"Reflection cycle stopped for '{sessionName}'");
@@ -1951,8 +1990,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.Name = newName;
 
         // Move queued image paths to new name
-        if (_queuedImagePaths.TryRemove(oldName, out var imageQueue))
-            _queuedImagePaths[newName] = imageQueue;
+        lock (_imageQueueLock)
+        {
+            if (_queuedImagePaths.TryRemove(oldName, out var imageQueue))
+                _queuedImagePaths[newName] = imageQueue;
+        }
 
         if (!_sessions.TryAdd(newName, state))
         {
@@ -2019,7 +2061,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             return false;
 
         // Clean up any queued image paths for this session
-        _queuedImagePaths.TryRemove(name, out _);
+        lock (_imageQueueLock)
+        {
+            _queuedImagePaths.TryRemove(name, out _);
+        }
 
         // Track as explicitly closed so merge doesn't re-add from file
         if (state.Info.SessionId != null)

@@ -272,3 +272,50 @@
     margin-left: 6px;
     flex-shrink: 0;
 }
+
+.role-badge {
+    font-size: 0.7rem;
+    margin-left: 4px;
+    flex-shrink: 0;
+}
+
+.model-override {
+    color: #fbbf24;
+    font-size: 0.65rem;
+    margin-left: 2px;
+}
+
+.model-picker-inline {
+    padding: 0.25rem 0.65rem;
+}
+
+.model-picker-inline select {
+    width: 100%;
+    padding: 0.3rem 0.4rem;
+    border: 1px solid var(--control-border);
+    border-radius: 5px;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    font-size: var(--type-footnote);
+    font-family: inherit;
+    cursor: pointer;
+    outline: none;
+}
+
+.model-picker-inline select:focus {
+    border-color: var(--accent-primary);
+}
+
+.model-warning {
+    font-size: var(--type-caption1);
+    color: #fbbf24;
+    padding: 0.2rem 0;
+    line-height: 1.3;
+}
+
+.model-strengths {
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+    padding: 0.15rem 0;
+    opacity: 0.8;
+}
