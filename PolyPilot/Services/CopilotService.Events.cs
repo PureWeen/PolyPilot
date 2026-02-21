@@ -1113,7 +1113,12 @@ public partial class CopilotService
     internal const int WatchdogFallbackDelayMs = 2000;
     /// <summary>Seconds to wait for events on a resumed session before declaring it stale.
     /// If the CLI backend finished (or crashed) while the app was closed, no events will
-    /// arrive after resume. This short grace period avoids the full 600s tool timeout.</summary>
+    /// arrive after resume. This short grace period avoids the full 600s tool timeout.
+    /// INV-4 NOTE: Unlike the PR #148 regression (unconditional 10s timeout that killed
+    /// active sessions), this ONLY fires when HasReceivedEventsSinceResume is false —
+    /// meaning zero events arrived from the CLI. Once any event arrives, the full 600s
+    /// tool-execution timeout takes over. This is safe because SDK reconnect + first event
+    /// typically completes in &lt;10s for a live CLI session.</summary>
     internal const int ResumeGracePeriodSeconds = 30;
 
     private static void CancelProcessingWatchdog(SessionState state)
@@ -1171,6 +1176,10 @@ public partial class CopilotService
                 // Exception: resumed sessions that have NOT received any events since resume
                 // get a short grace period instead — if the CLI finished or crashed while the
                 // app was closed, no events will arrive and we shouldn't wait 600s.
+                // INV-4: This is NOT a hardcoded short timeout like PR #148's regression.
+                // It only applies when HasReceivedEventsSinceResume is false (zero events).
+                // Once any event arrives, HasReceivedEventsSinceResume flips to true and
+                // the full 600s tool-execution timeout applies via the else branch.
                 int effectiveTimeout;
                 if (state.Info.IsResumed && !Volatile.Read(ref state.HasReceivedEventsSinceResume))
                 {
@@ -1225,8 +1234,18 @@ public partial class CopilotService
                     // Fallback: if the UI thread is dead (e.g. Blazor circuit crashed),
                     // the InvokeOnUI callback may never execute. Wait briefly and then
                     // clear the critical IsProcessing flag directly so the session doesn't
-                    // stay stuck forever. This is safe because the generation guard above
-                    // prevents double-clearing, and IsProcessing is a simple bool.
+                    // stay stuck forever.
+                    //
+                    // INV-2 deliberate violation: This bypasses InvokeOnUI intentionally.
+                    // When the Blazor circuit is dead, InvokeOnUI callbacks never fire.
+                    // The ProcessingGeneration guard prevents double-clearing: if the
+                    // InvokeOnUI callback DID run (circuit was just slow), the generation
+                    // will have been superseded and this fallback becomes a no-op.
+                    //
+                    // INV-1 deliberate skip: FlushCurrentResponse is not called here.
+                    // Flushing pushes content into the Blazor render pipeline, which is
+                    // unreachable when the circuit is dead — the exact scenario that
+                    // triggers this fallback. Any buffered content is already lost.
                     _ = Task.Run(async () =>
                     {
                         try
@@ -1242,7 +1261,7 @@ public partial class CopilotService
                                 state.Info.ToolCallCount = 0;
                                 state.Info.IsResumed = false;
                                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-                                state.HasUsedToolsThisTurn = false;
+                                Volatile.Write(ref state.HasUsedToolsThisTurn, false);
                                 state.ResponseCompletion?.TrySetResult("");
                             }
                         }

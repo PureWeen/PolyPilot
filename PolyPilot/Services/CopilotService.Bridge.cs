@@ -133,6 +133,11 @@ public partial class CopilotService
                 if (session != null)
                 {
                     Debug($"[BRIDGE-COMPLETE] '{session.Name}' OnTurnEnd cleared IsProcessing");
+                    if (_sessions.TryGetValue(s, out var turnEndState))
+                    {
+                        Interlocked.Exchange(ref turnEndState.ActiveToolCallCount, 0);
+                        turnEndState.HasUsedToolsThisTurn = false;
+                    }
                     session.IsProcessing = false;
                     session.IsResumed = false;
                     session.ProcessingStartedAt = null;

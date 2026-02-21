@@ -1649,6 +1649,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // Optimistically clear processing state and queue
             if (_sessions.TryGetValue(sessionName, out var remoteState))
             {
+                Debug($"[ABORT] '{sessionName}' remote abort, clearing IsProcessing");
+                Interlocked.Exchange(ref remoteState.ActiveToolCallCount, 0);
+                remoteState.HasUsedToolsThisTurn = false;
                 remoteState.Info.IsProcessing = false;
                 remoteState.Info.IsResumed = false;
                 remoteState.Info.ProcessingStartedAt = null;
