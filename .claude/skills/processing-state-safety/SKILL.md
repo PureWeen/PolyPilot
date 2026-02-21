@@ -1,75 +1,88 @@
 ---
 name: processing-state-safety
 description: >
-  Safety guide for modifying IsProcessing, watchdog, session resume, or abort code paths in CopilotService.
-  Use when: (1) Modifying any code that sets IsProcessing to true or false, (2) Changing watchdog timeout
-  logic or adding new timeout paths, (3) Touching session resume/restore logic, (4) Modifying
-  AbortSessionAsync or CompleteResponse, (5) Adding new processing-related fields to AgentSessionInfo
-  or SessionState, (6) Debugging sessions stuck in "Thinking" state, (7) Reviewing PRs that touch
-  CopilotService.Events.cs, CopilotService.cs, or CopilotService.Utilities.cs processing paths.
+  Checklist and invariants for modifying IsProcessing state, event handlers, watchdog,
+  abort/error paths, or CompleteResponse in CopilotService. Use when: (1) Adding or
+  modifying code paths that set IsProcessing=false, (2) Touching HandleSessionEvent,
+  CompleteResponse, AbortSessionAsync, or the processing watchdog, (3) Adding new
+  SDK event handlers, (4) Debugging stuck sessions showing "Thinking..." forever,
+  (5) Modifying IsResumed, HasUsedToolsThisTurn, or ActiveToolCallCount,
+  (6) Adding diagnostic log tags. Covers: 8 invariants from 7 PRs of fix cycles,
+  the 8 code paths that clear IsProcessing, and common regression patterns.
 ---
 
-# Processing State Safety Guide
+# Processing State Safety
 
-Modifying processing state code involves these steps:
+## When Clearing IsProcessing — The Checklist
 
-1. Identify which of the 7 cleanup paths you're touching
-2. Apply the cleanup checklist to your change
-3. Verify all 7 paths still satisfy the checklist
-4. Ensure thread safety rules are followed
+Every code path that sets `IsProcessing = false` MUST also:
+1. Clear `IsResumed = false`
+2. Clear `HasUsedToolsThisTurn = false`
+3. Clear `ActiveToolCallCount = 0`
+4. Clear `ProcessingStartedAt = null`
+5. Clear `ToolCallCount = 0`
+6. Clear `ProcessingPhase = 0`
+7. Call `FlushCurrentResponse(state)` BEFORE clearing IsProcessing
+8. Add a diagnostic log entry (`[COMPLETE]`, `[ERROR]`, `[ABORT]`, etc.)
+9. Run on UI thread (via `InvokeOnUI()` or already on UI thread)
 
-If debugging a stuck session, see [references/regression-history.md](references/regression-history.md)
-for the 7 common mistakes and full regression timeline across 7 PRs.
+## The 8 Paths That Clear IsProcessing
 
-## The Cleanup Checklist
+| # | Path | File | Thread | Notes |
+|---|------|------|--------|-------|
+| 1 | CompleteResponse | Events.cs | UI (via Invoke) | Normal completion |
+| 2 | SessionErrorEvent | Events.cs | Background → InvokeOnUI | SDK error |
+| 3 | Watchdog timeout | Events.cs | Timer → InvokeOnUI | No events for 120s/600s |
+| 4 | AbortSessionAsync (local) | CopilotService.cs | UI | User clicks Stop |
+| 5 | AbortSessionAsync (remote) | CopilotService.cs | UI | Mobile stop |
+| 6 | SendAsync reconnect failure | CopilotService.cs | UI | Prompt send failed after reconnect |
+| 7 | SendAsync initial failure | CopilotService.cs | UI | Prompt send failed |
+| 8 | Bridge OnTurnEnd | Bridge.cs | Background → InvokeOnUI | Remote mode turn complete |
 
-Every code path that sets `IsProcessing = false` MUST perform ALL of these:
+## 8 Invariants
 
-```csharp
-FlushCurrentResponse(state);                              // BEFORE clearing — saves accumulated response
-CancelProcessingWatchdog(state);
-Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-state.HasUsedToolsThisTurn = false;
-state.Info.IsResumed = false;
-state.Info.IsProcessing = false;
-state.Info.ProcessingStartedAt = null;
-state.Info.ToolCallCount = 0;
-state.Info.ProcessingPhase = 0;
-```
+### INV-1: Complete state cleanup
+Every IsProcessing=false path clears ALL fields. See checklist above.
 
-Skip any field not applicable to the path (e.g., remote mode has no `ActiveToolCallCount`).
+### INV-2: UI thread for mutations
+ALL IsProcessing mutations go through UI thread via `InvokeOnUI()`.
 
-## The 7 Cleanup Paths
+### INV-3: ProcessingGeneration guard
+Use generation guard before clearing IsProcessing. `SyncContext.Post` is
+async — new `SendPromptAsync` can race between `Post()` and callback.
 
-| # | Path | Location | Notes |
-|---|------|----------|-------|
-| 1 | CompleteResponse | Events.cs ~L699 | Normal completion via SessionIdleEvent (saves response inline, not via FlushCurrentResponse) |
-| 2 | SessionErrorEvent | Events.cs ~L517 | SDK error — wrapped in InvokeOnUI |
-| 3 | Watchdog timeout | Events.cs ~L1192 | InvokeOnUI + generation guard |
-| 4 | AbortSessionAsync (local) | CopilotService.cs ~L1681 | User clicks Stop |
-| 5 | AbortSessionAsync (remote) | CopilotService.cs ~L1638 | Remote mode optimistic clear |
-| 6 | SendAsync reconnect failure | CopilotService.cs ~L1600 | Reconnect+retry failed |
-| 7 | SendAsync initial failure | CopilotService.cs ~L1613 | First send attempt failed |
-| 8 | Bridge OnTurnEnd | Bridge.cs ~L127 | Remote mode normal turn completion — InvokeOnUI |
+### INV-4: No hardcoded short timeouts
+NEVER add hardcoded short timeouts for session resume. The watchdog
+(120s/600s) with tiered approach is the correct mechanism.
 
-**When adding a new field to AgentSessionInfo or SessionState**, add its reset to ALL 8 paths.
-**When adding a new cleanup path**, copy the full checklist from an existing path (path 3 is the most complete).
+### INV-5: HasUsedToolsThisTurn > ActiveToolCallCount
+`ActiveToolCallCount` alone is insufficient. `AssistantTurnStartEvent`
+resets it between tool rounds. `HasUsedToolsThisTurn` persists.
 
-## Key Watchdog Rules
+### INV-6: IsResumed scoping
+`IsResumed` scoped to mid-turn resumes (`isStillProcessing=true`).
+Cleared on ALL termination paths. Extends watchdog to 600s.
+Clearing guarded on `!hasActiveTool && !HasUsedToolsThisTurn`.
 
-- **Two timeout tiers**: 120s inactivity, 600s tool execution
-- **600s triggers when**: `ActiveToolCallCount > 0` OR `IsResumed` OR `HasUsedToolsThisTurn`
-- **Never add timeouts shorter than 120s** for resume — tool calls gap 30-60s between events
-- **`ActiveToolCallCount` returns to 0 between tool rounds** — `AssistantTurnStartEvent` resets it to 0 (line ~365). Between rounds the model reasons about the next tool call, so `hasActiveTool` is 0 even though the session is actively working. Always check `HasUsedToolsThisTurn` too
-- **IsResumed clearing** must guard on `!hasActiveTool && !HasUsedToolsThisTurn`
-- **Staleness check**: `IsSessionStillProcessing` uses `File.GetLastWriteTimeUtc` >600s = idle
+### INV-7: Volatile for cross-thread fields
+`HasUsedToolsThisTurn`, `HasReceivedEventsSinceResume` should use
+`Volatile.Write`/`Volatile.Read`. ARM weak memory model issue.
+(Currently partial — resets use plain assignment.)
 
-## Thread Safety Rules
+### INV-8: No InvokeAsync in HandleComplete
+`HandleComplete` is already on UI thread. `InvokeAsync` defers execution
+causing stale renders.
 
-- All `state.Info.*` mutations from background threads → `InvokeOnUI()`
-- `HasUsedToolsThisTurn`, `HasReceivedEventsSinceResume` → `Volatile.Write`/`Read`
-- `ActiveToolCallCount` → `Interlocked` operations only
-- Capture `ProcessingGeneration` before `SyncContext.Post`, verify inside callback
+## Top 3 Recurring Mistakes
 
-For detailed thread safety patterns and the full regression history, see
-[references/regression-history.md](references/regression-history.md).
+1. **Incomplete cleanup** — modifying one IsProcessing path without
+   updating ALL fields that must be cleared simultaneously.
+2. **ActiveToolCallCount as sole tool signal** — gets reset/skipped
+   in several paths; always check `HasUsedToolsThisTurn` too.
+3. **Background thread mutations** — mutating IsProcessing or related
+   state on SDK event threads instead of marshaling to UI thread.
+
+## Regression History
+
+7 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164.
+See `references/regression-history.md` for the full timeline with root causes.

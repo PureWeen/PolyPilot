@@ -212,6 +212,11 @@ When a user changes the model via the UI dropdown:
 ### Blazor Input Performance
 Avoid `@bind:event="oninput"` — causes round-trip lag per keystroke. Use plain HTML inputs with JS event listeners and read values via `JS.InvokeAsync<string>("eval", "document.getElementById('id')?.value")` on submit.
 
+### Render Performance
+`SaveActiveSessionsToDisk`, `SaveOrganization`, and `SaveUiState` use timer-based debounce (2s/2s/1s) — **must flush in DisposeAsync**. `LoadPersistedSessions()` scans all session directories (750+) — **never call from render-triggered paths**. `GetOrganizedSessions()` is cached with hash-key invalidation. `_sessionSwitching` flag must stay true until `SafeRefreshAsync` reads it. See `.claude/skills/performance-optimization/SKILL.md` for detailed invariants.
+
+For detailed stuck-session debugging knowledge (8 invariants from 7 PRs of fix cycles), see `.claude/skills/processing-state-safety/SKILL.md`.
+
 ### Session Persistence
 - Active sessions: `~/.polypilot/active-sessions.json` (includes `LastPrompt` — last user message if session was processing during save)
 - Session state: `~/.copilot/session-state/<guid>/events.jsonl` (SDK-managed, stays in ~/.copilot)
