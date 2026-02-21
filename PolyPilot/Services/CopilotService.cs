@@ -1118,7 +1118,7 @@ public partial class CopilotService : IAsyncDisposable
         var resumeModel = Models.ModelHelper.NormalizeToSlug(model ?? GetSessionModelFromDisk(sessionId) ?? DefaultModel);
         if (string.IsNullOrEmpty(resumeModel)) resumeModel = DefaultModel;
         Debug($"Resuming session '{displayName}' with model: '{resumeModel}', cwd: '{resumeWorkingDirectory}'");
-        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory };
+        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() } };
         var copilotSession = await _client.ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
 
         var isStillProcessing = IsSessionStillProcessing(sessionId);
@@ -1289,6 +1289,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             WorkingDirectory = sessionDir,
             McpServers = mcpServers,
             SkillDirectories = skillDirs,
+            Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
             SystemMessage = new SystemMessageConfig
             {
                 Mode = SystemMessageMode.Append,
@@ -1426,7 +1427,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var resumeConfig = new ResumeSessionConfig
             {
                 Model = normalizedModel,
-                WorkingDirectory = state.Info.WorkingDirectory
+                WorkingDirectory = state.Info.WorkingDirectory,
+                Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }
             };
             var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, cancellationToken);
 
@@ -1560,6 +1562,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         throw new InvalidOperationException("Client is not initialized");
                     var reconnectModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
                     var reconnectConfig = new ResumeSessionConfig();
+                    reconnectConfig.Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
                     if (!string.IsNullOrEmpty(reconnectModel))
                         reconnectConfig.Model = reconnectModel;
                     if (!string.IsNullOrEmpty(state.Info.WorkingDirectory))

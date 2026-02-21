@@ -23,6 +23,7 @@ public interface IWsBridgeClient
     event Action<string, string, string, bool>? OnToolCompleted;
     event Action<string, string, string>? OnReasoningReceived;
     event Action<string, string>? OnReasoningComplete;
+    event Action<string, string, string?, string?>? OnImageReceived; // sessionName, callId, imageDataUri, caption
     event Action<string, string>? OnIntentChanged;
     event Action<string, SessionUsageInfo>? OnUsageInfoChanged;
     event Action<string>? OnTurnStart;

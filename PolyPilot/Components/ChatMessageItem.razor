@@ -220,6 +220,29 @@
             </div>
         }
         break;
+
+    case ChatMessageType.Image:
+        @if (GetImageSource(Message) is string _imgSrc)
+        {
+            <div class="chat-msg assistant image-bubble">
+                <div class="image-bubble-content">
+                    <img src="@_imgSrc" alt="@(Message.Caption ?? "Image")" class="image-bubble-img" />
+                    @if (!string.IsNullOrEmpty(Message.Caption))
+                    {
+                        <div class="image-bubble-caption">@Message.Caption</div>
+                    }
+                </div>
+            </div>
+        }
+        else if (!Message.IsComplete)
+        {
+            <div class="chat-msg assistant image-bubble">
+                <div class="image-bubble-content loading">
+                    <span>📷 Preparing image…</span>
+                </div>
+            </div>
+        }
+        break;
 }
 
 @code {
@@ -227,6 +250,9 @@
     [Parameter] public bool Compact { get; set; }
     [Parameter] public bool IsStreaming { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
+
+    private static string? GetImageSource(ChatMessage msg) =>
+        msg.ImageDataUri ?? (!string.IsNullOrEmpty(msg.ImagePath) ? ChatMessageList.FileToDataUri(msg.ImagePath) : null);
 
     private bool TryGetReflectionData(string content, out ReflectionData data)
     {

@@ -10,7 +10,8 @@ public enum ChatMessageType
     System,
     ShellOutput,
     Diff,
-    Reflection
+    Reflection,
+    Image
 }
 
 public class ChatMessage
@@ -44,6 +45,11 @@ public class ChatMessage
 
     // Reasoning fields
     public string? ReasoningId { get; set; }
+
+    // Image fields (for ChatMessageType.Image)
+    public string? ImagePath { get; set; }
+    public string? ImageDataUri { get; set; }
+    public string? Caption { get; set; }
 
     // Model that generated this message
     public string? Model { get; set; }
@@ -79,6 +85,9 @@ public class ChatMessage
 
     public static ChatMessage ReflectionMessage(string content) =>
         new("system", content, DateTime.Now, ChatMessageType.Reflection) { IsComplete = true };
+
+    public static ChatMessage ImageMessage(string? imagePath, string? imageDataUri, string? caption = null, string? toolCallId = null) =>
+        new("assistant", "", DateTime.Now, ChatMessageType.Image) { ImagePath = imagePath, ImageDataUri = imageDataUri, Caption = caption, ToolCallId = toolCallId, ToolName = "show_image", IsComplete = true, IsSuccess = true };
 }
 
 public class ToolActivity

@@ -298,14 +298,24 @@ public partial class CopilotService
                     // Flush any accumulated assistant text before adding tool message
                     FlushCurrentResponse(state);
                     
-                    var toolMsg = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
-                    state.Info.History.Add(toolMsg);
-                    
-                    Invoke(() =>
+                    if (startToolName == ShowImageTool.ToolName)
                     {
-                        OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
-                        OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
-                    });
+                        // show_image: add a placeholder that will be converted to Image on complete
+                        var imgPlaceholder = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
+                        state.Info.History.Add(imgPlaceholder);
+                        Invoke(() => OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput));
+                    }
+                    else
+                    {
+                        var toolMsg = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
+                        state.Info.History.Add(toolMsg);
+                        
+                        Invoke(() =>
+                        {
+                            OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
+                            OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
+                        });
+                    }
                 }
                 else if (state.CurrentResponse.Length > 0)
                 {
@@ -333,9 +343,23 @@ public partial class CopilotService
                 var histToolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == completeCallId);
                 if (histToolMsg != null)
                 {
-                    histToolMsg.IsComplete = true;
-                    histToolMsg.IsSuccess = !hasError;
-                    histToolMsg.Content = resultStr;
+                    if (completeToolName == ShowImageTool.ToolName && !hasError)
+                    {
+                        // Convert tool call placeholder into an Image message
+                        (string? imgPath, string? imgCaption) = ShowImageTool.ParseResult(resultStr);
+                        histToolMsg.MessageType = ChatMessageType.Image;
+                        histToolMsg.ImagePath = imgPath;
+                        histToolMsg.Caption = imgCaption;
+                        histToolMsg.IsComplete = true;
+                        histToolMsg.IsSuccess = true;
+                        histToolMsg.Content = resultStr;
+                    }
+                    else
+                    {
+                        histToolMsg.IsComplete = true;
+                        histToolMsg.IsSuccess = !hasError;
+                        histToolMsg.Content = resultStr;
+                    }
                 }
 
                 Invoke(() =>

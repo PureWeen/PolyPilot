@@ -159,6 +159,10 @@ public class ToolCompletedPayload
     public string CallId { get; set; } = "";
     public string Result { get; set; } = "";
     public bool Success { get; set; }
+    // Image fields (populated when tool is show_image)
+    public string? ImageData { get; set; }
+    public string? ImageMimeType { get; set; }
+    public string? Caption { get; set; }
 }
 
 public class ReasoningDeltaPayload

@@ -37,6 +37,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     public event Action<string, string, string, bool>? OnToolCompleted;
     public event Action<string, string, string>? OnReasoningReceived;
     public event Action<string, string>? OnReasoningComplete;
+    public event Action<string, string, string?, string?>? OnImageReceived;
     public event Action<string, string>? OnIntentChanged;
     public event Action<string, SessionUsageInfo>? OnUsageInfoChanged;
     public event Action<string>? OnTurnStart;
@@ -460,7 +461,15 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             case BridgeMessageTypes.ToolCompleted:
                 var toolDone = msg.GetPayload<ToolCompletedPayload>();
                 if (toolDone != null)
+                {
                     OnToolCompleted?.Invoke(toolDone.SessionName, toolDone.CallId, toolDone.Result, toolDone.Success);
+                    // If image data is present, fire image event so the handler can convert to Image message
+                    if (!string.IsNullOrEmpty(toolDone.ImageData))
+                    {
+                        var dataUri = $"data:{toolDone.ImageMimeType ?? "image/png"};base64,{toolDone.ImageData}";
+                        OnImageReceived?.Invoke(toolDone.SessionName, toolDone.CallId, dataUri, toolDone.Caption);
+                    }
+                }
                 break;
 
             case BridgeMessageTypes.ReasoningDelta:

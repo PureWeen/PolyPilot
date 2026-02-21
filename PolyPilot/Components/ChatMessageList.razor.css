@@ -900,3 +900,33 @@
     font-size: 16px;
     opacity: 0.8;
 }
+
+/* Image bubble — clean presentation */
+::deep .image-bubble .image-bubble-content {
+    max-width: 480px;
+    border-radius: 12px;
+    overflow: hidden;
+}
+::deep .image-bubble .image-bubble-img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border-radius: 12px;
+    cursor: pointer;
+}
+::deep .image-bubble .image-bubble-caption {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+::deep .image-bubble .image-bubble-content.loading {
+    padding: 1rem;
+    color: var(--text-muted);
+    font-size: 0.9em;
+}
+@media (max-width: 640px) {
+    ::deep .image-bubble .image-bubble-content {
+        max-width: 100%;
+    }
+}
