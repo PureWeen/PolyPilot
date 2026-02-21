@@ -779,7 +779,7 @@
             document.addEventListener('click', function(e) {
                 var t = e.target;
                 if (t.tagName !== 'IMG') return;
-                if (t.closest('.markdown-body') || t.closest('.tool-image-result') || t.closest('.action-output') || t.closest('.action-expanded-result')) {
+                if (t.closest('.markdown-body') || t.closest('.tool-image-result') || t.closest('.action-output') || t.closest('.action-expanded-result') || t.closest('.image-bubble-content')) {
                     e.preventDefault(); e.stopPropagation();
                     open(t.src);
                 }

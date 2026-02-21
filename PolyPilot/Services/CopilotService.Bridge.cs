@@ -71,6 +71,19 @@ public partial class CopilotService
             }
             InvokeOnUI(() => OnToolCompleted?.Invoke(s, id, result, success));
         };
+        _bridgeClient.OnImageReceived += (s, callId, dataUri, caption) =>
+        {
+            var session = GetRemoteSession(s);
+            var toolMsg = session?.History.LastOrDefault(m => m.ToolCallId == callId);
+            if (toolMsg != null)
+            {
+                // Convert tool call message into an Image message
+                toolMsg.MessageType = ChatMessageType.Image;
+                toolMsg.ImageDataUri = dataUri;
+                toolMsg.Caption = caption;
+            }
+            InvokeOnUI(() => OnStateChanged?.Invoke());
+        };
         _bridgeClient.OnReasoningReceived += (s, rid, c) =>
         {
             var emittedReasoningId = rid;

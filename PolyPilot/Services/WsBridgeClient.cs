@@ -37,6 +37,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     public event Action<string, string, string, bool>? OnToolCompleted;
     public event Action<string, string, string>? OnReasoningReceived;
     public event Action<string, string>? OnReasoningComplete;
+    public event Action<string, string, string?, string?>? OnImageReceived;
     public event Action<string, string>? OnIntentChanged;
     public event Action<string, SessionUsageInfo>? OnUsageInfoChanged;
     public event Action<string>? OnTurnStart;
@@ -221,6 +222,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<DirectoriesListPayload>> _dirListRequests = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<RepoAddedPayload>> _addRepoRequests = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Action<string>> _repoProgressCallbacks = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<FetchImageResponsePayload>> _fetchImageRequests = new();
 
     public async Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
     {
@@ -272,6 +274,26 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
 
     public async Task RequestReposAsync(CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ListRepos, new ListReposPayload()), ct);
+
+    public async Task<FetchImageResponsePayload> FetchImageAsync(string path, CancellationToken ct = default)
+    {
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<FetchImageResponsePayload>();
+        _fetchImageRequests[requestId] = tcs;
+        try
+        {
+            await SendAsync(BridgeMessage.Create(BridgeMessageTypes.FetchImage,
+                new FetchImagePayload { Path = path, RequestId = requestId }), ct);
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+            linked.Token.Register(() => tcs.TrySetCanceled());
+            return await tcs.Task;
+        }
+        finally
+        {
+            _fetchImageRequests.TryRemove(requestId, out _);
+        }
+    }
 
     // --- Receive loop ---
 
@@ -468,7 +490,15 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             case BridgeMessageTypes.ToolCompleted:
                 var toolDone = msg.GetPayload<ToolCompletedPayload>();
                 if (toolDone != null)
+                {
                     OnToolCompleted?.Invoke(toolDone.SessionName, toolDone.CallId, toolDone.Result, toolDone.Success);
+                    // If image data is present, fire image event so the handler can convert to Image message
+                    if (!string.IsNullOrEmpty(toolDone.ImageData))
+                    {
+                        var dataUri = $"data:{toolDone.ImageMimeType ?? "image/png"};base64,{toolDone.ImageData}";
+                        OnImageReceived?.Invoke(toolDone.SessionName, toolDone.CallId, dataUri, toolDone.Caption);
+                    }
+                }
                 break;
 
             case BridgeMessageTypes.ReasoningDelta:
@@ -587,6 +617,12 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                 var repoErrorPayload = msg.GetPayload<RepoErrorPayload>();
                 if (repoErrorPayload != null && _addRepoRequests.TryRemove(repoErrorPayload.RequestId, out var errTcs))
                     errTcs.TrySetException(new InvalidOperationException(repoErrorPayload.Error));
+                break;
+
+            case BridgeMessageTypes.FetchImageResponse:
+                var imgRespPayload = msg.GetPayload<FetchImageResponsePayload>();
+                if (imgRespPayload != null && _fetchImageRequests.TryRemove(imgRespPayload.RequestId, out var imgTcs))
+                    imgTcs.TrySetResult(imgRespPayload);
                 break;
         }
     }

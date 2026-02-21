@@ -284,6 +284,7 @@
             "store_memory" => ("Memory", "action-memory"),
             "report_intent" => ("Intent", "action-intent"),
             "skill" => ("Skill", "action-agent"),
+            "show_image" or "ShowImageAsync" => ("Preview", "action-read"),
             _ when toolName.StartsWith("github-mcp") => ("GitHub", "action-fetch"),
             _ when toolName.StartsWith("context7") => ("Docs", "action-read"),
             _ => (FormatToolName(toolName), "action-default"),
@@ -429,7 +430,7 @@
             var pathStart = trimmed.LastIndexOf(' ', idx) + 1;
             if (pathStart < 0) pathStart = 0;
             var path = trimmed[pathStart..endIdx];
-            if (path.StartsWith('/') && System.IO.File.Exists(path))
+            if (path.StartsWith('/'))
                 return path;
         }
         return null;
@@ -459,6 +460,32 @@
             return dataUri;
         }
         catch { return null; }
+    }
+
+    /// <summary>Copies an image to ~/.polypilot/images/ for persistence, returns data URI. Caches on the ChatMessage.</summary>
+    internal static string? PersistAndLoadImage(string path, ChatMessage msg)
+    {
+        // Already loaded?
+        if (!string.IsNullOrEmpty(msg.ImageDataUri)) return msg.ImageDataUri;
+
+        var dataUri = FileToDataUri(path);
+        if (dataUri == null) return null;
+
+        // Copy to persistent storage
+        try
+        {
+            var imagesDir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot", "images");
+            System.IO.Directory.CreateDirectory(imagesDir);
+            var ext = System.IO.Path.GetExtension(path);
+            var persistentPath = System.IO.Path.Combine(imagesDir, $"{Guid.NewGuid()}{ext}");
+            System.IO.File.Copy(path, persistentPath);
+            msg.ImagePath = persistentPath;
+        }
+        catch { /* persistence is best-effort */ }
+
+        msg.ImageDataUri = dataUri;
+        return dataUri;
     }
 
     internal static string SummarizeToolInput(string toolName, string? input)

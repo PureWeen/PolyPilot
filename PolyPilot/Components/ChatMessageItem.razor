@@ -123,10 +123,10 @@
                 }
                 @if (_hasOutput)
                 {
-                    <div class="action-output-toggle" @onclick="() => Message.IsCollapsed = !Message.IsCollapsed" @onclick:stopPropagation="true">
+                    <div class="action-output-toggle" @onclick="() => { if (_hasOutput) Message.IsCollapsed = !Message.IsCollapsed; }" @onclick:stopPropagation="true">
                         <span class="toggle-icon">@(Message.IsCollapsed ? "▶" : "▼")</span>
                         <span class="toggle-label">Output</span>
-                        @if (ChatMessageList.GetImagePath(Message.Content) is string imgPath)
+                        @if (!string.IsNullOrEmpty(Message.ImageDataUri) || ChatMessageList.GetImagePath(Message.Content) is string _)
                         {
                             <span class="output-hint">🖼 image</span>
                         }
@@ -143,10 +143,10 @@
                                 <pre>@ChatMessageList.FormatToolInputExpanded(Message.ToolName ?? "", Message.ToolInput)</pre>
                             </div>
                         }
-                        @if (ChatMessageList.GetImagePath(Message.Content) is string imgPath2 && ChatMessageList.FileToDataUri(imgPath2) is string dataUri2)
+                        @if (GetToolOutputImage(Message) is string toolImgUri)
                         {
                             <div class="action-output">
-                                <img src="@dataUri2" alt="@System.IO.Path.GetFileName(imgPath2)" />
+                                <img src="@toolImgUri" alt="image" />
                             </div>
                         }
                         else
@@ -220,6 +220,29 @@
             </div>
         }
         break;
+
+    case ChatMessageType.Image:
+        @if (GetImageSource(Message) is string _imgSrc)
+        {
+            <div class="chat-msg assistant image-bubble">
+                <div class="image-bubble-content">
+                    <img src="@_imgSrc" alt="@(Message.Caption ?? "Image")" class="image-bubble-img" />
+                    @if (!string.IsNullOrEmpty(Message.Caption))
+                    {
+                        <div class="image-bubble-caption">@Message.Caption</div>
+                    }
+                </div>
+            </div>
+        }
+        else if (!Message.IsComplete)
+        {
+            <div class="chat-msg assistant image-bubble">
+                <div class="image-bubble-content loading">
+                    <span>📷 Preparing image…</span>
+                </div>
+            </div>
+        }
+        break;
 }
 
 @code {
@@ -227,6 +250,21 @@
     [Parameter] public bool Compact { get; set; }
     [Parameter] public bool IsStreaming { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
+
+    private static string? GetImageSource(ChatMessage msg) =>
+        msg.ImageDataUri ?? (!string.IsNullOrEmpty(msg.ImagePath) ? ChatMessageList.FileToDataUri(msg.ImagePath) : null);
+
+    /// <summary>Lazy image loading for tool output — persists + caches on first expand.</summary>
+    private static string? GetToolOutputImage(ChatMessage msg)
+    {
+        // Already loaded (cached from previous expand or bridge)
+        if (!string.IsNullOrEmpty(msg.ImageDataUri)) return msg.ImageDataUri;
+
+        var path = ChatMessageList.GetImagePath(msg.Content);
+        if (string.IsNullOrEmpty(path)) return null;
+
+        return ChatMessageList.PersistAndLoadImage(path, msg);
+    }
 
     private bool TryGetReflectionData(string content, out ReflectionData data)
     {

@@ -192,9 +192,6 @@
                 }
                 @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(sessionDir))
                 {
-                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInTerminal(); }">
-                        >_ Terminal
-                    </button>
                     <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInVSCode(); }">
                         ⌨ VS Code
                     </button>
@@ -281,22 +278,6 @@
         return null;
     }
 
-    private void OpenInTerminal()
-    {
-        var dir = GetSessionDirectory();
-        if (string.IsNullOrEmpty(dir)) return;
-        try
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "open",
-                ArgumentList = { "-a", "Terminal", dir },
-                UseShellExecute = false
-            });
-        }
-        catch { }
-    }
-
     private void OpenInCopilotConsole()
     {
         var sessionId = Session.SessionId;
@@ -304,25 +285,47 @@
         var dir = GetSessionDirectory() ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         try
         {
-            // Shell-escape all dynamic values using single quotes to prevent injection.
-            var safeDir = PlatformHelper.ShellEscape(dir);
-            var safeName = PlatformHelper.ShellEscape(Session.Name);
-            var safeId = PlatformHelper.ShellEscape(sessionId);
-
-            var shellScript = Path.Combine(Path.GetTempPath(), $"polypilot-copilot-{Guid.NewGuid():N}.sh");
-            File.WriteAllText(shellScript,
-                "#!/bin/bash\n" +
-                $"cd {safeDir}\n" +
-                $"echo '🔗 Resuming session:' {safeName} '('{safeId}')'\n" +
-                "echo '─────────────────────────────────────────'\n" +
-                "echo ''\n" +
-                $"copilot --resume {safeId} --yolo\n");
-            Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
-            Process.Start(new ProcessStartInfo("open", $"-a Terminal \"{shellScript}\"")
+            if (OperatingSystem.IsWindows())
             {
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
+                // Use single quotes in PS script to prevent subexpression parsing of GUIDs/parens
+                var psDir = dir.Replace("'", "''");
+                var psName = Session.Name.Replace("'", "''");
+                var psId = sessionId.Replace("'", "''");
+                var psScript = Path.Combine(Path.GetTempPath(), $"polypilot-copilot-{Guid.NewGuid():N}.ps1");
+                File.WriteAllText(psScript,
+                    $"Set-Location '{psDir}'\n" +
+                    $"Write-Host '🔗 Resuming session: {psName} ({psId})'\n" +
+                    "Write-Host '─────────────────────────────────────────'\n" +
+                    "Write-Host ''\n" +
+                    $"copilot --resume '{psId}' --yolo\n");
+                Process.Start(new ProcessStartInfo("powershell.exe",
+                    $"-ExecutionPolicy Bypass -NoExit -File \"{psScript}\"")
+                {
+                    UseShellExecute = true,
+                    WorkingDirectory = dir
+                });
+            }
+            else
+            {
+                var safeDir = PlatformHelper.ShellEscape(dir);
+                var safeName = PlatformHelper.ShellEscape(Session.Name);
+                var safeId = PlatformHelper.ShellEscape(sessionId);
+
+                var shellScript = Path.Combine(Path.GetTempPath(), $"polypilot-copilot-{Guid.NewGuid():N}.sh");
+                File.WriteAllText(shellScript,
+                    "#!/bin/bash\n" +
+                    $"cd {safeDir}\n" +
+                    $"echo '🔗 Resuming session:' {safeName} '('{safeId}')'\n" +
+                    "echo '─────────────────────────────────────────'\n" +
+                    "echo ''\n" +
+                    $"copilot --resume {safeId} --yolo\n");
+                Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
+                Process.Start(new ProcessStartInfo("open", $"-a Terminal \"{shellScript}\"")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
         }
         catch { }
     }
@@ -333,12 +336,25 @@
         if (string.IsNullOrEmpty(dir)) return;
         try
         {
-            Process.Start(new ProcessStartInfo
+            if (OperatingSystem.IsWindows())
             {
-                FileName = "code",
-                ArgumentList = { dir },
-                UseShellExecute = false
-            });
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    ArgumentList = { "/c", "code", dir },
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            else
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "code",
+                    ArgumentList = { dir },
+                    UseShellExecute = false
+                });
+            }
         }
         catch { }
     }

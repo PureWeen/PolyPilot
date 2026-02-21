@@ -93,8 +93,26 @@ public class WsBridgeServer : IDisposable
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ToolStarted,
                 new ToolStartedPayload { SessionName = session, ToolName = tool, CallId = callId, ToolInput = input }));
         _copilot.OnToolCompleted += (session, callId, result, success) =>
-            Broadcast(BridgeMessage.Create(BridgeMessageTypes.ToolCompleted,
-                new ToolCompletedPayload { SessionName = session, CallId = callId, Result = result, Success = success }));
+        {
+            var payload = new ToolCompletedPayload { SessionName = session, CallId = callId, Result = result, Success = success };
+            // Check if this is a show_image result — include image data for remote clients
+            if (success)
+            {
+                var (imgPath, caption) = ShowImageTool.ParseResult(result);
+                if (!string.IsNullOrEmpty(imgPath) && File.Exists(imgPath))
+                {
+                    try
+                    {
+                        var bytes = File.ReadAllBytes(imgPath);
+                        payload.ImageData = Convert.ToBase64String(bytes);
+                        payload.ImageMimeType = ImageMimeType(imgPath);
+                        payload.Caption = caption;
+                    }
+                    catch { /* fall through — remote client won't get the image */ }
+                }
+            }
+            Broadcast(BridgeMessage.Create(BridgeMessageTypes.ToolCompleted, payload));
+        };
         _copilot.OnReasoningReceived += (session, reasoningId, content) =>
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ReasoningDelta,
                 new ReasoningDeltaPayload { SessionName = session, ReasoningId = reasoningId, Content = content }));
@@ -574,6 +592,30 @@ public class WsBridgeServer : IDisposable
                     }
                     break;
 
+                case BridgeMessageTypes.FetchImage:
+                    var imgReq = msg.GetPayload<FetchImagePayload>();
+                    if (imgReq != null)
+                    {
+                        var imgResponse = new FetchImageResponsePayload { RequestId = imgReq.RequestId };
+                        try
+                        {
+                            if (!string.IsNullOrEmpty(imgReq.Path) && File.Exists(imgReq.Path))
+                            {
+                                var bytes = await File.ReadAllBytesAsync(imgReq.Path);
+                                imgResponse.ImageData = Convert.ToBase64String(bytes);
+                                imgResponse.MimeType = ImageMimeType(imgReq.Path);
+                            }
+                            else
+                            {
+                                imgResponse.Error = "File not found";
+                            }
+                        }
+                        catch (Exception ex) { imgResponse.Error = ex.Message; }
+                        await SendToClientAsync(clientId, ws,
+                            BridgeMessage.Create(BridgeMessageTypes.FetchImageResponse, imgResponse), ct);
+                    }
+                    break;
+
                 case BridgeMessageTypes.ListRepos:
                     if (_repoManager != null)
                     {
@@ -712,6 +754,23 @@ public class WsBridgeServer : IDisposable
 
         var session = _copilot.GetSession(sessionName);
         if (session == null) return;
+
+        // Populate ImageDataUri for Image messages so mobile can render them
+        foreach (var m in session.History)
+        {
+            if (m.MessageType == ChatMessageType.Image && string.IsNullOrEmpty(m.ImageDataUri) && !string.IsNullOrEmpty(m.ImagePath))
+            {
+                try
+                {
+                    if (File.Exists(m.ImagePath))
+                    {
+                        var bytes = await File.ReadAllBytesAsync(m.ImagePath);
+                        m.ImageDataUri = $"data:{ImageMimeType(m.ImagePath)};base64,{Convert.ToBase64String(bytes)}";
+                    }
+                }
+                catch { /* best effort */ }
+            }
+        }
 
         var payload = new SessionHistoryPayload
         {
@@ -871,4 +930,15 @@ public class WsBridgeServer : IDisposable
         text = text.Replace("\n", " ").Replace("\r", "").Trim();
         return text.Length <= maxLength ? text : text[..(maxLength - 3)] + "...";
     }
+
+    private static string ImageMimeType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".png" => "image/png",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".bmp" => "image/bmp",
+        ".svg" => "image/svg+xml",
+        _ => "image/png"
+    };
 }

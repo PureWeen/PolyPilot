@@ -69,6 +69,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public event Action<string, string, string, bool>? OnToolCompleted;
     public event Action<string, string, string>? OnReasoningReceived;
     public event Action<string, string>? OnReasoningComplete;
+    public event Action<string, string, string?, string?>? OnImageReceived;
     public event Action<string, string>? OnIntentChanged;
     public event Action<string, SessionUsageInfo>? OnUsageInfoChanged;
     public event Action<string>? OnTurnStart;
@@ -152,6 +153,9 @@ internal class StubWsBridgeClient : IWsBridgeClient
         RequestReposCallCount++;
         return Task.CompletedTask;
     }
+
+    public Task<FetchImageResponsePayload> FetchImageAsync(string path, CancellationToken ct = default)
+        => Task.FromResult(new FetchImageResponsePayload { Error = "Stub" });
 }
 
 internal class StubDemoService : IDemoService

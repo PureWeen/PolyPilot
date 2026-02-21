@@ -102,6 +102,11 @@ public static class BridgeMessageTypes
     public const string DirectoriesList = "directories_list";
     public const string MultiAgentProgress = "multi_agent_progress";
 
+    // Client → Server (image fetch)
+    public const string FetchImage = "fetch_image";
+    // Server → Client (image response)
+    public const string FetchImageResponse = "fetch_image_response";
+
     // Fiesta Host ↔ Worker
     public const string FiestaAssign = "fiesta_assign";
     public const string FiestaTaskStarted = "fiesta_task_started";
@@ -163,6 +168,10 @@ public class ToolCompletedPayload
     public string CallId { get; set; } = "";
     public string Result { get; set; } = "";
     public bool Success { get; set; }
+    // Image fields (populated when tool is show_image)
+    public string? ImageData { get; set; }
+    public string? ImageMimeType { get; set; }
+    public string? Caption { get; set; }
 }
 
 public class ReasoningDeltaPayload
@@ -457,4 +466,18 @@ public class RepoErrorPayload
 {
     public string RequestId { get; set; } = "";
     public string Error { get; set; } = "";
+}
+
+public class FetchImagePayload
+{
+    public string Path { get; set; } = "";
+    public string RequestId { get; set; } = "";
+}
+
+public class FetchImageResponsePayload
+{
+    public string RequestId { get; set; } = "";
+    public string? ImageData { get; set; }
+    public string? MimeType { get; set; }
+    public string? Error { get; set; }
 }
