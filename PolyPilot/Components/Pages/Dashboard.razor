@@ -820,13 +820,15 @@
             }
             if (sessionSwitched)
             {
-                _sessionSwitching = false;
+                // _sessionSwitching stays true until SafeRefreshAsync reads it — 
+                // this skips the expensive JS draft capture round-trip during switches
                 _needsScrollToBottom = true;
                 // CSS toggle already done by sidebar/ExpandSession — suppress renders during cooldown
                 var newCooldown = Environment.TickCount64 + 300;
                 long current;
                 do { current = Interlocked.Read(ref _switchCooldownUntil); }
                 while (newCooldown > current && Interlocked.CompareExchange(ref _switchCooldownUntil, newCooldown, current) != current);
+                ScheduleRender(); // Will be deferred past cooldown by SafeRefreshAsync
             }
             else
                 ScheduleRender();
