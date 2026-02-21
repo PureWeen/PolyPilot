@@ -11,13 +11,19 @@ description: >
 
 # Processing State Safety Guide
 
-**This knowledge was hard-won across 7 PRs and 16 fix/regression cycles.** The stuck-session
-bug (sessions permanently showing "Thinking...") is the single most recurring issue in this
-codebase. Read this BEFORE modifying any processing-related code.
+Modifying processing state code involves these steps:
 
-## The Core Invariant
+1. Identify which of the 7 cleanup paths you're touching
+2. Apply the cleanup checklist to your change
+3. Verify all 7 paths still satisfy the checklist
+4. Ensure thread safety rules are followed
 
-**Every code path that sets `IsProcessing = false` MUST perform ALL of these steps:**
+If debugging a stuck session, see [references/regression-history.md](references/regression-history.md)
+for the 7 common mistakes and full regression timeline across 7 PRs.
+
+## The Cleanup Checklist
+
+Every code path that sets `IsProcessing = false` MUST perform ALL of these:
 
 ```csharp
 FlushCurrentResponse(state);                              // BEFORE clearing — saves accumulated response
@@ -31,123 +37,38 @@ state.Info.ToolCallCount = 0;
 state.Info.ProcessingPhase = 0;
 ```
 
-If you skip any of these, a future turn will inherit stale state and break.
+Skip any field not applicable to the path (e.g., remote mode has no `ActiveToolCallCount`).
 
-## The 7 Paths That Clear IsProcessing
+## The 7 Cleanup Paths
 
 | # | Path | Location | Notes |
 |---|------|----------|-------|
-| 1 | CompleteResponse | CopilotService.Events.cs ~L699 | Normal completion (SessionIdleEvent) |
-| 2 | SessionErrorEvent | CopilotService.Events.cs ~L517 | SDK error — wrapped in InvokeOnUI |
-| 3 | Watchdog timeout | CopilotService.Events.cs ~L1192 | No events for 120s/600s — InvokeOnUI + generation guard |
+| 1 | CompleteResponse | Events.cs ~L699 | Normal completion via SessionIdleEvent |
+| 2 | SessionErrorEvent | Events.cs ~L517 | SDK error — wrapped in InvokeOnUI |
+| 3 | Watchdog timeout | Events.cs ~L1192 | InvokeOnUI + generation guard |
 | 4 | AbortSessionAsync (local) | CopilotService.cs ~L1681 | User clicks Stop |
 | 5 | AbortSessionAsync (remote) | CopilotService.cs ~L1638 | Remote mode optimistic clear |
 | 6 | SendAsync reconnect failure | CopilotService.cs ~L1600 | Reconnect+retry failed |
 | 7 | SendAsync initial failure | CopilotService.cs ~L1613 | First send attempt failed |
 
-**If you add a new path, or modify an existing one, audit ALL 7.**
+**When adding a new field to AgentSessionInfo or SessionState**, add its reset to ALL 7 paths.
+**When adding a new cleanup path**, copy the full checklist from an existing path (path 3 is the most complete).
 
-## 7 Mistakes That Keep Recurring
+## Key Watchdog Rules
 
-### 1. Forgetting companion fields on error paths
-**What happens**: You clear `IsProcessing` and `ProcessingPhase` but forget `IsResumed` or
-`HasUsedToolsThisTurn`. Next turn inherits stale 600s timeout or stale tool state.
-**PRs where this happened**: #148, #158, #164
-
-### 2. Missing FlushCurrentResponse before clearing
-**What happens**: Accumulated `CurrentResponse` (StringBuilder) content is silently lost.
-User sees "Thinking..." then nothing — the partial response vanishes.
-**PRs where this happened**: #158
-
-### 3. Using ActiveToolCallCount alone as tool signal
-**What happens**: `ToolExecutionStartEvent` dedup path on resume **skips `ActiveToolCallCount++`**
-(line ~295 in Events.cs). So `hasActiveTool` is 0 even with a tool genuinely running.
-`HasUsedToolsThisTurn` persists across tool rounds and is the reliable signal.
-**PRs where this happened**: #148, #163
-
-### 4. Adding hardcoded short timeouts for resume
-**What happens**: A 10s timeout kills sessions that are legitimately processing (tool calls
-take 30-60s between events). The watchdog's tiered 120s/600s approach is the correct mechanism.
-**PRs where this happened**: #148
-
-### 5. Mutating state on background threads
-**What happens**: SDK events arrive on worker threads. `IsProcessing` write on a background
-thread races with Blazor rendering on the UI thread. Use `InvokeOnUI()` for all `state.Info.*`
-mutations from background code.
-**PRs where this happened**: #147, #148, #163
-
-### 6. Clearing IsResumed without checking tool activity
-**What happens**: After resume, the dedup path leaves `ActiveToolCallCount` at 0, so
-`hasActiveTool` is false. If you clear `IsResumed` based only on `HasReceivedEventsSinceResume`,
-the 600s timeout drops to 120s and kills resumed mid-tool sessions.
-**Guard condition**: `!hasActiveTool && !HasUsedToolsThisTurn`
-**PRs where this happened**: #163
-
-### 7. InvokeAsync in HandleComplete (Dashboard.razor)
-**What happens**: `HandleComplete` is called from `CompleteResponse` via
-`Invoke(SyncContext.Post)` — already on UI thread. Wrapping in `InvokeAsync` defers
-`StateHasChanged()` to next render cycle, causing stale "Thinking" indicators.
-**PRs where this happened**: #153
-
-## Processing Watchdog Architecture
-
-`RunProcessingWatchdogAsync` in `CopilotService.Events.cs` checks every 15 seconds:
-
-**Two timeout tiers:**
-- **120 seconds** (inactivity) — no tool activity at all
-- **600 seconds** (tool execution) — when ANY of these are true:
-  - `ActiveToolCallCount > 0` (tool actively running)
-  - `IsResumed` (session resumed mid-turn after app restart)
-  - `HasUsedToolsThisTurn` (tools used earlier in this turn — between rounds)
-
-**Staleness check on restore**: `IsSessionStillProcessing` checks `File.GetLastWriteTimeUtc`
-of `events.jsonl`. If >600s old, the session is treated as idle regardless of last event type.
-Prevents sessions from being stuck after long app restarts.
-
-**IsResumed clearing**: After events flow on a resumed session, the watchdog clears `IsResumed`
-to transition 600s → 120s. Guarded by `!hasActiveTool && !HasUsedToolsThisTurn` (dispatched
-via `InvokeOnUI`).
-
-**Generation guard**: Watchdog captures `ProcessingGeneration` before posting the timeout
-callback via `InvokeOnUI`. Inside the callback, it verifies the generation still matches.
-This prevents a stale watchdog from killing a new turn if the user aborts + resends during
-the async dispatch window.
+- **Two timeout tiers**: 120s inactivity, 600s tool execution
+- **600s triggers when**: `ActiveToolCallCount > 0` OR `IsResumed` OR `HasUsedToolsThisTurn`
+- **Never add timeouts shorter than 120s** for resume — tool calls gap 30-60s between events
+- **`ActiveToolCallCount` is unreliable after resume** — dedup path skips increment. Always check `HasUsedToolsThisTurn` too
+- **IsResumed clearing** must guard on `!hasActiveTool && !HasUsedToolsThisTurn`
+- **Staleness check**: `IsSessionStillProcessing` uses `File.GetLastWriteTimeUtc` >600s = idle
 
 ## Thread Safety Rules
 
-1. **All `state.Info.*` mutations from background threads** → `InvokeOnUI()`
-2. **`HasUsedToolsThisTurn`, `HasReceivedEventsSinceResume`** → `Volatile.Write` on set, `Volatile.Read` on check (ARM memory model)
-3. **`ActiveToolCallCount`** → `Interlocked.Increment`/`Decrement`/`Exchange` (concurrent tool starts/completions)
-4. **`LastEventAtTicks`** → `Interlocked.Exchange`/`Read` (long requires atomic ops)
-5. **`ProcessingGeneration`** → `Interlocked.Increment` on send, `Interlocked.Read` on check
+- All `state.Info.*` mutations from background threads → `InvokeOnUI()`
+- `HasUsedToolsThisTurn`, `HasReceivedEventsSinceResume` → `Volatile.Write`/`Read`
+- `ActiveToolCallCount` → `Interlocked` operations only
+- Capture `ProcessingGeneration` before `SyncContext.Post`, verify inside callback
 
-## Diagnostic Log Tags
-
-Every `IsProcessing = false` path MUST have a diagnostic log entry:
-
-| Tag | Meaning |
-|-----|---------|
-| `[SEND]` | Prompt sent, IsProcessing set to true |
-| `[EVT]` | SDK lifecycle event received |
-| `[IDLE]` | SessionIdleEvent dispatched to CompleteResponse |
-| `[COMPLETE]` | CompleteResponse executed or skipped |
-| `[ERROR]` | SessionErrorEvent or SendAsync failure cleared IsProcessing |
-| `[ABORT]` | User-initiated abort cleared IsProcessing |
-| `[BRIDGE-COMPLETE]` | Bridge OnTurnEnd cleared IsProcessing |
-| `[INTERRUPTED]` | App restart detected interrupted turn |
-| `[WATCHDOG]` | Watchdog clearing IsResumed or timing out |
-| `[RECONNECT]` | Session replaced after disconnect |
-
-## Regression History (for context)
-
-| PR | What broke | Root cause |
-|----|-----------|------------|
-| #141 | 120s timeout killed tool executions | Single timeout tier too aggressive |
-| #147 | Stale IDLE killed new turns | Missing ProcessingGeneration guard |
-| #148 | 10s resume timeout killed active sessions | Hardcoded short timeout |
-| #148 | 120s during tool loops | ActiveToolCallCount reset between rounds |
-| #148 | IsResumed leaked → permanent 600s | Not cleared on abort/error/watchdog |
-| #153 | Stale "Thinking" renders | InvokeAsync deferred StateHasChanged |
-| #158 | Response content silently lost | No FlushCurrentResponse before clearing |
-| #163 | Resumed mid-tool killed at 120s | IsResumed cleared without tool guard |
-| #164 | Processing fields not reset on error | New fields added to only some paths |
+For detailed thread safety patterns and the full regression history, see
+[references/regression-history.md](references/regression-history.md).
