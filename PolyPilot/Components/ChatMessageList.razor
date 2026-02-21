@@ -111,13 +111,18 @@
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
     [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
     [Parameter] public DateTime? ProcessingStartedAt { get; set; }
-    [Parameter] public int TurnRoundCount { get; set; }
-    [Parameter] public bool HasReceivedFirstEvent { get; set; }
+    [Parameter] public int ToolCallCount { get; set; }
+    [Parameter] public int ProcessingPhase { get; set; }
 
     private string GetProcessingStatus()
     {
-        if (!HasReceivedFirstEvent)
-            return "Waiting for first response…";
+        // Phase 0: Sending, 1: Server connected, 2: Thinking, 3: Working (tools)
+        if (ProcessingPhase == 0)
+            return "Sending…";
+        if (ProcessingPhase == 1)
+            return "Server connected…";
+        if (ProcessingPhase == 2 && ToolCallCount == 0)
+            return "Thinking…";
 
         var parts = new List<string> { "Working" };
         if (ProcessingStartedAt.HasValue)
@@ -128,8 +133,8 @@
             else if (elapsed.TotalSeconds >= 5)
                 parts.Add($"{(int)elapsed.TotalSeconds}s");
         }
-        if (TurnRoundCount > 0)
-            parts.Add($"{TurnRoundCount} tool round{(TurnRoundCount != 1 ? "s" : "")}");
+        if (ToolCallCount > 0)
+            parts.Add($"{ToolCallCount} tool call{(ToolCallCount != 1 ? "s" : "")}");
         return string.Join(" · ", parts) + "…";
     }
 

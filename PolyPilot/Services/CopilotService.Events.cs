@@ -276,6 +276,7 @@ public partial class CopilotService
                 if (toolStart.Data == null) break;
                 Interlocked.Increment(ref state.ActiveToolCallCount);
                 Volatile.Write(ref state.HasUsedToolsThisTurn, true);
+                if (state.Info.ProcessingPhase < 3) state.Info.ProcessingPhase = 3; // Working
                 var startToolName = toolStart.Data.ToolName ?? "unknown";
                 var startCallId = toolStart.Data.ToolCallId ?? "";
                 var toolInput = ExtractToolInput(toolStart.Data);
@@ -312,6 +313,7 @@ public partial class CopilotService
             case ToolExecutionCompleteEvent toolDone:
                 if (toolDone.Data == null) break;
                 Interlocked.Decrement(ref state.ActiveToolCallCount);
+                state.Info.ToolCallCount++;
                 var completeCallId = toolDone.Data.ToolCallId ?? "";
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
                 var resultStr = FormatToolResult(toolDone.Data!.Result);
@@ -354,7 +356,7 @@ public partial class CopilotService
 
             case AssistantTurnStartEvent:
                 state.HasReceivedDeltasThisTurn = false;
-                state.Info.HasReceivedFirstEvent = true;
+                if (state.Info.ProcessingPhase < 2) state.Info.ProcessingPhase = 2; // Thinking
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 Invoke(() =>
                 {
@@ -364,7 +366,6 @@ public partial class CopilotService
                 break;
 
             case AssistantTurnEndEvent:
-                state.Info.TurnRoundCount++;
                 try { CompleteReasoningMessages(state, sessionName); }
                 catch (Exception ex)
                 {
@@ -431,6 +432,7 @@ public partial class CopilotService
                 break;
 
             case SessionUsageInfoEvent usageInfo:
+                if (state.Info.ProcessingPhase < 1) state.Info.ProcessingPhase = 1; // Server acknowledged
                 var uData = usageInfo.Data;
                 if (uData != null)
                 {
@@ -687,8 +689,8 @@ public partial class CopilotService
         state.CurrentResponse.Clear();
         state.Info.IsProcessing = false;
         state.Info.ProcessingStartedAt = null;
-        state.Info.TurnRoundCount = 0;
-        state.Info.HasReceivedFirstEvent = false;
+        state.Info.ToolCallCount = 0;
+        state.Info.ProcessingPhase = 0;
         state.Info.LastUpdatedAt = DateTime.Now;
         OnStateChanged?.Invoke();
         

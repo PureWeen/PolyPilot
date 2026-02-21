@@ -22,8 +22,12 @@ public class AgentSessionInfo
     
     // Processing progress tracking
     public DateTime? ProcessingStartedAt { get; set; }
-    public int TurnRoundCount { get; set; }
-    public bool HasReceivedFirstEvent { get; set; }
+    public int ToolCallCount { get; set; }
+    /// <summary>
+    /// Processing phase: 0=Sending, 1=ServerConnected (UsageInfo received),
+    /// 2=Thinking (TurnStart), 3=Working (tools running)
+    /// </summary>
+    public int ProcessingPhase { get; set; }
     
     // Accumulated token usage across all turns
     public int TotalInputTokens { get; set; }

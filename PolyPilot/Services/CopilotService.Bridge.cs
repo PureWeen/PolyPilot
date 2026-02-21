@@ -245,8 +245,8 @@ public partial class CopilotService
             {
                 state.Info.IsProcessing = rs.IsProcessing;
                 state.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
-                state.Info.TurnRoundCount = rs.TurnRoundCount;
-                state.Info.HasReceivedFirstEvent = rs.HasReceivedFirstEvent;
+                state.Info.ToolCallCount = rs.ToolCallCount;
+                state.Info.ProcessingPhase = rs.ProcessingPhase;
                 state.Info.MessageCount = rs.MessageCount;
                 if (!string.IsNullOrEmpty(rs.Model))
                     state.Info.Model = rs.Model;

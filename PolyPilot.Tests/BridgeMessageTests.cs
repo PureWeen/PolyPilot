@@ -87,8 +87,8 @@ public class BridgeMessageTests
             MessageCount = 5,
             QueueCount = 2,
             ProcessingStartedAt = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc),
-            TurnRoundCount = 7,
-            HasReceivedFirstEvent = true
+            ToolCallCount = 7,
+            ProcessingPhase = 3
         };
         var msg = BridgeMessage.Create(BridgeMessageTypes.SessionsList, payload);
         var json = msg.Serialize();
@@ -101,8 +101,8 @@ public class BridgeMessageTests
         Assert.Contains("\"isProcessing\"", json);
         Assert.Contains("\"messageCount\"", json);
         Assert.Contains("\"processingStartedAt\"", json);
-        Assert.Contains("\"turnRoundCount\"", json);
-        Assert.Contains("\"hasReceivedFirstEvent\"", json);
+        Assert.Contains("\"toolCallCount\"", json);
+        Assert.Contains("\"processingPhase\"", json);
 
         // Verify null values are excluded (JsonIgnoreCondition.WhenWritingNull)
         Assert.DoesNotContain("\"sessionId\"", json);
@@ -186,8 +186,8 @@ public class BridgePayloadTests
                     SessionId = "abc-123",
                     QueueCount = 0,
                     ProcessingStartedAt = null,
-                    TurnRoundCount = 0,
-                    HasReceivedFirstEvent = false
+                    ToolCallCount = 0,
+                    ProcessingPhase = 0
                 },
                 new()
                 {
@@ -198,8 +198,8 @@ public class BridgePayloadTests
                     IsProcessing = true,
                     QueueCount = 2,
                     ProcessingStartedAt = startedAt,
-                    TurnRoundCount = 5,
-                    HasReceivedFirstEvent = true
+                    ToolCallCount = 5,
+                    ProcessingPhase = 3
                 }
             }
         };
@@ -218,11 +218,11 @@ public class BridgePayloadTests
 
         // Verify processing status fields survive round-trip
         Assert.Null(restoredPayload.Sessions[0].ProcessingStartedAt);
-        Assert.Equal(0, restoredPayload.Sessions[0].TurnRoundCount);
-        Assert.False(restoredPayload.Sessions[0].HasReceivedFirstEvent);
+        Assert.Equal(0, restoredPayload.Sessions[0].ToolCallCount);
+        Assert.Equal(0, restoredPayload.Sessions[0].ProcessingPhase);
         Assert.Equal(startedAt, restoredPayload.Sessions[1].ProcessingStartedAt);
-        Assert.Equal(5, restoredPayload.Sessions[1].TurnRoundCount);
-        Assert.True(restoredPayload.Sessions[1].HasReceivedFirstEvent);
+        Assert.Equal(5, restoredPayload.Sessions[1].ToolCallCount);
+        Assert.Equal(3, restoredPayload.Sessions[1].ProcessingPhase);
     }
 
     [Fact]

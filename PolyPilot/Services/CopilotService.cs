@@ -1489,8 +1489,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         state.Info.IsProcessing = true;
         state.Info.ProcessingStartedAt = DateTime.UtcNow;
-        state.Info.TurnRoundCount = 0;
-        state.Info.HasReceivedFirstEvent = false;
+        state.Info.ToolCallCount = 0;
+        state.Info.ProcessingPhase = 0; // Sending
         Interlocked.Increment(ref state.ProcessingGeneration);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
@@ -1631,8 +1631,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 remoteState.Info.IsProcessing = false;
                 remoteState.Info.ProcessingStartedAt = null;
-                remoteState.Info.TurnRoundCount = 0;
-                remoteState.Info.HasReceivedFirstEvent = false;
+                remoteState.Info.ToolCallCount = 0;
+                remoteState.Info.ProcessingPhase = 0;
                 remoteState.Info.MessageQueue.Clear();
                 OnStateChanged?.Invoke();
             }
@@ -1675,8 +1675,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false;
         state.Info.ProcessingStartedAt = null;
-        state.Info.TurnRoundCount = 0;
-        state.Info.HasReceivedFirstEvent = false;
+        state.Info.ToolCallCount = 0;
+        state.Info.ProcessingPhase = 0;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         // Clear queued messages so they don't auto-send after abort

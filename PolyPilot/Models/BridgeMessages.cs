@@ -118,8 +118,8 @@ public class SessionSummary
     public string? WorkingDirectory { get; set; }
     public int QueueCount { get; set; }
     public DateTime? ProcessingStartedAt { get; set; }
-    public int TurnRoundCount { get; set; }
-    public bool HasReceivedFirstEvent { get; set; }
+    public int ToolCallCount { get; set; }
+    public int ProcessingPhase { get; set; }
 }
 
 public class SessionHistoryPayload

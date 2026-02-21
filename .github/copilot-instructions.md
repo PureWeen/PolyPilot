@@ -136,28 +136,30 @@ Disabled in `Platforms/MacCatalyst/Entitlements.plist` — required for spawning
 
 ### SDK Event Flow
 When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in order:
-1. `AssistantTurnStartEvent` → "Thinking..." indicator, sets `HasReceivedFirstEvent`
-2. `AssistantMessageDeltaEvent` → streaming content chunks
-3. `AssistantMessageEvent` → full message (may include tool requests)
-4. `ToolExecutionStartEvent` / `ToolExecutionCompleteEvent` → tool activity
-5. `AssistantIntentEvent` → intent/plan updates
-6. `AssistantTurnEndEvent` → end of a sub-turn (increments `TurnRoundCount`), tool loop continues
-7. `SessionIdleEvent` → turn complete, response finalized
+1. `SessionUsageInfoEvent` → server acknowledged, sets `ProcessingPhase=1`
+2. `AssistantTurnStartEvent` → model generating, sets `ProcessingPhase=2`
+3. `AssistantMessageDeltaEvent` → streaming content chunks
+4. `AssistantMessageEvent` → full message (may include tool requests)
+5. `ToolExecutionStartEvent` → tool activity starts, sets `ProcessingPhase=3`, increments `ToolCallCount` on complete
+6. `ToolExecutionCompleteEvent` → tool done, increments `ToolCallCount`
+7. `AssistantIntentEvent` → intent/plan updates
+8. `AssistantTurnEndEvent` → end of a sub-turn, tool loop continues
+9. `SessionIdleEvent` → turn complete, response finalized
 
 ### Processing Status Indicator
 `AgentSessionInfo` tracks three fields for the processing status UI:
 - `ProcessingStartedAt` (DateTime?) — set to `DateTime.UtcNow` in `SendPromptAsync`
-- `TurnRoundCount` (int) — incremented on each `AssistantTurnEndEvent` (counts tool rounds)
-- `HasReceivedFirstEvent` (bool) — set on first `AssistantTurnStartEvent`
+- `ToolCallCount` (int) — incremented on each `ToolExecutionCompleteEvent`
+- `ProcessingPhase` (int) — 0=Sending, 1=ServerConnected, 2=Thinking, 3=Working
 
 All three are reset in `SendPromptAsync` (new turn) and cleared in `CompleteResponse` (turn done) and `AbortSessionAsync` (user stop). They're synced to mobile via `SessionSummary` in the bridge protocol.
 
-The UI shows: "Waiting for first response…" (before `HasReceivedFirstEvent`), then "Working · Xm Xs · N tool rounds…" (during processing).
+The UI shows: "Sending…" → "Server connected…" → "Thinking…" → "Working · Xm Xs · N tool calls…".
 
 ### Abort Behavior
 `AbortSessionAsync` must clear ALL processing state:
 - `IsProcessing = false`, `IsResumed = false`
-- `ProcessingStartedAt = null`, `TurnRoundCount = 0`, `HasReceivedFirstEvent = false`
+- `ProcessingStartedAt = null`, `ToolCallCount = 0`, `ProcessingPhase = 0`
 - `MessageQueue.Clear()` — prevents queued messages from auto-sending after abort
 - `_queuedImagePaths.TryRemove()` — clears associated image attachments
 - `CancelProcessingWatchdog()` and `ResponseCompletion.TrySetCanceled()`

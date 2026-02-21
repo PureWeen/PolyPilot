@@ -21,8 +21,8 @@ public class AgentSessionInfoTests
         var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
 
         Assert.Null(session.ProcessingStartedAt);
-        Assert.Equal(0, session.TurnRoundCount);
-        Assert.False(session.HasReceivedFirstEvent);
+        Assert.Equal(0, session.ToolCallCount);
+        Assert.Equal(0, session.ProcessingPhase);
     }
 
     [Fact]
@@ -31,21 +31,21 @@ public class AgentSessionInfoTests
         var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
 
         session.ProcessingStartedAt = DateTime.UtcNow;
-        session.TurnRoundCount = 5;
-        session.HasReceivedFirstEvent = true;
+        session.ToolCallCount = 5;
+        session.ProcessingPhase = 3;
 
         Assert.NotNull(session.ProcessingStartedAt);
-        Assert.Equal(5, session.TurnRoundCount);
-        Assert.True(session.HasReceivedFirstEvent);
+        Assert.Equal(5, session.ToolCallCount);
+        Assert.Equal(3, session.ProcessingPhase);
 
         // Clear (as abort/complete would)
         session.ProcessingStartedAt = null;
-        session.TurnRoundCount = 0;
-        session.HasReceivedFirstEvent = false;
+        session.ToolCallCount = 0;
+        session.ProcessingPhase = 0;
 
         Assert.Null(session.ProcessingStartedAt);
-        Assert.Equal(0, session.TurnRoundCount);
-        Assert.False(session.HasReceivedFirstEvent);
+        Assert.Equal(0, session.ToolCallCount);
+        Assert.Equal(0, session.ProcessingPhase);
     }
 
     [Fact]

@@ -484,8 +484,8 @@ public class ProcessingWatchdogTests
         // Simulate active processing with queued messages
         session.IsProcessing = true;
         session.ProcessingStartedAt = DateTime.UtcNow;
-        session.TurnRoundCount = 5;
-        session.HasReceivedFirstEvent = true;
+        session.ToolCallCount = 5;
+        session.ProcessingPhase = 3;
         session.MessageQueue.Add("queued message 1");
         session.MessageQueue.Add("queued message 2");
 
@@ -493,8 +493,8 @@ public class ProcessingWatchdogTests
 
         Assert.False(session.IsProcessing);
         Assert.Null(session.ProcessingStartedAt);
-        Assert.Equal(0, session.TurnRoundCount);
-        Assert.False(session.HasReceivedFirstEvent);
+        Assert.Equal(0, session.ToolCallCount);
+        Assert.Equal(0, session.ProcessingPhase);
         Assert.Empty(session.MessageQueue);
     }
 

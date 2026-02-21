@@ -191,8 +191,9 @@
 
     private string GetShortProcessingStatus()
     {
-        if (!Session.HasReceivedFirstEvent)
-            return "Waiting…";
+        if (Session.ProcessingPhase == 0) return "Sending…";
+        if (Session.ProcessingPhase == 1) return "Connected…";
+        if (Session.ProcessingPhase == 2 && Session.ToolCallCount == 0) return "Thinking…";
         var parts = new List<string>();
         if (Session.ProcessingStartedAt.HasValue)
         {
@@ -202,8 +203,8 @@
             else if (elapsed.TotalSeconds >= 5)
                 parts.Add($"{(int)elapsed.TotalSeconds}s");
         }
-        if (Session.TurnRoundCount > 0)
-            parts.Add($"{Session.TurnRoundCount} rounds");
+        if (Session.ToolCallCount > 0)
+            parts.Add($"{Session.ToolCallCount} tools");
         return parts.Count > 0 ? string.Join(" · ", parts) : "Working";
     }
 
