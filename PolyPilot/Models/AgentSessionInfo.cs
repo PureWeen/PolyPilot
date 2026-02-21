@@ -22,7 +22,8 @@ public class AgentSessionInfo
     
     // Processing progress tracking
     public DateTime? ProcessingStartedAt { get; set; }
-    public int ToolCallCount { get; set; }
+    public int _toolCallCount;
+    public int ToolCallCount { get => Volatile.Read(ref _toolCallCount); set => Volatile.Write(ref _toolCallCount, value); }
     /// <summary>
     /// Processing phase: 0=Sending, 1=ServerConnected (UsageInfo received),
     /// 2=Thinking (TurnStart), 3=Working (tools running)

@@ -1598,6 +1598,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     CancelProcessingWatchdog(state);
                     Debug($"[ERROR] '{sessionName}' reconnect+retry failed, clearing IsProcessing");
                     state.Info.IsProcessing = false;
+                    state.Info.ProcessingStartedAt = null;
+                    state.Info.ToolCallCount = 0;
+                    state.Info.ProcessingPhase = 0;
                     OnStateChanged?.Invoke();
                     throw;
                 }
@@ -1608,6 +1611,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 CancelProcessingWatchdog(state);
                 Debug($"[ERROR] '{sessionName}' SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 state.Info.IsProcessing = false;
+                state.Info.ProcessingStartedAt = null;
+                state.Info.ToolCallCount = 0;
+                state.Info.ProcessingPhase = 0;
                 OnStateChanged?.Invoke();
                 throw;
             }

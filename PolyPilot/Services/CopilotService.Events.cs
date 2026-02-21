@@ -276,7 +276,11 @@ public partial class CopilotService
                 if (toolStart.Data == null) break;
                 Interlocked.Increment(ref state.ActiveToolCallCount);
                 Volatile.Write(ref state.HasUsedToolsThisTurn, true);
-                if (state.Info.ProcessingPhase < 3) state.Info.ProcessingPhase = 3; // Working
+                if (state.Info.ProcessingPhase < 3)
+                {
+                    state.Info.ProcessingPhase = 3; // Working
+                    Invoke(() => OnStateChanged?.Invoke());
+                }
                 var startToolName = toolStart.Data.ToolName ?? "unknown";
                 var startCallId = toolStart.Data.ToolCallId ?? "";
                 var toolInput = ExtractToolInput(toolStart.Data);
@@ -313,7 +317,7 @@ public partial class CopilotService
             case ToolExecutionCompleteEvent toolDone:
                 if (toolDone.Data == null) break;
                 Interlocked.Decrement(ref state.ActiveToolCallCount);
-                state.Info.ToolCallCount++;
+                Interlocked.Increment(ref state.Info._toolCallCount);
                 var completeCallId = toolDone.Data.ToolCallId ?? "";
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
                 var resultStr = FormatToolResult(toolDone.Data!.Result);
@@ -356,12 +360,14 @@ public partial class CopilotService
 
             case AssistantTurnStartEvent:
                 state.HasReceivedDeltasThisTurn = false;
-                if (state.Info.ProcessingPhase < 2) state.Info.ProcessingPhase = 2; // Thinking
+                var phaseAdvancedToThinking = state.Info.ProcessingPhase < 2;
+                if (phaseAdvancedToThinking) state.Info.ProcessingPhase = 2; // Thinking
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 Invoke(() =>
                 {
                     OnTurnStart?.Invoke(sessionName);
                     OnActivity?.Invoke(sessionName, "🤔 Thinking...");
+                    if (phaseAdvancedToThinking) OnStateChanged?.Invoke();
                 });
                 break;
 
@@ -510,6 +516,9 @@ public partial class CopilotService
                     Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
+                    state.Info.ProcessingStartedAt = null;
+                    state.Info.ToolCallCount = 0;
+                    state.Info.ProcessingPhase = 0;
                     OnStateChanged?.Invoke();
                 });
                 break;
@@ -1167,6 +1176,9 @@ public partial class CopilotService
                         // Flush any accumulated partial response before clearing processing state
                         FlushCurrentResponse(state);
                         state.Info.IsProcessing = false;
+                        state.Info.ProcessingStartedAt = null;
+                        state.Info.ToolCallCount = 0;
+                        state.Info.ProcessingPhase = 0;
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
                         state.ResponseCompletion?.TrySetResult("");
