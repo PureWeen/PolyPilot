@@ -339,6 +339,76 @@
         { "action": "assertNoDirectoryContains", "path": ".squad/agents", "pattern": " " },
         { "action": "shell", "command": "rm -rf .squad" }
       ]
+    },
+    {
+      "id": "sequential-mode-processes-in-order",
+      "name": "Sequential mode sends to sessions one-by-one",
+      "description": "Verifies that Sequential mode dispatches prompts to sessions one at a time in order, not in parallel.",
+      "invariants": [
+        "Sessions receive prompts sequentially, not simultaneously",
+        "Each session processes before the next receives its prompt"
+      ],
+      "steps": [
+        { "action": "createGroupFromPreset", "preset": "Multi-Perspective Analysis" },
+        { "action": "setMode", "mode": "Sequential" },
+        { "action": "sendPrompt", "text": "Explain dependency injection" },
+        { "action": "waitForAllResponses", "timeout": 120 },
+        { "action": "assertAllSessionsResponded" }
+      ]
+    },
+    {
+      "id": "pause-resume-reflection-cycle",
+      "name": "Pause and resume an active reflection loop",
+      "description": "Verifies that pausing a running OrchestratorReflect loop halts iteration dispatch without losing state, and resuming continues from where it left off.",
+      "invariants": [
+        "IsPaused flag prevents new iterations from dispatching",
+        "Resuming continues from the current iteration count",
+        "Reflection state (CurrentIteration, goal) is preserved"
+      ],
+      "steps": [
+        { "action": "createGroupFromPreset", "preset": "Quick Reflection Cycle" },
+        { "action": "sendPrompt", "text": "Implement a binary search function" },
+        { "action": "waitForPhase", "phase": "Reflecting", "timeout": 30 },
+        { "action": "pauseReflection" },
+        { "action": "assertReflectionPaused" },
+        { "action": "resumeReflection" },
+        { "action": "waitForCompletion", "timeout": 120 }
+      ]
+    },
+    {
+      "id": "dedicated-evaluator-session",
+      "name": "OrchestratorReflect with separate evaluator",
+      "description": "Verifies that when an EvaluatorSessionName is set, the evaluator independently scores each iteration instead of the orchestrator self-evaluating.",
+      "invariants": [
+        "Evaluator session receives synthesis output for scoring",
+        "Evaluator PASS/FAIL determines iteration continuation",
+        "Orchestrator and evaluator are different sessions"
+      ],
+      "steps": [
+        { "action": "createGroupFromPreset", "preset": "Code Review Team" },
+        { "action": "setEvaluator", "sessionName": "worker-1" },
+        { "action": "sendPrompt", "text": "Review error handling in the auth module" },
+        { "action": "waitForCompletion", "timeout": 120 },
+        { "action": "assertEvaluatorWasUsed" }
+      ]
+    },
+    {
+      "id": "routing-context-in-orchestrator-plan",
+      "name": "Routing context from routing.md injected into orchestrator",
+      "description": "Verifies that a Squad-discovered preset's routing.md content appears in the orchestrator's planning prompt.",
+      "invariants": [
+        "RoutingContext from routing.md is prepended to orchestrator planning",
+        "Orchestrator uses routing hints to assign tasks to appropriate workers"
+      ],
+      "steps": [
+        { "action": "createSquadDir", "agents": ["security-reviewer", "code-optimizer"], "routing": "Route security tasks to security-reviewer" },
+        { "action": "selectWorktree", "worktree": "current" },
+        { "action": "createGroupFromPreset", "preset": "PolyPilot Review Squad" },
+        { "action": "sendPrompt", "text": "Review this code for security and performance" },
+        { "action": "waitForPhase", "phase": "Planning", "timeout": 30 },
+        { "action": "assertOrchestratorReceivedRoutingContext" },
+        { "action": "shell", "command": "rm -rf .squad" }
+      ]
     }
   ]
 }

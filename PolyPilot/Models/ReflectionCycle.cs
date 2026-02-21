@@ -419,8 +419,8 @@ public partial class ReflectionCycle
     /// </summary>
     public string BuildCompletionSummary()
     {
-        var emoji = GoalMet ? "✅" : IsCancelled ? "⏹️" : IsStalled ? "⚠️" : "⏱️";
-        var reasonText = GoalMet ? "Goal met" : IsCancelled ? "Cancelled by user" : IsStalled ? $"Stalled ({LastSimilarity:P0} similarity)" : $"Max iterations reached ({MaxIterations})";
+        var emoji = GoalMet ? "✅" : IsStalled ? "⚠️" : IsCancelled ? "⏹️" : "⏱️";
+        var reasonText = GoalMet ? "Goal met" : IsStalled ? $"Stalled ({LastSimilarity:P0} similarity)" : IsCancelled ? "Cancelled by user" : $"Max iterations reached ({MaxIterations})";
         var durationText = "";
         if (StartedAt.HasValue && CompletedAt.HasValue)
         {

@@ -75,6 +75,9 @@ public static class SquadWriter
         List<(string Name, string? SystemPrompt)> workers)
     {
         var agentsDir = Path.Combine(squadDir, "agents");
+        // Clean stale agent dirs before re-writing to prevent phantom agents on re-discovery
+        if (Directory.Exists(agentsDir))
+            Directory.Delete(agentsDir, true);
         Directory.CreateDirectory(agentsDir);
 
         foreach (var (name, prompt) in workers)

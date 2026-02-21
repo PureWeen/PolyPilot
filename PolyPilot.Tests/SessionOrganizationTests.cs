@@ -1263,6 +1263,41 @@ public class UserPresetsTests
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
         }
     }
+
+    [Fact]
+    public void SaveGroupAsPreset_WithWorktreeRoot_WritesSquadDir()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        var worktreeRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(worktreeRoot);
+            var group = new SessionGroup
+            {
+                Name = "SquadTeam",
+                IsMultiAgent = true,
+                OrchestratorMode = MultiAgentMode.OrchestratorReflect
+            };
+            var members = new List<SessionMeta>
+            {
+                new() { SessionName = "orch", Role = MultiAgentRole.Orchestrator },
+                new() { SessionName = "w1", Role = MultiAgentRole.Worker, SystemPrompt = "You are a coder." },
+            };
+
+            var preset = UserPresets.SaveGroupAsPreset(tempDir, "SquadTeam", "desc", "🚀",
+                group, members, name => name == "orch" ? "claude-opus-4.6" : "gpt-5",
+                worktreeRoot: worktreeRoot);
+
+            Assert.NotNull(preset);
+            Assert.True(Directory.Exists(Path.Combine(worktreeRoot, ".squad")));
+            Assert.True(preset!.IsRepoLevel);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+            if (Directory.Exists(worktreeRoot)) Directory.Delete(worktreeRoot, true);
+        }
+    }
 }
 
 public class EvaluationTrackingTests

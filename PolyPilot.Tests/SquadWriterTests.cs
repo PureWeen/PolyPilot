@@ -250,6 +250,33 @@ public class SquadWriterTests : IDisposable
         Assert.Equal(2, discovered[0].WorkerModels.Length);
     }
 
+    [Fact]
+    public void WritePreset_OverwriteCleansStaleAgents()
+    {
+        var preset = MakePreset("Team");
+        var threeWorkers = new List<(string Name, string? SystemPrompt)>
+        {
+            ("alpha", "Alpha agent."),
+            ("beta", "Beta agent."),
+            ("gamma", "Gamma agent.")
+        };
+
+        SquadWriter.WritePreset(_tempDir, preset, threeWorkers);
+        Assert.True(Directory.Exists(Path.Combine(_tempDir, ".squad", "agents", "gamma")));
+
+        // Overwrite with only 2 workers — gamma dir should be gone
+        var twoWorkers = new List<(string Name, string? SystemPrompt)>
+        {
+            ("alpha", "Alpha v2."),
+            ("beta", "Beta v2.")
+        };
+        SquadWriter.WritePreset(_tempDir, preset, twoWorkers);
+
+        Assert.True(Directory.Exists(Path.Combine(_tempDir, ".squad", "agents", "alpha")));
+        Assert.True(Directory.Exists(Path.Combine(_tempDir, ".squad", "agents", "beta")));
+        Assert.False(Directory.Exists(Path.Combine(_tempDir, ".squad", "agents", "gamma")));
+    }
+
     private static GroupPreset MakePreset(string name) => new(
         name, "Test", "🧪", MultiAgentMode.OrchestratorReflect,
         "claude-opus-4.6", new[] { "gpt-5", "claude-sonnet-4.5" });

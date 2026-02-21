@@ -405,7 +405,7 @@ When a user saves a multi-agent group as a preset and the group is associated wi
 
 1. **`SaveGroupAsPreset`** resolves the worktree path from the group's `WorktreeId`
 2. **`SquadWriter.WriteFromGroup`** converts the live `SessionGroup` + `SessionMeta` into Squad files:
-   - `.squad/team.md` — Team name + agent roster table (Name | Role | Model)
+   - `.squad/team.md` — Team name + agent roster table (Member | Role)
    - `.squad/agents/{name}/charter.md` — Worker system prompt as charter
    - `.squad/decisions.md` — Shared context (from `GroupPreset.SharedContext`)
    - `.squad/routing.md` — Routing context (from `GroupPreset.RoutingContext`)
