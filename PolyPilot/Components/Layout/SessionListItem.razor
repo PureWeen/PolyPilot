@@ -227,13 +227,17 @@
         {
             if (OperatingSystem.IsWindows())
             {
+                // Use single quotes in PS script to prevent subexpression parsing of GUIDs/parens
+                var psDir = dir.Replace("'", "''");
+                var psName = Session.Name.Replace("'", "''");
+                var psId = sessionId.Replace("'", "''");
                 var psScript = Path.Combine(Path.GetTempPath(), $"polypilot-copilot-{Guid.NewGuid():N}.ps1");
                 File.WriteAllText(psScript,
-                    $"Set-Location \"{dir}\"\n" +
-                    $"Write-Host \"🔗 Resuming session: {Session.Name} ({sessionId})\"\n" +
-                    "Write-Host \"─────────────────────────────────────────\"\n" +
-                    "Write-Host \"\"\n" +
-                    $"copilot --resume {sessionId} --yolo\n");
+                    $"Set-Location '{psDir}'\n" +
+                    $"Write-Host '🔗 Resuming session: {psName} ({psId})'\n" +
+                    "Write-Host '─────────────────────────────────────────'\n" +
+                    "Write-Host ''\n" +
+                    $"copilot --resume '{psId}' --yolo\n");
                 Process.Start(new ProcessStartInfo("powershell.exe",
                     $"-ExecutionPolicy Bypass -NoExit -File \"{psScript}\"")
                 {
