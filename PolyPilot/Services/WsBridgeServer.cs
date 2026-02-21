@@ -566,6 +566,30 @@ public class WsBridgeServer : IDisposable
                         BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, dirResult), ct);
                     break;
 
+                case BridgeMessageTypes.FetchImage:
+                    var imgReq = msg.GetPayload<FetchImagePayload>();
+                    if (imgReq != null)
+                    {
+                        var imgResponse = new FetchImageResponsePayload { RequestId = imgReq.RequestId };
+                        try
+                        {
+                            if (!string.IsNullOrEmpty(imgReq.Path) && File.Exists(imgReq.Path))
+                            {
+                                var bytes = await File.ReadAllBytesAsync(imgReq.Path);
+                                imgResponse.ImageData = Convert.ToBase64String(bytes);
+                                imgResponse.MimeType = ImageMimeType(imgReq.Path);
+                            }
+                            else
+                            {
+                                imgResponse.Error = "File not found";
+                            }
+                        }
+                        catch (Exception ex) { imgResponse.Error = ex.Message; }
+                        await SendToClientAsync(clientId, ws,
+                            BridgeMessage.Create(BridgeMessageTypes.FetchImageResponse, imgResponse), ct);
+                    }
+                    break;
+
                 case BridgeMessageTypes.ListRepos:
                     if (_repoManager != null)
                     {

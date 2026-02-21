@@ -153,6 +153,9 @@ internal class StubWsBridgeClient : IWsBridgeClient
         RequestReposCallCount++;
         return Task.CompletedTask;
     }
+
+    public Task<FetchImageResponsePayload> FetchImageAsync(string path, CancellationToken ct = default)
+        => Task.FromResult(new FetchImageResponsePayload { Error = "Stub" });
 }
 
 internal class StubDemoService : IDemoService

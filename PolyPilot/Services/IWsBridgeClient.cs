@@ -55,4 +55,7 @@ public interface IWsBridgeClient
     Task<RepoAddedPayload> AddRepoAsync(string url, Action<string>? onProgress = null, CancellationToken ct = default);
     Task RemoveRepoAsync(string repoId, bool deleteFromDisk, string? groupId = null, CancellationToken ct = default);
     Task RequestReposAsync(CancellationToken ct = default);
+
+    // Image fetch
+    Task<FetchImageResponsePayload> FetchImageAsync(string path, CancellationToken ct = default);
 }

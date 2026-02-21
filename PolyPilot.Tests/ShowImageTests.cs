@@ -144,4 +144,65 @@ public class ShowImageTests
         // Verify Image is a valid enum value
         Assert.True(Enum.IsDefined(typeof(ChatMessageType), ChatMessageType.Image));
     }
+
+    // --- FetchImage bridge protocol tests ---
+
+    [Fact]
+    public void FetchImagePayload_Serialization()
+    {
+        var payload = new FetchImagePayload { Path = "/tmp/screen.png", RequestId = "abc123" };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.FetchImage, payload);
+        var json = msg.Serialize();
+        var parsed = BridgeMessage.Deserialize(json);
+        Assert.NotNull(parsed);
+        Assert.Equal(BridgeMessageTypes.FetchImage, parsed!.Type);
+        var p = parsed.GetPayload<FetchImagePayload>();
+        Assert.NotNull(p);
+        Assert.Equal("/tmp/screen.png", p!.Path);
+        Assert.Equal("abc123", p.RequestId);
+    }
+
+    [Fact]
+    public void FetchImageResponsePayload_WithData()
+    {
+        var payload = new FetchImageResponsePayload
+        {
+            RequestId = "abc123",
+            ImageData = "iVBOR...",
+            MimeType = "image/png"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.FetchImageResponse, payload);
+        var json = msg.Serialize();
+        var parsed = BridgeMessage.Deserialize(json);
+        var p = parsed!.GetPayload<FetchImageResponsePayload>();
+        Assert.NotNull(p);
+        Assert.Equal("abc123", p!.RequestId);
+        Assert.Equal("iVBOR...", p.ImageData);
+        Assert.Equal("image/png", p.MimeType);
+        Assert.Null(p.Error);
+    }
+
+    [Fact]
+    public void FetchImageResponsePayload_WithError()
+    {
+        var payload = new FetchImageResponsePayload
+        {
+            RequestId = "abc123",
+            Error = "File not found"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.FetchImageResponse, payload);
+        var json = msg.Serialize();
+        var parsed = BridgeMessage.Deserialize(json);
+        var p = parsed!.GetPayload<FetchImageResponsePayload>();
+        Assert.NotNull(p);
+        Assert.Equal("File not found", p!.Error);
+        Assert.Null(p.ImageData);
+    }
+
+    [Fact]
+    public void BridgeMessageTypes_HasFetchImageConstants()
+    {
+        Assert.Equal("fetch_image", BridgeMessageTypes.FetchImage);
+        Assert.Equal("fetch_image_response", BridgeMessageTypes.FetchImageResponse);
+    }
 }

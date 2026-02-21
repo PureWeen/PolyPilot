@@ -214,6 +214,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<DirectoriesListPayload>> _dirListRequests = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<RepoAddedPayload>> _addRepoRequests = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Action<string>> _repoProgressCallbacks = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<FetchImageResponsePayload>> _fetchImageRequests = new();
 
     public async Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
     {
@@ -265,6 +266,26 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
 
     public async Task RequestReposAsync(CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ListRepos, new ListReposPayload()), ct);
+
+    public async Task<FetchImageResponsePayload> FetchImageAsync(string path, CancellationToken ct = default)
+    {
+        var requestId = Guid.NewGuid().ToString("N");
+        var tcs = new TaskCompletionSource<FetchImageResponsePayload>();
+        _fetchImageRequests[requestId] = tcs;
+        try
+        {
+            await SendAsync(BridgeMessage.Create(BridgeMessageTypes.FetchImage,
+                new FetchImagePayload { Path = path, RequestId = requestId }), ct);
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+            linked.Token.Register(() => tcs.TrySetCanceled());
+            return await tcs.Task;
+        }
+        finally
+        {
+            _fetchImageRequests.TryRemove(requestId, out _);
+        }
+    }
 
     // --- Receive loop ---
 
@@ -588,6 +609,12 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                 var repoErrorPayload = msg.GetPayload<RepoErrorPayload>();
                 if (repoErrorPayload != null && _addRepoRequests.TryRemove(repoErrorPayload.RequestId, out var errTcs))
                     errTcs.TrySetException(new InvalidOperationException(repoErrorPayload.Error));
+                break;
+
+            case BridgeMessageTypes.FetchImageResponse:
+                var imgRespPayload = msg.GetPayload<FetchImageResponsePayload>();
+                if (imgRespPayload != null && _fetchImageRequests.TryRemove(imgRespPayload.RequestId, out var imgTcs))
+                    imgTcs.TrySetResult(imgRespPayload);
                 break;
         }
     }
