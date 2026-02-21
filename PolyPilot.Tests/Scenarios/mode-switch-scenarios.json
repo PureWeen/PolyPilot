@@ -8,7 +8,7 @@
   "scenarios": [
     {
       "id": "mode-switch-persistent-to-embedded-and-back",
-      "name": "Sessions survive Persistent → Embedded → Persistent round trip",
+      "name": "Sessions survive Persistent \u2192 Embedded \u2192 Persistent round trip",
       "steps": [
         {
           "action": "evaluate",
@@ -23,78 +23,110 @@
             "action": "evaluate",
             "script": "document.querySelector('.status')?.textContent?.trim()"
           },
-          "expect": { "contains": "Persistent" }
+          "expect": {
+            "contains": "Persistent"
+          }
         },
         {
           "action": "click",
           "selector": "a[href='/settings']"
         },
-        { "action": "wait", "ms": 1000 },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
         {
           "action": "click",
           "selector": ".mode-card:first-child",
           "note": "Select Embedded mode"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('.mode-card.selected .mode-title')?.textContent",
-          "expect": { "equals": "Embedded" }
+          "expect": {
+            "equals": "Embedded"
+          }
         },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'",
           "note": "Click Save & Reconnect"
         },
-        { "action": "wait", "ms": 15000 },
+        {
+          "action": "wait",
+          "ms": 15000
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": { "contains": "Embedded" }
+          "expect": {
+            "contains": "Embedded"
+          }
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.className",
-          "expect": { "contains": "connected" }
+          "expect": {
+            "contains": "connected"
+          }
         },
         {
           "action": "click",
           "selector": ".mode-card:nth-child(2)",
           "note": "Select Persistent mode"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 15000 },
+        {
+          "action": "wait",
+          "ms": 15000
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": { "contains": "Persistent" }
+          "expect": {
+            "contains": "Persistent"
+          }
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.className",
-          "expect": { "contains": "connected" }
+          "expect": {
+            "contains": "connected"
+          }
         },
         {
           "action": "click",
           "selector": "a[href='/']",
           "note": "Navigate back to dashboard"
         },
-        { "action": "wait", "ms": 2000 },
+        {
+          "action": "wait",
+          "ms": 2000
+        },
         {
           "action": "evaluate",
           "script": "document.querySelectorAll('.session-item').length + Array.from(document.querySelectorAll('.group-count')).reduce((sum, el) => sum + parseInt(el.textContent.trim() || '0'), 0)",
           "note": "Total sessions = visible items + collapsed counts. Compare with initial.",
-          "expect": { "greaterThanOrEqual": "initialSessionCount" }
+          "expect": {
+            "greaterThanOrEqual": "initialSessionCount"
+          }
         }
       ]
     },
     {
       "id": "mode-switch-rapid-no-session-loss",
-      "name": "Rapid Embedded↔Persistent switching preserves active-sessions.json",
+      "name": "Rapid Embedded\u2194Persistent switching preserves active-sessions.json",
       "steps": [
         {
           "action": "shell",
@@ -105,33 +137,50 @@
           "action": "click",
           "selector": "a[href='/settings']"
         },
-        { "action": "wait", "ms": 1000 },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
         {
           "action": "click",
           "selector": ".mode-card:first-child",
           "note": "Embedded"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 10000 },
+        {
+          "action": "wait",
+          "ms": 10000
+        },
         {
           "action": "click",
           "selector": ".mode-card:nth-child(2)",
           "note": "Back to Persistent immediately"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 15000 },
+        {
+          "action": "wait",
+          "ms": 15000
+        },
         {
           "action": "shell",
           "command": "python3 -c \"import json,os; print(len(json.load(open(os.path.expanduser('~/.polypilot/active-sessions.json')))))\"",
-          "expect": { "equals": "initialJsonCount" }
+          "expect": {
+            "equals": "initialJsonCount"
+          }
         }
       ]
     },
@@ -143,13 +192,19 @@
           "action": "click",
           "selector": "a[href='/settings']"
         },
-        { "action": "wait", "ms": 1000 },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
         {
           "action": "click",
           "selector": ".mode-card:nth-child(2)",
           "note": "Persistent mode"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('input[placeholder*=\"Port\"]').value = '19999'; document.querySelector('input[placeholder*=\"Port\"]').dispatchEvent(new Event('change')); 'set'",
@@ -159,11 +214,16 @@
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 10000 },
+        {
+          "action": "wait",
+          "ms": 10000
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.className",
-          "expect": { "notContains": "connected" },
+          "expect": {
+            "notContains": "connected"
+          },
           "note": "Status should NOT show connected"
         }
       ]
@@ -176,38 +236,57 @@
           "action": "click",
           "selector": "a[href='/settings']"
         },
-        { "action": "wait", "ms": 1000 },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
         {
           "action": "click",
           "selector": ".mode-card:nth-child(2)",
           "note": "Persistent"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 10000 },
+        {
+          "action": "wait",
+          "ms": 10000
+        },
         {
           "action": "click",
           "selector": ".mode-card:last-child",
           "note": "Switch to Demo mode (last card)"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 5000 },
+        {
+          "action": "wait",
+          "ms": 5000
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.className",
-          "expect": { "contains": "connected" }
+          "expect": {
+            "contains": "connected"
+          }
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": { "contains": "Demo" }
+          "expect": {
+            "contains": "Demo"
+          }
         }
       ]
     },
@@ -223,13 +302,17 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.className",
-          "expect": { "contains": "connected" }
+          "expect": {
+            "contains": "connected"
+          }
         },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('.group-count')).reduce((sum, el) => sum + parseInt(el.textContent.trim() || '0'), 0)",
           "note": "Sum all group counts (includes collapsed groups)",
-          "expect": { "greaterThanOrEqual": "expectedCount" }
+          "expect": {
+            "greaterThanOrEqual": "expectedCount"
+          }
         }
       ]
     },
@@ -264,13 +347,17 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
-          "expect": { "equals": "System" },
+          "expect": {
+            "equals": "System"
+          },
           "note": "Verify System is now selected"
         },
         {
           "action": "shell",
           "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['CliSource'])\"",
-          "expect": { "equals": "1" },
+          "expect": {
+            "equals": "1"
+          },
           "note": "Verify CliSource=1 (System) persisted to disk"
         },
         {
@@ -285,7 +372,9 @@
         {
           "action": "shell",
           "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['CliSource'])\"",
-          "expect": { "equals": "0" },
+          "expect": {
+            "equals": "0"
+          },
           "note": "Verify CliSource=0 (BuiltIn) persisted to disk"
         }
       ]
@@ -315,7 +404,9 @@
         {
           "action": "shell",
           "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['Mode'])\"",
-          "expect": { "equals": "0" },
+          "expect": {
+            "equals": "0"
+          },
           "note": "Verify Mode=0 (Embedded) persisted immediately"
         },
         {
@@ -330,7 +421,9 @@
         {
           "action": "shell",
           "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['Mode'])\"",
-          "expect": { "equals": "1" },
+          "expect": {
+            "equals": "1"
+          },
           "note": "Verify Mode=1 (Persistent) persisted immediately"
         }
       ]
@@ -351,7 +444,9 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.bug-report-btn')?.textContent?.trim()",
-          "expect": { "contains": "Report Bug" },
+          "expect": {
+            "contains": "Report Bug"
+          },
           "note": "Verify bug report button exists in sidebar"
         },
         {
@@ -366,19 +461,25 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.bug-report-inline') !== null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Verify inline form opened"
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.bug-report-textarea') !== null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Verify textarea exists"
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.bug-report-submit') !== null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Verify submit button exists"
         }
       ]
@@ -399,13 +500,17 @@
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('.sidebar-toolbar .new-group-btn')).some(b => b.textContent.includes('Refresh'))",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Verify refresh button exists"
         },
         {
           "action": "evaluate",
           "script": "(() => { const btn = Array.from(document.querySelectorAll('.sidebar-toolbar .new-group-btn')).find(b => b.textContent.includes('Refresh')); if (!btn) return 'missing'; btn.click(); return 'clicked'; })()",
-          "expect": { "equals": "clicked" },
+          "expect": {
+            "equals": "clicked"
+          },
           "note": "Click refresh button"
         },
         {
@@ -415,7 +520,9 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.sidebar-toolbar') !== null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Verify toolbar remains available after refresh"
         }
       ]
@@ -436,7 +543,9 @@
         {
           "action": "evaluate",
           "script": "document.querySelectorAll('.session-item').length > 0",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "At least one session exists"
         },
         {
@@ -447,7 +556,9 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.chat-input textarea') !== null",
-          "expect": { "equals": "true" }
+          "expect": {
+            "equals": "true"
+          }
         },
         {
           "action": "type",
@@ -470,7 +581,7 @@
         },
         {
           "action": "note",
-          "text": "To fully test: kill the persistent server process while session is processing, then wait up to 2 minutes for the watchdog to detect inactivity and clear the stuck state (10 min if a tool is running). The session should show a system message: 'Session appears stuck — no response received.'"
+          "text": "To fully test: kill the persistent server process while session is processing, then wait up to 2 minutes for the watchdog to detect inactivity and clear the stuck state (10 min if a tool is running). The session should show a system message: 'Session appears stuck \u2014 no response received.'"
         },
         {
           "action": "wait",
@@ -480,13 +591,17 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.action-item.running') === null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Processing indicator should be gone after watchdog fires"
         },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('.chat-msg')).some(el => el.textContent.includes('appears stuck'))",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "System message about stuck session should appear in chat"
         }
       ]
@@ -523,19 +638,25 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": { "not_contains": "Disconnected" },
+          "expect": {
+            "not_contains": "Disconnected"
+          },
           "note": "App should be connected (Persistent or Embedded fallback)"
         },
         {
           "action": "evaluate",
           "script": "document.querySelectorAll('.session-item').length > 0",
-          "expect": { "equals": "true" },
-          "note": "Sessions should be visible after relaunch — not silently lost"
+          "expect": {
+            "equals": "true"
+          },
+          "note": "Sessions should be visible after relaunch \u2014 not silently lost"
         },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('.session-item')).filter(el => el.querySelector('.processing')).length === 0",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "No sessions should be stuck in processing state after relaunch"
         }
       ]
@@ -557,7 +678,9 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.send-btn.stop-btn') !== null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Stop button should be visible for processing sessions"
         },
         {
@@ -568,7 +691,9 @@
         {
           "action": "evaluate",
           "script": "!document.querySelector('.expanded-card.processing')",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Session card should no longer show processing state after stop"
         }
       ]
@@ -592,13 +717,17 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.expanded-card.processing') !== null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Active session should show processing card state"
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.processing-status') !== null || document.querySelector('.chat-message-list')?.textContent?.includes('Working') || document.querySelector('.chat-message-list')?.textContent?.includes('Waiting')",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Processing status text (elapsed time / tool rounds / waiting) should be visible"
         }
       ]
@@ -617,17 +746,83 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.className",
-          "expect": { "contains": "connected" },
+          "expect": {
+            "contains": "connected"
+          },
           "note": "App should be connected"
         },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('.session-card.processing, .session-item .processing-dot')).length",
-          "note": "Count sessions showing processing state — stale sessions should not be here"
+          "note": "Count sessions showing processing state \u2014 stale sessions should not be here"
         },
         {
           "action": "note",
           "text": "Manual verification: check debug info for any sessions with IsProcessing=true where LastUpdatedAt is over 10 minutes old. Such sessions should have been detected as stale during restore."
+        }
+      ]
+    },
+    {
+      "id": "saved-sessions-visible-on-desktop",
+      "name": "Saved Sessions section visible on desktop with session count",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/']",
+          "note": "Navigate to dashboard"
+        },
+        {
+          "action": "wait",
+          "ms": 2000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.section-header-label')?.textContent?.trim()",
+          "expect": {
+            "matches": "Saved Sessions \\(\\d+\\)"
+          },
+          "note": "Section header shows 'Saved Sessions (N)' with non-zero count"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.toggle-icon')?.textContent?.trim()",
+          "expect": {
+            "equals": "\u25b6"
+          },
+          "note": "Section starts collapsed"
+        },
+        {
+          "action": "click",
+          "selector": ".section-header",
+          "note": "Expand saved sessions section"
+        },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.toggle-icon')?.textContent?.trim()",
+          "expect": {
+            "equals": "\u25bc"
+          },
+          "note": "Section is now expanded"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-item.persisted').length",
+          "expect": {
+            "greaterThan": 0
+          },
+          "note": "At least one persisted session item is rendered"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.filter-input')?.placeholder",
+          "expect": {
+            "equals": "Filter sessions..."
+          },
+          "note": "Filter input is visible when expanded"
         }
       ]
     }

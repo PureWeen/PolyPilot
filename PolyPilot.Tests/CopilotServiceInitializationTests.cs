@@ -706,4 +706,71 @@ public class CopilotServiceInitializationTests
 
         Assert.Equal(0, _bridgeClient.SwitchSessionCallCount);
     }
+
+    // ===== GetPersistedSessions remote mode tests =====
+
+    [Fact]
+    public async Task GetPersistedSessions_RemoteMode_ReturnsBridgeClientData()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+
+        _bridgeClient.PersistedSessions = new List<PersistedSessionSummary>
+        {
+            new() { SessionId = "sess-1", Title = "Fix CSS", WorkingDirectory = "/proj" },
+            new() { SessionId = "sess-2", Title = "Add tests", WorkingDirectory = "/tests" },
+        };
+
+        var result = svc.GetPersistedSessions().ToList();
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("sess-1", result[0].SessionId);
+        Assert.Equal("Fix CSS", result[0].Title);
+        Assert.Equal("sess-2", result[1].SessionId);
+        Assert.Equal("Add tests", result[1].Title);
+    }
+
+    [Fact]
+    public async Task GetPersistedSessions_RemoteMode_EmptyBeforeBridgeConnect()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+
+        // Before bridge sends persisted_sessions, list is empty
+        var result = svc.GetPersistedSessions().ToList();
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetPersistedSessions_RemoteMode_UpdatesAfterBridgeConnect()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+
+        // Initially empty
+        Assert.Empty(svc.GetPersistedSessions().ToList());
+
+        // Simulate bridge receiving persisted sessions
+        _bridgeClient.PersistedSessions = new List<PersistedSessionSummary>
+        {
+            new() { SessionId = "abc-123", Title = "Saved session" },
+        };
+
+        // Now returns the bridge data
+        var result = svc.GetPersistedSessions().ToList();
+        Assert.Single(result);
+        Assert.Equal("abc-123", result[0].SessionId);
+    }
 }

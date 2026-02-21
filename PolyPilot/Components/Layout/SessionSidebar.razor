@@ -788,6 +788,8 @@ else
                     _sidebarRefreshPending = false;
                     _lastSidebarRefresh = DateTime.UtcNow;
                     sessions = CopilotService.GetAllSessions().ToList();
+                    if (CopilotService.IsRemoteMode)
+                        persistedSessions = CopilotService.GetPersistedSessions().ToList();
                     StateHasChanged();
                 }));
             }
@@ -795,7 +797,10 @@ else
         }
         _lastSidebarRefresh = now;
         sessions = CopilotService.GetAllSessions().ToList();
-        // Don't reload persisted sessions on every state change — it scans all session directories
+        // In remote mode, persisted sessions come from bridge (cheap in-memory read),
+        // so refresh them on state change. On desktop, skip — it scans all session directories.
+        if (CopilotService.IsRemoteMode)
+            persistedSessions = CopilotService.GetPersistedSessions().ToList();
         InvokeAsync(StateHasChanged);
     }
 
