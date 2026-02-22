@@ -38,7 +38,23 @@ public partial class CopilotService
         };
         _bridgeClient.OnReposListReceived += payload =>
         {
-            // Populate local RepoManager with server repos/worktrees so the picker works on mobile
+            // Reconcile local RepoManager with server state — add new, remove stale
+            var serverRepoIds = new HashSet<string>(payload.Repos.Select(r => r.Id));
+            var serverWorktreeIds = new HashSet<string>(payload.Worktrees.Select(w => w.Id));
+
+            // Remove worktrees/repos that no longer exist on the server
+            foreach (var wt in _repoManager.Worktrees.ToList())
+            {
+                if (!serverWorktreeIds.Contains(wt.Id))
+                    _repoManager.RemoveRemoteWorktree(wt.Id);
+            }
+            foreach (var r in _repoManager.Repositories.ToList())
+            {
+                if (!serverRepoIds.Contains(r.Id))
+                    _repoManager.RemoveRemoteRepo(r.Id);
+            }
+
+            // Add new entries from server
             foreach (var r in payload.Repos)
             {
                 if (!_repoManager.Repositories.Any(existing => existing.Id == r.Id))
@@ -46,7 +62,7 @@ public partial class CopilotService
             }
             foreach (var w in payload.Worktrees)
             {
-                _repoManager.AddRemoteWorktree(new WorktreeInfo { Id = w.Id, RepoId = w.RepoId, Branch = w.Branch, Path = w.Path, PrNumber = w.PrNumber });
+                _repoManager.AddRemoteWorktree(new WorktreeInfo { Id = w.Id, RepoId = w.RepoId, Branch = w.Branch, Path = w.Path, PrNumber = w.PrNumber, Remote = w.Remote });
             }
         };
         _bridgeClient.OnContentReceived += (s, c) =>

@@ -729,8 +729,17 @@ public class WsBridgeServer : IDisposable
                     var rmWtReq = msg.GetPayload<RemoveWorktreePayload>();
                     if (rmWtReq != null && _repoManager != null)
                     {
-                        try { await _repoManager.RemoveWorktreeAsync(rmWtReq.WorktreeId, ct); }
-                        catch (Exception ex) { Console.WriteLine($"[WsBridgeServer] RemoveWorktree error: {ex.Message}"); }
+                        try
+                        {
+                            await _repoManager.RemoveWorktreeAsync(rmWtReq.WorktreeId, ct);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[WsBridgeServer] RemoveWorktree error: {ex.Message}");
+                            await SendToClientAsync(clientId, ws,
+                                BridgeMessage.Create(BridgeMessageTypes.WorktreeError,
+                                    new RepoErrorPayload { RequestId = rmWtReq.WorktreeId, Error = ex.Message }), ct);
+                        }
                     }
                     break;
 

@@ -269,16 +269,17 @@ public class RepoManager
         var branchName = headBranch ?? $"pr-{prNumber}";
         await RunGitAsync(repo.BareClonePath, ct, "fetch", remoteName, $"pull/{prNumber}/head:{branchName}");
 
-        // Also fetch the remote branch so we can set up tracking
+        // Fetch the remote branch so refs/remotes/origin/<branch> exists for tracking
+        // The bare clone's refspec (+refs/heads/*:refs/remotes/origin/*) handles the mapping
         if (headBranch != null)
         {
             try
             {
-                await RunGitAsync(repo.BareClonePath, ct, "fetch", remoteName, $"{headBranch}:{remoteName}/{headBranch}");
+                await RunGitAsync(repo.BareClonePath, ct, "fetch", remoteName, headBranch);
             }
             catch
             {
-                // Non-fatal — the remote branch ref may not exist if PR is from a fork
+                // Non-fatal — the remote branch may not exist if PR is from a fork
             }
         }
 
@@ -372,6 +373,24 @@ public class RepoManager
         EnsureLoaded();
         if (!_state.Repositories.Any(r => r.Id == repo.Id))
             _state.Repositories.Add(repo);
+    }
+
+    /// <summary>
+    /// Remove a worktree from the in-memory list (for remote mode — reconcile with server state).
+    /// </summary>
+    public void RemoveRemoteWorktree(string worktreeId)
+    {
+        EnsureLoaded();
+        _state.Worktrees.RemoveAll(w => w.Id == worktreeId);
+    }
+
+    /// <summary>
+    /// Remove a repo from the in-memory list (for remote mode — reconcile with server state).
+    /// </summary>
+    public void RemoveRemoteRepo(string repoId)
+    {
+        EnsureLoaded();
+        _state.Repositories.RemoveAll(r => r.Id == repoId);
     }
 
     /// <summary>
@@ -516,8 +535,12 @@ public class RepoManager
 
         using var proc = Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start gh process.");
-        var output = await proc.StandardOutput.ReadToEndAsync(ct);
-        var error = await proc.StandardError.ReadToEndAsync(ct);
+        // Read both streams concurrently to avoid deadlock if one buffer fills
+        var outputTask = proc.StandardOutput.ReadToEndAsync(ct);
+        var errorTask = proc.StandardError.ReadToEndAsync(ct);
+        await Task.WhenAll(outputTask, errorTask);
+        var output = await outputTask;
+        var error = await errorTask;
         await proc.WaitForExitAsync(ct);
         if (proc.ExitCode != 0)
             throw new InvalidOperationException($"gh failed (exit {proc.ExitCode}): {error}");

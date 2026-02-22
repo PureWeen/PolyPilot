@@ -1058,8 +1058,8 @@ else
         // Close the session first
         await CopilotService.CloseSessionAsync(name);
 
-        // Then delete the worktree if one was associated
-        if (!string.IsNullOrEmpty(worktreeId))
+        // Only delete the worktree if no other sessions or groups still reference it
+        if (!string.IsNullOrEmpty(worktreeId) && !IsWorktreeInUse(worktreeId))
         {
             try
             {
@@ -1078,17 +1078,29 @@ else
     private async Task DeleteGroupAndWorktree(string groupId, string worktreeId)
     {
         CopilotService.DeleteGroup(groupId);
-        try
+        // Only delete worktree if no remaining sessions or groups still reference it
+        if (!IsWorktreeInUse(worktreeId))
         {
-            if (CopilotService.IsRemoteMode)
-                await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
-            else
-                await RepoManager.RemoveWorktreeAsync(worktreeId);
+            try
+            {
+                if (CopilotService.IsRemoteMode)
+                    await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
+                else
+                    await RepoManager.RemoveWorktreeAsync(worktreeId);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SessionSidebar] Failed to delete worktree {worktreeId}: {ex.Message}");
+            }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[SessionSidebar] Failed to delete worktree {worktreeId}: {ex.Message}");
-        }
+    }
+
+    /// <summary>Check if any remaining sessions or groups reference the worktree.</summary>
+    private bool IsWorktreeInUse(string worktreeId)
+    {
+        var org = CopilotService.Organization;
+        return org.Sessions.Any(s => s.WorktreeId == worktreeId)
+            || org.Groups.Any(g => g.WorktreeId == worktreeId);
     }
 
     private void MoveSessionToGroup(string sessionName, ChangeEventArgs e)
