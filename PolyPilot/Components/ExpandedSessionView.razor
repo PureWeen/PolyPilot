@@ -105,7 +105,14 @@
 
     <div class="messages expanded-messages">
         @{ var expandedMessages = GetWindowedMessages(); }
-        @if (Session.History.Count > expandedMessages.Count)
+        @if (IsLoadingHistory)
+        {
+            <div class="loading-history-indicator">
+                <div class="loading-history-spinner"></div>
+                <span>Loading conversation…</span>
+            </div>
+        }
+        else if (Session.History.Count > expandedMessages.Count)
         {
             <button class="load-more-btn" @onclick="LoadMore">
                 ⬆️ Load more (@(Session.History.Count - expandedMessages.Count) remaining)
@@ -267,6 +274,7 @@
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
     [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
+    [Parameter] public bool IsLoadingHistory { get; set; }
     [Parameter] public int FontSize { get; set; } = 20;
     [Parameter] public int MessageWindowSize { get; set; } = 25;
     [Parameter] public bool FiestaActive { get; set; }

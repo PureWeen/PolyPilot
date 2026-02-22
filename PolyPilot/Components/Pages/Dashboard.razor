@@ -115,6 +115,7 @@
                               @key="session.Name">
                 <ExpandedSessionView Session="session"
                                      IsCompleted="@completedSessions.Contains(session.Name)"
+                                     IsLoadingHistory="@(CopilotService.IsRemoteMode && session.MessageCount > 0 && session.History.Count == 0)"
                                      StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s2) ? s2 : "")"
                                      ActivityText="@(activityBySession.TryGetValue(session.Name, out var a2) ? a2 : "")"
                                      CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t2) ? t2 : "")"
