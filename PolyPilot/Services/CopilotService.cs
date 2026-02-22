@@ -2135,6 +2135,7 @@ public class UiState
     public bool ExpandedGrid { get; set; }
     public string? ExpandedSession { get; set; }
     public Dictionary<string, string> InputModes { get; set; } = new();
+    public HashSet<string> CompletedTutorials { get; set; } = new();
 }
 
 public class ActiveSessionEntry

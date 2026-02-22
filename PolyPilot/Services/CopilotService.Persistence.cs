@@ -256,7 +256,8 @@ public partial class CopilotService
                 ExpandedSession = expandedSession == "<<unspecified>>" ? existing?.ExpandedSession : expandedSession,
                 InputModes = inputModes != null
                     ? new Dictionary<string, string>(inputModes)
-                    : existing?.InputModes ?? new Dictionary<string, string>()
+                    : existing?.InputModes ?? new Dictionary<string, string>(),
+                CompletedTutorials = existing?.CompletedTutorials ?? new HashSet<string>()
             };
 
             lock (_uiStateLock)
@@ -290,6 +291,22 @@ public partial class CopilotService
         {
             Console.WriteLine($"Failed to save UI state: {ex.Message}");
         }
+    }
+
+    public void SaveTutorialProgress(HashSet<string> completedChapters)
+    {
+        try
+        {
+            var existing = LoadUiState() ?? new UiState();
+            existing.CompletedTutorials = completedChapters;
+            lock (_uiStateLock)
+            {
+                _pendingUiState = existing;
+            }
+            _saveUiStateDebounce?.Dispose();
+            _saveUiStateDebounce = new Timer(_ => FlushUiState(), null, 1000, Timeout.Infinite);
+        }
+        catch { }
     }
 
     public UiState? LoadUiState()

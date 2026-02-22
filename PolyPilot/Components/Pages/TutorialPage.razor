@@ -1,0 +1,60 @@
+@page "/tutorial"
+@using PolyPilot.Services
+@using PolyPilot.Models
+
+<div class="tutorial-page">
+    <div class="tutorial-page-header">
+        <h1>Tutorial</h1>
+        <p class="tutorial-page-subtitle">Learn how to use PolyPilot with guided walkthroughs.</p>
+        <div class="tutorial-page-actions">
+            <button class="tutorial-btn tutorial-btn-primary tutorial-start-all" @onclick="StartFullTour">
+                Start Full Tour
+            </button>
+            @if (Tutorial.CompletedChapters.Count > 0)
+            {
+                <button class="tutorial-btn tutorial-btn-secondary" @onclick="ResetProgress">
+                    Reset Progress
+                </button>
+            }
+        </div>
+    </div>
+
+    <div class="tutorial-chapters-grid">
+        @foreach (var chapter in TutorialContent.Chapters)
+        {
+            var isCompleted = Tutorial.CompletedChapters.Contains(chapter.Id);
+            <div class="tutorial-chapter-card @(isCompleted ? "completed" : "")" @onclick="() => StartChapter(chapter.Id)">
+                <div class="chapter-card-body">
+                    <h3>@chapter.Title</h3>
+                    <p>@chapter.Description</p>
+                    <span class="chapter-step-count">@chapter.Steps.Count steps</span>
+                </div>
+                @if (isCompleted)
+                {
+                    <div class="chapter-completed-badge">✓</div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Inject] private TutorialService Tutorial { get; set; } = default!;
+    [Inject] private NavigationManager NavManager { get; set; } = default!;
+
+    private void StartFullTour()
+    {
+        NavManager.NavigateTo("/");
+        Tutorial.StartTutorial();
+    }
+
+    private void StartChapter(string chapterId)
+    {
+        Tutorial.StartChapter(chapterId);
+    }
+
+    private void ResetProgress()
+    {
+        Tutorial.ResetProgress();
+    }
+}

@@ -1,0 +1,73 @@
+@using PolyPilot.Services
+@using PolyPilot.Models
+@implements IDisposable
+
+@if (Tutorial.IsActive && Tutorial.CurrentStep != null)
+{
+    <div class="tutorial-overlay" @onclick="HandleBackdropClick">
+        <div class="tutorial-backdrop"></div>
+
+        <div class="tutorial-tooltip" @onclick:stopPropagation="true">
+            <div class="tutorial-tooltip-header">
+                <span class="tutorial-chapter-badge">@Tutorial.CurrentChapter?.Title</span>
+                <button class="tutorial-close-btn" @onclick="Tutorial.EndTutorial" aria-label="Close tutorial">✕</button>
+            </div>
+            <h3 class="tutorial-step-title">@Tutorial.CurrentStep.Title</h3>
+            <p class="tutorial-step-desc">@Tutorial.CurrentStep.Description</p>
+            <div class="tutorial-tooltip-footer">
+                <span class="tutorial-step-counter">@(Tutorial.CurrentStepIndex + 1) / @Tutorial.TotalStepsInChapter</span>
+                <div class="tutorial-nav-buttons">
+                    @if (Tutorial.CurrentStepIndex > 0 || Tutorial.CurrentChapterIndex > 0)
+                    {
+                        <button class="tutorial-btn tutorial-btn-secondary" @onclick="Tutorial.PreviousStep">Back</button>
+                    }
+                    <button class="tutorial-btn tutorial-btn-secondary" @onclick="Tutorial.EndTutorial">Skip</button>
+                    <button class="tutorial-btn tutorial-btn-primary" @onclick="HandleNext">
+                        @(IsLastStep ? "Finish" : "Next")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Inject] private TutorialService Tutorial { get; set; } = default!;
+    [Inject] private NavigationManager NavManager { get; set; } = default!;
+    [Inject] private CopilotService CopilotService { get; set; } = default!;
+
+    private bool IsLastStep =>
+        Tutorial.CurrentChapterIndex == TutorialContent.Chapters.Count - 1
+        && Tutorial.CurrentStepIndex == (Tutorial.CurrentChapter?.Steps.Count ?? 1) - 1;
+
+    protected override void OnInitialized()
+    {
+        Tutorial.OnStateChanged += HandleStateChanged;
+    }
+
+    private void HandleStateChanged()
+    {
+        if (Tutorial.IsActive && Tutorial.CurrentStep?.Action == StepAction.Navigate
+            && Tutorial.CurrentStep.NavigateTo != null)
+        {
+            NavManager.NavigateTo(Tutorial.CurrentStep.NavigateTo);
+        }
+
+        SaveTutorialProgress();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleBackdropClick() => Tutorial.EndTutorial();
+
+    private void HandleNext() => Tutorial.NextStep();
+
+    public void Dispose()
+    {
+        Tutorial.OnStateChanged -= HandleStateChanged;
+    }
+
+    private void SaveTutorialProgress()
+    {
+        CopilotService.SaveTutorialProgress(Tutorial.CompletedChapters);
+    }
+}

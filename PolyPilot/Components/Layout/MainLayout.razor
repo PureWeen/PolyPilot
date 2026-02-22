@@ -22,6 +22,8 @@
     <div class="flyout-panel mobile-only @(flyoutOpen ? "open" : "")">
         <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" />
     </div>
+
+    <PolyPilot.Components.Tutorial.TutorialOverlay />
 </div>
 
 @code {
@@ -31,6 +33,7 @@
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private CopilotService CopilotService { get; set; } = default!;
     [Inject] private NavigationManager NavManager { get; set; } = default!;
+    [Inject] private TutorialService TutorialService { get; set; } = default!;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -55,6 +58,8 @@
                     fontSize = uiState.FontSize;
                     await ApplyFontSize();
                 }
+
+                TutorialService.LoadCompleted(uiState.CompletedTutorials);
                 
                 // Navigate to the last page if not already there
                 var currentUri = new Uri(NavManager.Uri);
