@@ -432,6 +432,12 @@ else
                                                         <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
                                                             🗑 Delete Team
                                                         </button>
+                                                        @if (!string.IsNullOrEmpty(group.WorktreeId))
+                                                        {
+                                                            <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; DeleteGroupAndWorktree(gId, group.WorktreeId); }">
+                                                                🗑 Delete Team &amp; Worktree
+                                                            </button>
+                                                        }
                                                     }
                                                     <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; confirmRemoveRepoId = rId; }">
                                                         🗑 Remove Repo
@@ -449,6 +455,12 @@ else
                                                     <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
                                                         🗑 @(group.IsMultiAgent ? "Delete Team" : "Delete Group")
                                                     </button>
+                                                    @if (!string.IsNullOrEmpty(group.WorktreeId))
+                                                    {
+                                                        <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; DeleteGroupAndWorktree(gId, group.WorktreeId); }">
+                                                            🗑 @(group.IsMultiAgent ? "Delete Team" : "Delete Group") &amp; Worktree
+                                                        </button>
+                                                    }
                                                 }
                                             </div>
                                         }
@@ -544,6 +556,7 @@ else
                                              UsageInfo="@(usageBySession.TryGetValue(session.Name, out var usg) ? usg : null)"
                                              OnSelect="() => SelectSession(sName)"
                                              OnClose="() => CloseSession(sName)"
+                                             OnCloseAndDeleteWorktree="() => CloseSessionAndDeleteWorktree(sName)"
                                              OnPin="(pinned) => { CopilotService.PinSession(sName, pinned); }"
                                              OnMove="(groupId) => CopilotService.MoveSession(sName, groupId)"
                                              OnStartRename="() => StartRename(sName)"
@@ -1034,6 +1047,48 @@ else
     private async Task CloseSession(string name)
     {
         await CopilotService.CloseSessionAsync(name);
+    }
+
+    private async Task CloseSessionAndDeleteWorktree(string name)
+    {
+        // Find the worktree associated with this session
+        var meta = CopilotService.GetSessionMeta(name);
+        var worktreeId = meta?.WorktreeId;
+
+        // Close the session first
+        await CopilotService.CloseSessionAsync(name);
+
+        // Then delete the worktree if one was associated
+        if (!string.IsNullOrEmpty(worktreeId))
+        {
+            try
+            {
+                if (CopilotService.IsRemoteMode)
+                    await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
+                else
+                    await RepoManager.RemoveWorktreeAsync(worktreeId);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SessionSidebar] Failed to delete worktree {worktreeId}: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task DeleteGroupAndWorktree(string groupId, string worktreeId)
+    {
+        CopilotService.DeleteGroup(groupId);
+        try
+        {
+            if (CopilotService.IsRemoteMode)
+                await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
+            else
+                await RepoManager.RemoveWorktreeAsync(worktreeId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionSidebar] Failed to delete worktree {worktreeId}: {ex.Message}");
+        }
     }
 
     private void MoveSessionToGroup(string sessionName, ChangeEventArgs e)

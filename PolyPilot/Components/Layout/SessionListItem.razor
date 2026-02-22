@@ -200,6 +200,12 @@
                 <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnClose.InvokeAsync(); }">
                     ✕ Close Session
                 </button>
+                @if (!string.IsNullOrEmpty(Meta?.WorktreeId))
+                {
+                    <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnCloseAndDeleteWorktree.InvokeAsync(); }">
+                        🗑 Close &amp; Delete Worktree
+                    </button>
+                }
             </div>
         }
     </div>
@@ -218,6 +224,7 @@
 
     [Parameter] public EventCallback OnSelect { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnCloseAndDeleteWorktree { get; set; }
     [Parameter] public EventCallback<bool> OnPin { get; set; }
     [Parameter] public EventCallback<string> OnMove { get; set; }
     [Parameter] public EventCallback OnStartRename { get; set; }
