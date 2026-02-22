@@ -274,7 +274,9 @@ public class RepoManager
             try
             {
                 var worktreeList = await RunGitAsync(repo.BareClonePath, ct, "worktree", "list", "--porcelain");
-                if (worktreeList.Contains($"branch refs/heads/{headBranch}"))
+                var branchRef = $"branch refs/heads/{headBranch}";
+                var lines = worktreeList.Split('\n');
+                if (lines.Any(line => line.Trim() == branchRef))
                 {
                     Console.WriteLine($"[RepoManager] Branch '{headBranch}' already in use, using pr-{prNumber} instead");
                     branchName = $"pr-{prNumber}";
@@ -551,7 +553,6 @@ public class RepoManager
             if (workDir.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
                 psi.Environment["GIT_DIR"] = workDir;
         }
-            psi.WorkingDirectory = workDir;
         foreach (var a in args)
             psi.ArgumentList.Add(a);
         SetPath(psi);
@@ -561,7 +562,15 @@ public class RepoManager
         // Read both streams concurrently to avoid deadlock if one buffer fills
         var outputTask = proc.StandardOutput.ReadToEndAsync(ct);
         var errorTask = proc.StandardError.ReadToEndAsync(ct);
-        await Task.WhenAll(outputTask, errorTask);
+        try
+        {
+            await Task.WhenAll(outputTask, errorTask);
+        }
+        catch (OperationCanceledException)
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { }
+            throw;
+        }
         var output = await outputTask;
         var error = await errorTask;
         await proc.WaitForExitAsync(ct);

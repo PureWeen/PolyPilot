@@ -1099,8 +1099,23 @@ else
     private bool IsWorktreeInUse(string worktreeId)
     {
         var org = CopilotService.Organization;
-        return org.Sessions.Any(s => s.WorktreeId == worktreeId)
-            || org.Groups.Any(g => g.WorktreeId == worktreeId);
+        // Check organization metadata (sessions and groups)
+        if (org.Sessions.Any(s => s.WorktreeId == worktreeId))
+            return true;
+        if (org.Groups.Any(g => g.WorktreeId == worktreeId))
+            return true;
+        // Also check live non-hidden sessions whose working directory matches the worktree path
+        var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
+        if (wt != null)
+        {
+            foreach (var session in CopilotService.GetAllSessions())
+            {
+                if (!string.IsNullOrEmpty(session.WorkingDirectory)
+                    && session.WorkingDirectory.StartsWith(wt.Path, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        return false;
     }
 
     private void MoveSessionToGroup(string sessionName, ChangeEventArgs e)

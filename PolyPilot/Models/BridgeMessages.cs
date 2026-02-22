@@ -100,6 +100,7 @@ public static class BridgeMessageTypes
     public const string RepoProgress = "repo_progress";
     public const string RepoError = "repo_error";
     public const string WorktreeCreated = "worktree_created";
+    public const string WorktreeRemoved = "worktree_removed";
     public const string WorktreeError = "worktree_error";
 
     // Server → Client (response)
@@ -494,6 +495,7 @@ public class CreateWorktreePayload
 
 public class RemoveWorktreePayload
 {
+    public string RequestId { get; set; } = "";
     public string WorktreeId { get; set; } = "";
 }
 
