@@ -267,7 +267,23 @@ public class RepoManager
 
         // Fetch the PR ref into a local branch
         var branchName = headBranch ?? $"pr-{prNumber}";
-        await RunGitAsync(repo.BareClonePath, ct, "fetch", remoteName, $"pull/{prNumber}/head:{branchName}");
+        
+        // Check if the branch is already checked out in another worktree
+        if (headBranch != null)
+        {
+            try
+            {
+                var worktreeList = await RunGitAsync(repo.BareClonePath, ct, "worktree", "list", "--porcelain");
+                if (worktreeList.Contains($"branch refs/heads/{headBranch}"))
+                {
+                    Console.WriteLine($"[RepoManager] Branch '{headBranch}' already in use, using pr-{prNumber} instead");
+                    branchName = $"pr-{prNumber}";
+                }
+            }
+            catch { /* Non-fatal — proceed with the branch name */ }
+        }
+        
+        await RunGitAsync(repo.BareClonePath, ct, "fetch", remoteName, $"+pull/{prNumber}/head:{branchName}");
 
         // Fetch the remote branch so refs/remotes/origin/<branch> exists for tracking
         // The bare clone's refspec (+refs/heads/*:refs/remotes/origin/*) handles the mapping
@@ -517,6 +533,7 @@ public class RepoManager
 
     /// <summary>
     /// Run the GitHub CLI (gh) and return stdout. Uses the same PATH setup as git.
+    /// Sets GIT_DIR for bare repos so gh can discover the remote.
     /// </summary>
     private static async Task<string> RunGhAsync(string? workDir, CancellationToken ct, params string[] args)
     {
@@ -528,6 +545,12 @@ public class RepoManager
             CreateNoWindow = true
         };
         if (workDir != null)
+        {
+            psi.WorkingDirectory = workDir;
+            // Bare repos need GIT_DIR set explicitly for gh to find the remote
+            if (workDir.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+                psi.Environment["GIT_DIR"] = workDir;
+        }
             psi.WorkingDirectory = workDir;
         foreach (var a in args)
             psi.ArgumentList.Add(a);
