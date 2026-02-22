@@ -56,6 +56,10 @@ public interface IWsBridgeClient
     Task RemoveRepoAsync(string repoId, bool deleteFromDisk, string? groupId = null, CancellationToken ct = default);
     Task RequestReposAsync(CancellationToken ct = default);
 
+    // Worktree operations
+    Task<WorktreeCreatedPayload> CreateWorktreeAsync(string repoId, string? branchName, int? prNumber, CancellationToken ct = default);
+    Task RemoveWorktreeAsync(string worktreeId, CancellationToken ct = default);
+
     // Image fetch
     Task<FetchImageResponsePayload> FetchImageAsync(string path, CancellationToken ct = default);
 }

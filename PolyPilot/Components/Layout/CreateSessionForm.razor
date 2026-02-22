@@ -2,6 +2,7 @@
 @using PolyPilot.Models
 @inject IJSRuntime JS
 @inject RepoManager RepoManager
+@inject CopilotService CopilotService
 
 @if (!isExpanded)
 {
@@ -275,8 +276,18 @@ else
             isCreatingWorktree = true; worktreeError = null;
             try
             {
-                var wt = await RepoManager.CreateWorktreeFromPrAsync(newWorktreeRepoId, prNum);
-                SelectWorktree(wt);
+                if (CopilotService.IsRemoteMode)
+                {
+                    var result = await CopilotService.CreateWorktreeViaBridgeAsync(newWorktreeRepoId, null, prNum);
+                    var wt = new WorktreeInfo { Id = result.WorktreeId, RepoId = result.RepoId, Branch = result.Branch, Path = result.Path, PrNumber = result.PrNumber };
+                    RepoManager.AddRemoteWorktree(wt);
+                    SelectWorktree(wt);
+                }
+                else
+                {
+                    var wt = await RepoManager.CreateWorktreeFromPrAsync(newWorktreeRepoId, prNum);
+                    SelectWorktree(wt);
+                }
                 if (string.IsNullOrWhiteSpace(SessionName))
                 { SessionName = $"PR #{prNum}"; await SessionNameChanged.InvokeAsync(SessionName); }
             }
@@ -289,7 +300,17 @@ else
             isCreatingWorktree = true; worktreeError = null;
             try
             {
-                var wt = await RepoManager.CreateWorktreeAsync(newWorktreeRepoId, newWorktreeBranch.Trim());
+                WorktreeInfo wt;
+                if (CopilotService.IsRemoteMode)
+                {
+                    var result = await CopilotService.CreateWorktreeViaBridgeAsync(newWorktreeRepoId, newWorktreeBranch.Trim(), null);
+                    wt = new WorktreeInfo { Id = result.WorktreeId, RepoId = result.RepoId, Branch = result.Branch, Path = result.Path, PrNumber = result.PrNumber };
+                    RepoManager.AddRemoteWorktree(wt);
+                }
+                else
+                {
+                    wt = await RepoManager.CreateWorktreeAsync(newWorktreeRepoId, newWorktreeBranch.Trim());
+                }
                 SelectWorktree(wt);
                 if (string.IsNullOrWhiteSpace(SessionName))
                 { SessionName = wt.Branch; await SessionNameChanged.InvokeAsync(SessionName); }
@@ -302,7 +323,13 @@ else
     private async Task RemoveWorktree(string worktreeId)
     {
         try
-        { if (selectedWorktreeId == worktreeId) ClearWorktree(); await RepoManager.RemoveWorktreeAsync(worktreeId); }
+        {
+            if (selectedWorktreeId == worktreeId) ClearWorktree();
+            if (CopilotService.IsRemoteMode)
+                await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
+            else
+                await RepoManager.RemoveWorktreeAsync(worktreeId);
+        }
         catch (Exception ex) { worktreeError = ex.Message; }
     }
 

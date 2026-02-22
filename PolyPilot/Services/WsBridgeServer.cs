@@ -399,6 +399,9 @@ public class WsBridgeServer : IDisposable
                                 !Directory.Exists(createReq.WorkingDirectory))
                             {
                                 Console.WriteLine($"[WsBridge] Rejected invalid WorkingDirectory: {createReq.WorkingDirectory}");
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                        new ErrorPayload { SessionName = createReq.Name, Error = $"Working directory not found on server: {createReq.WorkingDirectory}" }), ct);
                                 break;
                             }
                         }
@@ -624,9 +627,13 @@ public class WsBridgeServer : IDisposable
                         {
                             Id = r.Id, Name = r.Name, Url = r.Url
                         }).ToList();
+                        var worktrees = _repoManager.Worktrees.Select(w => new WorktreeSummary
+                        {
+                            Id = w.Id, RepoId = w.RepoId, Branch = w.Branch, Path = w.Path, PrNumber = w.PrNumber
+                        }).ToList();
                         await SendToClientAsync(clientId, ws,
                             BridgeMessage.Create(BridgeMessageTypes.ReposList,
-                                new ReposListPayload { RequestId = listReq?.RequestId, Repos = repos }), ct);
+                                new ReposListPayload { RequestId = listReq?.RequestId, Repos = repos, Worktrees = worktrees }), ct);
                     }
                     break;
 
@@ -679,6 +686,50 @@ public class WsBridgeServer : IDisposable
                         {
                             Console.WriteLine($"[WsBridgeServer] RemoveRepo error: {ex.Message}");
                         }
+                    }
+                    break;
+
+                case BridgeMessageTypes.CreateWorktree:
+                    var wtReq = msg.GetPayload<CreateWorktreePayload>();
+                    if (wtReq != null && _repoManager != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                WorktreeInfo wt;
+                                if (wtReq.PrNumber.HasValue)
+                                    wt = await _repoManager.CreateWorktreeFromPrAsync(wtReq.RepoId, wtReq.PrNumber.Value, ct);
+                                else
+                                    wt = await _repoManager.CreateWorktreeAsync(wtReq.RepoId, wtReq.BranchName ?? "main", null, ct);
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.WorktreeCreated,
+                                        new WorktreeCreatedPayload
+                                        {
+                                            RequestId = wtReq.RequestId,
+                                            WorktreeId = wt.Id,
+                                            RepoId = wt.RepoId,
+                                            Branch = wt.Branch,
+                                            Path = wt.Path,
+                                            PrNumber = wt.PrNumber
+                                        }), ct);
+                            }
+                            catch (Exception ex)
+                            {
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.WorktreeError,
+                                        new RepoErrorPayload { RequestId = wtReq.RequestId, Error = ex.Message }), ct);
+                            }
+                        }, ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.RemoveWorktree:
+                    var rmWtReq = msg.GetPayload<RemoveWorktreePayload>();
+                    if (rmWtReq != null && _repoManager != null)
+                    {
+                        try { await _repoManager.RemoveWorktreeAsync(rmWtReq.WorktreeId, ct); }
+                        catch (Exception ex) { Console.WriteLine($"[WsBridgeServer] RemoveWorktree error: {ex.Message}"); }
                     }
                     break;
 

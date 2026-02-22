@@ -154,6 +154,10 @@ internal class StubWsBridgeClient : IWsBridgeClient
         return Task.CompletedTask;
     }
 
+    public Task<WorktreeCreatedPayload> CreateWorktreeAsync(string repoId, string? branchName, int? prNumber, CancellationToken ct = default)
+        => Task.FromResult(new WorktreeCreatedPayload { RepoId = repoId, Branch = branchName ?? "main", Path = "/tmp/test" });
+    public Task RemoveWorktreeAsync(string worktreeId, CancellationToken ct = default) => Task.CompletedTask;
+
     public Task<FetchImageResponsePayload> FetchImageAsync(string path, CancellationToken ct = default)
         => Task.FromResult(new FetchImageResponsePayload { Error = "Stub" });
 }

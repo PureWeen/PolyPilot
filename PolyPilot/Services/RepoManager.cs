@@ -311,6 +311,26 @@ public class RepoManager
         => _state.Worktrees.Where(w => w.RepoId == repoId);
 
     /// <summary>
+    /// Add a worktree to the in-memory list (for remote mode — tracks server worktrees without running git).
+    /// </summary>
+    public void AddRemoteWorktree(WorktreeInfo wt)
+    {
+        EnsureLoaded();
+        if (!_state.Worktrees.Any(w => w.Id == wt.Id))
+            _state.Worktrees.Add(wt);
+    }
+
+    /// <summary>
+    /// Add a repo to the in-memory list (for remote mode — tracks server repos without cloning).
+    /// </summary>
+    public void AddRemoteRepo(RepositoryInfo repo)
+    {
+        EnsureLoaded();
+        if (!_state.Repositories.Any(r => r.Id == repo.Id))
+            _state.Repositories.Add(repo);
+    }
+
+    /// <summary>
     /// Remove a tracked repository and optionally delete its bare clone from disk.
     /// Also removes all associated worktrees.
     /// </summary>
