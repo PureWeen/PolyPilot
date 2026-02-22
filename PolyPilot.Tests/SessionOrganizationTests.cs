@@ -2831,12 +2831,77 @@ public class GroupingStabilityTests
         Assert.DoesNotContain(svc.GetAllSessions(), s => s.Name == "del-worker");
 
         // Critical: session IDs should be in closed list so merge won't re-add them
-        // Use reflection to check _closedSessionIds
         var closedField = typeof(CopilotService).GetField("_closedSessionIds",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         var closedIds = (System.Collections.Concurrent.ConcurrentDictionary<string, byte>)closedField.GetValue(svc)!;
         Assert.True(closedIds.ContainsKey(orchId!), "Orchestrator session ID should be in _closedSessionIds");
         Assert.True(closedIds.ContainsKey(workerId!), "Worker session ID should be in _closedSessionIds");
+    }
+
+    [Fact]
+    public async Task DeleteGroup_MultiAgent_SaveSnapshotExcludesDeletedSessions()
+    {
+        // Sonnet 4.6 finding: verify that SaveActiveSessionsToDisk would produce a
+        // snapshot excluding deleted sessions. Demo mode skips the actual file write,
+        // so we simulate the snapshot logic that SaveActiveSessionsToDisk performs.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        // Create sessions including one that should survive
+        var survivor = await svc.CreateSessionAsync("survivor");
+        var s1 = await svc.CreateSessionAsync("doomed-orch");
+        var s2 = await svc.CreateSessionAsync("doomed-worker");
+        Assert.NotNull(survivor);
+        Assert.NotNull(s1);
+        Assert.NotNull(s2);
+
+        var group = svc.CreateMultiAgentGroup("Doomed Team");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "doomed-orch",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator,
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "doomed-worker",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Worker,
+        });
+
+        // Simulate existing active-sessions.json written before delete
+        var persistedEntries = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = survivor!.SessionId!, DisplayName = "survivor" },
+            new() { SessionId = s1!.SessionId!, DisplayName = "doomed-orch" },
+            new() { SessionId = s2!.SessionId!, DisplayName = "doomed-worker" },
+        };
+
+        svc.DeleteGroup(group.Id);
+
+        // Build the snapshot exactly as SaveActiveSessionsToDisk does:
+        // 1. Active non-hidden sessions
+        var activeSnapshot = svc.GetAllSessions()
+            .Where(s => s.SessionId != null)
+            .Select(s => new ActiveSessionEntry { SessionId = s.SessionId!, DisplayName = s.Name })
+            .ToList();
+
+        // 2. Get closedIds
+        var closedField = typeof(CopilotService).GetField("_closedSessionIds",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var closedIds = (System.Collections.Concurrent.ConcurrentDictionary<string, byte>)closedField.GetValue(svc)!;
+
+        // 3. Merge (what WriteActiveSessionsFile would do)
+        var merged = CopilotService.MergeSessionEntries(
+            activeSnapshot, persistedEntries,
+            new HashSet<string>(closedIds.Keys),
+            _ => true);
+
+        // Survivor should be in the merged result
+        Assert.Contains(merged, e => e.DisplayName == "survivor");
+        // Deleted sessions must NOT be in the merged result
+        Assert.DoesNotContain(merged, e => e.DisplayName == "doomed-orch");
+        Assert.DoesNotContain(merged, e => e.DisplayName == "doomed-worker");
     }
 
     [Fact]
