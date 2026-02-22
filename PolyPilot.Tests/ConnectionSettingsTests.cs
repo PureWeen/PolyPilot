@@ -319,6 +319,78 @@ public class ConnectionSettingsTests
         Assert.True(newGuardBlocks, "Should block when no CLI is available at all");
     }
 
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", "")]
+    [InlineData("  ", "  ")]
+    public void NormalizeRemoteUrl_NullOrEmpty_ReturnsAsIs(string? input, string? expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Theory]
+    [InlineData("http://192.168.1.5:4322", "http://192.168.1.5:4322")]
+    [InlineData("https://my-tunnel.devtunnels.ms", "https://my-tunnel.devtunnels.ms")]
+    [InlineData("ws://localhost:4322", "ws://localhost:4322")]
+    [InlineData("wss://tunnel.example.com", "wss://tunnel.example.com")]
+    [InlineData("HTTP://MYHOST:5000", "HTTP://MYHOST:5000")]
+    public void NormalizeRemoteUrl_WithScheme_PassesThrough(string input, string expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Theory]
+    [InlineData("192.168.1.5:4322", "http://192.168.1.5:4322")]
+    [InlineData("localhost:4322", "http://localhost:4322")]
+    [InlineData("10.0.0.1", "http://10.0.0.1")]
+    [InlineData("myserver.local:8080", "http://myserver.local:8080")]
+    public void NormalizeRemoteUrl_BareAddress_PrependsHttp(string input, string expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Theory]
+    [InlineData("xxx.devtunnels.ms", "https://xxx.devtunnels.ms")]
+    [InlineData("abc123.ngrok.io", "https://abc123.ngrok.io")]
+    [InlineData("tunnel.ngrok-free.app", "https://tunnel.ngrok-free.app")]
+    public void NormalizeRemoteUrl_KnownTlsHost_PrependsHttps(string input, string expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Theory]
+    [InlineData("http://192.168.1.5:4322/", "http://192.168.1.5:4322")]
+    [InlineData("  192.168.1.5:4322  ", "http://192.168.1.5:4322")]
+    [InlineData("https://tunnel.devtunnels.ms/", "https://tunnel.devtunnels.ms")]
+    public void NormalizeRemoteUrl_TrimsWhitespaceAndSlash(string input, string expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Theory]
+    [InlineData("ftp://somehost.com", "ftp://somehost.com")]
+    [InlineData("ssh://myserver:22", "ssh://myserver:22")]
+    public void NormalizeRemoteUrl_UnknownScheme_PassesThrough(string input, string expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Fact]
+    public void NormalizeRemoteUrl_FalsePositive_NgrokSubstring_GetsHttp()
+    {
+        // A hostname that contains ".ngrok" but is NOT a real ngrok tunnel
+        // should get http://, not https://
+        var result = ConnectionSettings.NormalizeRemoteUrl("myserver.ngrokfake.com");
+        Assert.Equal("http://myserver.ngrokfake.com", result);
+    }
+
+    [Fact]
+    public void NormalizeRemoteUrl_DoesNotDoubleScheme()
+    {
+        var result = ConnectionSettings.NormalizeRemoteUrl("http://http://example.com");
+        Assert.Equal("http://http://example.com", result);
+    }
+
     private void Dispose()
     {
         try { Directory.Delete(_testDir, true); } catch { }

@@ -18,7 +18,8 @@ public partial class CopilotService
     /// </summary>
     private async Task InitializeRemoteAsync(ConnectionSettings settings, CancellationToken ct)
     {
-        var wsUrl = settings.RemoteUrl!.TrimEnd('/');
+        var normalized = ConnectionSettings.NormalizeRemoteUrl(settings.RemoteUrl) ?? settings.RemoteUrl!;
+        var wsUrl = normalized.TrimEnd('/');
         if (wsUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             wsUrl = "wss://" + wsUrl[8..];
         else if (wsUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
@@ -26,8 +27,6 @@ public partial class CopilotService
         else if (wsUrl.StartsWith("wss://", StringComparison.OrdinalIgnoreCase)
               || wsUrl.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
             { /* already a WebSocket URL */ }
-        else
-            wsUrl = "wss://" + wsUrl;
 
         Debug($"Remote mode: connecting to {wsUrl}");
 
