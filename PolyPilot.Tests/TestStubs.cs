@@ -59,6 +59,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public List<SessionSummary> Sessions { get; set; } = new();
     public string? ActiveSessionName { get; set; }
     public System.Collections.Concurrent.ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
+    public System.Collections.Concurrent.ConcurrentDictionary<string, bool> SessionHistoryHasMore { get; } = new();
     public List<PersistedSessionSummary> PersistedSessions { get; set; } = new();
     public string? GitHubAvatarUrl { get; set; }
     public string? GitHubLogin { get; set; }
@@ -87,7 +88,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
         RequestSessionsCallCount++;
         return Task.CompletedTask;
     }
-    public Task RequestHistoryAsync(string sessionName, CancellationToken ct = default) => Task.CompletedTask;
+    public Task RequestHistoryAsync(string sessionName, int? limit = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task SendMessageAsync(string sessionName, string message, CancellationToken ct = default) => Task.CompletedTask;
     public Task CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken ct = default) => Task.CompletedTask;
     public string? LastSwitchedSession { get; private set; }

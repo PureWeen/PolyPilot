@@ -333,7 +333,7 @@ public partial class CopilotService
             {
                 foreach (var name in sessionsNeedingHistory)
                 {
-                    try { await _bridgeClient.RequestHistoryAsync(name); }
+                    try { await _bridgeClient.RequestHistoryAsync(name, limit: 10); }
                     catch { }
                 }
             });
@@ -352,6 +352,21 @@ public partial class CopilotService
 
     private AgentSessionInfo? GetRemoteSession(string name) =>
         _sessions.TryGetValue(name, out var state) ? state.Info : null;
+
+    /// <summary>
+    /// Whether the server has more history for this session than what's been loaded.
+    /// </summary>
+    public bool HasMoreRemoteHistory(string sessionName) =>
+        IsRemoteMode && _bridgeClient.SessionHistoryHasMore.TryGetValue(sessionName, out var hasMore) && hasMore;
+
+    /// <summary>
+    /// Request the full (unlimited) history for a session from the remote server.
+    /// </summary>
+    public async Task LoadFullRemoteHistoryAsync(string sessionName)
+    {
+        if (!IsRemoteMode) return;
+        await _bridgeClient.RequestHistoryAsync(sessionName, limit: null);
+    }
 
     // --- Remote repo operations ---
 

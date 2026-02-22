@@ -312,7 +312,7 @@ public class WsBridgeServer : IDisposable
                 foreach (var session in _copilot.GetAllSessions())
                 {
                     if (session.History.Count > 0)
-                        await SendSessionHistoryToClient(clientId, ws, session.Name, ct);
+                        await SendSessionHistoryToClient(clientId, ws, session.Name, null, ct);
                 }
             }
 
@@ -371,7 +371,7 @@ public class WsBridgeServer : IDisposable
                 case BridgeMessageTypes.GetHistory:
                     var histReq = msg.GetPayload<GetHistoryPayload>();
                     if (histReq != null)
-                        await SendSessionHistoryToClient(clientId, ws, histReq.SessionName, ct);
+                        await SendSessionHistoryToClient(clientId, ws, histReq.SessionName, histReq.Limit, ct);
                     break;
 
                 case BridgeMessageTypes.SendMessage:
@@ -415,7 +415,7 @@ public class WsBridgeServer : IDisposable
                     {
                         _copilot.SetActiveSession(switchReq.SessionName);
                         BroadcastSessionsList();
-                        await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, ct);
+                        await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, null, ct);
                     }
                     break;
 
@@ -748,15 +748,32 @@ public class WsBridgeServer : IDisposable
         await SendToClientAsync(clientId, ws, msg, ct);
     }
 
-    private async Task SendSessionHistoryToClient(string clientId, WebSocket ws, string sessionName, CancellationToken ct)
+    private async Task SendSessionHistoryToClient(string clientId, WebSocket ws, string sessionName, int? limit, CancellationToken ct)
     {
         if (_copilot == null) return;
 
         var session = _copilot.GetSession(sessionName);
         if (session == null) return;
 
+        var allMessages = session.History;
+        var totalCount = allMessages.Count;
+        
+        // Apply limit — take the most recent N messages
+        List<ChatMessage> messagesToSend;
+        bool hasMore;
+        if (limit.HasValue && limit.Value < totalCount)
+        {
+            messagesToSend = allMessages.Skip(totalCount - limit.Value).ToList();
+            hasMore = true;
+        }
+        else
+        {
+            messagesToSend = allMessages.ToList();
+            hasMore = false;
+        }
+
         // Populate ImageDataUri for Image messages so mobile can render them
-        foreach (var m in session.History)
+        foreach (var m in messagesToSend)
         {
             if (m.MessageType == ChatMessageType.Image && string.IsNullOrEmpty(m.ImageDataUri) && !string.IsNullOrEmpty(m.ImagePath))
             {
@@ -775,7 +792,9 @@ public class WsBridgeServer : IDisposable
         var payload = new SessionHistoryPayload
         {
             SessionName = sessionName,
-            Messages = session.History.ToList()
+            Messages = messagesToSend,
+            TotalCount = totalCount,
+            HasMore = hasMore
         };
         var msg = BridgeMessage.Create(BridgeMessageTypes.SessionHistory, payload);
         await SendToClientAsync(clientId, ws, msg, ct);

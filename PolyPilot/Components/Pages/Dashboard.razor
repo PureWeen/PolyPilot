@@ -116,6 +116,7 @@
                 <ExpandedSessionView Session="session"
                                      IsCompleted="@completedSessions.Contains(session.Name)"
                                      IsLoadingHistory="@(CopilotService.IsRemoteMode && session.MessageCount > 0 && session.History.Count == 0)"
+                                     HasMoreRemoteHistory="@CopilotService.HasMoreRemoteHistory(session.Name)"
                                      StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s2) ? s2 : "")"
                                      ActivityText="@(activityBySession.TryGetValue(session.Name, out var a2) ? a2 : "")"
                                      CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t2) ? t2 : "")"
@@ -146,6 +147,7 @@
                                      OnSetModel="(model) => SetExpandedModel(session, model)"
                                      OnFontSizeChange="HandleFontSizeChange"
                                      OnLoadMore="LoadMoreExpandedMessages"
+                                     OnLoadFullHistory="LoadFullRemoteHistory"
                                      OnStartFiesta="StartFiestaForSession"
                                      OnStopFiesta="StopFiestaForSession"
                                      OnStopReflection="() => StopReflectionForSession(session.Name)" />
@@ -2594,6 +2596,11 @@
     {
         var current = expandedMessageCounts.TryGetValue(sessionName, out var c) ? c : DefaultMessageWindow;
         expandedMessageCounts[sessionName] = current + 25;
+    }
+
+    private async Task LoadFullRemoteHistory(string sessionName)
+    {
+        await CopilotService.LoadFullRemoteHistoryAsync(sessionName);
     }
 
     // === Model, plan mode, font, token helpers ===

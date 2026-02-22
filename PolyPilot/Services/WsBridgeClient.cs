@@ -26,6 +26,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     public List<SessionSummary> Sessions { get; private set; } = new();
     public string? ActiveSessionName { get; private set; }
     public ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
+    public ConcurrentDictionary<string, bool> SessionHistoryHasMore { get; } = new();
     public List<PersistedSessionSummary> PersistedSessions { get; private set; } = new();
     public string? GitHubAvatarUrl { get; private set; }
     public string? GitHubLogin { get; private set; }
@@ -168,9 +169,9 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     public async Task RequestSessionsAsync(CancellationToken ct = default) =>
         await SendAsync(new BridgeMessage { Type = BridgeMessageTypes.GetSessions }, ct);
 
-    public async Task RequestHistoryAsync(string sessionName, CancellationToken ct = default) =>
+    public async Task RequestHistoryAsync(string sessionName, int? limit = null, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.GetHistory,
-            new GetHistoryPayload { SessionName = sessionName }), ct);
+            new GetHistoryPayload { SessionName = sessionName, Limit = limit }), ct);
 
     public async Task SendMessageAsync(string sessionName, string message, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.SendMessage,
@@ -460,7 +461,8 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                 if (history != null)
                 {
                     SessionHistories[history.SessionName] = history.Messages;
-                    Console.WriteLine($"[WsBridgeClient] Got history for '{history.SessionName}': {history.Messages.Count} messages");
+                    SessionHistoryHasMore[history.SessionName] = history.HasMore;
+                    Console.WriteLine($"[WsBridgeClient] Got history for '{history.SessionName}': {history.Messages.Count} messages (total={history.TotalCount}, hasMore={history.HasMore})");
                     OnStateChanged?.Invoke();
                 }
                 break;

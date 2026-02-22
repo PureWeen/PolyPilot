@@ -12,6 +12,7 @@ public interface IWsBridgeClient
     List<SessionSummary> Sessions { get; }
     string? ActiveSessionName { get; }
     System.Collections.Concurrent.ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; }
+    System.Collections.Concurrent.ConcurrentDictionary<string, bool> SessionHistoryHasMore { get; }
     List<PersistedSessionSummary> PersistedSessions { get; }
     string? GitHubAvatarUrl { get; }
     string? GitHubLogin { get; }
@@ -37,7 +38,7 @@ public interface IWsBridgeClient
     Task ConnectAsync(string wsUrl, string? authToken = null, CancellationToken ct = default);
     void Stop();
     Task RequestSessionsAsync(CancellationToken ct = default);
-    Task RequestHistoryAsync(string sessionName, CancellationToken ct = default);
+    Task RequestHistoryAsync(string sessionName, int? limit = null, CancellationToken ct = default);
     Task SendMessageAsync(string sessionName, string message, CancellationToken ct = default);
     Task CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken ct = default);
     Task SwitchSessionAsync(string name, CancellationToken ct = default);

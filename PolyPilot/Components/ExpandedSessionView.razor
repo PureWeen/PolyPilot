@@ -112,11 +112,20 @@
                 <span>Loading conversation…</span>
             </div>
         }
-        else if (Session.History.Count > expandedMessages.Count)
+        else
         {
-            <button class="load-more-btn" @onclick="LoadMore">
-                ⬆️ Load more (@(Session.History.Count - expandedMessages.Count) remaining)
-            </button>
+            @if (HasMoreRemoteHistory)
+            {
+                <button class="load-more-btn" @onclick="LoadFullHistory">
+                    ⬆️ Load rest of conversation
+                </button>
+            }
+            else if (Session.History.Count > expandedMessages.Count)
+            {
+                <button class="load-more-btn" @onclick="LoadMore">
+                    ⬆️ Load more (@(Session.History.Count - expandedMessages.Count) remaining)
+                </button>
+            }
         }
         <ChatMessageList Messages="expandedMessages"
                          StreamingContent="@StreamingContent"
@@ -275,6 +284,7 @@
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
     [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
     [Parameter] public bool IsLoadingHistory { get; set; }
+    [Parameter] public bool HasMoreRemoteHistory { get; set; }
     [Parameter] public int FontSize { get; set; } = 20;
     [Parameter] public int MessageWindowSize { get; set; } = 25;
     [Parameter] public bool FiestaActive { get; set; }
@@ -293,6 +303,7 @@
 
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
     [Parameter] public EventCallback<string> OnLoadMore { get; set; }
+    [Parameter] public EventCallback<string> OnLoadFullHistory { get; set; }
     [Parameter] public EventCallback<(string SessionName, FiestaStartRequest Request)> OnStartFiesta { get; set; }
     [Parameter] public EventCallback<string> OnStopFiesta { get; set; }
     [Parameter] public EventCallback OnStopReflection { get; set; }
@@ -310,6 +321,7 @@
     }
 
     private void LoadMore() => OnLoadMore.InvokeAsync(Session.Name);
+    private void LoadFullHistory() => OnLoadFullHistory.InvokeAsync(Session.Name);
 
     private static string PrettifyModel(string modelId)
     {

@@ -146,6 +146,10 @@ public class SessionHistoryPayload
 {
     public string SessionName { get; set; } = "";
     public List<ChatMessage> Messages { get; set; } = new();
+    /// <summary>Total message count on the server (may be more than Messages.Count when limited).</summary>
+    public int TotalCount { get; set; }
+    /// <summary>True when the server has older messages not included in this response.</summary>
+    public bool HasMore { get; set; }
 }
 
 public class ContentDeltaPayload
@@ -225,6 +229,10 @@ public class ErrorPayload
 public class GetHistoryPayload
 {
     public string SessionName { get; set; } = "";
+    /// <summary>
+    /// Max messages to return (most recent). Null = all messages.
+    /// </summary>
+    public int? Limit { get; set; }
 }
 
 public class SendMessagePayload
