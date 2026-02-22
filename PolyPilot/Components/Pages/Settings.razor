@@ -1155,6 +1155,10 @@
             return;
         }
 
+        // Normalize URL before saving (adds http:// if no scheme)
+        if (settings.Mode == ConnectionMode.Remote)
+            settings.RemoteUrl = ConnectionSettings.NormalizeRemoteUrl(settings.RemoteUrl);
+
         settings.Save();
         ShowStatus("Settings saved. Reconnecting...", "", 0);
 

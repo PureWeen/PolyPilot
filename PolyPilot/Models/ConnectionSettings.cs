@@ -60,6 +60,35 @@ public class ConnectionSettings
     public List<string> DisabledPlugins { get; set; } = new();
     public bool EnableSessionNotifications { get; set; } = false;
 
+    /// <summary>
+    /// Normalizes a remote URL by ensuring it has an http(s):// scheme.
+    /// Plain IPs/hostnames get http://, devtunnels/known TLS hosts get https://.
+    /// Already-schemed URLs pass through unchanged. Returns null for null/empty input.
+    /// </summary>
+    public static string? NormalizeRemoteUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return url;
+
+        var trimmed = url.Trim().TrimEnd('/');
+
+        // Already has a recognized scheme — return as-is
+        if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("ws://", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
+            return trimmed;
+
+        // Heuristic: devtunnels and well-known cloud hosts use TLS
+        if (trimmed.Contains(".devtunnels.ms", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Contains(".ngrok", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Contains(".cloudflare", StringComparison.OrdinalIgnoreCase))
+            return "https://" + trimmed;
+
+        // Everything else (bare IP, localhost, LAN hostname) → http
+        return "http://" + trimmed;
+    }
+
     [JsonIgnore]
     public string CliUrl => Mode == ConnectionMode.Remote && !string.IsNullOrEmpty(RemoteUrl)
         ? RemoteUrl
