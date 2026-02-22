@@ -310,6 +310,14 @@ public class PromptLibraryTests : IDisposable
     }
 
     [Fact]
+    public void SanitizeYamlValue_StripsSingleQuotes()
+    {
+        Assert.Equal("cool", PromptLibraryService.SanitizeYamlValue("'cool'"));
+        Assert.Equal("name", PromptLibraryService.SanitizeYamlValue("'name"));
+        Assert.Equal("its cool", PromptLibraryService.SanitizeYamlValue("it's cool"));
+    }
+
+    [Fact]
     public void SanitizeYamlValue_StripsBackslashes()
     {
         var result = PromptLibraryService.SanitizeYamlValue("path\\to\\file");

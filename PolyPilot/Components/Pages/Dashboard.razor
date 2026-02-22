@@ -1792,8 +1792,8 @@
                     }
                     saveContent = lastUser.Content;
                 }
-                PromptLibraryService.SavePrompt(saveName, saveContent);
-                session.History.Add(ChatMessage.SystemMessage($"✅ Prompt **{saveName}** saved."));
+                var saved = PromptLibraryService.SavePrompt(saveName, saveContent);
+                session.History.Add(ChatMessage.SystemMessage($"✅ Prompt **{saved.Name}** saved."));
                 break;
 
             case "delete":

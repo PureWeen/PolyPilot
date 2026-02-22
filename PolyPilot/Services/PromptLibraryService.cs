@@ -275,7 +275,8 @@ public class PromptLibraryService
             .Replace("\r", "")
             .Replace("\n", " ")
             .Replace("\\", "")
-            .Replace("\"", "");
+            .Replace("\"", "")
+            .Replace("'", "");
     }
 
     /// <summary>
