@@ -1771,7 +1771,7 @@
             case "save":
                 if (string.IsNullOrEmpty(target))
                 {
-                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt save <name> <content>`\nOr: `/prompt save <name>` (saves last assistant message)"));
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt save <name> <content>`\nOr: `/prompt save <name>` (saves last user message)"));
                     break;
                 }
                 var saveParts = target.Split(' ', 2, StringSplitOptions.TrimEntries);

@@ -227,17 +227,17 @@
             @if (availableSkills?.Count > 0)
             {
                 <span class="status-sep">·</span>
-                <span class="skills-trigger" @onclick="ShowSkillsPopup">@availableSkills.Count skills</span>
+                <span class="skills-trigger" data-trigger="skills" @onclick="ShowSkillsPopup">@availableSkills.Count skills</span>
             }
             @if (availableAgents?.Count > 0)
             {
                 <span class="status-sep">·</span>
-                <span class="skills-trigger" @onclick="ShowAgentsPopup">@availableAgents.Count agents</span>
+                <span class="skills-trigger" data-trigger="agents" @onclick="ShowAgentsPopup">@availableAgents.Count agents</span>
             }
             @if (availablePrompts?.Count > 0)
             {
                 <span class="status-sep">·</span>
-                <span class="skills-trigger" @onclick="ShowPromptsPopup">@availablePrompts.Count prompts</span>
+                <span class="skills-trigger" data-trigger="prompts" @onclick="ShowPromptsPopup">@availablePrompts.Count prompts</span>
             }
             <span class="status-sep">·</span>
             <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
@@ -308,11 +308,9 @@
 
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
     [Parameter] public EventCallback<string> OnLoadMore { get; set; }
-    [Parameter] public EventCallback<string> OnLoadFullHistory { get; set; }
     [Parameter] public EventCallback<(string SessionName, FiestaStartRequest Request)> OnStartFiesta { get; set; }
     [Parameter] public EventCallback<string> OnStopFiesta { get; set; }
     [Parameter] public EventCallback OnStopReflection { get; set; }
-    [Parameter] public EventCallback<string> OnUsePrompt { get; set; }
 
     private bool _showFiestaPicker;
     private string _fiestaName = "";
@@ -500,7 +498,7 @@
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
                 if(old) old.remove();
-                var trigger = document.querySelector('[class*=""skills-trigger""]');
+                var trigger = document.querySelector('[data-trigger=""skills""]');
                 var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
                 var ov = document.createElement('div');
                 ov.id = 'skills-popup-overlay';
@@ -537,9 +535,8 @@
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
                 if(old) old.remove();
-                var trigger = document.querySelectorAll('[class*=""skills-trigger""]');
-                var el = trigger.length > 1 ? trigger[1] : trigger[0];
-                var rect = el ? el.getBoundingClientRect() : {{left:20,bottom:60}};
+                var trigger = document.querySelector('[data-trigger=""agents""]');
+                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
                 var ov = document.createElement('div');
                 ov.id = 'skills-popup-overlay';
                 ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
@@ -575,9 +572,8 @@
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
                 if(old) old.remove();
-                var triggers = document.querySelectorAll('[class*=""skills-trigger""]');
-                var el = triggers[triggers.length - 1];
-                var rect = el ? el.getBoundingClientRect() : {{left:20,bottom:60}};
+                var trigger = document.querySelector('[data-trigger=""prompts""]');
+                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
                 var ov = document.createElement('div');
                 ov.id = 'skills-popup-overlay';
                 ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';

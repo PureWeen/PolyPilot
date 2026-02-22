@@ -172,6 +172,29 @@ public class PromptLibraryService
         var safeName = SanitizeFileName(name);
         var filePath = Path.Combine(UserPromptsDir, safeName + ".md");
 
+        // Resolve filename collisions: if file exists with a different prompt name, append suffix
+        if (File.Exists(filePath))
+        {
+            try
+            {
+                var existing = File.ReadAllText(filePath);
+                var (existingName, _, _) = ParsePromptFile(existing, filePath);
+                if (!string.Equals(existingName, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    for (var i = 2; i < 100; i++)
+                    {
+                        filePath = Path.Combine(UserPromptsDir, $"{safeName}-{i}.md");
+                        if (!File.Exists(filePath)) break;
+                        var existingN = File.ReadAllText(filePath);
+                        var (n, _, _) = ParsePromptFile(existingN, filePath);
+                        if (string.Equals(n, name, StringComparison.OrdinalIgnoreCase))
+                            break; // Same logical name — overwrite is fine
+                    }
+                }
+            }
+            catch { }
+        }
+
         // Sanitize name/description to prevent YAML corruption
         var yamlName = SanitizeYamlValue(name);
         var yamlDesc = description != null ? SanitizeYamlValue(description) : null;
@@ -234,15 +257,17 @@ public class PromptLibraryService
     }
 
     /// <summary>
-    /// Sanitize a string for safe inclusion in a YAML value.
-    /// Strips newlines and escapes double quotes.
+    /// Sanitize a string for safe inclusion in a YAML double-quoted value.
+    /// Strips newlines, backslashes, and double quotes to avoid YAML corruption.
+    /// The hand-rolled parser does not handle YAML escapes, so we strip rather than escape.
     /// </summary>
     internal static string SanitizeYamlValue(string value)
     {
         return value
             .Replace("\r", "")
             .Replace("\n", " ")
-            .Replace("\"", "\\\"");
+            .Replace("\\", "")
+            .Replace("\"", "");
     }
 
     /// <summary>

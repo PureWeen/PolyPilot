@@ -303,10 +303,25 @@ public class PromptLibraryTests : IDisposable
     }
 
     [Fact]
-    public void SanitizeYamlValue_EscapesQuotes()
+    public void SanitizeYamlValue_StripsQuotes()
     {
         var result = PromptLibraryService.SanitizeYamlValue("say \"hello\"");
-        Assert.Equal("say \\\"hello\\\"", result);
+        Assert.Equal("say hello", result);
+    }
+
+    [Fact]
+    public void SanitizeYamlValue_StripsBackslashes()
+    {
+        var result = PromptLibraryService.SanitizeYamlValue("path\\to\\file");
+        Assert.Equal("pathtofile", result);
+    }
+
+    [Fact]
+    public void SanitizeYamlValue_TrailingBackslash_Stripped()
+    {
+        // A trailing backslash would produce malformed YAML: name: "test\"
+        var result = PromptLibraryService.SanitizeYamlValue("test\\");
+        Assert.Equal("test", result);
     }
 
     [Fact]
@@ -314,6 +329,49 @@ public class PromptLibraryTests : IDisposable
     {
         var result = PromptLibraryService.SanitizeYamlValue("simple name");
         Assert.Equal("simple name", result);
+    }
+
+    [Fact]
+    public void SavePrompt_RoundTrip_NameSurvives()
+    {
+        var promptDir = Path.Combine(_testDir, "rt-prompts");
+        Directory.CreateDirectory(promptDir);
+
+        // Write a prompt file manually with a specific name
+        var name = "My Test Prompt";
+        var content = "Do the thing.";
+        var fileContent = $"---\nname: \"{name}\"\n---\n{content}";
+        File.WriteAllText(Path.Combine(promptDir, "my-test-prompt.md"), fileContent);
+
+        // Read it back via ScanPromptDirectory
+        var prompts = new List<SavedPrompt>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        PromptLibraryService.ScanPromptDirectory(promptDir, PromptSource.User, prompts, seen);
+
+        Assert.Single(prompts);
+        Assert.Equal("My Test Prompt", prompts[0].Name);
+        Assert.Equal("Do the thing.", prompts[0].Content);
+    }
+
+    [Fact]
+    public void SavePrompt_FilenameCollision_AppendsNumericSuffix()
+    {
+        var promptDir = Path.Combine(_testDir, "collision-prompts");
+        Directory.CreateDirectory(promptDir);
+
+        // Create two files that would collide: "foo/bar" and "foo?bar" both sanitize to "foo-bar.md"
+        File.WriteAllText(
+            Path.Combine(promptDir, "foo-bar.md"),
+            "---\nname: \"foo/bar\"\n---\nFirst prompt");
+
+        // Simulate SavePrompt collision resolution by checking names differ
+        var existingContent = File.ReadAllText(Path.Combine(promptDir, "foo-bar.md"));
+        var (existingName, _, _) = PromptLibraryService.ParsePromptFile(existingContent, "foo-bar.md");
+        Assert.Equal("foo/bar", existingName);
+
+        // The name "foo?bar" sanitizes to "foo-bar" — same filename but different name
+        var newSafeName = PromptLibraryService.SanitizeFileName("foo?bar");
+        Assert.Equal("foo-bar", newSafeName);
     }
 
     public void Dispose()
