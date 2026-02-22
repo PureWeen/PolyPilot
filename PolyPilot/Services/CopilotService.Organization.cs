@@ -104,6 +104,7 @@ public partial class CopilotService
             {
                 var json = File.ReadAllText(OrganizationFile);
                 Organization = JsonSerializer.Deserialize<OrganizationState>(json) ?? new OrganizationState();
+                Organization.DeletedRepoGroupRepoIds ??= new();
                 Debug($"LoadOrganization: loaded {Organization.Groups.Count} groups, {Organization.Sessions.Count} sessions");
             }
             else
@@ -254,7 +255,8 @@ public partial class CopilotService
                         if (repo != null)
                         {
                             var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
-                            meta.GroupId = repoGroup.Id;
+                            if (repoGroup != null)
+                                meta.GroupId = repoGroup.Id;
                         }
                         changed = true;
                     }
@@ -274,8 +276,11 @@ public partial class CopilotService
                     if (repo != null)
                     {
                         var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
-                        meta.GroupId = repoGroup.Id;
-                        changed = true;
+                        if (repoGroup != null)
+                        {
+                            meta.GroupId = repoGroup.Id;
+                            changed = true;
+                        }
                     }
                 }
             }
@@ -293,13 +298,13 @@ public partial class CopilotService
             }
         }
 
-        // Ensure every tracked repo has a sidebar group (even if no sessions exist yet)
+        // Ensure every tracked repo has a sidebar group (unless user deleted it)
         foreach (var repo in _repoManager.Repositories)
         {
             if (!Organization.Groups.Any(g => g.RepoId == repo.Id && !g.IsMultiAgent))
             {
-                GetOrCreateRepoGroup(repo.Id, repo.Name);
-                changed = true;
+                if (GetOrCreateRepoGroup(repo.Id, repo.Name) != null)
+                    changed = true;
             }
         }
 
@@ -479,8 +484,16 @@ public partial class CopilotService
             foreach (var meta in Organization.Sessions.Where(m => m.GroupId == groupId))
             {
                 meta.GroupId = SessionGroup.DefaultId;
+                // Clear worktree link for repo groups so ReconcileOrganization
+                // won't reassign these sessions back to a recreated repo group
+                if (group?.RepoId != null)
+                    meta.WorktreeId = null;
             }
         }
+
+        // Track deleted repo groups so ReconcileOrganization won't resurrect them
+        if (group?.RepoId != null)
+            Organization.DeletedRepoGroupRepoIds.Add(group.RepoId);
 
         Organization.Groups.RemoveAll(g => g.Id == groupId);
         SaveOrganization();
@@ -599,13 +612,23 @@ public partial class CopilotService
 
     /// <summary>
     /// Get or create a SessionGroup that auto-tracks a repository.
+    /// When <paramref name="explicitly"/> is false (called from ReconcileOrganization),
+    /// returns null for repos whose groups were previously deleted by the user.
+    /// When true (called from explicit repo-add operations), clears the deleted flag.
     /// </summary>
-    public SessionGroup GetOrCreateRepoGroup(string repoId, string repoName)
+    public SessionGroup? GetOrCreateRepoGroup(string repoId, string repoName, bool explicitly = false)
     {
         // Skip multi-agent groups — they have a RepoId for worktree context but are
         // not the "repo group" that regular sessions should auto-join.
         var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent);
         if (existing != null) return existing;
+
+        // Don't recreate groups the user explicitly deleted (unless re-adding)
+        if (!explicitly && Organization.DeletedRepoGroupRepoIds.Contains(repoId))
+            return null;
+
+        // Clear the deleted flag when explicitly re-adding
+        Organization.DeletedRepoGroupRepoIds.Remove(repoId);
 
         var group = new SessionGroup
         {

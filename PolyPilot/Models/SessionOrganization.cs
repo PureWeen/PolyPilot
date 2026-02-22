@@ -138,6 +138,12 @@ public class OrganizationState
     };
     public List<SessionMeta> Sessions { get; set; } = new();
     public SessionSortMode SortMode { get; set; } = SessionSortMode.LastActive;
+    /// <summary>
+    /// Repo IDs whose auto-created sidebar groups were explicitly deleted by the user.
+    /// ReconcileOrganization skips these to prevent resurrection.
+    /// Cleared when the repo is re-added via GetOrCreateRepoGroup with explicit=true.
+    /// </summary>
+    public HashSet<string> DeletedRepoGroupRepoIds { get; set; } = new();
 }
 
 // GroupReflectionState class removed and merged into ReflectionCycle

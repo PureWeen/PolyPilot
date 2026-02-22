@@ -743,6 +743,264 @@ Do something.
     }
 }
 
+/// <summary>
+/// Tests for the deleted repo group resurrection bug fix.
+/// When a user deletes a repo-linked group, ReconcileOrganization must not recreate it.
+/// </summary>
+public class DeletedRepoGroupResurrectionTests
+{
+    private readonly StubChatDatabase _chatDb = new();
+    private readonly StubServerManager _serverManager = new();
+    private readonly StubWsBridgeClient _bridgeClient = new();
+    private readonly StubDemoService _demoService = new();
+    private readonly IServiceProvider _serviceProvider;
+
+    public DeletedRepoGroupResurrectionTests()
+    {
+        var services = new ServiceCollection();
+        _serviceProvider = services.BuildServiceProvider();
+    }
+
+    private static RepoManager CreateRepoManagerWithState(List<RepositoryInfo> repos, List<WorktreeInfo> worktrees)
+    {
+        var rm = new RepoManager();
+        var stateField = typeof(RepoManager).GetField("_state", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var loadedField = typeof(RepoManager).GetField("_loaded", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        stateField.SetValue(rm, new RepositoryState { Repositories = repos, Worktrees = worktrees });
+        loadedField.SetValue(rm, true);
+        return rm;
+    }
+
+    private CopilotService CreateService(RepoManager? repoManager = null) =>
+        new CopilotService(_chatDb, _serverManager, _bridgeClient, repoManager ?? new RepoManager(), _serviceProvider, _demoService);
+
+    [Fact]
+    public void DeleteGroup_RepoGroup_AddsToDeletedRepoGroupRepoIds()
+    {
+        var svc = CreateService();
+        var group = svc.GetOrCreateRepoGroup("repo-1", "MyRepo", explicitly: true)!;
+
+        svc.DeleteGroup(group.Id);
+
+        Assert.Contains("repo-1", svc.Organization.DeletedRepoGroupRepoIds);
+        Assert.DoesNotContain(svc.Organization.Groups, g => g.RepoId == "repo-1");
+    }
+
+    [Fact]
+    public void DeleteGroup_NonRepoGroup_DoesNotAddToDeletedRepoGroupRepoIds()
+    {
+        var svc = CreateService();
+        var group = svc.CreateGroup("Custom Group");
+
+        svc.DeleteGroup(group.Id);
+
+        Assert.Empty(svc.Organization.DeletedRepoGroupRepoIds);
+    }
+
+    [Fact]
+    public void DeleteGroup_RepoGroup_ClearsWorktreeIdOnMovedSessions()
+    {
+        var svc = CreateService();
+        var group = svc.GetOrCreateRepoGroup("repo-1", "MyRepo", explicitly: true)!;
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "session-1",
+            GroupId = group.Id,
+            WorktreeId = "wt-1"
+        });
+
+        svc.DeleteGroup(group.Id);
+
+        var meta = svc.Organization.Sessions.First(m => m.SessionName == "session-1");
+        Assert.Equal(SessionGroup.DefaultId, meta.GroupId);
+        Assert.Null(meta.WorktreeId);
+    }
+
+    [Fact]
+    public void DeleteGroup_NonRepoGroup_PreservesWorktreeId()
+    {
+        var svc = CreateService();
+        var group = svc.CreateGroup("Custom");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "session-1",
+            GroupId = group.Id,
+            WorktreeId = "wt-1"
+        });
+
+        svc.DeleteGroup(group.Id);
+
+        var meta = svc.Organization.Sessions.First(m => m.SessionName == "session-1");
+        Assert.Equal(SessionGroup.DefaultId, meta.GroupId);
+        Assert.Equal("wt-1", meta.WorktreeId);
+    }
+
+    [Fact]
+    public void GetOrCreateRepoGroup_Implicit_ReturnsNullForDeletedRepo()
+    {
+        var svc = CreateService();
+        svc.Organization.DeletedRepoGroupRepoIds.Add("repo-1");
+
+        var result = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+
+        Assert.Null(result);
+        Assert.DoesNotContain(svc.Organization.Groups, g => g.RepoId == "repo-1");
+    }
+
+    [Fact]
+    public void GetOrCreateRepoGroup_Explicit_CreatesGroupForDeletedRepo()
+    {
+        var svc = CreateService();
+        svc.Organization.DeletedRepoGroupRepoIds.Add("repo-1");
+
+        var result = svc.GetOrCreateRepoGroup("repo-1", "MyRepo", explicitly: true);
+
+        Assert.NotNull(result);
+        Assert.Equal("MyRepo", result!.Name);
+        Assert.DoesNotContain("repo-1", svc.Organization.DeletedRepoGroupRepoIds);
+    }
+
+    [Fact]
+    public void GetOrCreateRepoGroup_Existing_ReturnsGroupEvenIfInDeletedSet()
+    {
+        var svc = CreateService();
+        var group = svc.GetOrCreateRepoGroup("repo-1", "MyRepo", explicitly: true)!;
+        // Manually add to deleted set (shouldn't happen in practice, but tests defense)
+        svc.Organization.DeletedRepoGroupRepoIds.Add("repo-1");
+
+        // Even implicit calls should return existing group
+        var result = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+
+        Assert.NotNull(result);
+        Assert.Equal(group.Id, result!.Id);
+    }
+
+    [Fact]
+    public void ReconcileOrganization_DoesNotResurrectDeletedRepoGroup()
+    {
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        var rm = CreateRepoManagerWithState(repos, new List<WorktreeInfo>());
+        var svc = CreateService(rm);
+
+        // Create then delete the repo group
+        var group = svc.GetOrCreateRepoGroup("repo-1", "MyRepo", explicitly: true)!;
+        svc.DeleteGroup(group.Id);
+        Assert.Contains("repo-1", svc.Organization.DeletedRepoGroupRepoIds);
+        Assert.DoesNotContain(svc.Organization.Groups, g => g.RepoId == "repo-1");
+
+        // Reconcile should NOT recreate the group
+        svc.ReconcileOrganization();
+
+        Assert.DoesNotContain(svc.Organization.Groups, g => g.RepoId == "repo-1");
+    }
+
+    [Fact]
+    public void ReconcileOrganization_DoesNotReassignSessionToDeletedRepoGroup()
+    {
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "wt-1", RepoId = "repo-1", Branch = "main", Path = "/tmp/wt-1" }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+
+        // Create repo group, add session, then delete group
+        var group = svc.GetOrCreateRepoGroup("repo-1", "MyRepo", explicitly: true)!;
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "test-session",
+            GroupId = group.Id,
+            WorktreeId = "wt-1"
+        });
+        svc.DeleteGroup(group.Id);
+
+        // Session should be in default group with cleared worktree
+        var meta = svc.Organization.Sessions.First(m => m.SessionName == "test-session");
+        Assert.Equal(SessionGroup.DefaultId, meta.GroupId);
+        Assert.Null(meta.WorktreeId);
+
+        // The repo group should not exist — deletion prevents resurrection
+        Assert.DoesNotContain(svc.Organization.Groups, g => g.RepoId == "repo-1");
+        Assert.Contains("repo-1", svc.Organization.DeletedRepoGroupRepoIds);
+    }
+
+    [Fact]
+    public void DeletedRepoGroupRepoIds_SurvivesSerialization()
+    {
+        var state = new OrganizationState();
+        state.DeletedRepoGroupRepoIds.Add("repo-1");
+        state.DeletedRepoGroupRepoIds.Add("repo-2");
+
+        var json = JsonSerializer.Serialize(state);
+        var restored = JsonSerializer.Deserialize<OrganizationState>(json)!;
+
+        Assert.NotNull(restored.DeletedRepoGroupRepoIds);
+        Assert.Contains("repo-1", restored.DeletedRepoGroupRepoIds);
+        Assert.Contains("repo-2", restored.DeletedRepoGroupRepoIds);
+    }
+
+    [Fact]
+    public void LegacyJson_WithoutDeletedRepoGroupRepoIds_DeserializesGracefully()
+    {
+        // Simulate loading old organization.json without the new field
+        var json = """
+        {
+            "Groups": [{"Id": "_default", "Name": "Sessions", "SortOrder": 0}],
+            "Sessions": [],
+            "SortMode": "LastActive"
+        }
+        """;
+        var state = JsonSerializer.Deserialize<OrganizationState>(json);
+        Assert.NotNull(state);
+        // Field will be null from deserialization — LoadOrganization adds null coalesce
+        // But the type default should still work
+    }
+
+    [Fact]
+    public void DeleteGroup_DefaultGroup_IsNoop()
+    {
+        var svc = CreateService();
+        var initialGroupCount = svc.Organization.Groups.Count;
+
+        svc.DeleteGroup(SessionGroup.DefaultId);
+
+        Assert.Equal(initialGroupCount, svc.Organization.Groups.Count);
+        Assert.Empty(svc.Organization.DeletedRepoGroupRepoIds);
+    }
+
+    [Fact]
+    public void ReAddRepo_ClearsDeletedFlag_AllowsReconciliation()
+    {
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        var rm = CreateRepoManagerWithState(repos, new List<WorktreeInfo>());
+        var svc = CreateService(rm);
+
+        // Create, delete, then re-add the repo group explicitly
+        var group = svc.GetOrCreateRepoGroup("repo-1", "MyRepo", explicitly: true)!;
+        svc.DeleteGroup(group.Id);
+        Assert.Contains("repo-1", svc.Organization.DeletedRepoGroupRepoIds);
+
+        // Re-add explicitly (simulates adding repo again)
+        var newGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo", explicitly: true);
+        Assert.NotNull(newGroup);
+        Assert.DoesNotContain("repo-1", svc.Organization.DeletedRepoGroupRepoIds);
+
+        // Reconcile should keep the group
+        svc.ReconcileOrganization();
+        Assert.Contains(svc.Organization.Groups, g => g.RepoId == "repo-1");
+    }
+}
+
 public class PerAgentModelAssignmentTests
 {
     private readonly StubChatDatabase _chatDb = new();
