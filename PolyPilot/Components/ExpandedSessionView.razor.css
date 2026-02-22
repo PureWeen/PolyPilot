@@ -21,7 +21,8 @@
     min-width: 0;
     flex-wrap: wrap;
 }
-.chat-header-title { margin: 0; font-size: var(--type-title2); min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-header-title { margin: 0; font-size: var(--type-title2); min-width: 0; flex-shrink: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-header-branch { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; flex-shrink: 2; }
 .chat-header-badges { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 1; flex-wrap: wrap; min-width: 0; }
 
 /* Info popover */
