@@ -460,6 +460,8 @@ public class WorktreeSummary
     public string Branch { get; set; } = "";
     public string Path { get; set; } = "";
     public int? PrNumber { get; set; }
+    /// <summary>Git remote name (e.g., "origin", "upstream") if this worktree was created from a PR and the remote exists locally.</summary>
+    public string? Remote { get; set; }
 }
 
 public class RepoAddedPayload
@@ -503,6 +505,8 @@ public class WorktreeCreatedPayload
     public string Branch { get; set; } = "";
     public string Path { get; set; } = "";
     public int? PrNumber { get; set; }
+    /// <summary>Git remote name (e.g., "origin", "upstream") if this worktree was created from a PR and the remote exists locally.</summary>
+    public string? Remote { get; set; }
 }
 
 public class FetchImagePayload

@@ -28,6 +28,8 @@ public class WorktreeInfo
     public string? SessionName { get; set; }
     /// <summary>GitHub PR number if this worktree was created from a PR.</summary>
     public int? PrNumber { get; set; }
+    /// <summary>Git remote name (e.g., "origin", "upstream") if this worktree was created from a PR and the remote exists locally.</summary>
+    public string? Remote { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 

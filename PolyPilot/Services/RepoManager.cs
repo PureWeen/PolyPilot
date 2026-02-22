@@ -241,7 +241,8 @@ public class RepoManager
 
     /// <summary>
     /// Create a worktree by checking out a GitHub PR's branch.
-    /// Fetches the PR ref and creates a worktree on that branch.
+    /// Fetches the PR ref, discovers the actual branch name via gh CLI,
+    /// sets up upstream tracking, and associates the remote.
     /// </summary>
     public async Task<WorktreeInfo> CreateWorktreeFromPrAsync(string repoId, int prNumber, CancellationToken ct = default)
     {
@@ -249,15 +250,57 @@ public class RepoManager
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
 
-        // Fetch the PR ref
-        await RunGitAsync(repo.BareClonePath, ct, "fetch", "origin", $"pull/{prNumber}/head:pr-{prNumber}");
+        // Try to discover the PR's actual head branch name via gh CLI
+        string? headBranch = null;
+        string remoteName = "origin";
+        try
+        {
+            var prJson = await RunGhAsync(repo.BareClonePath, ct, "pr", "view", prNumber.ToString(), "--json", "headRefName,baseRefName,headRepository,headRepositoryOwner");
+            var prInfo = System.Text.Json.JsonDocument.Parse(prJson);
+            headBranch = prInfo.RootElement.GetProperty("headRefName").GetString();
+            Console.WriteLine($"[RepoManager] PR #{prNumber} head branch: {headBranch}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[RepoManager] Could not query PR info via gh: {ex.Message}");
+        }
+
+        // Fetch the PR ref into a local branch
+        var branchName = headBranch ?? $"pr-{prNumber}";
+        await RunGitAsync(repo.BareClonePath, ct, "fetch", remoteName, $"pull/{prNumber}/head:{branchName}");
+
+        // Also fetch the remote branch so we can set up tracking
+        if (headBranch != null)
+        {
+            try
+            {
+                await RunGitAsync(repo.BareClonePath, ct, "fetch", remoteName, $"{headBranch}:{remoteName}/{headBranch}");
+            }
+            catch
+            {
+                // Non-fatal — the remote branch ref may not exist if PR is from a fork
+            }
+        }
 
         Directory.CreateDirectory(WorktreesDir);
         var worktreeId = Guid.NewGuid().ToString()[..8];
         var worktreePath = Path.Combine(WorktreesDir, $"{repoId}-{worktreeId}");
-        var branchName = $"pr-{prNumber}";
 
         await RunGitAsync(repo.BareClonePath, ct, "worktree", "add", worktreePath, branchName);
+
+        // Set upstream tracking so push/pull work in the worktree
+        if (headBranch != null)
+        {
+            try
+            {
+                await RunGitAsync(worktreePath, ct, "branch", $"--set-upstream-to={remoteName}/{headBranch}", branchName);
+                Console.WriteLine($"[RepoManager] Set upstream tracking: {branchName} -> {remoteName}/{headBranch}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RepoManager] Could not set upstream tracking: {ex.Message}");
+            }
+        }
 
         var wt = new WorktreeInfo
         {
@@ -266,6 +309,7 @@ public class RepoManager
             Branch = branchName,
             Path = worktreePath,
             PrNumber = prNumber,
+            Remote = remoteName,
             CreatedAt = DateTime.UtcNow
         };
         _state.Worktrees.Add(wt);
@@ -450,6 +494,34 @@ public class RepoManager
     private static async Task<string> RunGitAsync(string? workDir, CancellationToken ct, params string[] args)
     {
         return await RunGitWithProgressAsync(workDir, null, ct, args);
+    }
+
+    /// <summary>
+    /// Run the GitHub CLI (gh) and return stdout. Uses the same PATH setup as git.
+    /// </summary>
+    private static async Task<string> RunGhAsync(string? workDir, CancellationToken ct, params string[] args)
+    {
+        var psi = new ProcessStartInfo("gh")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        if (workDir != null)
+            psi.WorkingDirectory = workDir;
+        foreach (var a in args)
+            psi.ArgumentList.Add(a);
+        SetPath(psi);
+
+        using var proc = Process.Start(psi)
+            ?? throw new InvalidOperationException("Failed to start gh process.");
+        var output = await proc.StandardOutput.ReadToEndAsync(ct);
+        var error = await proc.StandardError.ReadToEndAsync(ct);
+        await proc.WaitForExitAsync(ct);
+        if (proc.ExitCode != 0)
+            throw new InvalidOperationException($"gh failed (exit {proc.ExitCode}): {error}");
+        return output;
     }
 
     private static void SetPath(ProcessStartInfo psi)

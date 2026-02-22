@@ -629,7 +629,7 @@ public class WsBridgeServer : IDisposable
                         }).ToList();
                         var worktrees = _repoManager.Worktrees.Select(w => new WorktreeSummary
                         {
-                            Id = w.Id, RepoId = w.RepoId, Branch = w.Branch, Path = w.Path, PrNumber = w.PrNumber
+                            Id = w.Id, RepoId = w.RepoId, Branch = w.Branch, Path = w.Path, PrNumber = w.PrNumber, Remote = w.Remote
                         }).ToList();
                         await SendToClientAsync(clientId, ws,
                             BridgeMessage.Create(BridgeMessageTypes.ReposList,
@@ -711,7 +711,8 @@ public class WsBridgeServer : IDisposable
                                             RepoId = wt.RepoId,
                                             Branch = wt.Branch,
                                             Path = wt.Path,
-                                            PrNumber = wt.PrNumber
+                                            PrNumber = wt.PrNumber,
+                                            Remote = wt.Remote
                                         }), ct);
                             }
                             catch (Exception ex)
