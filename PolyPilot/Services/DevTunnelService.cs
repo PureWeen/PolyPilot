@@ -449,9 +449,10 @@ public partial class DevTunnelService : IDisposable
         SetState(TunnelState.Stopping);
         try
         {
-            if (_hostProcess != null && !ProcessHelper.HasExitedSafe(_hostProcess))
+            var proc = _hostProcess; // capture locally to avoid race with concurrent Stop() calls
+            if (proc != null && !ProcessHelper.HasExitedSafe(proc))
             {
-                _hostProcess.Kill(entireProcessTree: true);
+                proc.Kill(entireProcessTree: true);
                 Console.WriteLine("[DevTunnel] Host process killed");
             }
         }

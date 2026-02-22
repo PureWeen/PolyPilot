@@ -27,7 +27,9 @@ public static class ProcessHelper
         }
         catch (SystemException)
         {
-            // ObjectDisposedException or other system-level issues
+            // Win32Exception (waitpid failures on Unix), ObjectDisposedException
+            // (already caught above via InvalidOperationException inheritance),
+            // or other system-level issues accessing process state
             return true;
         }
     }
