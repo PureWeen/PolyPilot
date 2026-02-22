@@ -122,7 +122,20 @@ public class PromptLibraryService
 
         if (content.StartsWith("---"))
         {
-            var endIdx = content.IndexOf("---", 3, StringComparison.Ordinal);
+            // Search for closing --- that starts on its own line
+            var endIdx = -1;
+            var searchFrom = 3;
+            while (searchFrom < content.Length)
+            {
+                var idx = content.IndexOf("---", searchFrom, StringComparison.Ordinal);
+                if (idx < 0) break;
+                if (idx == 0 || content[idx - 1] == '\n')
+                {
+                    endIdx = idx;
+                    break;
+                }
+                searchFrom = idx + 1;
+            }
             if (endIdx > 0)
             {
                 var frontmatter = content[3..endIdx];
@@ -159,14 +172,18 @@ public class PromptLibraryService
         var safeName = SanitizeFileName(name);
         var filePath = Path.Combine(UserPromptsDir, safeName + ".md");
 
+        // Sanitize name/description to prevent YAML corruption
+        var yamlName = SanitizeYamlValue(name);
+        var yamlDesc = description != null ? SanitizeYamlValue(description) : null;
+
         var fileContent = "";
-        if (!string.IsNullOrWhiteSpace(description))
+        if (!string.IsNullOrWhiteSpace(yamlDesc))
         {
-            fileContent = $"---\nname: {name}\ndescription: {description}\n---\n{content}";
+            fileContent = $"---\nname: \"{yamlName}\"\ndescription: \"{yamlDesc}\"\n---\n{content}";
         }
         else
         {
-            fileContent = $"---\nname: {name}\n---\n{content}";
+            fileContent = $"---\nname: \"{yamlName}\"\n---\n{content}";
         }
 
         File.WriteAllText(filePath, fileContent);
@@ -214,6 +231,18 @@ public class PromptLibraryService
     {
         return DiscoverPrompts(workingDirectory)
             .FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Sanitize a string for safe inclusion in a YAML value.
+    /// Strips newlines and escapes double quotes.
+    /// </summary>
+    internal static string SanitizeYamlValue(string value)
+    {
+        return value
+            .Replace("\r", "")
+            .Replace("\n", " ")
+            .Replace("\"", "\\\"");
     }
 
     /// <summary>

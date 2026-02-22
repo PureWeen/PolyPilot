@@ -143,7 +143,8 @@ public class PromptLibraryTests : IDisposable
         Directory.CreateDirectory(promptDir);
         File.WriteAllText(Path.Combine(promptDir, "deploy.md"), "---\nname: Deploy\ndescription: Deploy the app\n---\nDeploy steps...");
 
-        var prompts = PromptLibraryService.DiscoverPrompts(projectDir);
+        var prompts = PromptLibraryService.DiscoverPrompts(projectDir)
+            .Where(p => p.Source == PromptSource.Project).ToList();
 
         Assert.Single(prompts);
         Assert.Equal("Deploy", prompts[0].Name);
@@ -158,7 +159,8 @@ public class PromptLibraryTests : IDisposable
         Directory.CreateDirectory(promptDir);
         File.WriteAllText(Path.Combine(promptDir, "review.md"), "Review code carefully.");
 
-        var prompts = PromptLibraryService.DiscoverPrompts(projectDir);
+        var prompts = PromptLibraryService.DiscoverPrompts(projectDir)
+            .Where(p => p.Source == PromptSource.Project).ToList();
 
         Assert.Single(prompts);
         Assert.Equal("review", prompts[0].Name);
@@ -176,7 +178,8 @@ public class PromptLibraryTests : IDisposable
         File.WriteAllText(Path.Combine(githubDir, "from-github.md"), "---\nname: GitHub Prompt\n---\nFrom github");
         File.WriteAllText(Path.Combine(copilotDir, "from-copilot.md"), "---\nname: Copilot Prompt\n---\nFrom copilot");
 
-        var prompts = PromptLibraryService.DiscoverPrompts(projectDir);
+        var prompts = PromptLibraryService.DiscoverPrompts(projectDir)
+            .Where(p => p.Source == PromptSource.Project).ToList();
 
         Assert.Equal(2, prompts.Count);
         Assert.Contains(prompts, p => p.Name == "GitHub Prompt");
@@ -272,10 +275,45 @@ public class PromptLibraryTests : IDisposable
         Directory.CreateDirectory(promptDir);
         File.WriteAllText(Path.Combine(promptDir, "analyze.md"), "---\nname: Analyze\n---\nAnalyze the code.");
 
-        var prompts = PromptLibraryService.DiscoverPrompts(projectDir);
+        var prompts = PromptLibraryService.DiscoverPrompts(projectDir)
+            .Where(p => p.Source == PromptSource.Project).ToList();
 
         Assert.Single(prompts);
         Assert.Equal("Analyze", prompts[0].Name);
+    }
+
+    [Fact]
+    public void ParsePromptFile_DashesInsideYamlValue_NotTreatedAsClosing()
+    {
+        var content = "---\nname: test---name\ndescription: a---b\n---\nBody here";
+        var filePath = "/test.md";
+
+        var (name, description, body) = PromptLibraryService.ParsePromptFile(content, filePath);
+
+        Assert.Equal("test---name", name);
+        Assert.Equal("a---b", description);
+        Assert.Equal("Body here", body);
+    }
+
+    [Fact]
+    public void SanitizeYamlValue_StripsNewlines()
+    {
+        var result = PromptLibraryService.SanitizeYamlValue("line1\nline2\r\nline3");
+        Assert.Equal("line1 line2 line3", result);
+    }
+
+    [Fact]
+    public void SanitizeYamlValue_EscapesQuotes()
+    {
+        var result = PromptLibraryService.SanitizeYamlValue("say \"hello\"");
+        Assert.Equal("say \\\"hello\\\"", result);
+    }
+
+    [Fact]
+    public void SanitizeYamlValue_PlainString_Unchanged()
+    {
+        var result = PromptLibraryService.SanitizeYamlValue("simple name");
+        Assert.Equal("simple name", result);
     }
 
     public void Dispose()
