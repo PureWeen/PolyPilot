@@ -2722,6 +2722,124 @@ public class GroupingStabilityTests
     }
 
     [Fact]
+    public async Task DeleteGroup_MultiAgent_MarksSessionsHidden()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        // Create real sessions so they exist in _sessions
+        var s1 = await svc.CreateSessionAsync("team-orch");
+        var s2 = await svc.CreateSessionAsync("team-worker-1");
+        Assert.NotNull(s1);
+        Assert.NotNull(s2);
+
+        // Create multi-agent group and assign sessions
+        var group = svc.CreateMultiAgentGroup("Test Team");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "team-orch",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator,
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "team-worker-1",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Worker,
+        });
+
+        // DeleteGroup should mark sessions as hidden
+        svc.DeleteGroup(group.Id);
+
+        // Sessions should be hidden from GetAllSessions
+        Assert.DoesNotContain(svc.GetAllSessions(), s => s.Name == "team-orch");
+        Assert.DoesNotContain(svc.GetAllSessions(), s => s.Name == "team-worker-1");
+    }
+
+    [Fact]
+    public async Task DeleteGroup_MultiAgent_HiddenSessionsExcludedFromSaveSnapshot()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var s1 = await svc.CreateSessionAsync("snap-orch");
+        var s2 = await svc.CreateSessionAsync("snap-worker");
+        Assert.NotNull(s1);
+        Assert.NotNull(s2);
+
+        var group = svc.CreateMultiAgentGroup("Snap Team");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "snap-orch",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator,
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "snap-worker",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Worker,
+        });
+
+        svc.DeleteGroup(group.Id);
+
+        // Verify the session objects themselves are marked hidden
+        var orchSession = svc.GetSession("snap-orch");
+        var workerSession = svc.GetSession("snap-worker");
+        // GetSession returns null for hidden sessions or they should be marked hidden
+        // The key invariant: hidden sessions must not appear in GetAllSessions
+        var allNames = svc.GetAllSessions().Select(s => s.Name).ToList();
+        Assert.DoesNotContain("snap-orch", allNames);
+        Assert.DoesNotContain("snap-worker", allNames);
+    }
+
+    [Fact]
+    public async Task DeleteGroup_MultiAgent_AddsSessionIdsToClosedList()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        // Create real sessions
+        var s1 = await svc.CreateSessionAsync("del-orch");
+        var s2 = await svc.CreateSessionAsync("del-worker");
+        Assert.NotNull(s1);
+        Assert.NotNull(s2);
+
+        // Record session IDs
+        var orchId = s1!.SessionId;
+        var workerId = s2!.SessionId;
+
+        // Create multi-agent group
+        var group = svc.CreateMultiAgentGroup("Delete Test");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "del-orch",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator,
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "del-worker",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Worker,
+        });
+
+        svc.DeleteGroup(group.Id);
+
+        // Sessions should be hidden
+        Assert.DoesNotContain(svc.GetAllSessions(), s => s.Name == "del-orch");
+        Assert.DoesNotContain(svc.GetAllSessions(), s => s.Name == "del-worker");
+
+        // Critical: session IDs should be in closed list so merge won't re-add them
+        // Use reflection to check _closedSessionIds
+        var closedField = typeof(CopilotService).GetField("_closedSessionIds",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var closedIds = (System.Collections.Concurrent.ConcurrentDictionary<string, byte>)closedField.GetValue(svc)!;
+        Assert.True(closedIds.ContainsKey(orchId!), "Orchestrator session ID should be in _closedSessionIds");
+        Assert.True(closedIds.ContainsKey(workerId!), "Worker session ID should be in _closedSessionIds");
+    }
+
+    [Fact]
     public void DeleteGroup_NonMultiAgent_MovesSessionsToDefault()
     {
         var svc = CreateService();

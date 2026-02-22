@@ -348,4 +348,61 @@ public class SessionPersistenceTests
         Assert.Single(result);
         Assert.Equal("deploy to production", result[0].LastPrompt);
     }
+
+    // --- DeleteGroup persistence tests ---
+
+    [Fact]
+    public void Merge_DeletedMultiAgentSessions_NotInClosedIds_Survive()
+    {
+        // Reproduces the bug: multi-agent sessions deleted via DeleteGroup
+        // but their IDs not added to closedIds — merge re-adds them from file
+        var active = new List<ActiveSessionEntry>
+        {
+            Entry("regular-session", "My Session"),
+        };
+
+        // These were written to disk before DeleteGroup ran
+        var persisted = new List<ActiveSessionEntry>
+        {
+            Entry("regular-session", "My Session"),
+            Entry("team-orch-id", "Team-orchestrator"),
+            Entry("team-worker-id", "Team-worker-1"),
+        };
+
+        // Bug: closedIds is empty because DeleteGroup didn't add them
+        var closedIds = new HashSet<string>();
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, _ => true);
+
+        // BUG: deleted sessions survive the merge (3 total instead of 1)
+        Assert.Equal(3, result.Count);
+        Assert.Contains(result, e => e.SessionId == "team-orch-id");
+        Assert.Contains(result, e => e.SessionId == "team-worker-id");
+    }
+
+    [Fact]
+    public void Merge_DeletedMultiAgentSessions_InClosedIds_Excluded()
+    {
+        // After fix: DeleteGroup adds session IDs to closedIds before merge
+        var active = new List<ActiveSessionEntry>
+        {
+            Entry("regular-session", "My Session"),
+        };
+
+        var persisted = new List<ActiveSessionEntry>
+        {
+            Entry("regular-session", "My Session"),
+            Entry("team-orch-id", "Team-orchestrator"),
+            Entry("team-worker-id", "Team-worker-1"),
+        };
+
+        // Fix: closedIds contains the deleted sessions
+        var closedIds = new HashSet<string> { "team-orch-id", "team-worker-id" };
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, _ => true);
+
+        // Deleted sessions are properly excluded
+        Assert.Single(result);
+        Assert.Equal("regular-session", result[0].SessionId);
+    }
 }

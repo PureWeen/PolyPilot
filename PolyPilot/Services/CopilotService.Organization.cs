@@ -376,8 +376,16 @@ public partial class CopilotService
             foreach (var name in sessionNames)
             {
                 if (_sessions.TryGetValue(name, out var s))
+                {
                     s.Info.IsHidden = true;
+                    // Track as closed so merge won't re-add from active-sessions.json on restart
+                    if (s.Info.SessionId != null)
+                        _closedSessionIds[s.Info.SessionId] = 0;
+                }
             }
+            // Persist immediately so hidden sessions are excluded if app restarts
+            // before the fire-and-forget CloseSessionAsync completes
+            SaveActiveSessionsToDisk();
             // Fire-and-forget: close sessions asynchronously
             _ = Task.Run(async () =>
             {
