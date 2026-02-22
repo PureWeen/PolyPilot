@@ -326,7 +326,7 @@ public partial class CopilotService : IAsyncDisposable
         Theme = settings.Theme;
 
         // On mobile with Remote mode and no URL configured, skip initialization
-        if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl))
+        if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl) && string.IsNullOrWhiteSpace(settings.LanUrl))
         {
             Debug("Remote mode with no URL configured — waiting for settings");
             NeedsConfiguration = true;
@@ -335,7 +335,7 @@ public partial class CopilotService : IAsyncDisposable
         }
 
         // Remote mode: connect via WsBridgeClient (state-sync, not CopilotClient)
-        if (settings.Mode == ConnectionMode.Remote && !string.IsNullOrWhiteSpace(settings.RemoteUrl))
+        if (settings.Mode == ConnectionMode.Remote && (!string.IsNullOrWhiteSpace(settings.RemoteUrl) || !string.IsNullOrWhiteSpace(settings.LanUrl)))
         {
             await InitializeRemoteAsync(settings, cancellationToken);
             return;
@@ -486,6 +486,8 @@ public partial class CopilotService : IAsyncDisposable
     {
         Debug($"Reconnecting with mode: {settings.Mode}...");
 
+        StopConnectivityMonitoring();
+
         // Dispose existing sessions and client
         foreach (var state in _sessions.Values)
         {
@@ -523,7 +525,7 @@ public partial class CopilotService : IAsyncDisposable
         }
 
         // Remote mode uses WsBridgeClient state-sync
-        if (settings.Mode == ConnectionMode.Remote && !string.IsNullOrWhiteSpace(settings.RemoteUrl))
+        if (settings.Mode == ConnectionMode.Remote && (!string.IsNullOrWhiteSpace(settings.RemoteUrl) || !string.IsNullOrWhiteSpace(settings.LanUrl)))
         {
             await InitializeRemoteAsync(settings, cancellationToken);
             return;
@@ -2307,6 +2309,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public async ValueTask DisposeAsync()
     {
+        StopConnectivityMonitoring();
+
         // Flush any pending debounced writes immediately
         FlushSaveActiveSessionsToDisk();
         FlushSaveOrganization();
