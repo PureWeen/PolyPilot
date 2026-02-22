@@ -36,6 +36,8 @@ public interface IWsBridgeClient
 
     // Methods
     Task ConnectAsync(string wsUrl, string? authToken = null, CancellationToken ct = default);
+    Task ConnectSmartAsync(string? tunnelWsUrl, string? tunnelToken, string? lanWsUrl, string? lanToken, CancellationToken ct = default);
+    string? ActiveUrl { get; }
     void Stop();
     Task RequestSessionsAsync(CancellationToken ct = default);
     Task RequestHistoryAsync(string sessionName, int? limit = null, CancellationToken ct = default);
