@@ -14,6 +14,11 @@ public class PromptLibraryService
     private static string UserPromptsDir => _userPromptsDir ??= Path.Combine(GetPolyPilotDir(), "prompts");
 
     /// <summary>
+    /// Override the user prompts directory. Used by tests to avoid reading real ~/.polypilot/prompts/.
+    /// </summary>
+    internal static void SetUserPromptsDirForTesting(string path) => _userPromptsDir = path;
+
+    /// <summary>
     /// Standard project subdirectories where coding agents store prompt files.
     /// </summary>
     private static readonly string[] ProjectPromptDirs = new[]
@@ -169,6 +174,10 @@ public class PromptLibraryService
     {
         Directory.CreateDirectory(UserPromptsDir);
 
+        // Sanitize name/description to prevent YAML corruption
+        var yamlName = SanitizeYamlValue(name);
+        var yamlDesc = description != null ? SanitizeYamlValue(description) : null;
+
         var safeName = SanitizeFileName(name);
         var filePath = Path.Combine(UserPromptsDir, safeName + ".md");
 
@@ -179,25 +188,24 @@ public class PromptLibraryService
             {
                 var existing = File.ReadAllText(filePath);
                 var (existingName, _, _) = ParsePromptFile(existing, filePath);
-                if (!string.Equals(existingName, name, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(existingName, yamlName, StringComparison.OrdinalIgnoreCase))
                 {
+                    var found = false;
                     for (var i = 2; i < 100; i++)
                     {
                         filePath = Path.Combine(UserPromptsDir, $"{safeName}-{i}.md");
-                        if (!File.Exists(filePath)) break;
+                        if (!File.Exists(filePath)) { found = true; break; }
                         var existingN = File.ReadAllText(filePath);
                         var (n, _, _) = ParsePromptFile(existingN, filePath);
-                        if (string.Equals(n, name, StringComparison.OrdinalIgnoreCase))
-                            break; // Same logical name — overwrite is fine
+                        if (string.Equals(n, yamlName, StringComparison.OrdinalIgnoreCase))
+                        { found = true; break; } // Same logical name — overwrite is fine
                     }
+                    if (!found)
+                        filePath = Path.Combine(UserPromptsDir, $"{safeName}-{Guid.NewGuid():N}.md");
                 }
             }
             catch { }
         }
-
-        // Sanitize name/description to prevent YAML corruption
-        var yamlName = SanitizeYamlValue(name);
-        var yamlDesc = description != null ? SanitizeYamlValue(description) : null;
 
         var fileContent = "";
         if (!string.IsNullOrWhiteSpace(yamlDesc))
@@ -213,9 +221,9 @@ public class PromptLibraryService
 
         return new SavedPrompt
         {
-            Name = name,
+            Name = yamlName,
             Content = content,
-            Description = description ?? "",
+            Description = yamlDesc ?? "",
             Source = PromptSource.User,
             FilePath = filePath
         };

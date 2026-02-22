@@ -336,21 +336,35 @@ public class PromptLibraryTests : IDisposable
     {
         var promptDir = Path.Combine(_testDir, "rt-prompts");
         Directory.CreateDirectory(promptDir);
+        PromptLibraryService.SetUserPromptsDirForTesting(promptDir);
 
-        // Write a prompt file manually with a specific name
-        var name = "My Test Prompt";
-        var content = "Do the thing.";
-        var fileContent = $"---\nname: \"{name}\"\n---\n{content}";
-        File.WriteAllText(Path.Combine(promptDir, "my-test-prompt.md"), fileContent);
+        var saved = PromptLibraryService.SavePrompt("My Test Prompt", "Do the thing.");
 
-        // Read it back via ScanPromptDirectory
-        var prompts = new List<SavedPrompt>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        PromptLibraryService.ScanPromptDirectory(promptDir, PromptSource.User, prompts, seen);
+        Assert.Equal("My Test Prompt", saved.Name);
+        Assert.Equal("Do the thing.", saved.Content);
 
-        Assert.Single(prompts);
-        Assert.Equal("My Test Prompt", prompts[0].Name);
-        Assert.Equal("Do the thing.", prompts[0].Content);
+        // Read it back via GetPrompt — name must match
+        var found = PromptLibraryService.GetPrompt("My Test Prompt");
+        Assert.NotNull(found);
+        Assert.Equal("My Test Prompt", found!.Name);
+        Assert.Equal("Do the thing.", found.Content);
+    }
+
+    [Fact]
+    public void SavePrompt_RoundTrip_NameWithQuotes_Survives()
+    {
+        var promptDir = Path.Combine(_testDir, "rt-quotes");
+        Directory.CreateDirectory(promptDir);
+        PromptLibraryService.SetUserPromptsDirForTesting(promptDir);
+
+        // Quotes are stripped by SanitizeYamlValue; returned name is sanitized
+        var saved = PromptLibraryService.SavePrompt("say \"hello\"", "content");
+        Assert.Equal("say hello", saved.Name);
+
+        // GetPrompt with the sanitized name should find it
+        var found = PromptLibraryService.GetPrompt("say hello");
+        Assert.NotNull(found);
+        Assert.Equal("say hello", found!.Name);
     }
 
     [Fact]
@@ -358,20 +372,42 @@ public class PromptLibraryTests : IDisposable
     {
         var promptDir = Path.Combine(_testDir, "collision-prompts");
         Directory.CreateDirectory(promptDir);
+        PromptLibraryService.SetUserPromptsDirForTesting(promptDir);
 
-        // Create two files that would collide: "foo/bar" and "foo?bar" both sanitize to "foo-bar.md"
-        File.WriteAllText(
-            Path.Combine(promptDir, "foo-bar.md"),
-            "---\nname: \"foo/bar\"\n---\nFirst prompt");
+        // Save "foo/bar" — sanitizes filename to "foo-bar.md"
+        var first = PromptLibraryService.SavePrompt("foo/bar", "First prompt");
+        Assert.True(File.Exists(first.FilePath));
+        Assert.EndsWith("foo-bar.md", first.FilePath!);
 
-        // Simulate SavePrompt collision resolution by checking names differ
-        var existingContent = File.ReadAllText(Path.Combine(promptDir, "foo-bar.md"));
-        var (existingName, _, _) = PromptLibraryService.ParsePromptFile(existingContent, "foo-bar.md");
-        Assert.Equal("foo/bar", existingName);
+        // Save "foo?bar" — also sanitizes to "foo-bar.md" but different logical name
+        var second = PromptLibraryService.SavePrompt("foo?bar", "Second prompt");
+        Assert.True(File.Exists(second.FilePath));
+        Assert.EndsWith("foo-bar-2.md", second.FilePath!);
 
-        // The name "foo?bar" sanitizes to "foo-bar" — same filename but different name
-        var newSafeName = PromptLibraryService.SanitizeFileName("foo?bar");
-        Assert.Equal("foo-bar", newSafeName);
+        // Both are discoverable
+        var all = PromptLibraryService.DiscoverPrompts(null)
+            .Where(p => p.Source == PromptSource.User).ToList();
+        Assert.Contains(all, p => p.Name == "foo/bar" && p.Content == "First prompt");
+        Assert.Contains(all, p => p.Name == "foo?bar" && p.Content == "Second prompt");
+    }
+
+    [Fact]
+    public void SavePrompt_SameNameOverwrites()
+    {
+        var promptDir = Path.Combine(_testDir, "overwrite-prompts");
+        Directory.CreateDirectory(promptDir);
+        PromptLibraryService.SetUserPromptsDirForTesting(promptDir);
+
+        PromptLibraryService.SavePrompt("my prompt", "version 1");
+        PromptLibraryService.SavePrompt("my prompt", "version 2");
+
+        // Only one file should exist, with the latest content
+        var files = Directory.GetFiles(promptDir, "*.md");
+        Assert.Single(files);
+
+        var found = PromptLibraryService.GetPrompt("my prompt");
+        Assert.NotNull(found);
+        Assert.Equal("version 2", found!.Content);
     }
 
     public void Dispose()
