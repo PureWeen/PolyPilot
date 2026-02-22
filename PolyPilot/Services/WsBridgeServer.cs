@@ -306,13 +306,13 @@ public class WsBridgeServer : IDisposable
             }
             await SendPersistedToClient(clientId, ws, ct);
 
-            // Send history for all active sessions so mobile has full state on connect
+            // Send recent history for all active sessions (limited to reduce initial payload)
             if (_copilot != null)
             {
                 foreach (var session in _copilot.GetAllSessions())
                 {
                     if (session.History.Count > 0)
-                        await SendSessionHistoryToClient(clientId, ws, session.Name, null, ct);
+                        await SendSessionHistoryToClient(clientId, ws, session.Name, 10, ct);
                 }
             }
 
@@ -415,7 +415,7 @@ public class WsBridgeServer : IDisposable
                     {
                         _copilot.SetActiveSession(switchReq.SessionName);
                         BroadcastSessionsList();
-                        await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, null, ct);
+                        await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, 10, ct);
                     }
                     break;
 
