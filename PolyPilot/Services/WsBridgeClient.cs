@@ -379,6 +379,17 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             if (_addRepoRequests.TryRemove(kvp.Key, out var tcs))
                 tcs.TrySetCanceled();
         }
+        // Cancel any pending worktree create/remove requests
+        foreach (var kvp in _pendingWorktreeRequests)
+        {
+            if (_pendingWorktreeRequests.TryRemove(kvp.Key, out var tcs))
+                tcs.TrySetCanceled();
+        }
+        foreach (var kvp in _pendingWorktreeRemovals)
+        {
+            if (_pendingWorktreeRemovals.TryRemove(kvp.Key, out var tcs))
+                tcs.TrySetCanceled();
+        }
         _repoProgressCallbacks.Clear();
         OnStateChanged?.Invoke();
 

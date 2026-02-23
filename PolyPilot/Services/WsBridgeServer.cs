@@ -729,20 +729,23 @@ public class WsBridgeServer : IDisposable
                     var rmWtReq = msg.GetPayload<RemoveWorktreePayload>();
                     if (rmWtReq != null && _repoManager != null)
                     {
-                        try
+                        _ = Task.Run(async () =>
                         {
-                            await _repoManager.RemoveWorktreeAsync(rmWtReq.WorktreeId, ct);
-                            await SendToClientAsync(clientId, ws,
-                                BridgeMessage.Create(BridgeMessageTypes.WorktreeRemoved,
-                                    new RemoveWorktreePayload { RequestId = rmWtReq.RequestId, WorktreeId = rmWtReq.WorktreeId }), ct);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"[WsBridgeServer] RemoveWorktree error: {ex.Message}");
-                            await SendToClientAsync(clientId, ws,
-                                BridgeMessage.Create(BridgeMessageTypes.WorktreeError,
-                                    new RepoErrorPayload { RequestId = rmWtReq.RequestId, Error = ex.Message }), ct);
-                        }
+                            try
+                            {
+                                await _repoManager.RemoveWorktreeAsync(rmWtReq.WorktreeId);
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.WorktreeRemoved,
+                                        new RemoveWorktreePayload { RequestId = rmWtReq.RequestId, WorktreeId = rmWtReq.WorktreeId }), ct);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"[WsBridgeServer] RemoveWorktree error: {ex.Message}");
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.WorktreeError,
+                                        new RepoErrorPayload { RequestId = rmWtReq.RequestId, Error = ex.Message }), ct);
+                            }
+                        });
                     }
                     break;
 

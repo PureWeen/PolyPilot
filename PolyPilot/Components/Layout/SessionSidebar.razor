@@ -1051,56 +1051,59 @@ else
 
     private async Task CloseSessionAndDeleteWorktree(string name)
     {
-        // Find the worktree associated with this session
+        // Find the worktree associated with this session before closing
         var meta = CopilotService.GetSessionMeta(name);
         var worktreeId = meta?.WorktreeId;
 
         // Close the session first
         await CopilotService.CloseSessionAsync(name);
 
-        // Only delete the worktree if no other sessions or groups still reference it
-        if (!string.IsNullOrEmpty(worktreeId) && !IsWorktreeInUse(worktreeId))
+        // Delete the worktree if no OTHER sessions or groups still reference it
+        // (exclude the just-closed session name since its metadata may linger due to debounced save)
+        if (!string.IsNullOrEmpty(worktreeId) && !IsWorktreeInUse(worktreeId, excludeSession: name))
         {
-            try
-            {
-                if (CopilotService.IsRemoteMode)
-                    await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
-                else
-                    await RepoManager.RemoveWorktreeAsync(worktreeId);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[SessionSidebar] Failed to delete worktree {worktreeId}: {ex.Message}");
-            }
+            await DeleteWorktreeAsync(worktreeId);
         }
     }
 
     private async Task DeleteGroupAndWorktree(string groupId, string worktreeId)
     {
+        // Collect session names being deleted so we can exclude them from the guard
+        var deletedSessions = CopilotService.Organization.Sessions
+            .Where(m => m.GroupId == groupId)
+            .Select(m => m.SessionName)
+            .ToHashSet();
         CopilotService.DeleteGroup(groupId);
         // Only delete worktree if no remaining sessions or groups still reference it
-        if (!IsWorktreeInUse(worktreeId))
+        if (!IsWorktreeInUse(worktreeId, excludeSessions: deletedSessions))
         {
-            try
-            {
-                if (CopilotService.IsRemoteMode)
-                    await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
-                else
-                    await RepoManager.RemoveWorktreeAsync(worktreeId);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[SessionSidebar] Failed to delete worktree {worktreeId}: {ex.Message}");
-            }
+            await DeleteWorktreeAsync(worktreeId);
+        }
+    }
+
+    private async Task DeleteWorktreeAsync(string worktreeId)
+    {
+        try
+        {
+            if (CopilotService.IsRemoteMode)
+                await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
+            else
+                await RepoManager.RemoveWorktreeAsync(worktreeId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionSidebar] Failed to delete worktree {worktreeId}: {ex.Message}");
         }
     }
 
     /// <summary>Check if any remaining sessions or groups reference the worktree.</summary>
-    private bool IsWorktreeInUse(string worktreeId)
+    private bool IsWorktreeInUse(string worktreeId, string? excludeSession = null, HashSet<string>? excludeSessions = null)
     {
         var org = CopilotService.Organization;
-        // Check organization metadata (sessions and groups)
-        if (org.Sessions.Any(s => s.WorktreeId == worktreeId))
+        // Check organization metadata — exclude sessions we just closed
+        if (org.Sessions.Any(s => s.WorktreeId == worktreeId
+            && s.SessionName != excludeSession
+            && (excludeSessions == null || !excludeSessions.Contains(s.SessionName))))
             return true;
         if (org.Groups.Any(g => g.WorktreeId == worktreeId))
             return true;
@@ -1110,6 +1113,8 @@ else
         {
             foreach (var session in CopilotService.GetAllSessions())
             {
+                if (session.Name == excludeSession) continue;
+                if (excludeSessions != null && excludeSessions.Contains(session.Name)) continue;
                 if (!string.IsNullOrEmpty(session.WorkingDirectory)
                     && session.WorkingDirectory.StartsWith(wt.Path, StringComparison.OrdinalIgnoreCase))
                     return true;
