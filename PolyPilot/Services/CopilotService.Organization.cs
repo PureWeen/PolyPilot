@@ -1080,6 +1080,10 @@ public partial class CopilotService
         }
 
         SaveOrganization();
+        // Multi-agent group creation is a critical structural change — flush immediately
+        // instead of relying on the 2s debounce. If the process is killed (e.g., relaunch),
+        // the debounce timer never fires and the group is lost on restart.
+        FlushSaveOrganization();
         OnStateChanged?.Invoke();
         return group;
     }
