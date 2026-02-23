@@ -57,6 +57,34 @@ public class MultiAgentRegressionTests
         field.SetValue(svc, cache);
     }
 
+    /// <summary>
+    /// Add dummy session entries to _sessions so ReconcileOrganization sees them as active.
+    /// Simulates sessions restored by RestorePreviousSessionsAsync.
+    /// Uses reflection since SessionState is private.
+    /// </summary>
+    private static void AddDummySessions(CopilotService svc, params string[] sessionNames)
+    {
+        var sessionsField = typeof(CopilotService).GetField("_sessions",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var dict = sessionsField.GetValue(svc)!;
+        var stateType = sessionsField.FieldType.GenericTypeArguments[1]; // SessionState
+
+        foreach (var name in sessionNames)
+        {
+            // Create AgentSessionInfo
+            var info = new AgentSessionInfo { Name = name, Model = "test-model" };
+            // Create SessionState via reflection (it has required init properties)
+            var state = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(stateType);
+            // Set Info property
+            stateType.GetProperty("Info")!.SetValue(state, info);
+            // Set Session property to a non-null value (use reflection to bypass required)
+            // Since we only need _sessions to have entries for activeNames, Info is sufficient
+            // SessionState.Session is CopilotSession — we can't create one, so set it null
+            // The activeNames check only accesses Info.IsHidden and kv.Key
+            dict.GetType().GetMethod("TryAdd")!.Invoke(dict, new[] { name, state });
+        }
+    }
+
     #region Bug #1: Organization JSON Corruption Resilience
 
     /// <summary>
@@ -696,10 +724,9 @@ public class MultiAgentRegressionTests
 
     /// <summary>
     /// Simulates what happens when the app restarts:
-    /// 1. Organization loaded from disk
-    /// 2. ReconcileOrganization runs with no active sessions
-    /// 3. Sessions restored
-    /// 4. ReconcileOrganization runs again
+    /// 1. Organization loaded from disk (no ReconcileOrganization — _sessions is empty)
+    /// 2. Sessions restored to _sessions
+    /// 3. ReconcileOrganization runs with sessions in memory
     ///
     /// Multi-agent groups must survive this entire sequence.
     /// </summary>
@@ -742,7 +769,7 @@ public class MultiAgentRegressionTests
         // Serialize to simulate disk
         var json = JsonSerializer.Serialize(orgState, new JsonSerializerOptions { WriteIndented = true });
 
-        // Phase 2: Deserialize (LoadOrganization)
+        // Phase 2: Deserialize (LoadOrganization — NO reconcile, _sessions is empty)
         var restored = JsonSerializer.Deserialize<OrganizationState>(json)!;
 
         // Verify the multi-agent group survived deserialization
@@ -751,7 +778,7 @@ public class MultiAgentRegressionTests
         Assert.True(maGroup!.IsMultiAgent);
         Assert.Equal(MultiAgentMode.OrchestratorReflect, maGroup.OrchestratorMode);
 
-        // Phase 3: Simulate ReconcileOrganization with sessions from aliases
+        // Phase 3: Load state into service (simulates LoadOrganization without reconcile)
         var repos = new List<RepositoryInfo>
         {
             new() { Id = "repo-1", Name = "Repo", Url = "https://github.com/test/repo" }
@@ -763,7 +790,6 @@ public class MultiAgentRegressionTests
         var rm = CreateRepoManagerWithState(repos, worktrees);
         var svc = CreateService(rm);
 
-        // Load the state by manipulating the groups/sessions directly (simulates LoadOrganization)
         foreach (var g in restored.Groups)
         {
             if (!svc.Organization.Groups.Any(og => og.Id == g.Id))
@@ -772,21 +798,21 @@ public class MultiAgentRegressionTests
         foreach (var s in restored.Sessions)
             svc.Organization.Sessions.Add(s);
 
-        // Register sessions as known (simulates alias file)
-        RegisterKnownSessions(svc, "team-orch", "team-w1", "team-w2", "regular-session");
-
-        // First reconciliation (called inside LoadOrganization, no active sessions yet)
+        // ReconcileOrganization with zero active sessions should be a no-op (safety guard)
         svc.ReconcileOrganization();
 
-        // Verify multi-agent sessions survived
+        // Verify ALL sessions survived (nothing pruned)
+        Assert.Equal(4, svc.Organization.Sessions.Count);
         Assert.All(
             svc.Organization.Sessions.Where(s => s.SessionName.StartsWith("team-")),
             m => Assert.Equal("ma-team", m.GroupId));
 
-        // Second reconciliation (after sessions restored)
+        // Phase 4: Simulate sessions restored to _sessions, then reconcile
+        RegisterKnownSessions(svc, "team-orch", "team-w1", "team-w2", "regular-session");
+        AddDummySessions(svc, "team-orch", "team-w1", "team-w2", "regular-session");
         svc.ReconcileOrganization();
 
-        // Still intact
+        // Multi-agent sessions still in their group
         Assert.All(
             svc.Organization.Sessions.Where(s => s.SessionName.StartsWith("team-")),
             m => Assert.Equal("ma-team", m.GroupId));
@@ -852,6 +878,51 @@ public class MultiAgentRegressionTests
         // Regular sessions: unchanged
         Assert.Equal(repoGroup.Id, svc.Organization.Sessions.First(s => s.SessionName == "regular-1").GroupId);
         Assert.Equal(SessionGroup.DefaultId, svc.Organization.Sessions.First(s => s.SessionName == "regular-default").GroupId);
+    }
+
+    /// <summary>
+    /// Regression test: ReconcileOrganization with zero active sessions must not prune
+    /// any session metadata. This matches the startup sequence where LoadOrganization
+    /// is called before RestorePreviousSessionsAsync populates _sessions.
+    /// </summary>
+    [Fact]
+    public void ReconcileOrganization_WithZeroActiveSessions_DoesNotPrune()
+    {
+        var svc = CreateService();
+
+        // Set up a multi-agent group with sessions (simulates loaded org)
+        var maGroup = svc.CreateMultiAgentGroup("Squad", MultiAgentMode.Orchestrator);
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "squad-orch", GroupId = maGroup.Id,
+            Role = MultiAgentRole.Orchestrator, PreferredModel = "claude-opus-4.6"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "squad-w1", GroupId = maGroup.Id,
+            PreferredModel = "claude-sonnet-4.6"
+        });
+        // Also a regular session
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "regular", GroupId = SessionGroup.DefaultId
+        });
+
+        // Verify we have sessions
+        Assert.Equal(3, svc.Organization.Sessions.Count);
+
+        // Simulate the pre-restore state: zero active sessions in memory
+        // (no AddSession/CreateSession has been called)
+        svc.ReconcileOrganization();
+
+        // ALL sessions must survive — nothing should be pruned
+        Assert.Equal(3, svc.Organization.Sessions.Count);
+        Assert.Contains(svc.Organization.Sessions, s => s.SessionName == "squad-orch");
+        Assert.Contains(svc.Organization.Sessions, s => s.SessionName == "squad-w1");
+        Assert.Contains(svc.Organization.Sessions, s => s.SessionName == "regular");
+
+        // Multi-agent group still exists
+        Assert.Contains(svc.Organization.Groups, g => g.Id == maGroup.Id && g.IsMultiAgent);
     }
 
     #endregion

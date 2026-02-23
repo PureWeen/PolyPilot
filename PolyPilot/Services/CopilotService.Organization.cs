@@ -110,7 +110,9 @@ public partial class CopilotService
             });
         }
 
-        ReconcileOrganization();
+        // NOTE: Do NOT call ReconcileOrganization() here — _sessions is empty at load time,
+        // so reconciliation would prune all session metadata. Reconcile is called explicitly
+        // after RestorePreviousSessionsAsync populates _sessions (line 403 and 533).
     }
 
     public void SaveOrganization()
@@ -291,6 +293,17 @@ public partial class CopilotService
             return;
         }
 
+        // Safety: skip pruning when no sessions are in memory (pre-restore state).
+        // During app startup, LoadOrganization loads the org before sessions are restored,
+        // and a stale active-sessions.json would cause all sessions to be pruned.
+        // Pruning is only safe once _sessions has been populated by RestorePreviousSessionsAsync.
+        if (activeNames.Count == 0 && Organization.Sessions.Count > 0)
+        {
+            Debug("ReconcileOrganization: skipping prune — no active sessions in memory yet");
+            if (changed) SaveOrganization();
+            return;
+        }
+
         // Protect multi-agent group sessions from pruning — they may not yet be in
         // active-sessions.json if the app was killed before the debounce timer fired.
         // The authoritative source for these sessions is organization.json itself.
@@ -302,7 +315,10 @@ public partial class CopilotService
         // Remove metadata only for sessions that are truly gone (not in any known set)
         var toRemove = Organization.Sessions.Where(m => !knownNames.Contains(m.SessionName) && !protectedNames.Contains(m.SessionName)).ToList();
         if (toRemove.Count > 0)
+        {
             Debug($"ReconcileOrganization: pruning {toRemove.Count} sessions: {string.Join(", ", toRemove.Select(m => m.SessionName))}");
+            changed = true;
+        }
         Organization.Sessions.RemoveAll(m => !knownNames.Contains(m.SessionName) && !protectedNames.Contains(m.SessionName));
 
         if (changed) SaveOrganization();
