@@ -420,6 +420,28 @@ public partial class CopilotService : IAsyncDisposable
         // Reconcile now that all sessions are restored
         ReconcileOrganization();
         OnStateChanged?.Invoke();
+
+        // Prune orphaned worktrees on startup (fire and forget — non-blocking)
+        _ = PruneOrphanedWorktreesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Collects worktree IDs currently referenced by sessions or groups and asks RepoManager
+    /// to auto-remove any orphaned worktrees that are safe to delete.
+    /// </summary>
+    private async Task PruneOrphanedWorktreesAsync(CancellationToken ct)
+    {
+        try
+        {
+            var activeWorktreeIds = Organization.Sessions
+                .Select(m => m.WorktreeId)
+                .Concat(Organization.Groups.Select(g => g.WorktreeId));
+            await _repoManager.PruneOrphanedWorktreesAsync(activeWorktreeIds, ct);
+        }
+        catch (Exception ex)
+        {
+            Debug($"[Worktree] Orphan pruning failed: {ex.Message}");
+        }
     }
 
     /// <summary>

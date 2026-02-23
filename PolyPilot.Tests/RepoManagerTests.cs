@@ -1,3 +1,4 @@
+using PolyPilot.Models;
 using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
@@ -54,5 +55,77 @@ public class RepoManagerTests
     public void NormalizeRepoUrl_NonShorthand_PassesThrough(string input)
     {
         Assert.Equal(input, RepoManager.NormalizeRepoUrl(input));
+    }
+
+    // ── FindOrphanedWorktrees ──────────────────────────────────────────────
+
+    [Fact]
+    public void FindOrphanedWorktrees_ReturnsWorktreesNotInActiveSet()
+    {
+        var worktrees = new[]
+        {
+            new WorktreeInfo { Id = "wt1", Branch = "feat-a", Path = "/tmp/wt1" },
+            new WorktreeInfo { Id = "wt2", Branch = "feat-b", Path = "/tmp/wt2" },
+            new WorktreeInfo { Id = "wt3", Branch = "feat-c", Path = "/tmp/wt3" },
+        };
+        var activeIds = new[] { "wt1", "wt3" };
+
+        var orphans = RepoManager.FindOrphanedWorktrees(worktrees, activeIds).ToList();
+
+        Assert.Single(orphans);
+        Assert.Equal("wt2", orphans[0].Id);
+    }
+
+    [Fact]
+    public void FindOrphanedWorktrees_AllActive_ReturnsEmpty()
+    {
+        var worktrees = new[]
+        {
+            new WorktreeInfo { Id = "wt1", Branch = "feat-a", Path = "/tmp/wt1" },
+            new WorktreeInfo { Id = "wt2", Branch = "feat-b", Path = "/tmp/wt2" },
+        };
+
+        var orphans = RepoManager.FindOrphanedWorktrees(worktrees, new[] { "wt1", "wt2" }).ToList();
+
+        Assert.Empty(orphans);
+    }
+
+    [Fact]
+    public void FindOrphanedWorktrees_NullIdsIgnored()
+    {
+        var worktrees = new[]
+        {
+            new WorktreeInfo { Id = "wt1", Branch = "feat-a", Path = "/tmp/wt1" },
+        };
+        // null entries in the active list must not be treated as a match
+        var activeIds = new string?[] { null, null };
+
+        var orphans = RepoManager.FindOrphanedWorktrees(worktrees, activeIds).ToList();
+
+        Assert.Single(orphans);
+        Assert.Equal("wt1", orphans[0].Id);
+    }
+
+    [Fact]
+    public void FindOrphanedWorktrees_EmptyWorktrees_ReturnsEmpty()
+    {
+        var orphans = RepoManager.FindOrphanedWorktrees(
+            Array.Empty<WorktreeInfo>(), new[] { "wt1" }).ToList();
+
+        Assert.Empty(orphans);
+    }
+
+    [Fact]
+    public void FindOrphanedWorktrees_EmptyActiveSet_ReturnsAllWorktrees()
+    {
+        var worktrees = new[]
+        {
+            new WorktreeInfo { Id = "wt1", Branch = "feat-a", Path = "/tmp/wt1" },
+            new WorktreeInfo { Id = "wt2", Branch = "feat-b", Path = "/tmp/wt2" },
+        };
+
+        var orphans = RepoManager.FindOrphanedWorktrees(worktrees, Array.Empty<string?>()).ToList();
+
+        Assert.Equal(2, orphans.Count);
     }
 }

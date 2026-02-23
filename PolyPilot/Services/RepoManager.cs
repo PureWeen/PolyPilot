@@ -338,6 +338,73 @@ public class RepoManager
     }
 
     /// <summary>
+    /// Returns worktrees from <paramref name="worktrees"/> whose IDs are not present in
+    /// <paramref name="activeWorktreeIds"/>.  Pure function — no git or disk access.
+    /// </summary>
+    public static IEnumerable<WorktreeInfo> FindOrphanedWorktrees(
+        IEnumerable<WorktreeInfo> worktrees, IEnumerable<string?> activeWorktreeIds)
+    {
+        var activeIds = new HashSet<string>(activeWorktreeIds.OfType<string>(), StringComparer.Ordinal);
+        return worktrees.Where(w => !activeIds.Contains(w.Id));
+    }
+
+    /// <summary>
+    /// Auto-removes orphaned worktrees (those not in <paramref name="activeWorktreeIds"/>) that are
+    /// safe to delete: the worktree directory is either missing or clean (no uncommitted changes)
+    /// AND the remote tracking branch is gone.
+    /// </summary>
+    public async Task PruneOrphanedWorktreesAsync(IEnumerable<string?> activeWorktreeIds, CancellationToken ct = default)
+    {
+        EnsureLoaded();
+        var orphans = FindOrphanedWorktrees(_state.Worktrees, activeWorktreeIds).ToList();
+        if (orphans.Count == 0) return;
+
+        Console.WriteLine($"[RepoManager] Evaluating {orphans.Count} orphaned worktree(s) for cleanup");
+        foreach (var wt in orphans)
+        {
+            try
+            {
+                if (!await IsSafeToRemoveAsync(wt, ct))
+                    continue;
+                Console.WriteLine($"[RepoManager] Auto-removing orphaned worktree: {wt.Id} ({wt.Branch})");
+                await RemoveWorktreeAsync(wt.Id, ct);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RepoManager] Could not remove orphaned worktree {wt.Id}: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>Returns true if the worktree is safe to auto-remove.</summary>
+    private async Task<bool> IsSafeToRemoveAsync(WorktreeInfo wt, CancellationToken ct)
+    {
+        // Missing directory — always safe to clean up from state.
+        if (!Directory.Exists(wt.Path))
+            return true;
+
+        // Dirty working tree — keep it.
+        try
+        {
+            var status = await RunGitAsync(wt.Path, ct, "status", "--porcelain");
+            if (!string.IsNullOrWhiteSpace(status))
+                return false;
+        }
+        catch { return false; }
+
+        // Remote tracking branch gone — safe to remove.
+        // `git branch -vv` shows [remote/branch: gone] when the upstream branch was deleted.
+        try
+        {
+            var branchInfo = await RunGitAsync(wt.Path, ct, "branch", "-vv");
+            var currentLine = branchInfo.Split('\n')
+                .FirstOrDefault(l => l.TrimStart().StartsWith('*'));
+            return currentLine?.Contains("gone", StringComparison.OrdinalIgnoreCase) == true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
     /// Remove a worktree and clean up.
     /// </summary>
     public async Task RemoveWorktreeAsync(string worktreeId, CancellationToken ct = default)
