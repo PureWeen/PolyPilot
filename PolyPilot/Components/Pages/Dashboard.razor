@@ -113,7 +113,7 @@
         {
             <KeepAliveSession Id="@($"slot-{session.Name.Replace(" ", "-")}")"
                               IsVisible="@(session.Name == expandedSession)"
-                              WarmWhenHidden="@(session.IsProcessing && (streamingBySession.ContainsKey(session.Name) || currentToolBySession.ContainsKey(session.Name) || activityBySession.ContainsKey(session.Name)))"
+                              WarmWhenHidden="@(completedSessions.Contains(session.Name) || (session.IsProcessing && (streamingBySession.ContainsKey(session.Name) || currentToolBySession.ContainsKey(session.Name) || activityBySession.ContainsKey(session.Name))))"
                               HiddenWarmIntervalMs="250"
                               @key="session.Name">
                 <ExpandedSessionView Session="session"
