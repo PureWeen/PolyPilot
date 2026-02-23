@@ -339,6 +339,7 @@
             if (el) {
                 el.value = '';
                 el.style.height = 'auto';
+                el._lastSlashValue = null;
                 // Remove slash command ghost overlay
                 var ghost = document.getElementById(elementId + '--slash-ghost');
                 if (ghost) ghost.style.display = 'none';
@@ -755,20 +756,20 @@
                 var text = el && typeof el.value === 'string' ? el.value : '';
                 if (text.length === 0 || text.charAt(0) !== '/') return null;
                 var spaceIdx = text.indexOf(' ');
+                var cursor = (el && typeof el.selectionStart === 'number') ? el.selectionStart : text.length;
                 if (spaceIdx === -1) {
-                    var cursor = (el && typeof el.selectionStart === 'number') ? el.selectionStart : text.length;
                     return { query: text.slice(0, cursor).slice(1).toLowerCase(), mode: 'filter' };
                 }
+                // Only enter locked mode if the cursor is past the command token (after the space)
                 var cmdPart = text.slice(0, spaceIdx).toLowerCase();
-                if (COMMANDS.some(function(c) { return c.cmd === cmdPart; })) {
+                if (cursor > spaceIdx && COMMANDS.some(function(c) { return c.cmd === cmdPart; })) {
                     return { query: cmdPart.slice(1), mode: 'locked' };
                 }
-                var cursor2 = (el && typeof el.selectionStart === 'number') ? el.selectionStart : text.length;
-                var left2 = text.slice(0, cursor2);
-                var spIdx = left2.indexOf(' ');
+                var left = text.slice(0, cursor);
+                var spIdx = left.indexOf(' ');
                 return spIdx === -1
-                    ? { query: left2.slice(1).toLowerCase(), mode: 'filter' }
-                    : { query: left2.slice(0, spIdx).slice(1).toLowerCase(), mode: 'locked' };
+                    ? { query: left.slice(1).toLowerCase(), mode: 'filter' }
+                    : { query: left.slice(0, spIdx).slice(1).toLowerCase(), mode: 'locked' };
             }
 
             function ensureDropdown() {
@@ -834,7 +835,12 @@
                     if (_rafPending) { cancelAnimationFrame(_rafPending); _rafPending = 0; }
                     var container = target.closest('.input-row') || target.closest('.card-input');
                     var sendBtn = container && container.querySelector('.send-btn:not(.stop-btn)');
-                    if (sendBtn) sendBtn.click();
+                    if (sendBtn) {
+                        sendBtn.click();
+                    } else {
+                        // Fallback: dispatch a synthetic Enter keypress so the input handler can submit
+                        target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+                    }
                 }
             }
 
@@ -957,6 +963,10 @@
                 if ((e.key === 'Tab' || e.key === 'Enter') && !isLocked) {
                     e.preventDefault(); e.stopPropagation();
                     chooseOption(state.selectedIndex); return;
+                }
+                // In locked mode, Tab would shift focus and leave an orphaned dropdown — hide it
+                if (e.key === 'Tab' && isLocked) {
+                    hideDropdown(); return;
                 }
                 if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideDropdown(); }
             }, true);
