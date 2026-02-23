@@ -787,6 +787,7 @@
     private Timer? _renderTimer;
     private long _switchCooldownUntil; // TickCount64 value: suppress renders until this time
     private readonly RenderThrottle _refreshThrottle = new(500);
+    private long _lastDraftCaptureTickMs; // TickCount64 of last JS draft-capture eval
 
     private void ScheduleRender()
     {
@@ -811,10 +812,15 @@
         }
 
         // During a session switch, drafts were already saved — skip the expensive JS round-trip.
-        // Also skip when sessions just completed — the render is for showing final messages,
-        // not capturing user input. The JS interop round-trip delays the render significantly
-        // when many sessions are active (multi-agent review with 10+ sessions).
-        if (!_sessionSwitching && completedSessions.Count == 0)
+        // Also debounce: only capture drafts every 3s to avoid flooding the WebView JS bridge
+        // during multi-agent event bursts (10+ sessions firing events at 50ms intervals).
+        // The JS interop round-trip blocks the Blazor render pipeline, causing "stuck thinking" UI.
+        var nowTicks = Environment.TickCount64;
+        var lastCapture = Interlocked.Read(ref _lastDraftCaptureTickMs);
+        var shouldCaptureDrafts = !_sessionSwitching 
+            && completedSessions.Count == 0
+            && (nowTicks - lastCapture) >= 3000;
+        if (shouldCaptureDrafts)
         {
             // Capture all card input values before re-render wipes them
             try
@@ -853,6 +859,7 @@
                 }
             }
             catch { }
+            Interlocked.Exchange(ref _lastDraftCaptureTickMs, Environment.TickCount64);
         }
         _sessionSwitching = false;
         StateHasChanged();

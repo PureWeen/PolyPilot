@@ -743,11 +743,13 @@ public partial class CopilotService
         state.Info.ProcessingPhase = 0;
         state.Info.LastUpdatedAt = DateTime.Now;
         state.ResponseCompletion?.TrySetResult(response);
-        OnStateChanged?.Invoke();
         
-        // Fire completion notification
+        // Fire completion notification BEFORE OnStateChanged — this ensures
+        // HandleComplete populates completedSessions before RefreshState checks the
+        // throttle (completedSessions.Count > 0 bypasses throttle).
         var summary = response.Length > 100 ? response[..100] + "..." : response;
         OnSessionComplete?.Invoke(state.Info.Name, summary);
+        OnStateChanged?.Invoke();
 
         // Reflection cycle: evaluate response and enqueue follow-up if goal not yet met
         var cycle = state.Info.ReflectionCycle;
