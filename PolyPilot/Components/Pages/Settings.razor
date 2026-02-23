@@ -178,7 +178,7 @@
                                 @if (!string.IsNullOrEmpty(qrCodeDataUri))
                                 {
                                     <div class="qr-code">
-                                        <img src="@qrCodeDataUri" alt="QR Code" />
+                                        <img src="@qrCodeDataUri" alt="QR Code" class="@(showToken ? "" : "blurred")" />
                                         <p class="qr-hint">Scan with PolyPilot on iOS/Android to connect</p>
                                     </div>
                                 }
@@ -244,7 +244,7 @@
                         @if (!string.IsNullOrEmpty(directQrCodeDataUri))
                         {
                             <div class="qr-code">
-                                <img src="@directQrCodeDataUri" alt="QR Code" />
+                                <img src="@directQrCodeDataUri" alt="QR Code" class="@(showToken ? "" : "blurred")" />
                                 <p class="qr-hint">Scan with PolyPilot on iOS/Android to connect</p>
                             </div>
                         }
