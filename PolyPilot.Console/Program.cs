@@ -129,6 +129,10 @@ public class Program
                 HandleStatus();
                 break;
 
+            case CommandType.Model:
+                HandleModel();
+                break;
+
             case CommandType.Clear:
                 HandleClear();
                 break;
@@ -342,6 +346,19 @@ public class Program
         }
     }
 
+    private static void HandleModel()
+    {
+        var session = _sessionManager.GetActiveSession();
+        
+        if (session == null)
+        {
+            AnsiConsole.MarkupLine("[yellow]No active session. Use /new <name> to create one.[/]");
+            return;
+        }
+
+        AnsiConsole.MarkupLine($"[bold]Model:[/] [yellow]{session.Model}[/]");
+    }
+
     private static void HandleClear()
     {
         var session = _sessionManager.GetActiveSession();
@@ -415,6 +432,7 @@ public class Program
         table.AddRow("/list", "List all active sessions");
         table.AddRow("/close <name>", "Close a session");
         table.AddRow("/status", "Show current session info");
+        table.AddRow("/model", "Show current session's model");
         table.AddRow("/clear", "Clear current session history");
         table.AddRow("/help", "Show this help");
         table.AddRow("/quit", "Exit application");
@@ -438,6 +456,7 @@ public class Program
         Console.WriteLine("  /list                List all sessions");
         Console.WriteLine("  /close <name>        Close a session");
         Console.WriteLine("  /status              Show current session info");
+        Console.WriteLine("  /model               Show current session's model");
         Console.WriteLine("  /clear               Clear current session history");
         Console.WriteLine("  /quit                Exit application");
     }

@@ -56,6 +56,7 @@
     <Compile Include="../PolyPilot/Services/DevTunnelService.cs" Link="Shared/DevTunnelService.cs" />
     <Compile Include="../PolyPilot/Services/FiestaService.cs" Link="Shared/FiestaService.cs" />
     <Compile Include="../PolyPilot/Models/ReflectionCycle.cs" Link="Shared/ReflectionCycle.cs" />
+    <Compile Include="../PolyPilot.Console/Services/CommandParser.cs" Link="Shared/CommandParser.cs" />
     <Compile Include="../PolyPilot/Models/ModelCapabilities.cs" Link="Shared/ModelCapabilities.cs" />
     <Compile Include="../PolyPilot/Models/SquadDiscovery.cs" Link="Shared/SquadDiscovery.cs" />
     <Compile Include="../PolyPilot/Models/SquadWriter.cs" Link="Shared/SquadWriter.cs" />
