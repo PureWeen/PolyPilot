@@ -1081,6 +1081,19 @@ public partial class CopilotService
                 var nextPrompt = state.Info.MessageQueue[0];
                 state.Info.MessageQueue.RemoveAt(0);
 
+                // Consume any queued agent mode to keep alignment
+                string? nextAgentMode2 = null;
+                lock (_imageQueueLock)
+                {
+                    if (_queuedAgentModes.TryGetValue(state.Info.Name, out var modeQueue2) && modeQueue2.Count > 0)
+                    {
+                        nextAgentMode2 = modeQueue2[0];
+                        modeQueue2.RemoveAt(0);
+                        if (modeQueue2.Count == 0)
+                            _queuedAgentModes.TryRemove(state.Info.Name, out _);
+                    }
+                }
+
                 var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
                                   ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt);
 
@@ -1096,7 +1109,7 @@ public partial class CopilotService
                             {
                                 try
                                 {
-                                    await SendPromptAsync(state.Info.Name, nextPrompt, skipHistoryMessage: skipHistory);
+                                    await SendPromptAsync(state.Info.Name, nextPrompt, skipHistoryMessage: skipHistory, agentMode: nextAgentMode2);
                                     tcs.TrySetResult();
                                 }
                                 catch (Exception ex)

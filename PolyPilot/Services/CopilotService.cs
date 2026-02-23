@@ -1628,10 +1628,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     StartProcessingWatchdog(state, sessionName);
                     
                     Debug($"Session '{sessionName}' reconnected, retrying prompt...");
-                    await state.Session.SendAsync(new MessageOptions
+                    var retryOptions = new MessageOptions
                     {
                         Prompt = prompt
-                    }, cancellationToken);
+                    };
+                    if (!string.IsNullOrEmpty(agentMode))
+                        retryOptions.Mode = agentMode;
+                    await state.Session.SendAsync(retryOptions, cancellationToken);
                 }
                 catch (Exception retryEx)
                 {
@@ -1875,8 +1878,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             lock (_imageQueueLock)
             {
                 _queuedImagePaths.TryRemove(sessionName, out _);
+                _queuedAgentModes.TryRemove(sessionName, out _);
             }
-            _queuedAgentModes.TryRemove(sessionName, out _);
             OnStateChanged?.Invoke();
         }
     }
@@ -2024,15 +2027,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         state.Info.Name = newName;
 
-        // Move queued image paths to new name
+        // Move queued image paths and agent modes to new name
         lock (_imageQueueLock)
         {
             if (_queuedImagePaths.TryRemove(oldName, out var imageQueue))
                 _queuedImagePaths[newName] = imageQueue;
+            if (_queuedAgentModes.TryRemove(oldName, out var modeQueue))
+                _queuedAgentModes[newName] = modeQueue;
         }
-        // Move queued agent modes to new name
-        if (_queuedAgentModes.TryRemove(oldName, out var modeQueue))
-            _queuedAgentModes[newName] = modeQueue;
 
         if (!_sessions.TryAdd(newName, state))
         {
