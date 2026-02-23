@@ -334,7 +334,7 @@ public class WsBridgeIntegrationTests : IDisposable
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
 
-        await client.QueueMessageAsync("queue-test", "queued msg", cts.Token);
+        await client.QueueMessageAsync("queue-test", "queued msg", ct: cts.Token);
 
         var session = _copilot.GetSession("queue-test");
         Assert.NotNull(session);

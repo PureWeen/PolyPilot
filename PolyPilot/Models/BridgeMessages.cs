@@ -264,6 +264,7 @@ public class QueueMessagePayload
 {
     public string SessionName { get; set; } = "";
     public string Message { get; set; } = "";
+    public string? AgentMode { get; set; }
 }
 
 public class PersistedSessionsPayload

@@ -1759,7 +1759,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             if (imagePaths != null && imagePaths.Count > 0)
                 Console.WriteLine($"[CopilotService] Warning: image attachments not supported in remote mode, {imagePaths.Count} image(s) dropped");
-            _ = _bridgeClient.QueueMessageAsync(sessionName, prompt)
+            _ = _bridgeClient.QueueMessageAsync(sessionName, prompt, agentMode)
                 .ContinueWith(t => Console.WriteLine($"[CopilotService] QueueMessage bridge error: {t.Exception?.InnerException?.Message}"),
                     TaskContinuationOptions.OnlyOnFaulted);
             return;
@@ -1785,10 +1785,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Track agent mode alongside the queued message
         if (agentMode != null)
         {
-            var modes = _queuedAgentModes.GetOrAdd(sessionName, _ => new List<string?>());
-            while (modes.Count < state.Info.MessageQueue.Count - 1)
-                modes.Add(null);
-            modes.Add(agentMode);
+            lock (_imageQueueLock)
+            {
+                var modes = _queuedAgentModes.GetOrAdd(sessionName, _ => new List<string?>());
+                while (modes.Count < state.Info.MessageQueue.Count - 1)
+                    modes.Add(null);
+                modes.Add(agentMode);
+            }
         }
         
         OnStateChanged?.Invoke();
@@ -1851,11 +1854,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 }
             }
             // Keep queued agent modes in sync
-            if (_queuedAgentModes.TryGetValue(sessionName, out var modeQueue) && index < modeQueue.Count)
+            lock (_imageQueueLock)
             {
-                modeQueue.RemoveAt(index);
-                if (modeQueue.Count == 0)
-                    _queuedAgentModes.TryRemove(sessionName, out _);
+                if (_queuedAgentModes.TryGetValue(sessionName, out var modeQueue) && index < modeQueue.Count)
+                {
+                    modeQueue.RemoveAt(index);
+                    if (modeQueue.Count == 0)
+                        _queuedAgentModes.TryRemove(sessionName, out _);
+                }
             }
             OnStateChanged?.Invoke();
         }

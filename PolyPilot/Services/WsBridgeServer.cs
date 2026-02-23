@@ -435,7 +435,7 @@ public class WsBridgeServer : IDisposable
                 case BridgeMessageTypes.QueueMessage:
                     var queueReq = msg.GetPayload<QueueMessagePayload>();
                     if (queueReq != null && !string.IsNullOrWhiteSpace(queueReq.SessionName) && !string.IsNullOrWhiteSpace(queueReq.Message))
-                        _copilot.EnqueueMessage(queueReq.SessionName, queueReq.Message);
+                        _copilot.EnqueueMessage(queueReq.SessionName, queueReq.Message, agentMode: queueReq.AgentMode);
                     break;
 
                 case BridgeMessageTypes.GetPersistedSessions:

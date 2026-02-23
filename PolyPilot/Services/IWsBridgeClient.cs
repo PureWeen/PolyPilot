@@ -42,7 +42,7 @@ public interface IWsBridgeClient
     Task SendMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default);
     Task CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken ct = default);
     Task SwitchSessionAsync(string name, CancellationToken ct = default);
-    Task QueueMessageAsync(string sessionName, string message, CancellationToken ct = default);
+    Task QueueMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default);
     Task ResumeSessionAsync(string sessionId, string? displayName = null, CancellationToken ct = default);
     Task CloseSessionAsync(string name, CancellationToken ct = default);
     Task AbortSessionAsync(string sessionName, CancellationToken ct = default);

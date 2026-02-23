@@ -101,7 +101,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
     }
 
     public void FireOnStateChanged() => OnStateChanged?.Invoke();
-    public Task QueueMessageAsync(string sessionName, string message, CancellationToken ct = default) => Task.CompletedTask;
+    public Task QueueMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task ResumeSessionAsync(string sessionId, string? displayName = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task CloseSessionAsync(string name, CancellationToken ct = default) => Task.CompletedTask;
     public Task AbortSessionAsync(string sessionName, CancellationToken ct = default) => Task.CompletedTask;

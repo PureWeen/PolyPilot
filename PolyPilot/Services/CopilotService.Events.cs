@@ -800,12 +800,15 @@ public partial class CopilotService
             }
             // Retrieve any queued agent mode for this message
             string? nextAgentMode = null;
-            if (_queuedAgentModes.TryGetValue(state.Info.Name, out var modeQueue) && modeQueue.Count > 0)
+            lock (_imageQueueLock)
             {
-                nextAgentMode = modeQueue[0];
-                modeQueue.RemoveAt(0);
-                if (modeQueue.Count == 0)
-                    _queuedAgentModes.TryRemove(state.Info.Name, out _);
+                if (_queuedAgentModes.TryGetValue(state.Info.Name, out var modeQueue) && modeQueue.Count > 0)
+                {
+                    nextAgentMode = modeQueue[0];
+                    modeQueue.RemoveAt(0);
+                    if (modeQueue.Count == 0)
+                        _queuedAgentModes.TryRemove(state.Info.Name, out _);
+                }
             }
 
             var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
@@ -855,11 +858,18 @@ public partial class CopilotService
                                 images.Insert(0, nextImagePaths);
                             }
                         }
-                        // Re-queue the agent mode too
-                        if (nextAgentMode != null)
+                        // Re-queue the agent mode too (always re-insert to maintain alignment)
+                        lock (_imageQueueLock)
                         {
-                            var modes = _queuedAgentModes.GetOrAdd(state.Info.Name, _ => new List<string?>());
-                            modes.Insert(0, nextAgentMode);
+                            if (_queuedAgentModes.TryGetValue(state.Info.Name, out var existingModes))
+                            {
+                                existingModes.Insert(0, nextAgentMode);
+                            }
+                            else if (nextAgentMode != null)
+                            {
+                                var modes = _queuedAgentModes.GetOrAdd(state.Info.Name, _ => new List<string?>());
+                                modes.Insert(0, nextAgentMode);
+                            }
                         }
                     });
                 }
