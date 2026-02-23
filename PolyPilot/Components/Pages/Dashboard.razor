@@ -1221,6 +1221,31 @@
 
         try
         {
+            // Route orchestrator session messages through the multi-agent pipeline
+            // so typing in the orchestrator chat dispatches to workers automatically.
+            var sessionMeta = CopilotService.GetSessionMeta(sessionName);
+            var group = sessionMeta?.GroupId != null
+                ? CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == sessionMeta.GroupId)
+                : null;
+            var isOrchestrator = group is { IsMultiAgent: true }
+                && (group.OrchestratorMode == MultiAgentMode.Orchestrator || group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+                && CopilotService.GetOrchestratorSession(group.Id) == sessionName;
+
+            if (isOrchestrator && (imagePaths == null || imagePaths.Count == 0))
+            {
+                _ = CopilotService.SendToMultiAgentGroupAsync(group!.Id, finalPrompt).ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                    {
+                        InvokeAsync(() =>
+                        {
+                            Console.WriteLine($"Error sending to multi-agent group: {t.Exception?.InnerException?.Message}");
+                        });
+                    }
+                });
+            }
+            else
+            {
             _ = CopilotService.SendPromptAsync(sessionName, finalPrompt, imagePaths, agentMode: agentMode).ContinueWith(t =>
             {
                 if (t.IsFaulted)
@@ -1231,6 +1256,7 @@
                     });
                 }
             });
+            }
         }
         catch (Exception ex)
         {
