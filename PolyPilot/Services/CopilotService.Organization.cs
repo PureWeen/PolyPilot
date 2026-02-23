@@ -61,6 +61,8 @@ public partial class CopilotService
         }
 
         SaveOrganization();
+        FlushSaveOrganization();
+        FlushSaveActiveSessionsToDisk();
         OnStateChanged?.Invoke();
         return group.Id;
     }
@@ -289,11 +291,19 @@ public partial class CopilotService
             return;
         }
 
+        // Protect multi-agent group sessions from pruning — they may not yet be in
+        // active-sessions.json if the app was killed before the debounce timer fired.
+        // The authoritative source for these sessions is organization.json itself.
+        var protectedNames = new HashSet<string>(
+            Organization.Sessions
+                .Where(m => multiAgentGroupIds.Contains(m.GroupId))
+                .Select(m => m.SessionName));
+
         // Remove metadata only for sessions that are truly gone (not in any known set)
-        var toRemove = Organization.Sessions.Where(m => !knownNames.Contains(m.SessionName)).ToList();
+        var toRemove = Organization.Sessions.Where(m => !knownNames.Contains(m.SessionName) && !protectedNames.Contains(m.SessionName)).ToList();
         if (toRemove.Count > 0)
             Debug($"ReconcileOrganization: pruning {toRemove.Count} sessions: {string.Join(", ", toRemove.Select(m => m.SessionName))}");
-        Organization.Sessions.RemoveAll(m => !knownNames.Contains(m.SessionName));
+        Organization.Sessions.RemoveAll(m => !knownNames.Contains(m.SessionName) && !protectedNames.Contains(m.SessionName));
 
         if (changed) SaveOrganization();
     }
@@ -1085,6 +1095,10 @@ public partial class CopilotService
         // instead of relying on the 2s debounce. If the process is killed (e.g., relaunch),
         // the debounce timer never fires and the group is lost on restart.
         FlushSaveOrganization();
+        // Also flush active-sessions.json so the new sessions are known on restart.
+        // Without this, ReconcileOrganization prunes the squad sessions from org
+        // because they're not in active-sessions.json yet (still waiting on 2s debounce).
+        FlushSaveActiveSessionsToDisk();
         OnStateChanged?.Invoke();
         return group;
     }
