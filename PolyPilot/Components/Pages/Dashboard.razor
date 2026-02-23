@@ -96,6 +96,8 @@
                 {
                     <span class="phase-indicator">@PhaseLabel(expPhase.Phase, expPhase.Detail)</span>
                 }
+                @if (expandedGroup.OrchestratorMode != MultiAgentMode.Orchestrator && expandedGroup.OrchestratorMode != MultiAgentMode.OrchestratorReflect)
+                {
                 <input type="text" id="ma-input-expanded-@expandedGroupId" class="ma-expanded-toolbar-input"
                        placeholder="@GetInputPlaceholder(expandedGroup.OrchestratorMode)"
                        @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") await SendToExpandedMultiAgentGroup(expandedGroupId); })"
@@ -103,6 +105,7 @@
                 <button class="ma-send-btn" @onclick="() => SendToExpandedMultiAgentGroup(expandedGroupId)" @onclick:stopPropagation="true">
                     📡 Send All
                 </button>
+                }
             </div>
         }
         @* Keep-alive: render all active sessions, JS owns 'active' class for instant switching *@
@@ -266,11 +269,14 @@
                                        @onclick:stopPropagation="true" class="reflect-iter-input" />
                             </span>
                         }
+                        @if (group.OrchestratorMode != MultiAgentMode.Orchestrator && group.OrchestratorMode != MultiAgentMode.OrchestratorReflect)
+                        {
                         <textarea id="ma-input-@group.Id" class="ma-broadcast-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)"
                                   rows="1"></textarea>
                         <button class="ma-send-btn" @onclick="() => SendToMultiAgentGroup(group.Id)" title="Send to all sessions">
                             📡 Send All
                         </button>
+                        }
                     </div>
                 }
                 <div class="session-grid @(isCompactGrid ? "" : "expanded-grid")">
@@ -941,14 +947,14 @@
     private void HandleComplete(string sessionName, string summary)
     {
         // Already on UI thread (called from CompleteResponse via Invoke/SynchronizationContext.Post).
-        // Must be synchronous — InvokeAsync defers and causes stale renders.
+        // Must be synchronous — InvokeAsync defers and causes stale renders (INV-8).
         if (_disposed) return;
         completedSessions.Add(sessionName);
         streamingBySession.Remove(sessionName);
         activityBySession.Remove(sessionName);
         sessions = CopilotService.GetAllSessions().ToList();
         StateHasChanged();
-        // This callback runs on thread-pool — DOES need InvokeAsync.
+        // Clear the completed badge after 10 seconds
         _ = Task.Delay(10000).ContinueWith(_ =>
             InvokeAsync(() =>
             {
