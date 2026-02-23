@@ -1317,7 +1317,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 Mode = SystemMessageMode.Append,
                 Content = systemContent.ToString()
-            }
+            },
+            InfiniteSessions = new InfiniteSessionConfig { Enabled = true }
         };
         if (mcpServers != null)
             Debug($"Session config includes {mcpServers.Count} MCP server(s): {string.Join(", ", mcpServers.Keys)}");
