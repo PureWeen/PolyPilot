@@ -259,25 +259,27 @@
             {
                 @if (group.IsMultiAgent && showGroupHeaders)
                 {
-                    <div class="multi-agent-input-bar" @onclick:stopPropagation="true">
-                        @if (group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
-                        {
+                    @if (group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+                    {
+                        <div class="multi-agent-input-bar" @onclick:stopPropagation="true">
                             <span class="reflect-iter-inline">
                                 <label>Iterations:</label>
                                 <input type="number" min="1" max="100" value="@GetMaxIterations(group.Id)"
                                        @onchange="(e) => SetMaxIterations(group.Id, e)"
                                        @onclick:stopPropagation="true" class="reflect-iter-input" />
                             </span>
-                        }
-                        @if (group.OrchestratorMode != MultiAgentMode.Orchestrator && group.OrchestratorMode != MultiAgentMode.OrchestratorReflect)
-                        {
+                        </div>
+                    }
+                    else if (group.OrchestratorMode != MultiAgentMode.Orchestrator)
+                    {
+                    <div class="multi-agent-input-bar" @onclick:stopPropagation="true">
                         <textarea id="ma-input-@group.Id" class="ma-broadcast-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)"
                                   rows="1"></textarea>
                         <button class="ma-send-btn" @onclick="() => SendToMultiAgentGroup(group.Id)" title="Send to all sessions">
                             📡 Send All
                         </button>
-                        }
                     </div>
+                    }
                 }
                 <div class="session-grid @(isCompactGrid ? "" : "expanded-grid")">
                 @foreach (var session in groupSessions)
