@@ -733,11 +733,29 @@
 
 .qr-code img.blurred {
     filter: blur(8px);
-    cursor: pointer;
 }
 
 .qr-code img.blurred:hover {
     filter: blur(4px);
+}
+
+.qr-reveal-btn {
+    background: var(--control-bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 4px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 0.4rem;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.qr-reveal-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 .qr-hint {
