@@ -1093,6 +1093,19 @@ public class GroupPresetTests
     {
         Assert.Contains(GroupPreset.BuiltIn, p => p.Mode == MultiAgentMode.OrchestratorReflect);
     }
+
+    [Fact]
+    public void BuiltInPresets_IncludePRReviewSquad()
+    {
+        var prSquad = GroupPreset.BuiltIn.FirstOrDefault(p => p.Name == "PR Review Squad");
+        Assert.NotNull(prSquad);
+        Assert.Equal(5, prSquad!.WorkerModels.Length);
+        Assert.Equal(MultiAgentMode.Orchestrator, prSquad.Mode);
+        Assert.NotNull(prSquad.SharedContext);
+        Assert.NotNull(prSquad.RoutingContext);
+        Assert.NotNull(prSquad.WorkerSystemPrompts);
+        Assert.Equal(prSquad.WorkerModels.Length, prSquad.WorkerSystemPrompts!.Length);
+    }
 }
 
 public class GroupModelAnalyzerTests
@@ -1495,7 +1508,7 @@ public class MultiAgentScenarioTests
     /// 
     /// User flow:
     ///   1. Click 🚀 Preset in sidebar toolbar
-    ///   2. Preset picker appears showing 4 built-in templates
+    ///   2. Preset picker appears showing 5 built-in templates
     ///   3. Select "Code Review Team" (🔍)
     ///   4. System creates: Orchestrator (claude-opus-4.6) + 2 Workers (gpt-5.1-codex, claude-sonnet-4.5)
     ///   5. Sidebar shows group with mode selector set to "🎯 Orchestrator"
@@ -1506,7 +1519,7 @@ public class MultiAgentScenarioTests
     {
         // Step 1-2: User sees built-in presets
         var presets = GroupPreset.BuiltIn;
-        Assert.Equal(4, presets.Length);
+        Assert.Equal(5, presets.Length);
 
         // Step 3: User picks "Code Review Team"
         var codeReview = presets.First(p => p.Name == "Code Review Team");
@@ -2177,6 +2190,34 @@ public class WorktreeTeamAssociationTests
 
         Assert.NotNull(group);
         Assert.Equal(MultiAgentMode.OrchestratorReflect, group!.OrchestratorMode);
+    }
+
+    [Fact]
+    public async Task CreateGroupFromPresetAsync_PinsOrchestratorSession()
+    {
+        var svc = CreateService();
+        var preset = new GroupPreset(
+            Name: "Pin Test",
+            Emoji: "📌",
+            Description: "Test orchestrator pinning",
+            OrchestratorModel: "claude-opus-4.6",
+            WorkerModels: new[] { "gpt-4.1", "claude-sonnet-4.5" },
+            Mode: MultiAgentMode.Orchestrator
+        );
+
+        var group = await svc.CreateGroupFromPresetAsync(preset);
+
+        Assert.NotNull(group);
+        var orchMeta = svc.Organization.Sessions
+            .FirstOrDefault(m => m.SessionName == "Pin Test-orchestrator");
+        Assert.NotNull(orchMeta);
+        Assert.True(orchMeta!.IsPinned, "Orchestrator should be pinned on creation");
+        Assert.Equal(MultiAgentRole.Orchestrator, orchMeta.Role);
+
+        // Workers should NOT be pinned
+        var workers = svc.Organization.Sessions
+            .Where(m => m.SessionName.StartsWith("Pin Test-worker-"));
+        Assert.All(workers, w => Assert.False(w.IsPinned));
     }
 
     [Fact]

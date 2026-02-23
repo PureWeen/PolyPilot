@@ -167,4 +167,40 @@ public class RenderThrottleTests
                 StringComparison.Ordinal);
         }
     }
+
+    [Fact]
+    public void CompleteResponse_OnSessionComplete_FiresBeforeOnStateChanged()
+    {
+        // Regression guard: In the main completion path of CompleteResponse (after
+        // IsProcessing=false), OnSessionComplete must fire BEFORE OnStateChanged.
+        // HandleComplete (OnSessionComplete handler) populates completedSessions;
+        // RefreshState (OnStateChanged handler) checks completedSessions.Count > 0
+        // to bypass throttle. If order is reversed, throttle drops the render.
+        var eventsPath = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..",
+            "PolyPilot", "Services", "CopilotService.Events.cs");
+        Assert.True(File.Exists(eventsPath), $"CopilotService.Events.cs not found at {eventsPath}");
+
+        var source = File.ReadAllText(eventsPath);
+
+        // Find CompleteResponse method
+        var methodStart = source.IndexOf("private void CompleteResponse(", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0, "CompleteResponse method not found");
+
+        // The critical ordering is AFTER IsProcessing = false (the main completion path).
+        // Use the preceding comment as anchor to find the right occurrence.
+        var anchor = source.IndexOf("// Clear IsProcessing BEFORE completing the TCS", methodStart, StringComparison.Ordinal);
+        Assert.True(anchor >= 0, "CompleteResponse TCS comment not found");
+        var isProcessingFalse = source.IndexOf("state.Info.IsProcessing = false;", anchor, StringComparison.Ordinal);
+        Assert.True(isProcessingFalse >= 0, "IsProcessing = false not found in CompleteResponse main path");
+
+        var afterProcessing = source.Substring(isProcessingFalse, 1000);
+        var completeIdx = afterProcessing.IndexOf("OnSessionComplete?", StringComparison.Ordinal);
+        var stateIdx = afterProcessing.IndexOf("OnStateChanged?", StringComparison.Ordinal);
+        Assert.True(completeIdx >= 0, "OnSessionComplete not found after IsProcessing=false in CompleteResponse");
+        Assert.True(stateIdx >= 0, "OnStateChanged not found after IsProcessing=false in CompleteResponse");
+        Assert.True(completeIdx < stateIdx,
+            "OnSessionComplete must fire BEFORE OnStateChanged in CompleteResponse. " +
+            "HandleComplete populates completedSessions which RefreshState checks to bypass throttle.");
+    }
 }
