@@ -804,8 +804,11 @@
             return;
         }
 
-        // During a session switch, drafts were already saved — skip the expensive JS round-trip
-        if (!_sessionSwitching)
+        // During a session switch, drafts were already saved — skip the expensive JS round-trip.
+        // Also skip when sessions just completed — the render is for showing final messages,
+        // not capturing user input. The JS interop round-trip delays the render significantly
+        // when many sessions are active (multi-agent review with 10+ sessions).
+        if (!_sessionSwitching && completedSessions.Count == 0)
         {
             // Capture all card input values before re-render wipes them
             try
