@@ -213,6 +213,10 @@
     justify-content: center;
 }
 
+.chat-message-list.full ::deep .chat-msg.system.system-multiline {
+    justify-content: flex-start;
+}
+
 .chat-message-list.full ::deep .system-text {
     font-size: 12px;
     color: var(--text-muted);
@@ -220,6 +224,11 @@
     text-align: center;
     padding: 0.2rem 0.5rem;
     opacity: 0.7;
+}
+
+.chat-message-list.full ::deep .chat-msg.system.system-multiline .system-text {
+    text-align: left;
+    font-style: normal;
 }
 
 .chat-message-list.full ::deep .chat-msg.reflection {
@@ -890,11 +899,18 @@
 .chat-message-list.full.style-minimal ::deep .chat-msg.system {
     justify-content: center;
 }
+.chat-message-list.full.style-minimal ::deep .chat-msg.system.system-multiline {
+    justify-content: flex-start;
+}
 .chat-message-list.full.style-minimal ::deep .system-text {
     font-size: 12px;
     text-align: center;
     padding: 0.2rem 0.5rem;
     opacity: 0.7;
+}
+.chat-message-list.full.style-minimal ::deep .chat-msg.system.system-multiline .system-text {
+    text-align: left;
+    font-style: normal;
 }
 .chat-message-list.full.style-minimal ::deep .chat-msg-time {
     font-size: 16px;

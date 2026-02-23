@@ -177,7 +177,7 @@
         break;
 
     case ChatMessageType.System:
-        <div class="chat-msg system">
+        <div class="chat-msg system @(Message.Content.Contains("\n-") ? "system-multiline" : "")">
             <div class="system-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content))</div>
         </div>
         break;
