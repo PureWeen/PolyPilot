@@ -21,6 +21,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
     // Image paths queued alongside messages when session is busy (keyed by session name, list per queued message)
     private readonly ConcurrentDictionary<string, List<List<string>>> _queuedImagePaths = new();
+    private readonly ConcurrentDictionary<string, List<string?>> _queuedAgentModes = new();
     private readonly object _imageQueueLock = new();
     private static readonly object _diagnosticLogLock = new();
     // Debounce timers for disk I/O — coalesce rapid-fire saves into a single write
@@ -475,6 +476,7 @@ public partial class CopilotService : IAsyncDisposable
         {
             _queuedImagePaths.Clear();
         }
+        _queuedAgentModes.Clear();
         _activeSessionName = null;
 
         if (_client != null)
@@ -1469,7 +1471,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default, bool skipHistoryMessage = false)
+    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default, bool skipHistoryMessage = false, string? agentMode = null)
     {
         // In demo mode, simulate a response locally
         if (IsDemoMode)
@@ -1499,7 +1501,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             if (session != null)
                 session.IsProcessing = true;
             OnStateChanged?.Invoke();
-            await _bridgeClient.SendMessageAsync(sessionName, prompt, cancellationToken);
+            await _bridgeClient.SendMessageAsync(sessionName, prompt, agentMode, cancellationToken);
             return ""; // Response comes via events
         }
 
@@ -1555,6 +1557,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             { 
                 Prompt = prompt
             };
+
+            // Set SDK agent mode if specified (autopilot, plan, etc.)
+            if (!string.IsNullOrEmpty(agentMode))
+                messageOptions.Mode = agentMode;
             
             // Attach images via SDK if available
             if (imagePaths != null && imagePaths.Count > 0)
@@ -1622,10 +1628,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     StartProcessingWatchdog(state, sessionName);
                     
                     Debug($"Session '{sessionName}' reconnected, retrying prompt...");
-                    await state.Session.SendAsync(new MessageOptions
+                    var retryOptions = new MessageOptions
                     {
                         Prompt = prompt
-                    }, cancellationToken);
+                    };
+                    if (!string.IsNullOrEmpty(agentMode))
+                        retryOptions.Mode = agentMode;
+                    await state.Session.SendAsync(retryOptions, cancellationToken);
                 }
                 catch (Exception retryEx)
                 {
@@ -1740,19 +1749,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Clear queued messages so they don't auto-send after abort
         state.Info.MessageQueue.Clear();
         _queuedImagePaths.TryRemove(sessionName, out _);
+        _queuedAgentModes.TryRemove(sessionName, out _);
         CancelProcessingWatchdog(state);
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();
     }
 
-    public void EnqueueMessage(string sessionName, string prompt, List<string>? imagePaths = null)
+    public void EnqueueMessage(string sessionName, string prompt, List<string>? imagePaths = null, string? agentMode = null)
     {
         // In remote mode, delegate to bridge server
         if (IsRemoteMode)
         {
             if (imagePaths != null && imagePaths.Count > 0)
                 Console.WriteLine($"[CopilotService] Warning: image attachments not supported in remote mode, {imagePaths.Count} image(s) dropped");
-            _ = _bridgeClient.QueueMessageAsync(sessionName, prompt)
+            _ = _bridgeClient.QueueMessageAsync(sessionName, prompt, agentMode)
                 .ContinueWith(t => Console.WriteLine($"[CopilotService] QueueMessage bridge error: {t.Exception?.InnerException?.Message}"),
                     TaskContinuationOptions.OnlyOnFaulted);
             return;
@@ -1772,6 +1782,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 while (queue.Count < state.Info.MessageQueue.Count - 1)
                     queue.Add(new List<string>());
                 queue.Add(imagePaths);
+            }
+        }
+
+        // Track agent mode alongside the queued message
+        if (agentMode != null)
+        {
+            lock (_imageQueueLock)
+            {
+                var modes = _queuedAgentModes.GetOrAdd(sessionName, _ => new List<string?>());
+                while (modes.Count < state.Info.MessageQueue.Count - 1)
+                    modes.Add(null);
+                modes.Add(agentMode);
             }
         }
         
@@ -1834,6 +1856,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         _queuedImagePaths.TryRemove(sessionName, out _);
                 }
             }
+            // Keep queued agent modes in sync
+            lock (_imageQueueLock)
+            {
+                if (_queuedAgentModes.TryGetValue(sessionName, out var modeQueue) && index < modeQueue.Count)
+                {
+                    modeQueue.RemoveAt(index);
+                    if (modeQueue.Count == 0)
+                        _queuedAgentModes.TryRemove(sessionName, out _);
+                }
+            }
             OnStateChanged?.Invoke();
         }
     }
@@ -1846,6 +1878,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             lock (_imageQueueLock)
             {
                 _queuedImagePaths.TryRemove(sessionName, out _);
+                _queuedAgentModes.TryRemove(sessionName, out _);
             }
             OnStateChanged?.Invoke();
         }
@@ -1994,11 +2027,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         state.Info.Name = newName;
 
-        // Move queued image paths to new name
+        // Move queued image paths and agent modes to new name
         lock (_imageQueueLock)
         {
             if (_queuedImagePaths.TryRemove(oldName, out var imageQueue))
                 _queuedImagePaths[newName] = imageQueue;
+            if (_queuedAgentModes.TryRemove(oldName, out var modeQueue))
+                _queuedAgentModes[newName] = modeQueue;
         }
 
         if (!_sessions.TryAdd(newName, state))
@@ -2070,6 +2105,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             _queuedImagePaths.TryRemove(name, out _);
         }
+        _queuedAgentModes.TryRemove(name, out _);
 
         // Clean up per-session model switch lock
         if (_modelSwitchLocks.TryRemove(name, out var sem))

@@ -293,7 +293,7 @@ public class WsBridgeIntegrationTests : IDisposable
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
 
-        await client.SendMessageAsync("msg-test", "Hello from mobile", cts.Token);
+        await client.SendMessageAsync("msg-test", "Hello from mobile", ct: cts.Token);
 
         var session = _copilot.GetSession("msg-test");
         Assert.NotNull(session);
@@ -317,7 +317,7 @@ public class WsBridgeIntegrationTests : IDisposable
         };
         await client.ConnectAsync($"ws://localhost:{_port}/", null, cts.Token);
 
-        await client.SendMessageAsync("delta-test", "Tell me a joke", cts.Token);
+        await client.SendMessageAsync("delta-test", "Tell me a joke", ct: cts.Token);
 
         // Demo mode sends a simulated response with content deltas
         var content = await contentReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -334,7 +334,7 @@ public class WsBridgeIntegrationTests : IDisposable
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
 
-        await client.QueueMessageAsync("queue-test", "queued msg", cts.Token);
+        await client.QueueMessageAsync("queue-test", "queued msg", ct: cts.Token);
 
         var session = _copilot.GetSession("queue-test");
         Assert.NotNull(session);

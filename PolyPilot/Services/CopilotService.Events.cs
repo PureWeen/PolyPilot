@@ -798,6 +798,18 @@ public partial class CopilotService
                         _queuedImagePaths.TryRemove(state.Info.Name, out _);
                 }
             }
+            // Retrieve any queued agent mode for this message
+            string? nextAgentMode = null;
+            lock (_imageQueueLock)
+            {
+                if (_queuedAgentModes.TryGetValue(state.Info.Name, out var modeQueue) && modeQueue.Count > 0)
+                {
+                    nextAgentMode = modeQueue[0];
+                    modeQueue.RemoveAt(0);
+                    if (modeQueue.Count == 0)
+                        _queuedAgentModes.TryRemove(state.Info.Name, out _);
+                }
+            }
 
             var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
                               ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt);
@@ -817,7 +829,7 @@ public partial class CopilotService
                         {
                             try
                             {
-                                await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory);
+                                await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
                                 tcs.TrySetResult();
                             }
                             catch (Exception ex)
@@ -829,7 +841,7 @@ public partial class CopilotService
                     }
                     else
                     {
-                        await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory);
+                        await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
                     }
                 }
                 catch (Exception ex)
@@ -844,6 +856,19 @@ public partial class CopilotService
                             {
                                 var images = _queuedImagePaths.GetOrAdd(state.Info.Name, _ => new List<List<string>>());
                                 images.Insert(0, nextImagePaths);
+                            }
+                        }
+                        // Re-queue the agent mode too (always re-insert to maintain alignment)
+                        lock (_imageQueueLock)
+                        {
+                            if (_queuedAgentModes.TryGetValue(state.Info.Name, out var existingModes))
+                            {
+                                existingModes.Insert(0, nextAgentMode);
+                            }
+                            else if (nextAgentMode != null)
+                            {
+                                var modes = _queuedAgentModes.GetOrAdd(state.Info.Name, _ => new List<string?>());
+                                modes.Insert(0, nextAgentMode);
                             }
                         }
                     });
@@ -1056,6 +1081,19 @@ public partial class CopilotService
                 var nextPrompt = state.Info.MessageQueue[0];
                 state.Info.MessageQueue.RemoveAt(0);
 
+                // Consume any queued agent mode to keep alignment
+                string? nextAgentMode2 = null;
+                lock (_imageQueueLock)
+                {
+                    if (_queuedAgentModes.TryGetValue(state.Info.Name, out var modeQueue2) && modeQueue2.Count > 0)
+                    {
+                        nextAgentMode2 = modeQueue2[0];
+                        modeQueue2.RemoveAt(0);
+                        if (modeQueue2.Count == 0)
+                            _queuedAgentModes.TryRemove(state.Info.Name, out _);
+                    }
+                }
+
                 var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
                                   ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt);
 
@@ -1071,7 +1109,7 @@ public partial class CopilotService
                             {
                                 try
                                 {
-                                    await SendPromptAsync(state.Info.Name, nextPrompt, skipHistoryMessage: skipHistory);
+                                    await SendPromptAsync(state.Info.Name, nextPrompt, skipHistoryMessage: skipHistory, agentMode: nextAgentMode2);
                                     tcs.TrySetResult();
                                 }
                                 catch (Exception ex)
