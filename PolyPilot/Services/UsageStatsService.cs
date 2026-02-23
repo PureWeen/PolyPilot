@@ -8,6 +8,7 @@ public class UsageStatsService : IAsyncDisposable
 {
     private UsageStatistics _stats = new();
     private readonly object _statsLock = new();
+    private readonly object _timerLock = new();
     private Timer? _saveDebounce;
     private bool _disposed;
     
@@ -37,22 +38,22 @@ public class UsageStatsService : IAsyncDisposable
         }
     }
     
-    public void TrackSessionStart(string sessionName)
+    public void TrackSessionStart(string sessionId)
     {
         lock (_statsLock)
         {
             _stats.TotalSessionsCreated++;
-            _stats.ActiveSessions[sessionName] = DateTime.UtcNow;
+            _stats.ActiveSessions[sessionId] = DateTime.UtcNow;
             _stats.LastUpdatedAt = DateTime.UtcNow;
         }
         DebounceSave();
     }
     
-    public void TrackSessionEnd(string sessionName)
+    public void TrackSessionEnd(string sessionId)
     {
         lock (_statsLock)
         {
-            if (_stats.ActiveSessions.TryGetValue(sessionName, out var startTime))
+            if (_stats.ActiveSessions.TryGetValue(sessionId, out var startTime))
             {
                 var duration = (long)(DateTime.UtcNow - startTime).TotalSeconds;
                 _stats.TotalSessionTimeSeconds += duration;
@@ -63,7 +64,7 @@ public class UsageStatsService : IAsyncDisposable
                     _stats.LongestSessionSeconds = duration;
                 }
                 
-                _stats.ActiveSessions.Remove(sessionName);
+                _stats.ActiveSessions.Remove(sessionId);
             }
             _stats.LastUpdatedAt = DateTime.UtcNow;
         }
@@ -147,8 +148,11 @@ public class UsageStatsService : IAsyncDisposable
     
     private void DebounceSave()
     {
-        _saveDebounce?.Dispose();
-        _saveDebounce = new Timer(_ => SaveStats(), null, TimeSpan.FromSeconds(2), Timeout.InfiniteTimeSpan);
+        lock (_timerLock)
+        {
+            _saveDebounce?.Dispose();
+            _saveDebounce = new Timer(_ => SaveStats(), null, TimeSpan.FromSeconds(2), Timeout.InfiniteTimeSpan);
+        }
     }
     
     private void SaveStats()
@@ -158,33 +162,16 @@ public class UsageStatsService : IAsyncDisposable
             
         try
         {
+            string json;
             lock (_statsLock)
             {
                 var directory = Path.GetDirectoryName(StatsPath);
                 if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-                {
                     Directory.CreateDirectory(directory);
-                }
                 
-                // Create copy without ActiveSessions
-                var toSave = new UsageStatistics
-                {
-                    TotalSessionsCreated = _stats.TotalSessionsCreated,
-                    TotalSessionsClosed = _stats.TotalSessionsClosed,
-                    TotalSessionTimeSeconds = _stats.TotalSessionTimeSeconds,
-                    LongestSessionSeconds = _stats.LongestSessionSeconds,
-                    TotalLinesSuggested = _stats.TotalLinesSuggested,
-                    TotalMessagesReceived = _stats.TotalMessagesReceived,
-                    FirstUsedAt = _stats.FirstUsedAt,
-                    LastUpdatedAt = _stats.LastUpdatedAt
-                };
-                
-                var json = JsonSerializer.Serialize(toSave, new JsonSerializerOptions 
-                { 
-                    WriteIndented = true 
-                });
-                File.WriteAllText(StatsPath, json);
+                json = JsonSerializer.Serialize(_stats, new JsonSerializerOptions { WriteIndented = true });
             }
+            File.WriteAllText(StatsPath, json);
         }
         catch
         {
@@ -194,8 +181,11 @@ public class UsageStatsService : IAsyncDisposable
     
     public void FlushSave()
     {
-        _saveDebounce?.Dispose();
-        _saveDebounce = null;
+        lock (_timerLock)
+        {
+            _saveDebounce?.Dispose();
+            _saveDebounce = null;
+        }
         SaveStats();
     }
     
@@ -203,10 +193,10 @@ public class UsageStatsService : IAsyncDisposable
     {
         if (_disposed)
             return;
-            
-        _disposed = true;
+        
+        // Flush before marking disposed so SaveStats() doesn't early-return
         FlushSave();
-        _saveDebounce?.Dispose();
+        _disposed = true;
         await Task.CompletedTask;
     }
 }

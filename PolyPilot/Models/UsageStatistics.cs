@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PolyPilot.Models;
 
 public class UsageStatistics
@@ -12,5 +14,6 @@ public class UsageStatistics
     public DateTime LastUpdatedAt { get; set; } = DateTime.UtcNow;
     
     // Active session tracking (not persisted, used for calculating durations)
+    [JsonIgnore]
     public Dictionary<string, DateTime> ActiveSessions { get; set; } = new();
 }

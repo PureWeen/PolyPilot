@@ -1365,8 +1365,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         ReconcileOrganization();
         OnStateChanged?.Invoke();
         
-        // Track session creation
-        _usageStats?.TrackSessionStart(name);
+        // Track session creation (use session ID as stable key, fall back to name)
+        _usageStats?.TrackSessionStart(info.SessionId ?? name);
         
         return info;
     }
@@ -2122,8 +2122,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (state.Info.SessionId != null)
             _closedSessionIds[state.Info.SessionId] = 0;
 
-        // Track session close
-        _usageStats?.TrackSessionEnd(name);
+        // Track session close (use session ID as stable key, fall back to name)
+        _usageStats?.TrackSessionEnd(state.Info.SessionId ?? name);
 
         if (state.Session is not null)
             try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }

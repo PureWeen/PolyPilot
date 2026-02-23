@@ -272,10 +272,6 @@ public partial class CopilotService
                     state.CurrentResponse.Append(msgContent);
                     state.Info.LastUpdatedAt = DateTime.Now;
                     Invoke(() => OnContentReceived?.Invoke(sessionName, msgContent));
-                    
-                    // Track message and code suggestions
-                    _usageStats?.TrackMessage();
-                    _usageStats?.TrackCodeSuggestion(msgContent);
                 }
                 break;
 
