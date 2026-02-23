@@ -728,6 +728,16 @@
     border-radius: 8px;
     padding: 12px;
     background: #fff;
+    transition: filter 0.2s ease;
+}
+
+.qr-code img.blurred {
+    filter: blur(8px);
+    cursor: pointer;
+}
+
+.qr-code img.blurred:hover {
+    filter: blur(4px);
 }
 
 .qr-hint {

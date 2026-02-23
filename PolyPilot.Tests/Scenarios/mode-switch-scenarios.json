@@ -825,6 +825,53 @@
           "note": "Filter input is visible when expanded"
         }
       ]
+    },
+    {
+      "id": "settings-qr-code-blur",
+      "name": "QR code is blurred by default alongside token",
+      "steps": [
+        {
+          "action": "note",
+          "note": "Navigate to /settings page. Requires an active DevTunnel to see QR code."
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.qr-code img')?.classList.contains('blurred')",
+          "expect": {
+            "equals": true
+          },
+          "note": "QR code image is blurred by default (showToken=false)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.token-value')?.classList.contains('blurred')",
+          "expect": {
+            "equals": true
+          },
+          "note": "Token value is also blurred by default"
+        },
+        {
+          "action": "click",
+          "selector": ".tunnel-token .copy-btn",
+          "note": "Click reveal/hide token button"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.qr-code img')?.classList.contains('blurred')",
+          "expect": {
+            "equals": false
+          },
+          "note": "QR code is revealed when token is shown"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.token-value')?.classList.contains('blurred')",
+          "expect": {
+            "equals": false
+          },
+          "note": "Token is also revealed"
+        }
+      ]
     }
   ]
 }
