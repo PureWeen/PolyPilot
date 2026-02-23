@@ -879,7 +879,7 @@
         try
         {
             var active = CopilotService.ActiveSessionName;
-            bool sessionSwitched = active != null && active != _lastActiveSession && _lastActiveSession != null;
+            bool sessionSwitched = active != _lastActiveSession;
             
             // Throttle non-switch state changes to max 2/sec, but always allow completed sessions through
             if (!_refreshThrottle.ShouldRefresh(sessionSwitched, completedSessions.Count > 0))
@@ -913,7 +913,7 @@
                 expandedSession = sessions[0].Name;
                 CopilotService.SwitchSession(sessions[0].Name);
             }
-            if (sessionSwitched && sessions.Any(s => s.Name == active))
+            if (sessionSwitched && active != null && sessions.Any(s => s.Name == active))
             {
                 _lastActiveSession = active;
                 expandedSession = active;
