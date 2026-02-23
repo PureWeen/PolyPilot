@@ -1026,18 +1026,19 @@ public partial class CopilotService
         try
         {
             await CreateSessionAsync(orchName, preset.OrchestratorModel, workingDirectory, ct);
-            MoveSession(orchName, group.Id);
-            SetSessionRole(orchName, MultiAgentRole.Orchestrator);
-            SetSessionPreferredModel(orchName, preset.OrchestratorModel);
-            if (worktreeId != null)
-            {
-                var meta = GetSessionMeta(orchName);
-                if (meta != null) meta.WorktreeId = worktreeId;
-            }
         }
         catch (Exception ex)
         {
             Debug($"Failed to create orchestrator session: {ex.Message}");
+        }
+        // Assign role/group/model even if session already existed from a previous run
+        MoveSession(orchName, group.Id);
+        SetSessionRole(orchName, MultiAgentRole.Orchestrator);
+        SetSessionPreferredModel(orchName, preset.OrchestratorModel);
+        if (worktreeId != null)
+        {
+            var meta = GetSessionMeta(orchName);
+            if (meta != null) meta.WorktreeId = worktreeId;
         }
 
         // Create worker sessions
@@ -1048,21 +1049,21 @@ public partial class CopilotService
             try
             {
                 await CreateSessionAsync(workerName, workerModel, workingDirectory, ct);
-                MoveSession(workerName, group.Id);
-                SetSessionPreferredModel(workerName, workerModel);
-                // Apply per-worker system prompt from preset if available
-                var systemPrompt = preset.WorkerSystemPrompts != null && i < preset.WorkerSystemPrompts.Length
-                    ? preset.WorkerSystemPrompts[i] : null;
-                var meta = GetSessionMeta(workerName);
-                if (meta != null)
-                {
-                    if (worktreeId != null) meta.WorktreeId = worktreeId;
-                    if (systemPrompt != null) meta.SystemPrompt = systemPrompt;
-                }
             }
             catch (Exception ex)
             {
                 Debug($"Failed to create worker session '{workerName}': {ex.Message}");
+            }
+            // Assign group/model/prompt even if session already existed from a previous run
+            MoveSession(workerName, group.Id);
+            SetSessionPreferredModel(workerName, workerModel);
+            var systemPrompt = preset.WorkerSystemPrompts != null && i < preset.WorkerSystemPrompts.Length
+                ? preset.WorkerSystemPrompts[i] : null;
+            var meta = GetSessionMeta(workerName);
+            if (meta != null)
+            {
+                if (worktreeId != null) meta.WorktreeId = worktreeId;
+                if (systemPrompt != null) meta.SystemPrompt = systemPrompt;
             }
         }
 

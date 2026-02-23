@@ -85,6 +85,70 @@ Second task.
         Assert.Contains("Second task", result[^1].Task);
     }
 
+    [Fact]
+    public void ParseTaskAssignments_WorkerNamesWithSpaces_MatchesAll()
+    {
+        var response = @"@worker:PR Review Squad-worker-1
+Review for bugs.
+@end
+@worker:PR Review Squad-worker-2
+Review for security.
+@end
+@worker:PR Review Squad-worker-3
+Review architecture.
+@end";
+        var workers = new List<string>
+        {
+            "PR Review Squad-worker-1",
+            "PR Review Squad-worker-2",
+            "PR Review Squad-worker-3"
+        };
+        var result = CopilotService.ParseTaskAssignments(response, workers);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal("PR Review Squad-worker-1", result[0].WorkerName);
+        Assert.Equal("PR Review Squad-worker-2", result[1].WorkerName);
+        Assert.Equal("PR Review Squad-worker-3", result[2].WorkerName);
+        Assert.Contains("bugs", result[0].Task);
+        Assert.Contains("security", result[1].Task);
+        Assert.Contains("architecture", result[2].Task);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_WorkerNamesWithSpaces_NoEnd_MatchesAll()
+    {
+        // Orchestrators sometimes omit @end — the regex should still capture via lookahead
+        var response = @"@worker:My Team-worker-1
+Task one content.
+
+@worker:My Team-worker-2
+Task two content.
+";
+        var workers = new List<string> { "My Team-worker-1", "My Team-worker-2" };
+        var result = CopilotService.ParseTaskAssignments(response, workers);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("My Team-worker-1", result[0].WorkerName);
+        Assert.Equal("My Team-worker-2", result[1].WorkerName);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_MixedSimpleAndSpacedNames_MatchesAll()
+    {
+        var response = @"@worker:simple-worker
+Do task A.
+@end
+@worker:Squad Team-worker-2
+Do task B.
+@end";
+        var workers = new List<string> { "simple-worker", "Squad Team-worker-2" };
+        var result = CopilotService.ParseTaskAssignments(response, workers);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("simple-worker", result[0].WorkerName);
+        Assert.Equal("Squad Team-worker-2", result[1].WorkerName);
+    }
+
     // --- ModelCapabilities ---
 
     [Theory]
