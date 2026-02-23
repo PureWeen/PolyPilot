@@ -11,7 +11,7 @@
 else
 {
     <div class="new-session-form">
-        <input type="text" value="@SessionName" @oninput="OnNameInput" @onkeydown="HandleKeyDown"
+        <input type="text" value="@SessionName" @oninput="OnNameInput" @onkeyup="HandleKeyDown"
                placeholder="Session name..." class="ns-name" />
         <textarea @bind="initialPrompt" placeholder="What should this session do? (optional)"
                   class="ns-prompt" rows="2"></textarea>
@@ -70,12 +70,12 @@ else
                                             @if (newWorktreeMode == "branch")
                                             {
                                                 <input type="text" @bind="newWorktreeBranch" @bind:event="oninput" placeholder="branch-name"
-                                                       class="wt-branch-input" @onkeydown="HandleNewWorktreeKeyDown" />
+                                                       class="wt-branch-input" @onkeyup="HandleNewWorktreeKeyDown" />
                                             }
                                             else
                                             {
                                                 <input type="text" @bind="newWorktreePr" @bind:event="oninput" placeholder="PR #"
-                                                       class="wt-branch-input" @onkeydown="HandleNewWorktreeKeyDown" />
+                                                       class="wt-branch-input" @onkeyup="HandleNewWorktreeKeyDown" />
                                             }
                                             <button class="wt-create-btn" @onclick="CreateAndSelectWorktree"
                                                     disabled="@(isCreatingWorktree || (newWorktreeMode == "branch" ? string.IsNullOrWhiteSpace(newWorktreeBranch) : string.IsNullOrWhiteSpace(newWorktreePr)))">

@@ -42,7 +42,7 @@
                        value="@Session.Name"
                        @onclick:stopPropagation="true"
                        @onblur="() => OnCommitRename.InvokeAsync()"
-                       @onkeydown="HandleRenameKeyDown" />
+                       @onkeyup="HandleRenameKeyDown" />
             }
             else
             {
