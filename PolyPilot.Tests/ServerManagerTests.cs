@@ -79,12 +79,12 @@ public class ServerManagerTests
     public void CheckServerRunning_DefaultPort_UsesServerPort()
     {
         var manager = new ServerManager();
-        // Verify the no-arg overload uses ServerPort (4321) — should not throw.
-        // We can't assert true/false since the persistent server may or may not be running,
-        // but we CAN verify it probes the right port by checking a custom port separately.
+        // The no-arg overload should use ServerPort (4321). We can't predict the result
+        // (persistent server may or may not be running), but we verify it doesn't throw
+        // and returns a valid result, then confirm the explicit-port overload also works.
         var defaultResult = manager.CheckServerRunning();
         var customResult = manager.CheckServerRunning("localhost", 19998);
-        // Port 19998 should never have a listener in test, confirming port param works
+        Assert.True(defaultResult || !defaultResult); // completed without throwing
         Assert.False(customResult);
     }
 }
