@@ -3,9 +3,10 @@ using System.Text.RegularExpressions;
 namespace PolyPilot.Tests;
 
 /// <summary>
-/// Tests that verify the QR code images in Settings are blurred by default
-/// (when showToken is false), matching the token's blur behavior.
-/// Since these are Blazor components, we verify the source markup contracts.
+/// Tests that verify QR code images and the token value in Settings are blurred
+/// by default, each controlled by an independent toggle (showQrCode,
+/// showDirectQrCode, showToken). Since these are Blazor components, we verify
+/// the source markup contracts.
 /// </summary>
 public class QrCodeBlurTests
 {
@@ -29,9 +30,10 @@ public class QrCodeBlurTests
     {
         var razorContent = File.ReadAllText(GetSettingsRazorPath());
 
-        // Each QR code img tag must use its own independent toggle for the blurred class
-        var tunnelQrPattern = new Regex(@"<img\s+src=""@qrCodeDataUri""\s+alt=""QR Code""\s+class=""@\(showQrCode \? """" : ""blurred""\)""");
-        var directQrPattern = new Regex(@"<img\s+src=""@directQrCodeDataUri""\s+alt=""QR Code""\s+class=""@\(showDirectQrCode \? """" : ""blurred""\)""");
+        // Each QR code img tag must use its own independent toggle for the blurred class.
+        // Use [^>]* between attributes so harmless additions/reordering don't break the test.
+        var tunnelQrPattern = new Regex(@"<img\b[^>]*src=""@qrCodeDataUri""[^>]*class=""@\(showQrCode \? """" : ""blurred""\)""");
+        var directQrPattern = new Regex(@"<img\b[^>]*src=""@directQrCodeDataUri""[^>]*class=""@\(showDirectQrCode \? """" : ""blurred""\)""");
 
         Assert.True(tunnelQrPattern.IsMatch(razorContent),
             "Tunnel QR code <img> must use showQrCode for the blurred class.");
@@ -49,7 +51,7 @@ public class QrCodeBlurTests
     }
 
     [Fact]
-    public void ShowToken_DefaultsFalse()
+    public void AllBlurToggles_DefaultFalse()
     {
         var razorContent = File.ReadAllText(GetSettingsRazorPath());
 
