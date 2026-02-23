@@ -1047,11 +1047,11 @@ public partial class CopilotService
         MoveSession(orchName, group.Id);
         SetSessionRole(orchName, MultiAgentRole.Orchestrator);
         SetSessionPreferredModel(orchName, preset.OrchestratorModel);
-        if (worktreeId != null)
-        {
-            var meta = GetSessionMeta(orchName);
-            if (meta != null) meta.WorktreeId = worktreeId;
-        }
+        // Pin orchestrator so it sorts to the top of the group
+        var orchMeta = GetSessionMeta(orchName);
+        if (orchMeta != null) orchMeta.IsPinned = true;
+        if (worktreeId != null && orchMeta != null)
+            orchMeta.WorktreeId = worktreeId;
 
         // Create worker sessions
         for (int i = 0; i < preset.WorkerModels.Length; i++)
