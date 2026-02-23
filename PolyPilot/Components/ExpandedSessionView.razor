@@ -308,6 +308,7 @@
 
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
     [Parameter] public EventCallback<string> OnLoadMore { get; set; }
+    [Parameter] public EventCallback<string> OnLoadFullHistory { get; set; }
     [Parameter] public EventCallback<(string SessionName, FiestaStartRequest Request)> OnStartFiesta { get; set; }
     [Parameter] public EventCallback<string> OnStopFiesta { get; set; }
     [Parameter] public EventCallback OnStopReflection { get; set; }
