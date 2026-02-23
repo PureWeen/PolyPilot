@@ -1064,4 +1064,47 @@ public class ProcessingWatchdogTests
         Volatile.Write(ref field, false);
         Assert.False(Volatile.Read(ref field));
     }
+
+    // --- Multi-agent watchdog timeout ---
+
+    [Fact]
+    public void IsSessionInMultiAgentGroup_ReturnsTrueForMultiAgentWorker()
+    {
+        // Regression: watchdog used 120s timeout for multi-agent workers doing text-heavy
+        // tasks (PR reviews), killing them before the response arrived.
+        // IsSessionInMultiAgentGroup should return true so the 600s timeout is used.
+        var svc = CreateService();
+        var group = new SessionGroup { Id = "ma-group", Name = "Test Squad", IsMultiAgent = true };
+        svc.Organization.Groups.Add(group);
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "Test Squad-worker-1",
+            GroupId = "ma-group",
+            Role = MultiAgentRole.Worker
+        });
+
+        Assert.True(svc.IsSessionInMultiAgentGroup("Test Squad-worker-1"));
+    }
+
+    [Fact]
+    public void IsSessionInMultiAgentGroup_ReturnsFalseForNonMultiAgentSession()
+    {
+        var svc = CreateService();
+        var group = new SessionGroup { Id = "regular-group", Name = "Regular Group", IsMultiAgent = false };
+        svc.Organization.Groups.Add(group);
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "regular-session",
+            GroupId = "regular-group"
+        });
+
+        Assert.False(svc.IsSessionInMultiAgentGroup("regular-session"));
+    }
+
+    [Fact]
+    public void IsSessionInMultiAgentGroup_ReturnsFalseForUnknownSession()
+    {
+        var svc = CreateService();
+        Assert.False(svc.IsSessionInMultiAgentGroup("nonexistent-session"));
+    }
 }

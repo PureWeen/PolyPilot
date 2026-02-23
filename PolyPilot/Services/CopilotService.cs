@@ -221,6 +221,10 @@ public partial class CopilotService : IAsyncDisposable
         /// true until the response completes — so the watchdog uses the longer tool timeout
         /// even between tool rounds when the model is thinking.</summary>
         public bool HasUsedToolsThisTurn;
+        /// <summary>True if this session belongs to a multi-agent group at the time the
+        /// current prompt was sent. Cached at send time (UI thread) so the watchdog can
+        /// read it safely from a background thread without accessing Organization lists.</summary>
+        public bool IsMultiAgentSession;
         /// <summary>
         /// Monotonically increasing counter incremented each time a new prompt is sent.
         /// Used by CompleteResponse to avoid completing a different turn than the one
@@ -1519,6 +1523,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Interlocked.Increment(ref state.ProcessingGeneration);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
+        state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName); // Cache for watchdog (UI thread safe)
         Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         state.CurrentResponse.Clear();

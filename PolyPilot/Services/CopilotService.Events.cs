@@ -1195,8 +1195,13 @@ public partial class CopilotService
                 //    have 2-3 min gaps between events while the model reasons), OR
                 // 3. Tools have been executed this turn (HasUsedToolsThisTurn) — even between
                 //    tool rounds when ActiveToolCallCount is 0, the model may spend minutes
-                //    thinking about what tool to call next.
-                var useToolTimeout = hasActiveTool || state.Info.IsResumed || Volatile.Read(ref state.HasUsedToolsThisTurn);
+                //    thinking about what tool to call next, OR
+                // 4. Session is in a multi-agent group — workers doing text-heavy tasks
+                //    (e.g., PR reviews) can take 2-4 min without tool calls. The orchestration
+                //    loop has its own 10-minute CancelAfter timeout per worker. Cached at
+                //    send time on UI thread to avoid cross-thread List<T> access.
+                var isMultiAgentSession = Volatile.Read(ref state.IsMultiAgentSession);
+                var useToolTimeout = hasActiveTool || state.Info.IsResumed || Volatile.Read(ref state.HasUsedToolsThisTurn) || isMultiAgentSession;
                 var effectiveTimeout = useToolTimeout
                     ? WatchdogToolExecutionTimeoutSeconds
                     : WatchdogInactivityTimeoutSeconds;
@@ -1205,7 +1210,7 @@ public partial class CopilotService
                 {
                     var timeoutMinutes = effectiveTimeout / 60;
                     Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
-                          $"(timeout={effectiveTimeout}s, hasActiveTool={hasActiveTool}, isResumed={state.Info.IsResumed}, hasUsedTools={state.HasUsedToolsThisTurn}), clearing stuck processing state");
+                          $"(timeout={effectiveTimeout}s, hasActiveTool={hasActiveTool}, isResumed={state.Info.IsResumed}, hasUsedTools={state.HasUsedToolsThisTurn}, multiAgent={isMultiAgentSession}), clearing stuck processing state");
                     // Capture generation before posting — same guard pattern as CompleteResponse.
                     // Prevents a stale watchdog callback from killing a new turn if the user
                     // aborts + resends between the Post() and the callback execution.

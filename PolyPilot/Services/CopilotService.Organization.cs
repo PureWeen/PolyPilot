@@ -505,6 +505,18 @@ public partial class CopilotService
         Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
 
     /// <summary>
+    /// Check whether a session belongs to a multi-agent group.
+    /// Used by the watchdog to apply the longer timeout for orchestrated workers.
+    /// </summary>
+    internal bool IsSessionInMultiAgentGroup(string sessionName)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta == null) return false;
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+        return group?.IsMultiAgent == true;
+    }
+
+    /// <summary>
     /// Get or create a SessionGroup that auto-tracks a repository.
     /// </summary>
     public SessionGroup GetOrCreateRepoGroup(string repoId, string repoName)
