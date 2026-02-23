@@ -928,6 +928,12 @@
                 expandedSession = active;
                 _needsScrollToBottom = true;
             }
+            else if (sessionSwitched && active == null)
+            {
+                // Active session was closed — sync _lastActiveSession so the throttle
+                // bypass doesn't persist across subsequent refreshes.
+                _lastActiveSession = null;
+            }
             
             if (_lastActiveSession == null && active != null)
             {
