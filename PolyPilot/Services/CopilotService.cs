@@ -1469,7 +1469,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default, bool skipHistoryMessage = false)
+    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default, bool skipHistoryMessage = false, string? agentMode = null)
     {
         // In demo mode, simulate a response locally
         if (IsDemoMode)
@@ -1499,7 +1499,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             if (session != null)
                 session.IsProcessing = true;
             OnStateChanged?.Invoke();
-            await _bridgeClient.SendMessageAsync(sessionName, prompt, cancellationToken);
+            await _bridgeClient.SendMessageAsync(sessionName, prompt, agentMode, cancellationToken);
             return ""; // Response comes via events
         }
 
@@ -1555,6 +1555,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             { 
                 Prompt = prompt
             };
+
+            // Set SDK agent mode if specified (autopilot, plan, etc.)
+            if (!string.IsNullOrEmpty(agentMode))
+                messageOptions.Mode = agentMode;
             
             // Attach images via SDK if available
             if (imagePaths != null && imagePaths.Count > 0)

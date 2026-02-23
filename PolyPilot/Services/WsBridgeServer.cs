@@ -384,9 +384,10 @@ public class WsBridgeServer : IDisposable
                         // Blocking here prevents the client from sending abort, switch, or other commands.
                         var sendSession = sendReq.SessionName;
                         var sendMessage = sendReq.Message;
+                        var sendAgentMode = sendReq.AgentMode;
                         _ = Task.Run(async () =>
                         {
-                            try { await _copilot.SendPromptAsync(sendSession, sendMessage, cancellationToken: ct); }
+                            try { await _copilot.SendPromptAsync(sendSession, sendMessage, cancellationToken: ct, agentMode: sendAgentMode); }
                             catch (Exception ex) { Console.WriteLine($"[WsBridge] SendPromptAsync error for '{sendSession}': {ex.Message}"); }
                         });
                     }

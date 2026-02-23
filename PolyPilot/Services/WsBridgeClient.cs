@@ -175,9 +175,9 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.GetHistory,
             new GetHistoryPayload { SessionName = sessionName, Limit = limit }), ct);
 
-    public async Task SendMessageAsync(string sessionName, string message, CancellationToken ct = default) =>
+    public async Task SendMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.SendMessage,
-            new SendMessagePayload { SessionName = sessionName, Message = message }), ct);
+            new SendMessagePayload { SessionName = sessionName, Message = message, AgentMode = agentMode }), ct);
 
     public async Task CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.CreateSession,

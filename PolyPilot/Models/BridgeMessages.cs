@@ -244,6 +244,8 @@ public class SendMessagePayload
 {
     public string SessionName { get; set; } = "";
     public string Message { get; set; } = "";
+    /// <summary>SDK agent mode: "interactive", "plan", "autopilot", "shell". Null = default (interactive).</summary>
+    public string? AgentMode { get; set; }
 }
 
 public class CreateSessionPayload

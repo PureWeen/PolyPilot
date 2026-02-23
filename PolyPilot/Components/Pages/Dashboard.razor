@@ -1152,10 +1152,13 @@
         }
 
         var inputMode = GetInputMode(sessionName);
-        if (inputMode == "plan")
-            finalPrompt = $"[[PLAN]] {finalPrompt}";
-        else if (inputMode == "autopilot")
-            finalPrompt = $"[[AUTOPILOT]] {finalPrompt}";
+        // Map UI input mode to SDK agent mode
+        string? agentMode = inputMode switch
+        {
+            "plan" => "plan",
+            "autopilot" => "autopilot",
+            _ => null
+        };
 
         var dispatch = await FiestaService.DispatchMentionedWorkAsync(sessionName, finalPrompt);
         if (dispatch.MentionsFound)
@@ -1215,7 +1218,7 @@
 
         try
         {
-            _ = CopilotService.SendPromptAsync(sessionName, finalPrompt, imagePaths).ContinueWith(t =>
+            _ = CopilotService.SendPromptAsync(sessionName, finalPrompt, imagePaths, agentMode: agentMode).ContinueWith(t =>
             {
                 if (t.IsFaulted)
                 {
