@@ -85,7 +85,7 @@ public class WsBridgeServer : IDisposable
         if (_copilot != null) return;
         _copilot = copilot;
 
-        _copilot.OnStateChanged += () => BroadcastSessionsList();
+        _copilot.OnStateChanged += () => { BroadcastSessionsList(); BroadcastOrganizationState(); };
         _copilot.OnContentReceived += (session, content) =>
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ContentDelta,
                 new ContentDeltaPayload { SessionName = session, Content = content }));
