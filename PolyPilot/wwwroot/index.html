@@ -964,9 +964,10 @@
                     e.preventDefault(); e.stopPropagation();
                     chooseOption(state.selectedIndex); return;
                 }
-                // In locked mode, Tab would shift focus and leave an orphaned dropdown — hide it
+                // In locked mode, Tab would shift focus and leave an orphaned dropdown — hide it.
+                // Prevent default + stop propagation to avoid the session-cycling handler (CycleSession).
                 if (e.key === 'Tab' && isLocked) {
-                    hideDropdown(); return;
+                    e.preventDefault(); e.stopPropagation(); hideDropdown(); return;
                 }
                 if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideDropdown(); }
             }, true);
