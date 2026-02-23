@@ -950,6 +950,14 @@
                 if (document.activeElement !== state.target) { hideDropdown(); return; }
                 var ctx = getSlashContext(state.target);
                 var isLocked = ctx && ctx.mode === 'locked';
+                // Synchronously refresh options to avoid acting on stale RAF-debounced state
+                if (!isLocked && ctx) {
+                    var q = ctx.query;
+                    var fresh = COMMANDS.filter(function(c) { return c.cmd.slice(1).indexOf(q) === 0; });
+                    if (fresh.length === 0) { hideDropdown(); return; }
+                    state.options = fresh;
+                    if (state.selectedIndex >= fresh.length) state.selectedIndex = fresh.length - 1;
+                }
                 if (e.key === 'ArrowDown' && !isLocked) {
                     e.preventDefault(); e.stopPropagation();
                     state.selectedIndex = (state.selectedIndex + 1) % state.options.length;
