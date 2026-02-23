@@ -257,4 +257,48 @@ public class SquadDiscoveryTests
         var presets = SquadDiscovery.Discover(SquadSampleDir);
         Assert.Equal("🫡", presets[0].Emoji);
     }
+
+    // --- ParseMode tests ---
+
+    [Fact]
+    public void ParseMode_Orchestrator()
+    {
+        var content = "# My Team\nmode: orchestrator\n| Member | Role |";
+        Assert.Equal(MultiAgentMode.Orchestrator, SquadDiscovery.ParseMode(content));
+    }
+
+    [Fact]
+    public void ParseMode_Broadcast()
+    {
+        var content = "# My Team\nmode: broadcast\n";
+        Assert.Equal(MultiAgentMode.Broadcast, SquadDiscovery.ParseMode(content));
+    }
+
+    [Fact]
+    public void ParseMode_OrchestratorReflect()
+    {
+        var content = "# My Team\nmode: orchestrator-reflect\n";
+        Assert.Equal(MultiAgentMode.OrchestratorReflect, SquadDiscovery.ParseMode(content));
+    }
+
+    [Fact]
+    public void ParseMode_Sequential()
+    {
+        var content = "# My Team\nmode: sequential\n";
+        Assert.Equal(MultiAgentMode.Sequential, SquadDiscovery.ParseMode(content));
+    }
+
+    [Fact]
+    public void ParseMode_CaseInsensitive()
+    {
+        var content = "# My Team\nMode: Orchestrator\n";
+        Assert.Equal(MultiAgentMode.Orchestrator, SquadDiscovery.ParseMode(content));
+    }
+
+    [Fact]
+    public void ParseMode_DefaultsToReflect_WhenMissing()
+    {
+        var content = "# My Team\n| Member | Role |";
+        Assert.Equal(MultiAgentMode.OrchestratorReflect, SquadDiscovery.ParseMode(content));
+    }
 }

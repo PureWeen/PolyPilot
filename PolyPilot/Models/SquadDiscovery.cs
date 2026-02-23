@@ -38,10 +38,11 @@ public static class SquadDiscovery
             if (agents.Count == 0) return new();
 
             var teamName = ParseTeamName(teamContent) ?? "Squad Team";
+            var mode = ParseMode(teamContent);
             var decisions = ReadOptionalFile(Path.Combine(squadDir, "decisions.md"), MaxDecisionsLength);
             var routing = ReadOptionalFile(Path.Combine(squadDir, "routing.md"), MaxDecisionsLength);
 
-            var preset = BuildPreset(teamName, agents, decisions, routing, squadDir);
+            var preset = BuildPreset(teamName, agents, decisions, routing, squadDir, mode);
             return new List<GroupPreset> { preset };
         }
         catch
@@ -111,6 +112,33 @@ public static class SquadDiscovery
     }
 
     /// <summary>
+    /// Parse mode from team.md content.
+    /// Looks for a line like "mode: orchestrator" (case-insensitive).
+    /// Supports: broadcast, sequential, orchestrator, orchestrator-reflect.
+    /// Defaults to OrchestratorReflect if not specified.
+    /// </summary>
+    internal static MultiAgentMode ParseMode(string teamContent)
+    {
+        foreach (var line in teamContent.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("mode:", StringComparison.OrdinalIgnoreCase))
+            {
+                var value = trimmed["mode:".Length..].Trim().ToLowerInvariant();
+                return value switch
+                {
+                    "broadcast" => MultiAgentMode.Broadcast,
+                    "sequential" => MultiAgentMode.Sequential,
+                    "orchestrator" => MultiAgentMode.Orchestrator,
+                    "orchestrator-reflect" or "orchestratorreflect" or "reflect" => MultiAgentMode.OrchestratorReflect,
+                    _ => MultiAgentMode.OrchestratorReflect
+                };
+            }
+        }
+        return MultiAgentMode.OrchestratorReflect;
+    }
+
+    /// <summary>
     /// Parse agent roster from team.md table rows.
     /// Returns member names from the first column of markdown tables.
     /// </summary>
@@ -144,7 +172,7 @@ public static class SquadDiscovery
     }
 
     private static GroupPreset BuildPreset(string teamName, List<SquadAgent> agents,
-        string? decisions, string? routing, string squadDir)
+        string? decisions, string? routing, string squadDir, MultiAgentMode mode)
     {
         // Use a sensible default model for all agents (user can override after creation)
         var defaultModel = "claude-sonnet-4.6";
@@ -157,7 +185,7 @@ public static class SquadDiscovery
             teamName,
             $"Squad team from {Path.GetFileName(Path.GetDirectoryName(squadDir) ?? squadDir)}",
             "🫡",
-            MultiAgentMode.OrchestratorReflect,
+            mode,
             orchestratorModel,
             workerModels)
         {

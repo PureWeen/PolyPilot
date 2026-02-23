@@ -1,5 +1,7 @@
 # PR Review Squad
 
+mode: orchestrator
+
 | Member | Role |
 |--------|------|
 | reviewer-1 | PR Reviewer |
