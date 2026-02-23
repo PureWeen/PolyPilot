@@ -2,8 +2,8 @@
 
 | Member | Role |
 |--------|------|
-| bug-hunter | Bug Hunter |
-| security-analyst | Security Analyst |
-| arch-critic | Architecture Critic |
-| edge-case-finder | Edge Case Finder |
-| correctness-checker | Correctness Checker |
+| reviewer-1 | PR Reviewer |
+| reviewer-2 | PR Reviewer |
+| reviewer-3 | PR Reviewer |
+| reviewer-4 | PR Reviewer |
+| reviewer-5 | PR Reviewer |
