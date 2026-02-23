@@ -851,7 +851,7 @@ public partial class CopilotService
     internal static List<TaskAssignment> ParseTaskAssignments(string orchestratorResponse, List<string> availableWorkers)
     {
         var assignments = new List<TaskAssignment>();
-        var pattern = @"@worker:(\S+)\s*([\s\S]*?)(?:@end|(?=@worker:)|$)";
+        var pattern = @"@worker:([^\n]+?)\s*\n([\s\S]*?)(?:@end|(?=@worker:)|$)";
 
         foreach (Match match in Regex.Matches(orchestratorResponse, pattern, RegexOptions.IgnoreCase))
         {

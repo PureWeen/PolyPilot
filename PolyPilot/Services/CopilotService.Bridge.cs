@@ -172,7 +172,9 @@ public partial class CopilotService
         };
         _bridgeClient.OnTurnEnd += (s) =>
         {
-            _remoteStreamingSessions.TryRemove(s, out _);
+            // Don't remove from _remoteStreamingSessions yet — SyncRemoteSessions could
+            // overwrite our incrementally-built history with a stale SessionHistories cache.
+            // Instead, request fresh history from the server first, then clear the guard.
             InvokeOnUI(() =>
             {
                 var session = GetRemoteSession(s);
@@ -189,6 +191,22 @@ public partial class CopilotService
                     if (lastAssistant != null) { lastAssistant.IsComplete = true; lastAssistant.Model = session.Model; }
                 }
                 OnTurnEnd?.Invoke(s);
+            });
+            // Request fresh history, then clear the streaming guard so SyncRemoteSessions
+            // uses the up-to-date history instead of a stale cache.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _bridgeClient.RequestHistoryAsync(s);
+                    // Small delay to let the history response arrive before unguarding
+                    await Task.Delay(500);
+                }
+                catch { }
+                finally
+                {
+                    _remoteStreamingSessions.TryRemove(s, out _);
+                }
             });
         };
         _bridgeClient.OnSessionComplete += (s, sum) => InvokeOnUI(() => OnSessionComplete?.Invoke(s, sum));
@@ -299,10 +317,16 @@ public partial class CopilotService
             // Update processing state and model from server
             if (_sessions.TryGetValue(rs.Name, out var state))
             {
-                state.Info.IsProcessing = rs.IsProcessing;
-                state.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
-                state.Info.ToolCallCount = rs.ToolCallCount;
-                state.Info.ProcessingPhase = rs.ProcessingPhase;
+                // Don't overwrite IsProcessing for sessions that are actively streaming —
+                // event-driven state (TurnStart/TurnEnd) is more accurate than the periodic
+                // sessions list, which may be stale by the time it arrives.
+                if (!_remoteStreamingSessions.ContainsKey(rs.Name))
+                {
+                    state.Info.IsProcessing = rs.IsProcessing;
+                    state.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
+                    state.Info.ToolCallCount = rs.ToolCallCount;
+                    state.Info.ProcessingPhase = rs.ProcessingPhase;
+                }
                 state.Info.MessageCount = rs.MessageCount;
                 if (!string.IsNullOrEmpty(rs.Model))
                     state.Info.Model = rs.Model;
