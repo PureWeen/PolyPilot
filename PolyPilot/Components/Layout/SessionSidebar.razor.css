@@ -244,6 +244,20 @@
     text-transform: uppercase;
 }
 
+.group-rename-input {
+    font-size: var(--type-callout);
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--control-border);
+    border: 1px solid var(--border-accent);
+    border-radius: 3px;
+    padding: 0 0.25rem;
+    outline: none;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    min-width: 80px;
+}
+
 .group-count {
     font-size: var(--type-caption2);
     color: var(--text-muted);

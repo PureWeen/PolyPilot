@@ -1024,9 +1024,10 @@ public partial class CopilotService
     /// <summary>
     /// Create a multi-agent group from a preset template, creating sessions with assigned models.
     /// </summary>
-    public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, string? worktreeId = null, string? repoId = null, CancellationToken ct = default)
+    public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, string? worktreeId = null, string? repoId = null, string? nameOverride = null, CancellationToken ct = default)
     {
-        var group = CreateMultiAgentGroup(preset.Name, preset.Mode, worktreeId: worktreeId, repoId: repoId);
+        var teamName = nameOverride ?? preset.Name;
+        var group = CreateMultiAgentGroup(teamName, preset.Mode, worktreeId: worktreeId, repoId: repoId);
         if (group == null) return null;
 
         // Store Squad context (routing, decisions) on the group for use during orchestration
@@ -1034,7 +1035,7 @@ public partial class CopilotService
         group.RoutingContext = preset.RoutingContext;
 
         // Create orchestrator session
-        var orchName = $"{preset.Name}-orchestrator";
+        var orchName = $"{teamName}-orchestrator";
         try
         {
             await CreateSessionAsync(orchName, preset.OrchestratorModel, workingDirectory, ct);
@@ -1056,7 +1057,7 @@ public partial class CopilotService
         // Create worker sessions
         for (int i = 0; i < preset.WorkerModels.Length; i++)
         {
-            var workerName = $"{preset.Name}-worker-{i + 1}";
+            var workerName = $"{teamName}-worker-{i + 1}";
             var workerModel = preset.WorkerModels[i];
             try
             {

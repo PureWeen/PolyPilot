@@ -174,6 +174,37 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     /// </summary>
     public string? RoutingContext { get; init; }
 
+    private const string WorkerReviewPrompt = """
+        You are a PR reviewer. When assigned a PR, follow this process:
+
+        ## 1. Gather Context
+        - Run `gh pr view <number>` to read the description, labels, milestone, and linked issues
+        - Run `gh pr diff <number>` to get the full diff
+        - Run `gh pr checks <number>` to check CI status — if builds failed, determine whether failures are PR-specific or pre-existing infra issues (same failures on the base branch = not PR-specific)
+        - Run `gh pr view <number> --json reviews,comments` to check existing review comments — don't duplicate feedback already given
+
+        ## 2. Verify Claims Against Code
+        - Don't trust the PR description blindly — trace through the actual source code
+        - If the PR references a prior fix or revert, check `git log --oneline --all -- <file>` to understand the history
+        - If the change is scoped narrowly (e.g., "only affects streams, not files"), verify that claim by reading the surrounding code paths
+        - Check for variable name typos, missing underscores, wrong method overloads — compilers catch some, but cross-platform #if blocks can hide build errors
+
+        ## 3. Dispatch Multi-Model Reviews
+        Dispatch 5 parallel reviews via the task tool using claude-opus-4.6, claude-opus-4.6, claude-sonnet-4.6, gemini-3-pro-preview, and gpt-5.3-codex. Include the full diff and any CI/review context in each prompt. Each sub-agent returns findings as:
+        ```
+        [SEVERITY] file:line — description
+        ```
+        Where SEVERITY is: 🔴 CRITICAL, 🟡 MODERATE, 🟢 MINOR
+
+        ## 4. Synthesize Final Report
+        - Only include issues flagged by 2+ models (consensus filter)
+        - Rank by severity
+        - Include file path and line numbers
+        - Note CI status: ✅ passing, ❌ failing (PR-specific), ⚠️ failing (pre-existing)
+        - Note if prior review comments were addressed or still outstanding
+        - End with recommended action: ✅ Approve, ⚠️ Request changes (with specific ask), or 🔴 Do not merge
+        """;
+
     public static readonly GroupPreset[] BuiltIn = new[]
     {
         new GroupPreset(
@@ -183,11 +214,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         {
             WorkerSystemPrompts = new[]
             {
-                "You are a PR reviewer. When assigned a PR, run `gh pr diff <number>` and `gh pr view <number>`, then dispatch 5 parallel reviews via the task tool using claude-opus-4.6, claude-opus-4.6, claude-sonnet-4.6, gemini-3-pro-preview, and gpt-5.3-codex. Include the full diff in each prompt. Each sub-agent returns findings as `[SEVERITY] file:line — description`. Synthesize into a single report: only include issues flagged by 2+ models, rank by severity, end with verdict (✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge).",
-                "You are a PR reviewer. When assigned a PR, run `gh pr diff <number>` and `gh pr view <number>`, then dispatch 5 parallel reviews via the task tool using claude-opus-4.6, claude-opus-4.6, claude-sonnet-4.6, gemini-3-pro-preview, and gpt-5.3-codex. Include the full diff in each prompt. Each sub-agent returns findings as `[SEVERITY] file:line — description`. Synthesize into a single report: only include issues flagged by 2+ models, rank by severity, end with verdict (✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge).",
-                "You are a PR reviewer. When assigned a PR, run `gh pr diff <number>` and `gh pr view <number>`, then dispatch 5 parallel reviews via the task tool using claude-opus-4.6, claude-opus-4.6, claude-sonnet-4.6, gemini-3-pro-preview, and gpt-5.3-codex. Include the full diff in each prompt. Each sub-agent returns findings as `[SEVERITY] file:line — description`. Synthesize into a single report: only include issues flagged by 2+ models, rank by severity, end with verdict (✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge).",
-                "You are a PR reviewer. When assigned a PR, run `gh pr diff <number>` and `gh pr view <number>`, then dispatch 5 parallel reviews via the task tool using claude-opus-4.6, claude-opus-4.6, claude-sonnet-4.6, gemini-3-pro-preview, and gpt-5.3-codex. Include the full diff in each prompt. Each sub-agent returns findings as `[SEVERITY] file:line — description`. Synthesize into a single report: only include issues flagged by 2+ models, rank by severity, end with verdict (✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge).",
-                "You are a PR reviewer. When assigned a PR, run `gh pr diff <number>` and `gh pr view <number>`, then dispatch 5 parallel reviews via the task tool using claude-opus-4.6, claude-opus-4.6, claude-sonnet-4.6, gemini-3-pro-preview, and gpt-5.3-codex. Include the full diff in each prompt. Each sub-agent returns findings as `[SEVERITY] file:line — description`. Synthesize into a single report: only include issues flagged by 2+ models, rank by severity, end with verdict (✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge).",
+                WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt,
             },
             SharedContext = "## Review Standards\n\n- Only flag real issues: bugs, security holes, logic errors, data loss risks, race conditions\n- NEVER comment on style, formatting, naming conventions, or documentation\n- Every finding must include: file path, line number (or range), what's wrong, and why it matters\n- If a PR looks clean, say so — don't invent problems to justify your existence\n- An issue must be flagged by at least 2 of the 5 sub-agent models to be included in the final report (consensus filter)",
             RoutingContext = "When given a list of PRs to review, assign ONE PR to EACH worker. Distribute PRs round-robin across the available workers. If there are more PRs than workers, assign multiple PRs per worker.\n\nFor each PR assignment, just tell the worker: \"Review PR #<number>\"\n\nThe workers handle everything else — fetching the diff, dispatching multi-model sub-agents, and synthesizing results. Do NOT micromanage the review process.\n\nAfter all workers complete, produce a brief summary table:\n\n| PR | Verdict | Key Issues |\n|----|---------|------------|\n| #194 | ✅ Ready to merge | None |\n| #193 | ⚠️ Needs changes | Race condition in auth handler |\n\nVerdicts: ✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge"

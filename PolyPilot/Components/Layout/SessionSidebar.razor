@@ -242,6 +242,9 @@ else
                         <span>🌿 @pendingMultiAgentWorktree.Branch</span>
                         <button class="worktree-cancel-btn" @onclick="CancelMultiAgentCreation">✕</button>
                     </div>
+                    <input type="text" class="new-group-input" id="presetNameInput"
+                           placeholder="Team name (optional — uses preset name)"
+                           style="margin: 4px 8px; font-size: 12px;" />
                     @{
                         var allPresets = UserPresets.GetAll(CopilotService.BaseDir, pendingMultiAgentWorktree?.Path);
                         var repoPresets = allPresets.Where(p => p.IsRepoLevel).ToArray();
@@ -390,7 +393,19 @@ else
                                     <span class="group-worktree-badge" title="@groupWt.Path">🌿 @groupWt.Branch</span>
                                 }
                             }
-                            <span class="group-name">@group.Name</span>
+                            @if (renamingGroupId == group.Id)
+                            {
+                                var rgId = group.Id;
+                                <input type="text" class="group-rename-input" id="groupRenameInput"
+                                       value="@group.Name"
+                                       @onclick:stopPropagation="true"
+                                       @onblur="() => CommitGroupRename(rgId)"
+                                       @onkeydown="(e) => HandleGroupRenameKeyDown(e, rgId)" />
+                            }
+                            else
+                            {
+                                <span class="group-name">@group.Name</span>
+                            }
                             <span class="group-count">@groupSessions.Count</span>
                             @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
                             {
@@ -426,6 +441,9 @@ else
                                                     <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; createSessionFormRef?.ExpandForRepo(rId); }">
                                                         ➕ New Session
                                                     </button>
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartGroupRename(gId); }">
+                                                        ✏️ Rename
+                                                    </button>
                                                     <div class="group-menu-separator"></div>
                                                     @if (group.IsMultiAgent)
                                                     {
@@ -445,6 +463,9 @@ else
                                                 }
                                                 else
                                                 {
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartGroupRename(gId); }">
+                                                        ✏️ Rename
+                                                    </button>
                                                     @if (!group.IsMultiAgent)
                                                     {
                                                         <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; CopilotService.ConvertToMultiAgent(gId); }">
@@ -643,6 +664,7 @@ else
     private string? createError = null;
     private bool showPersistedSessions = false;
     private string? renamingSession = null;
+    private string? renamingGroupId = null;
     private string? confirmResumeId = null;
     private string? resumeError = null;
     private string currentPage = "/";
@@ -1017,6 +1039,34 @@ else
         }
     }
 
+    private async Task StartGroupRename(string groupId)
+    {
+        renamingGroupId = groupId;
+        StateHasChanged();
+        await Task.Yield();
+        await JS.InvokeVoidAsync("eval", @"
+            var el = document.getElementById('groupRenameInput');
+            if (el) { el.focus(); el.select(); }
+        ");
+    }
+
+    private async Task CommitGroupRename(string groupId)
+    {
+        if (renamingGroupId != groupId) return;
+        renamingGroupId = null;
+        var newName = await JS.InvokeAsync<string>("getElementValue", "groupRenameInput");
+        if (!string.IsNullOrWhiteSpace(newName))
+        {
+            CopilotService.RenameGroup(groupId, newName.Trim());
+        }
+    }
+
+    private async Task HandleGroupRenameKeyDown(KeyboardEventArgs e, string groupId)
+    {
+        if (e.Key == "Enter") await CommitGroupRename(groupId);
+        else if (e.Key == "Escape") renamingGroupId = null;
+    }
+
     private async Task DashboardClicked()
     {
         CopilotService.SetActiveSession(null);
@@ -1174,6 +1224,10 @@ else
 
     private async Task CreateFromPresetWithWorktree(GroupPreset preset, WorktreeInfo wt)
     {
+        // Read optional custom name from the input
+        var customName = await JS.InvokeAsync<string>("getElementValue", "presetNameInput");
+        var nameOverride = string.IsNullOrWhiteSpace(customName) ? null : customName.Trim();
+
         pendingMultiAgentWorktree = null;
         StateHasChanged();
         try
@@ -1181,7 +1235,8 @@ else
             await CopilotService.CreateGroupFromPresetAsync(preset,
                 workingDirectory: wt.Path,
                 worktreeId: wt.Id,
-                repoId: wt.RepoId);
+                repoId: wt.RepoId,
+                nameOverride: nameOverride);
         }
         catch (Exception ex)
         {
