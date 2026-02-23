@@ -949,7 +949,8 @@
                 if (!state.target || !state.dropdown || state.dropdown.style.display === 'none') return;
                 if (document.activeElement !== state.target) { hideDropdown(); return; }
                 var ctx = getSlashContext(state.target);
-                var isLocked = ctx && ctx.mode === 'locked';
+                if (!ctx) { hideDropdown(); return; }
+                var isLocked = ctx.mode === 'locked';
                 // Synchronously refresh options to avoid acting on stale RAF-debounced state
                 if (!isLocked && ctx) {
                     var q = ctx.query;
