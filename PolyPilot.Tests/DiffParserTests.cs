@@ -148,9 +148,9 @@ public class DiffParserTests
     [Fact]
     public void Parse_SpecialHtmlCharacters_PreservedInContent()
     {
-        // Regression: DiffView was double-encoding HTML entities because
-        // it called HtmlEncode() before passing to Blazor's @() which
-        // encodes again. Verify the parser preserves raw characters.
+        // Verify the parser preserves raw HTML characters as-is.
+        // DiffView relies on Blazor's @() auto-encoding, so the parser
+        // must never pre-encode content.
         var diff = """
             diff --git a/template.html b/template.html
             --- a/template.html
@@ -164,7 +164,7 @@ public class DiffParserTests
         var files = DiffParser.Parse(diff);
         var lines = files[0].Hunks[0].Lines;
 
-        // Content must contain raw <, >, ", & — no HTML encoding at parse time
+        // Parser must pass through <, >, ", & verbatim — DiffView's @() handles encoding
         Assert.Equal("<div class=\"container\">", lines[0].Content);
         Assert.Equal("    <span title=\"old\">old &amp; value</span>", lines[1].Content);
         Assert.Equal("    <span title=\"new\">new &amp; value</span>", lines[2].Content);
