@@ -828,7 +828,7 @@
     },
     {
       "id": "settings-qr-code-blur",
-      "name": "QR code is blurred by default alongside token",
+      "name": "QR code and token have independent blur toggles",
       "steps": [
         {
           "action": "note",
@@ -840,7 +840,7 @@
           "expect": {
             "equals": true
           },
-          "note": "QR code image is blurred by default (showToken=false)"
+          "note": "QR code image is blurred by default (showQrCode=false)"
         },
         {
           "action": "evaluate",
@@ -848,12 +848,12 @@
           "expect": {
             "equals": true
           },
-          "note": "Token value is also blurred by default"
+          "note": "Token value is also blurred by default (showToken=false)"
         },
         {
           "action": "click",
-          "selector": ".tunnel-token .copy-btn",
-          "note": "Click reveal/hide token button"
+          "selector": ".qr-code .qr-reveal-btn",
+          "note": "Click the QR-specific reveal button (independent from token reveal)"
         },
         {
           "action": "evaluate",
@@ -861,15 +861,15 @@
           "expect": {
             "equals": false
           },
-          "note": "QR code is revealed when token is shown"
+          "note": "QR code is revealed after clicking its own reveal button"
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.token-value')?.classList.contains('blurred')",
           "expect": {
-            "equals": false
+            "equals": true
           },
-          "note": "Token is also revealed"
+          "note": "Token remains blurred — QR and token toggles are independent"
         }
       ]
     }
