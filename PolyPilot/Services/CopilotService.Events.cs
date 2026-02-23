@@ -272,6 +272,10 @@ public partial class CopilotService
                     state.CurrentResponse.Append(msgContent);
                     state.Info.LastUpdatedAt = DateTime.Now;
                     Invoke(() => OnContentReceived?.Invoke(sessionName, msgContent));
+                    
+                    // Track message and code suggestions
+                    _usageStats?.TrackMessage();
+                    _usageStats?.TrackCodeSuggestion(msgContent);
                 }
                 break;
 
@@ -657,6 +661,10 @@ public partial class CopilotService
         
         if (!string.IsNullOrEmpty(state.Info.SessionId))
             _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+        
+        // Track message and code suggestions from accumulated response
+        _usageStats?.TrackMessage();
+        _usageStats?.TrackCodeSuggestion(text);
         
         state.CurrentResponse.Clear();
         state.HasReceivedDeltasThisTurn = false;

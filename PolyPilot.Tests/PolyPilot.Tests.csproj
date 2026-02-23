@@ -35,7 +35,9 @@
     <Compile Include="../PolyPilot/Models/RenderThrottle.cs" Link="Shared/RenderThrottle.cs" />
     <Compile Include="../PolyPilot/Models/DiffParser.cs" Link="Shared/DiffParser.cs" />
     <Compile Include="../PolyPilot/Models/PromptLibrary.cs" Link="Shared/PromptLibrary.cs" />
+    <Compile Include="../PolyPilot/Models/UsageStatistics.cs" Link="Shared/UsageStatistics.cs" />
     <Compile Include="../PolyPilot/Services/PromptLibraryService.cs" Link="Shared/PromptLibraryService.cs" />
+    <Compile Include="../PolyPilot/Services/UsageStatsService.cs" Link="Shared/UsageStatsService.cs" />
     <Compile Include="../PolyPilot/Services/NotificationMessageBuilder.cs" Link="Shared/NotificationMessageBuilder.cs" />
     <Compile Include="../PolyPilot/Services/IChatDatabase.cs" Link="Shared/IChatDatabase.cs" />
     <Compile Include="../PolyPilot/Services/IServerManager.cs" Link="Shared/IServerManager.cs" />

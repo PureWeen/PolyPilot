@@ -1381,3 +1381,46 @@
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
 }
+
+/* Statistics section */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.stat-card {
+    background: var(--bg-input);
+    border: 1px solid var(--control-border);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--accent-primary, #7c5cfc);
+    margin-bottom: 0.25rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+}
+
+.stats-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--control-border);
+    margin-top: 0.5rem;
+}
+
+.stats-date {
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+}

@@ -35,6 +35,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly IWsBridgeClient _bridgeClient;
     private readonly IDemoService _demoService;
     private readonly IServiceProvider? _serviceProvider;
+    private readonly UsageStatsService? _usageStats;
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
@@ -154,6 +155,7 @@ public partial class CopilotService : IAsyncDisposable
     public CopilotService(IChatDatabase chatDb, IServerManager serverManager, IWsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider)
     : this(chatDb, serverManager, bridgeClient, repoManager, serviceProvider, new DemoService())
     {
+        try { _usageStats = serviceProvider?.GetService(typeof(UsageStatsService)) as UsageStatsService; } catch { }
     }
 
     internal CopilotService(IChatDatabase chatDb, IServerManager serverManager, IWsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider, IDemoService demoService)
@@ -164,6 +166,7 @@ public partial class CopilotService : IAsyncDisposable
         _repoManager = repoManager;
         _serviceProvider = serviceProvider;
         _demoService = demoService;
+        try { _usageStats = serviceProvider?.GetService(typeof(UsageStatsService)) as UsageStatsService; } catch { }
     }
 
     // Debug info
@@ -1361,6 +1364,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         SaveActiveSessionsToDisk();
         ReconcileOrganization();
         OnStateChanged?.Invoke();
+        
+        // Track session creation
+        _usageStats?.TrackSessionStart(name);
+        
         return info;
     }
 
@@ -2114,6 +2121,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Track as explicitly closed so merge doesn't re-add from file
         if (state.Info.SessionId != null)
             _closedSessionIds[state.Info.SessionId] = 0;
+
+        // Track session close
+        _usageStats?.TrackSessionEnd(name);
 
         if (state.Session is not null)
             try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
