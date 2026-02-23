@@ -122,6 +122,8 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         if (completed == timeoutTask)
         {
             Console.WriteLine($"[WsBridgeClient] Connection timed out after 15s!");
+            // Observe the abandoned connectTask's exception to prevent UnobservedTaskException
+            _ = connectTask.ContinueWith(static t => { _ = t.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
             invoker?.Dispose();
             _ws.Dispose();
             _ws = new ClientWebSocket();
