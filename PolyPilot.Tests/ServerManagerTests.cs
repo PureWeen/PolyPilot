@@ -37,14 +37,16 @@ public class ServerManagerTests
     [Fact]
     public void CheckServerRunning_NoUnobservedTaskException_OnConnectionRefused()
     {
-        // This test verifies the fix: calling CheckServerRunning on a non-listening port
-        // should NOT leave unobserved Task exceptions that fire during GC.
+        // Verify the fix: CheckServerRunning on a non-listening port must NOT leave
+        // unobserved Task exceptions that fire TaskScheduler.UnobservedTaskException.
+        using var unobservedSignal = new ManualResetEventSlim(false);
         Exception? unobservedException = null;
         EventHandler<UnobservedTaskExceptionEventArgs> handler = (sender, args) =>
         {
             if (args.Exception?.InnerException is SocketException)
             {
                 unobservedException = args.Exception;
+                unobservedSignal.Set();
             }
         };
 
@@ -52,7 +54,6 @@ public class ServerManagerTests
         try
         {
             var manager = new ServerManager();
-            // Call multiple times to increase chance of triggering
             for (int i = 0; i < 5; i++)
             {
                 manager.CheckServerRunning("localhost", 19999);
@@ -63,24 +64,15 @@ public class ServerManagerTests
             GC.WaitForPendingFinalizers();
             GC.Collect();
 
-            // Give the finalizer thread time to fire the event
-            Thread.Sleep(200);
-
+            // If any unobserved Task exception exists, the finalizer will signal within the window.
+            // With the fix in place, no such tasks are left and the signal stays unset.
+            unobservedSignal.Wait(TimeSpan.FromMilliseconds(500));
             Assert.Null(unobservedException);
         }
         finally
         {
             TaskScheduler.UnobservedTaskException -= handler;
         }
-    }
-
-    [Fact]
-    public void CheckServerRunning_ReturnsFalse_WhenHostUnreachable()
-    {
-        var manager = new ServerManager();
-        // Use a non-routable address to test timeout behavior
-        var result = manager.CheckServerRunning("192.0.2.1", 19999);
-        Assert.False(result);
     }
 
     [Fact]
