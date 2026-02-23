@@ -1189,7 +1189,7 @@
                 queueImagePaths = pendingSendImages!.Select(i => i.TempPath).ToList();
                 pendingImagesBySession.Remove(sessionName);
             }
-            CopilotService.EnqueueMessage(sessionName, finalPrompt, queueImagePaths);
+            CopilotService.EnqueueMessage(sessionName, finalPrompt, queueImagePaths, agentMode);
             return;
         }
 
