@@ -35,14 +35,9 @@ public class ServerManager : IServerManager
         try
         {
             using var client = new TcpClient();
-            var result = client.BeginConnect(host, port.Value, null, null);
-            var success = result.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(1));
-            if (success && client.Connected)
-            {
-                client.EndConnect(result);
-                return true;
-            }
-            return false;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            client.ConnectAsync(host, port.Value, cts.Token).AsTask().GetAwaiter().GetResult();
+            return client.Connected;
         }
         catch
         {

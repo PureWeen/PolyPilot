@@ -39,6 +39,7 @@
     <Compile Include="../PolyPilot/Services/NotificationMessageBuilder.cs" Link="Shared/NotificationMessageBuilder.cs" />
     <Compile Include="../PolyPilot/Services/IChatDatabase.cs" Link="Shared/IChatDatabase.cs" />
     <Compile Include="../PolyPilot/Services/IServerManager.cs" Link="Shared/IServerManager.cs" />
+    <Compile Include="../PolyPilot/Services/ServerManager.cs" Link="Shared/ServerManager.cs" />
     <Compile Include="../PolyPilot/Services/IWsBridgeClient.cs" Link="Shared/IWsBridgeClient.cs" />
     <Compile Include="../PolyPilot/Services/IDemoService.cs" Link="Shared/IDemoService.cs" />
     <Compile Include="../PolyPilot/Services/INotificationManagerService.cs" Link="Shared/INotificationManagerService.cs" />
