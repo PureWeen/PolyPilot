@@ -600,6 +600,15 @@
     border-color: var(--accent-primary);
 }
 
+.tunnel-checking {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    color: var(--text-dim);
+    font-size: var(--type-body);
+}
+
 .tunnel-warning {
     padding: 0.75rem;
     background: rgba(251, 191, 36, 0.1);
