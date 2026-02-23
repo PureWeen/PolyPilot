@@ -178,7 +178,8 @@
                                 @if (!string.IsNullOrEmpty(qrCodeDataUri))
                                 {
                                     <div class="qr-code">
-                                        <img src="@qrCodeDataUri" alt="QR Code" class="@(showToken ? "" : "blurred")" />
+                                        <img src="@qrCodeDataUri" alt="QR Code" class="@(showQrCode ? "" : "blurred")" />
+                                        <button class="qr-reveal-btn" @onclick="() => showQrCode = !showQrCode" title="@(showQrCode ? "Hide QR" : "Reveal QR")">@if (showQrCode) {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>} else {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}</button>
                                         <p class="qr-hint">Scan with PolyPilot on iOS/Android to connect</p>
                                     </div>
                                 }
@@ -244,7 +245,8 @@
                         @if (!string.IsNullOrEmpty(directQrCodeDataUri))
                         {
                             <div class="qr-code">
-                                <img src="@directQrCodeDataUri" alt="QR Code" class="@(showToken ? "" : "blurred")" />
+                                <img src="@directQrCodeDataUri" alt="QR Code" class="@(showDirectQrCode ? "" : "blurred")" />
+                                <button class="qr-reveal-btn" @onclick="() => showDirectQrCode = !showDirectQrCode" title="@(showDirectQrCode ? "Hide QR" : "Reveal QR")">@if (showDirectQrCode) {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>} else {<svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}</button>
                                 <p class="qr-hint">Scan with PolyPilot on iOS/Android to connect</p>
                             </div>
                         }
@@ -544,6 +546,8 @@
     private bool tunnelLoggedIn;
     private bool tunnelBusy;
     private bool showToken;
+    private bool showQrCode;
+    private bool showDirectQrCode;
     private string? qrCodeDataUri;
     private string? directQrCodeDataUri;
     private List<string> localIps = new();
