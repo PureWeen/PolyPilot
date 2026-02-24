@@ -12,6 +12,8 @@ public class AgentSessionInfo
     
     public string? WorkingDirectory { get; set; }
     public string? GitBranch { get; set; }
+    /// <summary>Worktree ID if this session was created from a worktree.</summary>
+    public string? WorktreeId { get; set; }
     
     // For resumed sessions
     public string? SessionId { get; set; }

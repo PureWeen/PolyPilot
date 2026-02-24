@@ -441,6 +441,12 @@ else
                                                     <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; createSessionFormRef?.ExpandForRepo(rId); }">
                                                         ➕ New Session
                                                     </button>
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForRepo(rId); }">
+                                                        ⚡ Quick Session
+                                                    </button>
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartQuickBranch(rId); }">
+                                                        ⑂ New Branch + Session
+                                                    </button>
                                                     <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartGroupRename(gId); }">
                                                         ✏️ Rename
                                                     </button>
@@ -489,6 +495,32 @@ else
                                 }
                             }
                         </div>
+
+                        @if (quickBranchRepoId == group.RepoId && isRepoGroup)
+                        {
+                            var qbRepoId = group.RepoId!;
+                            <div class="quick-branch-input-bar" @onclick:stopPropagation="true">
+                                <span class="quick-branch-icon">⑂</span>
+                                <input type="text" class="quick-branch-input" placeholder="branch name or #PR"
+                                       @bind="quickBranchInput" @bind:event="oninput"
+                                       @onkeyup="(e) => HandleQuickBranchKeyDown(e, qbRepoId)"
+                                       disabled="@quickBranchIsCreating" />
+                                @if (quickBranchIsCreating)
+                                {
+                                    <span class="quick-branch-spinner">⏳</span>
+                                }
+                                else
+                                {
+                                    <button class="quick-branch-go-btn" @onclick="() => CommitQuickBranch(qbRepoId)"
+                                            disabled="@string.IsNullOrWhiteSpace(quickBranchInput)">→</button>
+                                    <button class="quick-branch-cancel-btn" @onclick="() => { quickBranchRepoId = null; }">✕</button>
+                                }
+                                @if (!string.IsNullOrEmpty(quickBranchError))
+                                {
+                                    <div class="quick-branch-error">⚠ @quickBranchError</div>
+                                }
+                            </div>
+                        }
 
                         @if (group.IsMultiAgent && !group.IsCollapsed)
                         {
@@ -684,6 +716,12 @@ else
     private bool confirmRepoReplace = false;
     private string? confirmRepoName = null;
     private string? confirmRemoveRepoId = null;
+
+    // Quick-create inline branch input
+    private string? quickBranchRepoId = null;
+    private string quickBranchInput = "";
+    private bool quickBranchIsCreating = false;
+    private string? quickBranchError = null;
 
     private async Task ToggleFlyout()
     {
@@ -890,36 +928,33 @@ else
         createError = null;
         try
         {
-            var sessionInfo = await CopilotService.CreateSessionAsync(args.Name, args.Model, args.Directory);
-            CopilotService.SwitchSession(sessionInfo.Name);
-            newSessionName = "";
+            AgentSessionInfo sessionInfo;
 
-            // If created from a worktree, place session in the repo group
             if (!string.IsNullOrEmpty(args.WorktreeId))
             {
-                var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == args.WorktreeId);
-                if (wt != null)
+                // Atomic worktree+session creation
+                sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
+                    repoId: null!,  // Not needed when worktreeId is provided
+                    worktreeId: args.WorktreeId,
+                    sessionName: args.Name,
+                    model: args.Model,
+                    initialPrompt: args.InitialPrompt);
+            }
+            else
+            {
+                sessionInfo = await CopilotService.CreateSessionAsync(args.Name, args.Model, args.Directory);
+                CopilotService.SwitchSession(sessionInfo.Name);
+
+                // Send initial prompt after session is ready
+                if (!string.IsNullOrEmpty(args.InitialPrompt))
                 {
-                    RepoManager.LinkSessionToWorktree(wt.Id, sessionInfo.Name);
-                    var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
-                    if (repo != null)
-                    {
-                        var group = CopilotService.GetOrCreateRepoGroup(repo.Id, repo.Name);
-                        CopilotService.MoveSession(sessionInfo.Name, group.Id);
-                        var meta = CopilotService.GetSessionMeta(sessionInfo.Name);
-                        if (meta != null) meta.WorktreeId = wt.Id;
-                    }
+                    _ = CopilotService.SendPromptAsync(sessionInfo.Name, args.InitialPrompt);
                 }
             }
 
+            newSessionName = "";
             CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
             await OnSessionSelected.InvokeAsync();
-
-            // Send initial prompt after session is ready
-            if (!string.IsNullOrEmpty(args.InitialPrompt))
-            {
-                _ = CopilotService.SendPromptAsync(sessionInfo.Name, args.InitialPrompt);
-            }
         }
         catch (Exception ex)
         {
@@ -929,6 +964,83 @@ else
         finally
         {
             isCreating = false;
+        }
+    }
+
+    private async Task QuickCreateSessionForRepo(string repoId)
+    {
+        if (isCreating) return;
+        isCreating = true;
+        createError = null;
+        try
+        {
+            var sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
+                repoId: repoId,
+                model: selectedModel);
+            CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
+            await OnSessionSelected.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            createError = ex.Message;
+            Console.WriteLine($"Error quick-creating session: {ex}");
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private void StartQuickBranch(string repoId)
+    {
+        quickBranchRepoId = repoId;
+        quickBranchInput = "";
+        quickBranchError = null;
+    }
+
+    private async Task HandleQuickBranchKeyDown(KeyboardEventArgs e, string repoId)
+    {
+        if (e.Key == "Enter") await CommitQuickBranch(repoId);
+        else if (e.Key == "Escape") quickBranchRepoId = null;
+    }
+
+    private async Task CommitQuickBranch(string repoId)
+    {
+        var input = quickBranchInput?.Trim();
+        if (string.IsNullOrEmpty(input) || quickBranchIsCreating) return;
+
+        quickBranchIsCreating = true;
+        quickBranchError = null;
+        StateHasChanged();
+        try
+        {
+            int? prNumber = null;
+            string? branchName = null;
+
+            if (input.StartsWith("#") && int.TryParse(input[1..], out var pr))
+                prNumber = pr;
+            else
+                branchName = input;
+
+            await CopilotService.CreateSessionWithWorktreeAsync(
+                repoId: repoId,
+                branchName: branchName,
+                prNumber: prNumber,
+                model: selectedModel);
+
+            quickBranchRepoId = null;
+            quickBranchInput = "";
+            CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
+            await OnSessionSelected.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            quickBranchError = ex.Message;
+            Console.WriteLine($"Error creating branch+session: {ex}");
+        }
+        finally
+        {
+            quickBranchIsCreating = false;
         }
     }
 
