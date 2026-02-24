@@ -114,6 +114,19 @@ public partial class CopilotService : IAsyncDisposable
     private static string? _organizationFile;
     private static string OrganizationFile => _organizationFile ??= Path.Combine(PolyPilotBaseDir, "organization.json");
 
+    /// <summary>
+    /// Override base directory for tests to prevent writing to real ~/.polypilot/.
+    /// Clears all derived path caches so they re-resolve from the new base.
+    /// </summary>
+    internal static void SetBaseDirForTesting(string path)
+    {
+        _polyPilotBaseDir = path;
+        _activeSessionsFile = null;
+        _sessionAliasesFile = null;
+        _uiStateFile = null;
+        _organizationFile = null;
+    }
+
     private static string? _projectDir;
     private static string ProjectDir => _projectDir ??= FindProjectDir();
 
