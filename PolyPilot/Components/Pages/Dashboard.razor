@@ -927,6 +927,7 @@
                 _lastActiveSession = active;
                 expandedSession = active;
                 _needsScrollToBottom = true;
+                _ = InvokeAsync(() => JS.InvokeVoidAsync("switchKeepAliveSlot", $"slot-{active.Replace(" ", "-")}", active));
             }
             
             if (_lastActiveSession == null && active != null)

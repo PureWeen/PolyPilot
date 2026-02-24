@@ -12,11 +12,6 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: max-height 0.2s ease;
-}
-
-.appchat-popover.collapsed {
-    max-height: 44px;
 }
 
 .appchat-header {
@@ -25,8 +20,6 @@
     justify-content: space-between;
     padding: 10px 14px;
     background: var(--bg-secondary, #2a2a3e);
-    cursor: pointer;
-    user-select: none;
     border-bottom: 1px solid var(--border-color, #444);
     flex-shrink: 0;
 }
@@ -42,8 +35,7 @@
     gap: 4px;
 }
 
-.appchat-clear-btn,
-.appchat-close-btn {
+.appchat-clear-btn {
     background: none;
     border: none;
     color: var(--text-secondary, #999);
@@ -54,8 +46,7 @@
     line-height: 1;
 }
 
-.appchat-clear-btn:hover,
-.appchat-close-btn:hover {
+.appchat-clear-btn:hover {
     background: var(--bg-hover, rgba(255, 255, 255, 0.1));
     color: var(--text-primary, #e0e0e0);
 }

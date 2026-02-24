@@ -6,63 +6,49 @@
 
 @if (IsVisible)
 {
-    <div class="appchat-popover @(isExpanded ? "expanded" : "collapsed")">
-        <div class="appchat-header" @onclick="ToggleExpand">
+    <div class="appchat-popover">
+        <div class="appchat-header">
             <span class="appchat-title">✨ App Chat</span>
             <div class="appchat-header-actions">
                 @if (messages.Count > 0)
                 {
-                    <button class="appchat-clear-btn" title="Clear chat" @onclick="ClearChat" @onclick:stopPropagation="true">🗑</button>
+                    <button class="appchat-clear-btn" title="Clear chat" @onclick="ClearChat">🗑</button>
                 }
-                <button class="appchat-close-btn" title="Close" @onclick="Close" @onclick:stopPropagation="true">✕</button>
             </div>
         </div>
 
-        @if (isExpanded)
-        {
-            <div class="appchat-body">
-                <ChatMessageList Messages="@messages"
-                                 StreamingContent="@streamingContent"
-                                 IsProcessing="@isProcessing"
-                                 Compact="true"
-                                 Layout="ChatLayout.BothLeft"
-                                 Style="ChatStyle.Minimal" />
-            </div>
+        <div class="appchat-body">
+            <ChatMessageList Messages="@messages"
+                             StreamingContent="@streamingContent"
+                             IsProcessing="@isProcessing"
+                             Compact="true"
+                             Layout="ChatLayout.BothLeft"
+                             Style="ChatStyle.Minimal" />
+        </div>
 
-            <div class="appchat-input-area">
-                <input id="appchat-input"
-                       type="text"
-                       placeholder="Ask about your sessions..."
-                       disabled="@isProcessing"
-                       @onkeydown="HandleKeyDown" />
-                <button class="appchat-send-btn"
-                        disabled="@isProcessing"
-                        @onclick="SendMessage">
-                    @(isProcessing ? "⏳" : "➤")
-                </button>
-            </div>
-        }
+        <div class="appchat-input-area">
+            <input id="appchat-input"
+                   type="text"
+                   placeholder="Ask about your sessions..."
+                   disabled="@isProcessing"
+                   @onkeydown="HandleKeyDown" />
+            <button class="appchat-send-btn"
+                    disabled="@isProcessing"
+                    @onclick="SendMessage">
+                @(isProcessing ? "⏳" : "➤")
+            </button>
+        </div>
     </div>
 }
 
 @code {
     [Parameter] public bool IsVisible { get; set; }
-    [Parameter] public EventCallback OnClose { get; set; }
 
     private List<ChatMessage> messages = new();
     private string streamingContent = "";
     private bool isProcessing;
-    private bool isExpanded = true;
     private string sessionName = "appchat-" + Guid.NewGuid().ToString("N")[..8];
     private CancellationTokenSource? _cts;
-
-    private void ToggleExpand() => isExpanded = !isExpanded;
-
-    private async Task Close()
-    {
-        _cts?.Cancel();
-        await OnClose.InvokeAsync();
-    }
 
     private void ClearChat()
     {
