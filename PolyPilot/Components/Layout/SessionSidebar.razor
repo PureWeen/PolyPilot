@@ -400,7 +400,7 @@ else
                                        value="@group.Name"
                                        @onclick:stopPropagation="true"
                                        @onblur="() => CommitGroupRename(rgId)"
-                                       @onkeydown="(e) => HandleGroupRenameKeyDown(e, rgId)" />
+                                       @onkeyup="(e) => HandleGroupRenameKeyUp(e, rgId)" />
                             }
                             else
                             {
@@ -1061,7 +1061,7 @@ else
         }
     }
 
-    private async Task HandleGroupRenameKeyDown(KeyboardEventArgs e, string groupId)
+    private async Task HandleGroupRenameKeyUp(KeyboardEventArgs e, string groupId)
     {
         if (e.Key == "Enter") await CommitGroupRename(groupId);
         else if (e.Key == "Escape") renamingGroupId = null;

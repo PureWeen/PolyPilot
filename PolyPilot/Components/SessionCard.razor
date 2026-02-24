@@ -17,7 +17,7 @@
                        value="@Session.Name"
                        @onclick:stopPropagation="true"
                        @onblur="CommitRename"
-                       @onkeydown="HandleRenameKeyDown" />
+                       @onkeyup="HandleRenameKeyUp" />
             }
             else
             {
@@ -183,7 +183,7 @@
     [Parameter] public EventCallback OnClearQueue { get; set; }
     [Parameter] public EventCallback<int> OnRemovePendingImage { get; set; }
     [Parameter] public EventCallback<string> OnSend { get; set; } // message text
-    private async Task HandleRenameKeyDown(KeyboardEventArgs e)
+    private async Task HandleRenameKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
         {

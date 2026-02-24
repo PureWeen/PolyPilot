@@ -11,7 +11,7 @@
 else
 {
     <div class="new-session-form">
-        <input type="text" value="@SessionName" @oninput="OnNameInput" @onkeydown="HandleKeyDown"
+        <input type="text" value="@SessionName" @oninput="OnNameInput" @onkeyup="HandleKeyUp"
                placeholder="Session name..." class="ns-name" />
         <textarea @bind="initialPrompt" placeholder="What should this session do? (optional)"
                   class="ns-prompt" rows="2"></textarea>
@@ -70,12 +70,12 @@ else
                                             @if (newWorktreeMode == "branch")
                                             {
                                                 <input type="text" @bind="newWorktreeBranch" @bind:event="oninput" placeholder="branch-name"
-                                                       class="wt-branch-input" @onkeydown="HandleNewWorktreeKeyDown" />
+                                                       class="wt-branch-input" @onkeyup="HandleNewWorktreeKeyUp" />
                                             }
                                             else
                                             {
                                                 <input type="text" @bind="newWorktreePr" @bind:event="oninput" placeholder="PR #"
-                                                       class="wt-branch-input" @onkeydown="HandleNewWorktreeKeyDown" />
+                                                       class="wt-branch-input" @onkeyup="HandleNewWorktreeKeyUp" />
                                             }
                                             <button class="wt-create-btn" @onclick="CreateAndSelectWorktree"
                                                     disabled="@(isCreatingWorktree || (newWorktreeMode == "branch" ? string.IsNullOrWhiteSpace(newWorktreeBranch) : string.IsNullOrWhiteSpace(newWorktreePr)))">
@@ -260,7 +260,7 @@ else
         worktreeError = null;
     }
 
-    private async Task HandleNewWorktreeKeyDown(KeyboardEventArgs e)
+    private async Task HandleNewWorktreeKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await CreateAndSelectWorktree();
         else if (e.Key == "Escape") newWorktreeRepoId = null;
@@ -345,7 +345,7 @@ else
         }
     }
 
-    private async Task HandleKeyDown(KeyboardEventArgs e)
+    private async Task HandleKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Escape") Collapse();
     }
