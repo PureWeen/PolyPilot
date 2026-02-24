@@ -386,6 +386,7 @@ public partial class CopilotService
         {
             group.Name = name;
             SaveOrganization();
+            FlushSaveOrganization();
             OnStateChanged?.Invoke();
         }
     }
@@ -1083,8 +1084,12 @@ public partial class CopilotService
         group.SharedContext = preset.SharedContext;
         group.RoutingContext = preset.RoutingContext;
 
-        // Create orchestrator session
+        // Create orchestrator session (with uniqueness check matching CreateMultiAgentGroupAsync)
         var orchName = $"{teamName}-orchestrator";
+        { int suffix = 1;
+          while (_sessions.ContainsKey(orchName) || Organization.Sessions.Any(s => s.SessionName == orchName))
+              orchName = $"{teamName}-orchestrator-{suffix++}";
+        }
         try
         {
             await CreateSessionAsync(orchName, preset.OrchestratorModel, workingDirectory, ct);
@@ -1107,6 +1112,10 @@ public partial class CopilotService
         for (int i = 0; i < preset.WorkerModels.Length; i++)
         {
             var workerName = $"{teamName}-worker-{i + 1}";
+            { int suffix = 1;
+              while (_sessions.ContainsKey(workerName) || Organization.Sessions.Any(s => s.SessionName == workerName))
+                  workerName = $"{teamName}-worker-{i + 1}-{suffix++}";
+            }
             var workerModel = preset.WorkerModels[i];
             try
             {

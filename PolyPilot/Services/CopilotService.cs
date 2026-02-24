@@ -125,6 +125,8 @@ public partial class CopilotService : IAsyncDisposable
         _sessionAliasesFile = null;
         _uiStateFile = null;
         _organizationFile = null;
+        _copilotBaseDir = null;
+        _sessionStatePath = null;
     }
 
     private static string? _projectDir;
