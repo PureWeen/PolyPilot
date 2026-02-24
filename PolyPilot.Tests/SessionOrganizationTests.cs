@@ -2335,6 +2335,26 @@ public class GroupingStabilityTests
         field.SetValue(svc, cache);
     }
 
+    /// <summary>
+    /// Injects dummy SessionState entries into _sessions so ReconcileOrganization
+    /// doesn't hit the zero-session early-return guard.
+    /// </summary>
+    private static void AddDummySessions(CopilotService svc, params string[] names)
+    {
+        var sessionsField = typeof(CopilotService).GetField("_sessions",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var dict = sessionsField.GetValue(svc)!;
+        var stateType = sessionsField.FieldType.GenericTypeArguments[1]; // SessionState
+
+        foreach (var name in names)
+        {
+            var info = new AgentSessionInfo { Name = name, Model = "test-model" };
+            var state = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(stateType);
+            stateType.GetProperty("Info")!.SetValue(state, info);
+            dict.GetType().GetMethod("TryAdd")!.Invoke(dict, new[] { name, state });
+        }
+    }
+
     // --- Multi-agent group JSON round-trip tests ---
 
     [Fact]
@@ -2522,6 +2542,7 @@ public class GroupingStabilityTests
         });
 
         RegisterKnownSessions(svc, "team-orch", "team-w1");
+        AddDummySessions(svc, "team-orch", "team-w1");
 
         // Run reconciliation — sessions should stay in multi-agent group
         svc.ReconcileOrganization();
@@ -2559,6 +2580,7 @@ public class GroupingStabilityTests
         });
 
         RegisterKnownSessions(svc, "orphan-orch", "orphan-worker");
+        AddDummySessions(svc, "orphan-orch", "orphan-worker");
 
         svc.ReconcileOrganization();
 
@@ -2605,6 +2627,7 @@ public class GroupingStabilityTests
         });
 
         RegisterKnownSessions(svc, "team-orch", "team-worker");
+        AddDummySessions(svc, "team-orch", "team-worker");
 
         svc.ReconcileOrganization();
 
@@ -2645,6 +2668,7 @@ public class GroupingStabilityTests
         });
 
         RegisterKnownSessions(svc, "regular-session");
+        AddDummySessions(svc, "regular-session");
         svc.ReconcileOrganization();
 
         // Session should still exist (not pruned)
@@ -2987,6 +3011,7 @@ public class GroupingStabilityTests
         });
 
         RegisterKnownSessions(svc, "ghost-1", "ghost-2");
+        AddDummySessions(svc, "ghost-1", "ghost-2");
 
         svc.ReconcileOrganization();
 
@@ -3019,6 +3044,7 @@ public class GroupingStabilityTests
         });
 
         RegisterKnownSessions(svc, "stable-orch", "stable-w1");
+        AddDummySessions(svc, "stable-orch", "stable-w1");
 
         var orchGroupBefore = svc.Organization.Sessions.First(s => s.SessionName == "stable-orch").GroupId;
         var workerGroupBefore = svc.Organization.Sessions.First(s => s.SessionName == "stable-w1").GroupId;

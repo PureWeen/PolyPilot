@@ -151,7 +151,10 @@ public partial class CopilotService
         try
         {
             Directory.CreateDirectory(PolyPilotBaseDir);
-            File.WriteAllText(OrganizationFile, json);
+            // Atomic write: write to temp file then rename to prevent corruption on crash
+            var tempFile = OrganizationFile + ".tmp";
+            File.WriteAllText(tempFile, json);
+            File.Move(tempFile, OrganizationFile, overwrite: true);
         }
         catch (Exception ex)
         {
@@ -168,6 +171,16 @@ public partial class CopilotService
     internal void ReconcileOrganization()
     {
         var activeNames = _sessions.Where(kv => !kv.Value.Info.IsHidden).Select(kv => kv.Key).ToHashSet();
+
+        // Safety: skip reconciliation entirely when no sessions are in memory (pre-restore state).
+        // During app startup, LoadOrganization loads the org before sessions are restored,
+        // and a stale active-sessions.json would cause all sessions to be pruned.
+        // Reconciliation is only safe once _sessions has been populated by RestorePreviousSessionsAsync.
+        if (activeNames.Count == 0 && Organization.Sessions.Count > 0)
+        {
+            Debug("ReconcileOrganization: skipping — no active sessions in memory yet");
+            return;
+        }
         
         // Quick check: skip if active session set hasn't changed (order-independent additive hash)
         var currentHash = activeNames.Count;
@@ -293,17 +306,6 @@ public partial class CopilotService
             return;
         }
 
-        // Safety: skip pruning when no sessions are in memory (pre-restore state).
-        // During app startup, LoadOrganization loads the org before sessions are restored,
-        // and a stale active-sessions.json would cause all sessions to be pruned.
-        // Pruning is only safe once _sessions has been populated by RestorePreviousSessionsAsync.
-        if (activeNames.Count == 0 && Organization.Sessions.Count > 0)
-        {
-            Debug("ReconcileOrganization: skipping prune — no active sessions in memory yet");
-            if (changed) SaveOrganization();
-            return;
-        }
-
         // Protect multi-agent group sessions from pruning — they may not yet be in
         // active-sessions.json if the app was killed before the debounce timer fired.
         // The authoritative source for these sessions is organization.json itself.
@@ -412,6 +414,7 @@ public partial class CopilotService
             // Persist immediately so hidden sessions are excluded if app restarts
             // before the fire-and-forget CloseSessionAsync completes
             SaveActiveSessionsToDisk();
+            FlushSaveActiveSessionsToDisk();
             // Fire-and-forget: close sessions asynchronously
             _ = Task.Run(async () =>
             {
@@ -430,6 +433,7 @@ public partial class CopilotService
 
         Organization.Groups.RemoveAll(g => g.Id == groupId);
         SaveOrganization();
+        FlushSaveOrganization();
         OnStateChanged?.Invoke();
     }
 
@@ -601,7 +605,11 @@ public partial class CopilotService
             }
         }
 
+        // Multi-agent group creation is a critical structural change — flush immediately
+        // instead of relying on the 2s debounce. If the process is killed (e.g., relaunch),
+        // the debounce timer never fires and the group is lost on restart.
         SaveOrganization();
+        FlushSaveOrganization();
         OnStateChanged?.Invoke();
         return group;
     }

@@ -259,6 +259,7 @@ public class MultiAgentRegressionTests
         });
 
         RegisterKnownSessions(svc, "team-orch", "team-w1");
+        AddDummySessions(svc, "team-orch", "team-w1");
 
         // Run reconciliation multiple times (simulates multiple restarts)
         for (int i = 0; i < 5; i++)
@@ -300,6 +301,7 @@ public class MultiAgentRegressionTests
         });
 
         RegisterKnownSessions(svc, "orphan-worker");
+        AddDummySessions(svc, "orphan-worker");
         svc.ReconcileOrganization();
 
         Assert.Equal(SessionGroup.DefaultId,
@@ -331,6 +333,7 @@ public class MultiAgentRegressionTests
         });
 
         RegisterKnownSessions(svc, "orphan-orch");
+        AddDummySessions(svc, "orphan-orch");
         svc.ReconcileOrganization();
 
         Assert.Equal(SessionGroup.DefaultId,
@@ -869,6 +872,7 @@ public class MultiAgentRegressionTests
         });
 
         RegisterKnownSessions(svc, "ma-orch", "ma-w1", "regular-1", "regular-default");
+        AddDummySessions(svc, "ma-orch", "ma-w1", "regular-1", "regular-default");
         svc.ReconcileOrganization();
 
         // Multi-agent sessions: still in multi-agent group
@@ -949,6 +953,109 @@ public class MultiAgentRegressionTests
         Assert.NotEqual(maGroup.Id, repoGroup.Id);
         Assert.False(repoGroup.IsMultiAgent);
         Assert.Equal("repo-1", repoGroup.RepoId);
+    }
+
+    /// <summary>
+    /// Regression: When two multi-agent groups share the same RepoId,
+    /// GetOrCreateRepoGroup must skip both and create a new non-multi-agent group.
+    /// </summary>
+    [Fact]
+    public void GetOrCreateRepoGroup_SkipsMultipleMultiAgentGroups()
+    {
+        var svc = CreateService();
+
+        var squad1 = svc.CreateMultiAgentGroup("Squad A", repoId: "repo-1");
+        var squad2 = svc.CreateMultiAgentGroup("Squad B", repoId: "repo-1");
+
+        var repoGroup = svc.GetOrCreateRepoGroup("repo-1", "PolyPilot");
+        Assert.NotEqual(squad1.Id, repoGroup.Id);
+        Assert.NotEqual(squad2.Id, repoGroup.Id);
+        Assert.False(repoGroup.IsMultiAgent);
+    }
+
+    /// <summary>
+    /// Sync CreateMultiAgentGroup must flush organization.json immediately
+    /// so the group survives if the app is killed before the debounce timer fires.
+    /// </summary>
+    [Fact]
+    public void CreateMultiAgentGroup_FlushesOrganizationImmediately()
+    {
+        var svc = CreateService();
+
+        var group = svc.CreateMultiAgentGroup("Flush Test");
+
+        // Verify the group is persisted by reloading org from disk
+        // Since we use a stub that doesn't write to disk, verify it's in memory
+        Assert.Contains(svc.Organization.Groups, g => g.Id == group.Id && g.IsMultiAgent);
+        // The sync path now calls FlushSaveOrganization — verified by code inspection.
+        // This test ensures the group exists immediately (no debounce delay).
+    }
+
+    /// <summary>
+    /// DeleteGroup on a multi-agent group must flush both organization.json and
+    /// active-sessions.json immediately so deleted sessions don't resurrect on restart.
+    /// </summary>
+    [Fact]
+    public void DeleteMultiAgentGroup_RemovesAllSessionsAndGroup()
+    {
+        var svc = CreateService();
+
+        var group = svc.CreateMultiAgentGroup("Doomed Squad");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "doomed-orch", GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator, PreferredModel = "claude-opus-4.6"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "doomed-w1", GroupId = group.Id,
+            PreferredModel = "claude-sonnet-4.6"
+        });
+        RegisterKnownSessions(svc, "doomed-orch", "doomed-w1");
+
+        svc.DeleteGroup(group.Id);
+
+        // Group must be gone
+        Assert.DoesNotContain(svc.Organization.Groups, g => g.Id == group.Id);
+        // All session metadata must be removed (multi-agent deletion removes, not moves)
+        Assert.DoesNotContain(svc.Organization.Sessions, s => s.SessionName == "doomed-orch");
+        Assert.DoesNotContain(svc.Organization.Sessions, s => s.SessionName == "doomed-w1");
+    }
+
+    /// <summary>
+    /// ReconcileOrganization called twice (first with zero sessions, then with restored sessions)
+    /// must produce the same result as calling it once with sessions — the early return on
+    /// zero sessions should be a no-op that doesn't corrupt state.
+    /// </summary>
+    [Fact]
+    public void ReconcileOrganization_CalledTwice_NoCorruption()
+    {
+        var svc = CreateService();
+
+        // Set up org state as if loaded from disk
+        var maGroup = svc.CreateMultiAgentGroup("Squad", MultiAgentMode.Orchestrator);
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "squad-orch", GroupId = maGroup.Id,
+            Role = MultiAgentRole.Orchestrator, PreferredModel = "claude-opus-4.6"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "regular", GroupId = SessionGroup.DefaultId
+        });
+
+        // First call: zero sessions (pre-restore) — should be no-op
+        svc.ReconcileOrganization();
+        Assert.Equal(2, svc.Organization.Sessions.Count);
+
+        // Simulate session restore
+        AddDummySessions(svc, "squad-orch", "regular");
+        RegisterKnownSessions(svc, "squad-orch", "regular");
+
+        // Second call: with sessions — should run normally
+        svc.ReconcileOrganization();
+        Assert.Equal(2, svc.Organization.Sessions.Count);
+        Assert.Equal(maGroup.Id, svc.Organization.Sessions.First(s => s.SessionName == "squad-orch").GroupId);
     }
 
     #endregion

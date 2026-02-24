@@ -104,7 +104,10 @@ public partial class CopilotService
             }
             
             var json = JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(ActiveSessionsFile, json);
+            // Atomic write: write to temp file then rename to prevent corruption on crash
+            var tempFile = ActiveSessionsFile + ".tmp";
+            File.WriteAllText(tempFile, json);
+            File.Move(tempFile, ActiveSessionsFile, overwrite: true);
         }
         catch (Exception ex)
         {
