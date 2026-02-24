@@ -930,9 +930,11 @@
             }
             else if (sessionSwitched && active == null)
             {
-                // Active session was closed — sync _lastActiveSession so the throttle
-                // bypass doesn't persist across subsequent refreshes.
+                // Active session was closed — clear all session-specific UI state so stale
+                // values don't linger until the next session is created.
                 _lastActiveSession = null;
+                expandedSession = null;
+                _focusedInputId = null;
             }
             
             if (_lastActiveSession == null && active != null)
@@ -944,7 +946,7 @@
                 if (!s.IsProcessing && streamingBySession.ContainsKey(s.Name))
                     streamingBySession.Remove(s.Name);
             }
-            if (sessionSwitched)
+            if (sessionSwitched && active != null)
             {
                 // _sessionSwitching stays true until SafeRefreshAsync reads it — 
                 // this skips the expensive JS draft capture round-trip during switches
