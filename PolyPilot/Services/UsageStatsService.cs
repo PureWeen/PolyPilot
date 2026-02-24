@@ -10,7 +10,7 @@ public class UsageStatsService : IAsyncDisposable
     private readonly object _statsLock = new();
     private readonly object _timerLock = new();
     private Timer? _saveDebounce;
-    private bool _disposed;
+    private volatile bool _disposed;
     
     private static string? _statsPath;
     private static string StatsPath => _statsPath ??= Path.Combine(CopilotService.BaseDir, "usage-stats.json");
@@ -35,6 +35,16 @@ public class UsageStatsService : IAsyncDisposable
                 FirstUsedAt = _stats.FirstUsedAt,
                 LastUpdatedAt = _stats.LastUpdatedAt
             };
+        }
+    }
+    
+    public void TrackSessionResume(string sessionId)
+    {
+        // Record start time for duration tracking without incrementing TotalSessionsCreated
+        // (resumed sessions were already counted in a prior run)
+        lock (_statsLock)
+        {
+            _stats.ActiveSessions[sessionId] = DateTime.UtcNow;
         }
     }
     
@@ -98,11 +108,11 @@ public class UsageStatsService : IAsyncDisposable
         }
     }
     
+    private static readonly Regex CodeBlockRegex = new(@"```[\w]*\r?\n(.*?)\r?\n```", RegexOptions.Compiled | RegexOptions.Singleline);
+
     private int CountCodeLines(string content)
     {
-        // Match code blocks: ```language\n...\n``` or ```\n...\n```
-        var codeBlockPattern = @"```[\w]*\r?\n(.*?)\r?\n```";
-        var matches = Regex.Matches(content, codeBlockPattern, RegexOptions.Singleline);
+        var matches = CodeBlockRegex.Matches(content);
         
         int totalLines = 0;
         foreach (Match match in matches)
@@ -162,16 +172,15 @@ public class UsageStatsService : IAsyncDisposable
             
         try
         {
-            string json;
             lock (_statsLock)
             {
                 var directory = Path.GetDirectoryName(StatsPath);
                 if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                     Directory.CreateDirectory(directory);
                 
-                json = JsonSerializer.Serialize(_stats, new JsonSerializerOptions { WriteIndented = true });
+                var json = JsonSerializer.Serialize(_stats, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(StatsPath, json);
             }
-            File.WriteAllText(StatsPath, json);
         }
         catch
         {

@@ -1227,6 +1227,10 @@ public partial class CopilotService : IAsyncDisposable
         OnStateChanged?.Invoke();
         if (!IsRestoring) SaveActiveSessionsToDisk();
         if (!IsRestoring) ReconcileOrganization();
+        
+        // Track resumed session for duration measurement (don't increment TotalSessionsCreated)
+        _usageStats?.TrackSessionResume(sessionId);
+        
         return info;
     }
 
