@@ -1371,10 +1371,10 @@ public partial class CopilotService
     /// <summary>
     /// Create a multi-agent group from a preset template, creating sessions with assigned models.
     /// </summary>
-    public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, string? worktreeId = null, string? repoId = null, string? nameOverride = null, CancellationToken ct = default)
+    public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, string? worktreeId = null, string? repoId = null, string? nameOverride = null, WorktreeStrategy? strategyOverride = null, CancellationToken ct = default)
     {
         var teamName = nameOverride ?? preset.Name;
-        var strategy = preset.DefaultWorktreeStrategy ?? WorktreeStrategy.Shared;
+        var strategy = strategyOverride ?? preset.DefaultWorktreeStrategy ?? WorktreeStrategy.Shared;
         var group = CreateMultiAgentGroup(teamName, preset.Mode, worktreeId: worktreeId, repoId: repoId);
         if (group == null) return null;
         group.WorktreeStrategy = strategy;
@@ -1386,32 +1386,39 @@ public partial class CopilotService
         // Determine orchestrator working directory based on strategy
         var orchWorkDir = workingDirectory;
         var orchWtId = worktreeId;
+
+        // Pre-fetch once to avoid parallel git lock contention
+        if (repoId != null && strategy != WorktreeStrategy.Shared)
+        {
+            try { await _repoManager.FetchAsync(repoId, ct); }
+            catch (Exception ex) { Debug($"Pre-fetch failed (continuing): {ex.Message}"); }
+        }
+
         if (repoId != null && strategy != WorktreeStrategy.Shared && string.IsNullOrEmpty(worktreeId))
         {
             // Create a dedicated worktree for the orchestrator
-            var orchWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-orchestrator-{Guid.NewGuid().ToString()[..4]}", ct: ct);
+            var orchWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-orchestrator-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
             orchWorkDir = orchWt.Path;
             orchWtId = orchWt.Id;
             group.WorktreeId = orchWtId;
         }
 
-        // Pre-create worker worktrees in parallel if strategy requires isolation
+        // Pre-create worker worktrees sequentially (git worktree add uses locks on bare repos)
         string?[] workerWorkDirs = new string?[preset.WorkerModels.Length];
         string?[] workerWtIds = new string?[preset.WorkerModels.Length];
         if (repoId != null && strategy == WorktreeStrategy.FullyIsolated)
         {
-            var workerWtTasks = Enumerable.Range(0, preset.WorkerModels.Length).Select(async i =>
+            for (int i = 0; i < preset.WorkerModels.Length; i++)
             {
-                var wt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-worker-{i + 1}-{Guid.NewGuid().ToString()[..4]}", ct: ct);
+                var wt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-worker-{i + 1}-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
                 workerWorkDirs[i] = wt.Path;
                 workerWtIds[i] = wt.Id;
-            });
-            await Task.WhenAll(workerWtTasks);
+            }
         }
         else if (repoId != null && strategy == WorktreeStrategy.OrchestratorIsolated)
         {
             // Workers share a single separate worktree
-            var sharedWorkerWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-workers-{Guid.NewGuid().ToString()[..4]}", ct: ct);
+            var sharedWorkerWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-workers-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
             for (int i = 0; i < preset.WorkerModels.Length; i++)
             {
                 workerWorkDirs[i] = sharedWorkerWt.Path;

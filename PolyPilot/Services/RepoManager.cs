@@ -206,14 +206,15 @@ public class RepoManager
     /// <summary>
     /// Create a new worktree for a repository on a new branch from origin/main.
     /// </summary>
-    public async Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName, string? baseBranch = null, CancellationToken ct = default)
+    public async Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName, string? baseBranch = null, bool skipFetch = false, CancellationToken ct = default)
     {
         EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
 
         // Fetch latest from origin (prune to clean up deleted remote branches)
-        await RunGitAsync(repo.BareClonePath, ct, "fetch", "--prune", "origin");
+        if (!skipFetch)
+            await RunGitAsync(repo.BareClonePath, ct, "fetch", "--prune", "origin");
 
         // Determine base ref
         var baseRef = baseBranch ?? await GetDefaultBranch(repo.BareClonePath, ct);

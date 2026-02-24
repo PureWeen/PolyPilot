@@ -244,6 +244,14 @@ else
                     <input type="text" class="new-group-input" id="presetNameInput"
                            placeholder="Team name (optional — uses preset name)"
                            style="margin: 4px 8px; font-size: 12px;" />
+                    <div style="margin: 4px 8px; display: flex; align-items: center; gap: 6px; font-size: 11px;">
+                        <span style="opacity: 0.7;">Worktrees:</span>
+                        <select class="sort-select" style="flex: 1; font-size: 11px;" @onchange="OnStrategyChanged">
+                            <option value="FullyIsolated" selected="@(selectedStrategy == WorktreeStrategy.FullyIsolated)">🔒 Each agent gets own worktree</option>
+                            <option value="OrchestratorIsolated" selected="@(selectedStrategy == WorktreeStrategy.OrchestratorIsolated)">🔀 Manager isolated, workers share</option>
+                            <option value="Shared" selected="@(selectedStrategy == WorktreeStrategy.Shared)">📁 Everyone shares one worktree</option>
+                        </select>
+                    </div>
                     @{
                         var repoWorktree = RepoManager.Worktrees.FirstOrDefault(w => w.RepoId == pendingMultiAgentRepo?.Id);
                         var allPresets = UserPresets.GetAll(CopilotService.BaseDir, repoWorktree?.Path);
@@ -1333,6 +1341,13 @@ else
     }
 
     private RepositoryInfo? pendingMultiAgentRepo;
+    private WorktreeStrategy selectedStrategy = WorktreeStrategy.FullyIsolated;
+
+    private void OnStrategyChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<WorktreeStrategy>(e.Value?.ToString(), out var s))
+            selectedStrategy = s;
+    }
 
     private async Task CreateFromPresetForRepo(GroupPreset preset, RepositoryInfo repo)
     {
@@ -1343,7 +1358,9 @@ else
         // Find an existing worktree for fallback working directory (Shared strategy)
         var fallbackWt = RepoManager.Worktrees.FirstOrDefault(w => w.RepoId == repo.Id);
 
+        var strategyOverride = selectedStrategy;
         pendingMultiAgentRepo = null;
+        selectedStrategy = WorktreeStrategy.FullyIsolated; // reset for next time
         StateHasChanged();
         try
         {
@@ -1351,7 +1368,8 @@ else
                 workingDirectory: fallbackWt?.Path,
                 worktreeId: null,
                 repoId: repo.Id,
-                nameOverride: nameOverride);
+                nameOverride: nameOverride,
+                strategyOverride: strategyOverride);
         }
         catch (Exception ex)
         {

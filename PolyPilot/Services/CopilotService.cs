@@ -1437,7 +1437,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         else
         {
             var branch = branchName ?? $"session-{DateTime.Now:yyyyMMdd-HHmmss}";
-            wt = await _repoManager.CreateWorktreeAsync(repoId, branch, null, ct);
+            wt = await _repoManager.CreateWorktreeAsync(repoId, branch, null, ct: ct);
         }
 
         var name = sessionName ?? wt.Branch;
