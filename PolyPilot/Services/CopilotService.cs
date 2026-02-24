@@ -1214,6 +1214,13 @@ public partial class CopilotService : IAsyncDisposable
 
         // Set processing state if session was mid-turn when app died
         info.IsProcessing = isStillProcessing;
+        if (isStillProcessing)
+        {
+            // Set phase based on last event so UI shows correct status instead of "Sending"
+            var (lastTool, _) = GetLastSessionActivity(sessionId);
+            info.ProcessingPhase = !string.IsNullOrEmpty(lastTool) ? 3 : 2; // 3=Working, 2=Thinking
+            info.ProcessingStartedAt = DateTime.Now;
+        }
 
         var state = new SessionState
         {
