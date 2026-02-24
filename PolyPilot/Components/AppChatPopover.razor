@@ -121,6 +121,7 @@
             onToolStart: (name, callId) =>
             {
                 currentToolName = name;
+                messages.Add(ChatMessage.ToolCallMessage(name, callId));
                 toolActivities.Add(new ToolActivity
                 {
                     Name = name,
@@ -138,6 +139,14 @@
                     activity.IsSuccess = true;
                     activity.CompletedAt = DateTime.Now;
                     activity.Result = result?.Length > 200 ? result[..200] + "..." : result;
+                }
+                // Mark the tool call message as complete
+                var toolMsg = messages.LastOrDefault(m => m.ToolCallId == callId);
+                if (toolMsg != null)
+                {
+                    toolMsg.IsComplete = true;
+                    toolMsg.IsSuccess = true;
+                    toolMsg.Content = result?.Length > 300 ? result[..300] + "..." : result ?? "";
                 }
                 currentToolName = "";
                 InvokeAsync(StateHasChanged);
