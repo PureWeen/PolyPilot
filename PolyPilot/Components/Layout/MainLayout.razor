@@ -4,12 +4,12 @@
 
 <div class="page @(flyoutOpen ? "flyout-open" : "")">
     <div class="sidebar desktop-only">
-        <SessionSidebar />
+        <SessionSidebar OnToggleAppChat="ToggleAppChat" />
         <div class="sidebar-resize-handle" @onmousedown="StartResize"></div>
     </div>
 
     <div class="mobile-top-bar mobile-only">
-        <SessionSidebar IsMobileTopBar="true" OnToggleFlyout="ToggleFlyout" FontSize="fontSize" OnFontSizeChange="HandleFontSizeChange" />
+        <SessionSidebar IsMobileTopBar="true" OnToggleFlyout="ToggleFlyout" OnToggleAppChat="ToggleAppChat" FontSize="fontSize" OnFontSizeChange="HandleFontSizeChange" />
     </div>
 
     <main>
@@ -20,14 +20,17 @@
 
     <div class="flyout-backdrop mobile-only @(flyoutOpen ? "open" : "")" @onclick="CloseFlyout"></div>
     <div class="flyout-panel mobile-only @(flyoutOpen ? "open" : "")">
-        <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" />
+        <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" OnToggleAppChat="ToggleAppChat" />
     </div>
 
     <PolyPilot.Components.Tutorial.TutorialOverlay />
+
+    <AppChatPopover IsVisible="@appChatOpen" OnClose="() => appChatOpen = false" />
 </div>
 
 @code {
     private bool flyoutOpen;
+    private bool appChatOpen;
     private int fontSize = 20;
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
@@ -120,5 +123,10 @@
     private void CloseFlyout()
     {
         flyoutOpen = false;
+    }
+
+    private void ToggleAppChat()
+    {
+        appChatOpen = !appChatOpen;
     }
 }

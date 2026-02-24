@@ -1,0 +1,129 @@
+@using PolyPilot.Models
+@using PolyPilot.Services
+@using PolyPilot.Services.AI
+@inject DirectLocalChatService LocalChat
+@inject IJSRuntime JS
+
+@if (IsVisible)
+{
+    <div class="appchat-popover @(isExpanded ? "expanded" : "collapsed")">
+        <div class="appchat-header" @onclick="ToggleExpand">
+            <span class="appchat-title">✨ App Chat</span>
+            <div class="appchat-header-actions">
+                @if (messages.Count > 0)
+                {
+                    <button class="appchat-clear-btn" title="Clear chat" @onclick="ClearChat" @onclick:stopPropagation="true">🗑</button>
+                }
+                <button class="appchat-close-btn" title="Close" @onclick="Close" @onclick:stopPropagation="true">✕</button>
+            </div>
+        </div>
+
+        @if (isExpanded)
+        {
+            <div class="appchat-body">
+                <ChatMessageList Messages="@messages"
+                                 StreamingContent="@streamingContent"
+                                 IsProcessing="@isProcessing"
+                                 Compact="true"
+                                 Layout="ChatLayout.BothLeft"
+                                 Style="ChatStyle.Minimal" />
+            </div>
+
+            <div class="appchat-input-area">
+                <input id="appchat-input"
+                       type="text"
+                       placeholder="Ask about your sessions..."
+                       disabled="@isProcessing"
+                       @onkeydown="HandleKeyDown" />
+                <button class="appchat-send-btn"
+                        disabled="@isProcessing"
+                        @onclick="SendMessage">
+                    @(isProcessing ? "⏳" : "➤")
+                </button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private List<ChatMessage> messages = new();
+    private string streamingContent = "";
+    private bool isProcessing;
+    private bool isExpanded = true;
+    private string sessionName = "appchat-" + Guid.NewGuid().ToString("N")[..8];
+    private CancellationTokenSource? _cts;
+
+    private void ToggleExpand() => isExpanded = !isExpanded;
+
+    private async Task Close()
+    {
+        _cts?.Cancel();
+        await OnClose.InvokeAsync();
+    }
+
+    private void ClearChat()
+    {
+        _cts?.Cancel();
+        messages.Clear();
+        streamingContent = "";
+        isProcessing = false;
+        LocalChat.RemoveSession(sessionName);
+        sessionName = "appchat-" + Guid.NewGuid().ToString("N")[..8];
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !isProcessing)
+            await SendMessage();
+    }
+
+    private async Task SendMessage()
+    {
+        var prompt = await JS.InvokeAsync<string>("eval", "document.getElementById('appchat-input')?.value || ''");
+        if (string.IsNullOrWhiteSpace(prompt)) return;
+
+        await JS.InvokeVoidAsync("eval", "document.getElementById('appchat-input').value = ''");
+
+        messages.Add(ChatMessage.UserMessage(prompt));
+        isProcessing = true;
+        streamingContent = "";
+        StateHasChanged();
+
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+
+        await LocalChat.SendPromptStreamingAsync(
+            sessionName,
+            prompt,
+            onDelta: delta =>
+            {
+                streamingContent += delta;
+                InvokeAsync(StateHasChanged);
+            },
+            onComplete: full =>
+            {
+                messages.Add(ChatMessage.AssistantMessage(full));
+                streamingContent = "";
+                isProcessing = false;
+                InvokeAsync(StateHasChanged);
+            },
+            onError: error =>
+            {
+                messages.Add(ChatMessage.ErrorMessage(error));
+                streamingContent = "";
+                isProcessing = false;
+                InvokeAsync(StateHasChanged);
+            },
+            cancellationToken: _cts.Token);
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        LocalChat.RemoveSession(sessionName);
+    }
+}

@@ -1082,6 +1082,13 @@
     color: var(--accent-primary);
 }
 
+.appchat-toggle {
+    font-size: 12px;
+    border: none;
+    background: none;
+    cursor: pointer;
+}
+
 .rename-input {
     width: 100%;
     padding: 0.2rem 0.4rem;
