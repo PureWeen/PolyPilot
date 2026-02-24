@@ -70,6 +70,8 @@ public class DirectLocalChatService
         Action<string> onDelta,
         Action<string> onComplete,
         Action<string>? onError = null,
+        Action<string, string>? onToolStart = null,
+        Action<string, string?>? onToolEnd = null,
         CancellationToken cancellationToken = default)
     {
         var agent = GetOrCreateAgent();
@@ -84,6 +86,15 @@ public class DirectLocalChatService
                 session,
                 cancellationToken: cancellationToken))
             {
+                // Surface tool calls to the UI
+                foreach (var content in update.Contents)
+                {
+                    if (content is FunctionCallContent fcc)
+                        onToolStart?.Invoke(fcc.Name, fcc.CallId);
+                    else if (content is FunctionResultContent frc)
+                        onToolEnd?.Invoke(frc.CallId, frc.Result?.ToString());
+                }
+
                 var text = update.Text;
                 if (!string.IsNullOrEmpty(text))
                 {

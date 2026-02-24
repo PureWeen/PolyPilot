@@ -20,6 +20,8 @@
         <div class="appchat-body">
             <ChatMessageList Messages="@messages"
                              StreamingContent="@streamingContent"
+                             CurrentToolName="@currentToolName"
+                             ToolActivities="@toolActivities"
                              IsProcessing="@isProcessing"
                              Compact="true"
                              Layout="ChatLayout.BothLeft"
@@ -45,7 +47,9 @@
     [Parameter] public bool IsVisible { get; set; }
 
     private List<ChatMessage> messages = new();
+    private List<ToolActivity> toolActivities = new();
     private string streamingContent = "";
+    private string currentToolName = "";
     private bool isProcessing;
     private string sessionName = "appchat-" + Guid.NewGuid().ToString("N")[..8];
     private CancellationTokenSource? _cts;
@@ -54,7 +58,9 @@
     {
         _cts?.Cancel();
         messages.Clear();
+        toolActivities.Clear();
         streamingContent = "";
+        currentToolName = "";
         isProcessing = false;
         LocalChat.RemoveSession(sessionName);
         sessionName = "appchat-" + Guid.NewGuid().ToString("N")[..8];
@@ -86,6 +92,11 @@
             prompt,
             onDelta: delta =>
             {
+                // Clear tool state when text starts streaming
+                if (currentToolName != "")
+                {
+                    currentToolName = "";
+                }
                 streamingContent += delta;
                 InvokeAsync(StateHasChanged);
             },
@@ -93,6 +104,8 @@
             {
                 messages.Add(ChatMessage.AssistantMessage(full));
                 streamingContent = "";
+                currentToolName = "";
+                toolActivities.Clear();
                 isProcessing = false;
                 InvokeAsync(StateHasChanged);
             },
@@ -100,7 +113,33 @@
             {
                 messages.Add(ChatMessage.ErrorMessage(error));
                 streamingContent = "";
+                currentToolName = "";
+                toolActivities.Clear();
                 isProcessing = false;
+                InvokeAsync(StateHasChanged);
+            },
+            onToolStart: (name, callId) =>
+            {
+                currentToolName = name;
+                toolActivities.Add(new ToolActivity
+                {
+                    Name = name,
+                    CallId = callId,
+                    StartedAt = DateTime.Now
+                });
+                InvokeAsync(StateHasChanged);
+            },
+            onToolEnd: (callId, result) =>
+            {
+                var activity = toolActivities.FirstOrDefault(a => a.CallId == callId);
+                if (activity != null)
+                {
+                    activity.IsComplete = true;
+                    activity.IsSuccess = true;
+                    activity.CompletedAt = DateTime.Now;
+                    activity.Result = result?.Length > 200 ? result[..200] + "..." : result;
+                }
+                currentToolName = "";
                 InvokeAsync(StateHasChanged);
             },
             cancellationToken: _cts.Token);
