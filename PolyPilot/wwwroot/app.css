@@ -310,6 +310,11 @@ html, body {
     visibility: visible;
     pointer-events: auto;
 }
+/* When multi-agent toolbar is present, offset slots below the 40px toolbar */
+.dashboard.expanded-mode:has(.ma-expanded-toolbar) .keep-alive-slot {
+    top: 41px;
+    height: calc(100% - 41px);
+}
 
 /* Expanded chat title — global override to prevent truncation */
 .expanded-card .chat-header-top h2 {
