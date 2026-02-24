@@ -9,6 +9,7 @@
 @inject QrScannerService QrScanner
 @inject GitAutoUpdateService GitAutoUpdate
 @inject FiestaService FiestaService
+@inject UsageStatsService UsageStats
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject IServiceProvider ServiceProvider
@@ -513,6 +514,53 @@
         </div>
     </div>
 
+    <div class="settings-group @(GroupVisible("statistics usage stats") ? "" : "search-hidden")">
+        <h2 class="group-title">Statistics</h2>
+
+        <div class="settings-section @(SectionVisible("statistics usage stats sessions time code") ? "" : "search-hidden")">
+            <h3>Usage Statistics</h3>
+            <p class="section-desc">Track your app usage and Copilot activity.</p>
+            
+            @if (stats != null)
+            {
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">@stats.TotalSessionsCreated</div>
+                        <div class="stat-label">Sessions Created</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">@stats.TotalSessionsClosed</div>
+                        <div class="stat-label">Sessions Closed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">@FormatDuration(stats.TotalSessionTimeSeconds)</div>
+                        <div class="stat-label">Total Session Time</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">@FormatDuration(stats.LongestSessionSeconds)</div>
+                        <div class="stat-label">Longest Session</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">@stats.TotalLinesSuggested.ToString("N0")</div>
+                        <div class="stat-label">Lines of Code Suggested</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">@stats.TotalMessagesReceived</div>
+                        <div class="stat-label">Messages Received</div>
+                    </div>
+                </div>
+                <div class="stats-footer">
+                    <span class="stats-date">First used: @stats.FirstUsedAt.ToLocalTime().ToString("MMM dd, yyyy")</span>
+                    <span class="stats-date">Last updated: @stats.LastUpdatedAt.ToLocalTime().ToString("MMM dd, yyyy HH:mm")</span>
+                </div>
+            }
+            else
+            {
+                <p>No statistics available yet.</p>
+            }
+        </div>
+    </div>
+
     @if (GitAutoUpdate.IsAvailable)
     {
     <div class="settings-group @(GroupVisible("developer") ? "" : "search-hidden")">
@@ -570,6 +618,7 @@
     private string fiestaLinkUrl = "";
     private string fiestaLinkToken = "";
     private string? fiestaLinkError;
+    private UsageStatistics? stats;
 
     [JSInvokable]
     public void JsUpdateSearch(string query)
@@ -602,6 +651,7 @@
         {
             "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect"),
             "ui" => SectionVisible("chat message layout default reversed both left theme font size text zoom"),
+            "statistics" => SectionVisible("statistics usage stats sessions time code"),
             "developer" => SectionVisible("auto update main git watch relaunch rebuild"),
             _ => true
         };
@@ -642,6 +692,9 @@
 
         if (WsBridgeServer.IsRunning)
             GenerateDirectQrCode();
+        
+        // Load usage statistics
+        stats = UsageStats.GetStats();
     }
 
     protected override void OnAfterRender(bool firstRender)
@@ -1181,5 +1234,17 @@
             directQrCodeDataUri = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
         }
         catch { }
+    }
+    
+    private string FormatDuration(long seconds)
+    {
+        seconds = Math.Max(0, seconds);
+        if (seconds < 60)
+            return $"{seconds}s";
+        if (seconds < 3600)
+            return $"{seconds / 60}m {seconds % 60}s";
+        if (seconds < 86400)
+            return $"{seconds / 3600}h {(seconds % 3600) / 60}m";
+        return $"{seconds / 86400}d {(seconds % 86400) / 3600}h";
     }
 }

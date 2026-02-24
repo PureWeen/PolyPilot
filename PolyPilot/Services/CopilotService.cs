@@ -35,6 +35,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly IWsBridgeClient _bridgeClient;
     private readonly IDemoService _demoService;
     private readonly IServiceProvider? _serviceProvider;
+    private readonly UsageStatsService? _usageStats;
     private CopilotClient? _client;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
@@ -164,6 +165,7 @@ public partial class CopilotService : IAsyncDisposable
         _repoManager = repoManager;
         _serviceProvider = serviceProvider;
         _demoService = demoService;
+        try { _usageStats = serviceProvider?.GetService(typeof(UsageStatsService)) as UsageStatsService; } catch { }
     }
 
     // Debug info
@@ -1224,6 +1226,11 @@ public partial class CopilotService : IAsyncDisposable
         OnStateChanged?.Invoke();
         if (!IsRestoring) SaveActiveSessionsToDisk();
         if (!IsRestoring) ReconcileOrganization();
+        
+        // Track resumed session for duration measurement (don't increment TotalSessionsCreated)
+        // Use displayName as key — consistent with TrackSessionStart/End which use display name
+        _usageStats?.TrackSessionResume(displayName);
+        
         return info;
     }
 
@@ -1361,6 +1368,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         SaveActiveSessionsToDisk();
         ReconcileOrganization();
         OnStateChanged?.Invoke();
+        
+        // Track session creation using display name as stable key
+        // (SessionId may not be populated yet at creation time)
+        _usageStats?.TrackSessionStart(name);
+        
         return info;
     }
 
@@ -2056,6 +2068,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (state.Info.SessionId != null)
             SetSessionAlias(state.Info.SessionId, newName);
 
+        // Re-key usage stats tracking so TrackSessionEnd(newName) finds the entry
+        _usageStats?.RenameActiveSession(oldName, newName);
+
         SaveActiveSessionsToDisk();
         ReconcileOrganization();
         OnStateChanged?.Invoke();
@@ -2114,6 +2129,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Track as explicitly closed so merge doesn't re-add from file
         if (state.Info.SessionId != null)
             _closedSessionIds[state.Info.SessionId] = 0;
+
+        // Track session close using display name (consistent with TrackSessionStart key)
+        _usageStats?.TrackSessionEnd(name);
 
         if (state.Session is not null)
             try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }

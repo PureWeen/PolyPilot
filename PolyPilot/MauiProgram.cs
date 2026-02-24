@@ -103,6 +103,7 @@ public static class MauiProgram
 	builder.Services.AddSingleton<GitAutoUpdateService>();
 	builder.Services.AddSingleton<RepoManager>();
 	builder.Services.AddSingleton<TutorialService>();
+	builder.Services.AddSingleton<UsageStatsService>();
 	builder.Services.AddSingleton<INotificationManagerService, NotificationManagerService>();
 
 #if DEBUG
