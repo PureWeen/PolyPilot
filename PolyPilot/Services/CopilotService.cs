@@ -155,7 +155,6 @@ public partial class CopilotService : IAsyncDisposable
     public CopilotService(IChatDatabase chatDb, IServerManager serverManager, IWsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider)
     : this(chatDb, serverManager, bridgeClient, repoManager, serviceProvider, new DemoService())
     {
-        try { _usageStats = serviceProvider?.GetService(typeof(UsageStatsService)) as UsageStatsService; } catch { }
     }
 
     internal CopilotService(IChatDatabase chatDb, IServerManager serverManager, IWsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider, IDemoService demoService)
@@ -2068,6 +2067,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Persist alias so saved sessions also show the custom name
         if (state.Info.SessionId != null)
             SetSessionAlias(state.Info.SessionId, newName);
+
+        // Re-key usage stats tracking so TrackSessionEnd(newName) finds the entry
+        _usageStats?.RenameActiveSession(oldName, newName);
 
         SaveActiveSessionsToDisk();
         ReconcileOrganization();

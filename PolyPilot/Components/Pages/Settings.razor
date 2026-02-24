@@ -1238,6 +1238,7 @@
     
     private string FormatDuration(long seconds)
     {
+        seconds = Math.Max(0, seconds);
         if (seconds < 60)
             return $"{seconds}s";
         if (seconds < 3600)

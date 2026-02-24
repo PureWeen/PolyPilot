@@ -40,15 +40,26 @@ public class UsageStatsService : IAsyncDisposable
     
     public void TrackSessionResume(string sessionId)
     {
-        // Count resumed sessions as created to keep Created >= Closed invariant
-        // (the original creation was in a prior run that may not have persisted the count)
+        // Record start time for duration tracking on close, but don't increment
+        // TotalSessionsCreated — these sessions were already counted in a prior run.
+        // The Created >= Closed invariant holds because TrackSessionEnd only increments
+        // Closed when the session key is found in ActiveSessions.
         lock (_statsLock)
         {
-            _stats.TotalSessionsCreated++;
             _stats.ActiveSessions[sessionId] = DateTime.UtcNow;
-            _stats.LastUpdatedAt = DateTime.UtcNow;
         }
-        DebounceSave();
+    }
+    
+    public void RenameActiveSession(string oldId, string newId)
+    {
+        lock (_statsLock)
+        {
+            if (_stats.ActiveSessions.TryGetValue(oldId, out var startTime))
+            {
+                _stats.ActiveSessions.Remove(oldId);
+                _stats.ActiveSessions[newId] = startTime;
+            }
+        }
     }
     
     public void TrackSessionStart(string sessionId)
@@ -111,6 +122,7 @@ public class UsageStatsService : IAsyncDisposable
         }
     }
     
+    private static readonly JsonSerializerOptions SaveOptions = new() { WriteIndented = true };
     private static readonly Regex CodeBlockRegex = new(@"```[^\n`]*\r?\n(.*?)\r?\n```", RegexOptions.Compiled | RegexOptions.Singleline);
 
     private int CountCodeLines(string content)
@@ -140,10 +152,14 @@ public class UsageStatsService : IAsyncDisposable
         {
             if (File.Exists(StatsPath))
             {
+                var fileInfo = new FileInfo(StatsPath);
+                if (fileInfo.Length > 1024 * 1024) // 1MB limit
+                    return;
+
                 using var stream = new FileStream(StatsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                 using var reader = new StreamReader(stream);
                 var json = reader.ReadToEnd();
-                var loaded = JsonSerializer.Deserialize<UsageStatistics>(json);
+                var loaded = JsonSerializer.Deserialize<UsageStatistics>(json, new JsonSerializerOptions { MaxDepth = 32 });
                 if (loaded != null)
                 {
                     lock (_statsLock)
@@ -184,26 +200,30 @@ public class UsageStatsService : IAsyncDisposable
                 if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                     Directory.CreateDirectory(directory);
                 
-                json = JsonSerializer.Serialize(_stats, new JsonSerializerOptions { WriteIndented = true });
+                json = JsonSerializer.Serialize(_stats, SaveOptions);
             }
 
             if (json != null)
             {
-                // Use FileShare.None to prevent concurrent writes from other processes
-                using var stream = new FileStream(StatsPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                using var writer = new StreamWriter(stream);
-                writer.Write(json);
+                // Use FileStreamOptions to set permissions atomically on creation (avoids TOCTOU)
+                var options = new FileStreamOptions
+                {
+                    Mode = FileMode.Create,
+                    Access = FileAccess.Write,
+                    Share = FileShare.None,
+                    PreallocationSize = json.Length
+                };
 
 #if !ANDROID && !IOS && !MACCATALYST
                 if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
                 {
-                    try 
-                    {
-                        File.SetUnixFileMode(StatsPath, UnixFileMode.UserRead | UnixFileMode.UserWrite); 
-                    }
-                    catch { }
+                    options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
                 }
 #endif
+
+                using var stream = new FileStream(StatsPath, options);
+                using var writer = new StreamWriter(stream);
+                writer.Write(json);
             }
         }
         catch (Exception ex)
