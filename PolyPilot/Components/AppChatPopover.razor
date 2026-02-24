@@ -118,14 +118,15 @@
                 isProcessing = false;
                 InvokeAsync(StateHasChanged);
             },
-            onToolStart: (name, callId) =>
+            onToolStart: (name, callId, argsJson) =>
             {
                 currentToolName = name;
-                messages.Add(ChatMessage.ToolCallMessage(name, callId));
+                messages.Add(ChatMessage.ToolCallMessage(name, callId, argsJson));
                 toolActivities.Add(new ToolActivity
                 {
                     Name = name,
                     CallId = callId,
+                    Input = argsJson,
                     StartedAt = DateTime.Now
                 });
                 InvokeAsync(StateHasChanged);
@@ -138,15 +139,15 @@
                     activity.IsComplete = true;
                     activity.IsSuccess = true;
                     activity.CompletedAt = DateTime.Now;
-                    activity.Result = result?.Length > 200 ? result[..200] + "..." : result;
+                    activity.Result = result;
                 }
-                // Mark the tool call message as complete
                 var toolMsg = messages.LastOrDefault(m => m.ToolCallId == callId);
                 if (toolMsg != null)
                 {
                     toolMsg.IsComplete = true;
                     toolMsg.IsSuccess = true;
-                    toolMsg.Content = result?.Length > 300 ? result[..300] + "..." : result ?? "";
+                    toolMsg.Content = result ?? "";
+                    toolMsg.IsCollapsed = true;
                 }
                 currentToolName = "";
                 InvokeAsync(StateHasChanged);

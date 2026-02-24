@@ -70,7 +70,7 @@ public class DirectLocalChatService
         Action<string> onDelta,
         Action<string> onComplete,
         Action<string>? onError = null,
-        Action<string, string>? onToolStart = null,
+        Action<string, string, string?>? onToolStart = null,
         Action<string, string?>? onToolEnd = null,
         CancellationToken cancellationToken = default)
     {
@@ -90,7 +90,12 @@ public class DirectLocalChatService
                 foreach (var content in update.Contents)
                 {
                     if (content is FunctionCallContent fcc)
-                        onToolStart?.Invoke(fcc.Name, fcc.CallId);
+                    {
+                        var argsJson = fcc.Arguments is { Count: > 0 }
+                            ? System.Text.Json.JsonSerializer.Serialize(fcc.Arguments)
+                            : null;
+                        onToolStart?.Invoke(fcc.Name, fcc.CallId, argsJson);
+                    }
                     else if (content is FunctionResultContent frc)
                         onToolEnd?.Invoke(frc.CallId, frc.Result?.ToString());
                 }
