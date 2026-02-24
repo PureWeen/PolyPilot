@@ -1489,15 +1489,29 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     }
 
     /// <summary>
-    /// Moves a session to a different worktree, updating its WorkingDirectory,
-    /// WorktreeId, git branch, repo group membership, and worktree link.
+    /// Creates a new worktree and moves the session to it, preserving the Copilot session
+    /// and conversation history. Notifies the agent about the directory change.
     /// </summary>
-    public void MoveSessionToWorktree(string sessionName, string worktreeId)
+    public async Task MoveSessionToNewWorktreeAsync(
+        string sessionName,
+        string repoId,
+        string? branchName = null,
+        int? prNumber = null,
+        CancellationToken ct = default)
     {
         if (!_sessions.TryGetValue(sessionName, out var state)) return;
 
-        var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
-        if (wt == null) return;
+        // Create the new worktree
+        WorktreeInfo wt;
+        if (prNumber.HasValue)
+            wt = await _repoManager.CreateWorktreeFromPrAsync(repoId, prNumber.Value, ct);
+        else
+        {
+            var branch = branchName ?? $"session-{DateTime.Now:yyyyMMdd-HHmmss}";
+            wt = await _repoManager.CreateWorktreeAsync(repoId, branch, null, ct);
+        }
+
+        var oldDir = state.Info.WorkingDirectory;
 
         // Update session info
         state.Info.WorkingDirectory = wt.Path;
@@ -1521,6 +1535,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         SaveActiveSessionsToDisk();
         OnStateChanged?.Invoke();
+
+        // Notify the agent about the directory change so it uses the new path
+        _ = SendPromptAsync(sessionName,
+            $"IMPORTANT: Your working directory has changed from `{oldDir}` to `{wt.Path}` (branch: `{wt.Branch}`). " +
+            $"All file operations should now use this new directory. Please acknowledge.",
+            skipHistoryMessage: false);
     }
 
     /// <summary>
