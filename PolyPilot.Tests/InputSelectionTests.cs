@@ -39,7 +39,7 @@ public class InputSelectionTests
         // Regex to match <input ...> or <textarea ...> tags (possibly multi-line).
         // Uses alternation to handle > inside quoted attributes (e.g., "() => Foo()").
         var tagPattern = new Regex(@"<(input|textarea)\b(?:[^>""']|""[^""]*""|'[^']*')*(?:/>|>)", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-        var hasValueBinding = new Regex(@"(value=""@|@bind="")", RegexOptions.IgnoreCase);
+        var hasValueBinding = new Regex(@"(value=""@|@bind(-value)?=""|@bind:get="")", RegexOptions.IgnoreCase);
         var hasOnKeyDown = new Regex(@"@onkeydown\b", RegexOptions.IgnoreCase);
 
         foreach (var file in razorFiles)
