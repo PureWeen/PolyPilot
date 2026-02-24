@@ -40,12 +40,15 @@ public class UsageStatsService : IAsyncDisposable
     
     public void TrackSessionResume(string sessionId)
     {
-        // Record start time for duration tracking without incrementing TotalSessionsCreated
-        // (resumed sessions were already counted in a prior run)
+        // Count resumed sessions as created to keep Created >= Closed invariant
+        // (the original creation was in a prior run that may not have persisted the count)
         lock (_statsLock)
         {
+            _stats.TotalSessionsCreated++;
             _stats.ActiveSessions[sessionId] = DateTime.UtcNow;
+            _stats.LastUpdatedAt = DateTime.UtcNow;
         }
+        DebounceSave();
     }
     
     public void TrackSessionStart(string sessionId)
@@ -108,7 +111,7 @@ public class UsageStatsService : IAsyncDisposable
         }
     }
     
-    private static readonly Regex CodeBlockRegex = new(@"```[\w]*\r?\n(.*?)\r?\n```", RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly Regex CodeBlockRegex = new(@"```[^\n`]*\r?\n(.*?)\r?\n```", RegexOptions.Compiled | RegexOptions.Singleline);
 
     private int CountCodeLines(string content)
     {
@@ -137,7 +140,9 @@ public class UsageStatsService : IAsyncDisposable
         {
             if (File.Exists(StatsPath))
             {
-                var json = File.ReadAllText(StatsPath);
+                using var stream = new FileStream(StatsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var reader = new StreamReader(stream);
+                var json = reader.ReadToEnd();
                 var loaded = JsonSerializer.Deserialize<UsageStatistics>(json);
                 if (loaded != null)
                 {
@@ -150,12 +155,12 @@ public class UsageStatsService : IAsyncDisposable
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Silently ignore errors - start fresh if corrupt
+            System.Diagnostics.Debug.WriteLine($"Failed to load stats: {ex}");
         }
     }
-    
+
     private void DebounceSave()
     {
         lock (_timerLock)
@@ -164,7 +169,7 @@ public class UsageStatsService : IAsyncDisposable
             _saveDebounce = new Timer(_ => SaveStats(), null, TimeSpan.FromSeconds(2), Timeout.InfiniteTimeSpan);
         }
     }
-    
+
     private void SaveStats()
     {
         if (_disposed)
@@ -172,19 +177,38 @@ public class UsageStatsService : IAsyncDisposable
             
         try
         {
+            string? json = null;
             lock (_statsLock)
             {
                 var directory = Path.GetDirectoryName(StatsPath);
                 if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                     Directory.CreateDirectory(directory);
                 
-                var json = JsonSerializer.Serialize(_stats, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(StatsPath, json);
+                json = JsonSerializer.Serialize(_stats, new JsonSerializerOptions { WriteIndented = true });
+            }
+
+            if (json != null)
+            {
+                // Use FileShare.None to prevent concurrent writes from other processes
+                using var stream = new FileStream(StatsPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                using var writer = new StreamWriter(stream);
+                writer.Write(json);
+
+#if !ANDROID && !IOS && !MACCATALYST
+                if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+                {
+                    try 
+                    {
+                        File.SetUnixFileMode(StatsPath, UnixFileMode.UserRead | UnixFileMode.UserWrite); 
+                    }
+                    catch { }
+                }
+#endif
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Silently ignore save errors
+             System.Diagnostics.Debug.WriteLine($"Failed to save stats: {ex}");
         }
     }
     

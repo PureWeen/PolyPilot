@@ -658,8 +658,7 @@ public partial class CopilotService
         if (!string.IsNullOrEmpty(state.Info.SessionId))
             _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
         
-        // Track message and code suggestions from accumulated response
-        _usageStats?.TrackMessage();
+        // Track code suggestions from accumulated response segment
         _usageStats?.TrackCodeSuggestion(text);
         
         state.CurrentResponse.Clear();
@@ -726,7 +725,12 @@ public partial class CopilotService
             // Write-through to DB
             if (!string.IsNullOrEmpty(state.Info.SessionId))
                 _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+            
+            // Track code suggestions from final response segment
+            _usageStats?.TrackCodeSuggestion(response);
         }
+        // Track one message per completed turn (not per flush segment)
+        _usageStats?.TrackMessage();
         // Clear IsProcessing BEFORE completing the TCS — if the continuation runs
         // synchronously (e.g., in orchestrator reflection loops), the next SendPromptAsync
         // call must see IsProcessing=false or it throws "already processing".
