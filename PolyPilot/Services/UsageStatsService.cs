@@ -79,7 +79,7 @@ public class UsageStatsService : IAsyncDisposable
         {
             if (_stats.ActiveSessions.TryGetValue(sessionId, out var startTime))
             {
-                var duration = (long)(DateTime.UtcNow - startTime).TotalSeconds;
+                var duration = Math.Max(0L, (long)(DateTime.UtcNow - startTime).TotalSeconds);
                 _stats.TotalSessionTimeSeconds += duration;
                 _stats.TotalSessionsClosed++;
                 
@@ -179,6 +179,7 @@ public class UsageStatsService : IAsyncDisposable
 
     private void DebounceSave()
     {
+        if (_disposed) return;
         lock (_timerLock)
         {
             _saveDebounce?.Dispose();

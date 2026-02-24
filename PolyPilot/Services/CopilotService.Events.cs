@@ -728,10 +728,9 @@ public partial class CopilotService
             
             // Track code suggestions from final response segment
             _usageStats?.TrackCodeSuggestion(response);
-            
-            // Track one message per completed turn (not per flush segment)
-            _usageStats?.TrackMessage();
         }
+        // Track one message per completed turn regardless of trailing text
+        _usageStats?.TrackMessage();
         // Clear IsProcessing BEFORE completing the TCS — if the continuation runs
         // synchronously (e.g., in orchestrator reflection loops), the next SendPromptAsync
         // call must see IsProcessing=false or it throws "already processing".
