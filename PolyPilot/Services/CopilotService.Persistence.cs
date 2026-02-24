@@ -468,7 +468,9 @@ public partial class CopilotService
                 if (kept.Count != entries.Count)
                 {
                     var updatedJson = JsonSerializer.Serialize(kept, new JsonSerializerOptions { WriteIndented = true });
-                    File.WriteAllText(ActiveSessionsFile, updatedJson);
+                    var tempFile = ActiveSessionsFile + ".tmp";
+                    File.WriteAllText(tempFile, updatedJson);
+                    File.Move(tempFile, ActiveSessionsFile, overwrite: true);
                     deleted = true;
                 }
             }

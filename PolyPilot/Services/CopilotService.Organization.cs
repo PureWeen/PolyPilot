@@ -172,13 +172,20 @@ public partial class CopilotService
     {
         var activeNames = _sessions.Where(kv => !kv.Value.Info.IsHidden).Select(kv => kv.Key).ToHashSet();
 
-        // Safety: skip reconciliation entirely when no sessions are in memory (pre-restore state).
-        // During app startup, LoadOrganization loads the org before sessions are restored,
-        // and a stale active-sessions.json would cause all sessions to be pruned.
-        // Reconciliation is only safe once _sessions has been populated by RestorePreviousSessionsAsync.
-        if (activeNames.Count == 0 && Organization.Sessions.Count > 0)
+        // Safety: skip reconciliation during startup when sessions haven't been restored yet.
+        // LoadOrganization loads the org before RestorePreviousSessionsAsync populates _sessions,
+        // so reconciling then would prune all sessions. Use IsRestoring as the precise scope guard.
+        if (IsRestoring)
         {
-            Debug("ReconcileOrganization: skipping — no active sessions in memory yet");
+            Debug("ReconcileOrganization: skipping — session restore in progress");
+            return;
+        }
+        // Pre-initialization guard: before RestorePreviousSessionsAsync runs, _sessions is empty
+        // but Organization.Sessions still has metadata from disk. Don't prune in this window.
+        // After initialization completes, zero active sessions means the user closed everything — allow cleanup.
+        if (!IsInitialized && activeNames.Count == 0 && Organization.Sessions.Count > 0)
+        {
+            Debug("ReconcileOrganization: skipping — not yet initialized and no active sessions");
             return;
         }
         
@@ -819,6 +826,7 @@ public partial class CopilotService
 
         // Phase 2: Parse task assignments from orchestrator response
         var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
+        Debug($"[DISPATCH] '{orchestratorName}' plan parsed: {rawAssignments.Count} raw assignments from {workerNames.Count} workers. Response length={planResponse.Length}");
         // Deduplicate: merge multiple tasks for the same worker into one prompt
         var assignments = rawAssignments
             .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
@@ -827,12 +835,14 @@ public partial class CopilotService
         if (assignments.Count == 0)
         {
             // Orchestrator handled it without delegation — add a system note
+            Debug($"[DISPATCH] No assignments parsed from response (length={planResponse.Length}). Workers: {string.Join(", ", workerNames)}");
             AddOrchestratorSystemMessage(orchestratorName, "ℹ️ Orchestrator handled the request directly (no tasks delegated to workers).");
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
             return;
         }
 
         // Phase 3: Dispatch tasks to workers in parallel
+        Debug($"[DISPATCH] Dispatching {assignments.Count} tasks: {string.Join(", ", assignments.Select(a => a.WorkerName))}");
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Dispatching,
             $"Sending tasks to {assignments.Count} worker(s)"));
 
@@ -947,11 +957,14 @@ public partial class CopilotService
 
         try
         {
+            Debug($"[DISPATCH] Worker '{workerName}' starting (prompt len={workerPrompt.Length})");
             var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken);
+            Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response.Length}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
             return new WorkerResult(workerName, response, true, null, sw.Elapsed);
         }
         catch (Exception ex)
         {
+            Debug($"[DISPATCH] Worker '{workerName}' FAILED: {ex.GetType().Name}: {ex.Message} (elapsed={sw.Elapsed.TotalSeconds:F1}s)");
             return new WorkerResult(workerName, null, false, ex.Message, sw.Elapsed);
         }
     }
