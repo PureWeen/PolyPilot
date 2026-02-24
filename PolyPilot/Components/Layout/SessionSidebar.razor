@@ -615,47 +615,12 @@ else
                                              OnCloseAndDeleteWorktree="() => CloseSessionAndDeleteWorktree(sName)"
                                              OnPin="(pinned) => { CopilotService.PinSession(sName, pinned); }"
                                              OnMove="(groupId) => CopilotService.MoveSession(sName, groupId)"
-                                             OnMoveToNewWorktree="() => StartMoveToWorktree(sName)"
                                              OnStartRename="() => StartRename(sName)"
                                              OnCommitRename="CommitRename"
                                              OnToggleMenu="() => ToggleSessionMenu(sName)"
                                              OnCloseMenu="() => { openMenuSession = null; }"
                                              OnReportBug="() => OpenBugReportForSession(sName)"
                                              OnFixWithCopilot="() => OpenFixItForSession(sName)" />
-                            @if (moveToWorktreeSessionName == sName)
-                            {
-                                var mtRepos = RepoManager.Repositories.ToList();
-                                <div class="quick-branch-input-bar" @onclick:stopPropagation="true">
-                                    <span class="quick-branch-icon">⑂</span>
-                                    @if (mtRepos.Count > 1)
-                                    {
-                                        <select class="quick-branch-repo-select" @bind="moveToWorktreeRepoId">
-                                            @foreach (var r in mtRepos)
-                                            {
-                                                <option value="@r.Id">@r.Name</option>
-                                            }
-                                        </select>
-                                    }
-                                    <input type="text" class="quick-branch-input" placeholder="branch name or #PR"
-                                           @bind="moveToWorktreeInput" @bind:event="oninput"
-                                           @onkeyup="(e) => HandleMoveToWorktreeKeyDown(e)"
-                                           disabled="@moveToWorktreeIsCreating" />
-                                    @if (moveToWorktreeIsCreating)
-                                    {
-                                        <span class="quick-branch-spinner">⏳</span>
-                                    }
-                                    else
-                                    {
-                                        <button class="quick-branch-go-btn" @onclick="CommitMoveToWorktree"
-                                                disabled="@string.IsNullOrWhiteSpace(moveToWorktreeInput)">→</button>
-                                        <button class="quick-branch-cancel-btn" @onclick="() => { moveToWorktreeSessionName = null; }">✕</button>
-                                    }
-                                    @if (!string.IsNullOrEmpty(moveToWorktreeError))
-                                    {
-                                        <div class="quick-branch-error">⚠ @moveToWorktreeError</div>
-                                    }
-                                </div>
-                            }
                         }
                     }
                 }
@@ -757,13 +722,6 @@ else
     private string quickBranchInput = "";
     private bool quickBranchIsCreating = false;
     private string? quickBranchError = null;
-
-    // Move session to new worktree
-    private string? moveToWorktreeSessionName = null;
-    private string moveToWorktreeInput = "";
-    private string? moveToWorktreeRepoId = null;
-    private bool moveToWorktreeIsCreating = false;
-    private string? moveToWorktreeError = null;
 
     private async Task ToggleFlyout()
     {
@@ -1083,58 +1041,6 @@ else
         finally
         {
             quickBranchIsCreating = false;
-        }
-    }
-
-    private void StartMoveToWorktree(string sessionName)
-    {
-        moveToWorktreeSessionName = sessionName;
-        moveToWorktreeInput = "";
-        moveToWorktreeError = null;
-        moveToWorktreeRepoId = RepoManager.Repositories.FirstOrDefault()?.Id;
-    }
-
-    private async Task HandleMoveToWorktreeKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter") await CommitMoveToWorktree();
-        else if (e.Key == "Escape") moveToWorktreeSessionName = null;
-    }
-
-    private async Task CommitMoveToWorktree()
-    {
-        var input = moveToWorktreeInput?.Trim();
-        var sessionName = moveToWorktreeSessionName;
-        var repoId = moveToWorktreeRepoId;
-        if (string.IsNullOrEmpty(input) || string.IsNullOrEmpty(sessionName)
-            || string.IsNullOrEmpty(repoId) || moveToWorktreeIsCreating) return;
-
-        moveToWorktreeIsCreating = true;
-        moveToWorktreeError = null;
-        StateHasChanged();
-        try
-        {
-            int? prNumber = null;
-            string? branchName = null;
-
-            if (input.StartsWith("#") && int.TryParse(input[1..], out var pr))
-                prNumber = pr;
-            else
-                branchName = input;
-
-            await CopilotService.MoveSessionToNewWorktreeAsync(
-                sessionName, repoId, branchName, prNumber);
-
-            moveToWorktreeSessionName = null;
-            moveToWorktreeInput = "";
-        }
-        catch (Exception ex)
-        {
-            moveToWorktreeError = ex.Message;
-            Console.WriteLine($"Error moving session to worktree: {ex}");
-        }
-        finally
-        {
-            moveToWorktreeIsCreating = false;
         }
     }
 

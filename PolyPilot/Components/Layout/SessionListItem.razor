@@ -127,13 +127,6 @@
                         }
                     </div>
                 }
-                @if (RepoManager.Repositories.Count > 0)
-                {
-                    <div class="menu-separator"></div>
-                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnMoveToNewWorktree.InvokeAsync(); }">
-                        ⑂ Move to New Worktree…
-                    </button>
-                }
                 @{
                     var currentGroup = Groups?.FirstOrDefault(g => g.Id == Meta?.GroupId);
                 }
@@ -234,7 +227,6 @@
     [Parameter] public EventCallback OnCloseAndDeleteWorktree { get; set; }
     [Parameter] public EventCallback<bool> OnPin { get; set; }
     [Parameter] public EventCallback<string> OnMove { get; set; }
-    [Parameter] public EventCallback OnMoveToNewWorktree { get; set; }
     [Parameter] public EventCallback OnStartRename { get; set; }
     [Parameter] public EventCallback OnCommitRename { get; set; }
     [Parameter] public EventCallback OnToggleMenu { get; set; }

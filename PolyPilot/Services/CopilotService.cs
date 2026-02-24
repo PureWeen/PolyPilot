@@ -1489,61 +1489,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     }
 
     /// <summary>
-    /// Creates a new worktree and moves the session to it, preserving the Copilot session
-    /// and conversation history. Notifies the agent about the directory change.
-    /// </summary>
-    public async Task MoveSessionToNewWorktreeAsync(
-        string sessionName,
-        string repoId,
-        string? branchName = null,
-        int? prNumber = null,
-        CancellationToken ct = default)
-    {
-        if (!_sessions.TryGetValue(sessionName, out var state)) return;
-
-        // Create the new worktree
-        WorktreeInfo wt;
-        if (prNumber.HasValue)
-            wt = await _repoManager.CreateWorktreeFromPrAsync(repoId, prNumber.Value, ct);
-        else
-        {
-            var branch = branchName ?? $"session-{DateTime.Now:yyyyMMdd-HHmmss}";
-            wt = await _repoManager.CreateWorktreeAsync(repoId, branch, null, ct);
-        }
-
-        var oldDir = state.Info.WorkingDirectory;
-
-        // Update session info
-        state.Info.WorkingDirectory = wt.Path;
-        state.Info.WorktreeId = wt.Id;
-        state.Info.GitBranch = GetGitBranch(wt.Path);
-
-        // Update worktree link
-        _repoManager.LinkSessionToWorktree(wt.Id, sessionName);
-
-        // Update session meta
-        var meta = GetSessionMeta(sessionName);
-        if (meta != null) meta.WorktreeId = wt.Id;
-
-        // Move to the worktree's repo group
-        var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
-        if (repo != null)
-        {
-            var group = GetOrCreateRepoGroup(repo.Id, repo.Name);
-            MoveSession(sessionName, group.Id);
-        }
-
-        SaveActiveSessionsToDisk();
-        OnStateChanged?.Invoke();
-
-        // Notify the agent about the directory change so it uses the new path
-        _ = SendPromptAsync(sessionName,
-            $"IMPORTANT: Your working directory has changed from `{oldDir}` to `{wt.Path}` (branch: `{wt.Branch}`). " +
-            $"All file operations should now use this new directory. Please acknowledge.",
-            skipHistoryMessage: false);
-    }
-
-    /// <summary>
     /// Destroys the existing session and creates a new one with the same name but a different model.
     /// Use this for "changing" the model of an empty session.
     /// </summary>

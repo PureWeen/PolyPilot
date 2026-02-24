@@ -1691,13 +1691,3 @@
     padding: 2px 0 0;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.quick-branch-repo-select {
-    padding: 3px 4px;
-    font-size: 0.75rem;
-    border: 1px solid var(--control-border);
-    border-radius: 4px;
-    background: var(--panel-bg);
-    color: var(--text-primary);
-    max-width: 100px;
-    flex-shrink: 0;
-}
