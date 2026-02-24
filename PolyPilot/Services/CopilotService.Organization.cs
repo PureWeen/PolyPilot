@@ -258,7 +258,7 @@ public partial class CopilotService
         // Ensure every tracked repo has a sidebar group (even if no sessions exist yet)
         foreach (var repo in _repoManager.Repositories)
         {
-            if (!Organization.Groups.Any(g => g.RepoId == repo.Id))
+            if (!Organization.Groups.Any(g => g.RepoId == repo.Id && !g.IsMultiAgent))
             {
                 GetOrCreateRepoGroup(repo.Id, repo.Name);
                 changed = true;
@@ -547,7 +547,9 @@ public partial class CopilotService
     /// </summary>
     public SessionGroup GetOrCreateRepoGroup(string repoId, string repoName)
     {
-        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId);
+        // Skip multi-agent groups — they have a RepoId for worktree context but are
+        // not the "repo group" that regular sessions should auto-join.
+        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent);
         if (existing != null) return existing;
 
         var group = new SessionGroup

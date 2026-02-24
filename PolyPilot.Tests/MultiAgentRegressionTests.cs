@@ -927,6 +927,32 @@ public class MultiAgentRegressionTests
 
     #endregion
 
+    #region Scenario: GetOrCreateRepoGroup skips multi-agent groups
+
+    /// <summary>
+    /// Regression: GetOrCreateRepoGroup must not return a multi-agent group
+    /// even if it has a matching RepoId. Regular sessions auto-linked to a
+    /// worktree were being placed into multi-agent groups, corrupting the sidebar.
+    /// </summary>
+    [Fact]
+    public void GetOrCreateRepoGroup_SkipsMultiAgentGroups()
+    {
+        var svc = CreateService();
+
+        // Create a multi-agent group with RepoId "repo-1"
+        var maGroup = svc.CreateMultiAgentGroup("PR Squad", repoId: "repo-1");
+        Assert.True(maGroup.IsMultiAgent);
+        Assert.Equal("repo-1", maGroup.RepoId);
+
+        // GetOrCreateRepoGroup should NOT return the multi-agent group
+        var repoGroup = svc.GetOrCreateRepoGroup("repo-1", "PolyPilot");
+        Assert.NotEqual(maGroup.Id, repoGroup.Id);
+        Assert.False(repoGroup.IsMultiAgent);
+        Assert.Equal("repo-1", repoGroup.RepoId);
+    }
+
+    #endregion
+
     #region Scenario: wasMultiAgent Heuristic Correctness
 
     [Theory]
