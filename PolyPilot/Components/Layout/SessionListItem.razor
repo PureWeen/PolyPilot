@@ -128,6 +128,26 @@
                     </div>
                 }
                 @{
+                    var availableWorktrees = RepoManager.Worktrees
+                        .Where(w => w.Id != Meta?.WorktreeId)
+                        .ToList();
+                }
+                @if (availableWorktrees.Count > 0)
+                {
+                    <div class="menu-submenu">
+                        <span class="menu-item submenu-label">⑂ Move to Worktree…</span>
+                        @foreach (var wt in availableWorktrees)
+                        {
+                            var wtId = wt.Id;
+                            var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
+                            var label = repo != null ? $"{repo.Name} / {wt.Branch}" : wt.Branch;
+                            <button class="menu-item submenu-item" title="@wt.Path" @onclick="() => { OnCloseMenu.InvokeAsync(); OnMoveToWorktree.InvokeAsync(wtId); }">
+                                @label
+                            </button>
+                        }
+                    </div>
+                }
+                @{
                     var currentGroup = Groups?.FirstOrDefault(g => g.Id == Meta?.GroupId);
                 }
                 @if (currentGroup is { IsMultiAgent: true })
@@ -227,6 +247,7 @@
     [Parameter] public EventCallback OnCloseAndDeleteWorktree { get; set; }
     [Parameter] public EventCallback<bool> OnPin { get; set; }
     [Parameter] public EventCallback<string> OnMove { get; set; }
+    [Parameter] public EventCallback<string> OnMoveToWorktree { get; set; }
     [Parameter] public EventCallback OnStartRename { get; set; }
     [Parameter] public EventCallback OnCommitRename { get; set; }
     [Parameter] public EventCallback OnToggleMenu { get; set; }

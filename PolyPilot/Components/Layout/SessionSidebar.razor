@@ -615,6 +615,7 @@ else
                                              OnCloseAndDeleteWorktree="() => CloseSessionAndDeleteWorktree(sName)"
                                              OnPin="(pinned) => { CopilotService.PinSession(sName, pinned); }"
                                              OnMove="(groupId) => CopilotService.MoveSession(sName, groupId)"
+                                             OnMoveToWorktree="(wtId) => CopilotService.MoveSessionToWorktree(sName, wtId)"
                                              OnStartRename="() => StartRename(sName)"
                                              OnCommitRename="CommitRename"
                                              OnToggleMenu="() => ToggleSessionMenu(sName)"

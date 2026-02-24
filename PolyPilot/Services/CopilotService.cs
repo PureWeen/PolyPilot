@@ -1489,6 +1489,41 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     }
 
     /// <summary>
+    /// Moves a session to a different worktree, updating its WorkingDirectory,
+    /// WorktreeId, git branch, repo group membership, and worktree link.
+    /// </summary>
+    public void MoveSessionToWorktree(string sessionName, string worktreeId)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state)) return;
+
+        var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
+        if (wt == null) return;
+
+        // Update session info
+        state.Info.WorkingDirectory = wt.Path;
+        state.Info.WorktreeId = wt.Id;
+        state.Info.GitBranch = GetGitBranch(wt.Path);
+
+        // Update worktree link
+        _repoManager.LinkSessionToWorktree(wt.Id, sessionName);
+
+        // Update session meta
+        var meta = GetSessionMeta(sessionName);
+        if (meta != null) meta.WorktreeId = wt.Id;
+
+        // Move to the worktree's repo group
+        var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
+        if (repo != null)
+        {
+            var group = GetOrCreateRepoGroup(repo.Id, repo.Name);
+            MoveSession(sessionName, group.Id);
+        }
+
+        SaveActiveSessionsToDisk();
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
     /// Destroys the existing session and creates a new one with the same name but a different model.
     /// Use this for "changing" the model of an empty session.
     /// </summary>
