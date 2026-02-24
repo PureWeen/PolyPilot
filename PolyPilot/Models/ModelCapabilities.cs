@@ -174,6 +174,11 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     /// </summary>
     public string? RoutingContext { get; init; }
 
+    /// <summary>
+    /// Default worktree allocation strategy for this preset. Null = Shared.
+    /// </summary>
+    public WorktreeStrategy? DefaultWorktreeStrategy { get; init; }
+
     private const string WorkerReviewPrompt = """
         You are a PR reviewer. When assigned a PR, follow this process:
 
@@ -217,7 +222,8 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt,
             },
             SharedContext = "## Review Standards\n\n- Only flag real issues: bugs, security holes, logic errors, data loss risks, race conditions\n- NEVER comment on style, formatting, naming conventions, or documentation\n- Every finding must include: file path, line number (or range), what's wrong, and why it matters\n- If a PR looks clean, say so — don't invent problems to justify your existence\n- An issue must be flagged by at least 2 of the 5 sub-agent models to be included in the final report (consensus filter)",
-            RoutingContext = "When given a list of PRs to review, assign ONE PR to EACH worker. Distribute PRs round-robin across the available workers. If there are more PRs than workers, assign multiple PRs per worker.\n\nFor each PR assignment, just tell the worker: \"Review PR #<number>\"\n\nThe workers handle everything else — fetching the diff, dispatching multi-model sub-agents, and synthesizing results. Do NOT micromanage the review process.\n\nAfter all workers complete, produce a brief summary table:\n\n| PR | Verdict | Key Issues |\n|----|---------|------------|\n| #194 | ✅ Ready to merge | None |\n| #193 | ⚠️ Needs changes | Race condition in auth handler |\n\nVerdicts: ✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge"
+            RoutingContext = "When given a list of PRs to review, assign ONE PR to EACH worker. Distribute PRs round-robin across the available workers. If there are more PRs than workers, assign multiple PRs per worker.\n\nFor each PR assignment, just tell the worker: \"Review PR #<number>\"\n\nThe workers handle everything else — fetching the diff, dispatching multi-model sub-agents, and synthesizing results. Do NOT micromanage the review process.\n\nAfter all workers complete, produce a brief summary table:\n\n| PR | Verdict | Key Issues |\n|----|---------|------------|\n| #194 | ✅ Ready to merge | None |\n| #193 | ⚠️ Needs changes | Race condition in auth handler |\n\nVerdicts: ✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge",
+            DefaultWorktreeStrategy = WorktreeStrategy.FullyIsolated
         },
 
         new GroupPreset(

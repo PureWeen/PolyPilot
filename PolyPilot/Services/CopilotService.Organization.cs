@@ -416,6 +416,12 @@ public partial class CopilotService
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         var isMultiAgent = group?.IsMultiAgent ?? false;
 
+        // Collect all worktree IDs for cleanup before removing metadata
+        var worktreeIds = new HashSet<string>();
+        if (group?.WorktreeId != null) worktreeIds.Add(group.WorktreeId);
+        foreach (var m in Organization.Sessions.Where(m => m.GroupId == groupId))
+            if (m.WorktreeId != null) worktreeIds.Add(m.WorktreeId);
+
         if (isMultiAgent)
         {
             // Multi-agent sessions are meaningless without their group — close them
@@ -441,11 +447,14 @@ public partial class CopilotService
             // before the fire-and-forget CloseSessionAsync completes
             SaveActiveSessionsToDisk();
             FlushSaveActiveSessionsToDisk();
-            // Fire-and-forget: close sessions asynchronously
+            // Fire-and-forget: close sessions then remove worktrees
             _ = Task.Run(async () =>
             {
                 foreach (var name in sessionNames)
                     await CloseSessionAsync(name);
+                // Clean up worktrees after sessions are closed
+                foreach (var wtId in worktreeIds)
+                    try { await _repoManager.RemoveWorktreeAsync(wtId); } catch { }
             });
         }
         else
@@ -936,10 +945,14 @@ public partial class CopilotService
         {
             var meta = GetSessionMeta(w);
             var model = GetEffectiveModel(w);
+            var wtInfo = meta?.WorktreeId != null
+                ? _repoManager.Worktrees.FirstOrDefault(wt => wt.Id == meta.WorktreeId) : null;
+            var desc = $"  - '{w}' (model: {model})";
             if (!string.IsNullOrEmpty(meta?.SystemPrompt))
-                sb.AppendLine($"  - '{w}' (model: {model}) — {meta.SystemPrompt}");
-            else
-                sb.AppendLine($"  - '{w}' (model: {model})");
+                desc += $" — {meta.SystemPrompt}";
+            if (wtInfo != null)
+                desc += $" [isolated worktree: {wtInfo.Path}, branch: {wtInfo.Branch}]";
+            sb.AppendLine(desc);
         }
         sb.AppendLine();
         sb.AppendLine("Route tasks to workers based on their specialization. If a worker has a described role, assign tasks that match their expertise.");
@@ -1020,7 +1033,16 @@ public partial class CopilotService
             ? $"## Team Context (shared knowledge)\n{group.SharedContext}\n\n"
             : "";
 
-        var workerPrompt = $"{identity}\n\nYour response will be collected and synthesized with other workers' responses.\n\n{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
+        // Inject worktree awareness if the worker has an isolated worktree
+        var wtInfo = meta?.WorktreeId != null
+            ? _repoManager.Worktrees.FirstOrDefault(wt => wt.Id == meta.WorktreeId) : null;
+        var worktreeNote = wtInfo != null && group?.WorktreeStrategy != WorktreeStrategy.Shared
+            ? $"\n\n## Your Worktree\nYou have an isolated git worktree at `{wtInfo.Path}` (branch: {wtInfo.Branch}). " +
+              "You can safely run any git operations without affecting other workers. " +
+              "To check out a PR: `git fetch origin pull/<N>/head:pr-<N> && git checkout pr-<N>`\n"
+            : "";
+
+        var workerPrompt = $"{identity}{worktreeNote}\n\nYour response will be collected and synthesized with other workers' responses.\n\n{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
 
         try
         {
@@ -1352,12 +1374,50 @@ public partial class CopilotService
     public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, string? worktreeId = null, string? repoId = null, string? nameOverride = null, CancellationToken ct = default)
     {
         var teamName = nameOverride ?? preset.Name;
+        var strategy = preset.DefaultWorktreeStrategy ?? WorktreeStrategy.Shared;
         var group = CreateMultiAgentGroup(teamName, preset.Mode, worktreeId: worktreeId, repoId: repoId);
         if (group == null) return null;
+        group.WorktreeStrategy = strategy;
 
         // Store Squad context (routing, decisions) on the group for use during orchestration
         group.SharedContext = preset.SharedContext;
         group.RoutingContext = preset.RoutingContext;
+
+        // Determine orchestrator working directory based on strategy
+        var orchWorkDir = workingDirectory;
+        var orchWtId = worktreeId;
+        if (repoId != null && strategy != WorktreeStrategy.Shared && string.IsNullOrEmpty(worktreeId))
+        {
+            // Create a dedicated worktree for the orchestrator
+            var orchWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-orchestrator-{Guid.NewGuid().ToString()[..4]}", ct: ct);
+            orchWorkDir = orchWt.Path;
+            orchWtId = orchWt.Id;
+            group.WorktreeId = orchWtId;
+        }
+
+        // Pre-create worker worktrees in parallel if strategy requires isolation
+        string?[] workerWorkDirs = new string?[preset.WorkerModels.Length];
+        string?[] workerWtIds = new string?[preset.WorkerModels.Length];
+        if (repoId != null && strategy == WorktreeStrategy.FullyIsolated)
+        {
+            var workerWtTasks = Enumerable.Range(0, preset.WorkerModels.Length).Select(async i =>
+            {
+                var wt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-worker-{i + 1}-{Guid.NewGuid().ToString()[..4]}", ct: ct);
+                workerWorkDirs[i] = wt.Path;
+                workerWtIds[i] = wt.Id;
+            });
+            await Task.WhenAll(workerWtTasks);
+        }
+        else if (repoId != null && strategy == WorktreeStrategy.OrchestratorIsolated)
+        {
+            // Workers share a single separate worktree
+            var sharedWorkerWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-workers-{Guid.NewGuid().ToString()[..4]}", ct: ct);
+            for (int i = 0; i < preset.WorkerModels.Length; i++)
+            {
+                workerWorkDirs[i] = sharedWorkerWt.Path;
+                workerWtIds[i] = sharedWorkerWt.Id;
+            }
+        }
 
         // Create orchestrator session (with uniqueness check matching CreateMultiAgentGroupAsync)
         var orchName = $"{teamName}-orchestrator";
@@ -1367,7 +1427,7 @@ public partial class CopilotService
         }
         try
         {
-            await CreateSessionAsync(orchName, preset.OrchestratorModel, workingDirectory, ct);
+            await CreateSessionAsync(orchName, preset.OrchestratorModel, orchWorkDir, ct);
         }
         catch (Exception ex)
         {
@@ -1380,8 +1440,8 @@ public partial class CopilotService
         // Pin orchestrator so it sorts to the top of the group
         var orchMeta = GetSessionMeta(orchName);
         if (orchMeta != null) orchMeta.IsPinned = true;
-        if (worktreeId != null && orchMeta != null)
-            orchMeta.WorktreeId = worktreeId;
+        if (orchWtId != null && orchMeta != null)
+            orchMeta.WorktreeId = orchWtId;
 
         // Create worker sessions
         for (int i = 0; i < preset.WorkerModels.Length; i++)
@@ -1392,9 +1452,10 @@ public partial class CopilotService
                   workerName = $"{teamName}-worker-{i + 1}-{suffix++}";
             }
             var workerModel = preset.WorkerModels[i];
+            var workerWorkDir = workerWorkDirs[i] ?? workingDirectory;
             try
             {
-                await CreateSessionAsync(workerName, workerModel, workingDirectory, ct);
+                await CreateSessionAsync(workerName, workerModel, workerWorkDir, ct);
             }
             catch (Exception ex)
             {
@@ -1408,7 +1469,7 @@ public partial class CopilotService
             var meta = GetSessionMeta(workerName);
             if (meta != null)
             {
-                if (worktreeId != null) meta.WorktreeId = worktreeId;
+                meta.WorktreeId = workerWtIds[i] ?? worktreeId;
                 if (systemPrompt != null) meta.SystemPrompt = systemPrompt;
             }
         }
