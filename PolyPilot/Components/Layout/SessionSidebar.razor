@@ -1053,8 +1053,8 @@ else
     private async Task CommitGroupRename(string groupId)
     {
         if (renamingGroupId != groupId) return;
-        renamingGroupId = null;
         var newName = await JS.InvokeAsync<string>("getElementValue", "groupRenameInput");
+        renamingGroupId = null;
         if (!string.IsNullOrWhiteSpace(newName))
         {
             CopilotService.RenameGroup(groupId, newName.Trim());
