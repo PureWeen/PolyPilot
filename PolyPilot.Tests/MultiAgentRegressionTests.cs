@@ -1356,61 +1356,57 @@ public class MultiAgentRegressionTests
     #region Orchestration Persistence (relaunch resilience)
 
     [Fact]
-    public void PendingOrchestration_SaveAndLoad_RoundTrips()
+    public void PendingOrchestration_SaveLoadClear_FullLifecycle()
     {
-        // Arrange — clean slate, then save
-        CopilotService.ClearPendingOrchestrationForTest();
-        var pending = new PendingOrchestration
+        // Use a dedicated subdirectory to avoid races with parallel tests
+        var testDir = Path.Combine(TestSetup.TestBaseDir, "pending-orch-test-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(testDir);
+        CopilotService.SetBaseDirForTesting(testDir);
+        try
         {
-            GroupId = "test-group-id",
-            OrchestratorName = "test-orchestrator",
-            WorkerNames = new List<string> { "worker-1", "worker-2", "worker-3" },
-            OriginalPrompt = "Review the code",
-            StartedAt = new DateTime(2026, 2, 24, 15, 0, 0, DateTimeKind.Utc),
-            IsReflect = true,
-            ReflectIteration = 2
-        };
+            var svc = CreateService();
 
-        // Act — save and load
-        var svc = CreateService();
-        svc.SavePendingOrchestration(pending);
-        var loaded = CopilotService.LoadPendingOrchestrationForTest();
+            // Save
+            var pending = new PendingOrchestration
+            {
+                GroupId = "test-group-id",
+                OrchestratorName = "test-orchestrator",
+                WorkerNames = new List<string> { "worker-1", "worker-2", "worker-3" },
+                OriginalPrompt = "Review the code",
+                StartedAt = new DateTime(2026, 2, 24, 15, 0, 0, DateTimeKind.Utc),
+                IsReflect = true,
+                ReflectIteration = 2
+            };
+            svc.SavePendingOrchestration(pending);
 
-        // Assert
-        Assert.NotNull(loaded);
-        Assert.Equal("test-group-id", loaded.GroupId);
-        Assert.Equal("test-orchestrator", loaded.OrchestratorName);
-        Assert.Equal(3, loaded.WorkerNames.Count);
-        Assert.Equal("Review the code", loaded.OriginalPrompt);
-        Assert.True(loaded.IsReflect);
-        Assert.Equal(2, loaded.ReflectIteration);
+            // Load and verify round-trip
+            var loaded = CopilotService.LoadPendingOrchestrationForTest();
+            Assert.NotNull(loaded);
+            Assert.Equal("test-group-id", loaded.GroupId);
+            Assert.Equal("test-orchestrator", loaded.OrchestratorName);
+            Assert.Equal(3, loaded.WorkerNames.Count);
+            Assert.Contains("worker-2", loaded.WorkerNames);
+            Assert.Equal("Review the code", loaded.OriginalPrompt);
+            Assert.True(loaded.IsReflect);
+            Assert.Equal(2, loaded.ReflectIteration);
 
-        // Cleanup
-        CopilotService.ClearPendingOrchestrationForTest();
-    }
-
-    [Fact]
-    public void PendingOrchestration_ClearRemovesFile()
-    {
-        var svc = CreateService();
-        svc.SavePendingOrchestration(new PendingOrchestration
+            // Clear and verify deletion
+            CopilotService.ClearPendingOrchestrationForTest();
+            Assert.Null(CopilotService.LoadPendingOrchestrationForTest());
+        }
+        finally
         {
-            GroupId = "g", OrchestratorName = "o", WorkerNames = new() { "w" },
-            OriginalPrompt = "p", StartedAt = DateTime.UtcNow
-        });
-
-        Assert.NotNull(CopilotService.LoadPendingOrchestrationForTest());
-
-        CopilotService.ClearPendingOrchestrationForTest();
-        Assert.Null(CopilotService.LoadPendingOrchestrationForTest());
+            // Restore shared test dir
+            CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+        }
     }
 
     [Fact]
     public async Task ResumeOrchestration_NoFile_DoesNothing()
     {
-        var svc = CreateService();
         CopilotService.ClearPendingOrchestrationForTest();
 
+        var svc = CreateService();
         // Should complete without error and not add any messages
         await svc.ResumeOrchestrationIfPendingAsync();
     }
@@ -1418,20 +1414,62 @@ public class MultiAgentRegressionTests
     [Fact]
     public async Task ResumeOrchestration_MissingGroup_ClearsState()
     {
-        var svc = CreateService();
-        svc.SavePendingOrchestration(new PendingOrchestration
+        var testDir = Path.Combine(TestSetup.TestBaseDir, "pending-orch-resume-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(testDir);
+        CopilotService.SetBaseDirForTesting(testDir);
+        try
         {
-            GroupId = "nonexistent-group",
-            OrchestratorName = "orch",
-            WorkerNames = new() { "w1" },
-            OriginalPrompt = "test",
-            StartedAt = DateTime.UtcNow
-        });
+            var svc = CreateService();
+            svc.SavePendingOrchestration(new PendingOrchestration
+            {
+                GroupId = "nonexistent-group",
+                OrchestratorName = "orch",
+                WorkerNames = new() { "w1" },
+                OriginalPrompt = "test",
+                StartedAt = DateTime.UtcNow
+            });
 
-        await svc.ResumeOrchestrationIfPendingAsync();
+            await svc.ResumeOrchestrationIfPendingAsync();
 
-        // Should have cleared the pending file since group doesn't exist
-        Assert.Null(CopilotService.LoadPendingOrchestrationForTest());
+            // Should have cleared the pending file since group doesn't exist
+            Assert.Null(CopilotService.LoadPendingOrchestrationForTest());
+        }
+        finally
+        {
+            CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+        }
+    }
+
+    [Fact]
+    public void DiagnosticLogFilter_IncludesDispatchTag()
+    {
+        // The Debug() method's file filter must include [DISPATCH] so orchestration
+        // events are written to event-diagnostics.log for post-mortem analysis.
+        // This was a bug: [DISPATCH] was written to Console but not persisted.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        Assert.Contains("[DISPATCH", source.Substring(source.IndexOf("message.StartsWith(\"[EVT")));
+    }
+
+    [Fact]
+    public void ReconnectState_ShouldCarryIsMultiAgentSession()
+    {
+        // After reconnect in SendPromptAsync, the new SessionState must carry forward
+        // IsMultiAgentSession from the old state. Without this, the watchdog uses the
+        // 120s inactivity timeout instead of 600s, killing long-running worker tasks.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        
+        // Find the reconnect block where HasUsedToolsThisTurn is carried forward
+        var reconnectBlock = source.Substring(source.IndexOf("newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn"));
+        // IsMultiAgentSession must be carried forward in the same block
+        Assert.Contains("newState.IsMultiAgentSession = state.IsMultiAgentSession", reconnectBlock.Substring(0, 200));
+    }
+
+    private static string GetRepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return dir ?? throw new InvalidOperationException("Could not find repo root");
     }
 
     #endregion
