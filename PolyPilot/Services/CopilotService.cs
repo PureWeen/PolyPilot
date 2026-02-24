@@ -433,10 +433,17 @@ public partial class CopilotService : IAsyncDisposable
     {
         try
         {
+            // Snapshot on the UI thread before the first await to avoid enumerating
+            // Organization.Sessions/Groups (plain List<T>, UI-thread-only) from a background thread.
             var activeWorktreeIds = Organization.Sessions
                 .Select(m => m.WorktreeId)
-                .Concat(Organization.Groups.Select(g => g.WorktreeId));
+                .Concat(Organization.Groups.Select(g => g.WorktreeId))
+                .ToList();
             await _repoManager.PruneOrphanedWorktreesAsync(activeWorktreeIds, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown or reconnect — not an error.
         }
         catch (Exception ex)
         {

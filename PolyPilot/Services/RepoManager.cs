@@ -399,7 +399,8 @@ public class RepoManager
             var branchInfo = await RunGitAsync(wt.Path, ct, "branch", "-vv");
             var currentLine = branchInfo.Split('\n')
                 .FirstOrDefault(l => l.TrimStart().StartsWith('*'));
-            return currentLine?.Contains("gone", StringComparison.OrdinalIgnoreCase) == true;
+            // Match only the structured tracking annotation "[origin/branch: gone]", not commit subjects
+            return currentLine?.Contains(": gone]", StringComparison.OrdinalIgnoreCase) == true;
         }
         catch { return false; }
     }
