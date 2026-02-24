@@ -296,6 +296,17 @@ UI scenario definitions live in `PolyPilot.Tests/Scenarios/mode-switch-scenarios
 Tests include source files via `<Compile Include>` links in the csproj. When adding new model classes, add a corresponding link entry.
 
 ### Test Safety
+
+#### ⚠️ CRITICAL: Test File System Isolation
+Tests MUST NEVER read from or write to the real `~/.polypilot/` directory. `TestSetup.cs` contains a `[ModuleInitializer]` that calls `CopilotService.SetBaseDirForTesting()` to redirect ALL file I/O (organization.json, active-sessions.json, ui-state.json, etc.) to a per-process temp directory. This runs automatically before any test.
+
+**Why this matters:** Without isolation, tests that call `CreateGroup`, `SaveOrganization`, `FlushSaveActiveSessionsToDisk`, etc. overwrite the user's real data files — destroying squad groups, session metadata, and settings. This caused production data loss (squad groups destroyed) multiple times before the guard was added.
+
+**Guard tests:** `TestIsolationGuardTests.cs` contains 4 tests that verify isolation is active. If any of these fail, ALL other test results are suspect because they may have corrupted real user data.
+
+**When adding new file paths to CopilotService:** You MUST also clear the corresponding backing field in `SetBaseDirForTesting()`, or the new path will leak to the real filesystem.
+
+#### Other test safety rules
 - Tests must **NEVER** call `ConnectionSettings.Save()` or `ConnectionSettings.Load()` — these read/write `~/.polypilot/settings.json` which is shared with the running app.
 - All tests use `ReconnectAsync(settings)` with an in-memory settings object.
 - Never use `ConnectionMode.Embedded` in tests — it spawns real copilot processes. Use `ConnectionMode.Persistent` with port 19999 for deterministic failures, or `ConnectionMode.Demo` for success paths.
