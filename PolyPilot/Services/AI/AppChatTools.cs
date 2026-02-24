@@ -73,7 +73,9 @@ public static class AppChatTools
         if (session == null)
             return JsonSerializer.Serialize(new { Error = $"Session '{sessionName}' not found." });
 
-        service.SetActiveSession(session.Name);
+        service.SwitchSession(session.Name);
+        session.LastReadMessageCount = session.History.Count;
+        service.SaveUiState("/", session.Name, expandedSession: session.Name);
         return JsonSerializer.Serialize(new { Success = true, SwitchedTo = session.Name });
     }
 
