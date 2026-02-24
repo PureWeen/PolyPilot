@@ -920,6 +920,7 @@
                 _focusedInputId = $"input-{active!.Replace(" ", "-")}";
                 _needsScrollToBottom = true;
                 CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid);
+                _ = InvokeAsync(() => JS.InvokeVoidAsync("switchKeepAliveSlot", $"slot-{active.Replace(" ", "-")}", active));
             }
             // Ensure expandedSession stays in sync with active session (e.g., sidebar flyout selection on mobile, tool switch)
             else if (active != null && expandedSession != active && sessions.Any(s => s.Name == active))

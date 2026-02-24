@@ -140,6 +140,8 @@ public sealed partial class NonFunctionInvokingChatClient : DelegatingChatClient
 
     /// <summary>
     /// Handler that wraps the inner client and converts tool call/result content to server-handled types.
+    /// Also strips FunctionCallContent/FunctionResultContent from input messages since Apple Intelligence
+    /// doesn't support them in conversation history (it handles tool calls internally).
     /// </summary>
     private sealed class ToolCallPassThroughHandler(IChatClient innerClient) : DelegatingChatClient(innerClient)
     {
@@ -148,7 +150,7 @@ public sealed partial class NonFunctionInvokingChatClient : DelegatingChatClient
             ChatOptions? options = null,
             CancellationToken cancellationToken = default)
         {
-            var response = await base.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
+            var response = await base.GetResponseAsync(StripToolContent(messages), options, cancellationToken).ConfigureAwait(false);
             foreach (var message in response.Messages)
             {
                 Wrap(message.Contents);
@@ -161,10 +163,39 @@ public sealed partial class NonFunctionInvokingChatClient : DelegatingChatClient
             ChatOptions? options = null,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            await foreach (var update in base.GetStreamingResponseAsync(messages, options, cancellationToken).ConfigureAwait(false))
+            await foreach (var update in base.GetStreamingResponseAsync(StripToolContent(messages), options, cancellationToken).ConfigureAwait(false))
             {
                 Wrap(update.Contents);
                 yield return update;
+            }
+        }
+
+        /// <summary>
+        /// Remove FunctionCallContent/FunctionResultContent from history messages.
+        /// The AgentSession stores these from previous turns, but Apple Intelligence
+        /// can't accept them as input — it handles tool calls internally.
+        /// </summary>
+        private static IEnumerable<ChatMessage> StripToolContent(IEnumerable<ChatMessage> messages)
+        {
+            foreach (var msg in messages)
+            {
+                if (!msg.Contents.Any(c => c is FunctionCallContent or FunctionResultContent))
+                {
+                    yield return msg;
+                    continue;
+                }
+
+                // Filter out tool content, keep everything else
+                var filtered = msg.Contents
+                    .Where(c => c is not FunctionCallContent and not FunctionResultContent)
+                    .ToList();
+
+                if (filtered.Count > 0)
+                {
+                    var clean = new ChatMessage(msg.Role, filtered);
+                    yield return clean;
+                }
+                // Skip messages that were entirely tool content
             }
         }
 
