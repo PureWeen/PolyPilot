@@ -10,8 +10,15 @@ namespace PolyPilot.Tests;
 /// </summary>
 public class InputSelectionTests
 {
-    private static readonly string ComponentsDir = Path.GetFullPath(
-        Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PolyPilot", "Components"));
+    private static string GetRepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
+            dir = Directory.GetParent(dir)?.FullName;
+        return dir ?? throw new DirectoryNotFoundException("Could not find repo root (PolyPilot.slnx not found)");
+    }
+
+    private static string ComponentsDir => Path.Combine(GetRepoRoot(), "PolyPilot", "Components");
 
     /// <summary>
     /// Scans all .razor files for inputs that have a value binding (value="@..." or @bind)
@@ -21,13 +28,10 @@ public class InputSelectionTests
     [Fact]
     public void ValueBoundInputs_MustNotUse_OnKeyDown()
     {
-        if (!Directory.Exists(ComponentsDir))
-        {
-            // Skip gracefully in CI or environments where source isn't available
-            return;
-        }
+        var componentsDir = ComponentsDir;
+        Assert.True(Directory.Exists(componentsDir), $"Components source directory not found at: {componentsDir}");
 
-        var razorFiles = Directory.GetFiles(ComponentsDir, "*.razor", SearchOption.AllDirectories);
+        var razorFiles = Directory.GetFiles(componentsDir, "*.razor", SearchOption.AllDirectories);
         Assert.NotEmpty(razorFiles);
 
         var violations = new List<string>();
@@ -49,7 +53,7 @@ public class InputSelectionTests
                 if (hasValueBinding.IsMatch(tag) && hasOnKeyDown.IsMatch(tag))
                 {
                     var lineNumber = content[..match.Index].Count(c => c == '\n') + 1;
-                    var relativePath = Path.GetRelativePath(ComponentsDir, file);
+                    var relativePath = Path.GetRelativePath(componentsDir, file);
                     violations.Add($"{relativePath}:{lineNumber} - input has value binding + @onkeydown (should use @onkeyup)");
                 }
             }
@@ -73,10 +77,7 @@ public class InputSelectionTests
     public void SpecificInputs_UseOnKeyUp(string relativePath, string cssClass, string expectedEvent)
     {
         var filePath = Path.Combine(ComponentsDir, relativePath);
-        if (!File.Exists(filePath))
-        {
-            return; // Skip gracefully if source not available
-        }
+        Assert.True(File.Exists(filePath), $"Source file not found at: {filePath}");
 
         var content = File.ReadAllText(filePath);
 
