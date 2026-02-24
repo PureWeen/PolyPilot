@@ -1,0 +1,132 @@
+.appchat-popover {
+    position: fixed;
+    top: 50px;
+    left: 16px;
+    width: 380px;
+    max-height: 560px;
+    background: var(--bg-primary, #1e1e2e);
+    border: 1px solid var(--border-color, #444);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: max-height 0.2s ease;
+}
+
+.appchat-popover.collapsed {
+    max-height: 44px;
+}
+
+.appchat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--bg-secondary, #2a2a3e);
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid var(--border-color, #444);
+    flex-shrink: 0;
+}
+
+.appchat-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #e0e0e0);
+}
+
+.appchat-header-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.appchat-clear-btn,
+.appchat-close-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #999);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1;
+}
+
+.appchat-clear-btn:hover,
+.appchat-close-btn:hover {
+    background: var(--bg-hover, rgba(255, 255, 255, 0.1));
+    color: var(--text-primary, #e0e0e0);
+}
+
+.appchat-body {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 200px;
+    max-height: 440px;
+    padding: 8px;
+}
+
+.appchat-input-area {
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    border-top: 1px solid var(--border-color, #444);
+    background: var(--bg-secondary, #2a2a3e);
+    flex-shrink: 0;
+}
+
+.appchat-input-area input {
+    flex: 1;
+    background: var(--bg-primary, #1e1e2e);
+    border: 1px solid var(--border-color, #555);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: var(--text-primary, #e0e0e0);
+    font-size: 13px;
+    outline: none;
+}
+
+.appchat-input-area input:focus {
+    border-color: var(--accent-color, #7c3aed);
+}
+
+.appchat-input-area input:disabled {
+    opacity: 0.5;
+}
+
+.appchat-send-btn {
+    background: var(--accent-color, #7c3aed);
+    border: none;
+    border-radius: 6px;
+    color: white;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.appchat-send-btn:hover:not(:disabled) {
+    opacity: 0.85;
+}
+
+.appchat-send-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+    .appchat-popover {
+        top: 50px;
+        left: 8px;
+        right: 8px;
+        width: auto;
+        max-height: 50vh;
+    }
+
+    .appchat-body {
+        max-height: 35vh;
+    }
+}

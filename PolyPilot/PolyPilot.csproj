@@ -73,6 +73,8 @@
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.3" />
+        <PackageReference Include="Microsoft.Extensions.AI" Version="10.3.0" />
+        <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.260212.1" />
         <PackageReference Include="Microsoft.Maui.Essentials.AI" Version="10.0.50-ci.main.26117.2" />
         <PackageReference Include="sqlite-net-pcl" Version="*" />
         <PackageReference Include="SQLitePCLRaw.bundle_green" Version="*" />
