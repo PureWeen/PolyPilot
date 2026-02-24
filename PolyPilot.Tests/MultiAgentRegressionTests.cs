@@ -1352,4 +1352,86 @@ public class MultiAgentRegressionTests
     }
 
     #endregion
+
+    #region Orchestration Persistence (relaunch resilience)
+
+    [Fact]
+    public void PendingOrchestration_SaveAndLoad_RoundTrips()
+    {
+        // Arrange — use test base dir (already redirected by TestSetup)
+        var pending = new PendingOrchestration
+        {
+            GroupId = "test-group-id",
+            OrchestratorName = "test-orchestrator",
+            WorkerNames = new List<string> { "worker-1", "worker-2", "worker-3" },
+            OriginalPrompt = "Review the code",
+            StartedAt = new DateTime(2026, 2, 24, 15, 0, 0, DateTimeKind.Utc),
+            IsReflect = true,
+            ReflectIteration = 2
+        };
+
+        // Act — save and load
+        var svc = CreateService();
+        svc.SavePendingOrchestration(pending);
+        var loaded = CopilotService.LoadPendingOrchestrationForTest();
+
+        // Assert
+        Assert.NotNull(loaded);
+        Assert.Equal("test-group-id", loaded.GroupId);
+        Assert.Equal("test-orchestrator", loaded.OrchestratorName);
+        Assert.Equal(3, loaded.WorkerNames.Count);
+        Assert.Equal("Review the code", loaded.OriginalPrompt);
+        Assert.True(loaded.IsReflect);
+        Assert.Equal(2, loaded.ReflectIteration);
+
+        // Cleanup
+        CopilotService.ClearPendingOrchestrationForTest();
+    }
+
+    [Fact]
+    public void PendingOrchestration_ClearRemovesFile()
+    {
+        var svc = CreateService();
+        svc.SavePendingOrchestration(new PendingOrchestration
+        {
+            GroupId = "g", OrchestratorName = "o", WorkerNames = new() { "w" },
+            OriginalPrompt = "p", StartedAt = DateTime.UtcNow
+        });
+
+        Assert.NotNull(CopilotService.LoadPendingOrchestrationForTest());
+
+        CopilotService.ClearPendingOrchestrationForTest();
+        Assert.Null(CopilotService.LoadPendingOrchestrationForTest());
+    }
+
+    [Fact]
+    public async Task ResumeOrchestration_NoFile_DoesNothing()
+    {
+        var svc = CreateService();
+        CopilotService.ClearPendingOrchestrationForTest();
+
+        // Should complete without error and not add any messages
+        await svc.ResumeOrchestrationIfPendingAsync();
+    }
+
+    [Fact]
+    public async Task ResumeOrchestration_MissingGroup_ClearsState()
+    {
+        var svc = CreateService();
+        svc.SavePendingOrchestration(new PendingOrchestration
+        {
+            GroupId = "nonexistent-group",
+            OrchestratorName = "orch",
+            WorkerNames = new() { "w1" },
+            OriginalPrompt = "test",
+            StartedAt = DateTime.UtcNow
+        });
+
+        await svc.ResumeOrchestrationIfPendingAsync();
+
+        // Should have cleared the pending file since group doesn't exist
+        Assert.Null(CopilotService.LoadPendingOrchestrationForTest());
+    }
+
+    #endregion
 }

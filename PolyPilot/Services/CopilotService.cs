@@ -127,6 +127,7 @@ public partial class CopilotService : IAsyncDisposable
         _organizationFile = null;
         _copilotBaseDir = null;
         _sessionStatePath = null;
+        _pendingOrchestrationFile = null;
     }
 
     private static string? _projectDir;
@@ -420,6 +421,9 @@ public partial class CopilotService : IAsyncDisposable
         // Reconcile now that all sessions are restored
         ReconcileOrganization();
         OnStateChanged?.Invoke();
+
+        // Resume any pending orchestration dispatch that was interrupted by a relaunch
+        _ = ResumeOrchestrationIfPendingAsync(cancellationToken);
     }
 
     /// <summary>
@@ -551,6 +555,9 @@ public partial class CopilotService : IAsyncDisposable
         await RestorePreviousSessionsAsync(cancellationToken);
         ReconcileOrganization();
         OnStateChanged?.Invoke();
+
+        // Resume any pending orchestration dispatch
+        _ = ResumeOrchestrationIfPendingAsync(cancellationToken);
     }
 
     private CopilotClient CreateClient(ConnectionSettings settings)
