@@ -269,6 +269,7 @@ public partial class CopilotService : IAsyncDisposable
         if (message.StartsWith("[EVT") || message.StartsWith("[IDLE") ||
             message.StartsWith("[COMPLETE") || message.StartsWith("[SEND") ||
             message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
+            message.StartsWith("[DISPATCH") ||
             message.Contains("watchdog"))
         {
             try
@@ -1645,6 +1646,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Interlocked.Exchange(ref newState.ProcessingGeneration,
                         Interlocked.Read(ref state.ProcessingGeneration));
                     newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn;
+                    newState.IsMultiAgentSession = state.IsMultiAgentSession;
                     newSession.On(evt => HandleSessionEvent(newState, evt));
                     _sessions[sessionName] = newState;
                     state = newState;

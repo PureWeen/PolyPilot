@@ -1358,7 +1358,8 @@ public class MultiAgentRegressionTests
     [Fact]
     public void PendingOrchestration_SaveAndLoad_RoundTrips()
     {
-        // Arrange — use test base dir (already redirected by TestSetup)
+        // Arrange — clean slate, then save
+        CopilotService.ClearPendingOrchestrationForTest();
         var pending = new PendingOrchestration
         {
             GroupId = "test-group-id",
