@@ -27,6 +27,11 @@ adb shell am start -n com.microsoft.PolyPilot/crc64ef8e1bf56c865459.MainActivity
 ```
 Fast Deployment requires `dotnet build -t:Install` — it pushes assemblies to `.__override__` on device.
 
+> ⚠️ **WiFi ADB on macOS**: Do NOT use `adb kill-server` (wipes TLS pairing keys; proxy dies).
+> Build with `-p:EmbedAssembliesIntoApk=true` for WiFi deploy (Fast Deployment APKs are stale).
+> macOS firewall blocks ADB's outbound TLS — a Python TCP proxy is required.
+> **Full playbook**: `.claude/skills/android-wifi-deploy/SKILL.md`
+
 **Package name**: `com.microsoft.PolyPilot` (not `com.companyname.PolyPilot`)  
 **Launch activity**: `crc64ef8e1bf56c865459.MainActivity`
 
