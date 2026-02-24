@@ -295,15 +295,17 @@
 .group-more-btn {
     all: unset;
     font-size: var(--type-body);
-    color: var(--control-border);
+    color: var(--text-secondary);
     cursor: pointer;
     padding: 0 0.3rem;
     border-radius: 3px;
-    opacity: 0;
+    opacity: 0.5;
     transition: opacity 0.15s;
     line-height: 1;
 }
 .group-header:hover .group-more-btn { opacity: 1; }
+.repo-group .group-more-btn { opacity: 0.7; }
+.repo-group:hover .group-more-btn { opacity: 1; }
 .group-more-btn:hover { color: var(--text-on-surface); background: var(--hover-bg); }
 
 .group-menu-overlay {
