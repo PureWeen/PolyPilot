@@ -351,8 +351,7 @@
     private Dictionary<string, string> inputModeBySession = new();
     private Dictionary<string, List<PendingImage>> pendingImagesBySession = new();
     private Dictionary<string, string> shellCwdBySession = new();
-    private Dictionary<string, List<string>> commandHistoryBySession = new();
-    private Dictionary<string, int> historyIndexBySession = new();
+    private Dictionary<string, CommandHistory> commandHistoryBySession = new();
     private int fontSize = 20;
     private string? expandedSession;
     private string mobileRemoteUrl = "";
@@ -1159,14 +1158,7 @@
         {
             if (!commandHistoryBySession.ContainsKey(sessionName))
                 commandHistoryBySession[sessionName] = new();
-            var history = commandHistoryBySession[sessionName];
-            // Avoid consecutive duplicates
-            if (history.Count == 0 || history[^1] != finalPrompt)
-            {
-                history.Add(finalPrompt);
-                if (history.Count > 50) history.RemoveAt(0);
-            }
-            historyIndexBySession[sessionName] = history.Count; // past the end = "no selection"
+            commandHistoryBySession[sessionName].Add(finalPrompt);
         }
 
         // Handle ! shell commands
@@ -2683,22 +2675,16 @@
     [JSInvokable]
     public async Task JsNavigateHistory(string sessionName, bool up)
     {
-        if (!commandHistoryBySession.TryGetValue(sessionName, out var history) || history.Count == 0)
+        if (!commandHistoryBySession.TryGetValue(sessionName, out var hist))
             return;
 
-        if (!historyIndexBySession.ContainsKey(sessionName))
-            historyIndexBySession[sessionName] = history.Count;
+        var result = hist.Navigate(up);
+        if (result == null) return;
 
-        var idx = historyIndexBySession[sessionName];
-        if (up)
-            idx = Math.Max(0, idx - 1);
-        else
-            idx = Math.Min(history.Count, idx + 1);
-
-        historyIndexBySession[sessionName] = idx;
+        var (text, cursorAtStart) = result.Value;
         var inputId = $"input-{sessionName.Replace(" ", "-")}";
-        var text = idx < history.Count ? history[idx] : "";
-        await JS.InvokeVoidAsync("eval", $"(function(){{ var el = document.getElementById('{inputId}'); if(el){{ el.value = {System.Text.Json.JsonSerializer.Serialize(text)}; el.setSelectionRange(el.value.length, el.value.length); }} }})()");
+        var cursorExpr = cursorAtStart ? "0" : "el.value.length";
+        await JS.InvokeVoidAsync("eval", $"(function(){{ var el = document.getElementById('{inputId}'); if(el){{ el.value = {System.Text.Json.JsonSerializer.Serialize(text)}; var p = {cursorExpr}; el.setSelectionRange(p, p); }} }})()");
     }
 
     [JSInvokable]
