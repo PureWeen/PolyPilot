@@ -48,6 +48,53 @@ Same as Orchestrator but **loops** until the goal is met, quality stalls, or max
 
 ---
 
+## UI Behavior by Mode
+
+### Input Visibility
+
+There are two kinds of text inputs in multi-agent groups:
+
+1. **Group-level inputs** — "Send All" broadcast bars that dispatch a prompt to all sessions at once (or to the orchestrator). These appear in the group header area.
+2. **Per-session inputs** — Individual chat inputs on each session card/expanded view. These let users talk to any individual session directly.
+
+**Rule: Per-session inputs are ALWAYS visible.** Users must be able to chat with individual sessions regardless of orchestration mode. Only group-level inputs change visibility based on the mode.
+
+#### Group-level input visibility by mode
+
+| Mode | Group Input | Notes |
+|------|-------------|-------|
+| **Broadcast** | ✅ Visible | Textarea + "📡 Send All" button. Sends same prompt to all sessions. |
+| **Sequential** | ✅ Visible | Textarea + "📡 Send All" button. Sends prompt to sessions one at a time. |
+| **Orchestrator** | ❌ Hidden | User types in the orchestrator session's own input instead. |
+| **OrchestratorReflect** | ❌ Hidden | Iterations spinner shown instead. User types in orchestrator session's input. |
+
+#### Input locations (5 total)
+
+| # | Location | File | CSS class | Type | Visibility |
+|---|----------|------|-----------|------|------------|
+| 1 | Dashboard expanded toolbar | `Dashboard.razor` | `ma-expanded-toolbar-input` | Group | Hidden for Orchestrator/Reflect |
+| 2 | Dashboard grid header | `Dashboard.razor` | `ma-broadcast-input` | Group | Hidden for Orchestrator (Reflect shows iterations only) |
+| 3 | Sidebar group controls | `SessionSidebar.razor` | `sidebar-ma-input-bar` | Group | Hidden for Orchestrator/Reflect |
+| 4 | Grid card | `SessionCard.razor` | `card-input` | Per-session | **Always visible** |
+| 5 | Expanded chat view | `ExpandedSessionView.razor` | `input-area` | Per-session | **Always visible** |
+
+### Other per-mode UI elements
+
+| Element | Broadcast | Sequential | Orchestrator | Reflect |
+|---------|-----------|------------|--------------|---------|
+| Mode dropdown | ✅ | ✅ | ✅ | ✅ |
+| Group "Send All" input | ✅ | ✅ | ❌ | ❌ |
+| Max iterations spinner | ❌ | ❌ | ❌ | ✅ |
+| Per-session inputs | ✅ | ✅ | ✅ | ✅ |
+| Phase indicator | ✅ | ✅ | ✅ | ✅ |
+| Reflection progress | ❌ | ❌ | ❌ | ✅ |
+
+### Message routing in Orchestrator/Reflect modes
+
+When the user types in the **orchestrator session's input** (per-session input #4 or #5 above), the message is routed through `SendViaOrchestratorAsync` / `SendViaOrchestratorReflectAsync` — it doesn't just go to the orchestrator as a plain chat message. This routing is handled in `Dashboard.razor`'s send handler by checking if the session belongs to a multi-agent group in Orchestrator/Reflect mode. See `SendPromptToSession` → group mode check → `SendToMultiAgentGroupAsync`.
+
+---
+
 ## OrchestratorReflect — Detailed Loop
 
 ### Participants

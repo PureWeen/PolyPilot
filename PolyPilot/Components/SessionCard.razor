@@ -139,8 +139,6 @@
         </div>
     }
 
-    @if (!HideInput)
-    {
     <div class="card-input">
         <input type="text" id="input-@Session.Name.Replace(" ", "-")"
                autocomplete="off"
@@ -152,7 +150,6 @@
         }
         <button class="send-btn" @onclick="SendInput">➤</button>
     </div>
-    }
 </div>
 
 @code {
@@ -186,8 +183,6 @@
     [Parameter] public EventCallback OnClearQueue { get; set; }
     [Parameter] public EventCallback<int> OnRemovePendingImage { get; set; }
     [Parameter] public EventCallback<string> OnSend { get; set; } // message text
-    [Parameter] public bool HideInput { get; set; }
-
     private async Task HandleRenameKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")

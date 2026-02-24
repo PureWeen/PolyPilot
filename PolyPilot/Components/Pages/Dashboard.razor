@@ -118,7 +118,6 @@
                               @key="session.Name">
                 <ExpandedSessionView Session="session"
                                      IsCompleted="@completedSessions.Contains(session.Name)"
-                                     HideInput="@(expandedGroup != null && (expandedGroup.OrchestratorMode == MultiAgentMode.Orchestrator || expandedGroup.OrchestratorMode == MultiAgentMode.OrchestratorReflect))"
                                      IsLoadingHistory="@(CopilotService.IsRemoteMode && session.MessageCount > 0 && session.History.Count == 0)"
                                      HasMoreRemoteHistory="@CopilotService.HasMoreRemoteHistory(session.Name)"
                                      StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s2) ? s2 : "")"
@@ -293,7 +292,6 @@
                                  @key="session.Name"
                                  Meta="meta"
                                  IsCompleted="isCompleted"
-                                 HideInput="@(group.IsMultiAgent && (group.OrchestratorMode == MultiAgentMode.Orchestrator || group.OrchestratorMode == MultiAgentMode.OrchestratorReflect))"
                                  MessageCount="@(cardMessageCounts.TryGetValue(session.Name, out var mc) ? mc : DefaultCardMessageWindow)"
                                  StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s) ? s : "")"
                                  ActivityText="@(activityBySession.TryGetValue(session.Name, out var a) ? a : "")"

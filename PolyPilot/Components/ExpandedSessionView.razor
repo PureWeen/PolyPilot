@@ -150,8 +150,6 @@
         </div>
     }
 
-    @if (!HideInput)
-    {
     <div class="input-area">
         @if (!string.IsNullOrEmpty(Intent))
         {
@@ -271,7 +269,6 @@
             </span>
         </div>
     </div>
-    }
 </div>
 
 @code {
@@ -299,7 +296,6 @@
     [Parameter] public IReadOnlyList<FiestaLinkedWorker> FiestaWorkers { get; set; } = Array.Empty<FiestaLinkedWorker>();
 
     [Parameter] public EventCallback<string> OnSend { get; set; }
-    [Parameter] public bool HideInput { get; set; }
     [Parameter] public EventCallback<string> OnStop { get; set; }
     [Parameter] public EventCallback OnCollapse { get; set; }
     [Parameter] public EventCallback<string> OnAttach { get; set; }
