@@ -200,25 +200,34 @@
                 <button class="menu-item destructive" @onclick="ShowCloseConfirm">
                     🗑 Close Session…
                 </button>
-                @if (showCloseConfirm)
-                {
-                    <div class="close-confirm">
-                        <div class="close-confirm-title">Close "@Session.Name"?</div>
-                        @if (!string.IsNullOrEmpty(Meta?.WorktreeId))
-                        {
-                            var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == Meta.WorktreeId);
-                            <label class="close-confirm-option">
-                                <input type="checkbox" @bind="deleteWorktree" />
-                                <span>Delete worktree@(wt != null ? $" ({wt.Branch})" : "")</span>
-                            </label>
-                        }
-                        <div class="close-confirm-actions">
-                            <button class="close-confirm-cancel" @onclick="HideCloseConfirm">Cancel</button>
-                            <button class="close-confirm-btn" @onclick="ConfirmClose">Close</button>
-                        </div>
-                    </div>
-                }
             </div>
+        }
+        @if (showCloseConfirm)
+        {
+            <div class="close-dialog-overlay" @onclick="HideCloseConfirm" @onclick:stopPropagation="true">
+                <div class="close-dialog" @onclick:stopPropagation="true">
+                    <div class="close-dialog-title">Close "@Session.Name"?</div>
+                    @if (!string.IsNullOrEmpty(Meta?.WorktreeId))
+                    {
+                        var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == Meta.WorktreeId);
+                        <div class="close-dialog-options">
+                            <label class="close-dialog-option">
+                                <input type="checkbox" @bind="deleteWorktree" />
+                                <span>Delete worktree@(wt != null ? $" (⑂ {wt.Branch})" : "")</span>
+                            </label>
+                            <label class="close-dialog-option">
+                                <input type="checkbox" @bind="deleteBranch" />
+                                <span>Delete branch@(wt != null ? $" ({wt.Branch})" : "")</span>
+                            </label>
+                        </div>
+                    }
+                    <div class="close-dialog-actions">
+                        <button class="close-dialog-cancel" @onclick="HideCloseConfirm">Cancel</button>
+                        <button class="close-dialog-btn" @onclick="ConfirmClose">Close Session</button>
+                    </div>
+                </div>
+            </div>
+        }
         }
     </div>
 </div>
@@ -236,7 +245,7 @@
 
     [Parameter] public EventCallback OnSelect { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
-    [Parameter] public EventCallback OnCloseAndDeleteWorktree { get; set; }
+    [Parameter] public EventCallback<(bool DeleteWorktree, bool DeleteBranch)> OnCloseWithOptions { get; set; }
     [Parameter] public EventCallback<bool> OnPin { get; set; }
     [Parameter] public EventCallback<string> OnMove { get; set; }
     [Parameter] public EventCallback OnStartRename { get; set; }
@@ -248,11 +257,14 @@
 
     private bool showCloseConfirm;
     private bool deleteWorktree;
+    private bool deleteBranch;
 
     private void ShowCloseConfirm()
     {
         showCloseConfirm = true;
-        deleteWorktree = false;
+        // Default both to checked when worktree exists
+        deleteWorktree = !string.IsNullOrEmpty(Meta?.WorktreeId);
+        deleteBranch = !string.IsNullOrEmpty(Meta?.WorktreeId);
     }
 
     private void HideCloseConfirm()
@@ -265,8 +277,8 @@
     {
         showCloseConfirm = false;
         await OnCloseMenu.InvokeAsync();
-        if (deleteWorktree && !string.IsNullOrEmpty(Meta?.WorktreeId))
-            await OnCloseAndDeleteWorktree.InvokeAsync();
+        if (!string.IsNullOrEmpty(Meta?.WorktreeId) && (deleteWorktree || deleteBranch))
+            await OnCloseWithOptions.InvokeAsync((deleteWorktree, deleteBranch));
         else
             await OnClose.InvokeAsync();
     }

@@ -320,67 +320,85 @@
     opacity: 0.8;
 }
 
-/* === Close confirmation panel === */
-.close-confirm {
+/* === Close confirmation dialog (modal popup) === */
+.close-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
     display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    padding: 0.6rem 0.65rem;
-    background: var(--surface-secondary);
-    border: 1px solid var(--control-border);
-    border-radius: 8px;
-    margin-top: 0.3rem;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
 }
 
-.close-confirm-title {
-    font-size: var(--type-footnote);
+.close-dialog {
+    background: var(--surface-primary, #1e1e2e);
+    border: 1px solid var(--control-border);
+    border-radius: 12px;
+    padding: 1.2rem;
+    min-width: 280px;
+    max-width: 360px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.close-dialog-title {
+    font-size: var(--type-body);
     font-weight: 600;
     color: var(--text-primary);
 }
 
-.close-confirm-option {
+.close-dialog-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.close-dialog-option {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.5rem;
     font-size: var(--type-footnote);
     color: var(--text-secondary);
     cursor: pointer;
-    padding: 0.15rem 0;
+    padding: 0.25rem 0;
 }
 
-.close-confirm-option input[type="checkbox"] {
+.close-dialog-option input[type="checkbox"] {
     accent-color: var(--accent-primary);
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
     cursor: pointer;
 }
 
-.close-confirm-actions {
+.close-dialog-actions {
     display: flex;
-    gap: 0.35rem;
+    gap: 0.5rem;
     justify-content: flex-end;
-    padding-top: 0.15rem;
+    padding-top: 0.25rem;
 }
 
-.close-confirm-cancel {
-    padding: 0.25rem 0.5rem;
-    border: none;
-    border-radius: 5px;
+.close-dialog-cancel {
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
     background: none;
-    color: var(--text-dim);
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: var(--type-footnote);
 }
 
-.close-confirm-cancel:hover {
+.close-dialog-cancel:hover {
     color: var(--text-primary);
     background: var(--hover-bg);
 }
 
-.close-confirm-btn {
-    padding: 0.25rem 0.6rem;
+.close-dialog-btn {
+    padding: 0.35rem 0.75rem;
     border: none;
-    border-radius: 5px;
+    border-radius: 6px;
     background: #ff6b6b;
     color: #fff;
     cursor: pointer;
@@ -388,6 +406,6 @@
     font-weight: 600;
 }
 
-.close-confirm-btn:hover {
+.close-dialog-btn:hover {
     filter: brightness(1.1);
 }

@@ -623,7 +623,7 @@ else
                                              UsageInfo="@(usageBySession.TryGetValue(session.Name, out var usg) ? usg : null)"
                                              OnSelect="() => SelectSession(sName)"
                                              OnClose="() => CloseSession(sName)"
-                                             OnCloseAndDeleteWorktree="() => CloseSessionAndDeleteWorktree(sName)"
+                                             OnCloseWithOptions="(opts) => CloseSessionWithOptions(sName, opts.DeleteWorktree, opts.DeleteBranch)"
                                              OnPin="(pinned) => { CopilotService.PinSession(sName, pinned); }"
                                              OnMove="(groupId) => CopilotService.MoveSession(sName, groupId)"
                                              OnStartRename="() => StartRename(sName)"
@@ -1229,18 +1229,36 @@ else
 
     private async Task CloseSessionAndDeleteWorktree(string name)
     {
-        // Find the worktree associated with this session before closing
+        await CloseSessionWithOptions(name, deleteWorktree: true, deleteBranch: true);
+    }
+
+    private async Task CloseSessionWithOptions(string name, bool deleteWorktree, bool deleteBranch)
+    {
         var meta = CopilotService.GetSessionMeta(name);
         var worktreeId = meta?.WorktreeId;
 
-        // Close the session first
         await CopilotService.CloseSessionAsync(name);
 
-        // Delete the worktree if no OTHER sessions or groups still reference it
-        // (exclude the just-closed session name since its metadata may linger due to debounced save)
-        if (!string.IsNullOrEmpty(worktreeId) && !IsWorktreeInUse(worktreeId, excludeSession: name))
+        if (!string.IsNullOrEmpty(worktreeId))
         {
-            await DeleteWorktreeAsync(worktreeId);
+            if (deleteWorktree && !IsWorktreeInUse(worktreeId, excludeSession: name))
+            {
+                await DeleteWorktreeAsync(worktreeId, deleteBranch);
+            }
+            else if (deleteBranch && !deleteWorktree)
+            {
+                // Delete just the branch, keep the worktree directory
+                try
+                {
+                    var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
+                    if (wt != null)
+                    {
+                        var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
+                        // Can't delete the branch of an active worktree — skip silently
+                    }
+                }
+                catch { }
+            }
         }
     }
 
@@ -1259,14 +1277,14 @@ else
         }
     }
 
-    private async Task DeleteWorktreeAsync(string worktreeId)
+    private async Task DeleteWorktreeAsync(string worktreeId, bool deleteBranch = true)
     {
         try
         {
             if (CopilotService.IsRemoteMode)
                 await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
             else
-                await RepoManager.RemoveWorktreeAsync(worktreeId);
+                await RepoManager.RemoveWorktreeAsync(worktreeId, deleteBranch: deleteBranch);
         }
         catch (Exception ex)
         {

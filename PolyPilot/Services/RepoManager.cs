@@ -351,7 +351,7 @@ public class RepoManager
     /// <summary>
     /// Remove a worktree and clean up.
     /// </summary>
-    public async Task RemoveWorktreeAsync(string worktreeId, CancellationToken ct = default)
+    public async Task RemoveWorktreeAsync(string worktreeId, bool deleteBranch = true, CancellationToken ct = default)
     {
         EnsureLoaded();
         var wt = _state.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
@@ -371,8 +371,8 @@ public class RepoManager
                     try { Directory.Delete(wt.Path, recursive: true); } catch { }
                 try { await RunGitAsync(repo.BareClonePath, ct, "worktree", "prune"); } catch { }
             }
-            // Clean up the branch too (worktree branches are single-use)
-            if (!string.IsNullOrEmpty(wt.Branch))
+            // Optionally clean up the branch too
+            if (deleteBranch && !string.IsNullOrEmpty(wt.Branch))
                 try { await RunGitAsync(repo.BareClonePath, ct, "branch", "-D", wt.Branch); } catch { }
         }
         else if (Directory.Exists(wt.Path))
@@ -444,7 +444,7 @@ public class RepoManager
         var worktrees = _state.Worktrees.Where(w => w.RepoId == repoId).ToList();
         foreach (var wt in worktrees)
         {
-            try { await RemoveWorktreeAsync(wt.Id, ct); } catch { }
+            try { await RemoveWorktreeAsync(wt.Id, ct: ct); } catch { }
         }
 
         _state.Repositories.RemoveAll(r => r.Id == repoId);
