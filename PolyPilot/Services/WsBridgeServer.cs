@@ -834,13 +834,16 @@ public class WsBridgeServer : IDisposable
 
         // Take a defensive snapshot — History is a plain List<ChatMessage> that may be
         // modified concurrently by SDK event handlers on background threads.
+        // ToArray() uses Array.Copy internally so it won't throw InvalidOperationException,
+        // but can hit ArgumentOutOfRangeException if the list resizes during copy.
+        // On failure, skip sending entirely — never send an empty authoritative payload
+        // (that would make the client think the session has no history with no recovery path).
         ChatMessage[] snapshot;
         try { snapshot = session.History.ToArray(); }
-        catch (InvalidOperationException)
+        catch (Exception ex)
         {
-            await Task.Delay(50, ct);
-            try { snapshot = session.History.ToArray(); }
-            catch { snapshot = Array.Empty<ChatMessage>(); }
+            Console.WriteLine($"[WsBridge] History snapshot failed for '{sessionName}': {ex.Message}");
+            return;
         }
 
         var totalCount = snapshot.Length;

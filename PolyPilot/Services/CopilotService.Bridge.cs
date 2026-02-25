@@ -8,6 +8,12 @@ public partial class CopilotService
     private bool _bridgeEventsWired;
 
     /// <summary>
+    /// Max messages to request after a turn ends. Keeps WebSocket payloads bounded
+    /// for long conversations. Users can still load full history via "Load rest of conversation".
+    /// </summary>
+    private const int TurnEndHistoryLimit = 200;
+
+    /// <summary>
     /// Initialize in Remote mode: connect WsBridgeClient for state-sync with server.
     /// </summary>
     private async Task InitializeRemoteAsync(ConnectionSettings settings, CancellationToken ct)
@@ -199,7 +205,7 @@ public partial class CopilotService
             {
                 try
                 {
-                    await _bridgeClient.RequestHistoryAsync(s, limit: 200);
+                    await _bridgeClient.RequestHistoryAsync(s, limit: TurnEndHistoryLimit);
                     // Small delay to let the history response arrive before unguarding
                     await Task.Delay(500);
                 }
