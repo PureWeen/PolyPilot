@@ -371,6 +371,9 @@ public class RepoManager
                     try { Directory.Delete(wt.Path, recursive: true); } catch { }
                 try { await RunGitAsync(repo.BareClonePath, ct, "worktree", "prune"); } catch { }
             }
+            // Clean up the branch too (worktree branches are single-use)
+            if (!string.IsNullOrEmpty(wt.Branch))
+                try { await RunGitAsync(repo.BareClonePath, ct, "branch", "-D", wt.Branch); } catch { }
         }
         else if (Directory.Exists(wt.Path))
         {
