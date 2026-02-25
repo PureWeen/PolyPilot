@@ -244,9 +244,9 @@ else
                     <input type="text" class="new-group-input" id="presetNameInput"
                            placeholder="Team name (optional — uses preset name)"
                            style="margin: 4px 8px; font-size: 12px;" />
-                    <div style="margin: 4px 8px; display: flex; align-items: center; gap: 6px; font-size: 11px;">
-                        <span style="opacity: 0.7;">Worktrees:</span>
-                        <select class="sort-select" style="flex: 1; font-size: 11px;" @onchange="OnStrategyChanged">
+                    <div style="margin: 6px 8px; padding: 6px 8px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--control-border);">
+                        <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">🌿 Worktree Isolation</div>
+                        <select class="sort-select" style="width: 100%; font-size: 12px; padding: 4px 6px;" @onchange="OnStrategyChanged">
                             <option value="FullyIsolated" selected="@(selectedStrategy == WorktreeStrategy.FullyIsolated)">🔒 Each agent gets own worktree</option>
                             <option value="OrchestratorIsolated" selected="@(selectedStrategy == WorktreeStrategy.OrchestratorIsolated)">🔀 Manager isolated, workers share</option>
                             <option value="Shared" selected="@(selectedStrategy == WorktreeStrategy.Shared)">📁 Everyone shares one worktree</option>
