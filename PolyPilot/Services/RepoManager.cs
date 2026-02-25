@@ -19,6 +19,7 @@ public class RepoManager
 
     private RepositoryState _state = new();
     private bool _loaded;
+    private bool _loadedSuccessfully;
     public IReadOnlyList<RepositoryInfo> Repositories { get { EnsureLoaded(); return _state.Repositories.AsReadOnly(); } }
     public IReadOnlyList<WorktreeInfo> Worktrees { get { EnsureLoaded(); return _state.Worktrees.AsReadOnly(); } }
 
@@ -51,6 +52,7 @@ public class RepoManager
     public void Load()
     {
         _loaded = true;
+        _loadedSuccessfully = false;
         try
         {
             if (File.Exists(StateFile))
@@ -58,6 +60,7 @@ public class RepoManager
                 var json = File.ReadAllText(StateFile);
                 _state = JsonSerializer.Deserialize<RepositoryState>(json) ?? new RepositoryState();
             }
+            _loadedSuccessfully = true;
         }
         catch (Exception ex)
         {
@@ -68,6 +71,13 @@ public class RepoManager
 
     private void Save()
     {
+        // Guard: never overwrite repos.json with empty state after a failed load —
+        // that would silently destroy all registered repositories.
+        if (!_loadedSuccessfully && _state.Repositories.Count == 0 && _state.Worktrees.Count == 0)
+        {
+            Console.WriteLine("[RepoManager] Skipping save — state was not loaded successfully and is empty.");
+            return;
+        }
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(StateFile)!);
