@@ -1226,13 +1226,14 @@ public partial class CopilotService
         }
     }
 
-    private void StartProcessingWatchdog(SessionState state, string sessionName, DateTime? seedTime = null)
+    private void StartProcessingWatchdog(SessionState state, string sessionName)
     {
         CancelProcessingWatchdog(state);
-        // Seed from the actual last event time (e.g. events.jsonl write time) when resuming,
-        // so elapsed time reflects how long the session has truly been idle — not just since app start.
-        var seed = seedTime ?? DateTime.UtcNow;
-        Interlocked.Exchange(ref state.LastEventAtTicks, seed.Ticks);
+        // Always seed from DateTime.UtcNow. Do NOT pass events.jsonl file time here —
+        // that would make elapsed = (file age) + check interval, causing the 30s quiescence
+        // timeout to fire on the first watchdog check for any file > ~15s old.
+        // This is the exact regression pattern from PR #148 (short timeout killing active sessions).
+        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         state.ProcessingWatchdog = new CancellationTokenSource();
         var ct = state.ProcessingWatchdog.Token;
         _ = RunProcessingWatchdogAsync(state, sessionName, ct);
@@ -1294,7 +1295,9 @@ public partial class CopilotService
 
                 if (elapsed >= effectiveTimeout)
                 {
-                    var timeoutMinutes = effectiveTimeout / 60;
+                    var timeoutDisplay = effectiveTimeout >= 60
+                        ? $"{effectiveTimeout / 60} minute(s)"
+                        : $"{effectiveTimeout} seconds";
                     Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
                           $"(timeout={effectiveTimeout}s, hasActiveTool={hasActiveTool}, isResumed={state.Info.IsResumed}, hasUsedTools={state.HasUsedToolsThisTurn}, multiAgent={isMultiAgentSession}), clearing stuck processing state");
                     // Capture generation before posting — same guard pattern as CompleteResponse.
@@ -1327,7 +1330,7 @@ public partial class CopilotService
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
                         state.ResponseCompletion?.TrySetResult("");
-                        OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutMinutes} minute(s).");
+                        OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutDisplay}.");
                         OnStateChanged?.Invoke();
                     });
                     break;

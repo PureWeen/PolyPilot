@@ -111,6 +111,22 @@ public class ProcessingWatchdogTests
         Assert.Contains("try sending", msg.Content);
     }
 
+    [Theory]
+    [InlineData(30, "30 seconds")]
+    [InlineData(59, "59 seconds")]
+    [InlineData(60, "1 minute(s)")]
+    [InlineData(120, "2 minute(s)")]
+    [InlineData(600, "10 minute(s)")]
+    public void WatchdogErrorMessage_FormatsTimeoutCorrectly(int effectiveTimeout, string expected)
+    {
+        // Mirrors the production formatting logic in RunProcessingWatchdogAsync.
+        // Regression guard: 30s quiescence must not produce "0 minute(s)".
+        var timeoutDisplay = effectiveTimeout >= 60
+            ? $"{effectiveTimeout / 60} minute(s)"
+            : $"{effectiveTimeout} seconds";
+        Assert.Equal(expected, timeoutDisplay);
+    }
+
     [Fact]
     public void AgentSessionInfo_IsProcessing_DefaultsFalse()
     {
