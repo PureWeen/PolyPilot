@@ -2854,6 +2854,12 @@
     }
 
     [JSInvokable]
+    public void JsOpenUrlInBackground(string url)
+    {
+        LinkHelper.OpenInBackground(url);
+    }
+
+    [JSInvokable]
     public void JsChangeFontSize(int delta)
     {
         HandleFontSizeChange(delta);

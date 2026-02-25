@@ -1101,6 +1101,22 @@
         })();
     </script>
 
+    <script>
+        // Command+Click (Mac) opens external links in background without focusing browser
+        document.addEventListener('click', function(e) {
+            if (!e.metaKey) return;
+            var link = e.target.closest('a[href]');
+            if (!link) return;
+            var href = link.getAttribute('href');
+            if (!href || !(href.startsWith('http://') || href.startsWith('https://'))) return;
+            if (window.__dashRef) {
+                e.preventDefault();
+                e.stopPropagation();
+                window.__dashRef.invokeMethodAsync('JsOpenUrlInBackground', href).catch(function(){});
+            }
+        }, true);
+    </script>
+
 </body>
 
 </html>
