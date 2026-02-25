@@ -471,9 +471,12 @@ else
                                                             </button>
                                                         }
                                                     }
-                                                    <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; confirmRemoveRepoId = rId; }">
-                                                        🗑 Remove Repo
-                                                    </button>
+                                                    @if (!group.IsMultiAgent)
+                                                    {
+                                                        <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; confirmRemoveRepoId = rId; }">
+                                                            🗑 Remove Repo
+                                                        </button>
+                                                    }
                                                 }
                                                 else
                                                 {
