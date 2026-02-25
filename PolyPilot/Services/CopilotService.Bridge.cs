@@ -192,13 +192,14 @@ public partial class CopilotService
                 }
                 OnTurnEnd?.Invoke(s);
             });
-            // Request fresh history, then clear the streaming guard so SyncRemoteSessions
+            // Request fresh history (capped to avoid massive payloads for long conversations),
+            // then clear the streaming guard so SyncRemoteSessions
             // uses the up-to-date history instead of a stale cache.
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await _bridgeClient.RequestHistoryAsync(s);
+                    await _bridgeClient.RequestHistoryAsync(s, limit: 200);
                     // Small delay to let the history response arrive before unguarding
                     await Task.Delay(500);
                 }

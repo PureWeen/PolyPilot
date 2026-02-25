@@ -832,20 +832,30 @@ public class WsBridgeServer : IDisposable
         var session = _copilot.GetSession(sessionName);
         if (session == null) return;
 
-        var allMessages = session.History;
-        var totalCount = allMessages.Count;
+        // Take a defensive snapshot — History is a plain List<ChatMessage> that may be
+        // modified concurrently by SDK event handlers on background threads.
+        ChatMessage[] snapshot;
+        try { snapshot = session.History.ToArray(); }
+        catch (InvalidOperationException)
+        {
+            await Task.Delay(50, ct);
+            try { snapshot = session.History.ToArray(); }
+            catch { snapshot = Array.Empty<ChatMessage>(); }
+        }
+
+        var totalCount = snapshot.Length;
         
         // Apply limit — take the most recent N messages
         List<ChatMessage> messagesToSend;
         bool hasMore;
         if (limit.HasValue && limit.Value < totalCount)
         {
-            messagesToSend = allMessages.Skip(totalCount - limit.Value).ToList();
+            messagesToSend = snapshot.Skip(totalCount - limit.Value).ToList();
             hasMore = true;
         }
         else
         {
-            messagesToSend = allMessages.ToList();
+            messagesToSend = snapshot.ToList();
             hasMore = false;
         }
 
