@@ -205,15 +205,15 @@
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                 </button>
             }
-            <button class="send-btn" @onclick="() => OnSend.InvokeAsync(Session.Name)">
+            <button class="send-btn" @onclick="() => OnSend.InvokeAsync(Session.Name)" title="Send message">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z"/></svg>
             </button>
         </div>
         <div class="input-status-bar">
             <div class="mode-switcher">
-                <button class="mode-btn @(InputMode == "chat" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("chat")'>Chat</button>
-                <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")'>Plan</button>
-                <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")'>Autopilot</button>
+                <button class="mode-btn @(InputMode == "chat" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("chat")' title="Chat mode — interactive conversation">Chat</button>
+                <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")' title="Plan mode — create a plan before implementing">Plan</button>
+                <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")' title="Autopilot mode — auto-approve tool calls">Autopilot</button>
 
             </div>
             @if (Session.ReflectionCycle is null || !Session.ReflectionCycle.IsActive)
@@ -221,23 +221,23 @@
                 <button class="mode-btn" style="margin-left:8px;opacity:0.7" title="Start a reflection cycle" @onclick="InsertReflectCommand">Reflect</button>
             }
             <span class="status-sep">·</span>
-            <span class="log-label" style="font-size:var(--type-footnote)">Log</span>
+            <span class="log-label" style="font-size:var(--type-footnote)" title="View session event log">Log</span>
             <span class="status-sep">·</span>
-            <span class="status-msgs">@Session.History.Count msgs</span>
+            <span class="status-msgs" title="Total messages in this session">@Session.History.Count msgs</span>
             @if (availableSkills?.Count > 0)
             {
                 <span class="status-sep">·</span>
-                <span class="skills-trigger" data-trigger="skills" @onclick="ShowSkillsPopup">@availableSkills.Count skills</span>
+                <span class="skills-trigger" data-trigger="skills" @onclick="ShowSkillsPopup" title="View available skills">@availableSkills.Count skills</span>
             }
             @if (availableAgents?.Count > 0)
             {
                 <span class="status-sep">·</span>
-                <span class="skills-trigger" data-trigger="agents" @onclick="ShowAgentsPopup">@availableAgents.Count agents</span>
+                <span class="skills-trigger" data-trigger="agents" @onclick="ShowAgentsPopup" title="View available agents">@availableAgents.Count agents</span>
             }
             @if (availablePrompts?.Count > 0)
             {
                 <span class="status-sep">·</span>
-                <span class="skills-trigger" data-trigger="prompts" @onclick="ShowPromptsPopup">@availablePrompts.Count prompts</span>
+                <span class="skills-trigger" data-trigger="prompts" @onclick="ShowPromptsPopup" title="View saved prompts">@availablePrompts.Count prompts</span>
             }
             <span class="status-sep">·</span>
             <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
@@ -256,14 +256,14 @@
                 {
                     @if (UsageInfo.InputTokens.HasValue || UsageInfo.OutputTokens.HasValue)
                     {
-                        <span class="status-tokens">↑@FormatTokenCount(UsageInfo.InputTokens ?? 0) ↓@FormatTokenCount(UsageInfo.OutputTokens ?? 0)</span>
+                        <span class="status-tokens" title="Token usage: ↑ input tokens sent, ↓ output tokens received">↑@FormatTokenCount(UsageInfo.InputTokens ?? 0) ↓@FormatTokenCount(UsageInfo.OutputTokens ?? 0)</span>
                     }
                     @if (UsageInfo.CurrentTokens.HasValue && UsageInfo.TokenLimit.HasValue)
                     {
                         var pct = (double)UsageInfo.CurrentTokens.Value / UsageInfo.TokenLimit.Value;
                         var ctxColor = pct > 0.9 ? "#ef4444" : pct > 0.75 ? "#fbbf24" : "inherit";
                         <span class="status-sep">·</span>
-                        <span class="status-ctx" style="color:@ctxColor">@FormatTokenCount(UsageInfo.CurrentTokens.Value)/@FormatTokenCount(UsageInfo.TokenLimit.Value) ctx</span>
+                        <span class="status-ctx" style="color:@ctxColor" title="Context window usage — current tokens / maximum tokens">@FormatTokenCount(UsageInfo.CurrentTokens.Value)/@FormatTokenCount(UsageInfo.TokenLimit.Value) ctx</span>
                     }
                 }
             </span>

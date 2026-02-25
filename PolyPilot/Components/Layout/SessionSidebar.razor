@@ -108,7 +108,7 @@ else
                         {
                             <span class="bug-report-status @(footerStatus.StartsWith("✓") ? "success" : "error")">@footerStatus</span>
                         }
-                        <button class="bug-report-submit" @onclick="SubmitBugReport" disabled="@footerSubmitting">
+                        <button class="bug-report-submit" @onclick="SubmitBugReport" disabled="@footerSubmitting" title="Submit bug report as a GitHub issue">
                             @(footerSubmitting ? "Submitting…" : "Submit Issue")
                         </button>
                     </div>
@@ -138,7 +138,7 @@ else
                         {
                             <span class="bug-report-status @(footerStatus.StartsWith("✓") ? "success" : footerStatus.StartsWith("⏳") ? "" : "error")">@footerStatus</span>
                         }
-                        <button class="bug-report-submit" @onclick="LaunchFixIt" disabled="@footerSubmitting">
+                        <button class="bug-report-submit" @onclick="LaunchFixIt" disabled="@footerSubmitting" title="Launch a Copilot session to fix the bug or build the feature">
                             @(footerSubmitting ? "Launching…" : "Launch Copilot")
                         </button>
                     </div>
