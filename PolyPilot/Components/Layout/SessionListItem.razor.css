@@ -319,3 +319,75 @@
     padding: 0.15rem 0;
     opacity: 0.8;
 }
+
+/* === Close confirmation panel === */
+.close-confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.6rem 0.65rem;
+    background: var(--surface-secondary);
+    border: 1px solid var(--control-border);
+    border-radius: 8px;
+    margin-top: 0.3rem;
+}
+
+.close-confirm-title {
+    font-size: var(--type-footnote);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.close-confirm-option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: var(--type-footnote);
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.15rem 0;
+}
+
+.close-confirm-option input[type="checkbox"] {
+    accent-color: var(--accent-primary);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+.close-confirm-actions {
+    display: flex;
+    gap: 0.35rem;
+    justify-content: flex-end;
+    padding-top: 0.15rem;
+}
+
+.close-confirm-cancel {
+    padding: 0.25rem 0.5rem;
+    border: none;
+    border-radius: 5px;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: var(--type-footnote);
+}
+
+.close-confirm-cancel:hover {
+    color: var(--text-primary);
+    background: var(--hover-bg);
+}
+
+.close-confirm-btn {
+    padding: 0.25rem 0.6rem;
+    border: none;
+    border-radius: 5px;
+    background: #ff6b6b;
+    color: #fff;
+    cursor: pointer;
+    font-size: var(--type-footnote);
+    font-weight: 600;
+}
+
+.close-confirm-btn:hover {
+    filter: brightness(1.1);
+}

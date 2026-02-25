@@ -197,14 +197,26 @@
                     </button>
                     <div class="menu-separator"></div>
                 }
-                <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnClose.InvokeAsync(); }">
-                    ✕ Close Session
+                <button class="menu-item destructive" @onclick="ShowCloseConfirm">
+                    🗑 Close Session…
                 </button>
-                @if (!string.IsNullOrEmpty(Meta?.WorktreeId))
+                @if (showCloseConfirm)
                 {
-                    <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnCloseAndDeleteWorktree.InvokeAsync(); }">
-                        🗑 Close &amp; Delete Worktree
-                    </button>
+                    <div class="close-confirm">
+                        <div class="close-confirm-title">Close "@Session.Name"?</div>
+                        @if (!string.IsNullOrEmpty(Meta?.WorktreeId))
+                        {
+                            var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == Meta.WorktreeId);
+                            <label class="close-confirm-option">
+                                <input type="checkbox" @bind="deleteWorktree" />
+                                <span>Delete worktree@(wt != null ? $" ({wt.Branch})" : "")</span>
+                            </label>
+                        }
+                        <div class="close-confirm-actions">
+                            <button class="close-confirm-cancel" @onclick="HideCloseConfirm">Cancel</button>
+                            <button class="close-confirm-btn" @onclick="ConfirmClose">Close</button>
+                        </div>
+                    </div>
                 }
             </div>
         }
@@ -233,6 +245,31 @@
     [Parameter] public EventCallback OnCloseMenu { get; set; }
     [Parameter] public EventCallback OnReportBug { get; set; }
     [Parameter] public EventCallback OnFixWithCopilot { get; set; }
+
+    private bool showCloseConfirm;
+    private bool deleteWorktree;
+
+    private void ShowCloseConfirm()
+    {
+        showCloseConfirm = true;
+        deleteWorktree = false;
+    }
+
+    private void HideCloseConfirm()
+    {
+        showCloseConfirm = false;
+        _ = OnCloseMenu.InvokeAsync();
+    }
+
+    private async Task ConfirmClose()
+    {
+        showCloseConfirm = false;
+        await OnCloseMenu.InvokeAsync();
+        if (deleteWorktree && !string.IsNullOrEmpty(Meta?.WorktreeId))
+            await OnCloseAndDeleteWorktree.InvokeAsync();
+        else
+            await OnClose.InvokeAsync();
+    }
 
     private async Task HandleRenameKeyUp(KeyboardEventArgs e)
     {
