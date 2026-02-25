@@ -733,7 +733,7 @@
         // Run slow detection tasks in parallel (after first paint)
         var cliInfoTask = Task.Run(CopilotService.GetCliSourceInfo);
         var tasks = new List<Task>();
-        tasks.Add(Task.Run(() => { serverAlive = ServerManager.CheckServerRunning("localhost", settings.Port); }));
+        tasks.Add(Task.Run(() => { serverAlive = ServerManager.CheckServerRunning("127.0.0.1", settings.Port); }));
         tasks.Add(Task.Run(() => { devTunnelAvailable = DevTunnelService.IsCliAvailable(); }));
         tasks.Add(Task.Run(() => { DiscoverLocalIps(); }));
         tasks.Add(TailscaleService.DetectAsync());

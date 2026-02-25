@@ -361,7 +361,7 @@ public partial class CopilotService : IAsyncDisposable
         // In Persistent mode, auto-start the server if not already running
         if (settings.Mode == ConnectionMode.Persistent)
         {
-            if (!_serverManager.CheckServerRunning("localhost", settings.Port))
+            if (!_serverManager.CheckServerRunning("127.0.0.1", settings.Port))
             {
                 Debug($"Persistent server not running, auto-starting on port {settings.Port}...");
                 var started = await _serverManager.StartServerAsync(settings.Port);

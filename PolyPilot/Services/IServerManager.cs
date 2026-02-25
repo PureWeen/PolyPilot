@@ -10,7 +10,7 @@ public interface IServerManager
     int ServerPort { get; }
     event Action? OnStatusChanged;
 
-    bool CheckServerRunning(string host = "localhost", int? port = null);
+    bool CheckServerRunning(string host = "127.0.0.1", int? port = null);
     Task<bool> StartServerAsync(int port);
     void StopServer();
     bool DetectExistingServer();
