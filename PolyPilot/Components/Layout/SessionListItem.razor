@@ -202,35 +202,35 @@
                 </button>
             </div>
         }
-        @if (showCloseConfirm)
-        {
-            <div class="close-dialog-overlay" @onclick="HideCloseConfirm" @onclick:stopPropagation="true">
-                <div class="close-dialog" @onclick:stopPropagation="true">
-                    <div class="close-dialog-title">Close "@Session.Name"?</div>
-                    @if (!string.IsNullOrEmpty(Meta?.WorktreeId))
-                    {
-                        var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == Meta.WorktreeId);
-                        <div class="close-dialog-options">
-                            <label class="close-dialog-option">
-                                <input type="checkbox" @bind="deleteWorktree" />
-                                <span>Delete worktree@(wt != null ? $" (⑂ {wt.Branch})" : "")</span>
-                            </label>
-                            <label class="close-dialog-option">
-                                <input type="checkbox" @bind="deleteBranch" />
-                                <span>Delete branch@(wt != null ? $" ({wt.Branch})" : "")</span>
-                            </label>
-                        </div>
-                    }
-                    <div class="close-dialog-actions">
-                        <button class="close-dialog-cancel" @onclick="HideCloseConfirm">Cancel</button>
-                        <button class="close-dialog-btn" @onclick="ConfirmClose">Close Session</button>
-                    </div>
-                </div>
-            </div>
-        }
-        }
     </div>
 </div>
+
+@if (showCloseConfirm)
+{
+    <div class="close-dialog-overlay" @onclick="HideCloseConfirm" @onclick:stopPropagation="true">
+        <div class="close-dialog" @onclick:stopPropagation="true">
+            <div class="close-dialog-title">Close "@Session.Name"?</div>
+            @if (!string.IsNullOrEmpty(Meta?.WorktreeId))
+            {
+                var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == Meta.WorktreeId);
+                <div class="close-dialog-options">
+                    <label class="close-dialog-option">
+                        <input type="checkbox" @bind="deleteWorktree" />
+                        <span>Delete worktree@(wt != null ? $" (⑂ {wt.Branch})" : "")</span>
+                    </label>
+                    <label class="close-dialog-option">
+                        <input type="checkbox" @bind="deleteBranch" />
+                        <span>Delete branch@(wt != null ? $" ({wt.Branch})" : "")</span>
+                    </label>
+                </div>
+            }
+            <div class="close-dialog-actions">
+                <button class="close-dialog-cancel" @onclick="HideCloseConfirm">Cancel</button>
+                <button class="close-dialog-btn" @onclick="ConfirmClose">Close Session</button>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     [Parameter] public AgentSessionInfo Session { get; set; } = null!;
