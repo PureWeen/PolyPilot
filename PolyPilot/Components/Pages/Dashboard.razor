@@ -42,7 +42,14 @@
                     <button class="dismiss-btn" @onclick="DismissFallbackNotice">Dismiss</button>
                 </div>
             }
-            @if (PlatformHelper.IsMobile && !CopilotService.IsInitialized)
+            @if (PlatformHelper.IsMobile && !CopilotService.IsInitialized && !_initializationComplete)
+            {
+                <div class="restoring-indicator">
+                    <div class="restoring-spinner"></div>
+                    <span>Connecting…</span>
+                </div>
+            }
+            else if (PlatformHelper.IsMobile && !CopilotService.IsInitialized)
             {
                 <div class="mobile-connect-card">
                     <button class="scan-qr-btn" @onclick="DashboardScanQr">
