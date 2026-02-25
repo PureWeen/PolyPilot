@@ -267,7 +267,7 @@ else
         string? branchName = null;
         int? prNumber = null;
         string? wtId = null;
-        string dir = "";
+        string? dir = mode == FormMode.Empty ? null : "";
 
         if (mode == FormMode.Repo && selectedRepoId != null)
         {
