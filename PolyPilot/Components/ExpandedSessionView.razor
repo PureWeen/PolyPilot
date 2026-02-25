@@ -11,6 +11,10 @@
 <div class="expanded-card @cardClass" data-session="@Session.Name">
     <div class="chat-header">
         <h2 class="chat-header-title">@Session.Name</h2>
+        @if (!string.IsNullOrEmpty(Session.GitBranch))
+        {
+            <span class="chat-header-branch" title="@Session.GitBranch">@Session.GitBranch</span>
+        }
         <div class="chat-header-badges">
             @if (Session.IsProcessing)
             {
