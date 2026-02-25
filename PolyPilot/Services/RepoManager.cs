@@ -424,6 +424,7 @@ public class RepoManager
             {
                 await RunGitAsync(repo.BareClonePath, ct, "worktree", "remove", wt.Path, "--force");
             }
+            catch (OperationCanceledException) { throw; }
             catch
             {
                 // Force cleanup if git worktree remove fails
