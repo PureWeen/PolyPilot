@@ -380,13 +380,13 @@
         <h2 class="group-title">Copilot CLI</h2>
         <div class="settings-section @(SectionVisible("cli source built-in system version binary copilot") ? "" : "search-hidden")">
             <div class="cli-cards">
-                <div class="cli-card @(settings.CliSource == CliSourceMode.BuiltIn ? "selected" : "") @(cliInfo.builtInPath == null ? "disabled" : "")"
+                <div class="cli-card @(settings.CliSource == CliSourceMode.BuiltIn ? "selected" : "") @(cliInfo.builtInPath == null && cliInfo.systemPath == null ? "disabled" : "")"
                      @onclick="() => SetCliSource(CliSourceMode.BuiltIn)">
                     <div class="cli-card-icon">📦</div>
                     <div class="cli-card-label">Built-in</div>
                     <div class="cli-card-ver">v@(cliInfo.builtInVersion ?? "—")</div>
                 </div>
-                <div class="cli-card @(settings.CliSource == CliSourceMode.System ? "selected" : "") @(cliInfo.systemPath == null ? "disabled" : "")"
+                <div class="cli-card @(settings.CliSource == CliSourceMode.System ? "selected" : "") @(cliInfo.systemPath == null && cliInfo.builtInPath == null ? "disabled" : "")"
                      @onclick="() => SetCliSource(CliSourceMode.System)">
                     <div class="cli-card-icon">💻</div>
                     <div class="cli-card-label">System</div>
@@ -396,6 +396,10 @@
             @if (cliSourceChanged)
             {
                 <div class="cli-restart-hint">⟳ Restart the app to apply the change</div>
+            }
+            @if (settings.CliSource == CliSourceMode.BuiltIn && cliInfo.builtInPath == null && cliInfo.systemPath != null)
+            {
+                <div class="cli-path-warn">⚠ No bundled CLI found — will use system CLI</div>
             }
             @if (settings.CliSource == CliSourceMode.System && cliInfo.systemPath != null)
             {
@@ -827,8 +831,8 @@
 
     private void SetCliSource(CliSourceMode source)
     {
-        if (source == CliSourceMode.BuiltIn && cliInfo.builtInPath == null) return;
-        if (source == CliSourceMode.System && cliInfo.systemPath == null) return;
+        // Only block selection if no CLI is available at all (both modes have fallback logic)
+        if (cliInfo.builtInPath == null && cliInfo.systemPath == null) return;
         settings.CliSource = source;
         cliSourceChanged = source != _initialCliSource;
         settings.Save();

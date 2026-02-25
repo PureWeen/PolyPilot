@@ -112,6 +112,10 @@ public class ConnectionSettings
         if (!PlatformHelper.AvailableModes.Contains(settings.Mode))
             settings.Mode = PlatformHelper.DefaultMode;
 
+        // Ensure CliSource is a valid enum value (guards against corrupt settings)
+        if (!Enum.IsDefined(settings.CliSource))
+            settings.CliSource = CliSourceMode.BuiltIn;
+
         return settings;
     }
 

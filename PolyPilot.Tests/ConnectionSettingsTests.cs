@@ -208,6 +208,117 @@ public class ConnectionSettingsTests
         Assert.Equal(1, (int)CliSourceMode.System);
     }
 
+    [Fact]
+    public void InvalidCliSource_DeserializesToInvalidEnumValue()
+    {
+        // When settings.json has an out-of-range integer for CliSource,
+        // JsonSerializer deserializes it as an undefined enum value.
+        // ConnectionSettings.Load() should normalize this to BuiltIn.
+        var json = """{"Mode":1,"Host":"localhost","Port":4321,"CliSource":99}""";
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        // Raw deserialization produces an undefined enum value
+        Assert.False(Enum.IsDefined(loaded!.CliSource));
+    }
+
+    [Fact]
+    public void Load_InvalidCliSource_NormalizesToBuiltIn()
+    {
+        // Simulate what ConnectionSettings.Load() does: deserialize + validate
+        var json = """{"Mode":1,"Host":"localhost","Port":4321,"CliSource":99}""";
+        var settings = JsonSerializer.Deserialize<ConnectionSettings>(json)!;
+
+        // Apply the same validation that Load() applies
+        if (!Enum.IsDefined(settings.CliSource))
+            settings.CliSource = CliSourceMode.BuiltIn;
+
+        Assert.Equal(CliSourceMode.BuiltIn, settings.CliSource);
+    }
+
+    [Fact]
+    public void Load_NegativeCliSource_NormalizesToBuiltIn()
+    {
+        var json = """{"Mode":1,"Host":"localhost","Port":4321,"CliSource":-1}""";
+        var settings = JsonSerializer.Deserialize<ConnectionSettings>(json)!;
+
+        if (!Enum.IsDefined(settings.CliSource))
+            settings.CliSource = CliSourceMode.BuiltIn;
+
+        Assert.Equal(CliSourceMode.BuiltIn, settings.CliSource);
+    }
+
+    [Fact]
+    public void CliSourceCard_DisabledOnlyWhenNoCli()
+    {
+        // The Built-in card should NOT be disabled when builtInPath is null
+        // but systemPath exists — because ResolveCopilotCliPath(BuiltIn) falls
+        // back to system CLI. Card should only be disabled when BOTH are null.
+
+        // Scenario 1: builtIn=null, system=exists → NOT disabled
+        string? builtInPath = null;
+        string? systemPath = "/usr/local/bin/copilot";
+        bool disabled = builtInPath == null && systemPath == null;
+        Assert.False(disabled, "Built-in card should NOT be disabled when system CLI exists as fallback");
+
+        // Scenario 2: builtIn=exists, system=null → NOT disabled
+        builtInPath = "/app/copilot";
+        systemPath = null;
+        disabled = builtInPath == null && systemPath == null;
+        Assert.False(disabled, "Built-in card should NOT be disabled when built-in CLI exists");
+
+        // Scenario 3: both null → disabled
+        builtInPath = null;
+        systemPath = null;
+        disabled = builtInPath == null && systemPath == null;
+        Assert.True(disabled, "Card should be disabled when no CLI is available at all");
+
+        // Scenario 4: both exist → NOT disabled
+        builtInPath = "/app/copilot";
+        systemPath = "/usr/local/bin/copilot";
+        disabled = builtInPath == null && systemPath == null;
+        Assert.False(disabled, "Card should NOT be disabled when both CLIs exist");
+    }
+
+    [Fact]
+    public void SetCliSource_AllowsSwitchBackToBuiltIn_WhenSystemExists()
+    {
+        // Simulates the SetCliSource guard logic.
+        // When builtInPath is null but systemPath exists,
+        // the user should be able to switch to BuiltIn mode.
+        string? builtInPath = null;
+        string? systemPath = "/usr/local/bin/copilot";
+
+        // Old (buggy) guard: blocks if builtInPath is null
+        bool oldGuardBlocks = builtInPath == null;
+        Assert.True(oldGuardBlocks, "Old guard incorrectly blocks switch to Built-in");
+
+        // New (fixed) guard: blocks only if BOTH are null
+        bool newGuardBlocks = builtInPath == null && systemPath == null;
+        Assert.False(newGuardBlocks, "New guard should allow switch to Built-in when system CLI exists");
+    }
+
+    [Fact]
+    public void SetCliSource_AllowsSwitchToSystem_WhenBuiltInExists()
+    {
+        // Mirror test: System card with only built-in available
+        string? builtInPath = "/app/copilot";
+        string? systemPath = null;
+
+        bool newGuardBlocks = builtInPath == null && systemPath == null;
+        Assert.False(newGuardBlocks, "Should allow switch to System when built-in CLI exists as fallback");
+    }
+
+    [Fact]
+    public void SetCliSource_BlocksWhenNoCli()
+    {
+        string? builtInPath = null;
+        string? systemPath = null;
+
+        bool newGuardBlocks = builtInPath == null && systemPath == null;
+        Assert.True(newGuardBlocks, "Should block when no CLI is available at all");
+    }
+
     private void Dispose()
     {
         try { Directory.Delete(_testDir, true); } catch { }

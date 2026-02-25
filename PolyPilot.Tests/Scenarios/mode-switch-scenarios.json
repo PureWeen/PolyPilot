@@ -869,7 +869,72 @@
           "expect": {
             "equals": true
           },
-          "note": "Token remains blurred — QR and token toggles are independent"
+          "note": "Token remains blurred \u2014 QR and token toggles are independent"
+        }
+      ]
+    },
+    {
+      "id": "cli-source-builtin-card-not-disabled-with-system-fallback",
+      "name": "Built-in CLI card is selectable when bundled CLI is missing but system CLI exists (fallback)",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/settings']",
+          "note": "Navigate to Settings"
+        },
+        {
+          "action": "wait",
+          "duration": 2000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.cli-card')[0].classList.contains('disabled')",
+          "expect": {
+            "equals": "false"
+          },
+          "note": "Built-in card should NOT be disabled even if bundled CLI is missing (system fallback exists)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.cli-card')[1].click()",
+          "note": "Click System CLI card"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+          "expect": {
+            "equals": "System"
+          },
+          "note": "Verify System is now selected"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.cli-card')[0].click()",
+          "note": "Click Built-in card to switch back"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+          "expect": {
+            "equals": "Built-in"
+          },
+          "note": "Verify Built-in is selected again (this was the bug: could not switch back)"
+        },
+        {
+          "action": "shell",
+          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)[\\\"CliSource\\\"])\"",
+          "expect": {
+            "equals": "0"
+          },
+          "note": "Verify CliSource=0 (BuiltIn) persisted to disk after switching back"
         }
       ]
     }
