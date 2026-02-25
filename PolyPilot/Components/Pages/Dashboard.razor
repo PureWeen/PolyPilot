@@ -1252,9 +1252,10 @@
                 {
                     if (t.IsFaulted)
                     {
+                        var msg = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown";
                         InvokeAsync(() =>
                         {
-                            Console.WriteLine($"Error sending to multi-agent group: {t.Exception?.InnerException?.Message}");
+                            Console.WriteLine($"[DISPATCH] Error sending to multi-agent group: {msg}");
                         });
                     }
                 });

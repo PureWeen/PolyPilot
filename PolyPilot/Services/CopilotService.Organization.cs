@@ -724,28 +724,38 @@ public partial class CopilotService
     public async Task SendToMultiAgentGroupAsync(string groupId, string prompt, CancellationToken cancellationToken = default)
     {
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
-        if (group == null) return;
+        if (group == null) { Debug($"[DISPATCH] SendToMultiAgentGroupAsync: group '{groupId}' not found or not multi-agent"); return; }
 
         var members = GetMultiAgentGroupMembers(groupId);
-        if (members.Count == 0) return;
+        if (members.Count == 0) { Debug($"[DISPATCH] SendToMultiAgentGroupAsync: no members for group '{group.Name}'"); return; }
 
-        switch (group.OrchestratorMode)
+        Debug($"[DISPATCH] SendToMultiAgentGroupAsync: group='{group.Name}', mode={group.OrchestratorMode}, members={members.Count}");
+
+        try
         {
-            case MultiAgentMode.Broadcast:
-                await SendBroadcastAsync(group, members, prompt, cancellationToken);
-                break;
+            switch (group.OrchestratorMode)
+            {
+                case MultiAgentMode.Broadcast:
+                    await SendBroadcastAsync(group, members, prompt, cancellationToken);
+                    break;
 
-            case MultiAgentMode.Sequential:
-                await SendSequentialAsync(group, members, prompt, cancellationToken);
-                break;
+                case MultiAgentMode.Sequential:
+                    await SendSequentialAsync(group, members, prompt, cancellationToken);
+                    break;
 
-            case MultiAgentMode.Orchestrator:
-                await SendViaOrchestratorAsync(groupId, members, prompt, cancellationToken);
-                break;
+                case MultiAgentMode.Orchestrator:
+                    await SendViaOrchestratorAsync(groupId, members, prompt, cancellationToken);
+                    break;
 
-            case MultiAgentMode.OrchestratorReflect:
-                await SendViaOrchestratorReflectAsync(groupId, members, prompt, cancellationToken);
-                break;
+                case MultiAgentMode.OrchestratorReflect:
+                    await SendViaOrchestratorReflectAsync(groupId, members, prompt, cancellationToken);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"[DISPATCH] SendToMultiAgentGroupAsync FAILED: {ex.GetType().Name}: {ex.Message}");
+            throw;
         }
     }
 
