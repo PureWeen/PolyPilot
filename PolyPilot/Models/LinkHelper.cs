@@ -29,7 +29,7 @@ public static class LinkHelper
             var psi = new ProcessStartInfo("open") { UseShellExecute = false };
             psi.ArgumentList.Add("-g");
             psi.ArgumentList.Add(url);
-            Process.Start(psi);
+            Process.Start(psi)?.Dispose();
         }
         catch { }
 #endif

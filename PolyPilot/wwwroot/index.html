@@ -1109,10 +1109,10 @@
             if (!link) return;
             var href = link.getAttribute('href');
             if (!href || !(href.startsWith('http://') || href.startsWith('https://'))) return;
-            e.preventDefault();
-            e.stopPropagation();
             if (window.__dashRef) {
-                window.__dashRef.invokeMethodAsync('JsOpenUrlInBackground', href);
+                e.preventDefault();
+                e.stopPropagation();
+                window.__dashRef.invokeMethodAsync('JsOpenUrlInBackground', href).catch(function(){});
             }
         }, true);
     </script>
