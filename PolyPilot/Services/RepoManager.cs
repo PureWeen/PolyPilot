@@ -369,6 +369,7 @@ public class RepoManager
                 Console.WriteLine($"[RepoManager] Auto-removing orphaned worktree: {wt.Id} ({wt.Branch})");
                 await RemoveWorktreeAsync(wt.Id, ct);
             }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 Console.WriteLine($"[RepoManager] Could not remove orphaned worktree {wt.Id}: {ex.Message}");
@@ -390,6 +391,7 @@ public class RepoManager
             if (!string.IsNullOrWhiteSpace(status))
                 return false;
         }
+        catch (OperationCanceledException) { throw; }
         catch { return false; }
 
         // Remote tracking branch gone — safe to remove.
@@ -402,6 +404,7 @@ public class RepoManager
             // Match only the structured tracking annotation "[origin/branch: gone]", not commit subjects
             return currentLine?.Contains(": gone]", StringComparison.OrdinalIgnoreCase) == true;
         }
+        catch (OperationCanceledException) { throw; }
         catch { return false; }
     }
 
