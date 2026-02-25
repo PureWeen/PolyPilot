@@ -1464,6 +1464,40 @@ public class MultiAgentRegressionTests
         Assert.Contains("newState.IsMultiAgentSession = state.IsMultiAgentSession", reconnectBlock.Substring(0, 200));
     }
 
+    [Fact]
+    public void MonitorAndSynthesize_ShouldFilterByDispatchTimestamp()
+    {
+        // MonitorAndSynthesizeAsync must filter worker results by dispatch timestamp
+        // to avoid picking up stale pre-dispatch assistant messages from prior conversations.
+        // This was a 3/3 consensus finding from multi-model review.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+
+        // Find the result collection section in MonitorAndSynthesizeAsync
+        var monitorSection = source.Substring(source.IndexOf("Collect worker results from their chat history"));
+        var sectionEnd = Math.Min(monitorSection.Length, 1500);
+        var block = monitorSection.Substring(0, sectionEnd);
+        // Must convert StartedAt to local time for comparison with ChatMessage.Timestamp
+        Assert.Contains("dispatchTimeLocal", block);
+        // Must filter by timestamp
+        Assert.Contains("Timestamp >= dispatchTimeLocal", block);
+    }
+
+    [Fact]
+    public void PendingOrchestration_ShouldClearInFinallyBlock()
+    {
+        // ClearPendingOrchestration must be in a finally block so it's cleaned up
+        // even on cancellation/error. Otherwise stale pending files cause spurious
+        // resume on next launch. Opus review finding.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+
+        // Non-reflect path: must have finally { ClearPendingOrchestration }
+        var nonReflectDispatch = source.Substring(source.IndexOf("Phase 3: Dispatch tasks to workers"));
+        var nextMethod = nonReflectDispatch.IndexOf("private string Build");
+        var dispatchBlock = nonReflectDispatch.Substring(0, nextMethod);
+        Assert.Contains("finally", dispatchBlock);
+        Assert.Contains("ClearPendingOrchestration", dispatchBlock);
+    }
+
     private static string GetRepoRoot()
     {
         var dir = AppContext.BaseDirectory;

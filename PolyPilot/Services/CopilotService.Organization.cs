@@ -876,19 +876,24 @@ public partial class CopilotService
             StartedAt = DateTime.UtcNow
         });
 
-        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, null));
+        try
+        {
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, null));
 
-        var workerTasks = assignments.Select(a =>
-            ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
-        var results = await Task.WhenAll(workerTasks);
+            var workerTasks = assignments.Select(a =>
+                ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
+            var results = await Task.WhenAll(workerTasks);
 
-        // Phase 4: Synthesize — send worker results back to orchestrator
-        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
+            // Phase 4: Synthesize — send worker results back to orchestrator
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
 
-        var synthesisPrompt = BuildSynthesisPrompt(prompt, results.ToList());
-        await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken);
-
-        ClearPendingOrchestration();
+            var synthesisPrompt = BuildSynthesisPrompt(prompt, results.ToList());
+            await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken);
+        }
+        finally
+        {
+            ClearPendingOrchestration();
+        }
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
     }
 
@@ -1181,7 +1186,10 @@ public partial class CopilotService
                 "⚠️ Orchestration resume timed out after 15 minutes — some workers may not have completed.");
         }
 
-        // Collect worker results from their chat history (last assistant message after the dispatch)
+        // Collect worker results from their chat history (last assistant message AFTER the dispatch)
+        var dispatchTimeLocal = pending.StartedAt.Kind == DateTimeKind.Utc
+            ? pending.StartedAt.ToLocalTime()
+            : pending.StartedAt;
         var results = new List<WorkerResult>();
         foreach (var workerName in pending.WorkerNames)
         {
@@ -1192,8 +1200,9 @@ public partial class CopilotService
                 continue;
             }
 
-            // Find the last assistant message — this is the worker's response
-            var lastAssistant = session.History.LastOrDefault(m => m.Role == "assistant");
+            // Find the last assistant message AFTER the dispatch started — avoids picking up
+            // stale pre-dispatch history from prior conversations or reflection iterations
+            var lastAssistant = session.History.LastOrDefault(m => m.Role == "assistant" && m.Timestamp >= dispatchTimeLocal);
             if (lastAssistant != null && !string.IsNullOrWhiteSpace(lastAssistant.Content))
             {
                 results.Add(new WorkerResult(workerName, lastAssistant.Content, true, null,
@@ -1489,6 +1498,8 @@ public partial class CopilotService
 
         var workerNames = members.Where(m => m != orchestratorName).ToList();
 
+        try
+        {
         while (reflectState.IsActive && !reflectState.IsPaused
                && reflectState.CurrentIteration < reflectState.MaxIterations)
         {
@@ -1687,7 +1698,11 @@ public partial class CopilotService
 
         reflectState.IsActive = false;
         reflectState.CompletedAt = DateTime.Now;
-        ClearPendingOrchestration();
+        }
+        finally
+        {
+            ClearPendingOrchestration();
+        }
         SaveOrganization();
         InvokeOnUI(() =>
         {
