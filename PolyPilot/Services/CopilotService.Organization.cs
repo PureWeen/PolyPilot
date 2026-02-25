@@ -924,8 +924,8 @@ public partial class CopilotService
         finally
         {
             ClearPendingOrchestration();
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
         }
-        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
     }
 
     private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions, string? routingContext = null)
@@ -1208,6 +1208,7 @@ public partial class CopilotService
         if (ct.IsCancellationRequested)
         {
             ClearPendingOrchestration();
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
             return;
         }
 
@@ -1733,13 +1734,13 @@ public partial class CopilotService
         finally
         {
             ClearPendingOrchestration();
+            SaveOrganization();
+            InvokeOnUI(() =>
+            {
+                OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, reflectState.BuildCompletionSummary());
+                OnStateChanged?.Invoke();
+            });
         }
-        SaveOrganization();
-        InvokeOnUI(() =>
-        {
-            OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, reflectState.BuildCompletionSummary());
-            OnStateChanged?.Invoke();
-        });
     }
 
     private string BuildSynthesisWithEvalPrompt(string originalPrompt, List<WorkerResult> results, ReflectionCycle state)
