@@ -102,7 +102,7 @@
                        placeholder="@GetInputPlaceholder(expandedGroup.OrchestratorMode)"
                        @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") await SendToExpandedMultiAgentGroup(expandedGroupId); })"
                        @onclick:stopPropagation="true" />
-                <button class="ma-send-btn" @onclick="() => SendToExpandedMultiAgentGroup(expandedGroupId)" @onclick:stopPropagation="true">
+                <button class="ma-send-btn" @onclick="() => SendToExpandedMultiAgentGroup(expandedGroupId)" @onclick:stopPropagation="true" title="Send message to all sessions in this group">
                     📡 Send All
                 </button>
                 }
