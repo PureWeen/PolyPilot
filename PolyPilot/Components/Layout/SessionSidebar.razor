@@ -532,6 +532,13 @@ else
                                 }
                             </div>
                         }
+                        @if (quickCreateErrorRepoId == group.RepoId && !string.IsNullOrEmpty(quickCreateError))
+                        {
+                            <div class="quick-branch-error" @onclick:stopPropagation="true">
+                                ⚠ @quickCreateError
+                                <button class="quick-branch-cancel-btn" @onclick="() => { quickCreateError = null; quickCreateErrorRepoId = null; }">✕</button>
+                            </div>
+                        }
 
                         @if (group.IsMultiAgent && !group.IsCollapsed)
                         {
@@ -733,6 +740,8 @@ else
     private string quickBranchInput = "";
     private bool quickBranchIsCreating = false;
     private string? quickBranchError = null;
+    private string? quickCreateError = null;
+    private string? quickCreateErrorRepoId = null;
 
     private async Task ToggleFlyout()
     {
@@ -985,6 +994,8 @@ else
         if (isCreating) return;
         isCreating = true;
         createError = null;
+        quickCreateError = null;
+        quickCreateErrorRepoId = null;
         try
         {
             var sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
@@ -996,6 +1007,8 @@ else
         catch (Exception ex)
         {
             createError = ex.Message;
+            quickCreateError = ex.Message;
+            quickCreateErrorRepoId = repoId;
             Console.WriteLine($"Error quick-creating session: {ex}");
         }
         finally
