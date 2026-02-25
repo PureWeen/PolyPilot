@@ -1396,11 +1396,17 @@ public partial class CopilotService
 
         if (repoId != null && strategy != WorktreeStrategy.Shared && string.IsNullOrEmpty(worktreeId))
         {
-            // Create a dedicated worktree for the orchestrator
-            var orchWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-orchestrator-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
-            orchWorkDir = orchWt.Path;
-            orchWtId = orchWt.Id;
-            group.WorktreeId = orchWtId;
+            try
+            {
+                var orchWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-orchestrator-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                orchWorkDir = orchWt.Path;
+                orchWtId = orchWt.Id;
+                group.WorktreeId = orchWtId;
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to create orchestrator worktree (falling back to shared): {ex.Message}");
+            }
         }
 
         // Pre-create worker worktrees sequentially (git worktree add uses locks on bare repos)
@@ -1410,19 +1416,32 @@ public partial class CopilotService
         {
             for (int i = 0; i < preset.WorkerModels.Length; i++)
             {
-                var wt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-worker-{i + 1}-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
-                workerWorkDirs[i] = wt.Path;
-                workerWtIds[i] = wt.Id;
+                try
+                {
+                    var wt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-worker-{i + 1}-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                    workerWorkDirs[i] = wt.Path;
+                    workerWtIds[i] = wt.Id;
+                }
+                catch (Exception ex)
+                {
+                    Debug($"Failed to create worker-{i + 1} worktree (falling back to shared): {ex.Message}");
+                }
             }
         }
         else if (repoId != null && strategy == WorktreeStrategy.OrchestratorIsolated)
         {
-            // Workers share a single separate worktree
-            var sharedWorkerWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-workers-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
-            for (int i = 0; i < preset.WorkerModels.Length; i++)
+            try
             {
-                workerWorkDirs[i] = sharedWorkerWt.Path;
-                workerWtIds[i] = sharedWorkerWt.Id;
+                var sharedWorkerWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-workers-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                for (int i = 0; i < preset.WorkerModels.Length; i++)
+                {
+                    workerWorkDirs[i] = sharedWorkerWt.Path;
+                    workerWtIds[i] = sharedWorkerWt.Id;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to create shared worker worktree (falling back to shared): {ex.Message}");
             }
         }
 
