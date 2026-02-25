@@ -932,7 +932,7 @@ else
         }
     }
 
-    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt) args)
+    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber) args)
     {
         if (isCreating) return;
         isCreating = true;
@@ -941,11 +941,13 @@ else
         {
             AgentSessionInfo sessionInfo;
 
-            if (!string.IsNullOrEmpty(args.WorktreeId))
+            if (!string.IsNullOrEmpty(args.RepoId) || !string.IsNullOrEmpty(args.WorktreeId))
             {
-                // Atomic worktree+session creation
+                // Repo-based: atomic worktree+session creation
                 sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
-                    repoId: null!,  // Not needed when worktreeId is provided
+                    repoId: args.RepoId ?? null!,
+                    branchName: args.BranchName,
+                    prNumber: args.PrNumber,
                     worktreeId: args.WorktreeId,
                     sessionName: args.Name,
                     model: args.Model,
