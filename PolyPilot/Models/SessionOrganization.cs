@@ -38,6 +38,12 @@ public class SessionGroup
     /// <summary>How worktrees are allocated across sessions in this group.</summary>
     public WorktreeStrategy WorktreeStrategy { get; set; } = WorktreeStrategy.Shared;
 
+    /// <summary>
+    /// All worktree IDs created for this group (orchestrator + workers).
+    /// Used by DeleteGroup for reliable cleanup even when session creation fails.
+    /// </summary>
+    public List<string> CreatedWorktreeIds { get; set; } = new();
+
     /// <summary>Active reflection state for OrchestratorReflect mode. Null when not in a reflect loop.</summary>
     public ReflectionCycle? ReflectionState { get; set; }
 

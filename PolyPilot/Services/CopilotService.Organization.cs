@@ -419,6 +419,9 @@ public partial class CopilotService
         // Collect all worktree IDs for cleanup before removing metadata
         var worktreeIds = new HashSet<string>();
         if (group?.WorktreeId != null) worktreeIds.Add(group.WorktreeId);
+        // CreatedWorktreeIds is the authoritative list (covers cases where session creation failed)
+        if (group?.CreatedWorktreeIds != null)
+            foreach (var id in group.CreatedWorktreeIds) worktreeIds.Add(id);
         foreach (var m in Organization.Sessions.Where(m => m.GroupId == groupId))
             if (m.WorktreeId != null) worktreeIds.Add(m.WorktreeId);
 
@@ -1405,6 +1408,7 @@ public partial class CopilotService
                 orchWorkDir = orchWt.Path;
                 orchWtId = orchWt.Id;
                 group.WorktreeId = orchWtId;
+                group.CreatedWorktreeIds.Add(orchWtId);
             }
             catch (Exception ex)
             {
@@ -1424,6 +1428,7 @@ public partial class CopilotService
                     var wt = await _repoManager.CreateWorktreeAsync(repoId, $"{branchPrefix}-worker-{i + 1}-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
                     workerWorkDirs[i] = wt.Path;
                     workerWtIds[i] = wt.Id;
+                    group.CreatedWorktreeIds.Add(wt.Id);
                 }
                 catch (Exception ex)
                 {
@@ -1436,6 +1441,7 @@ public partial class CopilotService
             try
             {
                 var sharedWorkerWt = await _repoManager.CreateWorktreeAsync(repoId, $"{branchPrefix}-workers-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                group.CreatedWorktreeIds.Add(sharedWorkerWt.Id);
                 for (int i = 0; i < preset.WorkerModels.Length; i++)
                 {
                     workerWorkDirs[i] = sharedWorkerWt.Path;

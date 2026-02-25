@@ -540,4 +540,74 @@ public class WorktreeStrategyTests
     }
 
     #endregion
+
+    #region CreatedWorktreeIds Tracking
+
+    [Fact]
+    public async Task FullyIsolated_CreatedWorktreeIds_TracksAllWorktrees()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(3, WorktreeStrategy.FullyIsolated);
+
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/fallback",
+            repoId: "repo-1");
+
+        // 1 orchestrator + 3 workers = 4 worktrees
+        Assert.Equal(4, group!.CreatedWorktreeIds.Count);
+        Assert.Equal(4, group.CreatedWorktreeIds.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task OrchestratorIsolated_CreatedWorktreeIds_TracksAllWorktrees()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(3, WorktreeStrategy.OrchestratorIsolated);
+
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/fallback",
+            repoId: "repo-1");
+
+        // 1 orchestrator + 1 shared worker = 2 worktrees
+        Assert.Equal(2, group!.CreatedWorktreeIds.Count);
+        Assert.Equal(2, group.CreatedWorktreeIds.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task Shared_CreatedWorktreeIds_Empty()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(3, WorktreeStrategy.Shared);
+
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/fallback",
+            repoId: "repo-1");
+
+        Assert.Empty(group!.CreatedWorktreeIds);
+    }
+
+    [Fact]
+    public async Task FullyIsolated_CreatedWorktreeIds_MatchesSessionWorktreeIds()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.FullyIsolated);
+
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/fallback",
+            repoId: "repo-1");
+
+        var sessionWtIds = svc.Organization.Sessions
+            .Where(s => s.GroupId == group!.Id && s.WorktreeId != null)
+            .Select(s => s.WorktreeId!)
+            .ToHashSet();
+
+        // All session worktree IDs should be in CreatedWorktreeIds
+        Assert.All(sessionWtIds, id => Assert.Contains(id, group!.CreatedWorktreeIds));
+    }
+
+    #endregion
 }
