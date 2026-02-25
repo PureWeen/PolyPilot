@@ -42,7 +42,7 @@
                        value="@Session.Name"
                        @onclick:stopPropagation="true"
                        @onblur="() => OnCommitRename.InvokeAsync()"
-                       @onkeydown="HandleRenameKeyDown" />
+                       @onkeyup="HandleRenameKeyUp" />
             }
             else
             {
@@ -234,7 +234,7 @@
     [Parameter] public EventCallback OnReportBug { get; set; }
     [Parameter] public EventCallback OnFixWithCopilot { get; set; }
 
-    private async Task HandleRenameKeyDown(KeyboardEventArgs e)
+    private async Task HandleRenameKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await OnCommitRename.InvokeAsync();
         else if (e.Key == "Escape") await OnCloseMenu.InvokeAsync();

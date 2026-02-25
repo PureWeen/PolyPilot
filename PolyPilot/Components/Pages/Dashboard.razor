@@ -879,7 +879,7 @@
         try
         {
             var active = CopilotService.ActiveSessionName;
-            bool sessionSwitched = active != null && active != _lastActiveSession && _lastActiveSession != null;
+            bool sessionSwitched = active != _lastActiveSession;
             
             // Throttle non-switch state changes to max 2/sec, but always allow completed sessions through
             if (!_refreshThrottle.ShouldRefresh(sessionSwitched, completedSessions.Count > 0))
@@ -913,7 +913,7 @@
                 expandedSession = sessions[0].Name;
                 CopilotService.SwitchSession(sessions[0].Name);
             }
-            if (sessionSwitched && sessions.Any(s => s.Name == active))
+            if (sessionSwitched && active != null && sessions.Any(s => s.Name == active))
             {
                 _lastActiveSession = active;
                 expandedSession = active;
@@ -928,6 +928,14 @@
                 expandedSession = active;
                 _needsScrollToBottom = true;
             }
+            else if (sessionSwitched && active == null)
+            {
+                // Active session was closed — clear all session-specific UI state so stale
+                // values don't linger until the next session is created.
+                _lastActiveSession = null;
+                expandedSession = null;
+                _focusedInputId = null;
+            }
             
             if (_lastActiveSession == null && active != null)
             {
@@ -938,7 +946,7 @@
                 if (!s.IsProcessing && streamingBySession.ContainsKey(s.Name))
                     streamingBySession.Remove(s.Name);
             }
-            if (sessionSwitched)
+            if (sessionSwitched && active != null)
             {
                 // _sessionSwitching stays true until SafeRefreshAsync reads it — 
                 // this skips the expensive JS draft capture round-trip during switches
