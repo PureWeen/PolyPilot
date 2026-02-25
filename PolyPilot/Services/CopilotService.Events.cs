@@ -1211,6 +1211,10 @@ public partial class CopilotService
     /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
     /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
     internal const int WatchdogToolExecutionTimeoutSeconds = 600;
+    /// <summary>If a resumed session receives zero SDK events for this many seconds, it was likely already
+    /// finished when the app restarted. Short enough that users don't have to click Stop, long enough
+    /// for the SDK to start streaming if the turn is genuinely still active.</summary>
+    internal const int WatchdogResumeQuiescenceTimeoutSeconds = 30;
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
@@ -1222,10 +1226,13 @@ public partial class CopilotService
         }
     }
 
-    private void StartProcessingWatchdog(SessionState state, string sessionName)
+    private void StartProcessingWatchdog(SessionState state, string sessionName, DateTime? seedTime = null)
     {
         CancelProcessingWatchdog(state);
-        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+        // Seed from the actual last event time (e.g. events.jsonl write time) when resuming,
+        // so elapsed time reflects how long the session has truly been idle — not just since app start.
+        var seed = seedTime ?? DateTime.UtcNow;
+        Interlocked.Exchange(ref state.LastEventAtTicks, seed.Ticks);
         state.ProcessingWatchdog = new CancellationTokenSource();
         var ct = state.ProcessingWatchdog.Token;
         _ = RunProcessingWatchdogAsync(state, sessionName, ct);
@@ -1269,10 +1276,21 @@ public partial class CopilotService
                 //    loop has its own 10-minute CancelAfter timeout per worker. Cached at
                 //    send time on UI thread to avoid cross-thread List<T> access.
                 var isMultiAgentSession = Volatile.Read(ref state.IsMultiAgentSession);
-                var useToolTimeout = hasActiveTool || state.Info.IsResumed || Volatile.Read(ref state.HasUsedToolsThisTurn) || isMultiAgentSession;
-                var effectiveTimeout = useToolTimeout
-                    ? WatchdogToolExecutionTimeoutSeconds
-                    : WatchdogInactivityTimeoutSeconds;
+                var hasReceivedEvents = Volatile.Read(ref state.HasReceivedEventsSinceResume);
+                var hasUsedTools = Volatile.Read(ref state.HasUsedToolsThisTurn);
+
+                // Resumed session that has received ZERO events since restart — the turn likely
+                // completed before the app restarted. Use a short 30s quiescence timeout so the
+                // user doesn't have to click Stop. If events start flowing, HasReceivedEventsSinceResume
+                // goes true and we fall through to the normal timeout tiers.
+                var useResumeQuiescence = state.Info.IsResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
+
+                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgentSession;
+                var effectiveTimeout = useResumeQuiescence
+                    ? WatchdogResumeQuiescenceTimeoutSeconds
+                    : useToolTimeout
+                        ? WatchdogToolExecutionTimeoutSeconds
+                        : WatchdogInactivityTimeoutSeconds;
 
                 if (elapsed >= effectiveTimeout)
                 {

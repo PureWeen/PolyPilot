@@ -1233,9 +1233,20 @@ public partial class CopilotService : IAsyncDisposable
             state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             Debug($"Session '{displayName}' is still processing (was mid-turn when app restarted)");
 
+            // Seed the watchdog from the actual events.jsonl write time so elapsed time
+            // reflects how long the session has truly been idle, not just since app start.
+            DateTime? eventsLastWrite = null;
+            try
+            {
+                var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+                if (File.Exists(eventsFile))
+                    eventsLastWrite = File.GetLastWriteTimeUtc(eventsFile);
+            }
+            catch { /* best-effort */ }
+
             // Start the processing watchdog so the session doesn't get stuck
             // forever if the CLI goes silent after resume (same as SendPromptAsync).
-            StartProcessingWatchdog(state, displayName);
+            StartProcessingWatchdog(state, displayName, eventsLastWrite);
 
 
         }
