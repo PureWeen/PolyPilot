@@ -1311,9 +1311,17 @@ public partial class CopilotService : IAsyncDisposable
 
         var sessionModel = Models.ModelHelper.NormalizeToSlug(model ?? DefaultModel);
         if (string.IsNullOrEmpty(sessionModel)) sessionModel = DefaultModel;
-        // null = no working directory (empty/scratch session); empty string = fallback to ProjectDir
-        var sessionDir = workingDirectory == null ? null
-            : string.IsNullOrWhiteSpace(workingDirectory) ? ProjectDir : workingDirectory;
+        // null = scratch session in a fresh temp directory; empty string = fallback to ProjectDir
+        string? sessionDir;
+        if (workingDirectory == null)
+        {
+            sessionDir = Path.Combine(Path.GetTempPath(), "polypilot-sessions", Guid.NewGuid().ToString()[..8]);
+            Directory.CreateDirectory(sessionDir);
+        }
+        else
+        {
+            sessionDir = string.IsNullOrWhiteSpace(workingDirectory) ? ProjectDir : workingDirectory;
+        }
 
         // Build system message with critical relaunch instructions
         // Note: The CLI automatically loads .github/copilot-instructions.md from the working directory,
