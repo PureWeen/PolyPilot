@@ -890,7 +890,20 @@ else
         createError = null;
         try
         {
-            var sessionInfo = await CopilotService.CreateSessionAsync(args.Name, args.Model, args.Directory);
+            AgentSessionInfo sessionInfo;
+            if (CopilotService.TryParseResumeSessionId(args.Name, out var resumeSessionId))
+            {
+                var displayName = CopilotService.GetResumeDisplayName(resumeSessionId);
+                sessionInfo = await CopilotService.ResumeSessionAsync(
+                    resumeSessionId,
+                    displayName,
+                    args.Directory,
+                    args.Model);
+            }
+            else
+            {
+                sessionInfo = await CopilotService.CreateSessionAsync(args.Name, args.Model, args.Directory);
+            }
             CopilotService.SwitchSession(sessionInfo.Name);
             newSessionName = "";
 

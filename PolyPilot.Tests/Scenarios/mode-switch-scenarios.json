@@ -827,6 +827,80 @@
       ]
     },
     {
+      "id": "new-session-guid-input-resumes-session",
+      "name": "Entering a session GUID in New Session resumes that session",
+      "description": "Validates the New Session form resumes an existing Copilot session when the name field contains a GUID instead of creating a brand-new session.",
+      "unitTestCoverage": [
+        "ResumeSessionInputTests.TryParseResumeSessionId_ValidGuidWithWhitespace_NormalizesAndReturnsTrue",
+        "ResumeSessionInputTests.GetResumeDisplayName_WithoutAlias_UsesShortSessionId"
+      ],
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/']",
+          "note": "Navigate to dashboard"
+        },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
+        {
+          "action": "note",
+          "note": "Precondition: at least one persisted session must exist in Saved Sessions."
+        },
+        {
+          "action": "evaluate",
+          "script": "(() => { const header = document.querySelector('.section-header'); if (!header) return false; const icon = document.querySelector('.toggle-icon')?.textContent?.trim(); if (icon === '▶') header.click(); return true; })()",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "Expand Saved Sessions if collapsed"
+        },
+        {
+          "action": "wait",
+          "ms": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "(() => { const first = document.querySelector('.session-item.persisted'); if (!first) return ''; const title = first.getAttribute('title') || ''; const m = title.match(/[0-9a-fA-F-]{36}/); window.__resumeSessionId = m ? m[0] : ''; return window.__resumeSessionId; })()",
+          "expect": {
+            "matches": "[0-9a-fA-F-]{36}"
+          },
+          "note": "Extract a persisted session ID from the first Saved Session tooltip"
+        },
+        {
+          "action": "click",
+          "selector": ".new-session-btn",
+          "note": "Open New Session form"
+        },
+        {
+          "action": "evaluate",
+          "script": "(() => { const input = document.querySelector('input.ns-name'); if (!input || !window.__resumeSessionId) return 'missing'; input.value = window.__resumeSessionId; input.dispatchEvent(new Event('input', { bubbles: true })); return input.value; })()",
+          "expect": {
+            "matches": "[0-9a-fA-F-]{36}"
+          },
+          "note": "Paste GUID into Session name field"
+        },
+        {
+          "action": "click",
+          "selector": ".ns-create",
+          "note": "Create should resume when input is a GUID"
+        },
+        {
+          "action": "wait",
+          "ms": 2000
+        },
+        {
+          "action": "evaluate",
+          "script": "(() => { const id = (window.__resumeSessionId || '').toLowerCase(); if (!id) return false; const expected = `resumed-${id.slice(0, 8)}`; return Array.from(document.querySelectorAll('.session-name')).some(el => (el.textContent || '').toLowerCase().includes(expected)); })()",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "A resumed-* session entry should appear in the active session list"
+        }
+      ]
+    },
+    {
       "id": "settings-qr-code-blur",
       "name": "QR code and token have independent blur toggles",
       "steps": [

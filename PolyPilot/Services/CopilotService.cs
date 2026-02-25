@@ -1097,6 +1097,29 @@ public partial class CopilotService : IAsyncDisposable
         return config;
     }
 
+    public bool TryParseResumeSessionId(string? input, out string sessionId)
+    {
+        sessionId = string.Empty;
+        if (string.IsNullOrWhiteSpace(input))
+            return false;
+
+        if (!Guid.TryParse(input.Trim(), out var parsedId))
+            return false;
+
+        sessionId = parsedId.ToString();
+        return true;
+    }
+
+    public string GetResumeDisplayName(string sessionId)
+    {
+        var alias = GetSessionAlias(sessionId);
+        if (!string.IsNullOrWhiteSpace(alias))
+            return alias.Trim();
+
+        var shortId = sessionId.Length >= 8 ? sessionId[..8] : sessionId;
+        return $"resumed-{shortId}";
+    }
+
     /// <summary>
     /// Resume an existing session by its GUID
     /// </summary>
