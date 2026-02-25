@@ -648,12 +648,16 @@
                             var ta = e.target;
                             var atStart = ta.selectionStart === 0 && ta.selectionEnd === 0;
                             var atEnd = ta.selectionStart === ta.value.length;
-                            if ((e.key === 'ArrowUp' && atStart) || (e.key === 'ArrowDown' && atEnd)) {
-                                var card = ta.closest('[data-session]');
-                                var sessionName = card ? card.dataset.session : '';
+                            var card = ta.closest('[data-session]');
+                            var sessionName = card ? card.dataset.session : '';
+                            var histNavActive = sessionName && window.__histNavActive && window.__histNavActive[sessionName];
+                            if ((e.key === 'ArrowUp' && atStart) || (e.key === 'ArrowDown' && (atEnd || histNavActive))) {
                                 if (sessionName && window.__dashRef) {
                                     e.preventDefault();
-                                    window.__dashRef.invokeMethodAsync('JsNavigateHistory', sessionName, e.key === 'ArrowUp');
+                                    window.__dashRef.invokeMethodAsync('JsNavigateHistory', sessionName, e.key === 'ArrowUp').then(function(isNav) {
+                                        if (!window.__histNavActive) window.__histNavActive = {};
+                                        window.__histNavActive[sessionName] = isNav;
+                                    });
                                 }
                             }
                         }
@@ -2673,18 +2677,19 @@
     }
 
     [JSInvokable]
-    public async Task JsNavigateHistory(string sessionName, bool up)
+    public async Task<bool> JsNavigateHistory(string sessionName, bool up)
     {
         if (!commandHistoryBySession.TryGetValue(sessionName, out var hist))
-            return;
+            return false;
 
         var result = hist.Navigate(up);
-        if (result == null) return;
+        if (result == null) return false;
 
         var (text, cursorAtStart) = result.Value;
         var inputId = $"input-{sessionName.Replace(" ", "-")}";
         var cursorExpr = cursorAtStart ? "0" : "el.value.length";
         await JS.InvokeVoidAsync("eval", $"(function(){{ var el = document.getElementById('{inputId}'); if(el){{ el.value = {System.Text.Json.JsonSerializer.Serialize(text)}; var p = {cursorExpr}; el.setSelectionRange(p, p); }} }})()");
+        return hist.IsNavigating;
     }
 
     [JSInvokable]

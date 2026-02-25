@@ -11,6 +11,8 @@ public class CommandHistory
 
     public int Count => _entries.Count;
     public int Index => _index;
+    /// <summary>True when the user has navigated up and has not yet returned to the "live" position.</summary>
+    public bool IsNavigating => _index < _entries.Count;
 
     public void Add(string command)
     {

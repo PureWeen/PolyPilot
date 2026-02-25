@@ -129,6 +129,25 @@ public class CommandHistoryTests
     }
 
     [Fact]
+    public void IsNavigating_TrueAfterUpFalseAfterReturningToEnd()
+    {
+        var history = new CommandHistory();
+        history.Add("first");
+        history.Add("second");
+        history.Add("third");
+
+        Assert.False(history.IsNavigating, "IsNavigating should be false at start");
+        history.Navigate(up: true);  // index -> 2, shows "third"
+        Assert.True(history.IsNavigating, "IsNavigating should be true after first ArrowUp");
+        history.Navigate(up: true);  // index -> 1, shows "second"
+        Assert.True(history.IsNavigating, "IsNavigating should be true after second ArrowUp");
+        history.Navigate(up: false); // index -> 2, shows "third"
+        Assert.True(history.IsNavigating, "IsNavigating should be true when on 'third' (not yet at end)");
+        history.Navigate(up: false); // index -> 3, past end, shows ""
+        Assert.False(history.IsNavigating, "IsNavigating should be false after returning past end");
+    }
+
+    [Fact]
     public void Navigate_Down_PastEnd_ReturnsEmpty()
     {
         var history = new CommandHistory();
