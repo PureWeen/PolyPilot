@@ -41,10 +41,10 @@ public partial class CopilotService : IAsyncDisposable
     private SynchronizationContext? _syncContext;
     
     private static string? _copilotBaseDir;
-    private static string CopilotBaseDir => _copilotBaseDir ??= GetCopilotBaseDir();
+    private static string CopilotBaseDir => LazyInitializer.EnsureInitialized(ref _copilotBaseDir, GetCopilotBaseDir);
     
     private static string? _polyPilotBaseDir;
-    private static string PolyPilotBaseDir => _polyPilotBaseDir ??= GetPolyPilotBaseDir();
+    private static string PolyPilotBaseDir => LazyInitializer.EnsureInitialized(ref _polyPilotBaseDir, GetPolyPilotBaseDir);
     internal static string BaseDir => PolyPilotBaseDir;
 
     private static string GetCopilotBaseDir()
@@ -120,12 +120,12 @@ public partial class CopilotService : IAsyncDisposable
     /// </summary>
     internal static void SetBaseDirForTesting(string path)
     {
-        _polyPilotBaseDir = path;
+        Volatile.Write(ref _polyPilotBaseDir, path);
         _activeSessionsFile = null;
         _sessionAliasesFile = null;
         _uiStateFile = null;
         _organizationFile = null;
-        _copilotBaseDir = null;
+        Volatile.Write(ref _copilotBaseDir, null);
         _sessionStatePath = null;
         _pendingOrchestrationFile = null;
     }

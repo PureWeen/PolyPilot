@@ -17,6 +17,7 @@ namespace PolyPilot.Tests;
 /// 5. Mode enum gaps: OrchestratorReflect missing from dropdowns and serialization
 /// 6. Reflection loop error handling: unhandled exceptions kill the async task silently
 /// </summary>
+[Collection("BaseDir")]
 public class MultiAgentRegressionTests
 {
     private readonly StubChatDatabase _chatDb = new();
