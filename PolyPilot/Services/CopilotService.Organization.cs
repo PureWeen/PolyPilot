@@ -718,6 +718,27 @@ public partial class CopilotService
             ?.SessionName;
     }
 
+    /// <summary>Log routing decision for dispatch debugging (goes to event-diagnostics.log).</summary>
+    public void LogDispatchRoute(string sessionName, bool hasMeta, string? groupName, bool? isMulti, MultiAgentMode? mode, string? orchSession, bool isOrch)
+    {
+        Debug($"[DISPATCH-ROUTE] session='{sessionName}' hasMeta={hasMeta} group='{groupName}' isMulti={isMulti} mode={mode} orchSession='{orchSession}' isOrch={isOrch}");
+    }
+
+    /// <summary>
+    /// Returns the group ID if the given session is an orchestrator in an active multi-agent group.
+    /// Used by the message queue drain to route dequeued messages through the dispatch pipeline.
+    /// </summary>
+    public string? GetOrchestratorGroupId(string sessionName)
+    {
+        var meta = GetSessionMeta(sessionName);
+        if (meta?.GroupId == null) return null;
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+        if (group is not { IsMultiAgent: true }) return null;
+        if (group.OrchestratorMode != MultiAgentMode.Orchestrator && group.OrchestratorMode != MultiAgentMode.OrchestratorReflect) return null;
+        var orchSession = GetOrchestratorSession(group.Id);
+        return orchSession == sessionName ? group.Id : null;
+    }
+
     /// <summary>
     /// Send a prompt to all sessions in a multi-agent group based on its orchestration mode.
     /// </summary>

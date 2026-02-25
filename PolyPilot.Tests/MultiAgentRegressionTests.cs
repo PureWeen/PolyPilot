@@ -1508,4 +1508,65 @@ public class MultiAgentRegressionTests
     }
 
     #endregion
+
+    #region GetOrchestratorGroupId
+
+    [Fact]
+    public void GetOrchestratorGroupId_ReturnsGroupId_ForOrchestratorSession()
+    {
+        // This tests the fix for the queue-drain dispatch bypass bug:
+        // When the orchestrator session was processing and a user sent a message,
+        // it was queued. On dequeue, it bypassed the multi-agent routing and went
+        // directly to SendPromptAsync instead of SendToMultiAgentGroupAsync.
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        var group = svc.CreateMultiAgentGroup("DispatchTest", MultiAgentMode.Orchestrator);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "orch", GroupId = group.Id, Role = MultiAgentRole.Orchestrator });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "worker", GroupId = group.Id, Role = MultiAgentRole.Worker });
+
+        var result = svc.GetOrchestratorGroupId("orch");
+        Assert.Equal(group.Id, result);
+    }
+
+    [Fact]
+    public void GetOrchestratorGroupId_ReturnsNull_ForWorkerSession()
+    {
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        var group = svc.CreateMultiAgentGroup("DispatchTest2", MultiAgentMode.Orchestrator);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "orch2", GroupId = group.Id, Role = MultiAgentRole.Orchestrator });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "worker2", GroupId = group.Id, Role = MultiAgentRole.Worker });
+
+        var result = svc.GetOrchestratorGroupId("worker2");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetOrchestratorGroupId_ReturnsNull_ForNonGroupSession()
+    {
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        var result = svc.GetOrchestratorGroupId("nonexistent-session");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetOrchestratorGroupId_ReturnsNull_ForBroadcastMode()
+    {
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        var group = svc.CreateMultiAgentGroup("BroadcastTest", MultiAgentMode.Broadcast);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "b1", GroupId = group.Id });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "b2", GroupId = group.Id });
+
+        // Broadcast mode has no orchestrator — should return null for all members
+        Assert.Null(svc.GetOrchestratorGroupId("b1"));
+        Assert.Null(svc.GetOrchestratorGroupId("b2"));
+    }
+
+    #endregion
 }

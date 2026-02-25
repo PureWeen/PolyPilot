@@ -824,6 +824,10 @@ public partial class CopilotService
             var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
                               ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt);
 
+            // Check if the dequeued message is for an orchestrator session — if so,
+            // route through the multi-agent dispatch pipeline instead of direct send.
+            var orchGroupId = GetOrchestratorGroupId(state.Info.Name);
+
             // Use Task.Run to dispatch on a clean stack frame, avoiding reentrancy
             // issues where CompleteResponse hasn't fully unwound yet.
             _ = Task.Run(async () =>
@@ -839,7 +843,15 @@ public partial class CopilotService
                         {
                             try
                             {
-                                await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
+                                if (orchGroupId != null && nextImagePaths is null or { Count: 0 })
+                                {
+                                    Debug($"[DISPATCH] Queue drain routing to multi-agent pipeline: session='{state.Info.Name}', group='{orchGroupId}'");
+                                    await SendToMultiAgentGroupAsync(orchGroupId, nextPrompt);
+                                }
+                                else
+                                {
+                                    await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
+                                }
                                 tcs.TrySetResult();
                             }
                             catch (Exception ex)
@@ -851,7 +863,15 @@ public partial class CopilotService
                     }
                     else
                     {
-                        await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
+                        if (orchGroupId != null && nextImagePaths is null or { Count: 0 })
+                        {
+                            Debug($"[DISPATCH] Queue drain routing to multi-agent pipeline: session='{state.Info.Name}', group='{orchGroupId}'");
+                            await SendToMultiAgentGroupAsync(orchGroupId, nextPrompt);
+                        }
+                        else
+                        {
+                            await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
+                        }
                     }
                 }
                 catch (Exception ex)
