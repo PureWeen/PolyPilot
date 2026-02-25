@@ -5,7 +5,25 @@ using PolyPilot.Models;
 
 namespace PolyPilot.Services;
 
-public enum OrchestratorPhase { Planning, Dispatching, WaitingForWorkers, Synthesizing, Complete }
+public enum OrchestratorPhase { Planning, Dispatching, WaitingForWorkers, Synthesizing, Complete, Resuming }
+
+/// <summary>
+/// Persisted state for an in-progress orchestration dispatch.
+/// Saved to disk before workers are dispatched so the orchestration can be
+/// resumed after an app relaunch.
+/// </summary>
+internal class PendingOrchestration
+{
+    public string GroupId { get; set; } = "";
+    public string OrchestratorName { get; set; } = "";
+    public List<string> WorkerNames { get; set; } = new();
+    public string OriginalPrompt { get; set; } = "";
+    public DateTime StartedAt { get; set; }
+    /// <summary>True if this is an OrchestratorReflect dispatch (has reflection loop).</summary>
+    public bool IsReflect { get; set; }
+    /// <summary>Current reflection iteration (only meaningful for reflect mode).</summary>
+    public int ReflectIteration { get; set; }
+}
 
 public partial class CopilotService
 {
@@ -700,34 +718,65 @@ public partial class CopilotService
             ?.SessionName;
     }
 
+    /// <summary>Log routing decision for dispatch debugging (goes to event-diagnostics.log).</summary>
+    public void LogDispatchRoute(string sessionName, bool hasMeta, string? groupName, bool? isMulti, MultiAgentMode? mode, string? orchSession, bool isOrch)
+    {
+        Debug($"[DISPATCH-ROUTE] session='{sessionName}' hasMeta={hasMeta} group='{groupName}' isMulti={isMulti} mode={mode} orchSession='{orchSession}' isOrch={isOrch}");
+    }
+
+    /// <summary>
+    /// Returns the group ID if the given session is an orchestrator in an active multi-agent group.
+    /// Used by the message queue drain to route dequeued messages through the dispatch pipeline.
+    /// </summary>
+    public string? GetOrchestratorGroupId(string sessionName)
+    {
+        var meta = GetSessionMeta(sessionName);
+        if (meta?.GroupId == null) return null;
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+        if (group is not { IsMultiAgent: true }) return null;
+        if (group.OrchestratorMode != MultiAgentMode.Orchestrator && group.OrchestratorMode != MultiAgentMode.OrchestratorReflect) return null;
+        var orchSession = GetOrchestratorSession(group.Id);
+        return orchSession == sessionName ? group.Id : null;
+    }
+
     /// <summary>
     /// Send a prompt to all sessions in a multi-agent group based on its orchestration mode.
     /// </summary>
     public async Task SendToMultiAgentGroupAsync(string groupId, string prompt, CancellationToken cancellationToken = default)
     {
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
-        if (group == null) return;
+        if (group == null) { Debug($"[DISPATCH] SendToMultiAgentGroupAsync: group '{groupId}' not found or not multi-agent"); return; }
 
         var members = GetMultiAgentGroupMembers(groupId);
-        if (members.Count == 0) return;
+        if (members.Count == 0) { Debug($"[DISPATCH] SendToMultiAgentGroupAsync: no members for group '{group.Name}'"); return; }
 
-        switch (group.OrchestratorMode)
+        Debug($"[DISPATCH] SendToMultiAgentGroupAsync: group='{group.Name}', mode={group.OrchestratorMode}, members={members.Count}");
+
+        try
         {
-            case MultiAgentMode.Broadcast:
-                await SendBroadcastAsync(group, members, prompt, cancellationToken);
-                break;
+            switch (group.OrchestratorMode)
+            {
+                case MultiAgentMode.Broadcast:
+                    await SendBroadcastAsync(group, members, prompt, cancellationToken);
+                    break;
 
-            case MultiAgentMode.Sequential:
-                await SendSequentialAsync(group, members, prompt, cancellationToken);
-                break;
+                case MultiAgentMode.Sequential:
+                    await SendSequentialAsync(group, members, prompt, cancellationToken);
+                    break;
 
-            case MultiAgentMode.Orchestrator:
-                await SendViaOrchestratorAsync(groupId, members, prompt, cancellationToken);
-                break;
+                case MultiAgentMode.Orchestrator:
+                    await SendViaOrchestratorAsync(groupId, members, prompt, cancellationToken);
+                    break;
 
-            case MultiAgentMode.OrchestratorReflect:
-                await SendViaOrchestratorReflectAsync(groupId, members, prompt, cancellationToken);
-                break;
+                case MultiAgentMode.OrchestratorReflect:
+                    await SendViaOrchestratorReflectAsync(groupId, members, prompt, cancellationToken);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"[DISPATCH] SendToMultiAgentGroupAsync FAILED: {ex.GetType().Name}: {ex.Message}");
+            throw;
         }
     }
 
@@ -847,19 +896,36 @@ public partial class CopilotService
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Dispatching,
             $"Sending tasks to {assignments.Count} worker(s)"));
 
-        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, null));
+        // Persist dispatch state BEFORE dispatching — if the app is relaunched while
+        // workers are processing, we can resume and collect their results.
+        SavePendingOrchestration(new PendingOrchestration
+        {
+            GroupId = groupId,
+            OrchestratorName = orchestratorName,
+            WorkerNames = assignments.Select(a => a.WorkerName).ToList(),
+            OriginalPrompt = prompt,
+            StartedAt = DateTime.UtcNow
+        });
 
-        var workerTasks = assignments.Select(a =>
-            ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
-        var results = await Task.WhenAll(workerTasks);
+        try
+        {
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, null));
 
-        // Phase 4: Synthesize — send worker results back to orchestrator
-        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
+            var workerTasks = assignments.Select(a =>
+                ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
+            var results = await Task.WhenAll(workerTasks);
 
-        var synthesisPrompt = BuildSynthesisPrompt(prompt, results.ToList());
-        await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken);
+            // Phase 4: Synthesize — send worker results back to orchestrator
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
 
-        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
+            var synthesisPrompt = BuildSynthesisPrompt(prompt, results.ToList());
+            await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken);
+        }
+        finally
+        {
+            ClearPendingOrchestration();
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
+        }
     }
 
     private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions, string? routingContext = null)
@@ -1010,6 +1076,215 @@ public partial class CopilotService
             InvokeOnUI(() => OnStateChanged?.Invoke());
         }
     }
+
+    #region Orchestration Persistence (relaunch resilience)
+
+    private static string? _pendingOrchestrationFile;
+    private static string PendingOrchestrationFile => _pendingOrchestrationFile ??= Path.Combine(PolyPilotBaseDir, "pending-orchestration.json");
+
+    internal void SavePendingOrchestration(PendingOrchestration pending)
+    {
+        try
+        {
+            Directory.CreateDirectory(PolyPilotBaseDir);
+            var json = JsonSerializer.Serialize(pending, new JsonSerializerOptions { WriteIndented = true });
+            var tmp = PendingOrchestrationFile + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, PendingOrchestrationFile, overwrite: true);
+            Debug($"[DISPATCH] Saved pending orchestration: group={pending.GroupId}, workers={string.Join(",", pending.WorkerNames)}");
+        }
+        catch (Exception ex)
+        {
+            Debug($"[DISPATCH] Failed to save pending orchestration: {ex.Message}");
+        }
+    }
+
+    private static PendingOrchestration? LoadPendingOrchestration()
+    {
+        try
+        {
+            if (!File.Exists(PendingOrchestrationFile)) return null;
+            var json = File.ReadAllText(PendingOrchestrationFile);
+            return JsonSerializer.Deserialize<PendingOrchestration>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void ClearPendingOrchestration()
+    {
+        try
+        {
+            if (File.Exists(PendingOrchestrationFile))
+                File.Delete(PendingOrchestrationFile);
+        }
+        catch { }
+    }
+
+    // Test helpers
+    internal static PendingOrchestration? LoadPendingOrchestrationForTest() => LoadPendingOrchestration();
+    internal static void ClearPendingOrchestrationForTest() => ClearPendingOrchestration();
+
+    /// <summary>
+    /// After session restore, check for a pending orchestration dispatch that was interrupted
+    /// by an app relaunch. If found, monitor workers and auto-synthesize when all complete.
+    /// </summary>
+    internal async Task ResumeOrchestrationIfPendingAsync(CancellationToken ct = default)
+    {
+        var pending = LoadPendingOrchestration();
+        if (pending == null) return;
+
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == pending.GroupId && g.IsMultiAgent);
+        if (group == null)
+        {
+            Debug($"[DISPATCH] Pending orchestration group '{pending.GroupId}' no longer exists — clearing");
+            ClearPendingOrchestration();
+            return;
+        }
+
+        // Verify orchestrator session exists
+        if (!_sessions.ContainsKey(pending.OrchestratorName))
+        {
+            Debug($"[DISPATCH] Pending orchestration orchestrator '{pending.OrchestratorName}' not found — clearing");
+            ClearPendingOrchestration();
+            return;
+        }
+
+        Debug($"[DISPATCH] Resuming pending orchestration for group '{group.Name}' " +
+              $"(orchestrator={pending.OrchestratorName}, workers={string.Join(",", pending.WorkerNames)})");
+
+        AddOrchestratorSystemMessage(pending.OrchestratorName,
+            $"🔄 App restarted — resuming orchestration. Waiting for {pending.WorkerNames.Count} worker(s) to complete...");
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Resuming,
+            $"Waiting for {pending.WorkerNames.Count} worker(s)"));
+
+        // Monitor workers in background — poll until all are idle
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await MonitorAndSynthesizeAsync(pending, ct);
+            }
+            catch (Exception ex)
+            {
+                Debug($"[DISPATCH] Resume orchestration failed: {ex.Message}");
+                AddOrchestratorSystemMessage(pending.OrchestratorName,
+                    $"⚠️ Failed to resume orchestration: {ex.Message}");
+                ClearPendingOrchestration();
+                InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+            }
+        });
+    }
+
+    private async Task MonitorAndSynthesizeAsync(PendingOrchestration pending, CancellationToken ct)
+    {
+        var timeout = TimeSpan.FromMinutes(15);
+        var started = DateTime.UtcNow;
+
+        // Poll every 5 seconds until all workers are idle
+        while (!ct.IsCancellationRequested && (DateTime.UtcNow - started) < timeout)
+        {
+            var allIdle = true;
+            foreach (var workerName in pending.WorkerNames)
+            {
+                if (_sessions.TryGetValue(workerName, out var state) && state.Info.IsProcessing)
+                {
+                    allIdle = false;
+                    break;
+                }
+            }
+
+            if (allIdle)
+            {
+                Debug($"[DISPATCH] All workers idle — collecting results for synthesis");
+                break;
+            }
+
+            await Task.Delay(5000, ct);
+        }
+
+        if (ct.IsCancellationRequested)
+        {
+            ClearPendingOrchestration();
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+            return;
+        }
+
+        if ((DateTime.UtcNow - started) >= timeout)
+        {
+            AddOrchestratorSystemMessage(pending.OrchestratorName,
+                "⚠️ Orchestration resume timed out after 15 minutes — some workers may not have completed.");
+        }
+
+        // Collect worker results from their chat history (last assistant message AFTER the dispatch)
+        var dispatchTimeLocal = pending.StartedAt.Kind == DateTimeKind.Utc
+            ? pending.StartedAt.ToLocalTime()
+            : pending.StartedAt;
+        var results = new List<WorkerResult>();
+        foreach (var workerName in pending.WorkerNames)
+        {
+            var session = GetSession(workerName);
+            if (session == null)
+            {
+                results.Add(new WorkerResult(workerName, null, false, "Session not found after restart", TimeSpan.Zero));
+                continue;
+            }
+
+            // Find the last assistant message AFTER the dispatch started — avoids picking up
+            // stale pre-dispatch history from prior conversations or reflection iterations
+            var lastAssistant = session.History.LastOrDefault(m => m.Role == "assistant" && m.Timestamp >= dispatchTimeLocal);
+            if (lastAssistant != null && !string.IsNullOrWhiteSpace(lastAssistant.Content))
+            {
+                results.Add(new WorkerResult(workerName, lastAssistant.Content, true, null,
+                    TimeSpan.FromSeconds((DateTime.UtcNow - pending.StartedAt).TotalSeconds)));
+            }
+            else if (session.IsProcessing)
+            {
+                results.Add(new WorkerResult(workerName, null, false, "Still processing (timed out)", TimeSpan.Zero));
+            }
+            else
+            {
+                results.Add(new WorkerResult(workerName, null, false, "No response found after restart", TimeSpan.Zero));
+            }
+        }
+
+        var successCount = results.Count(r => r.Success);
+        Debug($"[DISPATCH] Collected {successCount}/{results.Count} worker results for synthesis");
+
+        if (successCount == 0)
+        {
+            AddOrchestratorSystemMessage(pending.OrchestratorName,
+                "⚠️ No worker responses available after restart — orchestration aborted.");
+            ClearPendingOrchestration();
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+            return;
+        }
+
+        // Phase: Synthesize
+        AddOrchestratorSystemMessage(pending.OrchestratorName,
+            $"✅ Collected {successCount}/{results.Count} worker response(s) — sending synthesis to orchestrator...");
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Synthesizing, "Resumed"));
+
+        try
+        {
+            var synthesisPrompt = BuildSynthesisPrompt(pending.OriginalPrompt, results);
+            await SendPromptAsync(pending.OrchestratorName, synthesisPrompt, cancellationToken: ct);
+            Debug($"[DISPATCH] Resume synthesis sent to '{pending.OrchestratorName}'");
+        }
+        catch (Exception ex)
+        {
+            Debug($"[DISPATCH] Resume synthesis failed: {ex.Message}");
+            AddOrchestratorSystemMessage(pending.OrchestratorName,
+                $"⚠️ Failed to send synthesis: {ex.Message}");
+        }
+
+        ClearPendingOrchestration();
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+    }
+
+    #endregion
 
     /// <summary>
     /// Get the progress of a multi-agent group (how many sessions have completed their current turn).
@@ -1255,6 +1530,8 @@ public partial class CopilotService
 
         var workerNames = members.Where(m => m != orchestratorName).ToList();
 
+        try
+        {
         while (reflectState.IsActive && !reflectState.IsPaused
                && reflectState.CurrentIteration < reflectState.MaxIterations)
         {
@@ -1313,6 +1590,18 @@ public partial class CopilotService
             // Phase 2-3: Dispatch + Collect
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Dispatching,
                 $"Sending tasks to {assignments.Count} worker(s) — {iterDetail}"));
+
+            // Persist dispatch state for relaunch resilience
+            SavePendingOrchestration(new PendingOrchestration
+            {
+                GroupId = groupId,
+                OrchestratorName = orchestratorName,
+                WorkerNames = assignments.Select(a => a.WorkerName).ToList(),
+                OriginalPrompt = prompt,
+                StartedAt = DateTime.UtcNow,
+                IsReflect = true,
+                ReflectIteration = reflectState.CurrentIteration
+            });
 
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, iterDetail));
 
@@ -1441,12 +1730,17 @@ public partial class CopilotService
 
         reflectState.IsActive = false;
         reflectState.CompletedAt = DateTime.Now;
-        SaveOrganization();
-        InvokeOnUI(() =>
+        }
+        finally
         {
-            OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, reflectState.BuildCompletionSummary());
-            OnStateChanged?.Invoke();
-        });
+            ClearPendingOrchestration();
+            SaveOrganization();
+            InvokeOnUI(() =>
+            {
+                OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, reflectState.BuildCompletionSummary());
+                OnStateChanged?.Invoke();
+            });
+        }
     }
 
     private string BuildSynthesisWithEvalPrompt(string originalPrompt, List<WorkerResult> results, ReflectionCycle state)

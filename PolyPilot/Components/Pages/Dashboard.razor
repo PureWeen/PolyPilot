@@ -1209,6 +1209,7 @@
         var session = sessions.FirstOrDefault(s => s.Name == sessionName);
         if (session?.IsProcessing == true)
         {
+            CopilotService.LogDispatchRoute(sessionName, true, "QUEUED", null, null, null, false);
             List<string>? queueImagePaths = null;
             if (hasImages)
             {
@@ -1250,9 +1251,13 @@
             var group = sessionMeta?.GroupId != null
                 ? CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == sessionMeta.GroupId)
                 : null;
+            var orchSession = group != null ? CopilotService.GetOrchestratorSession(group.Id) : null;
             var isOrchestrator = group is { IsMultiAgent: true }
                 && (group.OrchestratorMode == MultiAgentMode.Orchestrator || group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
-                && CopilotService.GetOrchestratorSession(group.Id) == sessionName;
+                && orchSession == sessionName;
+
+            // Diagnostic: log every send attempt so we can trace routing failures
+            CopilotService.LogDispatchRoute(sessionName, sessionMeta != null, group?.Name, group?.IsMultiAgent, group?.OrchestratorMode, orchSession, isOrchestrator);
 
             if (isOrchestrator && (imagePaths == null || imagePaths.Count == 0))
             {
@@ -1260,9 +1265,10 @@
                 {
                     if (t.IsFaulted)
                     {
+                        var msg = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown";
                         InvokeAsync(() =>
                         {
-                            Console.WriteLine($"Error sending to multi-agent group: {t.Exception?.InnerException?.Message}");
+                            Console.WriteLine($"[DISPATCH] Error sending to multi-agent group: {msg}");
                         });
                     }
                 });

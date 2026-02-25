@@ -16,6 +16,7 @@ namespace PolyPilot.Tests;
 /// settings. This has caused production data loss (squad groups destroyed)
 /// multiple times before the guard was added.
 /// </summary>
+[Collection("BaseDir")]
 public class TestIsolationGuardTests
 {
     [Fact]

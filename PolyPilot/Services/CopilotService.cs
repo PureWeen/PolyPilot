@@ -41,10 +41,10 @@ public partial class CopilotService : IAsyncDisposable
     private SynchronizationContext? _syncContext;
     
     private static string? _copilotBaseDir;
-    private static string CopilotBaseDir => _copilotBaseDir ??= GetCopilotBaseDir();
+    private static string CopilotBaseDir => LazyInitializer.EnsureInitialized(ref _copilotBaseDir, GetCopilotBaseDir);
     
     private static string? _polyPilotBaseDir;
-    private static string PolyPilotBaseDir => _polyPilotBaseDir ??= GetPolyPilotBaseDir();
+    private static string PolyPilotBaseDir => LazyInitializer.EnsureInitialized(ref _polyPilotBaseDir, GetPolyPilotBaseDir);
     internal static string BaseDir => PolyPilotBaseDir;
 
     private static string GetCopilotBaseDir()
@@ -120,13 +120,14 @@ public partial class CopilotService : IAsyncDisposable
     /// </summary>
     internal static void SetBaseDirForTesting(string path)
     {
-        _polyPilotBaseDir = path;
+        Volatile.Write(ref _polyPilotBaseDir, path);
         _activeSessionsFile = null;
         _sessionAliasesFile = null;
         _uiStateFile = null;
         _organizationFile = null;
-        _copilotBaseDir = null;
+        Volatile.Write(ref _copilotBaseDir, null);
         _sessionStatePath = null;
+        _pendingOrchestrationFile = null;
     }
 
     private static string? _projectDir;
@@ -268,6 +269,7 @@ public partial class CopilotService : IAsyncDisposable
         if (message.StartsWith("[EVT") || message.StartsWith("[IDLE") ||
             message.StartsWith("[COMPLETE") || message.StartsWith("[SEND") ||
             message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
+            message.StartsWith("[DISPATCH") ||
             message.Contains("watchdog"))
         {
             try
@@ -420,6 +422,9 @@ public partial class CopilotService : IAsyncDisposable
         // Reconcile now that all sessions are restored
         ReconcileOrganization();
         OnStateChanged?.Invoke();
+
+        // Resume any pending orchestration dispatch that was interrupted by a relaunch
+        _ = ResumeOrchestrationIfPendingAsync(cancellationToken);
     }
 
     /// <summary>
@@ -551,6 +556,9 @@ public partial class CopilotService : IAsyncDisposable
         await RestorePreviousSessionsAsync(cancellationToken);
         ReconcileOrganization();
         OnStateChanged?.Invoke();
+
+        // Resume any pending orchestration dispatch
+        _ = ResumeOrchestrationIfPendingAsync(cancellationToken);
     }
 
     private CopilotClient CreateClient(ConnectionSettings settings)
@@ -1638,6 +1646,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Interlocked.Exchange(ref newState.ProcessingGeneration,
                         Interlocked.Read(ref state.ProcessingGeneration));
                     newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn;
+                    newState.IsMultiAgentSession = state.IsMultiAgentSession;
                     newSession.On(evt => HandleSessionEvent(newState, evt));
                     _sessions[sessionName] = newState;
                     state = newState;

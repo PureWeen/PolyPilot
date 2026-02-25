@@ -4,6 +4,7 @@ using System.Reflection;
 
 namespace PolyPilot.Tests;
 
+[Collection("BaseDir")]
 public class UsageStatsTests : IDisposable
 {
     private readonly string _testDir;
@@ -25,10 +26,8 @@ public class UsageStatsTests : IDisposable
             BindingFlags.NonPublic | BindingFlags.Static);
         statsPathField?.SetValue(null, null);
         
-        // Override CopilotService.BaseDir
-        var baseDirField = typeof(CopilotService).GetField("_polyPilotBaseDir", 
-            BindingFlags.NonPublic | BindingFlags.Static);
-        baseDirField?.SetValue(null, _testDir);
+        // Override CopilotService.BaseDir via the proper API
+        CopilotService.SetBaseDirForTesting(_testDir);
     }
 
     private UsageStatsService CreateService()
@@ -58,9 +57,8 @@ public class UsageStatsTests : IDisposable
             BindingFlags.NonPublic | BindingFlags.Static);
         statsPathField?.SetValue(null, null);
         
-        var baseDirField = typeof(CopilotService).GetField("_polyPilotBaseDir", 
-            BindingFlags.NonPublic | BindingFlags.Static);
-        baseDirField?.SetValue(null, null);
+        // Restore to the shared test base dir (never null it — causes races)
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
     }
 
     [Fact]
