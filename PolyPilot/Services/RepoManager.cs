@@ -358,9 +358,14 @@ public class RepoManager
             {
                 // Force cleanup if git worktree remove fails
                 if (Directory.Exists(wt.Path))
-                    Directory.Delete(wt.Path, recursive: true);
-                await RunGitAsync(repo.BareClonePath, ct, "worktree", "prune");
+                    try { Directory.Delete(wt.Path, recursive: true); } catch { }
+                try { await RunGitAsync(repo.BareClonePath, ct, "worktree", "prune"); } catch { }
             }
+        }
+        else if (Directory.Exists(wt.Path))
+        {
+            // No repo found — just delete the directory
+            try { Directory.Delete(wt.Path, recursive: true); } catch { }
         }
 
         _state.Worktrees.RemoveAll(w => w.Id == worktreeId);
