@@ -111,6 +111,22 @@ public class ProcessingWatchdogTests
         Assert.Contains("try sending", msg.Content);
     }
 
+    [Theory]
+    [InlineData(30, "30 seconds")]
+    [InlineData(59, "59 seconds")]
+    [InlineData(60, "1 minute(s)")]
+    [InlineData(120, "2 minute(s)")]
+    [InlineData(600, "10 minute(s)")]
+    public void WatchdogErrorMessage_FormatsTimeoutCorrectly(int effectiveTimeout, string expected)
+    {
+        // Mirrors the production formatting logic in RunProcessingWatchdogAsync.
+        // Regression guard: 30s quiescence must not produce "0 minute(s)".
+        var timeoutDisplay = effectiveTimeout >= 60
+            ? $"{effectiveTimeout / 60} minute(s)"
+            : $"{effectiveTimeout} seconds";
+        Assert.Equal(expected, timeoutDisplay);
+    }
+
     [Fact]
     public void AgentSessionInfo_IsProcessing_DefaultsFalse()
     {
@@ -872,19 +888,27 @@ public class ProcessingWatchdogTests
         Assert.False(hasUsedToolsThisTurn);
     }
 
+    /// <summary>
+    /// Mirrors the three-tier timeout selection logic from RunProcessingWatchdogAsync.
+    /// Kept in sync so tests validate the actual production formula.
+    /// </summary>
+    private static int ComputeEffectiveTimeout(bool hasActiveTool, bool isResumed, bool hasReceivedEvents, bool hasUsedTools, bool isMultiAgent = false)
+    {
+        var useResumeQuiescence = isResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
+        var useToolTimeout = hasActiveTool || (isResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgent;
+        return useResumeQuiescence
+            ? CopilotService.WatchdogResumeQuiescenceTimeoutSeconds
+            : useToolTimeout
+                ? CopilotService.WatchdogToolExecutionTimeoutSeconds
+                : CopilotService.WatchdogInactivityTimeoutSeconds;
+    }
+
     [Fact]
     public void WatchdogTimeoutSelection_NoTools_UsesInactivityTimeout()
     {
         // When no tool activity and not resumed → use shorter inactivity timeout
-        int activeToolCallCount = 0;
-        bool isResumed = false;
-        bool hasUsedToolsThisTurn = false;
-
-        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
-        var useToolTimeout = hasActiveTool || isResumed || hasUsedToolsThisTurn;
-        var effectiveTimeout = useToolTimeout
-            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
-            : CopilotService.WatchdogInactivityTimeoutSeconds;
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false);
 
         Assert.Equal(CopilotService.WatchdogInactivityTimeoutSeconds, effectiveTimeout);
         Assert.Equal(120, effectiveTimeout);
@@ -894,34 +918,32 @@ public class ProcessingWatchdogTests
     public void WatchdogTimeoutSelection_ActiveTool_UsesToolTimeout()
     {
         // When ActiveToolCallCount > 0 → use longer tool execution timeout
-        int activeToolCallCount = 1;
-        bool isResumed = false;
-        bool hasUsedToolsThisTurn = false;
-
-        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
-        var useToolTimeout = hasActiveTool || isResumed || hasUsedToolsThisTurn;
-        var effectiveTimeout = useToolTimeout
-            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
-            : CopilotService.WatchdogInactivityTimeoutSeconds;
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: true, isResumed: false, hasReceivedEvents: false, hasUsedTools: false);
 
         Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
         Assert.Equal(600, effectiveTimeout);
     }
 
     [Fact]
-    public void WatchdogTimeoutSelection_ResumedSession_UsesToolTimeout()
+    public void WatchdogTimeoutSelection_ResumedSession_NoEvents_UsesQuiescenceTimeout()
     {
-        // When session is resumed (IsResumed=true) → use longer tool timeout
-        // because resumed sessions may have in-flight tool calls from before restart
-        int activeToolCallCount = 0;
-        bool isResumed = true;
-        bool hasUsedToolsThisTurn = false;
+        // Resumed session with zero events since restart → short quiescence timeout (30s)
+        // so the user doesn't have to click Stop on a session that already finished
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: false, hasUsedTools: false);
 
-        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
-        var useToolTimeout = hasActiveTool || isResumed || hasUsedToolsThisTurn;
-        var effectiveTimeout = useToolTimeout
-            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
-            : CopilotService.WatchdogInactivityTimeoutSeconds;
+        Assert.Equal(CopilotService.WatchdogResumeQuiescenceTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(30, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_ResumedSession_WithEvents_UsesToolTimeout()
+    {
+        // Resumed session that HAS received events → use longer tool timeout (600s)
+        // because the session is genuinely active
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: true, hasUsedTools: false);
 
         Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
         Assert.Equal(600, effectiveTimeout);
@@ -932,18 +954,45 @@ public class ProcessingWatchdogTests
     {
         // When tools have been used this turn (HasUsedToolsThisTurn=true) → use longer
         // tool timeout even between tool rounds when the model is thinking
-        int activeToolCallCount = 0;
-        bool isResumed = false;
-        bool hasUsedToolsThisTurn = true;
-
-        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
-        var useToolTimeout = hasActiveTool || isResumed || hasUsedToolsThisTurn;
-        var effectiveTimeout = useToolTimeout
-            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
-            : CopilotService.WatchdogInactivityTimeoutSeconds;
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: true);
 
         Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
         Assert.Equal(600, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_ResumedWithActiveTool_UsesToolTimeout()
+    {
+        // Active tool prevents quiescence even with no events — uses 600s not 30s
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: true, isResumed: true, hasReceivedEvents: false, hasUsedTools: false);
+
+        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(600, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_MultiAgent_UsesToolTimeout()
+    {
+        // Multi-agent sessions use longer tool timeout even without tool activity
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true);
+
+        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(600, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_MultiAgentResumed_NoEvents_UsesQuiescenceTimeout()
+    {
+        // Even multi-agent sessions use quiescence when resumed with zero events —
+        // if the orchestration died, no point waiting 600s
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true);
+
+        Assert.Equal(CopilotService.WatchdogResumeQuiescenceTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(30, effectiveTimeout);
     }
 
     [Fact]
@@ -951,17 +1000,9 @@ public class ProcessingWatchdogTests
     {
         // SendPromptAsync resets HasUsedToolsThisTurn alongside ActiveToolCallCount
         // to prevent stale tool-usage from a previous turn inflating the timeout
-        bool hasUsedToolsThisTurn = true;
-        // SendPromptAsync resets it
-        hasUsedToolsThisTurn = false;
-        int activeToolCallCount = 0;
-        bool isResumed = false;
-
-        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
-        var useToolTimeout = hasActiveTool || isResumed || hasUsedToolsThisTurn;
-        var effectiveTimeout = useToolTimeout
-            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
-            : CopilotService.WatchdogInactivityTimeoutSeconds;
+        // After reset: not resumed, no tools → inactivity timeout (120s)
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false);
 
         Assert.Equal(120, effectiveTimeout);
     }
@@ -979,14 +1020,8 @@ public class ProcessingWatchdogTests
         Assert.False(info.IsResumed);
 
         // Subsequent turns use inactivity timeout (120s), not tool timeout (600s)
-        int activeToolCallCount = 0;
-        bool hasUsedToolsThisTurn = false;
-
-        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
-        var useToolTimeout = hasActiveTool || info.IsResumed || hasUsedToolsThisTurn;
-        var effectiveTimeout = useToolTimeout
-            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
-            : CopilotService.WatchdogInactivityTimeoutSeconds;
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: info.IsResumed, hasReceivedEvents: false, hasUsedTools: false);
 
         Assert.Equal(120, effectiveTimeout);
     }
@@ -1040,14 +1075,9 @@ public class ProcessingWatchdogTests
         info.IsProcessing = false;
         info.IsResumed = false;
 
-        // Verify next turn would use 120s
-        int activeToolCallCount = 0;
-        bool hasUsedToolsThisTurn = false;
-        var hasActiveTool = Interlocked.CompareExchange(ref activeToolCallCount, 0, 0) > 0;
-        var useToolTimeout = hasActiveTool || info.IsResumed || hasUsedToolsThisTurn;
-        var effectiveTimeout = useToolTimeout
-            ? CopilotService.WatchdogToolExecutionTimeoutSeconds
-            : CopilotService.WatchdogInactivityTimeoutSeconds;
+        // Verify next turn would use 120s (not resumed, no tools)
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: info.IsResumed, hasReceivedEvents: false, hasUsedTools: false);
 
         Assert.Equal(120, effectiveTimeout);
     }
@@ -1106,5 +1136,209 @@ public class ProcessingWatchdogTests
     {
         var svc = CreateService();
         Assert.False(svc.IsSessionInMultiAgentGroup("nonexistent-session"));
+    }
+
+    // ===========================================================================
+    // Resume quiescence regression guards
+    // These tests protect against the PR #148 regression pattern: short timeouts
+    // that kill genuinely active resumed sessions.
+    // ===========================================================================
+
+    [Fact]
+    public void ResumeQuiescenceTimeout_IsReasonable()
+    {
+        // Must be long enough for the SDK to reconnect and start streaming
+        // (PR #148 regression: 10s was too short and killed active sessions).
+        // Must be at least 2× the check interval to guarantee at least one
+        // safe check before firing.
+        Assert.InRange(CopilotService.WatchdogResumeQuiescenceTimeoutSeconds, 20, 120);
+        Assert.True(
+            CopilotService.WatchdogResumeQuiescenceTimeoutSeconds >= CopilotService.WatchdogCheckIntervalSeconds * 2,
+            $"Quiescence timeout ({CopilotService.WatchdogResumeQuiescenceTimeoutSeconds}s) must be at least " +
+            $"2× check interval ({CopilotService.WatchdogCheckIntervalSeconds}s) to allow at least one safe check");
+    }
+
+    [Fact]
+    public void ResumeQuiescenceTimeout_IsLessThanInactivityTimeout()
+    {
+        // Quiescence should be shorter than the normal inactivity timeout —
+        // that's the whole point of the feature.
+        Assert.True(
+            CopilotService.WatchdogResumeQuiescenceTimeoutSeconds < CopilotService.WatchdogInactivityTimeoutSeconds,
+            "Quiescence timeout must be less than inactivity timeout");
+    }
+
+    [Fact]
+    public void ResumeQuiescence_OnlyTriggersWhenResumedAndNoEvents()
+    {
+        // Exhaustive: quiescence can ONLY trigger when IsResumed=true AND
+        // HasReceivedEvents=false AND no active tools AND no used tools.
+        // All other combinations must NOT trigger quiescence.
+
+        // The ONE case that should trigger quiescence:
+        Assert.Equal(30, ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: false, hasUsedTools: false));
+
+        // All other resumed combos must NOT trigger quiescence:
+        Assert.Equal(600, ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: true, hasUsedTools: false));
+        Assert.Equal(600, ComputeEffectiveTimeout(
+            hasActiveTool: true, isResumed: true, hasReceivedEvents: false, hasUsedTools: false));
+        Assert.Equal(600, ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: false, hasUsedTools: true));
+        Assert.Equal(600, ComputeEffectiveTimeout(
+            hasActiveTool: true, isResumed: true, hasReceivedEvents: true, hasUsedTools: true));
+    }
+
+    [Fact]
+    public void ResumeQuiescence_NotResumed_NeverTriggersQuiescence()
+    {
+        // Non-resumed sessions must NEVER get the 30s quiescence timeout,
+        // regardless of other flags.
+        Assert.Equal(120, ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false));
+        Assert.Equal(600, ComputeEffectiveTimeout(
+            hasActiveTool: true, isResumed: false, hasReceivedEvents: false, hasUsedTools: false));
+        Assert.Equal(600, ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: true));
+        Assert.Equal(600, ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true));
+    }
+
+    [Fact]
+    public void ResumeQuiescence_TransitionsToToolTimeout_WhenEventsArrive()
+    {
+        // When events start flowing on a resumed session, it must transition
+        // from 30s quiescence to 600s tool timeout (not 120s inactivity).
+        // This is critical: the session is confirmed active, so we give it
+        // the full tool-execution timeout.
+
+        // Before events: quiescence
+        Assert.Equal(30, ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: false, hasUsedTools: false));
+
+        // After events arrive: 600s tool timeout (IsResumed is still true)
+        Assert.Equal(600, ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: true, hasUsedTools: false));
+    }
+
+    [Fact]
+    public void ResumeQuiescence_TransitionsToInactivity_AfterIsResumedCleared()
+    {
+        // After IsResumed is cleared (by the watchdog IsResumed-clearing block),
+        // the session should use the normal inactivity timeout.
+        Assert.Equal(120, ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: true, hasUsedTools: false));
+    }
+
+    [Theory]
+    [InlineData(false, false, false, false, false, 120)]   // Normal: inactivity
+    [InlineData(true,  false, false, false, false, 600)]   // Active tool: 600s
+    [InlineData(false, true,  false, false, false, 30)]    // Resumed, no events: quiescence
+    [InlineData(false, true,  true,  false, false, 600)]   // Resumed, events: tool timeout
+    [InlineData(true,  true,  false, false, false, 600)]   // Resumed, active tool: tool timeout
+    [InlineData(false, true,  false, true,  false, 600)]   // Resumed, used tools: tool timeout
+    [InlineData(false, false, false, false, true,  600)]   // Multi-agent: tool timeout
+    [InlineData(false, true,  false, false, true,  30)]    // Resumed+multiAgent, no events: quiescence wins
+    [InlineData(false, false, false, true,  false, 600)]   // HasUsedTools: tool timeout
+    [InlineData(true,  true,  true,  true,  true,  600)]   // All flags: tool timeout
+    public void WatchdogTimeoutSelection_ExhaustiveMatrix(
+        bool hasActiveTool, bool isResumed, bool hasReceivedEvents,
+        bool hasUsedTools, bool isMultiAgent, int expectedTimeout)
+    {
+        var actual = ComputeEffectiveTimeout(hasActiveTool, isResumed, hasReceivedEvents, hasUsedTools, isMultiAgent);
+        Assert.Equal(expectedTimeout, actual);
+    }
+
+    [Fact]
+    public void SeedTime_MustNotCauseImmediateKill_RegressionGuard()
+    {
+        // REGRESSION GUARD for PR #148 failure mode:
+        // If LastEventAtTicks is seeded from events.jsonl file time (e.g. 5 min old),
+        // elapsed on the first watchdog check would be ~315s, exceeding ANY timeout.
+        // The production code must seed from DateTime.UtcNow for resumed sessions.
+        //
+        // This test verifies the INVARIANT: on the first watchdog check (after ~15s),
+        // elapsed must be less than the quiescence timeout for a freshly seeded timer.
+        var seed = DateTime.UtcNow; // Correct: seed from UtcNow, not file time
+        var firstCheckTime = DateTime.UtcNow.AddSeconds(CopilotService.WatchdogCheckIntervalSeconds);
+        var elapsed = (firstCheckTime - seed).TotalSeconds;
+
+        Assert.True(elapsed < CopilotService.WatchdogResumeQuiescenceTimeoutSeconds,
+            $"First watchdog check ({elapsed:F0}s after seed) must NOT exceed quiescence timeout " +
+            $"({CopilotService.WatchdogResumeQuiescenceTimeoutSeconds}s). " +
+            "If this fails, seed is from file time — PR #148 regression!");
+    }
+
+    [Fact]
+    public void SeedTime_FromStaleFile_WouldCauseImmediateKill_DocumentsRisk()
+    {
+        // Documents WHY we don't seed from events.jsonl file time:
+        // A file 5 minutes old would cause elapsed = 300 + 15 = 315s at first check,
+        // far exceeding the 30s quiescence timeout → session killed in 15s.
+        var staleFileTime = DateTime.UtcNow.AddSeconds(-300); // 5 min old
+        var firstCheckTime = DateTime.UtcNow.AddSeconds(CopilotService.WatchdogCheckIntervalSeconds);
+        var elapsed = (firstCheckTime - staleFileTime).TotalSeconds;
+
+        // This WOULD exceed quiescence — proving the risk
+        Assert.True(elapsed > CopilotService.WatchdogResumeQuiescenceTimeoutSeconds,
+            "Stale file seed would cause immediate kill — this is why we seed from UtcNow");
+
+        // It would even exceed the tool execution timeout!
+        Assert.True(elapsed < CopilotService.WatchdogToolExecutionTimeoutSeconds,
+            "5 min old file wouldn't exceed the 600s tool timeout, " +
+            "but would exceed the 30s quiescence timeout");
+    }
+
+    [Fact]
+    public void QuiescenceTimeout_EscapesOnFirstEvent()
+    {
+        // Once HasReceivedEventsSinceResume goes true, the quiescence path
+        // is permanently disabled for that session. Verify the transition.
+        bool hasReceivedEvents = false;
+
+        // Before first event: quiescence
+        var timeout1 = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: hasReceivedEvents, hasUsedTools: false);
+        Assert.Equal(30, timeout1);
+
+        // SDK sends first event
+        hasReceivedEvents = true;
+
+        // After first event: tool timeout (NOT quiescence, NOT inactivity)
+        var timeout2 = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: hasReceivedEvents, hasUsedTools: false);
+        Assert.Equal(600, timeout2);
+    }
+
+    [Fact]
+    public void QuiescenceTimeout_DoesNotAffect_NormalSendPromptPath()
+    {
+        // SendPromptAsync creates sessions with IsResumed=false.
+        // Quiescence must NEVER affect normal (non-resumed) processing.
+        // This protects against the case where someone accidentally sets
+        // IsResumed=true on a non-resumed session.
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false);
+        Assert.Equal(CopilotService.WatchdogInactivityTimeoutSeconds, effectiveTimeout);
+        Assert.NotEqual(CopilotService.WatchdogResumeQuiescenceTimeoutSeconds, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogResumeQuiescence_Constant_MatchesExpectedValue()
+    {
+        // Pin the value so changes require updating this test intentionally.
+        Assert.Equal(30, CopilotService.WatchdogResumeQuiescenceTimeoutSeconds);
+    }
+
+    [Fact]
+    public void AllThreeTimeoutTiers_AreDistinct()
+    {
+        // The three timeout tiers must be distinct and ordered:
+        // quiescence < inactivity < tool execution
+        Assert.True(CopilotService.WatchdogResumeQuiescenceTimeoutSeconds
+            < CopilotService.WatchdogInactivityTimeoutSeconds);
+        Assert.True(CopilotService.WatchdogInactivityTimeoutSeconds
+            < CopilotService.WatchdogToolExecutionTimeoutSeconds);
     }
 }

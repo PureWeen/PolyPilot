@@ -1226,8 +1226,8 @@ public partial class CopilotService : IAsyncDisposable
         copilotSession.On(evt => HandleSessionEvent(state, evt));
 
         // If still processing, set up ResponseCompletion so events flow properly.
-        // The processing watchdog (120s inactivity / 600s tool timeout) handles
-        // stuck sessions — no separate short timeout needed.
+        // The processing watchdog (30s resume quiescence / 120s inactivity / 600s tool timeout)
+        // handles stuck sessions — see RunProcessingWatchdogAsync for the three-tier logic.
         if (isStillProcessing)
         {
             state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1235,6 +1235,8 @@ public partial class CopilotService : IAsyncDisposable
 
             // Start the processing watchdog so the session doesn't get stuck
             // forever if the CLI goes silent after resume (same as SendPromptAsync).
+            // Seeds from DateTime.UtcNow — NOT events.jsonl write time.
+            // See StartProcessingWatchdog comment for why file-time seeding is dangerous.
             StartProcessingWatchdog(state, displayName);
 
 

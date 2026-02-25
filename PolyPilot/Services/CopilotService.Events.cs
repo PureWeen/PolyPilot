@@ -1211,6 +1211,10 @@ public partial class CopilotService
     /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
     /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
     internal const int WatchdogToolExecutionTimeoutSeconds = 600;
+    /// <summary>If a resumed session receives zero SDK events for this many seconds, it was likely already
+    /// finished when the app restarted. Short enough that users don't have to click Stop, long enough
+    /// for the SDK to start streaming if the turn is genuinely still active.</summary>
+    internal const int WatchdogResumeQuiescenceTimeoutSeconds = 30;
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
@@ -1225,6 +1229,10 @@ public partial class CopilotService
     private void StartProcessingWatchdog(SessionState state, string sessionName)
     {
         CancelProcessingWatchdog(state);
+        // Always seed from DateTime.UtcNow. Do NOT pass events.jsonl file time here —
+        // that would make elapsed = (file age) + check interval, causing the 30s quiescence
+        // timeout to fire on the first watchdog check for any file > ~15s old.
+        // This is the exact regression pattern from PR #148 (short timeout killing active sessions).
         Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         state.ProcessingWatchdog = new CancellationTokenSource();
         var ct = state.ProcessingWatchdog.Token;
@@ -1269,14 +1277,27 @@ public partial class CopilotService
                 //    loop has its own 10-minute CancelAfter timeout per worker. Cached at
                 //    send time on UI thread to avoid cross-thread List<T> access.
                 var isMultiAgentSession = Volatile.Read(ref state.IsMultiAgentSession);
-                var useToolTimeout = hasActiveTool || state.Info.IsResumed || Volatile.Read(ref state.HasUsedToolsThisTurn) || isMultiAgentSession;
-                var effectiveTimeout = useToolTimeout
-                    ? WatchdogToolExecutionTimeoutSeconds
-                    : WatchdogInactivityTimeoutSeconds;
+                var hasReceivedEvents = Volatile.Read(ref state.HasReceivedEventsSinceResume);
+                var hasUsedTools = Volatile.Read(ref state.HasUsedToolsThisTurn);
+
+                // Resumed session that has received ZERO events since restart — the turn likely
+                // completed before the app restarted. Use a short 30s quiescence timeout so the
+                // user doesn't have to click Stop. If events start flowing, HasReceivedEventsSinceResume
+                // goes true and we fall through to the normal timeout tiers.
+                var useResumeQuiescence = state.Info.IsResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
+
+                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgentSession;
+                var effectiveTimeout = useResumeQuiescence
+                    ? WatchdogResumeQuiescenceTimeoutSeconds
+                    : useToolTimeout
+                        ? WatchdogToolExecutionTimeoutSeconds
+                        : WatchdogInactivityTimeoutSeconds;
 
                 if (elapsed >= effectiveTimeout)
                 {
-                    var timeoutMinutes = effectiveTimeout / 60;
+                    var timeoutDisplay = effectiveTimeout >= 60
+                        ? $"{effectiveTimeout / 60} minute(s)"
+                        : $"{effectiveTimeout} seconds";
                     Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
                           $"(timeout={effectiveTimeout}s, hasActiveTool={hasActiveTool}, isResumed={state.Info.IsResumed}, hasUsedTools={state.HasUsedToolsThisTurn}, multiAgent={isMultiAgentSession}), clearing stuck processing state");
                     // Capture generation before posting — same guard pattern as CompleteResponse.
@@ -1309,7 +1330,7 @@ public partial class CopilotService
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
                         state.ResponseCompletion?.TrySetResult("");
-                        OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutMinutes} minute(s).");
+                        OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutDisplay}.");
                         OnStateChanged?.Invoke();
                     });
                     break;
