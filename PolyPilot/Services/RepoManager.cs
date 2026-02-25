@@ -224,7 +224,17 @@ public class RepoManager
         var worktreeId = Guid.NewGuid().ToString()[..8];
         var worktreePath = Path.Combine(WorktreesDir, $"{repoId}-{worktreeId}");
 
-        await RunGitAsync(repo.BareClonePath, ct, "worktree", "add", worktreePath, "-b", branchName, baseRef);
+        try
+        {
+            await RunGitAsync(repo.BareClonePath, ct, "worktree", "add", worktreePath, "-b", branchName, baseRef);
+        }
+        catch
+        {
+            // git worktree add can leave a partial directory on failure — clean up
+            if (Directory.Exists(worktreePath))
+                try { Directory.Delete(worktreePath, recursive: true); } catch { }
+            throw;
+        }
 
         var wt = new WorktreeInfo
         {
