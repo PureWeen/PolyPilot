@@ -1379,6 +1379,9 @@ public partial class CopilotService
         if (group == null) return null;
         group.WorktreeStrategy = strategy;
 
+        // Sanitize team name for use in git branch names (no spaces or special chars)
+        var branchPrefix = System.Text.RegularExpressions.Regex.Replace(teamName, @"[^a-zA-Z0-9_-]", "-").Trim('-');
+
         // Store Squad context (routing, decisions) on the group for use during orchestration
         group.SharedContext = preset.SharedContext;
         group.RoutingContext = preset.RoutingContext;
@@ -1398,7 +1401,7 @@ public partial class CopilotService
         {
             try
             {
-                var orchWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-orchestrator-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                var orchWt = await _repoManager.CreateWorktreeAsync(repoId, $"{branchPrefix}-orchestrator-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
                 orchWorkDir = orchWt.Path;
                 orchWtId = orchWt.Id;
                 group.WorktreeId = orchWtId;
@@ -1418,7 +1421,7 @@ public partial class CopilotService
             {
                 try
                 {
-                    var wt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-worker-{i + 1}-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                    var wt = await _repoManager.CreateWorktreeAsync(repoId, $"{branchPrefix}-worker-{i + 1}-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
                     workerWorkDirs[i] = wt.Path;
                     workerWtIds[i] = wt.Id;
                 }
@@ -1432,7 +1435,7 @@ public partial class CopilotService
         {
             try
             {
-                var sharedWorkerWt = await _repoManager.CreateWorktreeAsync(repoId, $"{teamName}-workers-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                var sharedWorkerWt = await _repoManager.CreateWorktreeAsync(repoId, $"{branchPrefix}-workers-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
                 for (int i = 0; i < preset.WorkerModels.Length; i++)
                 {
                     workerWorkDirs[i] = sharedWorkerWt.Path;

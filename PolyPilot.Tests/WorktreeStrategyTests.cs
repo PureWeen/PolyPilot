@@ -494,4 +494,50 @@ public class WorktreeStrategyTests
     }
 
     #endregion
+
+    #region Branch Name Sanitization
+
+    [Fact]
+    public async Task BranchNames_SpacesReplacedWithDashes()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.FullyIsolated);
+
+        // "PR Review Squad" has spaces — branch names must not
+        await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/fallback",
+            repoId: "repo-1",
+            nameOverride: "PR Review Squad");
+
+        // All branch names should have no spaces
+        Assert.All(rm.CreateCalls, c =>
+        {
+            Assert.DoesNotContain(" ", c.BranchName);
+            Assert.StartsWith("PR-Review-Squad-", c.BranchName);
+        });
+    }
+
+    [Fact]
+    public async Task BranchNames_SpecialCharsRemoved()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(1, WorktreeStrategy.FullyIsolated);
+
+        await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/fallback",
+            repoId: "repo-1",
+            nameOverride: "My Team! @#$%");
+
+        Assert.All(rm.CreateCalls, c =>
+        {
+            Assert.DoesNotContain(" ", c.BranchName);
+            Assert.DoesNotContain("!", c.BranchName);
+            Assert.DoesNotContain("@", c.BranchName);
+            Assert.DoesNotContain("#", c.BranchName);
+        });
+    }
+
+    #endregion
 }
