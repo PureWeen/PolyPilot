@@ -276,6 +276,7 @@ else
             {
                 // Auto-generate branch name from session name
                 var sanitized = System.Text.RegularExpressions.Regex.Replace(SessionName.Trim(), @"[^a-zA-Z0-9_-]", "-").Trim('-');
+                if (string.IsNullOrEmpty(sanitized)) sanitized = "session";
                 branchName = $"{sanitized}-{Guid.NewGuid().ToString()[..4]}";
             }
             else if (wtMode == WtMode.Branch)

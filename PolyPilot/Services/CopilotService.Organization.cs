@@ -454,10 +454,10 @@ public partial class CopilotService
             _ = Task.Run(async () =>
             {
                 foreach (var name in sessionNames)
-                    await CloseSessionAsync(name);
+                    try { await CloseSessionAsync(name); } catch (Exception ex) { Debug($"DeleteGroup: failed to close '{name}': {ex.Message}"); }
                 // Clean up worktrees after sessions are closed
                 foreach (var wtId in worktreeIds)
-                    try { await _repoManager.RemoveWorktreeAsync(wtId); } catch { }
+                    try { await _repoManager.RemoveWorktreeAsync(wtId, deleteBranch: true); } catch (Exception ex) { Debug($"DeleteGroup: failed to remove worktree '{wtId}': {ex.Message}"); }
             });
         }
         else
@@ -1384,6 +1384,7 @@ public partial class CopilotService
 
         // Sanitize team name for use in git branch names (no spaces or special chars)
         var branchPrefix = System.Text.RegularExpressions.Regex.Replace(teamName, @"[^a-zA-Z0-9_-]", "-").Trim('-');
+        if (string.IsNullOrEmpty(branchPrefix)) branchPrefix = "team";
 
         // Store Squad context (routing, decisions) on the group for use during orchestration
         group.SharedContext = preset.SharedContext;

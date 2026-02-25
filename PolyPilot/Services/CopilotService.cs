@@ -1432,6 +1432,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         string? initialPrompt = null,
         CancellationToken ct = default)
     {
+        // Remote mode: worktree operations run on the server, not locally.
+        // Delegate to bridge client for worktree creation, then create session normally.
+        if (IsRemoteMode)
+            throw new NotSupportedException("CreateSessionWithWorktreeAsync is not supported in remote mode. Use the bridge protocol.");
+
         WorktreeInfo wt;
 
         if (!string.IsNullOrEmpty(worktreeId))
@@ -1455,8 +1460,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Ensure unique session name
         if (_sessions.ContainsKey(name))
         {
-            var suffix = DateTime.Now.ToString("HHmm");
-            name = $"{name}-{suffix}";
+            var counter = 2;
+            var baseName = name;
+            name = $"{baseName}-{counter}";
+            while (_sessions.ContainsKey(name)) name = $"{baseName}-{++counter}";
         }
 
         AgentSessionInfo sessionInfo;
@@ -1469,7 +1476,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // If session creation fails and we just created a new worktree, clean up
             if (string.IsNullOrEmpty(worktreeId))
             {
-                try { await _repoManager.RemoveWorktreeAsync(wt.Id); } catch { }
+                try { await _repoManager.RemoveWorktreeAsync(wt.Id, deleteBranch: true); } catch { }
             }
             throw;
         }
@@ -2258,6 +2265,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (state.Session is not null)
             try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
+
+        // Clean up auto-created temp directory for empty sessions
+        if (state.Info.WorkingDirectory != null)
+        {
+            var tempRoot = Path.Combine(Path.GetTempPath(), "polypilot-sessions");
+            try
+            {
+                var fullDir = Path.GetFullPath(state.Info.WorkingDirectory);
+                if (fullDir.StartsWith(Path.GetFullPath(tempRoot), StringComparison.OrdinalIgnoreCase)
+                    && Directory.Exists(fullDir))
+                    Directory.Delete(fullDir, recursive: true);
+            }
+            catch { /* best-effort cleanup */ }
+        }
 
         if (_activeSessionName == name)
         {

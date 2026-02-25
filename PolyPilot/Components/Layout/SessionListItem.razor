@@ -215,11 +215,11 @@
                 var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == Meta.WorktreeId);
                 <div class="close-dialog-options">
                     <label class="close-dialog-option">
-                        <input type="checkbox" @bind="deleteWorktree" />
+                        <input type="checkbox" @bind="deleteWorktree" @bind:after="OnDeleteWorktreeChanged" />
                         <span>Delete worktree@(wt != null ? $" (⑂ {wt.Branch})" : "")</span>
                     </label>
-                    <label class="close-dialog-option">
-                        <input type="checkbox" @bind="deleteBranch" />
+                    <label class="close-dialog-option" style="@(deleteWorktree ? "" : "opacity: 0.5")" title="@(deleteWorktree ? "" : "Must delete worktree first — git prevents deleting a checked-out branch")">
+                        <input type="checkbox" @bind="deleteBranch" disabled="@(!deleteWorktree)" />
                         <span>Delete branch@(wt != null ? $" ({wt.Branch})" : "")</span>
                     </label>
                 </div>
@@ -271,6 +271,12 @@
     {
         showCloseConfirm = false;
         _ = OnCloseMenu.InvokeAsync();
+    }
+
+    private void OnDeleteWorktreeChanged()
+    {
+        // Can't delete a branch that's checked out in a kept worktree
+        if (!deleteWorktree) deleteBranch = false;
     }
 
     private async Task ConfirmClose()

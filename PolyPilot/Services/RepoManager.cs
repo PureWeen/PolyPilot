@@ -351,7 +351,7 @@ public class RepoManager
     /// <summary>
     /// Remove a worktree and clean up.
     /// </summary>
-    public async Task RemoveWorktreeAsync(string worktreeId, bool deleteBranch = true, CancellationToken ct = default)
+    public async Task RemoveWorktreeAsync(string worktreeId, bool deleteBranch = false, CancellationToken ct = default)
     {
         EnsureLoaded();
         var wt = _state.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
@@ -377,8 +377,11 @@ public class RepoManager
         }
         else if (Directory.Exists(wt.Path))
         {
-            // No repo found — just delete the directory
-            try { Directory.Delete(wt.Path, recursive: true); } catch { }
+            // No repo found — only delete if path is within our managed worktrees directory
+            // to prevent accidental deletion of arbitrary directories from corrupted state.
+            var fullPath = Path.GetFullPath(wt.Path);
+            if (fullPath.StartsWith(Path.GetFullPath(WorktreesDir), StringComparison.OrdinalIgnoreCase))
+                try { Directory.Delete(wt.Path, recursive: true); } catch { }
         }
 
         _state.Worktrees.RemoveAll(w => w.Id == worktreeId);
