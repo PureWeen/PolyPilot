@@ -3,6 +3,7 @@
 @using System.Diagnostics
 @inject CopilotService CopilotService
 @inject RepoManager RepoManager
+@inject IJSRuntime JS
 
 @{
     var isPinned = Meta?.IsPinned ?? false;
@@ -207,7 +208,7 @@
 
 @if (showCloseConfirm)
 {
-    <div class="close-dialog-overlay" @onclick="HideCloseConfirm" @onclick:stopPropagation="true">
+    <div @ref="dialogOverlayRef" class="close-dialog-overlay" @onclick="HideCloseConfirm" @onclick:stopPropagation="true">
         <div class="close-dialog" @onclick:stopPropagation="true">
             <div class="close-dialog-title">Close "@Session.Name"?</div>
             @if (!string.IsNullOrEmpty(Meta?.WorktreeId))
@@ -258,13 +259,22 @@
     private bool showCloseConfirm;
     private bool deleteWorktree;
     private bool deleteBranch;
+    private ElementReference dialogOverlayRef;
+    private bool needsPortal;
 
-    private void ShowCloseConfirm()
+    private async void ShowCloseConfirm()
     {
         showCloseConfirm = true;
+        needsPortal = true;
         // Default both to checked when worktree exists
         deleteWorktree = !string.IsNullOrEmpty(Meta?.WorktreeId);
         deleteBranch = !string.IsNullOrEmpty(Meta?.WorktreeId);
+        StateHasChanged();
+        // Portal the overlay to document.body after render so it escapes
+        // overflow:hidden on sidebar/session-list parent containers.
+        await Task.Yield();
+        try { await JS.InvokeVoidAsync("eval", "document.querySelector('.close-dialog-overlay')&&document.body.appendChild(document.querySelector('.close-dialog-overlay'))"); }
+        catch { /* JS interop may fail during dispose */ }
     }
 
     private void HideCloseConfirm()

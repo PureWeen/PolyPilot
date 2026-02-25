@@ -327,7 +327,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.7);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -335,16 +335,16 @@
 }
 
 .close-dialog {
-    background: var(--surface-primary, #1e1e2e);
-    border: 1px solid var(--control-border);
+    background: #2a2a3e;
+    border: 2px solid rgba(124, 92, 252, 0.6);
     border-radius: 12px;
-    padding: 1.2rem;
-    min-width: 280px;
-    max-width: 360px;
+    padding: 1.5rem;
+    min-width: 300px;
+    max-width: 380px;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(124, 92, 252, 0.4), 0 0 80px rgba(124, 92, 252, 0.15);
     position: relative;
     z-index: 10001;
 }
@@ -352,7 +352,7 @@
 .close-dialog-title {
     font-size: var(--type-body);
     font-weight: 600;
-    color: var(--text-primary);
+    color: #fff;
 }
 
 .close-dialog-options {
