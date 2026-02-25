@@ -206,7 +206,7 @@ public class RepoManager
     /// <summary>
     /// Create a new worktree for a repository on a new branch from origin/main.
     /// </summary>
-    public async Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName, string? baseBranch = null, bool skipFetch = false, CancellationToken ct = default)
+    public virtual async Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName, string? baseBranch = null, bool skipFetch = false, CancellationToken ct = default)
     {
         EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
@@ -469,7 +469,7 @@ public class RepoManager
     /// <summary>
     /// Fetch latest from remote for a repository.
     /// </summary>
-    public async Task FetchAsync(string repoId, CancellationToken ct = default)
+    public virtual async Task FetchAsync(string repoId, CancellationToken ct = default)
     {
         EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)

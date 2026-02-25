@@ -1445,6 +1445,9 @@ public partial class CopilotService
             }
         }
 
+        var createdWtCount = workerWtIds.Count(id => id != null) + (orchWtId != worktreeId ? 1 : 0);
+        Debug($"[WorktreeStrategy] Strategy={strategy}, orchDir={orchWorkDir ?? "(null)"}, orchWtId={orchWtId ?? "(none)"}, workerWts created={workerWtIds.Count(id => id != null)}/{preset.WorkerModels.Length}");
+
         // Create orchestrator session (with uniqueness check matching CreateMultiAgentGroupAsync)
         var orchName = $"{teamName}-orchestrator";
         { int suffix = 1;
@@ -1470,6 +1473,7 @@ public partial class CopilotService
             orchMeta.WorktreeId = orchWtId;
 
         // Create worker sessions
+        Debug($"[WorktreeStrategy] Creating {preset.WorkerModels.Length} workers with strategy={strategy}, repoId={repoId}");
         for (int i = 0; i < preset.WorkerModels.Length; i++)
         {
             var workerName = $"{teamName}-worker-{i + 1}";
@@ -1479,6 +1483,7 @@ public partial class CopilotService
             }
             var workerModel = preset.WorkerModels[i];
             var workerWorkDir = workerWorkDirs[i] ?? workingDirectory;
+            Debug($"[WorktreeStrategy] Worker '{workerName}': wtId={workerWtIds[i] ?? "(none)"}, dir={workerWorkDir ?? "(null)"}");
             try
             {
                 await CreateSessionAsync(workerName, workerModel, workerWorkDir, ct);
