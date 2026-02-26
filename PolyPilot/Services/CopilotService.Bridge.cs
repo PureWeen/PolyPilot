@@ -27,6 +27,8 @@ public partial class CopilotService
         else if (wsUrl.StartsWith("wss://", StringComparison.OrdinalIgnoreCase)
               || wsUrl.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
             { /* already a WebSocket URL */ }
+        else
+            Debug($"Remote mode: unrecognized URL scheme in '{wsUrl}' — expected http/https/ws/wss; connection will likely fail");
 
         Debug($"Remote mode: connecting to {wsUrl}");
 

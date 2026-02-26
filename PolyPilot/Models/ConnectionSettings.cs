@@ -70,11 +70,14 @@ public class ConnectionSettings
         if (string.IsNullOrWhiteSpace(url))
             return url;
 
-        var trimmed = url.Trim().TrimEnd('/');
+        var trimmed = url.Trim();
 
-        // Already has any scheme — return as-is (prevents double-scheme like http://ftp://host)
+        // Check for existing scheme BEFORE TrimEnd('/') so that "http://" is not mangled
+        // (TrimEnd('/') on "http://" produces "http:" which fails the Contains("://") check)
         if (trimmed.Contains("://"))
-            return trimmed;
+            return trimmed.TrimEnd('/');
+
+        trimmed = trimmed.TrimEnd('/');
 
         // Heuristic: known tunnel/proxy hosts always use TLS — match exact suffixes to avoid
         // false-positives from hostnames that merely contain ".ngrok" or ".cloudflare"
