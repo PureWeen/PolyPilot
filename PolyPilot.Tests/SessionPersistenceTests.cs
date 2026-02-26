@@ -405,4 +405,81 @@ public class SessionPersistenceTests
         Assert.Single(result);
         Assert.Equal("regular-session", result[0].SessionId);
     }
+
+    // --- SweepOrphanedTempSessionDirs tests ---
+
+    [Fact]
+    public void Sweep_OrphanedDirs_AreDeleted()
+    {
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-sweep-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempBase);
+        var orphanDir = Directory.CreateDirectory(Path.Combine(tempBase, "orphan1")).FullName;
+        try
+        {
+            CopilotService.SweepOrphanedTempSessionDirs(tempBase, Array.Empty<string?>());
+
+            Assert.False(Directory.Exists(orphanDir));
+        }
+        finally
+        {
+            if (Directory.Exists(tempBase)) Directory.Delete(tempBase, true);
+        }
+    }
+
+    [Fact]
+    public void Sweep_PersistedDirs_AreKept()
+    {
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-sweep-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempBase);
+        var persistedDir = Directory.CreateDirectory(Path.Combine(tempBase, "persisted1")).FullName;
+        var orphanDir = Directory.CreateDirectory(Path.Combine(tempBase, "orphan1")).FullName;
+        try
+        {
+            CopilotService.SweepOrphanedTempSessionDirs(tempBase, new[] { persistedDir });
+
+            Assert.True(Directory.Exists(persistedDir));
+            Assert.False(Directory.Exists(orphanDir));
+        }
+        finally
+        {
+            if (Directory.Exists(tempBase)) Directory.Delete(tempBase, true);
+        }
+    }
+
+    [Fact]
+    public void Sweep_WhenTempBaseDoesNotExist_DoesNotThrow()
+    {
+        var nonExistentBase = Path.Combine(Path.GetTempPath(), $"polypilot-nonexistent-{Guid.NewGuid():N}");
+        var ex = Record.Exception(() =>
+            CopilotService.SweepOrphanedTempSessionDirs(nonExistentBase, Array.Empty<string?>()));
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void Sweep_NullEntriesInPersistedList_AreIgnored()
+    {
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-sweep-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempBase);
+        var orphanDir = Directory.CreateDirectory(Path.Combine(tempBase, "orphan1")).FullName;
+        try
+        {
+            // Passing nulls/empties should not throw and should treat them as not-persisted
+            CopilotService.SweepOrphanedTempSessionDirs(tempBase, new string?[] { null, "", null });
+
+            Assert.False(Directory.Exists(orphanDir));
+        }
+        finally
+        {
+            if (Directory.Exists(tempBase)) Directory.Delete(tempBase, true);
+        }
+    }
+
+    [Fact]
+    public void TempSessionsBase_IsIsolatedInTests()
+    {
+        // SetBaseDirForTesting should redirect TempSessionsBase away from the real temp dir
+        var realTempBase = Path.Combine(Path.GetTempPath(), "polypilot-sessions");
+        Assert.NotEqual(realTempBase, CopilotService.TempSessionsBase, StringComparer.OrdinalIgnoreCase);
+        Assert.StartsWith(TestSetup.TestBaseDir, CopilotService.TempSessionsBase, StringComparison.OrdinalIgnoreCase);
+    }
 }

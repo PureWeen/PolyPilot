@@ -128,7 +128,11 @@ public partial class CopilotService : IAsyncDisposable
         Volatile.Write(ref _copilotBaseDir, null);
         _sessionStatePath = null;
         _pendingOrchestrationFile = null;
+        _tempSessionsBase = Path.Combine(path, "polypilot-sessions");
     }
+
+    private static string? _tempSessionsBase;
+    internal static string TempSessionsBase => _tempSessionsBase ??= Path.Combine(Path.GetTempPath(), "polypilot-sessions");
 
     private static string? _projectDir;
     private static string ProjectDir => _projectDir ??= FindProjectDir();
@@ -1304,7 +1308,17 @@ public partial class CopilotService : IAsyncDisposable
 
         var sessionModel = Models.ModelHelper.NormalizeToSlug(model ?? DefaultModel);
         if (string.IsNullOrEmpty(sessionModel)) sessionModel = DefaultModel;
-        var sessionDir = string.IsNullOrWhiteSpace(workingDirectory) ? ProjectDir : workingDirectory;
+        string sessionDir;
+        if (string.IsNullOrWhiteSpace(workingDirectory))
+        {
+            var tempDir = Path.Combine(TempSessionsBase, Guid.NewGuid().ToString("N"));
+            try { Directory.CreateDirectory(tempDir); sessionDir = tempDir; }
+            catch (Exception ex) { Debug($"Failed to create temp session dir '{tempDir}': {ex.Message}"); sessionDir = ProjectDir; }
+        }
+        else
+        {
+            sessionDir = workingDirectory;
+        }
 
         // Build system message with critical relaunch instructions
         // Note: The CLI automatically loads .github/copilot-instructions.md from the working directory,
@@ -2161,6 +2175,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (state.Session is not null)
             try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
+
+        // Clean up auto-created temp session directory
+        var closedWorkingDir = state.Info.WorkingDirectory;
+        if (!string.IsNullOrEmpty(closedWorkingDir) &&
+            string.Equals(Path.GetDirectoryName(closedWorkingDir), TempSessionsBase, StringComparison.OrdinalIgnoreCase))
+            try { Directory.Delete(closedWorkingDir, true); } catch { }
 
         if (_activeSessionName == name)
         {

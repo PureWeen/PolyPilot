@@ -143,6 +143,26 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Delete temp session directories under <paramref name="tempBase"/> that are
+    /// not referenced by any persisted session's WorkingDirectory.
+    /// Called on startup to clean up directories left behind by crashed sessions.
+    /// </summary>
+    internal static void SweepOrphanedTempSessionDirs(string tempBase, IEnumerable<string?> persistedWorkingDirs)
+    {
+        if (!Directory.Exists(tempBase)) return;
+
+        var keepDirs = new HashSet<string>(
+            persistedWorkingDirs.Where(d => !string.IsNullOrEmpty(d)).Select(d => d!),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dir in Directory.GetDirectories(tempBase))
+        {
+            if (!keepDirs.Contains(dir))
+                try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    /// <summary>
     /// Load and resume all previously active sessions
     /// </summary>
     public async Task RestorePreviousSessionsAsync(CancellationToken cancellationToken = default)
@@ -153,6 +173,10 @@ public partial class CopilotService
             {
                 var json = await File.ReadAllTextAsync(ActiveSessionsFile, cancellationToken);
                 var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
+
+                // Sweep orphaned temp session directories from crashed/killed sessions
+                SweepOrphanedTempSessionDirs(TempSessionsBase, entries?.Select(e => e.WorkingDirectory) ?? []);
+
                 if (entries != null && entries.Count > 0)
                 {
                     Debug($"Restoring {entries.Count} previous sessions...");
