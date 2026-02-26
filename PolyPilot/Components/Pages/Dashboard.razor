@@ -1360,11 +1360,12 @@
         try
         {
             var cwd = GetShellCwd(sessionName);
+            var (shellExe, shellArgs) = PlatformHelper.GetShellCommand(command);
             using var process = new System.Diagnostics.Process();
             process.StartInfo = new System.Diagnostics.ProcessStartInfo
             {
-                FileName = "/bin/bash",
-                Arguments = $"-c \"{command.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"",
+                FileName = shellExe,
+                Arguments = shellArgs,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
