@@ -1214,6 +1214,13 @@ public partial class CopilotService : IAsyncDisposable
 
         // Set processing state if session was mid-turn when app died
         info.IsProcessing = isStillProcessing;
+        if (isStillProcessing)
+        {
+            // Set phase based on last event so UI shows correct status instead of "Sending"
+            var (lastTool, _) = GetLastSessionActivity(sessionId);
+            info.ProcessingPhase = !string.IsNullOrEmpty(lastTool) ? 3 : 2; // 3=Working, 2=Thinking
+            info.ProcessingStartedAt = DateTime.Now;
+        }
 
         var state = new SessionState
         {
@@ -1304,7 +1311,17 @@ public partial class CopilotService : IAsyncDisposable
 
         var sessionModel = Models.ModelHelper.NormalizeToSlug(model ?? DefaultModel);
         if (string.IsNullOrEmpty(sessionModel)) sessionModel = DefaultModel;
-        var sessionDir = string.IsNullOrWhiteSpace(workingDirectory) ? ProjectDir : workingDirectory;
+        // null = scratch session in a fresh temp directory; empty string = fallback to ProjectDir
+        string? sessionDir;
+        if (workingDirectory == null)
+        {
+            sessionDir = Path.Combine(Path.GetTempPath(), "polypilot-sessions", Guid.NewGuid().ToString()[..8]);
+            Directory.CreateDirectory(sessionDir);
+        }
+        else
+        {
+            sessionDir = string.IsNullOrWhiteSpace(workingDirectory) ? ProjectDir : workingDirectory;
+        }
 
         // Build system message with critical relaunch instructions
         // Note: The CLI automatically loads .github/copilot-instructions.md from the working directory,
@@ -1399,6 +1416,93 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         _usageStats?.TrackSessionStart(name);
         
         return info;
+    }
+
+    /// <summary>
+    /// Atomically creates a worktree (or uses an existing one) and a session linked to it.
+    /// Handles worktree creation, session creation, linking, group organization, and optional initial prompt.
+    /// </summary>
+    public async Task<AgentSessionInfo> CreateSessionWithWorktreeAsync(
+        string repoId,
+        string? branchName = null,
+        int? prNumber = null,
+        string? worktreeId = null,
+        string? sessionName = null,
+        string? model = null,
+        string? initialPrompt = null,
+        CancellationToken ct = default)
+    {
+        // Remote mode: worktree operations run on the server, not locally.
+        // Delegate to bridge client for worktree creation, then create session normally.
+        if (IsRemoteMode)
+            throw new NotSupportedException("CreateSessionWithWorktreeAsync is not supported in remote mode. Use the bridge protocol.");
+
+        WorktreeInfo wt;
+
+        if (!string.IsNullOrEmpty(worktreeId))
+        {
+            // Use existing worktree
+            wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == worktreeId)
+                ?? throw new InvalidOperationException($"Worktree '{worktreeId}' not found.");
+        }
+        else if (prNumber.HasValue)
+        {
+            wt = await _repoManager.CreateWorktreeFromPrAsync(repoId, prNumber.Value, ct);
+        }
+        else
+        {
+            var branch = branchName ?? $"session-{DateTime.Now:yyyyMMdd-HHmmss}";
+            wt = await _repoManager.CreateWorktreeAsync(repoId, branch, null, ct: ct);
+        }
+
+        var name = sessionName ?? wt.Branch;
+
+        // Ensure unique session name
+        if (_sessions.ContainsKey(name))
+        {
+            var counter = 2;
+            var baseName = name;
+            name = $"{baseName}-{counter}";
+            while (_sessions.ContainsKey(name)) name = $"{baseName}-{++counter}";
+        }
+
+        AgentSessionInfo sessionInfo;
+        try
+        {
+            sessionInfo = await CreateSessionAsync(name, model, wt.Path, ct);
+        }
+        catch
+        {
+            // If session creation fails and we just created a new worktree, clean up
+            if (string.IsNullOrEmpty(worktreeId))
+            {
+                try { await _repoManager.RemoveWorktreeAsync(wt.Id, deleteBranch: true); } catch { }
+            }
+            throw;
+        }
+
+        // Link session to worktree
+        sessionInfo.WorktreeId = wt.Id;
+        _repoManager.LinkSessionToWorktree(wt.Id, sessionInfo.Name);
+
+        // Organize into repo group
+        var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
+        if (repo != null)
+        {
+            var group = GetOrCreateRepoGroup(repo.Id, repo.Name);
+            MoveSession(sessionInfo.Name, group.Id);
+            var meta = GetSessionMeta(sessionInfo.Name);
+            if (meta != null) meta.WorktreeId = wt.Id;
+        }
+
+        SwitchSession(sessionInfo.Name);
+        SaveActiveSessionsToDisk();
+
+        // Send initial prompt after session is ready
+        if (!string.IsNullOrEmpty(initialPrompt))
+            _ = SendPromptAsync(sessionInfo.Name, initialPrompt);
+
+        return sessionInfo;
     }
 
     /// <summary>
@@ -2161,6 +2265,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (state.Session is not null)
             try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
+
+        // Clean up auto-created temp directory for empty sessions
+        if (state.Info.WorkingDirectory != null)
+        {
+            var tempRoot = Path.Combine(Path.GetTempPath(), "polypilot-sessions");
+            try
+            {
+                var fullDir = Path.GetFullPath(state.Info.WorkingDirectory);
+                if (fullDir.StartsWith(Path.GetFullPath(tempRoot), StringComparison.OrdinalIgnoreCase)
+                    && Directory.Exists(fullDir))
+                    Directory.Delete(fullDir, recursive: true);
+            }
+            catch { /* best-effort cleanup */ }
+        }
 
         if (_activeSessionName == name)
         {

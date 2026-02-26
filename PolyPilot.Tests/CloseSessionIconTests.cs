@@ -3,8 +3,9 @@ using Xunit;
 namespace PolyPilot.Tests;
 
 /// <summary>
-/// Ensures the "Close Session" button uses a non-destructive icon (not trash/wastebasket).
-/// The trash icon (🗑) implies permanent deletion, but closing a session is reversible.
+/// Ensures the "Close Session" button has an appropriate icon.
+/// SessionCard uses ✕ (non-destructive inline close).
+/// SessionListItem uses 🗑 (opens a dialog with destructive options like delete worktree/branch).
 /// </summary>
 public class CloseSessionIconTests
 {
@@ -22,17 +23,19 @@ public class CloseSessionIconTests
         var file = Path.Combine(GetRepoRoot(), "PolyPilot", "Components", "SessionCard.razor");
         var content = File.ReadAllText(file);
 
-        // The close session button must not use the trash/wastebasket emoji
+        // SessionCard close is a simple inline close — no destructive options
         Assert.DoesNotContain("🗑", content.Substring(content.IndexOf("Close Session") - 5, 10));
     }
 
     [Fact]
-    public void SessionListItem_CloseButton_DoesNotUseTrashIcon()
+    public void SessionListItem_CloseButton_UsesTrashIcon()
     {
+        // SessionListItem's close opens a dialog with destructive options
+        // (delete worktree, delete branch) so the trash icon is appropriate.
         var file = Path.Combine(GetRepoRoot(), "PolyPilot", "Components", "Layout", "SessionListItem.razor");
         var content = File.ReadAllText(file);
 
-        Assert.DoesNotContain("🗑", content.Substring(content.IndexOf("Close Session") - 5, 10));
+        Assert.Contains("🗑 Close Session", content);
     }
 
     [Fact]
@@ -45,11 +48,13 @@ public class CloseSessionIconTests
     }
 
     [Fact]
-    public void SessionListItem_CloseButton_UsesCloseIcon()
+    public void SessionListItem_CloseButton_IsDestructiveStyle()
     {
+        // The close menu button should be marked as destructive since it can delete worktrees/branches
         var file = Path.Combine(GetRepoRoot(), "PolyPilot", "Components", "Layout", "SessionListItem.razor");
         var content = File.ReadAllText(file);
 
-        Assert.Contains("✕ Close Session", content);
+        // Find the menu button line (contains 🗑 Close Session)
+        Assert.Contains("class=\"menu-item destructive\" @onclick=\"ShowCloseConfirm\"", content);
     }
 }

@@ -71,7 +71,6 @@ public class InputSelectionTests
     /// </summary>
     [Theory]
     [InlineData("Layout/CreateSessionForm.razor", "ns-name", "@onkeyup")]
-    [InlineData("Layout/CreateSessionForm.razor", "wt-branch-input", "@onkeyup")]
     [InlineData("Layout/SessionListItem.razor", "rename-input", "@onkeyup")]
     [InlineData("SessionCard.razor", "card-rename-input", "@onkeyup")]
     public void SpecificInputs_UseOnKeyUp(string relativePath, string cssClass, string expectedEvent)

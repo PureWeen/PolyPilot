@@ -711,7 +711,7 @@ public class WsBridgeServer : IDisposable
                                 if (wtReq.PrNumber.HasValue)
                                     wt = await _repoManager.CreateWorktreeFromPrAsync(wtReq.RepoId, wtReq.PrNumber.Value, ct);
                                 else
-                                    wt = await _repoManager.CreateWorktreeAsync(wtReq.RepoId, wtReq.BranchName ?? "main", null, ct);
+                                    wt = await _repoManager.CreateWorktreeAsync(wtReq.RepoId, wtReq.BranchName ?? "main", null, ct: ct);
                                 await SendToClientAsync(clientId, ws,
                                     BridgeMessage.Create(BridgeMessageTypes.WorktreeCreated,
                                         new WorktreeCreatedPayload

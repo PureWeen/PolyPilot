@@ -204,49 +204,57 @@ else
                 <option value="Alphabetical" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Alphabetical)">↕ A–Z</option>
                 <option value="Manual" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Manual)">↕ Manual</option>
             </select>
-            @if (isAddingGroup && !isAddingMultiAgentGroup && pendingMultiAgentWorktree == null)
+            @if (isAddingGroup && !isAddingMultiAgentGroup && pendingMultiAgentRepo == null)
             {
                 <input type="text" class="new-group-input" id="newGroupInput"
                        placeholder="Group name..."
                        @onblur="CommitNewGroup"
                        @onkeydown="HandleNewGroupKeyDown" />
             }
-            else if (isAddingMultiAgentGroup && pendingMultiAgentWorktree == null)
+            else if (isAddingMultiAgentGroup && pendingMultiAgentRepo == null)
             {
-                @* Step 1: Pick a worktree *@
+                @* Step 1: Pick a repository *@
                 <div class="worktree-picker" @onclick:stopPropagation="true">
                     <div class="worktree-picker-header">
-                        <span>Select worktree for team:</span>
+                        <span>Select repository for team:</span>
                         <button class="worktree-cancel-btn" @onclick="CancelMultiAgentCreation">✕</button>
                     </div>
-                    @foreach (var wt in RepoManager.Worktrees)
+                    @foreach (var repo in RepoManager.Repositories)
                     {
-                        var w = wt;
-                        var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == w.RepoId);
-                        <button class="worktree-item" @onclick="() => SelectWorktreeForGroup(w)" title="@w.Path">
-                            <span class="worktree-branch">@(repo?.Name ?? w.RepoId)/@w.Branch</span>
-                            <span class="worktree-path">@ShortenPath(w.Path)</span>
+                        var r = repo;
+                        <button class="worktree-item" @onclick="() => SelectRepoForGroup(r)" title="@r.Url">
+                            <span class="worktree-branch">@r.Name</span>
+                            <span class="worktree-path">@r.Url</span>
                         </button>
                     }
-                    @if (!RepoManager.Worktrees.Any())
+                    @if (!RepoManager.Repositories.Any())
                     {
-                        <div class="worktree-empty">No worktrees available. Add a repository first.</div>
+                        <div class="worktree-empty">No repositories available. Add a repository first.</div>
                     }
                 </div>
             }
-            else if (pendingMultiAgentWorktree != null)
+            else if (pendingMultiAgentRepo != null)
             {
                 @* Step 2: Pick a preset or enter a custom name *@
                 <div class="worktree-picker" @onclick:stopPropagation="true">
                     <div class="worktree-picker-header">
-                        <span>🌿 @pendingMultiAgentWorktree.Branch</span>
+                        <span>📦 @pendingMultiAgentRepo.Name</span>
                         <button class="worktree-cancel-btn" @onclick="CancelMultiAgentCreation">✕</button>
                     </div>
                     <input type="text" class="new-group-input" id="presetNameInput"
                            placeholder="Team name (optional — uses preset name)"
                            style="margin: 4px 8px; font-size: 12px;" />
+                    <div style="margin: 6px 8px; padding: 6px 8px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--control-border);">
+                        <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">🌿 Worktree Isolation</div>
+                        <select class="sort-select" style="width: 100%; font-size: 12px; padding: 4px 6px;" @onchange="OnStrategyChanged">
+                            <option value="FullyIsolated" selected="@(selectedStrategy == WorktreeStrategy.FullyIsolated)">🔒 Each agent gets own worktree</option>
+                            <option value="OrchestratorIsolated" selected="@(selectedStrategy == WorktreeStrategy.OrchestratorIsolated)">🔀 Manager isolated, workers share</option>
+                            <option value="Shared" selected="@(selectedStrategy == WorktreeStrategy.Shared)">📁 Everyone shares one worktree</option>
+                        </select>
+                    </div>
                     @{
-                        var allPresets = UserPresets.GetAll(CopilotService.BaseDir, pendingMultiAgentWorktree?.Path);
+                        var repoWorktree = RepoManager.Worktrees.FirstOrDefault(w => w.RepoId == pendingMultiAgentRepo?.Id);
+                        var allPresets = UserPresets.GetAll(CopilotService.BaseDir, repoWorktree?.Path);
                         var repoPresets = allPresets.Where(p => p.IsRepoLevel).ToArray();
                         var builtInPresets = allPresets.Where(p => !p.IsRepoLevel && !p.IsUserDefined).ToArray();
                         var userPresets = allPresets.Where(p => p.IsUserDefined).ToArray();
@@ -257,7 +265,7 @@ else
                         @foreach (var preset in repoPresets)
                         {
                             var p = preset;
-                            <button class="preset-item preset-repo" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                            <button class="preset-item preset-repo" @onclick="() => CreateFromPresetForRepo(p, pendingMultiAgentRepo)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
                                 <span class="preset-emoji">@p.Emoji</span>
                                 <span class="preset-name">@p.Name</span>
                                 <span class="preset-badge">🫡</span>
@@ -273,7 +281,7 @@ else
                         @foreach (var preset in builtInPresets)
                         {
                             var p = preset;
-                            <button class="preset-item" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                            <button class="preset-item" @onclick="() => CreateFromPresetForRepo(p, pendingMultiAgentRepo)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
                                 <span class="preset-emoji">@p.Emoji</span>
                                 <span class="preset-name">@p.Name</span>
                             </button>
@@ -285,7 +293,7 @@ else
                         @foreach (var preset in userPresets)
                         {
                             var p = preset;
-                            <button class="preset-item" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                            <button class="preset-item" @onclick="() => CreateFromPresetForRepo(p, pendingMultiAgentRepo)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
                                 <span class="preset-emoji">@p.Emoji</span>
                                 <span class="preset-name">@p.Name</span>
                             </button>
@@ -441,6 +449,12 @@ else
                                                     <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; createSessionFormRef?.ExpandForRepo(rId); }">
                                                         ➕ New Session
                                                     </button>
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForRepo(rId); }">
+                                                        ⚡ Quick Branch + Session
+                                                    </button>
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartQuickBranch(rId); }">
+                                                        ⑂ Named Branch + Session
+                                                    </button>
                                                     <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartGroupRename(gId); }">
                                                         ✏️ Rename
                                                     </button>
@@ -457,9 +471,12 @@ else
                                                             </button>
                                                         }
                                                     }
-                                                    <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; confirmRemoveRepoId = rId; }">
-                                                        🗑 Remove Repo
-                                                    </button>
+                                                    @if (!group.IsMultiAgent)
+                                                    {
+                                                        <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; confirmRemoveRepoId = rId; }">
+                                                            🗑 Remove Repo
+                                                        </button>
+                                                    }
                                                 }
                                                 else
                                                 {
@@ -489,6 +506,39 @@ else
                                 }
                             }
                         </div>
+
+                        @if (quickBranchRepoId == group.RepoId && isRepoGroup)
+                        {
+                            var qbRepoId = group.RepoId!;
+                            <div class="quick-branch-input-bar" @onclick:stopPropagation="true">
+                                <span class="quick-branch-icon">⑂</span>
+                                <input type="text" class="quick-branch-input" placeholder="branch name or #PR"
+                                       @bind="quickBranchInput" @bind:event="oninput"
+                                       @onkeyup="(e) => HandleQuickBranchKeyDown(e, qbRepoId)"
+                                       disabled="@quickBranchIsCreating" />
+                                @if (quickBranchIsCreating)
+                                {
+                                    <span class="quick-branch-spinner">⏳</span>
+                                }
+                                else
+                                {
+                                    <button class="quick-branch-go-btn" @onclick="() => CommitQuickBranch(qbRepoId)"
+                                            disabled="@string.IsNullOrWhiteSpace(quickBranchInput)">→</button>
+                                    <button class="quick-branch-cancel-btn" @onclick="() => { quickBranchRepoId = null; }">✕</button>
+                                }
+                                @if (!string.IsNullOrEmpty(quickBranchError))
+                                {
+                                    <div class="quick-branch-error">⚠ @quickBranchError</div>
+                                }
+                            </div>
+                        }
+                        @if (quickCreateErrorRepoId == group.RepoId && !string.IsNullOrEmpty(quickCreateError))
+                        {
+                            <div class="quick-branch-error" @onclick:stopPropagation="true">
+                                ⚠ @quickCreateError
+                                <button class="quick-branch-cancel-btn" @onclick="() => { quickCreateError = null; quickCreateErrorRepoId = null; }">✕</button>
+                            </div>
+                        }
 
                         @if (group.IsMultiAgent && !group.IsCollapsed)
                         {
@@ -580,7 +630,7 @@ else
                                              UsageInfo="@(usageBySession.TryGetValue(session.Name, out var usg) ? usg : null)"
                                              OnSelect="() => SelectSession(sName)"
                                              OnClose="() => CloseSession(sName)"
-                                             OnCloseAndDeleteWorktree="() => CloseSessionAndDeleteWorktree(sName)"
+                                             OnCloseWithOptions="(opts) => CloseSessionWithOptions(sName, opts.DeleteWorktree, opts.DeleteBranch)"
                                              OnPin="(pinned) => { CopilotService.PinSession(sName, pinned); }"
                                              OnMove="(groupId) => CopilotService.MoveSession(sName, groupId)"
                                              OnStartRename="() => StartRename(sName)"
@@ -684,6 +734,14 @@ else
     private bool confirmRepoReplace = false;
     private string? confirmRepoName = null;
     private string? confirmRemoveRepoId = null;
+
+    // Quick-create inline branch input
+    private string? quickBranchRepoId = null;
+    private string quickBranchInput = "";
+    private bool quickBranchIsCreating = false;
+    private string? quickBranchError = null;
+    private string? quickCreateError = null;
+    private string? quickCreateErrorRepoId = null;
 
     private async Task ToggleFlyout()
     {
@@ -883,43 +941,49 @@ else
         }
     }
 
-    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt) args)
+    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber) args)
     {
         if (isCreating) return;
         isCreating = true;
         createError = null;
         try
         {
-            var sessionInfo = await CopilotService.CreateSessionAsync(args.Name, args.Model, args.Directory);
-            CopilotService.SwitchSession(sessionInfo.Name);
-            newSessionName = "";
+            AgentSessionInfo sessionInfo;
 
-            // If created from a worktree, place session in the repo group
-            if (!string.IsNullOrEmpty(args.WorktreeId))
+            if (!string.IsNullOrEmpty(args.RepoId) || !string.IsNullOrEmpty(args.WorktreeId))
             {
-                var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == args.WorktreeId);
-                if (wt != null)
+                // Repo-based: atomic worktree+session creation.
+                // When only WorktreeId is set, derive repoId from the worktree.
+                var repoId = args.RepoId;
+                if (string.IsNullOrEmpty(repoId) && !string.IsNullOrEmpty(args.WorktreeId))
                 {
-                    RepoManager.LinkSessionToWorktree(wt.Id, sessionInfo.Name);
-                    var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
-                    if (repo != null)
-                    {
-                        var group = CopilotService.GetOrCreateRepoGroup(repo.Id, repo.Name);
-                        CopilotService.MoveSession(sessionInfo.Name, group.Id);
-                        var meta = CopilotService.GetSessionMeta(sessionInfo.Name);
-                        if (meta != null) meta.WorktreeId = wt.Id;
-                    }
+                    var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == args.WorktreeId);
+                    repoId = wt?.RepoId ?? "";
+                }
+                sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
+                    repoId: repoId!,
+                    branchName: args.BranchName,
+                    prNumber: args.PrNumber,
+                    worktreeId: args.WorktreeId,
+                    sessionName: args.Name,
+                    model: args.Model,
+                    initialPrompt: args.InitialPrompt);
+            }
+            else
+            {
+                sessionInfo = await CopilotService.CreateSessionAsync(args.Name, args.Model, args.Directory);
+                CopilotService.SwitchSession(sessionInfo.Name);
+
+                // Send initial prompt after session is ready
+                if (!string.IsNullOrEmpty(args.InitialPrompt))
+                {
+                    _ = CopilotService.SendPromptAsync(sessionInfo.Name, args.InitialPrompt);
                 }
             }
 
+            newSessionName = "";
             CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
             await OnSessionSelected.InvokeAsync();
-
-            // Send initial prompt after session is ready
-            if (!string.IsNullOrEmpty(args.InitialPrompt))
-            {
-                _ = CopilotService.SendPromptAsync(sessionInfo.Name, args.InitialPrompt);
-            }
         }
         catch (Exception ex)
         {
@@ -929,6 +993,92 @@ else
         finally
         {
             isCreating = false;
+        }
+    }
+
+    private async Task QuickCreateSessionForRepo(string repoId)
+    {
+        if (isCreating) return;
+        isCreating = true;
+        createError = null;
+        quickCreateError = null;
+        quickCreateErrorRepoId = null;
+        try
+        {
+            var sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
+                repoId: repoId,
+                model: selectedModel);
+            CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
+            await OnSessionSelected.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            createError = ex.Message;
+            quickCreateError = ex.Message;
+            quickCreateErrorRepoId = repoId;
+            Console.WriteLine($"Error quick-creating session: {ex}");
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private void StartQuickBranch(string repoId)
+    {
+        quickBranchRepoId = repoId;
+        quickBranchInput = "";
+        quickBranchError = null;
+    }
+
+    private async Task HandleQuickBranchKeyDown(KeyboardEventArgs e, string repoId)
+    {
+        if (e.Key == "Enter") await CommitQuickBranch(repoId);
+        else if (e.Key == "Escape") quickBranchRepoId = null;
+    }
+
+    private async Task CommitQuickBranch(string repoId)
+    {
+        var input = quickBranchInput?.Trim();
+        if (string.IsNullOrEmpty(input) || quickBranchIsCreating) return;
+
+        quickBranchIsCreating = true;
+        quickBranchError = null;
+        StateHasChanged();
+        try
+        {
+            int? prNumber = null;
+            string? branchName = null;
+
+            if (input.StartsWith("#") && int.TryParse(input[1..], out var pr) && pr > 0)
+                prNumber = pr;
+            else if (input.StartsWith("#"))
+            {
+                quickBranchError = "Invalid PR number. Use #123 format.";
+                return;
+            }
+            else
+                branchName = System.Text.RegularExpressions.Regex.Replace(input, @"[^a-zA-Z0-9/_.-]", "-").Trim('-');
+
+            await CopilotService.CreateSessionWithWorktreeAsync(
+                repoId: repoId,
+                branchName: branchName,
+                prNumber: prNumber,
+                model: selectedModel);
+
+            quickBranchRepoId = null;
+            quickBranchInput = "";
+            CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
+            await OnSessionSelected.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            quickBranchError = ex.Message;
+            Console.WriteLine($"Error creating branch+session: {ex}");
+        }
+        finally
+        {
+            quickBranchIsCreating = false;
         }
     }
 
@@ -1104,18 +1254,27 @@ else
 
     private async Task CloseSessionAndDeleteWorktree(string name)
     {
-        // Find the worktree associated with this session before closing
+        await CloseSessionWithOptions(name, deleteWorktree: true, deleteBranch: true);
+    }
+
+    private async Task CloseSessionWithOptions(string name, bool deleteWorktree, bool deleteBranch)
+    {
         var meta = CopilotService.GetSessionMeta(name);
         var worktreeId = meta?.WorktreeId;
 
-        // Close the session first
         await CopilotService.CloseSessionAsync(name);
 
-        // Delete the worktree if no OTHER sessions or groups still reference it
-        // (exclude the just-closed session name since its metadata may linger due to debounced save)
-        if (!string.IsNullOrEmpty(worktreeId) && !IsWorktreeInUse(worktreeId, excludeSession: name))
+        if (!string.IsNullOrEmpty(worktreeId))
         {
-            await DeleteWorktreeAsync(worktreeId);
+            if (deleteWorktree && !IsWorktreeInUse(worktreeId, excludeSession: name))
+            {
+                await DeleteWorktreeAsync(worktreeId, deleteBranch);
+            }
+            else if (deleteBranch && !deleteWorktree)
+            {
+                // UI prevents this state (checkbox disabled), but guard just in case.
+                // Can't delete a branch that's checked out in a kept worktree — skip.
+            }
         }
     }
 
@@ -1134,14 +1293,14 @@ else
         }
     }
 
-    private async Task DeleteWorktreeAsync(string worktreeId)
+    private async Task DeleteWorktreeAsync(string worktreeId, bool deleteBranch = true)
     {
         try
         {
             if (CopilotService.IsRemoteMode)
                 await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
             else
-                await RepoManager.RemoveWorktreeAsync(worktreeId);
+                await RepoManager.RemoveWorktreeAsync(worktreeId, deleteBranch: deleteBranch);
         }
         catch (Exception ex)
         {
@@ -1202,41 +1361,54 @@ else
     {
         isAddingGroup = false;
         isAddingMultiAgentGroup = true;
-        pendingMultiAgentWorktree = null;
+        pendingMultiAgentRepo = null;
     }
 
     private void CancelMultiAgentCreation()
     {
         isAddingMultiAgentGroup = false;
-        pendingMultiAgentWorktree = null;
+        pendingMultiAgentRepo = null;
     }
 
-    private async Task SelectWorktreeForGroup(WorktreeInfo wt)
+    private void SelectRepoForGroup(RepositoryInfo repo)
     {
-        // Worktree selected — advance to step 2 (presets + custom name)
-        pendingMultiAgentWorktree = wt;
+        // Repo selected — advance to step 2 (presets + custom name)
+        pendingMultiAgentRepo = repo;
         isAddingMultiAgentGroup = false;
         isAddingGroup = false;
         StateHasChanged();
     }
 
-    private WorktreeInfo? pendingMultiAgentWorktree;
+    private RepositoryInfo? pendingMultiAgentRepo;
+    private WorktreeStrategy selectedStrategy = WorktreeStrategy.FullyIsolated;
 
-    private async Task CreateFromPresetWithWorktree(GroupPreset preset, WorktreeInfo wt)
+    private void OnStrategyChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<WorktreeStrategy>(e.Value?.ToString(), out var s))
+            selectedStrategy = s;
+    }
+
+    private async Task CreateFromPresetForRepo(GroupPreset preset, RepositoryInfo repo)
     {
         // Read optional custom name from the input
         var customName = await JS.InvokeAsync<string>("getElementValue", "presetNameInput");
         var nameOverride = string.IsNullOrWhiteSpace(customName) ? null : customName.Trim();
 
-        pendingMultiAgentWorktree = null;
+        // Find an existing worktree for fallback working directory (Shared strategy)
+        var fallbackWt = RepoManager.Worktrees.FirstOrDefault(w => w.RepoId == repo.Id);
+
+        var strategyOverride = selectedStrategy;
+        pendingMultiAgentRepo = null;
+        selectedStrategy = WorktreeStrategy.FullyIsolated; // reset for next time
         StateHasChanged();
         try
         {
             await CopilotService.CreateGroupFromPresetAsync(preset,
-                workingDirectory: wt.Path,
-                worktreeId: wt.Id,
-                repoId: wt.RepoId,
-                nameOverride: nameOverride);
+                workingDirectory: fallbackWt?.Path,
+                worktreeId: null,
+                repoId: repo.Id,
+                nameOverride: nameOverride,
+                strategyOverride: strategyOverride);
         }
         catch (Exception ex)
         {
@@ -1339,18 +1511,17 @@ else
     private async Task CommitNewGroup()
     {
         var name = await JS.InvokeAsync<string>("getElementValue", "newGroupInput");
-        var wt = pendingMultiAgentWorktree;
+        var repo = pendingMultiAgentRepo;
         isAddingGroup = false;
         isAddingMultiAgentGroup = false;
-        pendingMultiAgentWorktree = null;
+        pendingMultiAgentRepo = null;
         if (!string.IsNullOrWhiteSpace(name))
         {
-            if (wt != null)
+            if (repo != null)
             {
-                // Multi-agent group with worktree
+                // Multi-agent group with repo
                 CopilotService.CreateMultiAgentGroup(name.Trim(),
-                    worktreeId: wt.Id,
-                    repoId: wt.RepoId);
+                    repoId: repo.Id);
             }
             else
             {
@@ -1362,7 +1533,7 @@ else
     private async Task HandleNewGroupKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await CommitNewGroup();
-        else if (e.Key == "Escape") { isAddingGroup = false; isAddingMultiAgentGroup = false; pendingMultiAgentWorktree = null; }
+        else if (e.Key == "Escape") { isAddingGroup = false; isAddingMultiAgentGroup = false; pendingMultiAgentRepo = null; }
     }
 
     private void ToggleSessionMenu(string sessionName)

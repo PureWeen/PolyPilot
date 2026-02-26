@@ -295,15 +295,17 @@
 .group-more-btn {
     all: unset;
     font-size: var(--type-body);
-    color: var(--control-border);
+    color: var(--text-secondary);
     cursor: pointer;
     padding: 0 0.3rem;
     border-radius: 3px;
-    opacity: 0;
+    opacity: 0.5;
     transition: opacity 0.15s;
     line-height: 1;
 }
 .group-header:hover .group-more-btn { opacity: 1; }
+.repo-group .group-more-btn { opacity: 0.7; }
+.repo-group:hover .group-more-btn { opacity: 1; }
 .group-more-btn:hover { color: var(--text-on-surface); background: var(--hover-bg); }
 
 .group-menu-overlay {
@@ -1634,3 +1636,58 @@
 .adjust-banner span {
     line-height: 1.3;
 }
+
+/* Quick branch input bar */
+.quick-branch-input-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--control-border);
+    flex-wrap: wrap;
+}
+.quick-branch-icon {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+.quick-branch-input {
+    flex: 1;
+    min-width: 80px;
+    padding: 3px 6px;
+    font-size: 0.78rem;
+    border: 1px solid var(--control-border);
+    border-radius: 4px;
+    background: var(--panel-bg);
+    color: var(--text-primary);
+    outline: none;
+}
+.quick-branch-input:focus {
+    border-color: var(--accent-secondary, #58a6ff);
+}
+.quick-branch-go-btn,
+.quick-branch-cancel-btn {
+    padding: 2px 6px;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    background: var(--control-border);
+    color: var(--text-primary);
+    flex-shrink: 0;
+}
+.quick-branch-go-btn:hover { background: var(--accent-secondary, #58a6ff); color: #fff; }
+.quick-branch-cancel-btn:hover { background: var(--accent-primary); color: #fff; }
+.quick-branch-go-btn:disabled { opacity: 0.4; cursor: default; }
+.quick-branch-spinner {
+    font-size: 0.85rem;
+    animation: spin 1s linear infinite;
+}
+.quick-branch-error {
+    width: 100%;
+    font-size: 0.72rem;
+    color: var(--accent-primary);
+    padding: 2px 0 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

@@ -30,10 +30,19 @@ public class SessionGroup
     public string? DefaultOrchestratorModel { get; set; }
 
     /// <summary>
-    /// Shared worktree for the entire multi-agent group. All sessions use this worktree's path as CWD.
-    /// Future: per-agent worktrees would move this to SessionMeta and add merge orchestration.
+    /// Shared worktree for the entire multi-agent group (used as orchestrator worktree
+    /// when strategy is OrchestratorIsolated or FullyIsolated).
     /// </summary>
     public string? WorktreeId { get; set; }
+
+    /// <summary>How worktrees are allocated across sessions in this group.</summary>
+    public WorktreeStrategy WorktreeStrategy { get; set; } = WorktreeStrategy.Shared;
+
+    /// <summary>
+    /// All worktree IDs created for this group (orchestrator + workers).
+    /// Used by DeleteGroup for reliable cleanup even when session creation fails.
+    /// </summary>
+    public List<string> CreatedWorktreeIds { get; set; } = new();
 
     /// <summary>Active reflection state for OrchestratorReflect mode. Null when not in a reflect loop.</summary>
     public ReflectionCycle? ReflectionState { get; set; }
@@ -97,6 +106,18 @@ public enum MultiAgentMode
     Orchestrator,
     /// <summary>Orchestrator with iterative reflection: plan→dispatch→collect→evaluate→repeat until goal met.</summary>
     OrchestratorReflect
+}
+
+/// <summary>How worktrees are allocated across sessions in a multi-agent group.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum WorktreeStrategy
+{
+    /// <summary>All sessions share one worktree (current default behavior).</summary>
+    Shared,
+    /// <summary>Orchestrator gets its own worktree; all workers share a separate one.</summary>
+    OrchestratorIsolated,
+    /// <summary>Every session (orchestrator + each worker) gets its own worktree.</summary>
+    FullyIsolated
 }
 
 /// <summary>Role of a session within a multi-agent group.</summary>
