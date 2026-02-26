@@ -1108,7 +1108,7 @@ public partial class CopilotService
     #region Orchestration Persistence (relaunch resilience)
 
     private static string? _pendingOrchestrationFile;
-    private static string PendingOrchestrationFile => _pendingOrchestrationFile ??= Path.Combine(PolyPilotBaseDir, "pending-orchestration.json");
+    private static string PendingOrchestrationFile { get { lock (_pathLock) return _pendingOrchestrationFile ??= Path.Combine(PolyPilotBaseDir, "pending-orchestration.json"); } }
 
     internal void SavePendingOrchestration(PendingOrchestration pending)
     {

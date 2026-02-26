@@ -50,7 +50,8 @@ public class RepoManager
 
     private static string GetBaseDir()
     {
-        var over = Volatile.Read(ref _baseDirOverride);
+        // Called from within _pathLock — no Volatile.Read needed
+        var over = _baseDirOverride;
         if (over != null) return over;
         try
         {
@@ -75,9 +76,10 @@ public class RepoManager
         _loadedSuccessfully = false;
         try
         {
-            if (File.Exists(StateFile))
+            var stateFile = StateFile; // resolve once
+            if (File.Exists(stateFile))
             {
-                var json = File.ReadAllText(StateFile);
+                var json = File.ReadAllText(stateFile);
                 _state = JsonSerializer.Deserialize<RepositoryState>(json) ?? new RepositoryState();
             }
             _loadedSuccessfully = true;
@@ -102,9 +104,10 @@ public class RepoManager
         _loadedSuccessfully = true;
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(StateFile)!);
+            var stateFile = StateFile; // resolve once
+            Directory.CreateDirectory(Path.GetDirectoryName(stateFile)!);
             var json = JsonSerializer.Serialize(_state, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(StateFile, json);
+            File.WriteAllText(stateFile, json);
         }
         catch (Exception ex)
         {
