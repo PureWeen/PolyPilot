@@ -7,7 +7,7 @@ description: >
   CompleteResponse, AbortSessionAsync, or the processing watchdog, (3) Adding new
   SDK event handlers, (4) Debugging stuck sessions showing "Thinking..." forever,
   (5) Modifying IsResumed, HasUsedToolsThisTurn, or ActiveToolCallCount,
-  (6) Adding diagnostic log tags. Covers: 8 invariants from 7 PRs of fix cycles,
+  (6) Adding diagnostic log tags. Covers: 8 invariants from 8 PRs of fix cycles,
   the 8 code paths that clear IsProcessing, and common regression patterns.
 ---
 
@@ -25,6 +25,7 @@ Every code path that sets `IsProcessing = false` MUST also:
 7. Call `FlushCurrentResponse(state)` BEFORE clearing IsProcessing
 8. Add a diagnostic log entry (`[COMPLETE]`, `[ERROR]`, `[ABORT]`, etc.)
 9. Run on UI thread (via `InvokeOnUI()` or already on UI thread)
+10. Dedup guard: `FlushCurrentResponse` checks if last assistant message in History has identical content before adding — prevents duplicates from SDK event replay on resume
 
 ## The 8 Paths That Clear IsProcessing
 
@@ -38,6 +39,37 @@ Every code path that sets `IsProcessing = false` MUST also:
 | 6 | SendAsync reconnect failure | CopilotService.cs | UI | Prompt send failed after reconnect |
 | 7 | SendAsync initial failure | CopilotService.cs | UI | Prompt send failed |
 | 8 | Bridge OnTurnEnd | Bridge.cs | Background → InvokeOnUI | Remote mode turn complete |
+
+## Content Persistence Safety
+
+### FlushCurrentResponse Call Sites
+`FlushCurrentResponse` persists accumulated `CurrentResponse` text to History/DB without ending the turn. Called from:
+
+| Caller | Trigger | Purpose |
+|--------|---------|---------|
+| ToolExecutionStartEvent | New tool call starting | Save text before tool output |
+| AssistantTurnEndEvent | Sub-turn ending | **Prevent content loss if app restarts before idle** |
+| CompleteResponse | SessionIdleEvent | Final flush on turn completion |
+| AbortSessionAsync | User clicks Stop | Save partial response |
+| Watchdog timeout | Stuck session detected | Save partial response |
+
+The turn_end flush is critical: without it, response content accumulated between `assistant.turn_end` and `session.idle` is lost if the app restarts (the ReviewPRs bug — 6123 chars of PR review lost).
+
+### Dedup Guard
+`FlushCurrentResponse` includes a dedup check: if the last non-tool assistant message in History has identical content, it skips the add and just clears `CurrentResponse`. This prevents duplicates when SDK replays events after session resume.
+
+### Quiescence Bypass for Fresh Events
+During session restore, `GetEventsFileRestoreHints()` checks events.jsonl freshness:
+- **File age < WatchdogInactivityTimeoutSeconds (120s)**: Pre-seeds `HasReceivedEventsSinceResume=true` to bypass the 30s quiescence timeout. The session was recently active — don't kill it with a short timeout.
+- **Last event is tool event**: Also sets `HasUsedToolsThisTurn=true` for 600s tool timeout.
+- **File age > 120s**: Original 30s quiescence behavior (turn probably finished before restart).
+
+### Zero-Idle Sessions
+Some sessions never receive `session.idle` events (SDK/CLI bug). In this case:
+- `CompleteResponse` never runs via the normal path
+- `IsProcessing` is only cleared by the watchdog (120s/600s) or user abort
+- The turn_end flush ensures response content is not lost
+- The watchdog eventually clears the stuck processing state
 
 ## 8 Invariants
 
@@ -73,7 +105,7 @@ Clearing guarded on `!hasActiveTool && !HasUsedToolsThisTurn`.
 `HandleComplete` is already on UI thread. `InvokeAsync` defers execution
 causing stale renders.
 
-## Top 3 Recurring Mistakes
+## Top 4 Recurring Mistakes
 
 1. **Incomplete cleanup** — modifying one IsProcessing path without
    updating ALL fields that must be cleared simultaneously.
@@ -81,8 +113,12 @@ causing stale renders.
    in several paths; always check `HasUsedToolsThisTurn` too.
 3. **Background thread mutations** — mutating IsProcessing or related
    state on SDK event threads instead of marshaling to UI thread.
+4. **Missing content flush on turn boundaries** — `FlushCurrentResponse`
+   must be called at every point where accumulated text could be lost
+   (turn_end, tool_start, abort, error, watchdog). The turn_end call
+   was missing until PR #224, causing response loss on app restart.
 
 ## Regression History
 
-7 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164.
+8 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164 → #224.
 See `references/regression-history.md` for the full timeline with root causes.

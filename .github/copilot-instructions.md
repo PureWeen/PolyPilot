@@ -160,6 +160,7 @@ When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in
 6. `ToolExecutionCompleteEvent` → tool done, increments `ToolCallCount`
 7. `AssistantIntentEvent` → intent/plan updates
 8. `AssistantTurnEndEvent` → end of a sub-turn, tool loop continues
+   Between sub-turns, `FlushCurrentResponse` persists any accumulated text to history/DB.
 9. `SessionIdleEvent` → turn complete, response finalized
 
 ### Processing Status Indicator
@@ -176,10 +177,13 @@ The UI shows: "Sending…" → "Server connected…" → "Thinking…" → "Work
 `AbortSessionAsync` must clear ALL processing state — see `.claude/skills/processing-state-safety/SKILL.md` for the full cleanup checklist and the 7 paths that clear `IsProcessing`.
 
 ### ⚠️ IsProcessing Cleanup Invariant
-**CRITICAL**: Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (7 PRs, 16 fix/regression cycles). **Read `.claude/skills/processing-state-safety/SKILL.md` before modifying ANY processing path.** There are 8 such paths across CopilotService.cs, Events.cs, and Bridge.cs.
+**CRITICAL**: Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (8 PRs, 17 fix/regression cycles). **Read `.claude/skills/processing-state-safety/SKILL.md` before modifying ANY processing path.** There are 8 such paths across CopilotService.cs, Events.cs, and Bridge.cs.
+
+Additionally, `FlushCurrentResponse` is called on `AssistantTurnEndEvent` to persist accumulated response text at each sub-turn boundary. This prevents content loss if the app restarts between `turn_end` and `session.idle`. The flush includes a dedup guard to prevent duplicate messages from SDK event replay on resume.
 
 ### Processing Watchdog
-The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has two timeout tiers:
+The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has three timeout tiers:
+- **30 seconds** (resume quiescence) — for resumed sessions with zero SDK events since restart. Assumes the turn already finished before the restart. **Bypassed** when `GetEventsFileRestoreHints()` detects the events.jsonl was recently modified (< 120s) — in that case, the session was genuinely active and gets the longer timeout.
 - **120 seconds** (inactivity timeout) — for sessions with no tool activity
 - **600 seconds** (tool execution timeout) — used when ANY of these are true:
   - A tool call is actively running (`ActiveToolCallCount > 0`)
