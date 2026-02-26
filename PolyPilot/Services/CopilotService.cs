@@ -1237,7 +1237,7 @@ public partial class CopilotService : IAsyncDisposable
         var resumeModel = Models.ModelHelper.NormalizeToSlug(model ?? GetSessionModelFromDisk(sessionId) ?? DefaultModel);
         if (string.IsNullOrEmpty(resumeModel)) resumeModel = DefaultModel;
         Debug($"Resuming session '{displayName}' with model: '{resumeModel}', cwd: '{resumeWorkingDirectory}'");
-        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() } };
+        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions };
         var copilotSession = await _client.ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
 
         var isStillProcessing = IsSessionStillProcessing(sessionId);
@@ -1355,6 +1355,11 @@ public partial class CopilotService : IAsyncDisposable
         return info;
     }
 
+    /// <summary>Auto-approve all tool permission requests. Without this, worker sessions
+    /// (which have no interactive user) get "Permission denied" on every tool call.</summary>
+    private static Task<PermissionRequestResult> AutoApprovePermissions(PermissionRequest request, PermissionInvocation invocation)
+        => Task.FromResult(new PermissionRequestResult { Kind = "approved" });
+
     public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
         // In demo mode, create a local mock session
@@ -1450,7 +1455,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 Mode = SystemMessageMode.Append,
                 Content = systemContent.ToString()
-            }
+            },
+            // Auto-approve all tool permission requests so worker sessions (which have no
+            // interactive user) can execute tools without getting "Permission denied".
+            OnPermissionRequest = AutoApprovePermissions,
         };
         if (mcpServers != null)
             Debug($"Session config includes {mcpServers.Count} MCP server(s): {string.Join(", ", mcpServers.Keys)}");
@@ -1716,7 +1724,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 Model = normalizedModel,
                 WorkingDirectory = state.Info.WorkingDirectory,
-                Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }
+                Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
+                OnPermissionRequest = AutoApprovePermissions,
             };
             var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, cancellationToken);
 
@@ -1864,6 +1873,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     var reconnectModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
                     var reconnectConfig = new ResumeSessionConfig();
                     reconnectConfig.Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
+                    reconnectConfig.OnPermissionRequest = AutoApprovePermissions;
                     if (!string.IsNullOrEmpty(reconnectModel))
                         reconnectConfig.Model = reconnectModel;
                     if (!string.IsNullOrEmpty(state.Info.WorkingDirectory))
