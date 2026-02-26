@@ -23,7 +23,20 @@ public class AgentSessionInfo
     public DateTime LastUpdatedAt { get; set; } = DateTime.Now;
     
     // Processing progress tracking
-    public DateTime? ProcessingStartedAt { get; set; }
+    // Backing field uses Interlocked to prevent torn reads between the UI thread (writer)
+    // and the background watchdog thread (reader). DateTime? is not atomic — a torn read
+    // can produce HasValue=true but Value=default (0 ticks), yielding a huge elapsed time
+    // and triggering a false-positive watchdog timeout.
+    private long _processingStartedAtTicks;
+    public DateTime? ProcessingStartedAt
+    {
+        get
+        {
+            var ticks = Interlocked.Read(ref _processingStartedAtTicks);
+            return ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
+        }
+        set => Interlocked.Exchange(ref _processingStartedAtTicks, value?.Ticks ?? 0);
+    }
     public int _toolCallCount;
     public int ToolCallCount { get => Volatile.Read(ref _toolCallCount); set => Volatile.Write(ref _toolCallCount, value); }
     /// <summary>

@@ -1361,6 +1361,7 @@ public partial class CopilotService
                         state.Info.IsResumed = false;
                         // Flush any accumulated partial response before clearing processing state
                         FlushCurrentResponse(state);
+                        Debug($"[WATCHDOG] '{sessionName}' IsProcessing=false — watchdog timeout after {totalProcessingSeconds:F0}s total, elapsed={elapsed:F0}s, exceededMaxTime={exceededMaxTime}");
                         state.Info.IsProcessing = false;
                         Interlocked.Exchange(ref state.SendingFlag, 0);
                         state.Info.ProcessingStartedAt = null;

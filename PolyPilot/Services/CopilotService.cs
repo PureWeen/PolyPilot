@@ -276,7 +276,7 @@ public partial class CopilotService : IAsyncDisposable
         if (message.StartsWith("[EVT") || message.StartsWith("[IDLE") ||
             message.StartsWith("[COMPLETE") || message.StartsWith("[SEND") ||
             message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
-            message.StartsWith("[DISPATCH") ||
+            message.StartsWith("[DISPATCH") || message.StartsWith("[WATCHDOG") ||
             message.Contains("watchdog"))
         {
             try
