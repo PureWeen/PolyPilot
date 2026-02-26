@@ -209,7 +209,7 @@ public class SquadDiscoveryTests
         var all = UserPresets.GetAll(Path.GetTempPath(), SquadSampleDir);
         Assert.Contains(all, p => p.Name == "The Review Squad" && p.IsRepoLevel);
         // Built-in should also be present
-        Assert.Contains(all, p => p.Name == "Code Review Team");
+        Assert.Contains(all, p => p.Name == "PR Review Squad");
     }
 
     [Fact]

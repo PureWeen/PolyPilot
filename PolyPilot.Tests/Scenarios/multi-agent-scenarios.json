@@ -182,7 +182,7 @@
         "All sessions have GroupId matching the new group"
       ],
       "steps": [
-        { "action": "createGroupFromPreset", "preset": "Quick Reflection Cycle" },
+        { "action": "createGroupFromPreset", "preset": "Implement & Challenge" },
         { "action": "readOrgJson", "capture": "org" },
         { "action": "assertSessionMeta", "role": "Orchestrator", "hasPreferredModel": true },
         { "action": "assertAllWorkers", "havePreferredModel": true }
@@ -281,7 +281,7 @@
         "Workers with no SystemPrompt are listed as generic workers"
       ],
       "steps": [
-        { "action": "createGroupFromPreset", "preset": "Code Review Team" },
+        { "action": "createGroupFromPreset", "preset": "PR Review Squad" },
         { "action": "sendPrompt", "text": "Review the authentication module" },
         { "action": "waitForPhase", "phase": "Planning", "timeout": 30 },
         { "action": "assertOrchestratorReceivedWorkerDescriptions" }
@@ -298,7 +298,7 @@
         "Preset is also saved to presets.json as backup"
       ],
       "steps": [
-        { "action": "createGroupFromPreset", "preset": "Code Review Team" },
+        { "action": "createGroupFromPreset", "preset": "PR Review Squad" },
         { "action": "saveGroupAsPreset", "name": "My Code Review" },
         { "action": "assertFileExists", "path": ".squad/team.md" },
         { "action": "assertFileContains", "path": ".squad/team.md", "text": "My Code Review" },
@@ -316,7 +316,7 @@
         "decisions.md and routing.md survive the round-trip"
       ],
       "steps": [
-        { "action": "createGroupFromPreset", "preset": "Code Review Team" },
+        { "action": "createGroupFromPreset", "preset": "PR Review Squad" },
         { "action": "saveGroupAsPreset", "name": "Round Trip Test" },
         { "action": "assertFileExists", "path": ".squad/team.md" },
         { "action": "selectWorktree", "worktree": "current" },
@@ -334,7 +334,7 @@
         "No spaces or special characters in directory names"
       ],
       "steps": [
-        { "action": "createGroupFromPreset", "preset": "Code Review Team" },
+        { "action": "createGroupFromPreset", "preset": "PR Review Squad" },
         { "action": "saveGroupAsPreset", "name": "Test Team" },
         { "action": "assertNoDirectoryContains", "path": ".squad/agents", "pattern": " " },
         { "action": "shell", "command": "rm -rf .squad" }
@@ -349,7 +349,7 @@
         "Each session processes before the next receives its prompt"
       ],
       "steps": [
-        { "action": "createGroupFromPreset", "preset": "Multi-Perspective Analysis" },
+        { "action": "createGroupFromPreset", "preset": "PR Review Squad" },
         { "action": "setMode", "mode": "Sequential" },
         { "action": "sendPrompt", "text": "Explain dependency injection" },
         { "action": "waitForAllResponses", "timeout": 120 },
@@ -366,7 +366,7 @@
         "Reflection state (CurrentIteration, goal) is preserved"
       ],
       "steps": [
-        { "action": "createGroupFromPreset", "preset": "Quick Reflection Cycle" },
+        { "action": "createGroupFromPreset", "preset": "Implement & Challenge" },
         { "action": "sendPrompt", "text": "Implement a binary search function" },
         { "action": "waitForPhase", "phase": "Reflecting", "timeout": 30 },
         { "action": "pauseReflection" },
@@ -385,7 +385,7 @@
         "Orchestrator and evaluator are different sessions"
       ],
       "steps": [
-        { "action": "createGroupFromPreset", "preset": "Code Review Team" },
+        { "action": "createGroupFromPreset", "preset": "PR Review Squad" },
         { "action": "setEvaluator", "sessionName": "worker-1" },
         { "action": "sendPrompt", "text": "Review error handling in the auth module" },
         { "action": "waitForCompletion", "timeout": 120 },

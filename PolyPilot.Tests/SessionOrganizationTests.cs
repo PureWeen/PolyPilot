@@ -1343,7 +1343,7 @@ public class GroupPresetTests
     [Fact]
     public void BuiltInPresets_ContainExpectedCount()
     {
-        Assert.True(GroupPreset.BuiltIn.Length >= 3, "Should have at least 3 built-in presets");
+        Assert.True(GroupPreset.BuiltIn.Length >= 2, "Should have at least 2 built-in presets");
     }
 
     [Fact]
@@ -1766,9 +1766,9 @@ public class MultiAgentScenarioTests
     /// 
     /// User flow:
     ///   1. Click 🚀 Preset in sidebar toolbar
-    ///   2. Preset picker appears showing 5 built-in templates
-    ///   3. Select "Code Review Team" (🔍)
-    ///   4. System creates: Orchestrator (claude-opus-4.6) + 2 Workers (gpt-5.1-codex, claude-sonnet-4.5)
+    ///   2. Preset picker appears showing 2 built-in templates
+    ///   3. Select "PR Review Squad" (📋)
+    ///   4. System creates: Orchestrator (claude-opus-4.6) + 5 Workers
     ///   5. Sidebar shows group with mode selector set to "🎯 Orchestrator"
     ///   6. Each session shows its model assignment and role badge
     /// </summary>
@@ -1777,28 +1777,27 @@ public class MultiAgentScenarioTests
     {
         // Step 1-2: User sees built-in presets
         var presets = GroupPreset.BuiltIn;
-        Assert.Equal(6, presets.Length);
+        Assert.Equal(2, presets.Length);
 
-        // Step 3: User picks "Code Review Team"
-        var codeReview = presets.First(p => p.Name == "Code Review Team");
-        Assert.Equal("🔍", codeReview.Emoji);
-        Assert.Equal(MultiAgentMode.Orchestrator, codeReview.Mode);
-        Assert.Equal("claude-opus-4.6", codeReview.OrchestratorModel);
-        Assert.Equal(2, codeReview.WorkerModels.Length);
+        // Step 3: User picks "PR Review Squad"
+        var prReview = presets.First(p => p.Name == "PR Review Squad");
+        Assert.Equal("📋", prReview.Emoji);
+        Assert.Equal(MultiAgentMode.Orchestrator, prReview.Mode);
+        Assert.Equal("claude-opus-4.6", prReview.OrchestratorModel);
+        Assert.Equal(5, prReview.WorkerModels.Length);
 
         // Step 4: System creates the group - verify the preset structure
         // (CopilotService.CreateGroupFromPresetAsync does the actual creation at runtime)
-        Assert.Equal("gpt-5.1-codex", codeReview.WorkerModels[0]);
-        Assert.Equal("claude-sonnet-4.5", codeReview.WorkerModels[1]);
+        Assert.Equal("claude-sonnet-4.6", prReview.WorkerModels[0]);
 
         // Step 5-6: Each member has appropriate capabilities
-        var orchCaps = ModelCapabilities.GetCapabilities(codeReview.OrchestratorModel);
+        var orchCaps = ModelCapabilities.GetCapabilities(prReview.OrchestratorModel);
         Assert.True(orchCaps.HasFlag(ModelCapability.ReasoningExpert));
 
-        var warnings = ModelCapabilities.GetRoleWarnings(codeReview.OrchestratorModel, MultiAgentRole.Orchestrator);
+        var warnings = ModelCapabilities.GetRoleWarnings(prReview.OrchestratorModel, MultiAgentRole.Orchestrator);
         Assert.Empty(warnings); // opus is a great orchestrator, no warnings
 
-        foreach (var workerModel in codeReview.WorkerModels)
+        foreach (var workerModel in prReview.WorkerModels)
         {
             var wCaps = ModelCapabilities.GetCapabilities(workerModel);
             Assert.True(wCaps.HasFlag(ModelCapability.CodeExpert)); // both are code-capable

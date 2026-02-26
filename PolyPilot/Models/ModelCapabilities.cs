@@ -306,48 +306,6 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         },
 
         new GroupPreset(
-            "Code Review Team", "Opus orchestrates, specialized reviewers execute",
-            "🔍", MultiAgentMode.Orchestrator,
-            "claude-opus-4.6", new[] { "gpt-5.1-codex", "claude-sonnet-4.5" })
-        {
-            WorkerSystemPrompts = new[]
-            {
-                "You are a code correctness reviewer. Focus on logic errors, edge cases, off-by-one bugs, null safety, and incorrect assumptions. Flag anything that could cause runtime failures or data corruption.",
-                "You are a security and architecture reviewer. Focus on vulnerabilities (injection, auth flaws, data exposure), architectural anti-patterns, and maintainability issues. Suggest concrete fixes."
-            }
-        },
-
-        new GroupPreset(
-            "Multi-Perspective Analysis", "Different models analyze the same problem",
-            "🔬", MultiAgentMode.Broadcast,
-            "claude-opus-4.6", new[] { "gpt-5", "gemini-3-pro", "claude-sonnet-4.5" }),
-
-        new GroupPreset(
-            "Quick Reflection Cycle", "Fast workers + smart evaluator for iterative refinement",
-            "🔄", MultiAgentMode.OrchestratorReflect,
-            "claude-opus-4.6", new[] { "gpt-4.1", "gpt-4.1", "gpt-5.1-codex-mini" })
-        {
-            WorkerSystemPrompts = new[]
-            {
-                "You are an implementation specialist. Write clean, correct code. Focus on getting the logic right and handling edge cases.",
-                "You are a testing and validation specialist. Review solutions for correctness, write test cases, and identify gaps in coverage.",
-                "You are a documentation and UX specialist. Ensure code is well-documented, APIs are intuitive, and error messages are helpful."
-            }
-        },
-
-        new GroupPreset(
-            "Deep Research", "Strong reasoning models collaborate on complex problems",
-            "🧠", MultiAgentMode.Orchestrator,
-            "claude-opus-4.6", new[] { "gpt-5.1", "gemini-3-pro" })
-        {
-            WorkerSystemPrompts = new[]
-            {
-                "You are a deep reasoning analyst. Break down complex problems methodically. Provide thorough analysis with evidence and citations where possible.",
-                "You are a creative problem solver. Explore unconventional approaches, challenge assumptions, and propose alternative solutions that others might miss."
-            }
-        },
-
-        new GroupPreset(
             "Implement & Challenge", "Implementer builds, challenger reviews — loop until solid",
             "⚔️", MultiAgentMode.OrchestratorReflect,
             "claude-opus-4.6", new[] { "claude-sonnet-4.6", "claude-opus-4.6" })

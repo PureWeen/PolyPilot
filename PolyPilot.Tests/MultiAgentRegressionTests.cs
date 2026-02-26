@@ -1265,12 +1265,12 @@ public class MultiAgentRegressionTests
     }
 
     /// <summary>
-    /// Code Review Team preset has distinct personas for each worker.
+    /// Implement & Challenge preset has distinct personas for each worker.
     /// </summary>
     [Fact]
-    public void CodeReviewTeam_Preset_HasDistinctPersonas()
+    public void ImplementAndChallenge_Preset_HasDistinctPersonas()
     {
-        var preset = GroupPreset.BuiltIn.First(p => p.Name == "Code Review Team");
+        var preset = GroupPreset.BuiltIn.First(p => p.Name == "Implement & Challenge");
         Assert.NotNull(preset.WorkerSystemPrompts);
         Assert.Equal(2, preset.WorkerSystemPrompts!.Length);
         Assert.All(preset.WorkerSystemPrompts, p => Assert.False(string.IsNullOrWhiteSpace(p)));
