@@ -1272,6 +1272,8 @@ public partial class CopilotService : IAsyncDisposable
         if (IsDemoMode)
         {
             var demoInfo = _demoService.CreateSession(name, model);
+            if (workingDirectory != null)
+                demoInfo.WorkingDirectory = workingDirectory;
             var demoState = new SessionState { Session = null!, Info = demoInfo };
             _sessions[name] = demoState;
             _activeSessionName ??= name;
