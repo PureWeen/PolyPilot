@@ -212,7 +212,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         ## 5. Fix Process (when told to fix a PR)
         1. `gh pr checkout <number>` then `git fetch origin main && git rebase origin/main`
         2. View the file, find the issue, use the edit tool to make minimal changes
-        3. Run tests: `cd PolyPilot.Tests && dotnet test` (or the repo's test command)
+        3. Discover and run the repo's test suite (look for test projects, Makefiles, CI scripts, package.json scripts, etc.)
         4. Commit with Co-authored-by trailer, push with `--force-with-lease`
         5. After pushing, do a full re-review (repeat the 5-model dispatch above)
 
