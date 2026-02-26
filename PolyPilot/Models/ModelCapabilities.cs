@@ -268,6 +268,10 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 - Always include the FULL diff in sub-agent prompts (truncated diffs cause incorrect findings)
                 """,
             RoutingContext = """
+                ## Core Rule
+
+                NEVER do the work yourself. Always delegate to a worker. Your role is to assign tasks, track state, synthesize results, and execute merges. The only actions you perform directly are: running `gh pr merge`, verifying pushes with `git fetch`, and producing summary tables. If the user explicitly asks you to handle something yourself, you may — but default to delegation.
+
                 ## Task Assignment
 
                 When given PRs to review, assign ONE PR to EACH worker. Distribute round-robin. If more PRs than workers, assign multiple per worker.
