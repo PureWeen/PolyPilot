@@ -87,55 +87,22 @@
         <TrimmerRootAssembly Include="GitHub.Copilot.SDK" RootMode="All" />
     </ItemGroup>
 
-    <!-- SDK 0.1.26+ natively maps maccatalyst RIDs for CLI download (issue #454).
-         The _FixCopilotRidForMacCatalyst workaround is no longer needed. -->
-
-    <!-- The SDK (0.1.26+) now maps maccatalyst RIDs to osx RIDs for download.
-         However, at runtime RuntimeInformation.RuntimeIdentifier returns maccatalyst-arm64,
-         so the SDK looks for runtimes/maccatalyst-arm64/native/copilot. We still need to
-         copy the binary to that path AND into the .app bundle's MonoBundle. -->
-    <Target Name="_CopyCopilotCliForMacCatalyst" AfterTargets="_CopyCopilotCliToOutput" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' And '$(_CopilotPlatform)' != ''">
-        <PropertyGroup>
-            <_CopilotMacCatalystOutputDir>$(OutDir)runtimes/$(RuntimeIdentifier)/native</_CopilotMacCatalystOutputDir>
-            <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
-        </PropertyGroup>
-        <MakeDir Directories="$(_CopilotMacCatalystOutputDir)" />
-        <Copy SourceFiles="$(_CopilotCacheDir)/$(_CopilotBinary)" DestinationFolder="$(_CopilotMacCatalystOutputDir)" SkipUnchangedFiles="true" />
-    </Target>
-
-    <!-- The SDK registers the intermediate copilot binary as ContentWithTargetPath.
-         On Mac Catalyst this surfaces as a publish metadata warning; we already copy
-         the binary explicitly via custom targets above. -->
-    <Target Name="_ExcludeCopilotCliIntermediateFromMacCatalystPublish" AfterTargets="_RegisterCopilotCliForCopy" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' And '$(_CopilotPlatform)' != ''">
+    <!-- The SDK registers the copilot CLI as ContentWithTargetPath but doesn't set
+         PublishFolderType, so MAUI skips it when building the .app bundle.
+         Re-register with PublishFolderType=Assembly so it lands in MonoBundle
+         (where ResolveBundledCliPath finds it). -->
+    <Target Name="_FixCopilotCliBundling" AfterTargets="_RegisterCopilotCliForCopy" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' And '$(_CopilotPlatform)' != ''">
         <PropertyGroup>
             <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
         </PropertyGroup>
         <ItemGroup>
             <ContentWithTargetPath Remove="$(_CopilotCacheDir)/$(_CopilotBinary)" />
             <ContentWithTargetPath Remove="$(_CopilotCacheDir)\$(_CopilotBinary)" />
+            <ContentWithTargetPath Include="$(_CopilotCacheDir)/$(_CopilotBinary)"
+                                   TargetPath="copilot"
+                                   CopyToOutputDirectory="PreserveNewest"
+                                   PublishFolderType="Assembly" />
         </ItemGroup>
-    </Target>
-
-    <Target Name="_ExcludeCopilotCliFromResolvedPublishForMacCatalyst" BeforeTargets="_ComputePublishLocation" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' And '$(_CopilotPlatform)' != ''">
-        <PropertyGroup>
-            <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
-        </PropertyGroup>
-        <ItemGroup>
-            <ResolvedFileToPublish Remove="$(_CopilotCacheDir)/$(_CopilotBinary)" />
-            <ResolvedFileToPublish Remove="$(_CopilotCacheDir)\$(_CopilotBinary)" />
-        </ItemGroup>
-    </Target>
-
-    <!-- Ensure the copilot CLI binary is included in the Mac Catalyst .app bundle.
-         MAUI flattens everything into MonoBundle, so runtimes/ paths don't work.
-         Copy the binary directly into the .app bundle's MonoBundle. -->
-    <Target Name="_IncludeCopilotCliInBundle" AfterTargets="Build" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' And '$(_CopilotPlatform)' != ''">
-        <PropertyGroup>
-            <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
-            <_AppBundleMonoBundle>$(OutDir)PolyPilot.app/Contents/MonoBundle</_AppBundleMonoBundle>
-        </PropertyGroup>
-        <Copy SourceFiles="$(_CopilotCacheDir)/$(_CopilotBinary)" DestinationFolder="$(_AppBundleMonoBundle)" SkipUnchangedFiles="true" Condition="Exists('$(_AppBundleMonoBundle)')" />
-        <Message Importance="high" Text="Copied copilot CLI binary to app bundle MonoBundle" Condition="Exists('$(_AppBundleMonoBundle)')" />
     </Target>
 
 </Project>
