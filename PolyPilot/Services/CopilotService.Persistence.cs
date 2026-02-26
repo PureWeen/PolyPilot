@@ -206,6 +206,24 @@ public partial class CopilotService
                         {
                             Debug($"Failed to restore '{entry.DisplayName}': {ex.GetType().Name}: {ex.Message}");
 
+                            // "Session not found" means the CLI server doesn't know this session
+                            // (e.g., worker sessions that were created but never received a message).
+                            // Fall back to creating a fresh session so multi-agent workers don't vanish.
+                            if (ex.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase))
+                            {
+                                try
+                                {
+                                    Debug($"Falling back to CreateSessionAsync for '{entry.DisplayName}'");
+                                    await CreateSessionAsync(entry.DisplayName, entry.Model, entry.WorkingDirectory, cancellationToken);
+                                    Debug($"Recreated session: {entry.DisplayName}");
+                                    continue;
+                                }
+                                catch (Exception createEx)
+                                {
+                                    Debug($"Fallback CreateSessionAsync also failed for '{entry.DisplayName}': {createEx.Message}");
+                                }
+                            }
+
                             // If the connection broke, recreate the client
                             if (ex is System.IO.IOException or System.Net.Sockets.SocketException
                                 or ObjectDisposedException
