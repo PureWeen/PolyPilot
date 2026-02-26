@@ -125,6 +125,49 @@ public class SessionPersistenceTests
         Assert.DoesNotContain(result, e => e.SessionId == "close-me");
     }
 
+    [Fact]
+    public void Merge_ClosedByDisplayName_NotMergedBack()
+    {
+        var active = new List<ActiveSessionEntry>();
+        var persisted = new List<ActiveSessionEntry> { Entry("id-1", "Worker-1") };
+        var closedIds = new HashSet<string>();
+        var closedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Worker-1" };
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, closedNames, _ => true);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void Merge_ClosedByDisplayName_CaseInsensitive()
+    {
+        var active = new List<ActiveSessionEntry>();
+        var persisted = new List<ActiveSessionEntry> { Entry("id-1", "Worker-1") };
+        var closedIds = new HashSet<string>();
+        var closedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "worker-1" };
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, closedNames, _ => true);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void Merge_DuplicateSessionIds_BothFilteredByName()
+    {
+        var active = new List<ActiveSessionEntry>();
+        var persisted = new List<ActiveSessionEntry>
+        {
+            Entry("id-1", "Worker-1"),
+            Entry("id-2", "Worker-1")
+        };
+        var closedIds = new HashSet<string>();
+        var closedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Worker-1" };
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, closedNames, _ => true);
+
+        Assert.Empty(result);
+    }
+
     // --- MergeSessionEntries: directory existence check ---
 
     [Fact]

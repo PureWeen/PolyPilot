@@ -2448,7 +2448,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!IsRemoteMode)
         {
             SaveActiveSessionsToDisk();
-            SaveOrganization();
+            FlushSaveOrganization();
         }
 
         // Dispose the SDK session AFTER UI has updated — DisposeAsync talks to the CLI

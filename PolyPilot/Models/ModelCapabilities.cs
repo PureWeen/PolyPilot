@@ -400,6 +400,9 @@ public static class UserPresets
         var presets = SquadDiscovery.Discover(repoWorkingDirectory);
         var match = presets.FirstOrDefault(p => string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
         if (match?.SourcePath == null) return false;
+        var dirName = Path.GetFileName(match.SourcePath);
+        if (dirName != ".squad" && dirName != ".ai-team")
+            return false;
         try
         {
             if (Directory.Exists(match.SourcePath))

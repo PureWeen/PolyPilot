@@ -549,10 +549,10 @@ public partial class CopilotService
                 InvokeOnUI(() =>
                 {
                     OnError?.Invoke(sessionName, errMsg);
+                    // Flush any accumulated partial response before clearing the accumulator
+                    FlushCurrentResponse(state);
                     state.FlushedResponse.Clear();
                     state.ResponseCompletion?.TrySetException(new Exception(errMsg));
-                    // Flush any accumulated partial response before clearing processing state
-                    FlushCurrentResponse(state);
                     Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
