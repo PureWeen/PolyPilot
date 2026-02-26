@@ -1243,7 +1243,7 @@ public class MultiAgentRegressionTests
         Assert.NotNull(method);
 
         var workers = new List<string> { "sec-worker", "perf-worker" };
-        var result = (string)method!.Invoke(svc, new object?[] { "Review this code", workers, null, null })!;
+        var result = (string)method!.Invoke(svc, new object?[] { "Review this code", workers, null, null, false })!;
 
         Assert.Contains("security auditor", result);
         Assert.Contains("performance optimizer", result);

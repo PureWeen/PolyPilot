@@ -3335,4 +3335,130 @@ public class GroupingStabilityTests
         Assert.Equal(10, group.ReflectionState.MaxIterations);
         Assert.True(group.ReflectionState.IsActive);
     }
+
+    [Fact]
+    public void LoadOrganization_HealsGroup_WhenIsMultiAgentFalseButHasOrchestratorSession()
+    {
+        // Simulate a corrupted organization.json where a multi-agent group lost IsMultiAgent
+        var org = new OrganizationState();
+        var group = new SessionGroup
+        {
+            Id = "corrupted-group",
+            Name = "PolyPilot",
+            IsMultiAgent = false,  // CORRUPTED — should be true
+            RepoId = "PureWeen-PolyPilot"
+        };
+        org.Groups.Add(group);
+        org.Sessions.Add(new SessionMeta { SessionName = "team-orchestrator", GroupId = "corrupted-group", Role = MultiAgentRole.Orchestrator });
+        org.Sessions.Add(new SessionMeta { SessionName = "team-worker-1", GroupId = "corrupted-group", Role = MultiAgentRole.Worker });
+
+        // Serialize and write to temp file, then load
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var orgFile = Path.Combine(tempDir, "organization.json");
+            File.WriteAllText(orgFile, JsonSerializer.Serialize(org, new JsonSerializerOptions { WriteIndented = true }));
+
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+
+            svc.LoadOrganization();
+
+            // Verify self-healing occurred
+            var healed = svc.Organization.Groups.First(g => g.Id == "corrupted-group");
+            Assert.True(healed.IsMultiAgent, "Group with orchestrator sessions should be healed to IsMultiAgent=true");
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void GetOrCreateRepoGroup_SkipsGroupWithOrchestratorSessions()
+    {
+        // Even if IsMultiAgent is somehow false, groups with orchestrator sessions
+        // should not be reused as repo groups
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+            svc.LoadOrganization();
+
+            // Add a "corrupted" group that looks like a repo group but has orchestrator sessions
+            var corruptGroup = new SessionGroup
+            {
+                Id = "former-squad",
+                Name = "PolyPilot",
+                IsMultiAgent = false,  // Lost its multi-agent status
+                RepoId = "PureWeen-PolyPilot"
+            };
+            svc.Organization.Groups.Add(corruptGroup);
+            svc.Organization.Sessions.Add(new SessionMeta
+            {
+                SessionName = "team-orch",
+                GroupId = "former-squad",
+                Role = MultiAgentRole.Orchestrator
+            });
+
+            // GetOrCreateRepoGroup should NOT return the corrupted group
+            var repoGroup = svc.GetOrCreateRepoGroup("PureWeen-PolyPilot", "PolyPilot");
+            Assert.NotEqual("former-squad", repoGroup.Id);
+            Assert.False(repoGroup.IsMultiAgent);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SaveOrganization_DebounceWritesLiveState_NotStaleSnapshot()
+    {
+        // Verify that debounced saves write the CURRENT state, not a stale snapshot.
+        // This is the fix for the group corruption bug.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+            svc.LoadOrganization();
+
+            // Call SaveOrganization (debounced) with initial state
+            svc.SaveOrganization();
+
+            // NOW mutate the state — add a multi-agent group
+            var squad = new SessionGroup
+            {
+                Id = "new-squad",
+                Name = "My Squad",
+                IsMultiAgent = true,
+                RepoId = "some-repo"
+            };
+            svc.Organization.Groups.Add(squad);
+
+            // Flush — should write the CURRENT state including the squad
+            svc.FlushSaveOrganization();
+
+            // Re-load and verify
+            svc.LoadOrganization();
+            var loaded = svc.Organization.Groups.FirstOrDefault(g => g.Id == "new-squad");
+            Assert.NotNull(loaded);
+            Assert.True(loaded.IsMultiAgent, "Flushed state should include the multi-agent group added after SaveOrganization");
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
 }

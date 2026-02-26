@@ -132,17 +132,26 @@ public partial class CopilotService
         // NOTE: Do NOT call ReconcileOrganization() here — _sessions is empty at load time,
         // so reconciliation would prune all session metadata. Reconcile is called explicitly
         // after RestorePreviousSessionsAsync populates _sessions (line 403 and 533).
+
+        // Self-healing: if any group has orchestrator/worker sessions but IsMultiAgent is false,
+        // restore IsMultiAgent. This protects against stale debounce writes or serialization issues.
+        foreach (var group in Organization.Groups)
+        {
+            if (!group.IsMultiAgent && Organization.Sessions.Any(m => m.GroupId == group.Id && m.Role == MultiAgentRole.Orchestrator))
+            {
+                Debug($"LoadOrganization: healing group '{group.Name}' (Id={group.Id}) — has orchestrator session but IsMultiAgent=false");
+                group.IsMultiAgent = true;
+            }
+        }
     }
 
     public void SaveOrganization()
     {
         InvalidateOrganizedSessionsCache();
-        // Snapshot JSON on caller's thread to avoid concurrent mutation during serialization
-        string json;
-        try { json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true }); }
-        catch { return; }
+        // Debounce: restart the timer. The actual write always re-serializes from live state
+        // to avoid stale-snapshot races (old snapshot overwriting newer flush).
         _saveOrgDebounce?.Dispose();
-        _saveOrgDebounce = new Timer(_ => WriteOrgFile(json), null, 2000, Timeout.Infinite);
+        _saveOrgDebounce = new Timer(_ => SaveOrganizationCore(), null, 2000, Timeout.Infinite);
     }
 
     internal void FlushSaveOrganization()
@@ -622,7 +631,10 @@ public partial class CopilotService
     {
         // Skip multi-agent groups — they have a RepoId for worktree context but are
         // not the "repo group" that regular sessions should auto-join.
-        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent);
+        // Also skip groups that have orchestrator/worker sessions (defensive: protects against
+        // IsMultiAgent being lost due to stale writes or serialization issues).
+        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent
+            && !Organization.Sessions.Any(m => m.GroupId == g.Id && m.Role == MultiAgentRole.Orchestrator));
         if (existing != null) return existing;
 
         // Don't recreate groups the user explicitly deleted (unless re-adding)
