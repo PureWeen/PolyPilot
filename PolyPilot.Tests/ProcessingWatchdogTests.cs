@@ -1341,4 +1341,241 @@ public class ProcessingWatchdogTests
         Assert.True(CopilotService.WatchdogInactivityTimeoutSeconds
             < CopilotService.WatchdogToolExecutionTimeoutSeconds);
     }
+
+    // --- GetEventsFileRestoreHints tests ---
+
+    [Fact]
+    public void RestoreHints_MissingFile_ReturnsFalse()
+    {
+        var service = CreateService();
+        var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
+        Directory.CreateDirectory(basePath);
+        try
+        {
+            var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("nonexistent-session", basePath);
+            Assert.False(isRecentlyActive);
+            Assert.False(hadToolActivity);
+        }
+        finally { Directory.Delete(basePath, true); }
+    }
+
+    [Fact]
+    public void RestoreHints_FreshFile_AssistantEvent_ReturnsRecentlyActiveOnly()
+    {
+        var service = CreateService();
+        var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
+        var sessionDir = Path.Combine(basePath, "test-session");
+        Directory.CreateDirectory(sessionDir);
+        try
+        {
+            // Write a fresh events.jsonl with a non-tool active event
+            File.WriteAllText(Path.Combine(sessionDir, "events.jsonl"),
+                """{"type":"assistant.message_delta","data":{}}""");
+
+            var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("test-session", basePath);
+            Assert.True(isRecentlyActive, "File was just written — should be recently active");
+            Assert.False(hadToolActivity, "Last event is not a tool event");
+        }
+        finally { Directory.Delete(basePath, true); }
+    }
+
+    [Fact]
+    public void RestoreHints_FreshFile_ToolEvent_ReturnsBothTrue()
+    {
+        var service = CreateService();
+        var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
+        var sessionDir = Path.Combine(basePath, "test-session");
+        Directory.CreateDirectory(sessionDir);
+        try
+        {
+            // Write a fresh events.jsonl with a tool execution event as the last line
+            File.WriteAllText(Path.Combine(sessionDir, "events.jsonl"),
+                """{"type":"assistant.turn_start","data":{}}""" + "\n" +
+                """{"type":"tool.execution_start","data":{"name":"bash"}}""");
+
+            var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("test-session", basePath);
+            Assert.True(isRecentlyActive, "File was just written — should be recently active");
+            Assert.True(hadToolActivity, "Last event is tool.execution_start");
+        }
+        finally { Directory.Delete(basePath, true); }
+    }
+
+    [Fact]
+    public void RestoreHints_FreshFile_ToolProgressEvent_ReturnsBothTrue()
+    {
+        var service = CreateService();
+        var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
+        var sessionDir = Path.Combine(basePath, "test-session");
+        Directory.CreateDirectory(sessionDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(sessionDir, "events.jsonl"),
+                """{"type":"tool.execution_progress","data":{}}""");
+
+            var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("test-session", basePath);
+            Assert.True(isRecentlyActive);
+            Assert.True(hadToolActivity, "Last event is tool.execution_progress");
+        }
+        finally { Directory.Delete(basePath, true); }
+    }
+
+    [Fact]
+    public void RestoreHints_StaleFile_ReturnsNotRecentlyActive()
+    {
+        var service = CreateService();
+        var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
+        var sessionDir = Path.Combine(basePath, "test-session");
+        Directory.CreateDirectory(sessionDir);
+        try
+        {
+            var eventsFile = Path.Combine(sessionDir, "events.jsonl");
+            File.WriteAllText(eventsFile,
+                """{"type":"tool.execution_start","data":{"name":"bash"}}""");
+            // Make file older than inactivity timeout
+            File.SetLastWriteTimeUtc(eventsFile,
+                DateTime.UtcNow.AddSeconds(-(CopilotService.WatchdogInactivityTimeoutSeconds + 10)));
+
+            var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("test-session", basePath);
+            Assert.False(isRecentlyActive, "File is stale — should not be recently active");
+            Assert.False(hadToolActivity, "Stale files should not report tool activity");
+        }
+        finally { Directory.Delete(basePath, true); }
+    }
+
+    [Fact]
+    public void RestoreHints_EmptyFile_ReturnsRecentlyActiveWithNoToolActivity()
+    {
+        var service = CreateService();
+        var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
+        var sessionDir = Path.Combine(basePath, "test-session");
+        Directory.CreateDirectory(sessionDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(sessionDir, "events.jsonl"), "");
+            var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("test-session", basePath);
+            Assert.True(isRecentlyActive, "Fresh empty file is still recently active");
+            Assert.False(hadToolActivity, "Empty file has no tool events");
+        }
+        finally { Directory.Delete(basePath, true); }
+    }
+
+    [Fact]
+    public void RestoreHints_FreshToolActivity_BypassesQuiescenceTimeout()
+    {
+        // Integration-style test: When restore hints indicate recent tool activity,
+        // the effective watchdog timeout should NOT be the 30s quiescence timeout.
+        // Simulates the scenario from the bug: session is genuinely active on the server
+        // but SDK hasn't reconnected yet.
+        var service = CreateService();
+        var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
+        var sessionDir = Path.Combine(basePath, "test-session");
+        Directory.CreateDirectory(sessionDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(sessionDir, "events.jsonl"),
+                """{"type":"tool.execution_start","data":{"name":"bash"}}""");
+
+            var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("test-session", basePath);
+
+            // Simulate what the restore code does with these hints
+            bool hasReceivedEvents = isRecentlyActive; // Pre-seeded from hints
+            bool hasUsedTools = hadToolActivity;        // Pre-seeded from hints
+
+            var effectiveTimeout = ComputeEffectiveTimeout(
+                hasActiveTool: false,
+                isResumed: true,
+                hasReceivedEvents: hasReceivedEvents,
+                hasUsedTools: hasUsedTools);
+
+            // Must NOT be the 30s quiescence — should be 600s tool timeout
+            Assert.NotEqual(CopilotService.WatchdogResumeQuiescenceTimeoutSeconds, effectiveTimeout);
+            Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
+        }
+        finally { Directory.Delete(basePath, true); }
+    }
+
+    [Fact]
+    public void RestoreHints_FreshNonToolActivity_BypassesQuiescenceTimeout()
+    {
+        // When restore hints indicate recent non-tool activity, the timeout should
+        // transition through the IsResumed clearing logic to 120s inactivity.
+        var service = CreateService();
+        var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
+        var sessionDir = Path.Combine(basePath, "test-session");
+        Directory.CreateDirectory(sessionDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(sessionDir, "events.jsonl"),
+                """{"type":"assistant.message_delta","data":{}}""");
+
+            var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("test-session", basePath);
+
+            bool hasReceivedEvents = isRecentlyActive;
+            bool hasUsedTools = hadToolActivity;
+
+            var effectiveTimeout = ComputeEffectiveTimeout(
+                hasActiveTool: false,
+                isResumed: true,
+                hasReceivedEvents: hasReceivedEvents,
+                hasUsedTools: hasUsedTools);
+
+            // Must NOT be the 30s quiescence — should be 600s (resumed + events = tool timeout)
+            Assert.NotEqual(CopilotService.WatchdogResumeQuiescenceTimeoutSeconds, effectiveTimeout);
+            Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
+        }
+        finally { Directory.Delete(basePath, true); }
+    }
+
+    [Fact]
+    public void RestoreHints_StaleFile_StillUsesQuiescenceTimeout()
+    {
+        // When the file is stale, the quiescence timeout should still apply —
+        // the turn probably finished long ago.
+        var service = CreateService();
+        var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
+        var sessionDir = Path.Combine(basePath, "test-session");
+        Directory.CreateDirectory(sessionDir);
+        try
+        {
+            var eventsFile = Path.Combine(sessionDir, "events.jsonl");
+            File.WriteAllText(eventsFile,
+                """{"type":"tool.execution_start","data":{"name":"bash"}}""");
+            File.SetLastWriteTimeUtc(eventsFile,
+                DateTime.UtcNow.AddSeconds(-(CopilotService.WatchdogInactivityTimeoutSeconds + 10)));
+
+            var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("test-session", basePath);
+
+            // Stale: no pre-seeding → quiescence still applies
+            bool hasReceivedEvents = isRecentlyActive; // false
+            bool hasUsedTools = hadToolActivity;        // false
+
+            var effectiveTimeout = ComputeEffectiveTimeout(
+                hasActiveTool: false,
+                isResumed: true,
+                hasReceivedEvents: hasReceivedEvents,
+                hasUsedTools: hasUsedTools);
+
+            Assert.Equal(CopilotService.WatchdogResumeQuiescenceTimeoutSeconds, effectiveTimeout);
+        }
+        finally { Directory.Delete(basePath, true); }
+    }
+
+    [Fact]
+    public void RestoreHints_MalformedJson_PreservesFileAgeSignal()
+    {
+        var service = CreateService();
+        var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
+        var sessionDir = Path.Combine(basePath, "test-session");
+        Directory.CreateDirectory(sessionDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(sessionDir, "events.jsonl"), "{{ bad json {{");
+            var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("test-session", basePath);
+            // File was just written (age < 120s) so isRecentlyActive is true even though JSON is malformed.
+            // This ensures the quiescence bypass still works for recently-active sessions with corrupt events.
+            Assert.True(isRecentlyActive, "Recently-written file should preserve isRecentlyActive despite malformed JSON");
+            Assert.False(hadToolActivity, "Cannot detect tool activity from bad JSON");
+        }
+        finally { Directory.Delete(basePath, true); }
+    }
 }

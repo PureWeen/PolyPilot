@@ -138,6 +138,48 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// During session restore, determines whether the events.jsonl file shows recent server activity
+    /// and whether the last event was a tool event. Used to pre-seed watchdog flags so that
+    /// the 30s quiescence timeout is bypassed for sessions that were genuinely active before restart.
+    /// </summary>
+    internal (bool isRecentlyActive, bool hadToolActivity) GetEventsFileRestoreHints(string sessionId) =>
+        GetEventsFileRestoreHints(sessionId, SessionStatePath);
+
+    /// <summary>
+    /// Testable overload that accepts a custom base path.
+    /// </summary>
+    internal (bool isRecentlyActive, bool hadToolActivity) GetEventsFileRestoreHints(string sessionId, string basePath)
+    {
+        var eventsFile = Path.Combine(basePath, sessionId, "events.jsonl");
+        if (!File.Exists(eventsFile)) return (false, false);
+
+        var isRecentlyActive = false;
+        try
+        {
+            var lastWrite = File.GetLastWriteTimeUtc(eventsFile);
+            var fileAge = (DateTime.UtcNow - lastWrite).TotalSeconds;
+            isRecentlyActive = fileAge < WatchdogInactivityTimeoutSeconds;
+
+            if (!isRecentlyActive) return (false, false);
+
+            string? lastLine = null;
+            foreach (var line in File.ReadLines(eventsFile))
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                    lastLine = line;
+            }
+            if (lastLine == null) return (isRecentlyActive, false);
+
+            using var doc = JsonDocument.Parse(lastLine);
+            var type = doc.RootElement.GetProperty("type").GetString();
+            var hadToolActivity = type is "tool.execution_start" or "tool.execution_progress";
+
+            return (isRecentlyActive, hadToolActivity);
+        }
+        catch { return (isRecentlyActive, false); }
+    }
+
+    /// <summary>
     /// Get the last tool name and assistant message from events.jsonl for status display
     /// </summary>
     private (string? lastTool, string? lastContent) GetLastSessionActivity(string sessionId)

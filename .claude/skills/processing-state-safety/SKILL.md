@@ -39,6 +39,14 @@ Every code path that sets `IsProcessing = false` MUST also:
 | 7 | SendAsync initial failure | CopilotService.cs | UI | Prompt send failed |
 | 8 | Bridge OnTurnEnd | Bridge.cs | Background → InvokeOnUI | Remote mode turn complete |
 
+## Content Persistence Safety
+
+### Turn-End Flush
+`FlushCurrentResponse` is called on `AssistantTurnEndEvent` to persist accumulated response text at each sub-turn boundary. Without this, response content between `assistant.turn_end` and `session.idle` is lost if the app restarts (the ReviewPRs bug — response content was lost on app restart).
+
+### Dedup Guard on Resume
+`FlushCurrentResponse` includes a dedup check: if the last non-tool assistant message in History has identical content, it skips the add and just clears `CurrentResponse`. This prevents duplicates when SDK replays events after session resume.
+
 ## 8 Invariants
 
 ### INV-1: Complete state cleanup
@@ -73,7 +81,7 @@ Clearing guarded on `!hasActiveTool && !HasUsedToolsThisTurn`.
 `HandleComplete` is already on UI thread. `InvokeAsync` defers execution
 causing stale renders.
 
-## Top 3 Recurring Mistakes
+## Top 4 Recurring Mistakes
 
 1. **Incomplete cleanup** — modifying one IsProcessing path without
    updating ALL fields that must be cleared simultaneously.
@@ -81,6 +89,10 @@ causing stale renders.
    in several paths; always check `HasUsedToolsThisTurn` too.
 3. **Background thread mutations** — mutating IsProcessing or related
    state on SDK event threads instead of marshaling to UI thread.
+4. **Missing content flush on turn boundaries** — `FlushCurrentResponse`
+   must be called at every point where accumulated text could be lost
+   (turn_end, tool_start, abort, error, watchdog). The turn_end call
+   was missing until PR #224, causing response loss on app restart.
 
 ## Regression History
 

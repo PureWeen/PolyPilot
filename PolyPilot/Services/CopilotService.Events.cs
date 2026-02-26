@@ -407,6 +407,11 @@ public partial class CopilotService
                 }
                 Invoke(() =>
                 {
+                    // Flush any accumulated assistant text to history/DB at end of each sub-turn.
+                    // Without this, content in CurrentResponse is lost if the app restarts between
+                    // turn_end and session.idle (which triggers CompleteResponse).
+                    // Must run on UI thread to avoid racing with History list reads.
+                    FlushCurrentResponse(state);
                     OnTurnEnd?.Invoke(sessionName);
                     OnActivity?.Invoke(sessionName, "");
                 });
@@ -650,6 +655,18 @@ public partial class CopilotService
     {
         var text = state.CurrentResponse.ToString();
         if (string.IsNullOrWhiteSpace(text)) return;
+        
+        // Dedup guard: if this exact text was already flushed (e.g., SDK replayed events
+        // after resume and content was re-appended to CurrentResponse), don't duplicate.
+        var lastAssistant = state.Info.History.LastOrDefault(m => 
+            m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
+        if (lastAssistant?.Content == text)
+        {
+            Debug($"[DEDUP] FlushCurrentResponse skipped duplicate content ({text.Length} chars) for session '{state.Info.Name}'");
+            state.CurrentResponse.Clear();
+            state.HasReceivedDeltasThisTurn = false;
+            return;
+        }
         
         var msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
         state.Info.History.Add(msg);

@@ -159,7 +159,7 @@ When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in
 5. `ToolExecutionStartEvent` → tool activity starts, sets `ProcessingPhase=3`, increments `ToolCallCount` on complete
 6. `ToolExecutionCompleteEvent` → tool done, increments `ToolCallCount`
 7. `AssistantIntentEvent` → intent/plan updates
-8. `AssistantTurnEndEvent` → end of a sub-turn, tool loop continues
+8. `AssistantTurnEndEvent` → end of a sub-turn, tool loop continues. `FlushCurrentResponse` persists accumulated text before the next sub-turn.
 9. `SessionIdleEvent` → turn complete, response finalized
 
 ### Processing Status Indicator
@@ -173,18 +173,24 @@ All three are reset in `SendPromptAsync` (new turn) and cleared in `CompleteResp
 The UI shows: "Sending…" → "Server connected…" → "Thinking…" → "Working · Xm Xs · N tool calls…".
 
 ### Abort Behavior
-`AbortSessionAsync` must clear ALL processing state — see `.claude/skills/processing-state-safety/SKILL.md` for the full cleanup checklist and the 7 paths that clear `IsProcessing`.
+`AbortSessionAsync` must clear ALL processing state — see `.claude/skills/processing-state-safety/SKILL.md` for the full cleanup checklist and the 8 paths that clear `IsProcessing`.
 
 ### ⚠️ IsProcessing Cleanup Invariant
-**CRITICAL**: Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (7 PRs, 16 fix/regression cycles). **Read `.claude/skills/processing-state-safety/SKILL.md` before modifying ANY processing path.** There are 8 such paths across CopilotService.cs, Events.cs, and Bridge.cs.
+**CRITICAL**: Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (7 PRs of fix/regression cycles). **Read `.claude/skills/processing-state-safety/SKILL.md` before modifying ANY processing path.** There are 8 such paths across CopilotService.cs, Events.cs, and Bridge.cs.
+
+### Content Persistence
+`FlushCurrentResponse` is also called on `AssistantTurnEndEvent` to persist accumulated response text at each sub-turn boundary. This prevents content loss if the app restarts between `turn_end` and `session.idle` (e.g., "zero-idle sessions" where the SDK never emits `session.idle`). The flush includes a dedup guard to prevent duplicate messages from event replay on resume.
 
 ### Processing Watchdog
-The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has two timeout tiers:
+The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has three timeout tiers:
+- **30 seconds** (resume quiescence) — for resumed sessions with zero SDK events since restart. Assumes the turn already finished before the restart. **Bypassed** when the events file shows recent activity (< 120s old) — in that case, the session was genuinely active and gets the longer timeout.
 - **120 seconds** (inactivity timeout) — for sessions with no tool activity
 - **600 seconds** (tool execution timeout) — used when ANY of these are true:
   - A tool call is actively running (`ActiveToolCallCount > 0`)
   - The session was resumed mid-turn after app restart (`IsResumed`)
   - Tools have been used this turn (`HasUsedToolsThisTurn`) — even between tool rounds when the model is thinking
+
+Note: Some sessions never receive `session.idle` events (SDK/CLI bug). In these "zero-idle" cases, `IsProcessing` is only cleared by the watchdog or user abort. The turn_end flush (see Content Persistence above) ensures response content is not lost.
 
 When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message.
 
