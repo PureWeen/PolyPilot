@@ -1663,6 +1663,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (Interlocked.CompareExchange(ref state.SendingFlag, 1, 0) != 0)
             throw new InvalidOperationException("Session is already processing a request.");
 
+        long myGeneration = 0; // will be set right after the generation increment inside try
+
         try
         {
         state.Info.IsProcessing = true;
@@ -1670,6 +1672,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0; // Sending
         Interlocked.Increment(ref state.ProcessingGeneration);
+        // Capture the generation we just incremented to. The catch block uses this to
+        // verify we still own the lock before releasing it — prevents a steer abort
+        // (which clears SendingFlag=0 and starts a new turn with a higher generation)
+        // from having its lock clobbered when the old turn's TaskCanceledException surfaces.
+        myGeneration = Interlocked.Read(ref state.ProcessingGeneration);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName); // Cache for watchdog (UI thread safe)
@@ -1828,8 +1835,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
         catch
         {
-            // Reset atomic send flag on any exception so the session isn't permanently locked
-            Interlocked.Exchange(ref state.SendingFlag, 0);
+            // Only release the send lock if we still own this generation.
+            // If a steer abort ran between our catch and here, it already reset
+            // SendingFlag=0 and incremented the generation for the new turn — we
+            // must not clobber that turn's lock.
+            if (Interlocked.Read(ref state.ProcessingGeneration) == myGeneration)
+                Interlocked.Exchange(ref state.SendingFlag, 0);
             throw;
         }
     }
@@ -1915,11 +1926,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Abort the current turn (preserves partial response marked as interrupted), then start a new one
         await AbortSessionAsync(sessionName, markAsInterrupted: true);
         Debug($"[STEER] '{sessionName}' steering with new message (len={steeringMessage.Length})");
-        _ = SendPromptAsync(sessionName, steeringMessage, imagePaths, agentMode: agentMode).ContinueWith(t =>
-        {
-            if (t.IsFaulted)
-                Debug($"[STEER] '{sessionName}' steering send failed: {t.Exception?.InnerException?.Message}");
-        });
+        await SendPromptAsync(sessionName, steeringMessage, imagePaths, agentMode: agentMode);
     }
 
     public void EnqueueMessage(string sessionName, string prompt, List<string>? imagePaths = null, string? agentMode = null)

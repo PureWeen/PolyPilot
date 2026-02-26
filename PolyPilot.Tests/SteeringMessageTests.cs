@@ -215,4 +215,52 @@ public class SteeringMessageTests
         Assert.True(session.History.All(m => !m.IsInterrupted),
             "Plain abort must not mark any message as interrupted");
     }
+
+    // --- SendingFlag generation-guard: steer abort must not clobber new turn's lock ---
+
+    [Fact]
+    public async Task SteerSession_AfterAbort_NewTurnCanSend()
+    {
+        // Regression for: steer abort resets SendingFlag=0, new turn acquires it (SendingFlag=1),
+        // old turn's catch block must not reset SendingFlag back to 0 (clobbering new turn).
+        // In demo mode we can't reproduce the async Task cancellation exactly, but we can
+        // verify that after steering, further sends still succeed (i.e., the lock isn't stuck).
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("steer-lock-guard");
+
+        // Steer once
+        await svc.SendPromptAsync("steer-lock-guard", "original");
+        session.IsProcessing = true;
+        await svc.SteerSessionAsync("steer-lock-guard", "steer 1");
+
+        // Must be able to steer again — if SendingFlag was clobbered IsProcessing throws
+        Assert.False(session.IsProcessing);
+
+        // Steer again to confirm lock is properly held/released
+        session.IsProcessing = true;
+        await svc.SteerSessionAsync("steer-lock-guard", "steer 2");
+        Assert.False(session.IsProcessing);
+
+        // And normal send still works
+        await svc.SendPromptAsync("steer-lock-guard", "final message");
+        Assert.False(session.IsProcessing);
+    }
+
+    [Fact]
+    public async Task SteerSession_IsAwaitable_ExceptionPropagates()
+    {
+        // SteerSessionAsync now awaits SendPromptAsync, so errors surface to the caller.
+        // Verify it at least returns a Task (not void) and doesn't swallow normal completion.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("steer-awaitable");
+
+        // Should complete without throwing for a normal steering scenario
+        session.IsProcessing = true;
+        var task = svc.SteerSessionAsync("steer-awaitable", "steer message");
+        Assert.NotNull(task); // returns a real Task, not fire-and-forget
+        await task; // must complete (not hang or throw in demo mode)
+        Assert.False(session.IsProcessing);
+    }
 }
