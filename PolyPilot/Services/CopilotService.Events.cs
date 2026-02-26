@@ -1323,8 +1323,11 @@ public partial class CopilotService
                 // Safety net: check absolute max processing time regardless of event activity.
                 // This catches scenarios where non-progress events (e.g., repeated SessionUsageInfoEvent
                 // with FailedDelegation) keep arriving without any terminal event.
-                var totalProcessingSeconds = state.Info.ProcessingStartedAt.HasValue
-                    ? (DateTime.UtcNow - state.Info.ProcessingStartedAt.Value).TotalSeconds
+                // Snapshot once to avoid TOCTOU: if CompleteResponse clears ProcessingStartedAt
+                // between .HasValue and .Value, the second read would throw InvalidOperationException.
+                var startedAt = state.Info.ProcessingStartedAt;
+                var totalProcessingSeconds = startedAt.HasValue
+                    ? (DateTime.UtcNow - startedAt.Value).TotalSeconds
                     : 0;
                 var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds;
 
