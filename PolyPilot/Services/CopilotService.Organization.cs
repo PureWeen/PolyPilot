@@ -1706,6 +1706,8 @@ public partial class CopilotService
         }
 
         var workerNames = members.Where(m => m != orchestratorName).ToList();
+        // Tracks workers that have successfully completed at least once across all iterations.
+        // Access is sequential (single async flow, no concurrent modification).
         var dispatchedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         try
@@ -1786,9 +1788,9 @@ public partial class CopilotService
             var workerTasks = assignments.Select(a => ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, ct));
             var results = await Task.WhenAll(workerTasks);
 
-            // Track which workers have been dispatched across all iterations
-            foreach (var a in assignments)
-                dispatchedWorkers.Add(a.WorkerName);
+            // Track only workers that succeeded across all iterations
+            foreach (var r in results.Where(r => r.Success))
+                dispatchedWorkers.Add(r.WorkerName);
 
             // Phase 4: Synthesize + Evaluate
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, iterDetail));
@@ -1824,7 +1826,8 @@ public partial class CopilotService
                     AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.BuildCompletionSummary()} (score: {score:F1})");
                     break;
                 }
-                else if (!allWorkersDispatched)
+
+                if (!allWorkersDispatched)
                 {
                     var missing = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
                     Debug($"Reflection: overriding completion — workers not yet dispatched: {string.Join(", ", missing)}");
@@ -1832,10 +1835,12 @@ public partial class CopilotService
                         "Dispatch to the remaining workers before completing.";
                     AddOrchestratorSystemMessage(orchestratorName,
                         $"🔄 Overriding completion — {string.Join(", ", missing)} haven't participated yet.");
-                    continue;
+                }
+                else
+                {
+                    reflectState.LastEvaluation = rationale;
                 }
 
-                reflectState.LastEvaluation = rationale;
                 if (trend == Models.QualityTrend.Degrading)
                     reflectState.PendingAdjustments.Add("📉 Quality degrading — consider changing worker models or refining the goal.");
             }
@@ -1853,7 +1858,8 @@ public partial class CopilotService
                     AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.BuildCompletionSummary()}");
                     break;
                 }
-                else if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase)
+
+                if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase)
                     && !allWorkersDispatched)
                 {
                     // Override premature completion — not all workers have participated
@@ -1865,16 +1871,17 @@ public partial class CopilotService
                         $"🔄 Overriding completion — {string.Join(", ", missing)} haven't participated yet.");
                     reflectState.RecordEvaluation(reflectState.CurrentIteration, 0.3,
                         reflectState.LastEvaluation, GetEffectiveModel(orchestratorName));
-                    continue;
                 }
+                else
+                {
+                    // Extract evaluation for next iteration
+                    reflectState.LastEvaluation = ExtractIterationEvaluation(synthesisResponse);
 
-                // Extract evaluation for next iteration
-                reflectState.LastEvaluation = ExtractIterationEvaluation(synthesisResponse);
-
-                // Record a self-eval score (estimated from sentinel presence)
-                var selfScore = synthesisResponse.Contains("[[NEEDS_ITERATION]]", StringComparison.OrdinalIgnoreCase) ? 0.4 : 0.7;
-                reflectState.RecordEvaluation(reflectState.CurrentIteration, selfScore,
-                    reflectState.LastEvaluation ?? "", GetEffectiveModel(orchestratorName));
+                    // Record a self-eval score (estimated from sentinel presence)
+                    var selfScore = synthesisResponse.Contains("[[NEEDS_ITERATION]]", StringComparison.OrdinalIgnoreCase) ? 0.4 : 0.7;
+                    reflectState.RecordEvaluation(reflectState.CurrentIteration, selfScore,
+                        reflectState.LastEvaluation ?? "", GetEffectiveModel(orchestratorName));
+                }
             }
 
             // Auto-adjustment: analyze worker results and suggest/apply changes
