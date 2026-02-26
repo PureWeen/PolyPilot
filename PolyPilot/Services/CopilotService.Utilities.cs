@@ -158,7 +158,7 @@ public partial class CopilotService
         {
             var lastWrite = File.GetLastWriteTimeUtc(eventsFile);
             var fileAge = (DateTime.UtcNow - lastWrite).TotalSeconds;
-            isRecentlyActive = fileAge < WatchdogInactivityTimeoutSeconds;
+            isRecentlyActive = fileAge < WatchdogToolExecutionTimeoutSeconds;
 
             if (!isRecentlyActive) return (false, false);
 
