@@ -1569,4 +1569,45 @@ public class MultiAgentRegressionTests
     }
 
     #endregion
+
+    #region Bug #7: FlushedResponse — TurnEnd flush clears CurrentResponse before CompleteResponse reads it
+
+    [Fact]
+    public void ParseTaskAssignments_WithFlushedResponse_ReturnsAssignments()
+    {
+        // Regression: when FlushCurrentResponse runs on TurnEnd before CompleteResponse
+        // on SessionIdle, the orchestrator plan text was lost and ParseTaskAssignments
+        // returned 0 assignments — breaking worker delegation.
+        var workers = new List<string> { "squad-worker-1", "squad-worker-2" };
+        var plan = """
+            I'll assign review tasks to each worker.
+
+            @worker:squad-worker-1
+            Review the authentication module for security issues.
+            @end
+
+            @worker:squad-worker-2
+            Review the database queries for SQL injection.
+            @end
+            """;
+
+        var assignments = CopilotService.ParseTaskAssignments(plan, workers);
+        Assert.Equal(2, assignments.Count);
+        Assert.Equal("squad-worker-1", assignments[0].WorkerName);
+        Assert.Contains("authentication", assignments[0].Task);
+        Assert.Equal("squad-worker-2", assignments[1].WorkerName);
+        Assert.Contains("SQL injection", assignments[1].Task);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_EmptyResponse_ReturnsNoAssignments()
+    {
+        // Documents the root cause: when plan response is empty string,
+        // no worker assignments can be parsed.
+        var workers = new List<string> { "squad-worker-1" };
+        var assignments = CopilotService.ParseTaskAssignments("", workers);
+        Assert.Empty(assignments);
+    }
+
+    #endregion
 }

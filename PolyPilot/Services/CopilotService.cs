@@ -231,6 +231,10 @@ public partial class CopilotService : IAsyncDisposable
         public required AgentSessionInfo Info { get; init; }
         public TaskCompletionSource<string>? ResponseCompletion { get; set; }
         public StringBuilder CurrentResponse { get; } = new();
+        /// <summary>Accumulates text that FlushCurrentResponse moved to history mid-turn.
+        /// CompleteResponse combines this with CurrentResponse for the TCS result so
+        /// orchestrator dispatch gets the full response text.</summary>
+        public StringBuilder FlushedResponse { get; } = new();
         public bool HasReceivedDeltasThisTurn { get; set; }
         public bool HasReceivedEventsSinceResume;
         public string? LastMessageId { get; set; }
@@ -1688,6 +1692,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         state.CurrentResponse.Clear();
+        state.FlushedResponse.Clear();
         StartProcessingWatchdog(state, sessionName);
 
         if (!skipHistoryMessage)
@@ -1782,6 +1787,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Interlocked.Increment(ref state.ProcessingGeneration);
                     state.Info.IsProcessing = true;
                     state.CurrentResponse.Clear();
+                    state.FlushedResponse.Clear();
                     Debug($"[RECONNECT] '{sessionName}' reset processing state: gen={Interlocked.Read(ref state.ProcessingGeneration)}");
                     
                     // Start fresh watchdog for the new connection
@@ -1911,6 +1917,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         _queuedImagePaths.TryRemove(sessionName, out _);
         _queuedAgentModes.TryRemove(sessionName, out _);
         CancelProcessingWatchdog(state);
+        state.FlushedResponse.Clear();
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();
     }

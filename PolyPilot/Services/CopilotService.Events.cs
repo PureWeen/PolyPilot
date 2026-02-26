@@ -543,6 +543,7 @@ public partial class CopilotService
                 InvokeOnUI(() =>
                 {
                     OnError?.Invoke(sessionName, errMsg);
+                    state.FlushedResponse.Clear();
                     state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                     // Flush any accumulated partial response before clearing processing state
                     FlushCurrentResponse(state);
@@ -678,6 +679,13 @@ public partial class CopilotService
         // Track code suggestions from accumulated response segment
         _usageStats?.TrackCodeSuggestion(text);
         
+        // Accumulate flushed text so CompleteResponse can include it in the TCS result.
+        // Without this, orchestrator dispatch gets "" because TurnEnd flush clears
+        // CurrentResponse before SessionIdle fires CompleteResponse.
+        if (state.FlushedResponse.Length > 0)
+            state.FlushedResponse.Append("\n\n");
+        state.FlushedResponse.Append(text);
+        
         state.CurrentResponse.Clear();
         state.HasReceivedDeltasThisTurn = false;
     }
@@ -723,7 +731,7 @@ public partial class CopilotService
         }
         
         Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse executing " +
-              $"(responseLen={state.CurrentResponse.Length}, thread={Environment.CurrentManagedThreadId})");
+              $"(responseLen={state.CurrentResponse.Length}, flushedLen={state.FlushedResponse.Length}, thread={Environment.CurrentManagedThreadId})");
         
         CancelProcessingWatchdog(state);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
@@ -746,12 +754,22 @@ public partial class CopilotService
             // Track code suggestions from final response segment
             _usageStats?.TrackCodeSuggestion(response);
         }
+        // Build full turn response for TCS: include text flushed mid-turn (e.g., on TurnEnd)
+        // plus any remaining text in CurrentResponse. Without this, orchestrator dispatch
+        // gets "" because FlushCurrentResponse on TurnEnd clears CurrentResponse before
+        // SessionIdle fires CompleteResponse.
+        var fullResponse = state.FlushedResponse.Length > 0
+            ? (string.IsNullOrEmpty(response)
+                ? state.FlushedResponse.ToString()
+                : state.FlushedResponse + "\n\n" + response)
+            : response;
         // Track one message per completed turn regardless of trailing text
         _usageStats?.TrackMessage();
         // Clear IsProcessing BEFORE completing the TCS — if the continuation runs
         // synchronously (e.g., in orchestrator reflection loops), the next SendPromptAsync
         // call must see IsProcessing=false or it throws "already processing".
         state.CurrentResponse.Clear();
+        state.FlushedResponse.Clear();
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false; // After first successful completion, use normal watchdog timeouts
         Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
@@ -759,12 +777,12 @@ public partial class CopilotService
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0;
         state.Info.LastUpdatedAt = DateTime.Now;
-        state.ResponseCompletion?.TrySetResult(response);
+        state.ResponseCompletion?.TrySetResult(fullResponse);
         
         // Fire completion notification BEFORE OnStateChanged — this ensures
         // HandleComplete populates completedSessions before RefreshState checks the
         // throttle (completedSessions.Count > 0 bypasses throttle).
-        var summary = response.Length > 100 ? response[..100] + "..." : response;
+        var summary = fullResponse.Length > 0 ? (fullResponse.Length > 100 ? fullResponse[..100] + "..." : fullResponse) : "";
         OnSessionComplete?.Invoke(state.Info.Name, summary);
         OnStateChanged?.Invoke();
 
@@ -1346,7 +1364,9 @@ public partial class CopilotService
                         state.Info.ProcessingPhase = 0;
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
-                        state.ResponseCompletion?.TrySetResult("");
+                        var watchdogResponse = state.FlushedResponse.ToString();
+                        state.FlushedResponse.Clear();
+                        state.ResponseCompletion?.TrySetResult(watchdogResponse);
                         OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutDisplay}.");
                         OnStateChanged?.Invoke();
                     });
