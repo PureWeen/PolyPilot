@@ -172,6 +172,17 @@ dotnet build -f net10.0-windows10.0.19041.0
 dotnet build -f net10.0-android -t:Install
 ```
 
+## 🧪 Testing
+
+PolyPilot has two layers of testing:
+
+- **1,200+ unit tests** (xUnit, .NET 10) — deterministic tests covering models, services, multi-agent orchestration, persistence, and parsing. Run with `cd PolyPilot.Tests && dotnet test`.
+- **Executable UI scenarios** (JSON + MauiDevFlow CDP) — end-to-end flows validated against a running app instance. 25+ multi-agent scenarios (reflection loops, Squad discovery, group lifecycle) and 10+ mode-switch scenarios.
+
+The test project shares source files with the main MAUI project via `<Compile Include>` links, so tests run on any machine without platform SDKs. `ScenarioReferenceTests.cs` cross-references every CDP scenario with its deterministic unit-test equivalent.
+
+See [`docs/testing.md`](docs/testing.md) for the full testing guide, scenario format, and how to add new tests.
+
 ## 📱 Remote Access via DevTunnel
 
 Mobile devices connect to your desktop over [Azure DevTunnels](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/) — a secure tunnel to control your agent fleet from anywhere.
