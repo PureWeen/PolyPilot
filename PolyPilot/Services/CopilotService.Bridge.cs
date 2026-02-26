@@ -217,11 +217,19 @@ public partial class CopilotService
             });
         };
         _bridgeClient.OnSessionComplete += (s, sum) => InvokeOnUI(() => OnSessionComplete?.Invoke(s, sum));
-        _bridgeClient.OnError += (s, e) => InvokeOnUI(() => OnError?.Invoke(s, e));
+        _bridgeClient.OnError += (s, e) => InvokeOnUI(() =>
+        {
+            // Ignore errors for sessions already deleted locally (e.g., SDK error during dispose)
+            if (!string.IsNullOrEmpty(s) && !_sessions.ContainsKey(s)) return;
+            OnError?.Invoke(s, e);
+        });
         _bridgeClient.OnOrganizationStateReceived += (org) =>
         {
-            Organization = org;
-            InvokeOnUI(() => OnStateChanged?.Invoke());
+            InvokeOnUI(() =>
+            {
+                Organization = org;
+                OnStateChanged?.Invoke();
+            });
         };
         _bridgeClient.OnAttentionNeeded += (payload) =>
         {
@@ -303,6 +311,11 @@ public partial class CopilotService
         // Add/update sessions from remote
         foreach (var rs in remoteSessions)
         {
+            // Don't re-add sessions that were just closed locally — the server broadcast
+            // may still include them because the close hasn't propagated yet
+            if (_recentlyClosedRemoteSessions.ContainsKey(rs.Name))
+                continue;
+
             if (!_sessions.ContainsKey(rs.Name) && !_pendingRemoteRenames.ContainsKey(rs.Name))
             {
                 Debug($"SyncRemoteSessions: Adding session '{rs.Name}'");
@@ -351,6 +364,12 @@ public partial class CopilotService
         // Clear pending flag for sessions confirmed by server
         foreach (var rs in remoteSessions)
             _pendingRemoteSessions.TryRemove(rs.Name, out _);
+        // Clear recently-closed guard when the server confirms the session is gone
+        foreach (var closedName in _recentlyClosedRemoteSessions.Keys.ToList())
+        {
+            if (!remoteNames.Contains(closedName))
+                _recentlyClosedRemoteSessions.TryRemove(closedName, out _);
+        }
         // Clear pending renames when old name disappears from server (rename confirmed).
         // If rename fails, old name stays on server and the 30s TTL cleanup handles it.
         foreach (var oldName in _pendingRemoteRenames.Keys.ToList())
@@ -477,10 +496,10 @@ public partial class CopilotService
         return await _bridgeClient.CreateWorktreeAsync(repoId, branchName, prNumber, ct);
     }
 
-    public async Task RemoveWorktreeViaBridgeAsync(string worktreeId, CancellationToken ct = default)
+    public async Task RemoveWorktreeViaBridgeAsync(string worktreeId, bool deleteBranch = false, CancellationToken ct = default)
     {
         if (!IsRemoteMode)
             throw new InvalidOperationException("RemoveWorktreeViaBridgeAsync is only for remote mode");
-        await _bridgeClient.RemoveWorktreeAsync(worktreeId, ct);
+        await _bridgeClient.RemoveWorktreeAsync(worktreeId, deleteBranch, ct);
     }
 }

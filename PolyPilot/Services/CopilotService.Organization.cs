@@ -144,7 +144,7 @@ public partial class CopilotService
         _saveOrgDebounce = new Timer(_ => WriteOrgFile(json), null, 2000, Timeout.Infinite);
     }
 
-    private void FlushSaveOrganization()
+    internal void FlushSaveOrganization()
     {
         _saveOrgDebounce?.Dispose();
         _saveOrgDebounce = null;
@@ -454,13 +454,23 @@ public partial class CopilotService
             // Snapshot worktree IDs — removal must be sequential (not parallel)
             // because RepoManager._state.Worktrees is a plain List<T>.
             var wtIdsSnapshot = worktreeIds.ToList();
+            var isRemote = IsRemoteMode;
             _ = Task.Run(async () =>
             {
                 foreach (var name in sessionNames)
-                    try { await CloseSessionAsync(name); } catch (Exception ex) { Debug($"DeleteGroup: failed to close '{name}': {ex.Message}"); }
+                    try { await CloseSessionCoreAsync(name, notifyUi: false); } catch (Exception ex) { Debug($"DeleteGroup: failed to close '{name}': {ex.Message}"); }
                 // Clean up worktrees sequentially after all sessions are closed
                 foreach (var wtId in wtIdsSnapshot)
-                    try { await _repoManager.RemoveWorktreeAsync(wtId, deleteBranch: true); } catch (Exception ex) { Debug($"DeleteGroup: failed to remove worktree '{wtId}': {ex.Message}"); }
+                {
+                    try
+                    {
+                        if (isRemote)
+                            await _bridgeClient.RemoveWorktreeAsync(wtId, deleteBranch: true);
+                        else
+                            await _repoManager.RemoveWorktreeAsync(wtId, deleteBranch: true);
+                    }
+                    catch (Exception ex) { Debug($"DeleteGroup: failed to remove worktree '{wtId}': {ex.Message}"); }
+                }
             });
         }
         else
@@ -1397,8 +1407,8 @@ public partial class CopilotService
         var orchWorkDir = workingDirectory;
         var orchWtId = worktreeId;
 
-        // Pre-fetch once to avoid parallel git lock contention
-        if (repoId != null && strategy != WorktreeStrategy.Shared)
+        // Pre-fetch once to avoid parallel git lock contention (local mode only; server handles fetch in remote)
+        if (repoId != null && strategy != WorktreeStrategy.Shared && !IsRemoteMode)
         {
             try { await _repoManager.FetchAsync(repoId, ct); }
             catch (Exception ex) { Debug($"Pre-fetch failed (continuing): {ex.Message}"); }
@@ -1409,8 +1419,8 @@ public partial class CopilotService
         {
             try
             {
-                await _repoManager.FetchAsync(repoId, ct);
-                var sharedWt = await _repoManager.CreateWorktreeAsync(repoId, $"{branchPrefix}-shared-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                if (!IsRemoteMode) await _repoManager.FetchAsync(repoId, ct);
+                var sharedWt = await CreateWorktreeLocalOrRemoteAsync(repoId, $"{branchPrefix}-shared-{Guid.NewGuid().ToString()[..4]}", ct);
                 orchWorkDir = sharedWt.Path;
                 orchWtId = sharedWt.Id;
                 group.WorktreeId = orchWtId;
@@ -1426,7 +1436,7 @@ public partial class CopilotService
         {
             try
             {
-                var orchWt = await _repoManager.CreateWorktreeAsync(repoId, $"{branchPrefix}-orchestrator-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                var orchWt = await CreateWorktreeLocalOrRemoteAsync(repoId, $"{branchPrefix}-orchestrator-{Guid.NewGuid().ToString()[..4]}", ct);
                 orchWorkDir = orchWt.Path;
                 orchWtId = orchWt.Id;
                 group.WorktreeId = orchWtId;
@@ -1447,7 +1457,7 @@ public partial class CopilotService
             {
                 try
                 {
-                    var wt = await _repoManager.CreateWorktreeAsync(repoId, $"{branchPrefix}-worker-{i + 1}-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                    var wt = await CreateWorktreeLocalOrRemoteAsync(repoId, $"{branchPrefix}-worker-{i + 1}-{Guid.NewGuid().ToString()[..4]}", ct);
                     workerWorkDirs[i] = wt.Path;
                     workerWtIds[i] = wt.Id;
                     group.CreatedWorktreeIds.Add(wt.Id);
@@ -1462,7 +1472,7 @@ public partial class CopilotService
         {
             try
             {
-                var sharedWorkerWt = await _repoManager.CreateWorktreeAsync(repoId, $"{branchPrefix}-workers-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                var sharedWorkerWt = await CreateWorktreeLocalOrRemoteAsync(repoId, $"{branchPrefix}-workers-{Guid.NewGuid().ToString()[..4]}", ct);
                 group.CreatedWorktreeIds.Add(sharedWorkerWt.Id);
                 for (int i = 0; i < preset.WorkerModels.Length; i++)
                 {
@@ -1551,6 +1561,16 @@ public partial class CopilotService
         // because they're not in active-sessions.json yet (still waiting on 2s debounce).
         FlushSaveActiveSessionsToDisk();
         OnStateChanged?.Invoke();
+
+        // In remote mode, push the organization to the server so it knows about the
+        // multi-agent group structure. Without this, the server puts all sessions in the
+        // default group and overwrites the mobile's local organization on the next broadcast.
+        if (IsRemoteMode)
+        {
+            try { await _bridgeClient.PushOrganizationAsync(Organization, ct); }
+            catch (Exception ex) { Debug($"Failed to push organization to server: {ex.Message}"); }
+        }
+
         return group;
     }
 
@@ -2110,6 +2130,23 @@ public partial class CopilotService
 
         return Models.UserPresets.SaveGroupAsPreset(PolyPilotBaseDir, name, description, emoji,
             group, members!, GetEffectiveModel, worktreeRoot);
+    }
+
+    /// <summary>
+    /// Creates a worktree via the bridge (remote mode) or locally, returning a uniform (Id, Path) result.
+    /// </summary>
+    private async Task<(string Id, string Path)> CreateWorktreeLocalOrRemoteAsync(string repoId, string branchName, CancellationToken ct)
+    {
+        if (IsRemoteMode)
+        {
+            var result = await _bridgeClient.CreateWorktreeAsync(repoId, branchName, null, ct);
+            return (result.WorktreeId, result.Path);
+        }
+        else
+        {
+            var wt = await _repoManager.CreateWorktreeAsync(repoId, branchName, skipFetch: true, ct: ct);
+            return (wt.Id, wt.Path);
+        }
     }
 
     #endregion

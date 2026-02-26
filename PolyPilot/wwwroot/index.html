@@ -1115,6 +1115,76 @@
                 window.__dashRef.invokeMethodAsync('JsOpenUrlInBackground', href).catch(function(){});
             }
         }, true);
+
+        // Close-session confirmation dialog rendered via JS to avoid Blazor DOM
+        // tracking issues (portaling Blazor-rendered elements to document.body
+        // desynchronizes render batches and crashes the WebView).
+        window.showCloseSessionDialog = function(sessionName, hasWorktree, branchName) {
+            return new Promise(function(resolve) {
+                var overlay = document.createElement('div');
+                overlay.className = 'js-close-dialog-overlay';
+                overlay.onclick = function(e) { if (e.target === overlay) { overlay.remove(); resolve({ Confirmed: false }); } };
+
+                var dialog = document.createElement('div');
+                dialog.className = 'js-close-dialog';
+
+                var title = document.createElement('div');
+                title.className = 'js-close-dialog-title';
+                title.textContent = 'Close "' + sessionName + '"?';
+                dialog.appendChild(title);
+
+                var deleteWt = hasWorktree, deleteBr = hasWorktree;
+
+                if (hasWorktree) {
+                    var opts = document.createElement('div');
+                    opts.className = 'js-close-dialog-options';
+
+                    var wtLabel = document.createElement('label');
+                    wtLabel.className = 'js-close-dialog-option';
+                    var wtCb = document.createElement('input');
+                    wtCb.type = 'checkbox'; wtCb.checked = true;
+                    var wtSpan = document.createElement('span');
+                    wtSpan.textContent = 'Delete worktree' + (branchName ? ' (\u2461 ' + branchName + ')' : '');
+                    wtLabel.appendChild(wtCb); wtLabel.appendChild(wtSpan);
+                    opts.appendChild(wtLabel);
+
+                    var brLabel = document.createElement('label');
+                    brLabel.className = 'js-close-dialog-option';
+                    var brCb = document.createElement('input');
+                    brCb.type = 'checkbox'; brCb.checked = true;
+                    var brSpan = document.createElement('span');
+                    brSpan.textContent = 'Delete branch' + (branchName ? ' (' + branchName + ')' : '');
+                    brLabel.appendChild(brCb); brLabel.appendChild(brSpan);
+                    opts.appendChild(brLabel);
+
+                    wtCb.onchange = function() {
+                        deleteWt = wtCb.checked;
+                        if (!wtCb.checked) { brCb.checked = false; deleteBr = false; brCb.disabled = true; brLabel.style.opacity = '0.5'; }
+                        else { brCb.disabled = false; brLabel.style.opacity = '1'; }
+                    };
+                    brCb.onchange = function() { deleteBr = brCb.checked; };
+
+                    dialog.appendChild(opts);
+                }
+
+                var actions = document.createElement('div');
+                actions.className = 'js-close-dialog-actions';
+                var cancelBtn = document.createElement('button');
+                cancelBtn.className = 'js-close-dialog-cancel';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.onclick = function() { overlay.remove(); resolve({ Confirmed: false }); };
+                var closeBtn = document.createElement('button');
+                closeBtn.className = 'js-close-dialog-btn';
+                closeBtn.textContent = 'Close Session';
+                closeBtn.onclick = function() { overlay.remove(); resolve({ Confirmed: true, DeleteWorktree: deleteWt, DeleteBranch: deleteBr }); };
+                actions.appendChild(cancelBtn);
+                actions.appendChild(closeBtn);
+                dialog.appendChild(actions);
+
+                overlay.appendChild(dialog);
+                document.body.appendChild(overlay);
+            });
+        };
     </script>
 
 </body>
