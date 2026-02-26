@@ -348,6 +348,40 @@ public partial class CopilotService : IAsyncDisposable
         return tcs.Task;
     }
 
+    /// <summary>
+    /// Awaitable version of InvokeOnUI for async operations — runs the async func on the UI thread
+    /// and completes when it finishes. Use for operations like CreateSessionWithWorktreeAsync that
+    /// assume UI thread context for Organization.Sessions mutations.
+    /// </summary>
+    internal Task InvokeOnUIAsync(Func<Task> asyncAction)
+    {
+        if (_syncContext == null)
+        {
+            try { return asyncAction(); }
+            catch (Exception ex)
+            {
+                Debug($"[UI-ERR] InvokeOnUIAsync(Func<Task>) inline threw: {ex}");
+                return Task.FromException(ex);
+            }
+        }
+
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _syncContext.Post(async _ =>
+        {
+            try
+            {
+                await asyncAction();
+                tcs.SetResult();
+            }
+            catch (Exception ex)
+            {
+                Debug($"[UI-ERR] InvokeOnUIAsync(Func<Task>) callback threw: {ex}");
+                tcs.SetException(ex);
+            }
+        }, null);
+        return tcs.Task;
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         if (IsInitialized) return;

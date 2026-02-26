@@ -605,9 +605,9 @@ public class WsBridgeServer : IDisposable
                             await _copilot.InvokeOnUIAsync(() =>
                             {
                                 _copilot.Organization = pushOrg;
+                                _copilot.SaveOrganization();
+                                _copilot.FlushSaveOrganization();
                             });
-                            _copilot.SaveOrganization();
-                            _copilot.FlushSaveOrganization();
                             BroadcastOrganizationState();
                         });
                     }
@@ -785,18 +785,20 @@ public class WsBridgeServer : IDisposable
                             try
                             {
                                 Console.WriteLine($"[WsBridge] Client creating session+worktree for repo '{cswtReq.RepoId}'");
-                                await _copilot.CreateSessionWithWorktreeAsync(
-                                    repoId: cswtReq.RepoId,
-                                    branchName: cswtReq.BranchName,
-                                    prNumber: cswtReq.PrNumber,
-                                    worktreeId: cswtReq.WorktreeId,
-                                    sessionName: cswtReq.SessionName,
-                                    model: cswtReq.Model,
-                                    initialPrompt: cswtReq.InitialPrompt,
-                                    ct: ct);
-                                // Wait for UI thread to finish processing state mutations
-                                // before broadcasting, so clients receive consistent state
-                                await _copilot.InvokeOnUIAsync(() => { });
+                                // Run on UI thread — CreateSessionWithWorktreeAsync calls
+                                // ReconcileOrganization() which mutates Organization.Sessions
+                                await _copilot.InvokeOnUIAsync(async () =>
+                                {
+                                    await _copilot.CreateSessionWithWorktreeAsync(
+                                        repoId: cswtReq.RepoId,
+                                        branchName: cswtReq.BranchName,
+                                        prNumber: cswtReq.PrNumber,
+                                        worktreeId: cswtReq.WorktreeId,
+                                        sessionName: cswtReq.SessionName,
+                                        model: cswtReq.Model,
+                                        initialPrompt: cswtReq.InitialPrompt,
+                                        ct: ct);
+                                });
                                 BroadcastSessionsList();
                                 BroadcastOrganizationState();
                             }
