@@ -100,7 +100,7 @@ public class PlatformHelperTests
         if (!OperatingSystem.IsWindows()) return;
         var (fileName, arguments) = PlatformHelper.GetShellCommand("echo hello");
         Assert.Equal("cmd.exe", fileName);
-        Assert.Equal("/c echo hello", arguments);
+        Assert.Equal("/c \"echo hello\"", arguments);
     }
 
     [Fact]
