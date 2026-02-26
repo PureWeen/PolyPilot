@@ -45,7 +45,7 @@
     border-radius: 8px;
     padding: 0.5rem 0;
     min-width: 220px;
-    max-width: calc(100vw - 2rem);
+    max-width: min(400px, calc(100vw - 2rem));
     max-height: 70vh;
     overflow-y: auto;
     z-index: 200;
