@@ -2414,9 +2414,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Track session close using display name (consistent with TrackSessionStart key)
         _usageStats?.TrackSessionEnd(name);
 
-        if (state.Session is not null)
-            try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
-
         // Clean up auto-created temp directory for empty sessions
         if (state.Info.WorkingDirectory != null)
         {
@@ -2436,12 +2433,26 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             _activeSessionName = _sessions.Keys.FirstOrDefault();
         }
 
+        // Single state change notification — ReconcileOrganization is unnecessary here
+        // because the session was already removed from _sessions above. Calling it would
+        // trigger a second OnStateChanged, causing rapid render batch churn that crashes
+        // Blazor with "r.parentNode.removeChild" on null (render batch ordering race).
         if (notifyUi)
             OnStateChanged?.Invoke();
         if (!IsRemoteMode)
-        {
             SaveActiveSessionsToDisk();
-            ReconcileOrganization();
+
+        // Dispose the SDK session AFTER UI has updated — DisposeAsync talks to the CLI
+        // process and may trigger additional SDK events on background threads. Running it
+        // after the state change prevents render batch collisions.
+        if (state.Session is not null)
+        {
+            var session = state.Session;
+            _ = Task.Run(async () =>
+            {
+                try { await session.DisposeAsync(); }
+                catch { /* session may already be disposed */ }
+            });
         }
         return true;
     }
