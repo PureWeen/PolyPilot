@@ -276,7 +276,7 @@ public partial class CopilotService : IAsyncDisposable
         if (message.StartsWith("[EVT") || message.StartsWith("[IDLE") ||
             message.StartsWith("[COMPLETE") || message.StartsWith("[SEND") ||
             message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
-            message.StartsWith("[DISPATCH") ||
+            message.StartsWith("[DISPATCH") || message.StartsWith("[WATCHDOG") ||
             message.Contains("watchdog"))
         {
             try
@@ -1290,7 +1290,7 @@ public partial class CopilotService : IAsyncDisposable
             // Set phase based on last event so UI shows correct status instead of "Sending"
             var (lastTool, _) = GetLastSessionActivity(sessionId);
             info.ProcessingPhase = !string.IsNullOrEmpty(lastTool) ? 3 : 2; // 3=Working, 2=Thinking
-            info.ProcessingStartedAt = DateTime.Now;
+            info.ProcessingStartedAt = DateTime.UtcNow;
         }
 
         var state = new SessionState

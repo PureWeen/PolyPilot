@@ -197,7 +197,13 @@ public partial class CopilotService
     private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
         Volatile.Write(ref state.HasReceivedEventsSinceResume, true);
-        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+        // Don't reset the watchdog timer for pure metrics/info events (SessionUsageInfoEvent,
+        // AssistantUsageEvent). These are informational only and don't indicate actual turn
+        // progress. If the SDK enters a state where it sends repeated usage info events
+        // without ever completing the turn (e.g., FailedDelegation), the watchdog must still
+        // fire based on lack of real progress events.
+        if (evt is not SessionUsageInfoEvent and not AssistantUsageEvent)
+            Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         var sessionName = state.Info.Name;
         var isCurrentState = _sessions.TryGetValue(sessionName, out var current) && ReferenceEquals(current, state);
 
@@ -1232,6 +1238,10 @@ public partial class CopilotService
     /// finished when the app restarted. Short enough that users don't have to click Stop, long enough
     /// for the SDK to start streaming if the turn is genuinely still active.</summary>
     internal const int WatchdogResumeQuiescenceTimeoutSeconds = 30;
+    /// <summary>Absolute maximum processing time in seconds. Even if events keep arriving,
+    /// no single turn should run longer than this. This is a safety net for scenarios where
+    /// non-progress events (like repeated SessionUsageInfoEvent) keep arriving without a terminal event.</summary>
+    internal const int WatchdogMaxProcessingTimeSeconds = 3600; // 60 minutes
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
@@ -1310,12 +1320,27 @@ public partial class CopilotService
                         ? WatchdogToolExecutionTimeoutSeconds
                         : WatchdogInactivityTimeoutSeconds;
 
-                if (elapsed >= effectiveTimeout)
+                // Safety net: check absolute max processing time regardless of event activity.
+                // This catches scenarios where non-progress events (e.g., repeated SessionUsageInfoEvent
+                // with FailedDelegation) keep arriving without any terminal event.
+                // Snapshot once to avoid TOCTOU: if CompleteResponse clears ProcessingStartedAt
+                // between .HasValue and .Value, the second read would throw InvalidOperationException.
+                var startedAt = state.Info.ProcessingStartedAt;
+                var totalProcessingSeconds = startedAt.HasValue
+                    ? (DateTime.UtcNow - startedAt.Value).TotalSeconds
+                    : 0;
+                var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds;
+
+                if (elapsed >= effectiveTimeout || exceededMaxTime)
                 {
-                    var timeoutDisplay = effectiveTimeout >= 60
-                        ? $"{effectiveTimeout / 60} minute(s)"
-                        : $"{effectiveTimeout} seconds";
-                    Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
+                    var timeoutDisplay = exceededMaxTime
+                        ? $"{WatchdogMaxProcessingTimeSeconds / 60} minute(s) total processing time"
+                        : effectiveTimeout >= 60
+                            ? $"{effectiveTimeout / 60} minute(s)"
+                            : $"{effectiveTimeout} seconds";
+                    Debug(exceededMaxTime
+                        ? $"Session '{sessionName}' watchdog: total processing time {totalProcessingSeconds:F0}s exceeded max {WatchdogMaxProcessingTimeSeconds}s, clearing stuck processing state"
+                        : $"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
                           $"(timeout={effectiveTimeout}s, hasActiveTool={hasActiveTool}, isResumed={state.Info.IsResumed}, hasUsedTools={state.HasUsedToolsThisTurn}, multiAgent={isMultiAgentSession}), clearing stuck processing state");
                     // Capture generation before posting — same guard pattern as CompleteResponse.
                     // Prevents a stale watchdog callback from killing a new turn if the user
@@ -1339,6 +1364,7 @@ public partial class CopilotService
                         state.Info.IsResumed = false;
                         // Flush any accumulated partial response before clearing processing state
                         FlushCurrentResponse(state);
+                        Debug($"[WATCHDOG] '{sessionName}' IsProcessing=false — watchdog timeout after {totalProcessingSeconds:F0}s total, elapsed={elapsed:F0}s, exceededMaxTime={exceededMaxTime}");
                         state.Info.IsProcessing = false;
                         Interlocked.Exchange(ref state.SendingFlag, 0);
                         state.Info.ProcessingStartedAt = null;
