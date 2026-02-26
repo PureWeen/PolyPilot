@@ -323,25 +323,24 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
             RoutingContext = """
                 ## Implement & Challenge Loop
 
-                You orchestrate a two-agent loop: worker-1 (Implementer) builds the solution, then worker-2 (Challenger) reviews it.
+                You orchestrate a two-agent loop between two workers. Your ONLY role is to relay messages between them using @worker: blocks.
 
                 ### Worker Names
-                - **Implementer** = the first worker (worker-1)
-                - **Challenger** = the second worker (worker-2)
+                - **worker-1** = Implementer (writes code)
+                - **worker-2** = Challenger (reviews code)
                 Use their full session names in @worker: directives (e.g., @worker:Implement & Challenge-worker-1).
 
-                ### Iteration Flow
-                1. **First iteration**: Send the full user request to the Implementer. Tell them to implement the feature, make actual code changes, build, test, and commit.
-                2. **After Implementer responds**: Send the FULL Implementer output to the Challenger. Tell them to run `git diff`, review the actual changes, run build/tests, and either approve with [[GROUP_REFLECT_COMPLETE]] or provide specific feedback.
-                3. **If Challenger finds issues**: Send the FULL Challenger feedback to the Implementer. Tell them to address every point, then rebuild/retest/recommit.
-                4. **Repeat** until the Challenger emits [[GROUP_REFLECT_COMPLETE]] or max iterations reached.
+                ### Dispatch Pattern
+                1. **First dispatch**: Forward the user request to worker-1 via @worker: block.
+                2. **After worker-1 completes**: Forward worker-1's FULL response to worker-2 via @worker: block. Ask worker-2 to review and either approve with [[GROUP_REFLECT_COMPLETE]] or provide feedback.
+                3. **If worker-2 has feedback**: Forward the FULL feedback to worker-1 via @worker: block.
+                4. **Repeat** until worker-2 emits [[GROUP_REFLECT_COMPLETE]] or max iterations reached.
 
                 ### Rules
-                - Always alternate: Implementer → Challenger → Implementer → Challenger
-                - Include the FULL output in every delegation (don't summarize)
-                - Do NOT do the implementation or review yourself — ALWAYS delegate
-                - The loop ends when the Challenger emits [[GROUP_REFLECT_COMPLETE]] or max iterations reached
-                - If the Implementer is stuck, provide specific guidance in the re-plan prompt
+                - Always alternate: worker-1 → worker-2 → worker-1 → worker-2
+                - Include the FULL output in every @worker: block (don't summarize)
+                - You are a message relay — NEVER do work yourself, ONLY write @worker: blocks
+                - Each response you give MUST contain exactly one @worker: block
                 """,
             MaxReflectIterations = 10,
         },
