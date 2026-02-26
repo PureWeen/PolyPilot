@@ -1777,7 +1777,7 @@ public class MultiAgentScenarioTests
     {
         // Step 1-2: User sees built-in presets
         var presets = GroupPreset.BuiltIn;
-        Assert.Equal(6, presets.Length);
+        Assert.Equal(2, presets.Length);
 
         // Step 3: User picks "PR Review Squad"
         var prReview = presets.First(p => p.Name == "PR Review Squad");
