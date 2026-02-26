@@ -75,7 +75,7 @@ Groups, pinning, and multiple sort modes (Last Active, Created, A–Z, Manual) l
 Discover and link other PolyPilot instances on your LAN. Start a "Fiesta" to fan out work to linked worker machines via `@mention` routing. Workers are discovered automatically and linked in Settings. Use `@worker-name` in your prompts to dispatch tasks to specific machines.
 
 ### ⌨️ Slash Commands
-Built-in slash commands give you quick control without leaving the chat: `/help`, `/clear`, `/version`, `/compact`, `/new`, `/sessions`, `/rename`, `/diff`, `/status`, `/mcp`.
+Built-in slash commands give you quick control without leaving the chat: `/help`, `/clear`, `/version`, `/compact`, `/new`, `/sessions`, `/rename`, `/diff`, `/status`, `/mcp`, `/plugin`.
 
 ### 🔔 Smart Notifications
 Get notified when agents finish tasks, encounter errors, or need your attention — even when the app is in the background.
