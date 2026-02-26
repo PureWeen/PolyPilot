@@ -72,17 +72,17 @@ public class ConnectionSettings
 
         var trimmed = url.Trim().TrimEnd('/');
 
-        // Already has a recognized scheme — return as-is
-        if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-            || trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-            || trimmed.StartsWith("ws://", StringComparison.OrdinalIgnoreCase)
-            || trimmed.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
+        // Already has any scheme — return as-is (prevents double-scheme like http://ftp://host)
+        if (trimmed.Contains("://"))
             return trimmed;
 
-        // Heuristic: devtunnels and well-known cloud hosts use TLS
-        if (trimmed.Contains(".devtunnels.ms", StringComparison.OrdinalIgnoreCase)
-            || trimmed.Contains(".ngrok", StringComparison.OrdinalIgnoreCase)
-            || trimmed.Contains(".cloudflare", StringComparison.OrdinalIgnoreCase))
+        // Heuristic: known tunnel/proxy hosts always use TLS — match exact suffixes to avoid
+        // false-positives from hostnames that merely contain ".ngrok" or ".cloudflare"
+        if (trimmed.EndsWith(".devtunnels.ms", StringComparison.OrdinalIgnoreCase)
+            || trimmed.EndsWith(".ngrok.io", StringComparison.OrdinalIgnoreCase)
+            || trimmed.EndsWith(".ngrok-free.app", StringComparison.OrdinalIgnoreCase)
+            || trimmed.EndsWith(".ngrok.app", StringComparison.OrdinalIgnoreCase)
+            || trimmed.EndsWith(".trycloudflare.com", StringComparison.OrdinalIgnoreCase))
             return "https://" + trimmed;
 
         // Everything else (bare IP, localhost, LAN hostname) → http
