@@ -346,6 +346,35 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 "You are a creative problem solver. Explore unconventional approaches, challenge assumptions, and propose alternative solutions that others might miss."
             }
         },
+
+        new GroupPreset(
+            "Implement & Challenge", "Implementer builds, challenger reviews — loop until solid",
+            "⚔️", MultiAgentMode.OrchestratorReflect,
+            "claude-opus-4.6", new[] { "claude-sonnet-4.6", "claude-opus-4.6" })
+        {
+            WorkerSystemPrompts = new[]
+            {
+                """You are the Implementer. Your job is to write correct, clean, production-ready code that satisfies the requirements. When you receive feedback from the Challenger, address every point — fix bugs, handle edge cases, and improve the implementation. Show your work: include the actual code changes, not just descriptions. If you disagree with feedback, explain why with evidence.""",
+                """You are the Challenger. Your job is to find real problems in the Implementer's work: bugs, missed edge cases, race conditions, incorrect assumptions, security issues, and logic errors. Be specific — cite exact code, explain the failure scenario, and suggest a fix direction. Do NOT nitpick style or formatting. If the implementation is solid, say so clearly and emit [[GROUP_REFLECT_COMPLETE]].""",
+            },
+            RoutingContext = """
+                ## Implement & Challenge Loop
+
+                You orchestrate a two-agent loop: an Implementer builds the solution, then a Challenger reviews it.
+
+                ### Iteration Flow
+                1. **First iteration**: Send the full user request to @worker:Implementer with "Implement this feature/fix."
+                2. **Subsequent iterations**: Send the Challenger's feedback to @worker:Implementer with "Address this feedback."
+                3. **Every iteration after Implementer responds**: Send the Implementer's output to @worker:Challenger with "Review this implementation. If it's solid, emit [[GROUP_REFLECT_COMPLETE]]."
+
+                ### Rules
+                - Always alternate: Implementer → Challenger → Implementer → Challenger
+                - Include the FULL implementation in the Challenger's prompt (don't summarize)
+                - Include the FULL feedback in the Implementer's prompt (don't summarize)
+                - Do NOT do the implementation or review yourself — always delegate
+                - The loop ends when the Challenger emits [[GROUP_REFLECT_COMPLETE]] or max iterations reached
+                """,
+        },
     };
 }
 
