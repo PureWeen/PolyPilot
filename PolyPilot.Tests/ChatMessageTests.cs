@@ -209,6 +209,27 @@ public class ChatMessageTests
         // The truncated version should be 80 chars + ellipsis, not the full 200
         Assert.DoesNotContain(longPrompt, msg.Content);
     }
+    // --- Multiline system message detection (help output alignment) ---
+
+    [Fact]
+    public void SystemMessage_HelpOutput_IsMultiline()
+    {
+        var helpContent = "**Available commands:**\n" +
+            "- `/help` — Show this help\n" +
+            "- `/clear` — Clear chat history\n" +
+            "- `/new [name]` — Create a new session";
+        var msg = ChatMessage.SystemMessage(helpContent);
+
+        Assert.True(msg.Content.Contains("\n-"), "Help output should be detected as multiline list content");
+    }
+
+    [Fact]
+    public void SystemMessage_ShortMessage_IsNotMultiline()
+    {
+        var msg = ChatMessage.SystemMessage("Session cleared.");
+
+        Assert.False(msg.Content.Contains("\n-"), "Short system messages should not be detected as multiline");
+    }
 }
 
 public class ToolActivityTests
