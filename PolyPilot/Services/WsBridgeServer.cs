@@ -832,20 +832,33 @@ public class WsBridgeServer : IDisposable
         var session = _copilot.GetSession(sessionName);
         if (session == null) return;
 
-        var allMessages = session.History;
-        var totalCount = allMessages.Count;
+        // Take a defensive snapshot — History is a plain List<ChatMessage> that may be
+        // modified concurrently by SDK event handlers on background threads.
+        // ToArray() uses Array.Copy internally so it won't throw InvalidOperationException,
+        // but can hit ArgumentOutOfRangeException if the list resizes during copy.
+        // On failure, skip sending entirely — never send an empty authoritative payload
+        // (that would make the client think the session has no history with no recovery path).
+        ChatMessage[] snapshot;
+        try { snapshot = session.History.ToArray(); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WsBridge] History snapshot failed for '{sessionName}': {ex.Message}");
+            return;
+        }
+
+        var totalCount = snapshot.Length;
         
         // Apply limit — take the most recent N messages
         List<ChatMessage> messagesToSend;
         bool hasMore;
         if (limit.HasValue && limit.Value < totalCount)
         {
-            messagesToSend = allMessages.Skip(totalCount - limit.Value).ToList();
+            messagesToSend = snapshot.Skip(totalCount - limit.Value).ToList();
             hasMore = true;
         }
         else
         {
-            messagesToSend = allMessages.ToList();
+            messagesToSend = snapshot.ToList();
             hasMore = false;
         }
 
