@@ -207,7 +207,28 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         - Include file path and line numbers
         - Note CI status: ✅ passing, ❌ failing (PR-specific), ⚠️ failing (pre-existing)
         - Note if prior review comments were addressed or still outstanding
+        - Assess test coverage: Are there new code paths that lack tests? Suggest specific test cases or scenarios that should be added.
         - End with recommended action: ✅ Approve, ⚠️ Request changes (with specific ask), or 🔴 Do not merge
+
+        ## 5. Fix Process (when told to fix a PR)
+        1. `gh pr checkout <number>` then `git fetch origin main && git rebase origin/main`
+        2. View the file, find the issue, use the edit tool to make minimal changes
+        3. Discover and run the repo's test suite (look for test projects, Makefiles, CI scripts, package.json scripts, etc.)
+        4. Commit with Co-authored-by trailer, push with `--force-with-lease`
+        5. After pushing, do a full re-review (repeat the 5-model dispatch above)
+
+        ## 6. Re-Review Process (when previous findings exist)
+        Include previous findings in each sub-agent prompt and ask them to report:
+        ```
+        ## Previous Findings Status
+        - Finding 1: FIXED / STILL PRESENT / N/A
+        ```
+
+        ## Rules
+        - If workers share a worktree, NEVER checkout a branch during review-only tasks — use `gh pr diff` instead
+        - If each worker has its own isolated worktree, you may freely checkout branches for both review and fix tasks
+        - Always include the FULL diff — never truncate
+        - Use the edit tool for file changes, not sed
         """;
 
     public static readonly GroupPreset[] BuiltIn = new[]
@@ -221,8 +242,66 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
             {
                 WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt,
             },
-            SharedContext = "## Review Standards\n\n- Only flag real issues: bugs, security holes, logic errors, data loss risks, race conditions\n- NEVER comment on style, formatting, naming conventions, or documentation\n- Every finding must include: file path, line number (or range), what's wrong, and why it matters\n- If a PR looks clean, say so — don't invent problems to justify your existence\n- An issue must be flagged by at least 2 of the 5 sub-agent models to be included in the final report (consensus filter)",
-            RoutingContext = "When given a list of PRs to review, assign ONE PR to EACH worker. Distribute PRs round-robin across the available workers. If there are more PRs than workers, assign multiple PRs per worker.\n\nFor each PR assignment, just tell the worker: \"Review PR #<number>\"\n\nThe workers handle everything else — fetching the diff, dispatching multi-model sub-agents, and synthesizing results. Do NOT micromanage the review process.\n\nAfter all workers complete, produce a brief summary table:\n\n| PR | Verdict | Key Issues |\n|----|---------|------------|\n| #194 | ✅ Ready to merge | None |\n| #193 | ⚠️ Needs changes | Race condition in auth handler |\n\nVerdicts: ✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge",
+            SharedContext = """
+                ## Review Standards
+
+                - Only flag real issues: bugs, security holes, logic errors, data loss risks, race conditions
+                - NEVER comment on style, formatting, naming conventions, or documentation
+                - Every finding must include: file path, line number (or range), what's wrong, and why it matters
+                - If a PR looks clean, say so — don't invent problems to justify your existence
+                - An issue must be flagged by at least 2 of the 5 sub-agent models to be included in the final report (consensus filter)
+
+                ## Fix Standards
+
+                - When fixing a PR: checkout, git rebase origin/main, apply minimal fixes, run tests, commit with Co-authored-by trailer, push
+                - After pushing fixes, always do a full re-review (5-model dispatch again)
+                - Include previous findings in re-review prompts so sub-agents can verify fix status
+                - Use --force-with-lease (never --force) when pushing rebased branches
+                - Never git add -A blindly — use git add <specific-files> and check git status first
+
+                ## Operational Lessons
+
+                - Workers reliably complete review-only tasks (fetch diff + dispatch sub-agents)
+                - Workers sometimes fail multi-step fix tasks silently — always verify push landed with git fetch
+                - If a worker's fix task didn't produce a commit after 5+ minutes, re-dispatch with more explicit instructions
+                - Opus workers are more reliable for complex fix+review tasks than Sonnet workers
+                - Always include the FULL diff in sub-agent prompts (truncated diffs cause incorrect findings)
+                """,
+            RoutingContext = """
+                ## Core Rule
+
+                NEVER do the work yourself. Always delegate to a worker. Your role is to assign tasks, track state, synthesize results, and execute merges. The only actions you perform directly are: running `gh pr merge`, verifying pushes with `git fetch`, and producing summary tables. If the user explicitly asks you to handle something yourself, you may — but default to delegation.
+
+                ## Task Assignment
+
+                When given PRs to review, assign ONE PR to EACH worker. Distribute round-robin. If more PRs than workers, assign multiple per worker.
+
+                For review-only tasks:
+                - If workers share a worktree: "Review PR #<number>. Do NOT checkout the branch — use gh pr diff only."
+                - If workers have isolated worktrees: "Review PR #<number>." (they can checkout freely)
+                For fix tasks, tell the worker: "Fix PR #<number>. Checkout, rebase on origin/main, apply fixes, test, push, then re-review."
+
+                Workers handle the multi-model dispatch internally. However, for fix tasks, you MUST give explicit step-by-step instructions.
+
+                ## Orchestrator Responsibilities
+
+                1. Track state: Which PRs each worker reviewed, findings, fix status, merge readiness
+                2. Merge: gh pr merge <N> --squash
+                3. Verify pushes: After a worker claims to have pushed, always run git fetch origin <branch> and check git log to confirm
+                4. Re-dispatch on failure: Workers sometimes fail silently on multi-step tasks. Check for new commits after fix tasks.
+                5. Re-review pattern: When re-reviewing, include previous findings in the prompt so sub-agents can verify what's fixed vs still present
+                6. Worktree safety: If workers share a worktree, only ONE can checkout/push at a time. If workers have isolated worktrees, they can work in parallel.
+
+                ## Summary Table Format
+
+                After workers complete, produce:
+
+                | PR | Verdict | Key Issues |
+                |----|---------|------------|
+                | #N | ✅ Ready to merge | None |
+
+                Verdicts: ✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge
+                """,
             DefaultWorktreeStrategy = WorktreeStrategy.FullyIsolated
         },
 

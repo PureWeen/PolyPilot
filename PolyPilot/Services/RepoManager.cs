@@ -10,12 +10,25 @@ namespace PolyPilot.Services;
 /// </summary>
 public class RepoManager
 {
+    private static string? _baseDirOverride;
     private static string? _reposDir;
     private static string ReposDir => _reposDir ??= GetReposDir();
     private static string? _worktreesDir;
     private static string WorktreesDir => _worktreesDir ??= GetWorktreesDir();
     private static string? _stateFile;
     private static string StateFile => _stateFile ??= GetStateFile();
+
+    /// <summary>
+    /// Redirect all RepoManager paths to a test directory.
+    /// Clears cached paths so they re-resolve from the new base.
+    /// </summary>
+    internal static void SetBaseDirForTesting(string? path)
+    {
+        Volatile.Write(ref _baseDirOverride, path);
+        Volatile.Write(ref _reposDir, null);
+        Volatile.Write(ref _worktreesDir, null);
+        Volatile.Write(ref _stateFile, null);
+    }
 
     private RepositoryState _state = new();
     private bool _loaded;
@@ -33,6 +46,8 @@ public class RepoManager
 
     private static string GetBaseDir()
     {
+        var over = Volatile.Read(ref _baseDirOverride);
+        if (over != null) return over;
         try
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
