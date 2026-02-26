@@ -25,5 +25,6 @@ internal static class TestSetup
         TestBaseDir = Path.Combine(Path.GetTempPath(), "polypilot-tests-" + Environment.ProcessId);
         Directory.CreateDirectory(TestBaseDir);
         CopilotService.SetBaseDirForTesting(TestBaseDir);
+        RepoManager.SetBaseDirForTesting(TestBaseDir);
     }
 }
