@@ -405,12 +405,13 @@ public partial class CopilotService
                 {
                     Debug($"[EVT-ERR] '{sessionName}' CompleteReasoningMessages threw in TurnEnd: {ex}");
                 }
-                // Flush any accumulated assistant text to history/DB at end of each sub-turn.
-                // Without this, content in CurrentResponse is lost if the app restarts between
-                // turn_end and session.idle (which triggers CompleteResponse).
-                FlushCurrentResponse(state);
                 Invoke(() =>
                 {
+                    // Flush any accumulated assistant text to history/DB at end of each sub-turn.
+                    // Without this, content in CurrentResponse is lost if the app restarts between
+                    // turn_end and session.idle (which triggers CompleteResponse).
+                    // Must run on UI thread to avoid racing with History list reads.
+                    FlushCurrentResponse(state);
                     OnTurnEnd?.Invoke(sessionName);
                     OnActivity?.Invoke(sessionName, "");
                 });
@@ -661,6 +662,7 @@ public partial class CopilotService
             m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
         if (lastAssistant?.Content == text)
         {
+            Debug($"[DEDUP] FlushCurrentResponse skipped duplicate content ({text.Length} chars) for session '{state.Info.Name}'");
             state.CurrentResponse.Clear();
             state.HasReceivedDeltasThisTurn = false;
             return;

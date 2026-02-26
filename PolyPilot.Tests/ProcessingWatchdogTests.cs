@@ -1561,7 +1561,7 @@ public class ProcessingWatchdogTests
     }
 
     [Fact]
-    public void RestoreHints_MalformedJson_ReturnsFalseGracefully()
+    public void RestoreHints_MalformedJson_PreservesFileAgeSignal()
     {
         var service = CreateService();
         var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
@@ -1571,8 +1571,9 @@ public class ProcessingWatchdogTests
         {
             File.WriteAllText(Path.Combine(sessionDir, "events.jsonl"), "{{ bad json {{");
             var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("test-session", basePath);
-            // Malformed JSON falls into catch block → returns (false, false)
-            Assert.False(isRecentlyActive, "Malformed JSON triggers catch which returns false");
+            // File was just written (age < 120s) so isRecentlyActive is true even though JSON is malformed.
+            // This ensures the quiescence bypass still works for recently-active sessions with corrupt events.
+            Assert.True(isRecentlyActive, "Recently-written file should preserve isRecentlyActive despite malformed JSON");
             Assert.False(hadToolActivity, "Cannot detect tool activity from bad JSON");
         }
         finally { Directory.Delete(basePath, true); }

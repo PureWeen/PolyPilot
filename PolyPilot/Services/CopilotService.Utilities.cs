@@ -153,11 +153,12 @@ public partial class CopilotService
         var eventsFile = Path.Combine(basePath, sessionId, "events.jsonl");
         if (!File.Exists(eventsFile)) return (false, false);
 
+        var isRecentlyActive = false;
         try
         {
             var lastWrite = File.GetLastWriteTimeUtc(eventsFile);
             var fileAge = (DateTime.UtcNow - lastWrite).TotalSeconds;
-            var isRecentlyActive = fileAge < WatchdogInactivityTimeoutSeconds;
+            isRecentlyActive = fileAge < WatchdogInactivityTimeoutSeconds;
 
             if (!isRecentlyActive) return (false, false);
 
@@ -175,7 +176,7 @@ public partial class CopilotService
 
             return (isRecentlyActive, hadToolActivity);
         }
-        catch { return (false, false); }
+        catch { return (isRecentlyActive, false); }
     }
 
     /// <summary>
