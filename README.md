@@ -29,6 +29,7 @@ The Copilot CLI is powerful, but it's one agent in one terminal. What if you cou
 - 📱 **Monitor and control everything from your phone** via secure WebSocket bridge and DevTunnel
 - 🧠 **Mix and match models** — Claude, GPT, Gemini — in the same workspace
 - 🏗️ **Organize agents into groups**, pin favorites, and sort by activity
+- 🌿 **Manage repos and worktrees** — clone repos, create branches, spin up isolated worktrees per agent
 
 That's PolyPilot.
 
@@ -55,6 +56,18 @@ Create sessions with different AI models and compare results side by side. Assig
 ### 📂 Per-Session Working Directories
 Point each agent at a different repo or directory. Native folder pickers on macOS and Windows. Manage worktrees for parallel git operations across agents.
 
+### 🌿 Repository & Worktree Management
+Clone repositories, create branches and worktrees, and launch sessions — all from the sidebar. **Quick Branch + Session** creates a new branch and session in one click. **Named Branch + Session** lets you specify a branch name or PR number (`#123`). Worktrees are tracked, linked to sessions, and cleaned up automatically when sessions close.
+
+### 🤖 Multi-Agent Presets & Squad Teams
+Launch pre-configured teams with one click. Built-in presets like **PR Review Squad** spin up an orchestrator plus multiple workers, each with their own model and role. Auto-discovers `.squad` and `.ai-team` directories in your repos for custom team definitions with agent charters and routing configs.
+
+### 🔀 Worktree Strategies
+Control how multi-agent teams share code:
+- **Shared** — all agents work in the same directory
+- **Orchestrator Isolated** — orchestrator gets its own branch, workers share one
+- **Fully Isolated** — every agent gets a unique worktree and branch for zero-conflict parallel work
+
 ### 🏗️ Session Organization
 Groups, pinning, and multiple sort modes (Last Active, Created, A–Z, Manual) let you manage large fleets of agents without losing track. Collapsible groups keep things tidy.
 
@@ -62,10 +75,19 @@ Groups, pinning, and multiple sort modes (Last Active, Created, A–Z, Manual) l
 Discover and link other PolyPilot instances on your LAN. Start a "Fiesta" to fan out work to linked worker machines via `@mention` routing. Workers are discovered automatically and linked in Settings. Use `@worker-name` in your prompts to dispatch tasks to specific machines.
 
 ### ⌨️ Slash Commands
-Built-in slash commands give you quick control without leaving the chat: `/help`, `/clear`, `/version`, `/compact`, `/new`, `/sessions`, `/rename`, `/diff`, `/status`, `/mcp`, `/plugin`.
+Built-in slash commands give you quick control without leaving the chat: `/help`, `/clear`, `/version`, `/compact`, `/new`, `/sessions`, `/rename`, `/diff`, `/status`, `/mcp`.
 
 ### 🔔 Smart Notifications
 Get notified when agents finish tasks, encounter errors, or need your attention — even when the app is in the background.
+
+### 🛡️ Processing Watchdog
+Automatically detects agents stuck in a "Thinking..." state and recovers them. A 3-tier timeout system handles quiescent sessions (30s), active tool execution (10min), and general inactivity (2min) — no more zombie sessions.
+
+### 🔁 Reflection Cycles
+Goal-based iterative refinement for agents. Set a goal, and the agent will loop — executing, evaluating, and refining — until it meets the completion criteria or hits a max iteration count. Great for test-driven workflows and multi-step tasks.
+
+### 📊 Usage Stats
+Track session metrics: messages sent, tokens used, session duration, and lines suggested. Visible in the bottom bar for quick reference.
 
 ### 🎮 Demo Mode
 Test the UI without a Copilot connection. The built-in demo service simulates streaming responses, tool calls, and activity indicators with realistic timing.
@@ -89,7 +111,11 @@ PolyPilot is designed to be developed **from within itself**. You can open a Cop
 ### How it works
 
 ```bash
+# macOS
 ./relaunch.sh
+
+# Windows
+powershell -ExecutionPolicy Bypass -File relaunch.ps1
 ```
 
 On macOS, the script:
@@ -98,6 +124,8 @@ On macOS, the script:
 3. **Launches** the new instance
 4. **Verifies** the new instance is stable (waits a few seconds)
 5. **Kills** the old instance — seamless handoff, no downtime
+
+On Windows, `relaunch.ps1` follows the same pattern for the WinUI target.
 
 If the build fails, the old instance keeps running and you see clear error output. No stale binaries are ever launched.
 
