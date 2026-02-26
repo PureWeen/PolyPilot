@@ -794,14 +794,7 @@ else
         if (firstRender)
         {
             // Set up Enter key handler via JS to avoid Blazor round-trips on every keystroke
-            await JS.InvokeVoidAsync("eval", @"
-                document.getElementById('sessionNameInput')?.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        document.querySelector('.new-session button')?.click();
-                    }
-                });
-            ");
+            await JS.InvokeVoidAsync("wireSessionNameInputEnter");
         }
     }
 
@@ -1008,10 +1001,7 @@ else
         StateHasChanged();
         // Focus the input after render
         await Task.Yield();
-        await JS.InvokeVoidAsync("eval", @"
-            var el = document.getElementById('renameInput');
-            if (el) { el.focus(); el.select(); }
-        ");
+        await JS.InvokeVoidAsync("focusAndSelect", "renameInput");
     }
 
     private async Task CommitRename()
@@ -1044,10 +1034,7 @@ else
         renamingGroupId = groupId;
         StateHasChanged();
         await Task.Yield();
-        await JS.InvokeVoidAsync("eval", @"
-            var el = document.getElementById('groupRenameInput');
-            if (el) { el.focus(); el.select(); }
-        ");
+        await JS.InvokeVoidAsync("focusAndSelect", "groupRenameInput");
     }
 
     private async Task CommitGroupRename(string groupId)
@@ -1072,7 +1059,7 @@ else
         CopilotService.SetActiveSession(null);
         CopilotService.SaveUiState("/");
         currentPage = "/";
-        try { await JS.InvokeVoidAsync("eval", "window.__dashRef?.invokeMethodAsync('JsCollapseToGrid')"); } catch { }
+        try { await JS.InvokeVoidAsync("collapseToGrid"); } catch { }
         Nav.NavigateTo("/");
     }
 

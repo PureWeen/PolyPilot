@@ -47,7 +47,7 @@
                 UiTheme.SolarizedLight => "solarized-light",
                 _ => ""
             };
-            await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
+            await JS.InvokeVoidAsync("setThemeAttribute", dataTheme);
 
             // Load saved font size and navigate to last page
             var uiState = CopilotService.LoadUiState();
@@ -83,33 +83,12 @@
 
     private async Task ApplyFontSize()
     {
-        await JS.InvokeVoidAsync("eval", $"document.documentElement.style.setProperty('--app-font-size', '{fontSize}px')");
+        await JS.InvokeVoidAsync("setAppFontSize", fontSize);
     }
 
     private async Task StartResize(MouseEventArgs e)
     {
-        await JS.InvokeVoidAsync("eval", $@"
-            (function() {{
-                var sidebar = document.querySelector('.sidebar.desktop-only');
-                if (!sidebar) return;
-                var startX = {e.ClientX};
-                var startW = sidebar.offsetWidth;
-                function onMove(e) {{
-                    var w = Math.min(Math.max(startW + e.clientX - startX, 200), 600);
-                    sidebar.style.width = w + 'px';
-                }}
-                function onUp() {{
-                    document.removeEventListener('mousemove', onMove);
-                    document.removeEventListener('mouseup', onUp);
-                    document.body.style.userSelect = '';
-                    document.body.style.cursor = '';
-                }}
-                document.body.style.userSelect = 'none';
-                document.body.style.cursor = 'col-resize';
-                document.addEventListener('mousemove', onMove);
-                document.addEventListener('mouseup', onUp);
-            }})();
-        ");
+        await JS.InvokeVoidAsync("startSidebarResize", e.ClientX);
     }
 
     private void ToggleFlyout()
