@@ -11,12 +11,13 @@ namespace PolyPilot.Services;
 public class RepoManager
 {
     private static string? _baseDirOverride;
+    private static readonly object _pathLock = new();
     private static string? _reposDir;
-    private static string ReposDir => _reposDir ??= GetReposDir();
+    private static string ReposDir { get { lock (_pathLock) return _reposDir ??= GetReposDir(); } }
     private static string? _worktreesDir;
-    private static string WorktreesDir => _worktreesDir ??= GetWorktreesDir();
+    private static string WorktreesDir { get { lock (_pathLock) return _worktreesDir ??= GetWorktreesDir(); } }
     private static string? _stateFile;
-    private static string StateFile => _stateFile ??= GetStateFile();
+    private static string StateFile { get { lock (_pathLock) return _stateFile ??= GetStateFile(); } }
 
     /// <summary>
     /// Redirect all RepoManager paths to a test directory.
@@ -24,10 +25,13 @@ public class RepoManager
     /// </summary>
     internal static void SetBaseDirForTesting(string? path)
     {
-        Volatile.Write(ref _baseDirOverride, path);
-        Volatile.Write(ref _reposDir, null);
-        Volatile.Write(ref _worktreesDir, null);
-        Volatile.Write(ref _stateFile, null);
+        lock (_pathLock)
+        {
+            _baseDirOverride = path;
+            _reposDir = null;
+            _worktreesDir = null;
+            _stateFile = null;
+        }
     }
 
     private RepositoryState _state = new();
@@ -46,7 +50,8 @@ public class RepoManager
 
     private static string GetBaseDir()
     {
-        var over = Volatile.Read(ref _baseDirOverride);
+        // Called from within _pathLock — no Volatile.Read needed
+        var over = _baseDirOverride;
         if (over != null) return over;
         try
         {
@@ -71,9 +76,10 @@ public class RepoManager
         _loadedSuccessfully = false;
         try
         {
-            if (File.Exists(StateFile))
+            var stateFile = StateFile; // resolve once
+            if (File.Exists(stateFile))
             {
-                var json = File.ReadAllText(StateFile);
+                var json = File.ReadAllText(stateFile);
                 _state = JsonSerializer.Deserialize<RepositoryState>(json) ?? new RepositoryState();
             }
             _loadedSuccessfully = true;
@@ -98,9 +104,10 @@ public class RepoManager
         _loadedSuccessfully = true;
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(StateFile)!);
+            var stateFile = StateFile; // resolve once
+            Directory.CreateDirectory(Path.GetDirectoryName(stateFile)!);
             var json = JsonSerializer.Serialize(_state, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(StateFile, json);
+            File.WriteAllText(stateFile, json);
         }
         catch (Exception ex)
         {

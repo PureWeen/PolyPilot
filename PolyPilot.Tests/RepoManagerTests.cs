@@ -3,6 +3,7 @@ using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
+[Collection("BaseDir")]
 public class RepoManagerTests
 {
     [Theory]
@@ -99,10 +100,8 @@ public class RepoManagerTests
             SetField(rm, "_loadedSuccessfully", false);
             SetField(rm, "_state", new RepositoryState());
 
-            // Override StateFile to our temp path
-            var stateFileField = typeof(RepoManager).GetField("_stateFile", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
-            var originalValue = stateFileField.GetValue(null);
-            stateFileField.SetValue(null, stateFile);
+            // Redirect RepoManager to our temp dir (safe — uses the lock-protected setter)
+            RepoManager.SetBaseDirForTesting(tempDir);
             try
             {
                 // Save should be blocked — empty state after failed load
@@ -114,7 +113,7 @@ public class RepoManagerTests
             }
             finally
             {
-                stateFileField.SetValue(null, originalValue);
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
             }
         }
         finally
@@ -129,7 +128,6 @@ public class RepoManagerTests
         var rm = new RepoManager();
         var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
-        var stateFile = Path.Combine(tempDir, "repos.json");
 
         try
         {
@@ -138,21 +136,21 @@ public class RepoManagerTests
             SetField(rm, "_loadedSuccessfully", true);
             SetField(rm, "_state", new RepositoryState());
 
-            var stateFileField = typeof(RepoManager).GetField("_stateFile", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
-            var originalValue = stateFileField.GetValue(null);
-            stateFileField.SetValue(null, stateFile);
+            // Redirect RepoManager to our temp dir (safe — uses the lock-protected setter)
+            RepoManager.SetBaseDirForTesting(tempDir);
             try
             {
                 // Save should proceed — load was successful, intentional empty state
                 InvokeSave(rm);
 
+                var stateFile = Path.Combine(tempDir, "repos.json");
                 var content = File.ReadAllText(stateFile);
                 Assert.Contains("Repositories", content);
                 Assert.DoesNotContain("test-1", content);
             }
             finally
             {
-                stateFileField.SetValue(null, originalValue);
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
             }
         }
         finally

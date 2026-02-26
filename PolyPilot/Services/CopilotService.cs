@@ -40,11 +40,12 @@ public partial class CopilotService : IAsyncDisposable
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
     
+    private static readonly object _pathLock = new();
     private static string? _copilotBaseDir;
-    private static string CopilotBaseDir => LazyInitializer.EnsureInitialized(ref _copilotBaseDir, GetCopilotBaseDir);
+    private static string CopilotBaseDir { get { lock (_pathLock) return _copilotBaseDir ??= GetCopilotBaseDir(); } }
     
     private static string? _polyPilotBaseDir;
-    private static string PolyPilotBaseDir => LazyInitializer.EnsureInitialized(ref _polyPilotBaseDir, GetPolyPilotBaseDir);
+    private static string PolyPilotBaseDir { get { lock (_pathLock) return _polyPilotBaseDir ??= GetPolyPilotBaseDir(); } }
     internal static string BaseDir => PolyPilotBaseDir;
 
     private static string GetCopilotBaseDir()
@@ -100,19 +101,19 @@ public partial class CopilotService : IAsyncDisposable
     }
 
     private static string? _sessionStatePath;
-    private static string SessionStatePath => _sessionStatePath ??= Path.Combine(CopilotBaseDir, "session-state");
+    private static string SessionStatePath { get { lock (_pathLock) return _sessionStatePath ??= Path.Combine(CopilotBaseDir, "session-state"); } }
 
     private static string? _activeSessionsFile;
-    private static string ActiveSessionsFile => _activeSessionsFile ??= Path.Combine(PolyPilotBaseDir, "active-sessions.json");
+    private static string ActiveSessionsFile { get { lock (_pathLock) return _activeSessionsFile ??= Path.Combine(PolyPilotBaseDir, "active-sessions.json"); } }
 
     private static string? _sessionAliasesFile;
-    private static string SessionAliasesFile => _sessionAliasesFile ??= Path.Combine(PolyPilotBaseDir, "session-aliases.json");
+    private static string SessionAliasesFile { get { lock (_pathLock) return _sessionAliasesFile ??= Path.Combine(PolyPilotBaseDir, "session-aliases.json"); } }
 
     private static string? _uiStateFile;
-    private static string UiStateFile => _uiStateFile ??= Path.Combine(PolyPilotBaseDir, "ui-state.json");
+    private static string UiStateFile { get { lock (_pathLock) return _uiStateFile ??= Path.Combine(PolyPilotBaseDir, "ui-state.json"); } }
 
     private static string? _organizationFile;
-    private static string OrganizationFile => _organizationFile ??= Path.Combine(PolyPilotBaseDir, "organization.json");
+    private static string OrganizationFile { get { lock (_pathLock) return _organizationFile ??= Path.Combine(PolyPilotBaseDir, "organization.json"); } }
 
     /// <summary>
     /// Override base directory for tests to prevent writing to real ~/.polypilot/.
@@ -120,18 +121,21 @@ public partial class CopilotService : IAsyncDisposable
     /// </summary>
     internal static void SetBaseDirForTesting(string path)
     {
-        Volatile.Write(ref _polyPilotBaseDir, path);
-        _activeSessionsFile = null;
-        _sessionAliasesFile = null;
-        _uiStateFile = null;
-        _organizationFile = null;
-        Volatile.Write(ref _copilotBaseDir, null);
-        _sessionStatePath = null;
-        _pendingOrchestrationFile = null;
+        lock (_pathLock)
+        {
+            _polyPilotBaseDir = path;
+            _activeSessionsFile = null;
+            _sessionAliasesFile = null;
+            _uiStateFile = null;
+            _organizationFile = null;
+            _copilotBaseDir = null;
+            _sessionStatePath = null;
+            _pendingOrchestrationFile = null;
+        }
     }
 
     private static string? _projectDir;
-    private static string ProjectDir => _projectDir ??= FindProjectDir();
+    private static string ProjectDir { get { lock (_pathLock) return _projectDir ??= FindProjectDir(); } }
 
     private static string FindProjectDir()
     {
