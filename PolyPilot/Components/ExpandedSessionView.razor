@@ -497,28 +497,9 @@
                 $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(s.Source)}</span></div>" +
                 desc + "</div>";
         }));
-        var jsHtml = EscapeForJs(rows);
-        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Skills</div>");
-        await JS.InvokeVoidAsync("eval", $@"
-            (function(){{
-                var old = document.getElementById('skills-popup-overlay');
-                if(old) old.remove();
-                var trigger = document.querySelector('[data-trigger=""skills""]');
-                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
-                var ov = document.createElement('div');
-                ov.id = 'skills-popup-overlay';
-                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
-                ov.onclick = function(){{ ov.remove(); }};
-                var popup = document.createElement('div');
-                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
-                var bottom = window.innerHeight - rect.top + 8;
-                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
-                popup.innerHTML = '{headerHtml}{jsHtml}';
-                popup.onclick = function(e){{ e.stopPropagation(); }};
-                ov.appendChild(popup);
-                document.body.appendChild(ov);
-            }})()
-        ");
+        await JS.InvokeVoidAsync("showPopup", "[data-trigger=\"skills\"]",
+            "<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Skills</div>",
+            rows);
     }
 
     private async Task ShowAgentsPopup()
@@ -534,28 +515,9 @@
                 $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(a.Source)}</span></div>" +
                 desc + "</div>";
         }));
-        var jsHtml = EscapeForJs(rows);
-        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Agents</div>");
-        await JS.InvokeVoidAsync("eval", $@"
-            (function(){{
-                var old = document.getElementById('skills-popup-overlay');
-                if(old) old.remove();
-                var trigger = document.querySelector('[data-trigger=""agents""]');
-                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
-                var ov = document.createElement('div');
-                ov.id = 'skills-popup-overlay';
-                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
-                ov.onclick = function(){{ ov.remove(); }};
-                var popup = document.createElement('div');
-                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
-                var bottom = window.innerHeight - rect.top + 8;
-                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
-                popup.innerHTML = '{headerHtml}{jsHtml}';
-                popup.onclick = function(e){{ e.stopPropagation(); }};
-                ov.appendChild(popup);
-                document.body.appendChild(ov);
-            }})()
-        ");
+        await JS.InvokeVoidAsync("showPopup", "[data-trigger=\"agents\"]",
+            "<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Agents</div>",
+            rows);
     }
 
     private async Task ShowPromptsPopup()
@@ -571,39 +533,10 @@
                 $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(p.SourceLabel)}</span></div>" +
                 desc + "</div>";
         }));
-        var jsHtml = EscapeForJs(rows);
-        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Prompts (click to use)</div>");
-        await JS.InvokeVoidAsync("eval", $@"
-            (function(){{
-                var old = document.getElementById('skills-popup-overlay');
-                if(old) old.remove();
-                var trigger = document.querySelector('[data-trigger=""prompts""]');
-                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
-                var ov = document.createElement('div');
-                ov.id = 'skills-popup-overlay';
-                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
-                ov.onclick = function(){{ ov.remove(); }};
-                var popup = document.createElement('div');
-                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
-                var bottom = window.innerHeight - rect.top + 8;
-                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
-                popup.innerHTML = '{headerHtml}{jsHtml}';
-                popup.onclick = function(e){{
-                    var row = e.target.closest('.prompt-row');
-                    if(row){{
-                        var name = row.getAttribute('data-prompt');
-                        ov.remove();
-                        var inputEl = document.querySelector('[data-session=""{EscapeForJs(Session.Name)}""] textarea');
-                        if(inputEl){{
-                            inputEl.value = '/prompt use ' + name;
-                            inputEl.dispatchEvent(new Event('input'));
-                        }}
-                    }}
-                }};
-                ov.appendChild(popup);
-                document.body.appendChild(ov);
-            }})()
-        ");
+        await JS.InvokeVoidAsync("showPromptsPopup", "[data-trigger=\"prompts\"]",
+            "<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Prompts (click to use)</div>",
+            rows,
+            Session.Name);
     }
 
     private static string EscapeHtml(string s) =>
@@ -611,12 +544,9 @@
 
     private async Task InsertReflectCommand()
     {
-        var inputId = EscapeForJs("input-" + Session.Name.Replace(" ", "-"));
-        await JS.InvokeVoidAsync("eval", $"var el = document.getElementById('{inputId}'); if(el){{ el.value = '/reflect '; el.focus(); }}");
+        var inputId = "input-" + Session.Name.Replace(" ", "-");
+        await JS.InvokeVoidAsync("focusAndSetValue", inputId, "/reflect ");
     }
-
-    private static string EscapeForJs(string s) =>
-        s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "");
 
     private static string TruncateDesc(string desc)
     {

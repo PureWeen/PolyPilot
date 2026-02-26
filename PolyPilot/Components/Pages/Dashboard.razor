@@ -626,132 +626,16 @@
     {
         if (firstRender)
         {
-            await JS.InvokeVoidAsync("eval", @"
-                if (!window.__dashboardKeydownRegistered) {
-                    window.__dashboardKeydownRegistered = true;
-                    document.addEventListener('keydown', function(e) {
-                        var sel = '.card-input input, .card-input textarea, .input-row textarea';
-                        var isInput = e.target.matches && e.target.matches(sel);
-                        if (e.key === 'Enter' && !e.shiftKey && isInput) {
-                            e.preventDefault();
-                            if (window.__sendPending) return;
-                            window.__sendPending = true;
-                            setTimeout(function() { window.__sendPending = false; }, 500);
-                            var container = e.target.closest('.card-input') || e.target.closest('.input-row');
-                            if (container) {
-                                var btn = container.querySelector('.send-btn:not(.stop-btn)') || container.querySelectorAll('button')[container.querySelectorAll('button').length - 1];
-                                if (btn) btn.click();
-                            }
-                        }
-                        // ArrowUp/Down: command history navigation
-                        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && isInput && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-                            var ta = e.target;
-                            var atStart = ta.selectionStart === 0 && ta.selectionEnd === 0;
-                            var atEnd = ta.selectionStart === ta.value.length;
-                            var card = ta.closest('[data-session]');
-                            var sessionName = card ? card.dataset.session : '';
-                            var histNavActive = sessionName && window.__histNavActive && window.__histNavActive[sessionName];
-                            if ((e.key === 'ArrowUp' && atStart) || (e.key === 'ArrowDown' && (atEnd || histNavActive))) {
-                                if (sessionName && window.__dashRef) {
-                                    e.preventDefault();
-                                    window.__dashRef.invokeMethodAsync('JsNavigateHistory', sessionName, e.key === 'ArrowUp').then(function(isNav) {
-                                        if (!window.__histNavActive) window.__histNavActive = {};
-                                        window.__histNavActive[sessionName] = isNav;
-                                    }).catch(function() {
-                                        if (window.__histNavActive) window.__histNavActive[sessionName] = false;
-                                    });
-                                }
-                            }
-                        }
-                        if (e.key === 'Tab' && isInput) {
-                            e.preventDefault();
-                            e.stopImmediatePropagation();
-                            var expandedCard = document.querySelector('.expanded-card');
-                            if (expandedCard && window.__dashRef) {
-                                window.__dashRef.invokeMethodAsync('JsCycleExpandedSession', e.shiftKey);
-                                return;
-                            }
-                            var inputs = Array.from(document.querySelectorAll(sel));
-                            if (inputs.length < 2) return;
-                            var idx = inputs.indexOf(e.target);
-                            if (idx < 0) idx = 0;
-                            idx = e.shiftKey ? (idx - 1 + inputs.length) % inputs.length : (idx + 1) % inputs.length;
-                            inputs[idx].focus();
-                            var card = inputs[idx].closest('.session-card');
-                            if (card && card.dataset.session && window.__dashRef) {
-                                window.__dashRef.invokeMethodAsync('JsSelectSession', card.dataset.session);
-                            }
-                        }
-                        if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
-                            e.preventDefault();
-                            var collapseBtn = document.querySelector('.collapse-card-btn');
-                            if (collapseBtn) { collapseBtn.click(); return; }
-                            var card = isInput ? e.target.closest('.session-card') : document.querySelector('.session-card');
-                            if (card && card.dataset.session && window.__dashRef) {
-                                window.__dashRef.invokeMethodAsync('JsExpandSession', card.dataset.session);
-                            }
-                        }
-                        if (e.key === 'Escape') {
-                            var collapseBtn = document.querySelector('.collapse-card-btn');
-                            if (collapseBtn) collapseBtn.click();
-                        }
-                        // ⌘1-9 / Ctrl+1-9: switch to session by index
-                        if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
-                            e.preventDefault();
-                            if (window.__dashRef) {
-                                window.__dashRef.invokeMethodAsync('JsSwitchToSessionByIndex', parseInt(e.key));
-                            }
-                        }
-                        // ⌘+/⌘- / Ctrl+=/Ctrl+-: font size, ⌘0 reset
-                        if ((e.metaKey || e.ctrlKey) && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0')) {
-                            e.preventDefault();
-                            if (window.__dashRef) {
-                                var delta = (e.key === '=' || e.key === '+') ? 1 : e.key === '-' ? -1 : 0;
-                                window.__dashRef.invokeMethodAsync('JsChangeFontSize', delta);
-                            }
-                        }
-                        // Ctrl+C: interrupt running session (only when no text selected)
-                        if (e.ctrlKey && e.key === 'c' && !e.metaKey && !e.shiftKey) {
-                            var selection = window.getSelection();
-                            if (!selection || selection.toString().length === 0) {
-                                e.preventDefault();
-                                if (window.__dashRef) {
-                                    window.__dashRef.invokeMethodAsync('JsInterruptSession');
-                                }
-                            }
-                        }
-                    });
-                    // Reset histNavActive when user edits text, so ArrowDown doesn't
-                    // overwrite their changes with a history entry.
-                    document.addEventListener('input', function(e) {
-                        if (e.target.matches && e.target.matches('.card-input input, .card-input textarea, .input-row textarea')) {
-                            var card = e.target.closest('[data-session]');
-                            var sn = card ? card.dataset.session : '';
-                            if (sn && window.__histNavActive) window.__histNavActive[sn] = false;
-                        }
-                    });
-                }
-            ");
+            await JS.InvokeVoidAsync("ensureDashboardKeyHandlers");
             try
             {
                 var dotNetRef = DotNetObjectReference.Create(this);
                 if (_disposed) { dotNetRef.Dispose(); return; }
-                await JS.InvokeVoidAsync("eval", "window.__dashRef = null;");
+                await JS.InvokeVoidAsync("clearDashRef");
                 _dotNetRef = dotNetRef;
-                await JS.InvokeVoidAsync("eval", "window.__setDashRef = function(ref) { window.__dashRef = ref; };");
                 if (_disposed) return;
                 await JS.InvokeVoidAsync("__setDashRef", _dotNetRef);
-                await JS.InvokeVoidAsync("eval", @"
-                if (!window.__textareaAutoResize) {
-                    window.__textareaAutoResize = true;
-                    document.addEventListener('input', function(e) {
-                        if (e.target.tagName === 'TEXTAREA' && e.target.closest('.input-row')) {
-                            e.target.style.height = 'auto';
-                            e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
-                        }
-                    });
-                }
-            ");
+                await JS.InvokeVoidAsync("ensureTextareaAutoResize");
             }
             catch (ObjectDisposedException) { }
         }
@@ -790,18 +674,7 @@
         if (!_loadMoreObserverInitialized || forceScroll)
         {
             _loadMoreObserverInitialized = true;
-            _ = JS.InvokeVoidAsync("eval", @"
-                if (!window.__loadMoreObserver) {
-                    window.__loadMoreObserver = new IntersectionObserver(function(entries) {
-                        entries.forEach(function(entry) {
-                            if (entry.isIntersecting) entry.target.click();
-                        });
-                    }, { threshold: 0.1 });
-                }
-                document.querySelectorAll('.messages .load-more-btn').forEach(function(btn) {
-                    if (!btn.__observed) { btn.__observed = true; window.__loadMoreObserver.observe(btn); }
-                });
-            ");
+            _ = JS.InvokeVoidAsync("ensureLoadMoreObserver");
         }
     }
 
@@ -1246,16 +1119,7 @@
         activityBySession.Remove(sessionName);
 
         // Force scroll to bottom immediately after sending
-        await JS.InvokeVoidAsync("eval", @"
-            document.querySelectorAll('.card-messages, .messages').forEach(function(el) {
-                el.scrollTop = el.scrollHeight;
-            });
-            setTimeout(function() {
-                document.querySelectorAll('.card-messages, .messages').forEach(function(el) {
-                    el.scrollTop = el.scrollHeight;
-                });
-            }, 100);
-        ");
+        await JS.InvokeVoidAsync("scrollMessagesToBottom");
 
         try
         {
@@ -2321,10 +2185,7 @@
         await Task.Yield();
         StateHasChanged();
         await Task.Yield();
-        await JS.InvokeVoidAsync("eval", @"
-            var el = document.getElementById('cardRenameInput');
-            if (el) { el.focus(); el.select(); }
-        ");
+        await JS.InvokeVoidAsync("focusAndSelect", "cardRenameInput");
     }
 
     private async Task CommitCardRename()
@@ -2698,8 +2559,7 @@
 
         var (text, cursorAtStart) = result.Value;
         var inputId = $"input-{sessionName.Replace(" ", "-")}";
-        var cursorExpr = cursorAtStart ? "0" : "el.value.length";
-        await JS.InvokeVoidAsync("eval", $"(function(){{ var el = document.getElementById('{inputId}'); if(el){{ el.value = {System.Text.Json.JsonSerializer.Serialize(text)}; var p = {cursorExpr}; el.setSelectionRange(p, p); }} }})()");
+        await JS.InvokeVoidAsync("setInputValue", inputId, text, cursorAtStart);
         return hist.IsNavigating;
     }
 
@@ -2942,7 +2802,7 @@
         foreach (var images in pendingImagesBySession.Values)
             foreach (var img in images)
                 try { File.Delete(img.TempPath); } catch { }
-        try { await JS.InvokeVoidAsync("eval", "window.__dashRef = null;"); } catch { }
+        try { await JS.InvokeVoidAsync("clearDashRef"); } catch { }
         _dotNetRef?.Dispose();
     }
 }

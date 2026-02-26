@@ -634,7 +634,7 @@
     private async Task ClearSearch()
     {
         searchQuery = "";
-        await JS.InvokeVoidAsync("eval", "document.getElementById('settings-search').value = ''");
+        await JS.InvokeVoidAsync("clearElementValue", "settings-search");
     }
 
     private bool SectionVisible(string keywords)
@@ -713,22 +713,8 @@
     private async Task InitializeAfterRenderAsync()
     {
         _selfRef = DotNetObjectReference.Create(this);
-        await JS.InvokeVoidAsync("eval", "window.__setSettingsRef = function(ref) { window.__settingsRef = ref; };");
         await JS.InvokeVoidAsync("__setSettingsRef", _selfRef);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('settings-search');
-                if (!el || el.__searchWired) return;
-                el.__searchWired = true;
-                var timer = null;
-                el.addEventListener('input', function() {
-                    clearTimeout(timer);
-                    var val = el.value;
-                    timer = setTimeout(function() {
-                        if (window.__settingsRef) window.__settingsRef.invokeMethodAsync('JsUpdateSearch', val);
-                    }, 150);
-                });
-            })()");
+        await JS.InvokeVoidAsync("wireSettingsSearch");;
 
         // Run slow detection tasks in parallel (after first paint)
         var cliInfoTask = Task.Run(CopilotService.GetCliSourceInfo);
@@ -755,7 +741,7 @@
         DevTunnelService.OnStateChanged -= OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged -= OnAutoUpdateStateChanged;
         FiestaService.OnStateChanged -= OnFiestaStateChanged;
-        _ = JS.InvokeVoidAsync("eval", "window.__settingsRef = null;");
+        _ = JS.InvokeVoidAsync("clearSettingsRef");
         _selfRef?.Dispose();
     }
 
@@ -987,7 +973,7 @@
 
     private async Task ApplyFontSize()
     {
-        await JS.InvokeVoidAsync("eval", $"document.documentElement.style.setProperty('--app-font-size', '{fontSize}px')");
+        await JS.InvokeVoidAsync("setAppFontSize", fontSize);
         CopilotService.SaveUiState("/settings", fontSize: fontSize);
     }
 
@@ -1118,7 +1104,7 @@
             UiTheme.SolarizedLight => "solarized-light",
             _ => ""
         };
-        await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
+        await JS.InvokeVoidAsync("setThemeAttribute", dataTheme);
     }
 
     private string GetThemeLabel(UiTheme theme) => theme switch
