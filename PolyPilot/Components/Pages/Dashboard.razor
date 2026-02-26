@@ -1223,14 +1223,18 @@
         var session = sessions.FirstOrDefault(s => s.Name == sessionName);
         if (session?.IsProcessing == true)
         {
-            CopilotService.LogDispatchRoute(sessionName, true, "QUEUED", null, null, null, false);
-            List<string>? queueImagePaths = null;
+            CopilotService.LogDispatchRoute(sessionName, true, "STEER", null, null, null, false);
+            List<string>? steerImagePaths = null;
             if (hasImages)
             {
-                queueImagePaths = pendingSendImages!.Select(i => i.TempPath).ToList();
+                steerImagePaths = pendingSendImages!.Select(i => i.TempPath).ToList();
                 pendingImagesBySession.Remove(sessionName);
             }
-            CopilotService.EnqueueMessage(sessionName, finalPrompt, queueImagePaths, agentMode);
+            _ = CopilotService.SteerSessionAsync(sessionName, finalPrompt, steerImagePaths, agentMode).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                    InvokeAsync(() => Console.WriteLine($"Error steering {sessionName}: {t.Exception?.InnerException?.Message}"));
+            });
             return;
         }
 

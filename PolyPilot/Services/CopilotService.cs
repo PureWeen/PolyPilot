@@ -1834,7 +1834,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public async Task AbortSessionAsync(string sessionName)
+    public async Task AbortSessionAsync(string sessionName, bool markAsInterrupted = false)
     {
         // In remote mode, delegate to bridge server
         if (IsRemoteMode)
@@ -1878,7 +1878,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         var partialResponse = state.CurrentResponse.ToString();
         if (!string.IsNullOrEmpty(partialResponse))
         {
-            var msg = new ChatMessage("assistant", partialResponse, DateTime.Now) { Model = state.Info.Model };
+            var msg = new ChatMessage("assistant", partialResponse, DateTime.Now) { Model = state.Info.Model, IsInterrupted = markAsInterrupted };
             state.Info.History.Add(msg);
             state.Info.MessageCount = state.Info.History.Count;
             if (!string.IsNullOrEmpty(state.Info.SessionId))
@@ -1894,6 +1894,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ProcessingPhase = 0;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
+        // Release send lock — allows a subsequent SteerSessionAsync to acquire it immediately
+        Interlocked.Exchange(ref state.SendingFlag, 0);
         // Clear queued messages so they don't auto-send after abort
         state.Info.MessageQueue.Clear();
         _queuedImagePaths.TryRemove(sessionName, out _);
@@ -1901,6 +1903,23 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         CancelProcessingWatchdog(state);
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Interrupts the current response (if any) and sends a new steering message.
+    /// If the session is not currently processing, sends normally.
+    /// The partial response (if any) is preserved in history and marked as interrupted.
+    /// </summary>
+    public async Task SteerSessionAsync(string sessionName, string steeringMessage, List<string>? imagePaths = null, string? agentMode = null)
+    {
+        // Abort the current turn (preserves partial response marked as interrupted), then start a new one
+        await AbortSessionAsync(sessionName, markAsInterrupted: true);
+        Debug($"[STEER] '{sessionName}' steering with new message (len={steeringMessage.Length})");
+        _ = SendPromptAsync(sessionName, steeringMessage, imagePaths, agentMode: agentMode).ContinueWith(t =>
+        {
+            if (t.IsFaulted)
+                Debug($"[STEER] '{sessionName}' steering send failed: {t.Exception?.InnerException?.Message}");
+        });
     }
 
     public void EnqueueMessage(string sessionName, string prompt, List<string>? imagePaths = null, string? agentMode = null)

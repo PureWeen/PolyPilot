@@ -42,6 +42,8 @@ public class ChatMessage
     public bool IsComplete { get; set; } = true;
     public bool IsCollapsed { get; set; } = true;
     public bool IsSuccess { get; set; }
+    // True when the response was cut off by a steering message (user interrupted)
+    public bool IsInterrupted { get; set; }
 
     // Reasoning fields
     public string? ReasoningId { get; set; }
