@@ -35,6 +35,12 @@ Fast Deployment requires `dotnet build -t:Install` — it pushes assemblies to `
 **Package name**: `com.microsoft.PolyPilot` (not `com.companyname.PolyPilot`)  
 **Launch activity**: `crc64ef8e1bf56c865459.MainActivity`
 
+### Windows
+```bash
+dotnet build -f net10.0-windows10.0.19041.0       # Build only
+dotnet run -f net10.0-windows10.0.19041.0          # Build + launch
+```
+
 ### iOS (physical device)
 ```bash
 dotnet build -f net10.0-ios -r ios-arm64         # Build only
@@ -68,7 +74,7 @@ PolyPilot discovers [bradygaster/squad](https://github.com/bradygaster/squad) te
 
 **Squad write-back:** When saving a multi-agent group as a preset, PolyPilot writes the team definition back to `.squad/` format in the worktree root via `SquadWriter`. This creates `team.md`, `agents/{name}/charter.md`, and optional `decisions.md`/`routing.md`. The preset is also saved to `presets.json` as a personal backup. This enables round-tripping: discover → modify → save back → share via repo.
 
-**Preset priority (three-tier merge):** Built-in presets < User presets (`~/.polypilot/presets.json`) < Repo teams (`.squad/`). Repo teams shadow presets with the same name. The preset picker shows three sections: "📂 From Repo", "⚙️ Built-in", and "👤 My Presets".
+**Preset priority (three-tier merge):** Built-in presets are always shown and cannot be overridden. User presets (`~/.polypilot/presets.json`) and repo teams (`.squad/`) with the same name as a built-in are skipped. The preset picker shows three sections: "📂 From Repo" (with delete button), "⚙️ Built-in", and "👤 My Presets".
 
 **Group deletion:** Deleting a multi-agent team closes and removes all its sessions (they're meaningless without the team). Deleting a regular group moves sessions to the default group.
 
@@ -112,6 +118,9 @@ When switching between Embedded and Persistent modes (via Settings → Save & Re
 - Processing status indicator shows elapsed time and tool round count, synced via bridge.
 
 ## Critical Conventions
+
+### Build & Launch
+- **NEVER use `--no-build`** when running the app (`dotnet run`). Always do a full build to catch and fix compile errors before launching. Using `--no-build` can cause silent crashes from stale binaries.
 
 ### Git Workflow
 - **NEVER use `git push --force`** — always use `git push --force-with-lease` instead when a force push is needed (e.g., after a rebase). This prevents overwriting remote changes made by others.
