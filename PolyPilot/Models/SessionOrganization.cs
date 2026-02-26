@@ -56,6 +56,9 @@ public class SessionGroup
     /// Routing context from Squad routing.md, injected into orchestrator planning prompt.
     /// </summary>
     public string? RoutingContext { get; set; }
+
+    /// <summary>Maximum reflection iterations for OrchestratorReflect mode. Null = default (5).</summary>
+    public int? MaxReflectIterations { get; set; }
 }
 
 public class SessionMeta

@@ -1427,6 +1427,8 @@ public partial class CopilotService
         // Store Squad context (routing, decisions) on the group for use during orchestration
         group.SharedContext = preset.SharedContext;
         group.RoutingContext = preset.RoutingContext;
+        if (preset.MaxReflectIterations.HasValue)
+            group.MaxReflectIterations = preset.MaxReflectIterations;
 
         // Determine orchestrator working directory based on strategy
         var orchWorkDir = workingDirectory;

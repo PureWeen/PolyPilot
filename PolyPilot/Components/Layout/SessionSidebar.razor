@@ -1487,7 +1487,8 @@ else
     private int GetGroupMaxIterations(string groupId)
     {
         if (_groupMaxIterations.TryGetValue(groupId, out var val)) return val;
-        return 5;
+        var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        return group?.MaxReflectIterations ?? 5;
     }
 
     private void SetGroupMaxIterations(string groupId, ChangeEventArgs e)
