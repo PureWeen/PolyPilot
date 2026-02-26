@@ -3217,6 +3217,7 @@ public class GroupingStabilityTests
         var merged = CopilotService.MergeSessionEntries(
             activeSnapshot, persistedEntries,
             new HashSet<string>(closedIds.Keys),
+            new HashSet<string>(),
             _ => true);
 
         // Survivor should be in the merged result

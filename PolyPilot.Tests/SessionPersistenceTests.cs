@@ -21,7 +21,7 @@ public class SessionPersistenceTests
         var persisted = new List<ActiveSessionEntry>();
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Single(result);
         Assert.Equal("a1", result[0].SessionId);
@@ -34,7 +34,7 @@ public class SessionPersistenceTests
         var persisted = new List<ActiveSessionEntry> { Entry("p1", "Persisted1") };
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Single(result);
         Assert.Equal("p1", result[0].SessionId);
@@ -47,7 +47,7 @@ public class SessionPersistenceTests
         var persisted = new List<ActiveSessionEntry> { Entry("p1") };
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Equal(2, result.Count);
         Assert.Contains(result, e => e.SessionId == "a1");
@@ -63,7 +63,7 @@ public class SessionPersistenceTests
         var persisted = new List<ActiveSessionEntry> { Entry("same-id", "PersistedName") };
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Single(result);
         Assert.Equal("ActiveName", result[0].DisplayName);
@@ -76,7 +76,7 @@ public class SessionPersistenceTests
         var persisted = new List<ActiveSessionEntry> { Entry("abc-123") };
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Single(result);
     }
@@ -90,7 +90,7 @@ public class SessionPersistenceTests
         var persisted = new List<ActiveSessionEntry> { Entry("closed-1", "ClosedSession") };
         var closed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "closed-1" };
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Empty(result);
     }
@@ -102,7 +102,7 @@ public class SessionPersistenceTests
         var persisted = new List<ActiveSessionEntry> { Entry("ABC-DEF") };
         var closed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "abc-def" };
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Empty(result);
     }
@@ -119,7 +119,7 @@ public class SessionPersistenceTests
         };
         var closed = new HashSet<string> { "close-me" };
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Equal(2, result.Count);
         Assert.DoesNotContain(result, e => e.SessionId == "close-me");
@@ -134,7 +134,7 @@ public class SessionPersistenceTests
         var persisted = new List<ActiveSessionEntry> { Entry("no-dir") };
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => false);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => false);
 
         Assert.Empty(result);
     }
@@ -153,7 +153,7 @@ public class SessionPersistenceTests
         var existingDirs = new HashSet<string> { "exists", "also-exists" };
 
         var result = CopilotService.MergeSessionEntries(
-            active, persisted, closed, id => existingDirs.Contains(id));
+            active, persisted, closed, new HashSet<string>(), id => existingDirs.Contains(id));
 
         Assert.Equal(2, result.Count);
         Assert.DoesNotContain(result, e => e.SessionId == "gone");
@@ -180,7 +180,7 @@ public class SessionPersistenceTests
         };
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Equal(5, result.Count);
     }
@@ -196,7 +196,7 @@ public class SessionPersistenceTests
         };
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Equal(3, result.Count);
     }
@@ -213,7 +213,7 @@ public class SessionPersistenceTests
         };
         var closed = new HashSet<string> { "user-closed" };
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Single(result);
         Assert.Equal("remaining", result[0].SessionId);
@@ -227,6 +227,7 @@ public class SessionPersistenceTests
         var result = CopilotService.MergeSessionEntries(
             new List<ActiveSessionEntry>(),
             new List<ActiveSessionEntry>(),
+            new HashSet<string>(),
             new HashSet<string>(),
             _ => true);
 
@@ -244,7 +245,7 @@ public class SessionPersistenceTests
         };
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Single(result);
     }
@@ -261,7 +262,7 @@ public class SessionPersistenceTests
         var persisted = new List<ActiveSessionEntry>();
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Equal("z-last", result[0].SessionId);
         Assert.Equal("a-first", result[1].SessionId);
@@ -276,7 +277,7 @@ public class SessionPersistenceTests
         var persisted = new List<ActiveSessionEntry>();
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => false);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => false);
 
         Assert.Single(result);
         Assert.Equal("active-no-dir", result[0].SessionId);
@@ -343,7 +344,7 @@ public class SessionPersistenceTests
         };
         var closed = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closed, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
         Assert.Single(result);
         Assert.Equal("deploy to production", result[0].LastPrompt);
@@ -372,7 +373,7 @@ public class SessionPersistenceTests
         // Bug: closedIds is empty because DeleteGroup didn't add them
         var closedIds = new HashSet<string>();
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, new HashSet<string>(), _ => true);
 
         // BUG: deleted sessions survive the merge (3 total instead of 1)
         Assert.Equal(3, result.Count);
@@ -399,7 +400,7 @@ public class SessionPersistenceTests
         // Fix: closedIds contains the deleted sessions
         var closedIds = new HashSet<string> { "team-orch-id", "team-worker-id" };
 
-        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, _ => true);
+        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, new HashSet<string>(), _ => true);
 
         // Deleted sessions are properly excluded
         Assert.Single(result);

@@ -22,6 +22,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();
     // Session IDs explicitly closed by the user — excluded from merge-back during SaveActiveSessionsToDisk
     private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
+    private readonly ConcurrentDictionary<string, byte> _closedSessionNames = new();
     // Image paths queued alongside messages when session is busy (keyed by session name, list per queued message)
     private readonly ConcurrentDictionary<string, List<List<string>>> _queuedImagePaths = new();
     private readonly ConcurrentDictionary<string, List<string?>> _queuedAgentModes = new();
@@ -571,6 +572,7 @@ public partial class CopilotService : IAsyncDisposable
         }
         _sessions.Clear();
         _closedSessionIds.Clear();
+        _closedSessionNames.Clear();
         lock (_imageQueueLock)
         {
             _queuedImagePaths.Clear();
@@ -2408,8 +2410,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             sem.Dispose();
 
         // Track as explicitly closed so merge doesn't re-add from file
+        // Track by both ID (primary) and display name (handles duplicate entries with different IDs)
         if (state.Info.SessionId != null)
             _closedSessionIds[state.Info.SessionId] = 0;
+        _closedSessionNames[name] = 0;
 
         // Track session close using display name (consistent with TrackSessionStart key)
         _usageStats?.TrackSessionEnd(name);

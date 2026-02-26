@@ -93,7 +93,8 @@ public partial class CopilotService
                     if (existingEntries != null)
                     {
                         var closedIds = new HashSet<string>(_closedSessionIds.Keys, StringComparer.OrdinalIgnoreCase);
-                        entries = MergeSessionEntries(entries, existingEntries, closedIds,
+                        var closedNames = new HashSet<string>(_closedSessionNames.Keys, StringComparer.OrdinalIgnoreCase);
+                        entries = MergeSessionEntries(entries, existingEntries, closedIds, closedNames,
                             sessionId => Directory.Exists(Path.Combine(SessionStatePath, sessionId)));
                     }
                 }
@@ -118,12 +119,13 @@ public partial class CopilotService
     /// <summary>
     /// Merge active (in-memory) session entries with persisted (on-disk) entries.
     /// Persisted entries are kept if they aren't already active, weren't explicitly
-    /// closed, and their session directory still exists.
+    /// closed (by ID or display name), and their session directory still exists.
     /// </summary>
     internal static List<ActiveSessionEntry> MergeSessionEntries(
         List<ActiveSessionEntry> active,
         List<ActiveSessionEntry> persisted,
         ISet<string> closedIds,
+        ISet<string> closedNames,
         Func<string, bool> sessionDirExists)
     {
         var merged = new List<ActiveSessionEntry>(active);
@@ -133,6 +135,7 @@ public partial class CopilotService
         {
             if (activeIds.Contains(existing.SessionId)) continue;
             if (closedIds.Contains(existing.SessionId)) continue;
+            if (closedNames.Contains(existing.DisplayName)) continue;
             if (!sessionDirExists(existing.SessionId)) continue;
 
             merged.Add(existing);
