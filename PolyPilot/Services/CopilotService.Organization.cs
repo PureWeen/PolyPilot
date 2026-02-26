@@ -1014,14 +1014,16 @@ public partial class CopilotService
         }
         sb.AppendLine();
         sb.AppendLine("## Your Task");
-        sb.AppendLine("Analyze the request and assign specific tasks to your workers. Use this exact format for each assignment:");
+        sb.AppendLine("You are a DISPATCHER ONLY. You do NOT have tools. You CANNOT write code, read files, or run commands yourself.");
+        sb.AppendLine("Your ONLY job is to write @worker/@end blocks that assign work to your workers.");
+        sb.AppendLine("Use this exact format for each assignment:");
         sb.AppendLine();
         sb.AppendLine("@worker:worker-name");
         sb.AppendLine("Detailed task description for this worker.");
         sb.AppendLine("@end");
         sb.AppendLine();
-        sb.AppendLine("You may include your analysis and reasoning as normal text. Only the @worker/@end blocks will be dispatched.");
-        sb.AppendLine("If you can handle the request entirely yourself, just respond normally without any @worker blocks.");
+        sb.AppendLine("You may include brief analysis before the @worker blocks, but you MUST produce at least one @worker block.");
+        sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
         return sb.ToString();
     }
 
