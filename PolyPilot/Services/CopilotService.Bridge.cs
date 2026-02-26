@@ -225,8 +225,11 @@ public partial class CopilotService
         });
         _bridgeClient.OnOrganizationStateReceived += (org) =>
         {
-            Organization = org;
-            InvokeOnUI(() => OnStateChanged?.Invoke());
+            InvokeOnUI(() =>
+            {
+                Organization = org;
+                OnStateChanged?.Invoke();
+            });
         };
         _bridgeClient.OnAttentionNeeded += (payload) =>
         {

@@ -318,6 +318,36 @@ public partial class CopilotService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Awaitable version of InvokeOnUI — completes after the action runs on the UI thread.
+    /// Use when subsequent code depends on state mutated by the action.
+    /// </summary>
+    internal Task InvokeOnUIAsync(Action action)
+    {
+        if (_syncContext == null)
+        {
+            try { action(); }
+            catch (Exception ex) { Debug($"[UI-ERR] InvokeOnUIAsync inline threw: {ex}"); }
+            return Task.CompletedTask;
+        }
+
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _syncContext.Post(_ =>
+        {
+            try
+            {
+                action();
+                tcs.SetResult();
+            }
+            catch (Exception ex)
+            {
+                Debug($"[UI-ERR] InvokeOnUIAsync callback threw: {ex}");
+                tcs.SetException(ex);
+            }
+        }, null);
+        return tcs.Task;
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         if (IsInitialized) return;

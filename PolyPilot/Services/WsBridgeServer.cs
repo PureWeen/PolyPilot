@@ -600,13 +600,16 @@ public class WsBridgeServer : IDisposable
                     var pushOrg = msg.GetPayload<OrganizationState>();
                     if (pushOrg != null && _copilot != null)
                     {
-                        _copilot.InvokeOnUI(() =>
+                        _ = Task.Run(async () =>
                         {
-                            _copilot.Organization = pushOrg;
+                            await _copilot.InvokeOnUIAsync(() =>
+                            {
+                                _copilot.Organization = pushOrg;
+                            });
+                            _copilot.SaveOrganization();
+                            _copilot.FlushSaveOrganization();
+                            BroadcastOrganizationState();
                         });
-                        _copilot.SaveOrganization();
-                        _copilot.FlushSaveOrganization();
-                        BroadcastOrganizationState();
                     }
                     break;
 
@@ -791,6 +794,9 @@ public class WsBridgeServer : IDisposable
                                     model: cswtReq.Model,
                                     initialPrompt: cswtReq.InitialPrompt,
                                     ct: ct);
+                                // Wait for UI thread to finish processing state mutations
+                                // before broadcasting, so clients receive consistent state
+                                await _copilot.InvokeOnUIAsync(() => { });
                                 BroadcastSessionsList();
                                 BroadcastOrganizationState();
                             }
