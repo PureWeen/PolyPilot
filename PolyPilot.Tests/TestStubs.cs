@@ -84,6 +84,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public Task ConnectSmartAsync(string? tunnelWsUrl, string? tunnelToken, string? lanWsUrl, string? lanToken, CancellationToken ct = default) => Task.CompletedTask;
     public string? ActiveUrl { get; set; }
     public void Stop() { IsConnected = false; }
+    public void AbortForReconnect() { }
     public int RequestSessionsCallCount { get; private set; }
     public Task RequestSessionsAsync(CancellationToken ct = default)
     {

@@ -286,6 +286,18 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         Console.WriteLine("[WsBridgeClient] Stopped");
     }
 
+    /// <summary>
+    /// Force-close the WebSocket without cancelling the reconnect CTS.
+    /// ReceiveLoopAsync catches the resulting WebSocketException, checks
+    /// !ct.IsCancellationRequested == true, and fires the auto-reconnect loop,
+    /// which calls ResolveUrlAsync to re-probe LAN vs. tunnel.
+    /// Use this for network-change triggered reconnects; use Stop() for intentional disconnects.
+    /// </summary>
+    public void AbortForReconnect()
+    {
+        try { _ws?.Abort(); } catch { }
+    }
+
     // --- Send commands to server ---
 
     public async Task RequestSessionsAsync(CancellationToken ct = default) =>

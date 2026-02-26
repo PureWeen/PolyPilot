@@ -39,6 +39,7 @@ public interface IWsBridgeClient
     Task ConnectSmartAsync(string? tunnelWsUrl, string? tunnelToken, string? lanWsUrl, string? lanToken, CancellationToken ct = default);
     string? ActiveUrl { get; }
     void Stop();
+    void AbortForReconnect();
     Task RequestSessionsAsync(CancellationToken ct = default);
     Task RequestHistoryAsync(string sessionName, int? limit = null, CancellationToken ct = default);
     Task SendMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default);

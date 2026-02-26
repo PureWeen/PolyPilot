@@ -363,8 +363,8 @@ public partial class CopilotService
 
             if (usingLan && !onWiFi)
             {
-                Debug("[SmartURL] Lost WiFi while on LAN — forcing reconnect to re-resolve via tunnel");
-                _bridgeClient.Stop();
+                Debug("[SmartURL] Lost WiFi while on LAN — aborting connection to re-resolve via tunnel");
+                _bridgeClient.AbortForReconnect();
             }
         }, null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
         var oldTimer = Interlocked.Exchange(ref _connectivityDebounce, newTimer);
