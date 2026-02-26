@@ -247,6 +247,7 @@ else
                     <div style="margin: 6px 8px; padding: 6px 8px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--control-border);">
                         <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">🌿 Worktree Isolation</div>
                         <select class="sort-select" style="width: 100%; font-size: 12px; padding: 4px 6px;" @onchange="OnStrategyChanged">
+                            <option value="" selected="@(selectedStrategy == null)">📋 Preset default</option>
                             <option value="FullyIsolated" selected="@(selectedStrategy == WorktreeStrategy.FullyIsolated)">🔒 Each agent gets own worktree</option>
                             <option value="OrchestratorIsolated" selected="@(selectedStrategy == WorktreeStrategy.OrchestratorIsolated)">🔀 Manager isolated, workers share</option>
                             <option value="Shared" selected="@(selectedStrategy == WorktreeStrategy.Shared)">📁 Everyone shares one worktree</option>
@@ -1391,11 +1392,14 @@ else
     }
 
     private RepositoryInfo? pendingMultiAgentRepo;
-    private WorktreeStrategy selectedStrategy = WorktreeStrategy.FullyIsolated;
+    private WorktreeStrategy? selectedStrategy = null;
 
     private void OnStrategyChanged(ChangeEventArgs e)
     {
-        if (Enum.TryParse<WorktreeStrategy>(e.Value?.ToString(), out var s))
+        var val = e.Value?.ToString();
+        if (string.IsNullOrEmpty(val))
+            selectedStrategy = null;
+        else if (Enum.TryParse<WorktreeStrategy>(val, out var s))
             selectedStrategy = s;
     }
 
@@ -1410,7 +1414,7 @@ else
 
         var strategyOverride = selectedStrategy;
         pendingMultiAgentRepo = null;
-        selectedStrategy = WorktreeStrategy.FullyIsolated; // reset for next time
+        selectedStrategy = null; // reset for next time
         StateHasChanged();
         try
         {
