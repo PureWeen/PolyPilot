@@ -657,6 +657,8 @@
                                     window.__dashRef.invokeMethodAsync('JsNavigateHistory', sessionName, e.key === 'ArrowUp').then(function(isNav) {
                                         if (!window.__histNavActive) window.__histNavActive = {};
                                         window.__histNavActive[sessionName] = isNav;
+                                    }).catch(function() {
+                                        if (window.__histNavActive) window.__histNavActive[sessionName] = false;
                                     });
                                 }
                             }
@@ -717,6 +719,15 @@
                                     window.__dashRef.invokeMethodAsync('JsInterruptSession');
                                 }
                             }
+                        }
+                    });
+                    // Reset histNavActive when user edits text, so ArrowDown doesn't
+                    // overwrite their changes with a history entry.
+                    document.addEventListener('input', function(e) {
+                        if (e.target.matches && e.target.matches('.card-input input, .card-input textarea, .input-row textarea')) {
+                            var card = e.target.closest('[data-session]');
+                            var sn = card ? card.dataset.session : '';
+                            if (sn && window.__histNavActive) window.__histNavActive[sn] = false;
                         }
                     });
                 }
