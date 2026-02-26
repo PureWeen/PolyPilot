@@ -405,6 +405,10 @@ public partial class CopilotService
                 {
                     Debug($"[EVT-ERR] '{sessionName}' CompleteReasoningMessages threw in TurnEnd: {ex}");
                 }
+                // Flush any accumulated assistant text to history/DB at end of each sub-turn.
+                // Without this, content in CurrentResponse is lost if the app restarts between
+                // turn_end and session.idle (which triggers CompleteResponse).
+                FlushCurrentResponse(state);
                 Invoke(() =>
                 {
                     OnTurnEnd?.Invoke(sessionName);

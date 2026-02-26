@@ -1244,13 +1244,25 @@ public partial class CopilotService : IAsyncDisposable
             state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             Debug($"Session '{displayName}' is still processing (was mid-turn when app restarted)");
 
+            // If events.jsonl was recently modified, the server was actively processing
+            // right before the restart. Pre-seed HasReceivedEventsSinceResume to bypass
+            // the 30s quiescence timeout — that timeout is for sessions that had already
+            // finished, not for genuinely active ones where the SDK just needs time to reconnect.
+            var (isRecentlyActive, hadToolActivity) = GetEventsFileRestoreHints(sessionId);
+            if (isRecentlyActive)
+            {
+                Volatile.Write(ref state.HasReceivedEventsSinceResume, true);
+                if (hadToolActivity)
+                    Volatile.Write(ref state.HasUsedToolsThisTurn, true);
+                Debug($"[RESTORE] '{displayName}' events.jsonl is fresh — bypassing quiescence " +
+                      $"(hadToolActivity={hadToolActivity})");
+            }
+
             // Start the processing watchdog so the session doesn't get stuck
             // forever if the CLI goes silent after resume (same as SendPromptAsync).
             // Seeds from DateTime.UtcNow — NOT events.jsonl write time.
             // See StartProcessingWatchdog comment for why file-time seeding is dangerous.
             StartProcessingWatchdog(state, displayName);
-
-
         }
         if (!_sessions.TryAdd(displayName, state))
         {
