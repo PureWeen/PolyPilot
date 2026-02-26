@@ -103,7 +103,12 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public void FireOnStateChanged() => OnStateChanged?.Invoke();
     public Task QueueMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task ResumeSessionAsync(string sessionId, string? displayName = null, CancellationToken ct = default) => Task.CompletedTask;
-    public Task CloseSessionAsync(string name, CancellationToken ct = default) => Task.CompletedTask;
+    public Func<string, Task>? CloseSessionOverride { get; set; }
+    public Task CloseSessionAsync(string name, CancellationToken ct = default)
+    {
+        if (CloseSessionOverride != null) return CloseSessionOverride(name);
+        return Task.CompletedTask;
+    }
     public Task AbortSessionAsync(string sessionName, CancellationToken ct = default) => Task.CompletedTask;
     public string? LastChangedModelSession { get; private set; }
     public string? LastChangedModel { get; private set; }
@@ -116,6 +121,8 @@ internal class StubWsBridgeClient : IWsBridgeClient
         return Task.CompletedTask;
     }
     public Task SendOrganizationCommandAsync(OrganizationCommandPayload payload, CancellationToken ct = default) => Task.CompletedTask;
+    public Task PushOrganizationAsync(OrganizationState organization, CancellationToken ct = default) => Task.CompletedTask;
+    public Task CreateSessionWithWorktreeAsync(CreateSessionWithWorktreePayload payload, CancellationToken ct = default) => Task.CompletedTask;
     public string? LastRenamedOldName { get; private set; }
     public string? LastRenamedNewName { get; private set; }
     public int RenameSessionCallCount { get; private set; }
@@ -157,7 +164,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
 
     public Task<WorktreeCreatedPayload> CreateWorktreeAsync(string repoId, string? branchName, int? prNumber, CancellationToken ct = default)
         => Task.FromResult(new WorktreeCreatedPayload { RepoId = repoId, Branch = branchName ?? "main", Path = "/tmp/test" });
-    public Task RemoveWorktreeAsync(string worktreeId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task RemoveWorktreeAsync(string worktreeId, bool deleteBranch = false, CancellationToken ct = default) => Task.CompletedTask;
 
     public Task<FetchImageResponsePayload> FetchImageAsync(string path, CancellationToken ct = default)
         => Task.FromResult(new FetchImageResponsePayload { Error = "Stub" });

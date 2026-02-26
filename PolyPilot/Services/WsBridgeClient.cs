@@ -214,6 +214,12 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     public async Task SendOrganizationCommandAsync(OrganizationCommandPayload cmd, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.OrganizationCommand, cmd), ct);
 
+    public async Task PushOrganizationAsync(OrganizationState organization, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.PushOrganization, organization), ct);
+
+    public async Task CreateSessionWithWorktreeAsync(CreateSessionWithWorktreePayload payload, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.CreateSessionWithWorktree, payload), ct);
+
     public async Task SendMultiAgentBroadcastAsync(string groupId, string message, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.MultiAgentBroadcast,
             new MultiAgentBroadcastPayload { GroupId = groupId, Message = message }), ct);
@@ -297,7 +303,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         finally { _pendingWorktreeRequests.TryRemove(requestId, out _); }
     }
 
-    public async Task RemoveWorktreeAsync(string worktreeId, CancellationToken ct = default)
+    public async Task RemoveWorktreeAsync(string worktreeId, bool deleteBranch = false, CancellationToken ct = default)
     {
         var requestId = Guid.NewGuid().ToString("N");
         var tcs = new TaskCompletionSource<bool>();
@@ -305,7 +311,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         try
         {
             await SendAsync(BridgeMessage.Create(BridgeMessageTypes.RemoveWorktree,
-                new RemoveWorktreePayload { RequestId = requestId, WorktreeId = worktreeId }), ct);
+                new RemoveWorktreePayload { RequestId = requestId, WorktreeId = worktreeId, DeleteBranch = deleteBranch }), ct);
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
             linked.Token.Register(() => tcs.TrySetCanceled());

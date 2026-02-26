@@ -773,4 +773,123 @@ public class CopilotServiceInitializationTests
         Assert.Single(result);
         Assert.Equal("abc-123", result[0].SessionId);
     }
+
+    // ===== CloseSession remote mode + worktree tests =====
+
+    [Fact]
+    public async Task CloseSession_RemoteMode_DoesNotThrow()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+
+        // Simulate bridge client providing a session
+        _bridgeClient.Sessions.Add(new SessionSummary { Name = "wt-session", SessionId = "sid-1" });
+        _bridgeClient.IsConnected = true;
+        _bridgeClient.FireOnStateChanged();
+
+        // Verify session exists locally
+        Assert.NotNull(svc.GetSession("wt-session"));
+
+        // Close should not throw
+        var result = await svc.CloseSessionAsync("wt-session");
+        Assert.True(result);
+
+        // Session should be gone
+        Assert.Null(svc.GetSession("wt-session"));
+    }
+
+    [Fact]
+    public async Task CloseSession_RemoteMode_WithWorktreeMetadata_DoesNotThrow()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+
+        // Simulate bridge client providing a session with worktree
+        _bridgeClient.Sessions.Add(new SessionSummary
+        {
+            Name = "wt-session",
+            SessionId = "sid-1",
+            WorkingDirectory = "/tmp/worktree"
+        });
+        _bridgeClient.IsConnected = true;
+        _bridgeClient.FireOnStateChanged();
+
+        // Add worktree metadata to organization
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "wt-session",
+            WorktreeId = "wt-123"
+        });
+
+        // Verify session and meta exist
+        Assert.NotNull(svc.GetSession("wt-session"));
+        Assert.NotNull(svc.GetSessionMeta("wt-session"));
+
+        // Close should not throw even with worktree metadata
+        var result = await svc.CloseSessionAsync("wt-session");
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task CloseSession_RemoteMode_BridgeClientThrows_StillRemovesLocally()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+
+        // Make bridge client throw on close
+        _bridgeClient.CloseSessionOverride = _ => throw new InvalidOperationException("Bridge close failed");
+
+        // Simulate bridge client providing a session
+        _bridgeClient.Sessions.Add(new SessionSummary { Name = "wt-session", SessionId = "sid-1" });
+        _bridgeClient.IsConnected = true;
+        _bridgeClient.FireOnStateChanged();
+
+        Assert.NotNull(svc.GetSession("wt-session"));
+
+        // Close should NOT throw even when bridge client throws
+        var result = await svc.CloseSessionAsync("wt-session");
+        Assert.True(result);
+        Assert.Null(svc.GetSession("wt-session"));
+    }
+
+    [Fact]
+    public async Task CloseSession_RemoteMode_SyncDoesNotReAddClosedSession()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Remote,
+            RemoteUrl = "ws://localhost:4322"
+        });
+
+        // Simulate bridge client providing a session
+        _bridgeClient.Sessions.Add(new SessionSummary { Name = "wt-session", SessionId = "sid-1" });
+        _bridgeClient.IsConnected = true;
+        _bridgeClient.FireOnStateChanged();
+
+        Assert.NotNull(svc.GetSession("wt-session"));
+
+        // Close the session
+        await svc.CloseSessionAsync("wt-session");
+        Assert.Null(svc.GetSession("wt-session"));
+
+        // Simulate a stale server broadcast that still includes the closed session
+        // (server hasn't processed the close yet)
+        _bridgeClient.FireOnStateChanged();
+
+        // Session should NOT be re-added
+        Assert.Null(svc.GetSession("wt-session"));
+    }
 }

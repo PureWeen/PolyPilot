@@ -49,6 +49,8 @@ public interface IWsBridgeClient
     Task ChangeModelAsync(string sessionName, string newModel, CancellationToken ct = default);
     Task RenameSessionAsync(string oldName, string newName, CancellationToken ct = default);
     Task SendOrganizationCommandAsync(OrganizationCommandPayload payload, CancellationToken ct = default);
+    Task PushOrganizationAsync(OrganizationState organization, CancellationToken ct = default);
+    Task CreateSessionWithWorktreeAsync(CreateSessionWithWorktreePayload payload, CancellationToken ct = default);
     Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default);
 
     // Repo operations
@@ -59,7 +61,7 @@ public interface IWsBridgeClient
 
     // Worktree operations
     Task<WorktreeCreatedPayload> CreateWorktreeAsync(string repoId, string? branchName, int? prNumber, CancellationToken ct = default);
-    Task RemoveWorktreeAsync(string worktreeId, CancellationToken ct = default);
+    Task RemoveWorktreeAsync(string worktreeId, bool deleteBranch = false, CancellationToken ct = default);
 
     // Image fetch
     Task<FetchImageResponsePayload> FetchImageAsync(string path, CancellationToken ct = default);

@@ -1249,7 +1249,8 @@ else
 
     private async Task CloseSession(string name)
     {
-        await CopilotService.CloseSessionAsync(name);
+        try { await CopilotService.CloseSessionAsync(name); }
+        catch (Exception ex) { Console.WriteLine($"[SessionSidebar] CloseSession error for '{name}': {ex.Message}"); }
     }
 
     private async Task CloseSessionAndDeleteWorktree(string name)
@@ -1259,22 +1260,29 @@ else
 
     private async Task CloseSessionWithOptions(string name, bool deleteWorktree, bool deleteBranch)
     {
-        var meta = CopilotService.GetSessionMeta(name);
-        var worktreeId = meta?.WorktreeId;
-
-        await CopilotService.CloseSessionAsync(name);
-
-        if (!string.IsNullOrEmpty(worktreeId))
+        try
         {
-            if (deleteWorktree && !IsWorktreeInUse(worktreeId, excludeSession: name))
+            var meta = CopilotService.GetSessionMeta(name);
+            var worktreeId = meta?.WorktreeId;
+
+            await CopilotService.CloseSessionAsync(name);
+
+            if (!string.IsNullOrEmpty(worktreeId))
             {
-                await DeleteWorktreeAsync(worktreeId, deleteBranch);
+                if (deleteWorktree && !IsWorktreeInUse(worktreeId, excludeSession: name))
+                {
+                    await DeleteWorktreeAsync(worktreeId, deleteBranch);
+                }
+                else if (deleteBranch && !deleteWorktree)
+                {
+                    // UI prevents this state (checkbox disabled), but guard just in case.
+                    // Can't delete a branch that's checked out in a kept worktree — skip.
+                }
             }
-            else if (deleteBranch && !deleteWorktree)
-            {
-                // UI prevents this state (checkbox disabled), but guard just in case.
-                // Can't delete a branch that's checked out in a kept worktree — skip.
-            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionSidebar] CloseSessionWithOptions error for '{name}': {ex.Message}");
         }
     }
 
@@ -1298,7 +1306,7 @@ else
         try
         {
             if (CopilotService.IsRemoteMode)
-                await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
+                await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId, deleteBranch);
             else
                 await RepoManager.RemoveWorktreeAsync(worktreeId, deleteBranch: deleteBranch);
         }

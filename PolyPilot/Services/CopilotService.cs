@@ -13,6 +13,9 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _pendingRemoteSessions = new();
     // Old names from optimistic renames — protected from re-addition by SyncRemoteSessions
     private readonly ConcurrentDictionary<string, byte> _pendingRemoteRenames = new();
+    // Sessions recently closed in remote mode — prevents SyncRemoteSessions from re-adding them
+    // before the server processes the close and removes them from its broadcast
+    private readonly ConcurrentDictionary<string, byte> _recentlyClosedRemoteSessions = new();
     // Sessions currently receiving streaming content via bridge events — history sync skipped to avoid duplicates
     private readonly ConcurrentDictionary<string, byte> _remoteStreamingSessions = new();
     // Sessions for which history has already been requested — prevents duplicate request storms
@@ -205,7 +208,7 @@ public partial class CopilotService : IAsyncDisposable
     public UiTheme Theme { get; set; } = UiTheme.System;
 
     // Session organization (groups, pinning, sorting)
-    public OrganizationState Organization { get; private set; } = new();
+    public OrganizationState Organization { get; internal set; } = new();
 
     public event Action? OnStateChanged;
     public void NotifyStateChanged() => OnStateChanged?.Invoke();
@@ -1450,10 +1453,46 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         string? initialPrompt = null,
         CancellationToken ct = default)
     {
-        // Remote mode: worktree operations run on the server, not locally.
-        // Delegate to bridge client for worktree creation, then create session normally.
+        // Remote mode: send the entire operation to the server as a single atomic command.
+        // The server runs CreateSessionWithWorktreeAsync locally, then broadcasts the updated
+        // sessions list and organization state. This avoids race conditions from multiple
+        // round-trips (create worktree → create session → push org).
         if (IsRemoteMode)
-            throw new NotSupportedException("CreateSessionWithWorktreeAsync is not supported in remote mode. Use the bridge protocol.");
+        {
+            var branch = branchName ?? $"session-{DateTime.Now:yyyyMMdd-HHmmss}";
+            var remoteName = sessionName ?? branch;
+
+            // Optimistic local add so the UI shows the session immediately
+            var remoteInfo = new AgentSessionInfo { Name = remoteName, Model = model ?? DefaultModel };
+            _pendingRemoteSessions[remoteName] = 0;
+            _sessions[remoteName] = new SessionState { Session = null!, Info = remoteInfo };
+            if (!Organization.Sessions.Any(m => m.SessionName == remoteName))
+            {
+                var repoGroup = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId);
+                Organization.Sessions.Add(new SessionMeta
+                {
+                    SessionName = remoteName,
+                    GroupId = repoGroup?.Id ?? SessionGroup.DefaultId
+                });
+            }
+            _activeSessionName = remoteName;
+            OnStateChanged?.Invoke();
+
+            // Send single command to server — server does worktree+session atomically
+            await _bridgeClient.CreateSessionWithWorktreeAsync(new CreateSessionWithWorktreePayload
+            {
+                RepoId = repoId,
+                BranchName = prNumber.HasValue ? null : branch,
+                PrNumber = prNumber,
+                WorktreeId = worktreeId,
+                SessionName = sessionName,
+                Model = model,
+                InitialPrompt = initialPrompt
+            }, ct);
+
+            _ = Task.Delay(30_000).ContinueWith(t => { _pendingRemoteSessions.TryRemove(remoteName, out _); });
+            return remoteInfo;
+        }
 
         WorktreeInfo wt;
 
@@ -2249,7 +2288,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         OnStateChanged?.Invoke();
     }
 
-    public async Task<bool> CloseSessionAsync(string name)
+    public Task<bool> CloseSessionAsync(string name) => CloseSessionCoreAsync(name, notifyUi: true);
+
+    internal async Task<bool> CloseSessionCoreAsync(string name, bool notifyUi)
     {
         // Clean up any active reflection cycle (including evaluator session)
         StopReflectionCycle(name);
@@ -2257,7 +2298,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // In remote mode, send close request to server
         if (IsRemoteMode)
         {
-            await _bridgeClient.CloseSessionAsync(name);
+            // Guard against SyncRemoteSessions re-adding this session before the server
+            // processes the close and removes it from its broadcast
+            _recentlyClosedRemoteSessions[name] = 0;
+            _ = Task.Delay(10_000).ContinueWith(t => _recentlyClosedRemoteSessions.TryRemove(name, out _));
+            try { await _bridgeClient.CloseSessionAsync(name); }
+            catch (Exception ex) { Debug($"CloseSessionAsync: bridge close failed for '{name}': {ex.Message}"); }
         }
 
         if (!_sessions.TryRemove(name, out var state))
@@ -2303,9 +2349,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             _activeSessionName = _sessions.Keys.FirstOrDefault();
         }
 
-        OnStateChanged?.Invoke();
-        SaveActiveSessionsToDisk();
-        ReconcileOrganization();
+        if (notifyUi)
+            OnStateChanged?.Invoke();
+        if (!IsRemoteMode)
+        {
+            SaveActiveSessionsToDisk();
+            ReconcileOrganization();
+        }
         return true;
     }
 

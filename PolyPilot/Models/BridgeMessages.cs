@@ -86,6 +86,8 @@ public static class BridgeMessageTypes
     public const string MultiAgentSetRole = "multi_agent_set_role";
     public const string ChangeModel = "change_model";
     public const string RenameSession = "rename_session";
+    public const string PushOrganization = "push_organization";
+    public const string CreateSessionWithWorktree = "create_session_with_worktree";
 
     // Client → Server (repo operations)
     public const string AddRepo = "add_repo";
@@ -504,10 +506,23 @@ public class CreateWorktreePayload
     public int? PrNumber { get; set; }
 }
 
+public class CreateSessionWithWorktreePayload
+{
+    public string RequestId { get; set; } = Guid.NewGuid().ToString();
+    public string RepoId { get; set; } = "";
+    public string? BranchName { get; set; }
+    public int? PrNumber { get; set; }
+    public string? WorktreeId { get; set; }
+    public string? SessionName { get; set; }
+    public string? Model { get; set; }
+    public string? InitialPrompt { get; set; }
+}
+
 public class RemoveWorktreePayload
 {
     public string RequestId { get; set; } = "";
     public string WorktreeId { get; set; } = "";
+    public bool DeleteBranch { get; set; }
 }
 
 public class WorktreeCreatedPayload
