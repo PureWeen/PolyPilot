@@ -220,21 +220,22 @@ public class SquadDiscoveryTests
     }
 
     [Fact]
-    public void GetAll_RepoOverrides_BuiltInByName()
+    public void GetAll_RepoDoesNotOverride_BuiltInByName()
     {
-        // Create a temp Squad dir with a preset named "Code Review Team"
+        // Create a temp Squad dir with a preset named the same as a built-in
+        var builtInName = GroupPreset.BuiltIn[0].Name;
         var tempDir = Path.Combine(Path.GetTempPath(), $"squad-test-{Guid.NewGuid():N}");
         try
         {
             Directory.CreateDirectory(Path.Combine(tempDir, ".squad", "agents", "reviewer"));
             File.WriteAllText(Path.Combine(tempDir, ".squad", "team.md"),
-                "# Code Review Team\n| Member | Role |\n|---|---|\n| reviewer | Reviewer |");
+                $"# {builtInName}\n| Member | Role |\n|---|---|\n| reviewer | Reviewer |");
             File.WriteAllText(Path.Combine(tempDir, ".squad", "agents", "reviewer", "charter.md"),
                 "Custom repo reviewer.");
 
             var all = UserPresets.GetAll(Path.GetTempPath(), tempDir);
-            var crt = all.Single(p => p.Name == "Code Review Team");
-            Assert.True(crt.IsRepoLevel, "Repo version should shadow built-in");
+            var match = all.Single(p => p.Name == builtInName);
+            Assert.False(match.IsRepoLevel, "Built-in should not be overridden by repo preset with same name");
         }
         finally
         {

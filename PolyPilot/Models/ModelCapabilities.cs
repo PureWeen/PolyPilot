@@ -367,18 +367,35 @@ public static class UserPresets
         catch { /* best-effort persistence */ }
     }
 
-    /// <summary>Get all presets: built-in + user-defined + repo-level (Squad). Repo overrides by name.</summary>
+    /// <summary>Get all presets: built-in + user-defined + repo-level (Squad). Built-ins are never overridden.</summary>
     public static GroupPreset[] GetAll(string baseDir, string? repoWorkingDirectory = null)
     {
+        var builtInNames = new HashSet<string>(GroupPreset.BuiltIn.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
         var merged = new Dictionary<string, GroupPreset>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in GroupPreset.BuiltIn) merged[p.Name] = p;
-        foreach (var p in Load(baseDir)) merged[p.Name] = p;
+        foreach (var p in Load(baseDir))
+            if (!builtInNames.Contains(p.Name)) merged[p.Name] = p;
         if (repoWorkingDirectory != null)
         {
             foreach (var p in SquadDiscovery.Discover(repoWorkingDirectory))
-                merged[p.Name] = p;
+                if (!builtInNames.Contains(p.Name)) merged[p.Name] = p;
         }
         return merged.Values.ToArray();
+    }
+
+    /// <summary>Delete a repo-level preset by removing its .squad/ directory.</summary>
+    public static bool DeleteRepoPreset(string repoWorkingDirectory, string presetName)
+    {
+        var presets = SquadDiscovery.Discover(repoWorkingDirectory);
+        var match = presets.FirstOrDefault(p => string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
+        if (match?.SourcePath == null) return false;
+        try
+        {
+            if (Directory.Exists(match.SourcePath))
+                Directory.Delete(match.SourcePath, recursive: true);
+            return true;
+        }
+        catch { return false; }
     }
 
     /// <summary>Save the current multi-agent group as a reusable preset.</summary>

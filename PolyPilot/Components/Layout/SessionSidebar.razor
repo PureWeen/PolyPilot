@@ -265,11 +265,14 @@ else
                         @foreach (var preset in repoPresets)
                         {
                             var p = preset;
-                            <button class="preset-item preset-repo" @onclick="() => CreateFromPresetForRepo(p, pendingMultiAgentRepo)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
-                                <span class="preset-emoji">@p.Emoji</span>
-                                <span class="preset-name">@p.Name</span>
-                                <span class="preset-badge">🫡</span>
-                            </button>
+                            <div class="preset-item-row">
+                                <button class="preset-item preset-repo" @onclick="() => CreateFromPresetForRepo(p, pendingMultiAgentRepo)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                                    <span class="preset-emoji">@p.Emoji</span>
+                                    <span class="preset-name">@p.Name</span>
+                                    <span class="preset-badge">🫡</span>
+                                </button>
+                                <button class="preset-delete-btn" @onclick="() => DeleteRepoPreset(p, repoWorktree)" title="Delete repo preset">🗑️</button>
+                            </div>
                         }
                     }
                     @if (builtInPresets.Any())
@@ -1422,6 +1425,13 @@ else
         {
             Console.WriteLine($"Failed to create from preset: {ex.Message}");
         }
+    }
+
+    private void DeleteRepoPreset(GroupPreset preset, WorktreeInfo? worktree)
+    {
+        if (worktree?.Path == null) return;
+        if (UserPresets.DeleteRepoPreset(worktree.Path, preset.Name))
+            StateHasChanged();
     }
 
     private static string ShortenPath(string path)
