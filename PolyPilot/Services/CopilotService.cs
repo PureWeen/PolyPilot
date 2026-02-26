@@ -1781,6 +1781,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (Interlocked.CompareExchange(ref state.SendingFlag, 1, 0) != 0)
             throw new InvalidOperationException("Session is already processing a request.");
 
+        long myGeneration = 0; // will be set right after the generation increment inside try
+
         try
         {
         state.Info.IsProcessing = true;
@@ -1788,6 +1790,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0; // Sending
         Interlocked.Increment(ref state.ProcessingGeneration);
+        // Capture the generation we just incremented to. The catch block uses this to
+        // verify we still own the lock before releasing it — prevents a steer abort
+        // (which clears SendingFlag=0 and starts a new turn with a higher generation)
+        // from having its lock clobbered when the old turn's TaskCanceledException surfaces.
+        myGeneration = Interlocked.Read(ref state.ProcessingGeneration);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName); // Cache for watchdog (UI thread safe)
@@ -1946,13 +1953,17 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
         catch
         {
-            // Reset atomic send flag on any exception so the session isn't permanently locked
-            Interlocked.Exchange(ref state.SendingFlag, 0);
+            // Only release the send lock if we still own this generation.
+            // If a steer abort ran between our catch and here, it already reset
+            // SendingFlag=0 and incremented the generation for the new turn — we
+            // must not clobber that turn's lock.
+            if (Interlocked.Read(ref state.ProcessingGeneration) == myGeneration)
+                Interlocked.Exchange(ref state.SendingFlag, 0);
             throw;
         }
     }
 
-    public async Task AbortSessionAsync(string sessionName)
+    public async Task AbortSessionAsync(string sessionName, bool markAsInterrupted = false)
     {
         // In remote mode, delegate to bridge server
         if (IsRemoteMode)
@@ -1996,7 +2007,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         var partialResponse = state.CurrentResponse.ToString();
         if (!string.IsNullOrEmpty(partialResponse))
         {
-            var msg = new ChatMessage("assistant", partialResponse, DateTime.Now) { Model = state.Info.Model };
+            var msg = new ChatMessage("assistant", partialResponse, DateTime.Now) { Model = state.Info.Model, IsInterrupted = markAsInterrupted };
             state.Info.History.Add(msg);
             state.Info.MessageCount = state.Info.History.Count;
             if (!string.IsNullOrEmpty(state.Info.SessionId))
@@ -2012,6 +2023,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ProcessingPhase = 0;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
+        // Release send lock — allows a subsequent SteerSessionAsync to acquire it immediately
+        Interlocked.Exchange(ref state.SendingFlag, 0);
         // Clear queued messages so they don't auto-send after abort
         state.Info.MessageQueue.Clear();
         _queuedImagePaths.TryRemove(sessionName, out _);
@@ -2019,6 +2032,19 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         CancelProcessingWatchdog(state);
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Interrupts the current response (if any) and sends a new steering message.
+    /// If the session is not currently processing, sends normally.
+    /// The partial response (if any) is preserved in history and marked as interrupted.
+    /// </summary>
+    public async Task SteerSessionAsync(string sessionName, string steeringMessage, List<string>? imagePaths = null, string? agentMode = null)
+    {
+        // Abort the current turn (preserves partial response marked as interrupted), then start a new one
+        await AbortSessionAsync(sessionName, markAsInterrupted: true);
+        Debug($"[STEER] '{sessionName}' steering with new message (len={steeringMessage.Length})");
+        await SendPromptAsync(sessionName, steeringMessage, imagePaths, agentMode: agentMode);
     }
 
     public void EnqueueMessage(string sessionName, string prompt, List<string>? imagePaths = null, string? agentMode = null)
