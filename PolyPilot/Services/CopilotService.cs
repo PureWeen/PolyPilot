@@ -2437,10 +2437,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // because the session was already removed from _sessions above. Calling it would
         // trigger a second OnStateChanged, causing rapid render batch churn that crashes
         // Blazor with "r.parentNode.removeChild" on null (render batch ordering race).
+        // Instead, directly remove from Organization.Sessions so the deletion persists across restarts.
+        Organization.Sessions.RemoveAll(m => m.SessionName == name);
         if (notifyUi)
             OnStateChanged?.Invoke();
         if (!IsRemoteMode)
+        {
             SaveActiveSessionsToDisk();
+            SaveOrganization();
+        }
 
         // Dispose the SDK session AFTER UI has updated — DisposeAsync talks to the CLI
         // process and may trigger additional SDK events on background threads. Running it
