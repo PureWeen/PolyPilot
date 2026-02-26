@@ -38,7 +38,8 @@ public static class PlatformHelper
     public static (string FileName, string Arguments) GetShellCommand(string command)
     {
         if (OperatingSystem.IsWindows())
-            return ("cmd.exe", $"/c {command}");
+            // Outer quotes ensure cmd.exe's quote-stripping is deterministic
+            return ("cmd.exe", $"/c \"{command}\"");
 
         var escaped = command.Replace("\\", "\\\\").Replace("\"", "\\\"");
         return ("/bin/bash", $"-c \"{escaped}\"");
