@@ -207,6 +207,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         - Include file path and line numbers
         - Note CI status: ✅ passing, ❌ failing (PR-specific), ⚠️ failing (pre-existing)
         - Note if prior review comments were addressed or still outstanding
+        - Assess test coverage: Are there new code paths that lack tests? Suggest specific test cases or scenarios that should be added.
         - End with recommended action: ✅ Approve, ⚠️ Request changes (with specific ask), or 🔴 Do not merge
 
         ## 5. Fix Process (when told to fix a PR)
@@ -224,7 +225,8 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         ```
 
         ## Rules
-        - NEVER checkout a branch during review-only tasks (shared worktree!)
+        - If workers share a worktree, NEVER checkout a branch during review-only tasks — use `gh pr diff` instead
+        - If each worker has its own isolated worktree, you may freely checkout branches for both review and fix tasks
         - Always include the FULL diff — never truncate
         - Use the edit tool for file changes, not sed
         """;
@@ -270,7 +272,9 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
 
                 When given PRs to review, assign ONE PR to EACH worker. Distribute round-robin. If more PRs than workers, assign multiple per worker.
 
-                For review-only tasks, tell the worker: "Review PR #<number>. Do NOT checkout the branch."
+                For review-only tasks:
+                - If workers share a worktree: "Review PR #<number>. Do NOT checkout the branch — use gh pr diff only."
+                - If workers have isolated worktrees: "Review PR #<number>." (they can checkout freely)
                 For fix tasks, tell the worker: "Fix PR #<number>. Checkout, rebase on origin/main, apply fixes, test, push, then re-review."
 
                 Workers handle the multi-model dispatch internally. However, for fix tasks, you MUST give explicit step-by-step instructions.
@@ -282,7 +286,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 3. Verify pushes: After a worker claims to have pushed, always run git fetch origin <branch> and check git log to confirm
                 4. Re-dispatch on failure: Workers sometimes fail silently on multi-step tasks. Check for new commits after fix tasks.
                 5. Re-review pattern: When re-reviewing, include previous findings in the prompt so sub-agents can verify what's fixed vs still present
-                6. Shared worktree safety: Only ONE worker can checkout/push at a time. Review-only tasks work from any branch.
+                6. Worktree safety: If workers share a worktree, only ONE can checkout/push at a time. If workers have isolated worktrees, they can work in parallel.
 
                 ## Summary Table Format
 
