@@ -197,7 +197,10 @@ public class RepoManager
             BareClonePath = barePath,
             AddedAt = DateTime.UtcNow
         };
-        _state.Repositories.Add(repo);
+        lock (_stateLock)
+        {
+            _state.Repositories.Add(repo);
+        }
         Save();
         OnStateChanged?.Invoke();
         return repo;
@@ -239,7 +242,7 @@ public class RepoManager
 
         try
         {
-            await RunGitAsync(repo.BareClonePath, ct, "worktree", "add", worktreePath, "-b", branchName, baseRef);
+            await RunGitAsync(repo.BareClonePath, ct, "worktree", "add", worktreePath, "-b", branchName, "--", baseRef);
         }
         catch
         {
@@ -257,7 +260,10 @@ public class RepoManager
             Path = worktreePath,
             CreatedAt = DateTime.UtcNow
         };
-        _state.Worktrees.Add(wt);
+        lock (_stateLock)
+        {
+            _state.Worktrees.Add(wt);
+        }
         Save();
         OnStateChanged?.Invoke();
         return wt;
@@ -329,7 +335,7 @@ public class RepoManager
         var worktreeId = Guid.NewGuid().ToString()[..8];
         var worktreePath = Path.Combine(WorktreesDir, $"{repoId}-{worktreeId}");
 
-        await RunGitAsync(repo.BareClonePath, ct, "worktree", "add", worktreePath, branchName);
+        await RunGitAsync(repo.BareClonePath, ct, "worktree", "add", worktreePath, "--", branchName);
 
         // Set upstream tracking so push/pull work in the worktree
         if (headBranch != null)
@@ -355,7 +361,10 @@ public class RepoManager
             Remote = remoteName,
             CreatedAt = DateTime.UtcNow
         };
-        _state.Worktrees.Add(wt);
+        lock (_stateLock)
+        {
+            _state.Worktrees.Add(wt);
+        }
         Save();
         OnStateChanged?.Invoke();
         return wt;
@@ -386,7 +395,7 @@ public class RepoManager
             }
             // Optionally clean up the branch too
             if (deleteBranch && !string.IsNullOrEmpty(wt.Branch))
-                try { await RunGitAsync(repo.BareClonePath, ct, "branch", "-D", wt.Branch); } catch { }
+                try { await RunGitAsync(repo.BareClonePath, ct, "branch", "-D", "--", wt.Branch); } catch { }
         }
         else if (Directory.Exists(wt.Path))
         {
@@ -409,7 +418,9 @@ public class RepoManager
     /// List worktrees for a specific repository.
     /// </summary>
     public IEnumerable<WorktreeInfo> GetWorktrees(string repoId)
-        => _state.Worktrees.Where(w => w.RepoId == repoId);
+    {
+        lock (_stateLock) return _state.Worktrees.Where(w => w.RepoId == repoId).ToList();
+    }
 
     /// <summary>
     /// Add a worktree to the in-memory list (for remote mode — tracks server worktrees without running git).
@@ -417,8 +428,11 @@ public class RepoManager
     public void AddRemoteWorktree(WorktreeInfo wt)
     {
         EnsureLoaded();
-        if (!_state.Worktrees.Any(w => w.Id == wt.Id))
-            _state.Worktrees.Add(wt);
+        lock (_stateLock)
+        {
+            if (!_state.Worktrees.Any(w => w.Id == wt.Id))
+                _state.Worktrees.Add(wt);
+        }
     }
 
     /// <summary>
@@ -427,8 +441,11 @@ public class RepoManager
     public void AddRemoteRepo(RepositoryInfo repo)
     {
         EnsureLoaded();
-        if (!_state.Repositories.Any(r => r.Id == repo.Id))
-            _state.Repositories.Add(repo);
+        lock (_stateLock)
+        {
+            if (!_state.Repositories.Any(r => r.Id == repo.Id))
+                _state.Repositories.Add(repo);
+        }
     }
 
     /// <summary>
@@ -437,7 +454,10 @@ public class RepoManager
     public void RemoveRemoteWorktree(string worktreeId)
     {
         EnsureLoaded();
-        _state.Worktrees.RemoveAll(w => w.Id == worktreeId);
+        lock (_stateLock)
+        {
+            _state.Worktrees.RemoveAll(w => w.Id == worktreeId);
+        }
     }
 
     /// <summary>
@@ -446,7 +466,10 @@ public class RepoManager
     public void RemoveRemoteRepo(string repoId)
     {
         EnsureLoaded();
-        _state.Repositories.RemoveAll(r => r.Id == repoId);
+        lock (_stateLock)
+        {
+            _state.Repositories.RemoveAll(r => r.Id == repoId);
+        }
     }
 
     /// <summary>

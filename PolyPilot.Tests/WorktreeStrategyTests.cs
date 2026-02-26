@@ -632,6 +632,17 @@ public class WorktreeStrategyTests
         // Group should track the created worktree
         Assert.Single(group!.CreatedWorktreeIds);
         Assert.NotNull(group.WorktreeId);
+
+        // All sessions (orch + workers) should share the same working directory
+        var organized = svc.GetOrganizedSessions();
+        var groupSessions = organized.FirstOrDefault(g => g.Group.Id == group!.Id).Sessions;
+        Assert.NotNull(groupSessions);
+        Assert.Equal(3, groupSessions!.Count); // 1 orch + 2 workers
+        // All sessions should have a non-null working directory (the shared worktree path)
+        Assert.All(groupSessions, s => Assert.NotNull(s.WorkingDirectory));
+        // All should share the same directory
+        var dirs = groupSessions.Select(s => s.WorkingDirectory).Distinct().ToList();
+        Assert.Single(dirs);
     }
 
     [Fact]

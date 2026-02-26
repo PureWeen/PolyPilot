@@ -1515,7 +1515,7 @@ public partial class CopilotService
                   workerName = $"{teamName}-worker-{i + 1}-{suffix++}";
             }
             var workerModel = preset.WorkerModels[i];
-            var workerWorkDir = workerWorkDirs[i] ?? workingDirectory;
+            var workerWorkDir = workerWorkDirs[i] ?? orchWorkDir ?? workingDirectory;
             Debug($"[WorktreeStrategy] Worker '{workerName}': wtId={workerWtIds[i] ?? "(none)"}, dir={workerWorkDir ?? "(null)"}");
             try
             {

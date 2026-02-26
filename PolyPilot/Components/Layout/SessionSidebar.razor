@@ -952,9 +952,16 @@ else
 
             if (!string.IsNullOrEmpty(args.RepoId) || !string.IsNullOrEmpty(args.WorktreeId))
             {
-                // Repo-based: atomic worktree+session creation
+                // Repo-based: atomic worktree+session creation.
+                // When only WorktreeId is set, derive repoId from the worktree.
+                var repoId = args.RepoId;
+                if (string.IsNullOrEmpty(repoId) && !string.IsNullOrEmpty(args.WorktreeId))
+                {
+                    var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == args.WorktreeId);
+                    repoId = wt?.RepoId ?? "";
+                }
                 sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
-                    repoId: args.RepoId!,
+                    repoId: repoId!,
                     branchName: args.BranchName,
                     prNumber: args.PrNumber,
                     worktreeId: args.WorktreeId,
@@ -1051,7 +1058,7 @@ else
                 return;
             }
             else
-                branchName = input;
+                branchName = System.Text.RegularExpressions.Regex.Replace(input, @"[^a-zA-Z0-9/_.-]", "-").Trim('-');
 
             await CopilotService.CreateSessionWithWorktreeAsync(
                 repoId: repoId,

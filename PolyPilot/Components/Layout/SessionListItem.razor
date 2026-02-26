@@ -4,6 +4,7 @@
 @inject CopilotService CopilotService
 @inject RepoManager RepoManager
 @inject IJSRuntime JS
+@implements IAsyncDisposable
 
 @{
     var isPinned = Meta?.IsPinned ?? false;
@@ -208,7 +209,7 @@
 
 @if (showCloseConfirm)
 {
-    <div @ref="dialogOverlayRef" class="close-dialog-overlay" @onclick="HideCloseConfirm" @onclick:stopPropagation="true">
+    <div @ref="dialogOverlayRef" class="close-dialog-overlay" data-dialog-id="@_dialogId" @onclick="HideCloseConfirm" @onclick:stopPropagation="true">
         <div class="close-dialog" @onclick:stopPropagation="true">
             <div class="close-dialog-title">Close "@Session.Name"?</div>
             @if (!string.IsNullOrEmpty(Meta?.WorktreeId))
@@ -260,6 +261,9 @@
     private bool deleteWorktree;
     private bool deleteBranch;
     private ElementReference dialogOverlayRef;
+    private readonly string _dialogId = Guid.NewGuid().ToString("N")[..8];
+
+    private string DialogSelector => $"[data-dialog-id='{_dialogId}']";
 
     private async Task ShowCloseConfirm()
     {
@@ -271,15 +275,19 @@
         // Portal the overlay to document.body after render so it escapes
         // overflow:hidden on sidebar/session-list parent containers.
         await Task.Yield();
-        try { await JS.InvokeVoidAsync("eval", "var el=document.querySelector('.close-dialog-overlay');if(el&&el.parentElement!==document.body)document.body.appendChild(el)"); }
+        try { await JS.InvokeVoidAsync("eval", $"var el=document.querySelector(\"{DialogSelector}\");if(el&&el.parentElement!==document.body)document.body.appendChild(el)"); }
         catch { /* JS interop may fail during dispose */ }
+    }
+
+    private async Task RemovePortaledOverlay()
+    {
+        try { await JS.InvokeVoidAsync("eval", $"var el=document.querySelector(\"{DialogSelector}\");if(el&&el.parentElement===document.body)el.remove()"); }
+        catch { }
     }
 
     private async Task HideCloseConfirm()
     {
-        // Remove the portaled overlay from document.body before Blazor tries to diff
-        try { await JS.InvokeVoidAsync("eval", "var el=document.querySelector('.close-dialog-overlay');if(el&&el.parentElement===document.body)el.remove()"); }
-        catch { }
+        await RemovePortaledOverlay();
         showCloseConfirm = false;
         await OnCloseMenu.InvokeAsync();
     }
@@ -292,9 +300,7 @@
 
     private async Task ConfirmClose()
     {
-        // Remove portaled overlay before Blazor diff
-        try { await JS.InvokeVoidAsync("eval", "var el=document.querySelector('.close-dialog-overlay');if(el&&el.parentElement===document.body)el.remove()"); }
-        catch { }
+        await RemovePortaledOverlay();
         showCloseConfirm = false;
         await OnCloseMenu.InvokeAsync();
         if (!string.IsNullOrEmpty(Meta?.WorktreeId) && (deleteWorktree || deleteBranch))
@@ -437,4 +443,10 @@
 
     private static string FormatTokenCount(int count) =>
         count >= 1000 ? $"{count / 1000}k" : count.ToString();
+
+    public async ValueTask DisposeAsync()
+    {
+        if (showCloseConfirm)
+            await RemovePortaledOverlay();
+    }
 }
