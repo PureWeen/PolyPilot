@@ -978,7 +978,7 @@ public partial class CopilotService
         }
     }
 
-    private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions, string? routingContext = null)
+    private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions, string? routingContext = null, bool dispatcherOnly = false)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available:");
@@ -1014,8 +1014,15 @@ public partial class CopilotService
         }
         sb.AppendLine();
         sb.AppendLine("## Your Task");
-        sb.AppendLine("You are a DISPATCHER ONLY. You do NOT have tools. You CANNOT write code, read files, or run commands yourself.");
-        sb.AppendLine("Your ONLY job is to write @worker/@end blocks that assign work to your workers.");
+        if (dispatcherOnly)
+        {
+            sb.AppendLine("You are a DISPATCHER ONLY. You do NOT have tools. You CANNOT write code, read files, or run commands yourself.");
+            sb.AppendLine("Your ONLY job is to write @worker/@end blocks that assign work to your workers.");
+        }
+        else
+        {
+            sb.AppendLine("Break the request into tasks and assign them to workers. You may also do some coordination work yourself (e.g., verifying results, running commands).");
+        }
         sb.AppendLine("Use this exact format for each assignment:");
         sb.AppendLine();
         sb.AppendLine("@worker:worker-name");
@@ -1023,7 +1030,8 @@ public partial class CopilotService
         sb.AppendLine("@end");
         sb.AppendLine();
         sb.AppendLine("You may include brief analysis before the @worker blocks, but you MUST produce at least one @worker block.");
-        sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
+        if (dispatcherOnly)
+            sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
         return sb.ToString();
     }
 
@@ -1709,6 +1717,7 @@ public partial class CopilotService
         // Tracks workers that have successfully completed at least once across all iterations.
         // Access is sequential (single async flow, no concurrent modification).
         var dispatchedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var attemptedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
@@ -1729,7 +1738,7 @@ public partial class CopilotService
             string planPrompt;
             if (reflectState.CurrentIteration == 1)
             {
-                planPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext);
+                planPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext, dispatcherOnly: true);
             }
             else
             {
@@ -1788,7 +1797,9 @@ public partial class CopilotService
             var workerTasks = assignments.Select(a => ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, ct));
             var results = await Task.WhenAll(workerTasks);
 
-            // Track only workers that succeeded across all iterations
+            // Track both attempted and successful workers across all iterations
+            foreach (var a in assignments)
+                attemptedWorkers.Add(a.WorkerName);
             foreach (var r in results.Where(r => r.Success))
                 dispatchedWorkers.Add(r.WorkerName);
 
@@ -1797,6 +1808,10 @@ public partial class CopilotService
 
             var synthEvalPrompt = BuildSynthesisWithEvalPrompt(prompt, results.ToList(), reflectState,
                 group.RoutingContext, dispatchedWorkers, workerNames);
+
+            // Check worker participation once for both evaluator and self-eval paths
+            var allWorkersDispatched = workerNames.All(w => dispatchedWorkers.Contains(w));
+            var allWorkersAttempted = workerNames.All(w => attemptedWorkers.Contains(w));
 
             // Use dedicated evaluator session if configured, otherwise orchestrator self-evaluates
             string evaluatorName = reflectState.EvaluatorSessionName ?? orchestratorName;
@@ -1816,8 +1831,7 @@ public partial class CopilotService
                 var evaluatorModel = GetEffectiveModel(evaluatorName);
                 var trend = reflectState.RecordEvaluation(reflectState.CurrentIteration, score, rationale, evaluatorModel);
 
-                // Check if evaluator says complete — but only if all workers have participated
-                var allWorkersDispatched = workerNames.All(w => dispatchedWorkers.Contains(w));
+                // Check if evaluator says complete — but only if all workers have participated successfully
                 if ((evalResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) || score >= 0.9)
                     && allWorkersDispatched)
                 {
@@ -1830,11 +1844,14 @@ public partial class CopilotService
                 if (!allWorkersDispatched)
                 {
                     var missing = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
-                    Debug($"Reflection: overriding completion — workers not yet dispatched: {string.Join(", ", missing)}");
-                    reflectState.LastEvaluation = $"Not all workers have participated yet. Missing: {string.Join(", ", missing)}. " +
-                        "Dispatch to the remaining workers before completing.";
-                    AddOrchestratorSystemMessage(orchestratorName,
-                        $"🔄 Overriding completion — {string.Join(", ", missing)} haven't participated yet.");
+                    var failedButAttempted = missing.Where(w => attemptedWorkers.Contains(w)).ToList();
+                    var neverDispatched = missing.Where(w => !attemptedWorkers.Contains(w)).ToList();
+                    var detail = neverDispatched.Count > 0
+                        ? $"Not yet dispatched: {string.Join(", ", neverDispatched)}."
+                        : $"Dispatched but failed: {string.Join(", ", failedButAttempted)}. Retry or address errors.";
+                    Debug($"Reflection: overriding completion — {detail}");
+                    reflectState.LastEvaluation = $"{detail} Dispatch to the remaining workers before completing.";
+                    AddOrchestratorSystemMessage(orchestratorName, $"🔄 Overriding completion — {detail}");
                 }
                 else
                 {
@@ -1848,8 +1865,7 @@ public partial class CopilotService
             {
                 synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthEvalPrompt, ct);
 
-                // Check completion sentinel — but only if all workers have participated
-                var allWorkersDispatched = workerNames.All(w => dispatchedWorkers.Contains(w));
+                // Check completion sentinel — but only if all workers have participated successfully
                 if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase)
                     && allWorkersDispatched)
                 {
@@ -1864,11 +1880,14 @@ public partial class CopilotService
                 {
                     // Override premature completion — not all workers have participated
                     var missing = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
-                    Debug($"Reflection: overriding [[GROUP_REFLECT_COMPLETE]] — workers not yet dispatched: {string.Join(", ", missing)}");
-                    reflectState.LastEvaluation = $"Not all workers have participated yet. Missing: {string.Join(", ", missing)}. " +
-                        "Dispatch to the remaining workers before completing.";
-                    AddOrchestratorSystemMessage(orchestratorName,
-                        $"🔄 Overriding completion — {string.Join(", ", missing)} haven't participated yet.");
+                    var failedButAttempted = missing.Where(w => attemptedWorkers.Contains(w)).ToList();
+                    var neverDispatched = missing.Where(w => !attemptedWorkers.Contains(w)).ToList();
+                    var detail = neverDispatched.Count > 0
+                        ? $"Not yet dispatched: {string.Join(", ", neverDispatched)}."
+                        : $"Dispatched but failed: {string.Join(", ", failedButAttempted)}. Retry or address errors.";
+                    Debug($"Reflection: overriding [[GROUP_REFLECT_COMPLETE]] — {detail}");
+                    reflectState.LastEvaluation = $"{detail} Dispatch to the remaining workers before completing.";
+                    AddOrchestratorSystemMessage(orchestratorName, $"🔄 Overriding completion — {detail}");
                     reflectState.RecordEvaluation(reflectState.CurrentIteration, 0.3,
                         reflectState.LastEvaluation, GetEffectiveModel(orchestratorName));
                 }
