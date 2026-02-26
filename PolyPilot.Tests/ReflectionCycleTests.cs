@@ -1,4 +1,6 @@
+using Microsoft.Extensions.DependencyInjection;
 using PolyPilot.Models;
+using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
@@ -890,4 +892,98 @@ public class AgentSessionInfoReflectionCycleTests
         Assert.Equal(expectedMax, maxIterations);
         Assert.Equal(expectedGoal, goal);
     }
+
+    #region StartGroupReflection Guard
+
+    private CopilotService CreateService()
+    {
+        var services = new ServiceCollection();
+        return new CopilotService(
+            new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+            new RepoManager(), services.BuildServiceProvider(), new StubDemoService());
+    }
+
+    [Fact]
+    public void StartGroupReflection_SkipsIfAlreadyActive()
+    {
+        var svc = CreateService();
+        var group = new SessionGroup { Id = "g1", Name = "Test", IsMultiAgent = true };
+        svc.Organization.Groups.Add(group);
+
+        svc.StartGroupReflection("g1", "First goal", 3);
+        Assert.NotNull(group.ReflectionState);
+        Assert.Equal("First goal", group.ReflectionState!.Goal);
+        Assert.True(group.ReflectionState.IsActive);
+
+        // Calling again should NOT overwrite
+        svc.StartGroupReflection("g1", "Second goal", 5);
+        Assert.Equal("First goal", group.ReflectionState.Goal);
+        Assert.Equal(3, group.ReflectionState.MaxIterations);
+    }
+
+    [Fact]
+    public void StartGroupReflection_AllowsAfterCancellation()
+    {
+        var svc = CreateService();
+        var group = new SessionGroup { Id = "g1", Name = "Test", IsMultiAgent = true };
+        svc.Organization.Groups.Add(group);
+
+        svc.StartGroupReflection("g1", "First goal", 3);
+        svc.StopGroupReflection("g1");
+        Assert.True(group.ReflectionState!.IsCancelled);
+
+        // Now should allow a new reflection
+        svc.StartGroupReflection("g1", "Second goal", 5);
+        Assert.Equal("Second goal", group.ReflectionState.Goal);
+        Assert.True(group.ReflectionState.IsActive);
+        Assert.False(group.ReflectionState.IsCancelled);
+    }
+
+    #endregion
+
+    #region Sentinel Stripping in Synthesis
+
+    [Fact]
+    public void SentinelStripping_ReplacesGroupReflectComplete()
+    {
+        // Verify the replacement logic used in BuildSynthesisPrompt
+        var workerResponse = "The implementation looks good.\n[[GROUP_REFLECT_COMPLETE]]\nAll tests pass.";
+        var sanitized = workerResponse.Replace("[[GROUP_REFLECT_COMPLETE]]", "[WORKER_APPROVED]", StringComparison.OrdinalIgnoreCase);
+
+        Assert.DoesNotContain("[[GROUP_REFLECT_COMPLETE]]", sanitized);
+        Assert.Contains("[WORKER_APPROVED]", sanitized);
+        Assert.Contains("The implementation looks good.", sanitized);
+        Assert.Contains("All tests pass.", sanitized);
+    }
+
+    [Fact]
+    public void SentinelStripping_CaseInsensitive()
+    {
+        var workerResponse = "Done. [[group_reflect_complete]]";
+        var sanitized = workerResponse.Replace("[[GROUP_REFLECT_COMPLETE]]", "[WORKER_APPROVED]", StringComparison.OrdinalIgnoreCase);
+
+        Assert.DoesNotContain("[[group_reflect_complete]]", sanitized, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("[WORKER_APPROVED]", sanitized);
+    }
+
+    [Fact]
+    public void SentinelStripping_PreservesNeedsIteration()
+    {
+        var workerResponse = "Issues found:\n[[NEEDS_ITERATION]]\n1. Missing error handling";
+        var sanitized = workerResponse.Replace("[[GROUP_REFLECT_COMPLETE]]", "[WORKER_APPROVED]", StringComparison.OrdinalIgnoreCase);
+
+        // NEEDS_ITERATION should not be affected by the stripping
+        Assert.Contains("[[NEEDS_ITERATION]]", sanitized);
+        Assert.Contains("Missing error handling", sanitized);
+    }
+
+    [Fact]
+    public void SentinelStripping_HandlesNull()
+    {
+        string? workerResponse = null;
+        var sanitized = workerResponse?.Replace("[[GROUP_REFLECT_COMPLETE]]", "[WORKER_APPROVED]", StringComparison.OrdinalIgnoreCase) ?? "";
+        Assert.Equal("", sanitized);
+    }
+
+    #endregion
 }

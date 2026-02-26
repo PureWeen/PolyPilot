@@ -1128,7 +1128,12 @@ public partial class CopilotService
         {
             sb.AppendLine($"### {result.WorkerName} ({(result.Success ? "✅ completed" : "❌ failed")}, {result.Duration.TotalSeconds:F1}s)");
             if (result.Success)
-                sb.AppendLine(result.Response);
+            {
+                // Strip completion sentinel from worker responses to prevent the orchestrator
+                // from echoing it and causing false loop termination in the reflect cycle.
+                var sanitized = result.Response?.Replace("[[GROUP_REFLECT_COMPLETE]]", "[WORKER_APPROVED]", StringComparison.OrdinalIgnoreCase) ?? "";
+                sb.AppendLine(sanitized);
+            }
             else
                 sb.AppendLine($"*Error: {result.Error}*");
             sb.AppendLine();
@@ -1660,6 +1665,10 @@ public partial class CopilotService
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
         if (group == null) return;
 
+        // Don't overwrite an active reflection — the user must stop it first
+        if (group.ReflectionState is { IsActive: true, IsCancelled: false })
+            return;
+
         group.ReflectionState = ReflectionCycle.Create(goal, maxIterations);
         group.OrchestratorMode = MultiAgentMode.OrchestratorReflect;
         SaveOrganization();
@@ -1811,7 +1820,7 @@ public partial class CopilotService
 
             // Check worker participation once for both evaluator and self-eval paths
             var allWorkersDispatched = workerNames.All(w => dispatchedWorkers.Contains(w));
-            var allWorkersAttempted = workerNames.All(w => attemptedWorkers.Contains(w));
+
 
             // Use dedicated evaluator session if configured, otherwise orchestrator self-evaluates
             string evaluatorName = reflectState.EvaluatorSessionName ?? orchestratorName;
