@@ -451,12 +451,15 @@ public partial class CopilotService
             SaveActiveSessionsToDisk();
             FlushSaveActiveSessionsToDisk();
             // Fire-and-forget: close sessions then remove worktrees
+            // Snapshot worktree IDs — removal must be sequential (not parallel)
+            // because RepoManager._state.Worktrees is a plain List<T>.
+            var wtIdsSnapshot = worktreeIds.ToList();
             _ = Task.Run(async () =>
             {
                 foreach (var name in sessionNames)
                     try { await CloseSessionAsync(name); } catch (Exception ex) { Debug($"DeleteGroup: failed to close '{name}': {ex.Message}"); }
-                // Clean up worktrees after sessions are closed
-                foreach (var wtId in worktreeIds)
+                // Clean up worktrees sequentially after all sessions are closed
+                foreach (var wtId in wtIdsSnapshot)
                     try { await _repoManager.RemoveWorktreeAsync(wtId, deleteBranch: true); } catch (Exception ex) { Debug($"DeleteGroup: failed to remove worktree '{wtId}': {ex.Message}"); }
             });
         }
@@ -1401,6 +1404,24 @@ public partial class CopilotService
             catch (Exception ex) { Debug($"Pre-fetch failed (continuing): {ex.Message}"); }
         }
 
+        // For Shared strategy with a repo but no worktree, create a single shared worktree
+        if (repoId != null && strategy == WorktreeStrategy.Shared && string.IsNullOrEmpty(worktreeId) && string.IsNullOrEmpty(workingDirectory))
+        {
+            try
+            {
+                await _repoManager.FetchAsync(repoId, ct);
+                var sharedWt = await _repoManager.CreateWorktreeAsync(repoId, $"{branchPrefix}-shared-{Guid.NewGuid().ToString()[..4]}", skipFetch: true, ct: ct);
+                orchWorkDir = sharedWt.Path;
+                orchWtId = sharedWt.Id;
+                group.WorktreeId = orchWtId;
+                group.CreatedWorktreeIds.Add(orchWtId);
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to create shared worktree (sessions will use temp dirs): {ex.Message}");
+            }
+        }
+
         if (repoId != null && strategy != WorktreeStrategy.Shared && string.IsNullOrEmpty(worktreeId))
         {
             try
@@ -1481,6 +1502,8 @@ public partial class CopilotService
         if (orchMeta != null) orchMeta.IsPinned = true;
         if (orchWtId != null && orchMeta != null)
             orchMeta.WorktreeId = orchWtId;
+        if (orchWtId != null && _sessions.TryGetValue(orchName, out var orchState))
+            orchState.Info.WorktreeId = orchWtId;
 
         // Create worker sessions
         Debug($"[WorktreeStrategy] Creating {preset.WorkerModels.Length} workers with strategy={strategy}, repoId={repoId}");
@@ -1513,6 +1536,9 @@ public partial class CopilotService
                 meta.WorktreeId = workerWtIds[i] ?? worktreeId;
                 if (systemPrompt != null) meta.SystemPrompt = systemPrompt;
             }
+            var effectiveWtId = workerWtIds[i] ?? worktreeId;
+            if (effectiveWtId != null && _sessions.TryGetValue(workerName, out var workerState))
+                workerState.Info.WorktreeId = effectiveWtId;
         }
 
         SaveOrganization();

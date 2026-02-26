@@ -20,8 +20,9 @@ public class RepoManager
     private RepositoryState _state = new();
     private bool _loaded;
     private bool _loadedSuccessfully;
-    public IReadOnlyList<RepositoryInfo> Repositories { get { EnsureLoaded(); return _state.Repositories.AsReadOnly(); } }
-    public IReadOnlyList<WorktreeInfo> Worktrees { get { EnsureLoaded(); return _state.Worktrees.AsReadOnly(); } }
+    private readonly object _stateLock = new();
+    public IReadOnlyList<RepositoryInfo> Repositories { get { EnsureLoaded(); lock (_stateLock) return _state.Repositories.ToList().AsReadOnly(); } }
+    public IReadOnlyList<WorktreeInfo> Worktrees { get { EnsureLoaded(); lock (_stateLock) return _state.Worktrees.ToList().AsReadOnly(); } }
 
     public event Action? OnStateChanged;
 
@@ -78,6 +79,8 @@ public class RepoManager
             Console.WriteLine("[RepoManager] Skipping save — state was not loaded successfully and is empty.");
             return;
         }
+        // Any successful save means state is now intentionally managed
+        _loadedSuccessfully = true;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(StateFile)!);
@@ -394,7 +397,10 @@ public class RepoManager
                 try { Directory.Delete(wt.Path, recursive: true); } catch { }
         }
 
-        _state.Worktrees.RemoveAll(w => w.Id == worktreeId);
+        lock (_stateLock)
+        {
+            _state.Worktrees.RemoveAll(w => w.Id == worktreeId);
+        }
         Save();
         OnStateChanged?.Invoke();
     }
@@ -460,8 +466,11 @@ public class RepoManager
             try { await RemoveWorktreeAsync(wt.Id, ct: ct); } catch { }
         }
 
-        _state.Repositories.RemoveAll(r => r.Id == repoId);
-        _state.Worktrees.RemoveAll(w => w.RepoId == repoId);
+        lock (_stateLock)
+        {
+            _state.Repositories.RemoveAll(r => r.Id == repoId);
+            _state.Worktrees.RemoveAll(w => w.RepoId == repoId);
+        }
         Save();
 
         if (deleteFromDisk && Directory.Exists(repo.BareClonePath))

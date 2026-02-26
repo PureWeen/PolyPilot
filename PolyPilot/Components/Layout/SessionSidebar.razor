@@ -954,7 +954,7 @@ else
             {
                 // Repo-based: atomic worktree+session creation
                 sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
-                    repoId: args.RepoId ?? null!,
+                    repoId: args.RepoId!,
                     branchName: args.BranchName,
                     prNumber: args.PrNumber,
                     worktreeId: args.WorktreeId,
@@ -1043,8 +1043,13 @@ else
             int? prNumber = null;
             string? branchName = null;
 
-            if (input.StartsWith("#") && int.TryParse(input[1..], out var pr))
+            if (input.StartsWith("#") && int.TryParse(input[1..], out var pr) && pr > 0)
                 prNumber = pr;
+            else if (input.StartsWith("#"))
+            {
+                quickBranchError = "Invalid PR number. Use #123 format.";
+                return;
+            }
             else
                 branchName = input;
 
@@ -1260,17 +1265,8 @@ else
             }
             else if (deleteBranch && !deleteWorktree)
             {
-                // Delete just the branch, keep the worktree directory
-                try
-                {
-                    var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
-                    if (wt != null)
-                    {
-                        var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
-                        // Can't delete the branch of an active worktree — skip silently
-                    }
-                }
-                catch { }
+                // UI prevents this state (checkbox disabled), but guard just in case.
+                // Can't delete a branch that's checked out in a kept worktree — skip.
             }
         }
     }

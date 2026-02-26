@@ -260,12 +260,10 @@
     private bool deleteWorktree;
     private bool deleteBranch;
     private ElementReference dialogOverlayRef;
-    private bool needsPortal;
 
-    private async void ShowCloseConfirm()
+    private async Task ShowCloseConfirm()
     {
         showCloseConfirm = true;
-        needsPortal = true;
         // Default both to checked when worktree exists
         deleteWorktree = !string.IsNullOrEmpty(Meta?.WorktreeId);
         deleteBranch = !string.IsNullOrEmpty(Meta?.WorktreeId);
@@ -273,14 +271,17 @@
         // Portal the overlay to document.body after render so it escapes
         // overflow:hidden on sidebar/session-list parent containers.
         await Task.Yield();
-        try { await JS.InvokeVoidAsync("eval", "document.querySelector('.close-dialog-overlay')&&document.body.appendChild(document.querySelector('.close-dialog-overlay'))"); }
+        try { await JS.InvokeVoidAsync("eval", "var el=document.querySelector('.close-dialog-overlay');if(el&&el.parentElement!==document.body)document.body.appendChild(el)"); }
         catch { /* JS interop may fail during dispose */ }
     }
 
-    private void HideCloseConfirm()
+    private async Task HideCloseConfirm()
     {
+        // Remove the portaled overlay from document.body before Blazor tries to diff
+        try { await JS.InvokeVoidAsync("eval", "var el=document.querySelector('.close-dialog-overlay');if(el&&el.parentElement===document.body)el.remove()"); }
+        catch { }
         showCloseConfirm = false;
-        _ = OnCloseMenu.InvokeAsync();
+        await OnCloseMenu.InvokeAsync();
     }
 
     private void OnDeleteWorktreeChanged()
@@ -291,6 +292,9 @@
 
     private async Task ConfirmClose()
     {
+        // Remove portaled overlay before Blazor diff
+        try { await JS.InvokeVoidAsync("eval", "var el=document.querySelector('.close-dialog-overlay');if(el&&el.parentElement===document.body)el.remove()"); }
+        catch { }
         showCloseConfirm = false;
         await OnCloseMenu.InvokeAsync();
         if (!string.IsNullOrEmpty(Meta?.WorktreeId) && (deleteWorktree || deleteBranch))
