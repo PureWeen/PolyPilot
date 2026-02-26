@@ -98,11 +98,12 @@ public class CliPathResolutionTests
         var client = new CopilotClient(options);
         Assert.NotNull(client);
 
-        // Confirm the inverse: setting CliUrl with a non-null CliPath throws.
+        // SDK 0.1.26+ no longer throws when CliUrl is set on a fresh options object.
         var options2 = new CopilotClientOptions();
         options2.CliUrl = "http://localhost:4321";
 
-        Assert.Throws<ArgumentException>(() => new CopilotClient(options2));
+        var client2 = new CopilotClient(options2);
+        Assert.NotNull(client2);
     }
 
     // ================================================================

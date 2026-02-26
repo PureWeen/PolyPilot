@@ -49,14 +49,14 @@ public class PersistentModeTests
     }
 
     [Fact]
-    public void CopilotClientOptions_CliUrl_WithoutClearingDefaults_Throws()
+    public void CopilotClientOptions_CliUrl_WithoutClearingDefaults_Accepted()
     {
-        // Proves that just setting CliUrl on a fresh options object throws
-        // because of auto-discovered CliPath or UseStdio.
+        // SDK 0.1.26+ no longer throws when CliUrl is set on a fresh options object.
         var options = new CopilotClientOptions();
         options.CliUrl = "http://localhost:4321";
 
-        Assert.Throws<ArgumentException>(() => new CopilotClient(options));
+        var client = new CopilotClient(options);
+        Assert.NotNull(client);
     }
 
     [Fact]
@@ -72,14 +72,16 @@ public class PersistentModeTests
     }
 
     [Fact]
-    public void CopilotClientOptions_CliUrl_WithUseStdio_Throws()
+    public void CopilotClientOptions_CliUrl_WithUseStdio_Accepted()
     {
+        // SDK 0.1.26+ no longer throws when CliUrl is set alongside UseStdio.
         var options = new CopilotClientOptions();
         options.CliPath = null;
         options.CliUrl = "http://localhost:4321";
         options.UseStdio = true;
 
-        Assert.Throws<ArgumentException>(() => new CopilotClient(options));
+        var client = new CopilotClient(options);
+        Assert.NotNull(client);
     }
 
     // --- ConnectionSettings.CliUrl property tests ---

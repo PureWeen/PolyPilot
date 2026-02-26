@@ -68,18 +68,18 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.25" />
-        <PackageReference Include="Markdig" Version="0.45.0" />
+        <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.26" />
+        <PackageReference Include="Markdig" Version="1.0.0" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.3" />
-        <PackageReference Include="Microsoft.Maui.Essentials.AI" Version="10.0.50-ci.main.26117.2" />
+        <PackageReference Include="Microsoft.Maui.Essentials.AI" Version="10.0.50-ci.main.26126.2" />
         <PackageReference Include="sqlite-net-pcl" Version="*" />
         <PackageReference Include="SQLitePCLRaw.bundle_green" Version="*" />
         <PackageReference Include="QRCoder" Version="*" />
         <PackageReference Include="ZXing.Net.Maui.Controls" Version="*" />
-        <PackageReference Include="Redth.MauiDevFlow.Agent" Version="0.8.1" />
-        <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.8.1" />
+        <PackageReference Include="Redth.MauiDevFlow.Agent" Version="0.11.0" />
+        <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.11.0" />
     </ItemGroup>
 
     <!-- Prevent linker from trimming SDK event types needed for pattern matching -->

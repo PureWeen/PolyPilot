@@ -10,6 +10,35 @@
 
 ## Emulator Management
 
+### Avoiding multi-project conflicts
+
+When multiple projects (or AI agents) may deploy to Android emulators simultaneously,
+each project should use its own dedicated AVD. Two apps deployed to the same emulator
+will coexist (unlike iOS), but `adb reverse`/`adb forward` port forwarding is per-device
+and can cause confusion when multiple emulators are running.
+
+**Before creating or starting an emulator, check what's already in use:**
+```bash
+maui-devflow list                             # shows agents with platform + port
+adb devices                                   # shows connected emulators
+```
+
+If an emulator is already running another project's agent, create a new AVD:
+```bash
+android avd create --name "ProjectName-Pixel8" \
+  --sdk "system-images;android-35;google_apis;arm64-v8a" --device pixel_8
+android avd start --name "ProjectName-Pixel8"
+```
+
+**When multiple emulators are running**, use `-s <serial>` to target a specific one:
+```bash
+adb -s emulator-5554 reverse tcp:19223 tcp:19223   # first emulator
+adb -s emulator-5556 reverse tcp:19223 tcp:19223   # second emulator
+```
+
+**Naming convention:** Use `<ProjectName>-<DeviceType>` (e.g. `TodoApp-Pixel8`) so it's
+clear which AVD belongs to which project.
+
 ### List and start AVDs
 ```bash
 android avd list                              # list available AVDs
