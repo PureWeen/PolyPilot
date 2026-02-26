@@ -610,4 +610,74 @@ public class WorktreeStrategyTests
     }
 
     #endregion
+
+    #region Review Finding: Shared strategy auto-creates worktree when no workingDirectory
+
+    [Fact]
+    public async Task Shared_WithRepoButNoWorkDir_CreatesSharedWorktree()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.Shared);
+
+        // workingDirectory: null and worktreeId: null — should auto-create a shared worktree
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: null,
+            repoId: "repo-1");
+
+        Assert.NotNull(group);
+        // Exactly 1 shared worktree created (not N per session)
+        Assert.Single(rm.CreateCalls);
+        Assert.Contains("shared", rm.CreateCalls[0].BranchName);
+        // Group should track the created worktree
+        Assert.Single(group!.CreatedWorktreeIds);
+        Assert.NotNull(group.WorktreeId);
+    }
+
+    [Fact]
+    public async Task Shared_WithExistingWorkDir_CreatesNoWorktree()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.Shared);
+
+        // workingDirectory provided — no auto-create needed
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/existing/dir",
+            repoId: "repo-1");
+
+        Assert.NotNull(group);
+        Assert.Empty(rm.CreateCalls);
+    }
+
+    #endregion
+
+    #region Review Finding: WorktreeId set on AgentSessionInfo (not just SessionMeta)
+
+    [Fact]
+    public async Task FullyIsolated_WorktreeIdSetOnAgentSessionInfo()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.FullyIsolated);
+
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/fallback",
+            repoId: "repo-1");
+
+        // Check that AgentSessionInfo.WorktreeId is set (not just SessionMeta)
+        var groupSessionNames = svc.Organization.Sessions
+            .Where(s => s.GroupId == group!.Id)
+            .Select(s => s.SessionName)
+            .ToList();
+
+        Assert.Equal(3, groupSessionNames.Count); // 1 orch + 2 workers
+
+        var organized = svc.GetOrganizedSessions();
+        var groupEntry = organized.FirstOrDefault(g => g.Group.Id == group!.Id);
+        Assert.NotNull(groupEntry.Group);
+        Assert.All(groupEntry.Sessions, s => Assert.NotNull(s.WorktreeId));
+    }
+
+    #endregion
 }

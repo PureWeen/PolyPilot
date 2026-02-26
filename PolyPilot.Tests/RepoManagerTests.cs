@@ -1,3 +1,4 @@
+using PolyPilot.Models;
 using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
@@ -55,4 +56,134 @@ public class RepoManagerTests
     {
         Assert.Equal(input, RepoManager.NormalizeRepoUrl(input));
     }
+
+    #region Save Guard Tests (Review Finding #9)
+
+    private static readonly System.Reflection.BindingFlags NonPublic =
+        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+
+    private static void SetField(object obj, string name, object value)
+    {
+        var field = obj.GetType().GetField(name, NonPublic)!;
+        field.SetValue(obj, value);
+    }
+
+    private static T GetField<T>(object obj, string name)
+    {
+        var field = obj.GetType().GetField(name, NonPublic)!;
+        return (T)field.GetValue(obj)!;
+    }
+
+    private static void InvokeSave(RepoManager rm)
+    {
+        var method = typeof(RepoManager).GetMethod("Save", NonPublic)!;
+        method.Invoke(rm, null);
+    }
+
+    [Fact]
+    public void Save_AfterFailedLoad_DoesNotOverwriteWithEmptyState()
+    {
+        var rm = new RepoManager();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var stateFile = Path.Combine(tempDir, "repos.json");
+
+        try
+        {
+            // Write valid state to file
+            var validJson = """{"Repositories":[{"Id":"test-1","Name":"TestRepo","Url":"https://example.com","BareClonePath":"","AddedAt":"2026-01-01T00:00:00Z"}],"Worktrees":[]}""";
+            File.WriteAllText(stateFile, validJson);
+
+            // Simulate failed load: _loaded=true, _loadedSuccessfully=false, empty state
+            SetField(rm, "_loaded", true);
+            SetField(rm, "_loadedSuccessfully", false);
+            SetField(rm, "_state", new RepositoryState());
+
+            // Override StateFile to our temp path
+            var stateFileField = typeof(RepoManager).GetField("_stateFile", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            var originalValue = stateFileField.GetValue(null);
+            stateFileField.SetValue(null, stateFile);
+            try
+            {
+                // Save should be blocked — empty state after failed load
+                InvokeSave(rm);
+
+                // Original file should still have our repo
+                var content = File.ReadAllText(stateFile);
+                Assert.Contains("test-1", content);
+            }
+            finally
+            {
+                stateFileField.SetValue(null, originalValue);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void Save_AfterSuccessfulLoad_PersistsEmptyState()
+    {
+        var rm = new RepoManager();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var stateFile = Path.Combine(tempDir, "repos.json");
+
+        try
+        {
+            // Simulate successful load then all repos removed
+            SetField(rm, "_loaded", true);
+            SetField(rm, "_loadedSuccessfully", true);
+            SetField(rm, "_state", new RepositoryState());
+
+            var stateFileField = typeof(RepoManager).GetField("_stateFile", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            var originalValue = stateFileField.GetValue(null);
+            stateFileField.SetValue(null, stateFile);
+            try
+            {
+                // Save should proceed — load was successful, intentional empty state
+                InvokeSave(rm);
+
+                var content = File.ReadAllText(stateFile);
+                Assert.Contains("Repositories", content);
+                Assert.DoesNotContain("test-1", content);
+            }
+            finally
+            {
+                stateFileField.SetValue(null, originalValue);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void Repositories_ReturnsCopy_ThreadSafe()
+    {
+        var rm = new RepoManager();
+        // Inject state with some repos
+        SetField(rm, "_loaded", true);
+        SetField(rm, "_loadedSuccessfully", true);
+        var state = new RepositoryState
+        {
+            Repositories = new() { new() { Id = "r1", Name = "R1" }, new() { Id = "r2", Name = "R2" } }
+        };
+        SetField(rm, "_state", state);
+
+        // Get a snapshot
+        var repos = rm.Repositories;
+        Assert.Equal(2, repos.Count);
+
+        // Mutate the underlying state
+        state.Repositories.RemoveAll(r => r.Id == "r1");
+
+        // Snapshot should be unaffected (it's a copy)
+        Assert.Equal(2, repos.Count);
+    }
+
+    #endregion
 }
