@@ -600,7 +600,10 @@ public class WsBridgeServer : IDisposable
                     var pushOrg = msg.GetPayload<OrganizationState>();
                     if (pushOrg != null && _copilot != null)
                     {
-                        _copilot.Organization = pushOrg;
+                        _copilot.InvokeOnUI(() =>
+                        {
+                            _copilot.Organization = pushOrg;
+                        });
                         _copilot.SaveOrganization();
                         _copilot.FlushSaveOrganization();
                         BroadcastOrganizationState();

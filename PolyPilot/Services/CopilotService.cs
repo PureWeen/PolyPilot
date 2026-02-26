@@ -297,7 +297,7 @@ public partial class CopilotService : IAsyncDisposable
 #endif
     }
 
-    private void InvokeOnUI(Action action)
+    internal void InvokeOnUI(Action action)
     {
         if (_syncContext != null)
             _syncContext.Post(_ =>
@@ -1466,17 +1466,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var remoteInfo = new AgentSessionInfo { Name = remoteName, Model = model ?? DefaultModel };
             _pendingRemoteSessions[remoteName] = 0;
             _sessions[remoteName] = new SessionState { Session = null!, Info = remoteInfo };
-            if (!Organization.Sessions.Any(m => m.SessionName == remoteName))
+            InvokeOnUI(() =>
             {
-                var repoGroup = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId);
-                Organization.Sessions.Add(new SessionMeta
+                if (!Organization.Sessions.Any(m => m.SessionName == remoteName))
                 {
-                    SessionName = remoteName,
-                    GroupId = repoGroup?.Id ?? SessionGroup.DefaultId
-                });
-            }
-            _activeSessionName = remoteName;
-            OnStateChanged?.Invoke();
+                    var repoGroup = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId);
+                    Organization.Sessions.Add(new SessionMeta
+                    {
+                        SessionName = remoteName,
+                        GroupId = repoGroup?.Id ?? SessionGroup.DefaultId
+                    });
+                }
+                _activeSessionName = remoteName;
+                OnStateChanged?.Invoke();
+            });
 
             // Send single command to server — server does worktree+session atomically
             await _bridgeClient.CreateSessionWithWorktreeAsync(new CreateSessionWithWorktreePayload

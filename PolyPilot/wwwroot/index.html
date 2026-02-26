@@ -1123,7 +1123,7 @@
             return new Promise(function(resolve) {
                 var overlay = document.createElement('div');
                 overlay.className = 'js-close-dialog-overlay';
-                overlay.onclick = function(e) { if (e.target === overlay) { overlay.remove(); resolve({ confirmed: false }); } };
+                overlay.onclick = function(e) { if (e.target === overlay) { overlay.remove(); resolve({ Confirmed: false }); } };
 
                 var dialog = document.createElement('div');
                 dialog.className = 'js-close-dialog';
@@ -1172,11 +1172,11 @@
                 var cancelBtn = document.createElement('button');
                 cancelBtn.className = 'js-close-dialog-cancel';
                 cancelBtn.textContent = 'Cancel';
-                cancelBtn.onclick = function() { overlay.remove(); resolve({ confirmed: false }); };
+                cancelBtn.onclick = function() { overlay.remove(); resolve({ Confirmed: false }); };
                 var closeBtn = document.createElement('button');
                 closeBtn.className = 'js-close-dialog-btn';
                 closeBtn.textContent = 'Close Session';
-                closeBtn.onclick = function() { overlay.remove(); resolve({ confirmed: true, deleteWorktree: deleteWt, deleteBranch: deleteBr }); };
+                closeBtn.onclick = function() { overlay.remove(); resolve({ Confirmed: true, DeleteWorktree: deleteWt, DeleteBranch: deleteBr }); };
                 actions.appendChild(cancelBtn);
                 actions.appendChild(closeBtn);
                 dialog.appendChild(actions);
