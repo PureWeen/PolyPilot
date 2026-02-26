@@ -25,9 +25,9 @@ public class RepoManager
     internal static void SetBaseDirForTesting(string? path)
     {
         Volatile.Write(ref _baseDirOverride, path);
-        _reposDir = null;
-        _worktreesDir = null;
-        _stateFile = null;
+        Volatile.Write(ref _reposDir, null);
+        Volatile.Write(ref _worktreesDir, null);
+        Volatile.Write(ref _stateFile, null);
     }
 
     private RepositoryState _state = new();
