@@ -1559,4 +1559,22 @@ public class ProcessingWatchdogTests
         }
         finally { Directory.Delete(basePath, true); }
     }
+
+    [Fact]
+    public void RestoreHints_MalformedJson_ReturnsFalseGracefully()
+    {
+        var service = CreateService();
+        var basePath = Path.Combine(Path.GetTempPath(), $"restore-hints-{Guid.NewGuid()}");
+        var sessionDir = Path.Combine(basePath, "test-session");
+        Directory.CreateDirectory(sessionDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(sessionDir, "events.jsonl"), "{{ bad json {{");
+            var (isRecentlyActive, hadToolActivity) = service.GetEventsFileRestoreHints("test-session", basePath);
+            // Malformed JSON falls into catch block → returns (false, false)
+            Assert.False(isRecentlyActive, "Malformed JSON triggers catch which returns false");
+            Assert.False(hadToolActivity, "Cannot detect tool activity from bad JSON");
+        }
+        finally { Directory.Delete(basePath, true); }
+    }
 }

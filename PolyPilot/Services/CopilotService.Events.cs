@@ -655,6 +655,17 @@ public partial class CopilotService
         var text = state.CurrentResponse.ToString();
         if (string.IsNullOrWhiteSpace(text)) return;
         
+        // Dedup guard: if this exact text was already flushed (e.g., SDK replayed events
+        // after resume and content was re-appended to CurrentResponse), don't duplicate.
+        var lastAssistant = state.Info.History.LastOrDefault(m => 
+            m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
+        if (lastAssistant?.Content == text)
+        {
+            state.CurrentResponse.Clear();
+            state.HasReceivedDeltasThisTurn = false;
+            return;
+        }
+        
         var msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
         state.Info.History.Add(msg);
         state.Info.MessageCount = state.Info.History.Count;
