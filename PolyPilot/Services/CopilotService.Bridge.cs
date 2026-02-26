@@ -93,42 +93,61 @@ public partial class CopilotService
             var session = GetRemoteSession(s);
             if (session != null)
             {
-                var existing = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
-                if (existing != null)
-                    existing.Content += c;
-                else
-                    session.History.Add(new ChatMessage("assistant", c, DateTime.Now, ChatMessageType.Assistant) { IsComplete = false });
+                lock (session.HistoryLock)
+                {
+                    var existing = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
+                    if (existing != null)
+                        existing.Content += c;
+                    else
+                        session.History.Add(new ChatMessage("assistant", c, DateTime.Now, ChatMessageType.Assistant) { IsComplete = false });
+                }
             }
             InvokeOnUI(() => OnContentReceived?.Invoke(s, c));
         };
         _bridgeClient.OnToolStarted += (s, tool, id, input) =>
         {
             var session = GetRemoteSession(s);
-            session?.History.Add(ChatMessage.ToolCallMessage(tool, id, input));
+            if (session != null)
+            {
+                lock (session.HistoryLock)
+                    session.History.Add(ChatMessage.ToolCallMessage(tool, id, input));
+            }
             InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id, input));
         };
         _bridgeClient.OnToolCompleted += (s, id, result, success) =>
         {
             var session = GetRemoteSession(s);
-            var toolMsg = session?.History.LastOrDefault(m => m.ToolCallId == id);
-            if (toolMsg != null)
+            if (session != null)
             {
-                toolMsg.IsComplete = true;
-                toolMsg.IsSuccess = success;
-                toolMsg.Content = result;
+                lock (session.HistoryLock)
+                {
+                    var toolMsg = session.History.LastOrDefault(m => m.ToolCallId == id);
+                    if (toolMsg != null)
+                    {
+                        toolMsg.IsComplete = true;
+                        toolMsg.IsSuccess = success;
+                        toolMsg.Content = result;
+                    }
+                }
             }
             InvokeOnUI(() => OnToolCompleted?.Invoke(s, id, result, success));
         };
         _bridgeClient.OnImageReceived += (s, callId, dataUri, caption) =>
         {
             var session = GetRemoteSession(s);
-            var toolMsg = session?.History.LastOrDefault(m => m.ToolCallId == callId);
-            if (toolMsg != null)
+            if (session != null)
             {
-                // Convert tool call message into an Image message
-                toolMsg.MessageType = ChatMessageType.Image;
-                toolMsg.ImageDataUri = dataUri;
-                toolMsg.Caption = caption;
+                lock (session.HistoryLock)
+                {
+                    var toolMsg = session.History.LastOrDefault(m => m.ToolCallId == callId);
+                    if (toolMsg != null)
+                    {
+                        // Convert tool call message into an Image message
+                        toolMsg.MessageType = ChatMessageType.Image;
+                        toolMsg.ImageDataUri = dataUri;
+                        toolMsg.Caption = caption;
+                    }
+                }
             }
             InvokeOnUI(() => OnStateChanged?.Invoke());
         };
@@ -138,21 +157,24 @@ public partial class CopilotService
             var session = GetRemoteSession(s);
             if (session != null && !string.IsNullOrEmpty(c))
             {
-                var normalizedReasoningId = ResolveReasoningId(session, rid);
-                emittedReasoningId = normalizedReasoningId;
-                var reasoningMsg = FindReasoningMessage(session, normalizedReasoningId);
-                if (reasoningMsg == null)
+                lock (session.HistoryLock)
                 {
-                    reasoningMsg = ChatMessage.ReasoningMessage(normalizedReasoningId);
-                    session.History.Add(reasoningMsg);
-                    session.MessageCount = session.History.Count;
+                    var normalizedReasoningId = ResolveReasoningId(session, rid);
+                    emittedReasoningId = normalizedReasoningId;
+                    var reasoningMsg = FindReasoningMessage(session, normalizedReasoningId);
+                    if (reasoningMsg == null)
+                    {
+                        reasoningMsg = ChatMessage.ReasoningMessage(normalizedReasoningId);
+                        session.History.Add(reasoningMsg);
+                        session.MessageCount = session.History.Count;
+                    }
+                    reasoningMsg.ReasoningId = normalizedReasoningId;
+                    reasoningMsg.IsComplete = false;
+                    reasoningMsg.IsCollapsed = false;
+                    reasoningMsg.Timestamp = DateTime.Now;
+                    MergeReasoningContent(reasoningMsg, c, isDelta: true);
+                    session.LastUpdatedAt = DateTime.Now;
                 }
-                reasoningMsg.ReasoningId = normalizedReasoningId;
-                reasoningMsg.IsComplete = false;
-                reasoningMsg.IsCollapsed = false;
-                reasoningMsg.Timestamp = DateTime.Now;
-                MergeReasoningContent(reasoningMsg, c, isDelta: true);
-                session.LastUpdatedAt = DateTime.Now;
             }
             InvokeOnUI(() => OnReasoningReceived?.Invoke(s, emittedReasoningId, c));
         };
@@ -161,19 +183,22 @@ public partial class CopilotService
             var session = GetRemoteSession(s);
             if (session != null)
             {
-                var targets = session.History
-                    .Where(m => m.MessageType == ChatMessageType.Reasoning &&
-                        !m.IsComplete &&
-                        (string.IsNullOrEmpty(rid) || string.Equals(m.ReasoningId, rid, StringComparison.Ordinal)))
-                    .ToList();
-                foreach (var msg in targets)
+                lock (session.HistoryLock)
                 {
-                    msg.IsComplete = true;
-                    msg.IsCollapsed = true;
-                    msg.Timestamp = DateTime.Now;
+                    var targets = session.History
+                        .Where(m => m.MessageType == ChatMessageType.Reasoning &&
+                            !m.IsComplete &&
+                            (string.IsNullOrEmpty(rid) || string.Equals(m.ReasoningId, rid, StringComparison.Ordinal)))
+                        .ToList();
+                    foreach (var msg in targets)
+                    {
+                        msg.IsComplete = true;
+                        msg.IsCollapsed = true;
+                        msg.Timestamp = DateTime.Now;
+                    }
+                    if (targets.Count > 0)
+                        session.LastUpdatedAt = DateTime.Now;
                 }
-                if (targets.Count > 0)
-                    session.LastUpdatedAt = DateTime.Now;
             }
             InvokeOnUI(() => OnReasoningComplete?.Invoke(s, rid));
         };
@@ -481,21 +506,34 @@ public partial class CopilotService
                 if (messages.Count >= s.Info.History.Count)
                 {
                     Debug($"SyncRemoteSessions: Syncing {messages.Count} messages for '{name}'");
-                    s.Info.History.Clear();
-                    s.Info.History.AddRange(messages);
+                    lock (s.Info.HistoryLock)
+                    {
+                        s.Info.History.Clear();
+                        s.Info.History.AddRange(messages);
+                    }
                 }
             }
         }
 
-        // Request history for sessions that have messages but no local history yet
+        // Request history for sessions that have messages but no local history yet.
+        // Also retry sessions where a previous request may have failed (server snapshot error):
+        // if the session has messages, no local history, no cached history, but was already
+        // requested, clear the flag so it gets re-requested.
         foreach (var rs in remoteSessions)
         {
             if (rs.MessageCount > 0 && _sessions.TryGetValue(rs.Name, out var s) && s.Info.History.Count == 0
-                && !_bridgeClient.SessionHistories.ContainsKey(rs.Name)
-                && !_requestedHistorySessions.ContainsKey(rs.Name))
+                && !_bridgeClient.SessionHistories.ContainsKey(rs.Name))
             {
-                sessionsNeedingHistory.Add(rs.Name);
-                _requestedHistorySessions[rs.Name] = 0;
+                if (!_requestedHistorySessions.ContainsKey(rs.Name))
+                {
+                    sessionsNeedingHistory.Add(rs.Name);
+                    _requestedHistorySessions[rs.Name] = 0;
+                }
+                else
+                {
+                    // Previous request may have failed — retry
+                    sessionsNeedingHistory.Add(rs.Name);
+                }
             }
         }
 
