@@ -1,942 +1,979 @@
 {
-  "description": "UI scenario tests for mode switching and session persistence. Each scenario is executed against a running PolyPilot app using MauiDevFlow CDP commands. Scenarios assume the app starts in Persistent mode with sessions loaded.",
-  "prerequisites": {
-    "build": "cd PolyPilot && ./relaunch.sh",
-    "waitForAgent": "maui-devflow MAUI status",
-    "initialMode": "Persistent"
-  },
-  "scenarios": [
-    {
-      "id": "mode-switch-persistent-to-embedded-and-back",
-      "name": "Sessions survive Persistent \u2192 Embedded \u2192 Persistent round trip",
-      "steps": [
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.session-item').length",
-          "capture": "initialSessionCount"
-        },
-        {
-          "action": "evaluate",
-          "script": "JSON.parse(await (await fetch('/api/status')).text()).mode",
-          "note": "Alternatively read from status element",
-          "fallback": {
-            "action": "evaluate",
-            "script": "document.querySelector('.status')?.textContent?.trim()"
-          },
-          "expect": {
-            "contains": "Persistent"
-          }
-        },
-        {
-          "action": "click",
-          "selector": "a[href='/settings']"
-        },
-        {
-          "action": "wait",
-          "ms": 1000
-        },
-        {
-          "action": "click",
-          "selector": ".mode-card:first-child",
-          "note": "Select Embedded mode"
-        },
-        {
-          "action": "wait",
-          "ms": 500
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.mode-card.selected .mode-title')?.textContent",
-          "expect": {
-            "equals": "Embedded"
-          }
-        },
-        {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'",
-          "note": "Click Save & Reconnect"
-        },
-        {
-          "action": "wait",
-          "ms": 15000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": {
-            "contains": "Embedded"
-          }
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.status')?.className",
-          "expect": {
-            "contains": "connected"
-          }
-        },
-        {
-          "action": "click",
-          "selector": ".mode-card:nth-child(2)",
-          "note": "Select Persistent mode"
-        },
-        {
-          "action": "wait",
-          "ms": 500
-        },
-        {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
-        },
-        {
-          "action": "wait",
-          "ms": 15000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": {
-            "contains": "Persistent"
-          }
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.status')?.className",
-          "expect": {
-            "contains": "connected"
-          }
-        },
-        {
-          "action": "click",
-          "selector": "a[href='/']",
-          "note": "Navigate back to dashboard"
-        },
-        {
-          "action": "wait",
-          "ms": 2000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.session-item').length + Array.from(document.querySelectorAll('.group-count')).reduce((sum, el) => sum + parseInt(el.textContent.trim() || '0'), 0)",
-          "note": "Total sessions = visible items + collapsed counts. Compare with initial.",
-          "expect": {
-            "greaterThanOrEqual": "initialSessionCount"
-          }
-        }
-      ]
+    "description": "UI scenario tests for mode switching and session persistence. Each scenario is executed against a running PolyPilot app using MauiDevFlow CDP commands. Scenarios assume the app starts in Persistent mode with sessions loaded.",
+    "prerequisites": {
+        "build": "cd PolyPilot && ./relaunch.sh",
+        "waitForAgent": "maui-devflow MAUI status",
+        "initialMode": "Persistent"
     },
-    {
-      "id": "mode-switch-rapid-no-session-loss",
-      "name": "Rapid Embedded\u2194Persistent switching preserves active-sessions.json",
-      "steps": [
+    "scenarios": [
         {
-          "action": "shell",
-          "command": "python3 -c \"import json,os; print(len(json.load(open(os.path.expanduser('~/.polypilot/active-sessions.json')))))\"",
-          "capture": "initialJsonCount"
+            "id": "mode-switch-persistent-to-embedded-and-back",
+            "name": "Sessions survive Persistent → Embedded → Persistent round trip",
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.session-item').length",
+                    "capture": "initialSessionCount"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "JSON.parse(await (await fetch('/api/status')).text()).mode",
+                    "note": "Alternatively read from status element",
+                    "fallback": {
+                        "action": "evaluate",
+                        "script": "document.querySelector('.status')?.textContent?.trim()"
+                    },
+                    "expect": {
+                        "contains": "Persistent"
+                    }
+                },
+                {
+                    "action": "click",
+                    "selector": "a[href='/settings']"
+                },
+                {
+                    "action": "wait",
+                    "ms": 1000
+                },
+                {
+                    "action": "click",
+                    "selector": ".mode-card:first-child",
+                    "note": "Select Embedded mode"
+                },
+                {
+                    "action": "wait",
+                    "ms": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.mode-card.selected .mode-title')?.textContent",
+                    "expect": {
+                        "equals": "Embedded"
+                    }
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'",
+                    "note": "Click Save & Reconnect"
+                },
+                {
+                    "action": "wait",
+                    "ms": 15000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.status')?.textContent?.trim()",
+                    "expect": {
+                        "contains": "Embedded"
+                    }
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.status')?.className",
+                    "expect": {
+                        "contains": "connected"
+                    }
+                },
+                {
+                    "action": "click",
+                    "selector": ".mode-card:nth-child(2)",
+                    "note": "Select Persistent mode"
+                },
+                {
+                    "action": "wait",
+                    "ms": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+                },
+                {
+                    "action": "wait",
+                    "ms": 15000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.status')?.textContent?.trim()",
+                    "expect": {
+                        "contains": "Persistent"
+                    }
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.status')?.className",
+                    "expect": {
+                        "contains": "connected"
+                    }
+                },
+                {
+                    "action": "click",
+                    "selector": "a[href='/']",
+                    "note": "Navigate back to dashboard"
+                },
+                {
+                    "action": "wait",
+                    "ms": 2000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.session-item').length + Array.from(document.querySelectorAll('.group-count')).reduce((sum, el) => sum + parseInt(el.textContent.trim() || '0'), 0)",
+                    "note": "Total sessions = visible items + collapsed counts. Compare with initial.",
+                    "expect": {
+                        "greaterThanOrEqual": "initialSessionCount"
+                    }
+                }
+            ]
         },
         {
-          "action": "click",
-          "selector": "a[href='/settings']"
+            "id": "mode-switch-rapid-no-session-loss",
+            "name": "Rapid Embedded↔Persistent switching preserves active-sessions.json",
+            "steps": [
+                {
+                    "action": "shell",
+                    "command": "python3 -c \"import json,os; print(len(json.load(open(os.path.expanduser('~/.polypilot/active-sessions.json')))))\"",
+                    "capture": "initialJsonCount"
+                },
+                {
+                    "action": "click",
+                    "selector": "a[href='/settings']"
+                },
+                {
+                    "action": "wait",
+                    "ms": 1000
+                },
+                {
+                    "action": "click",
+                    "selector": ".mode-card:first-child",
+                    "note": "Embedded"
+                },
+                {
+                    "action": "wait",
+                    "ms": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+                },
+                {
+                    "action": "wait",
+                    "ms": 10000
+                },
+                {
+                    "action": "click",
+                    "selector": ".mode-card:nth-child(2)",
+                    "note": "Back to Persistent immediately"
+                },
+                {
+                    "action": "wait",
+                    "ms": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+                },
+                {
+                    "action": "wait",
+                    "ms": 15000
+                },
+                {
+                    "action": "shell",
+                    "command": "python3 -c \"import json,os; print(len(json.load(open(os.path.expanduser('~/.polypilot/active-sessions.json')))))\"",
+                    "expect": {
+                        "equals": "initialJsonCount"
+                    }
+                }
+            ]
         },
         {
-          "action": "wait",
-          "ms": 1000
+            "id": "persistent-failure-shows-needs-configuration",
+            "name": "Connecting to unreachable server shows configuration needed",
+            "steps": [
+                {
+                    "action": "click",
+                    "selector": "a[href='/settings']"
+                },
+                {
+                    "action": "wait",
+                    "ms": 1000
+                },
+                {
+                    "action": "click",
+                    "selector": ".mode-card:nth-child(2)",
+                    "note": "Persistent mode"
+                },
+                {
+                    "action": "wait",
+                    "ms": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('input[placeholder*=\"Port\"]').value = '19999'; document.querySelector('input[placeholder*=\"Port\"]').dispatchEvent(new Event('change')); 'set'",
+                    "note": "Set port to 19999 (unreachable)"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+                },
+                {
+                    "action": "wait",
+                    "ms": 10000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.status')?.className",
+                    "expect": {
+                        "notContains": "connected"
+                    },
+                    "note": "Status should NOT show connected"
+                }
+            ]
         },
         {
-          "action": "click",
-          "selector": ".mode-card:first-child",
-          "note": "Embedded"
+            "id": "failed-persistent-then-demo-recovery",
+            "name": "After failed Persistent connection, switching to Demo recovers",
+            "steps": [
+                {
+                    "action": "click",
+                    "selector": "a[href='/settings']"
+                },
+                {
+                    "action": "wait",
+                    "ms": 1000
+                },
+                {
+                    "action": "click",
+                    "selector": ".mode-card:nth-child(2)",
+                    "note": "Persistent"
+                },
+                {
+                    "action": "wait",
+                    "ms": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+                },
+                {
+                    "action": "wait",
+                    "ms": 10000
+                },
+                {
+                    "action": "click",
+                    "selector": ".mode-card:last-child",
+                    "note": "Switch to Demo mode (last card)"
+                },
+                {
+                    "action": "wait",
+                    "ms": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+                },
+                {
+                    "action": "wait",
+                    "ms": 5000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.status')?.className",
+                    "expect": {
+                        "contains": "connected"
+                    }
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.status')?.textContent?.trim()",
+                    "expect": {
+                        "contains": "Demo"
+                    }
+                }
+            ]
         },
         {
-          "action": "wait",
-          "ms": 500
+            "id": "startup-sessions-restore",
+            "name": "Sessions from active-sessions.json appear after app restart",
+            "steps": [
+                {
+                    "action": "shell",
+                    "command": "python3 -c \"import json,os; print(len(json.load(open(os.path.expanduser('~/.polypilot/active-sessions.json')))))\"",
+                    "capture": "expectedCount"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.status')?.className",
+                    "expect": {
+                        "contains": "connected"
+                    }
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('.group-count')).reduce((sum, el) => sum + parseInt(el.textContent.trim() || '0'), 0)",
+                    "note": "Sum all group counts (includes collapsed groups)",
+                    "expect": {
+                        "greaterThanOrEqual": "expectedCount"
+                    }
+                }
+            ]
         },
         {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+            "id": "cli-source-switch-builtin-to-system",
+            "name": "CLI source switches between Built-in and System and persists",
+            "steps": [
+                {
+                    "action": "click",
+                    "selector": "a[href='/settings']",
+                    "note": "Navigate to Settings"
+                },
+                {
+                    "action": "wait",
+                    "duration": 2000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+                    "note": "Record initial CLI source",
+                    "saveAs": "initialCliSource"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.cli-card')[1].click()",
+                    "note": "Click System CLI card"
+                },
+                {
+                    "action": "wait",
+                    "duration": 1000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+                    "expect": {
+                        "equals": "System"
+                    },
+                    "note": "Verify System is now selected"
+                },
+                {
+                    "action": "shell",
+                    "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['CliSource'])\"",
+                    "expect": {
+                        "equals": "1"
+                    },
+                    "note": "Verify CliSource=1 (System) persisted to disk"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.cli-card')[0].click()",
+                    "note": "Switch back to Built-in"
+                },
+                {
+                    "action": "wait",
+                    "duration": 1000
+                },
+                {
+                    "action": "shell",
+                    "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['CliSource'])\"",
+                    "expect": {
+                        "equals": "0"
+                    },
+                    "note": "Verify CliSource=0 (BuiltIn) persisted to disk"
+                }
+            ]
         },
         {
-          "action": "wait",
-          "ms": 10000
+            "id": "mode-persists-without-save-reconnect",
+            "name": "Mode selection persists to disk immediately without Save & Reconnect",
+            "steps": [
+                {
+                    "action": "click",
+                    "selector": "a[href='/settings']",
+                    "note": "Navigate to Settings"
+                },
+                {
+                    "action": "wait",
+                    "duration": 2000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.mode-card')[0].click()",
+                    "note": "Click Embedded mode card"
+                },
+                {
+                    "action": "wait",
+                    "duration": 1000
+                },
+                {
+                    "action": "shell",
+                    "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['Mode'])\"",
+                    "expect": {
+                        "equals": "0"
+                    },
+                    "note": "Verify Mode=0 (Embedded) persisted immediately"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.mode-card')[1].click()",
+                    "note": "Switch back to Persistent"
+                },
+                {
+                    "action": "wait",
+                    "duration": 1000
+                },
+                {
+                    "action": "shell",
+                    "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['Mode'])\"",
+                    "expect": {
+                        "equals": "1"
+                    },
+                    "note": "Verify Mode=1 (Persistent) persisted immediately"
+                }
+            ]
         },
         {
-          "action": "click",
-          "selector": ".mode-card:nth-child(2)",
-          "note": "Back to Persistent immediately"
+            "id": "bug-report-button-visible",
+            "name": "Bug report button is visible in sidebar footer and opens inline form",
+            "steps": [
+                {
+                    "action": "click",
+                    "selector": "a[href='/']",
+                    "note": "Navigate to Dashboard"
+                },
+                {
+                    "action": "wait",
+                    "duration": 1000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.bug-report-btn')?.textContent?.trim()",
+                    "expect": {
+                        "contains": "Report Bug"
+                    },
+                    "note": "Verify bug report button exists in sidebar"
+                },
+                {
+                    "action": "click",
+                    "selector": ".bug-report-btn",
+                    "note": "Click Report Bug button"
+                },
+                {
+                    "action": "wait",
+                    "duration": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.bug-report-inline') !== null",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "Verify inline form opened"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.bug-report-textarea') !== null",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "Verify textarea exists"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.bug-report-submit') !== null",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "Verify submit button exists"
+                }
+            ]
         },
         {
-          "action": "wait",
-          "ms": 500
+            "id": "refresh-sessions-button-visible",
+            "name": "Refresh sessions button is visible in sidebar toolbar and can be clicked",
+            "steps": [
+                {
+                    "action": "click",
+                    "selector": "a[href='/']",
+                    "note": "Navigate to Dashboard"
+                },
+                {
+                    "action": "wait",
+                    "duration": 1000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('.sidebar-toolbar .new-group-btn')).some(b => b.textContent.includes('Refresh'))",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "Verify refresh button exists"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "(() => { const btn = Array.from(document.querySelectorAll('.sidebar-toolbar .new-group-btn')).find(b => b.textContent.includes('Refresh')); if (!btn) return 'missing'; btn.click(); return 'clicked'; })()",
+                    "expect": {
+                        "equals": "clicked"
+                    },
+                    "note": "Click refresh button"
+                },
+                {
+                    "action": "wait",
+                    "duration": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.sidebar-toolbar') !== null",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "Verify toolbar remains available after refresh"
+                }
+            ]
         },
         {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
+            "id": "stuck-session-recovery-after-server-disconnect",
+            "name": "Sessions recover from 'Thinking' state when persistent server dies mid-turn",
+            "description": "Validates that sessions stuck in IsProcessing=true recover automatically via the processing watchdog when the persistent server becomes unreachable.",
+            "unitTestCoverage": [
+                "ProcessingWatchdogTests.WatchdogCheckInterval_IsReasonable",
+                "ProcessingWatchdogTests.WatchdogInactivityTimeout_IsReasonable",
+                "ProcessingWatchdogTests.WatchdogToolExecutionTimeout_IsReasonable",
+                "ProcessingWatchdogTests.WatchdogTimeout_IsGreaterThanCheckInterval",
+                "ProcessingWatchdogTests.SystemMessage_ConnectionLost_HasExpectedContent",
+                "ProcessingWatchdogTests.SystemMessage_AddedToHistory_IsVisible"
+            ],
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.session-item').length > 0",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "At least one session exists"
+                },
+                {
+                    "action": "click",
+                    "selector": ".session-item:first-child",
+                    "note": "Open a session"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.chat-input textarea') !== null",
+                    "expect": {
+                        "equals": "true"
+                    }
+                },
+                {
+                    "action": "type",
+                    "selector": ".chat-input textarea",
+                    "text": "Test message for watchdog scenario"
+                },
+                {
+                    "action": "click",
+                    "selector": ".chat-input button[type=submit]"
+                },
+                {
+                    "action": "wait",
+                    "duration": 2000,
+                    "note": "Wait for message to be sent and processing to start"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.action-item.running .action-label')?.textContent || document.querySelector('.chat-msg.tool .chat-msg-text')?.textContent",
+                    "note": "Should show 'Thinking' or activity text while processing"
+                },
+                {
+                    "action": "note",
+                    "text": "To fully test: kill the persistent server process while session is processing, then wait up to 2 minutes for the watchdog to detect inactivity and clear the stuck state (10 min if a tool is running). The session should show a system message: 'Session appears stuck — no response received.'"
+                },
+                {
+                    "action": "wait",
+                    "duration": 130000,
+                    "note": "Wait for watchdog timeout (120s when no tool running) + buffer. In manual testing, kill server during this wait."
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.action-item.running') === null",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "Processing indicator should be gone after watchdog fires"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('.chat-msg')).some(el => el.textContent.includes('appears stuck'))",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "System message about stuck session should appear in chat"
+                }
+            ]
         },
         {
-          "action": "wait",
-          "ms": 15000
+            "id": "relaunch-with-stale-server-shows-sessions",
+            "name": "After relaunch, all previously-active sessions should be visible",
+            "description": "Validates that after relaunch.sh deploys a new build, session restore failures don't silently leave the app with 0 sessions. Covers the scenario where an old copilot server is running but individual session resumes fail.",
+            "unitTestCoverage": [
+                "ProcessingWatchdogTests.PersistentMode_FailedInit_SetsNeedsConfiguration",
+                "ProcessingWatchdogTests.PersistentMode_FailedInit_NoSessionsStuckProcessing",
+                "ProcessingWatchdogTests.DemoMode_SessionRestore_AllSessionsVisible",
+                "ProcessingWatchdogTests.ReconnectAsync_IsInitialized_CorrectForEachMode",
+                "ProcessingWatchdogTests.ReconnectAsync_ClearsStuckProcessingFromPreviousMode",
+                "ProcessingWatchdogTests.OnStateChanged_FiresDuringReconnect"
+            ],
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.session-item').length",
+                    "capture": "preRelaunchCount",
+                    "note": "Record session count before relaunch"
+                },
+                {
+                    "action": "shell",
+                    "command": "cd PolyPilot && ./relaunch.sh",
+                    "note": "Rebuild and relaunch the app"
+                },
+                {
+                    "action": "wait",
+                    "duration": 20000,
+                    "note": "Wait for app to restart and restore sessions"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.status')?.textContent?.trim()",
+                    "expect": {
+                        "not_contains": "Disconnected"
+                    },
+                    "note": "App should be connected (Persistent or Embedded fallback)"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.session-item').length > 0",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "Sessions should be visible after relaunch — not silently lost"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('.session-item')).filter(el => el.querySelector('.processing')).length === 0",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "No sessions should be stuck in processing state after relaunch"
+                }
+            ]
         },
         {
-          "action": "shell",
-          "command": "python3 -c \"import json,os; print(len(json.load(open(os.path.expanduser('~/.polypilot/active-sessions.json')))))\"",
-          "expect": {
-            "equals": "initialJsonCount"
-          }
+            "id": "abort-clears-queue-and-status",
+            "name": "Stop button clears message queue and processing status",
+            "description": "When user clicks Stop on an active session, the message queue is cleared so no more messages auto-send, and processing status fields (elapsed time, tool rounds) are reset.",
+            "category": "session-management",
+            "unitTestCoverage": [
+                "ProcessingWatchdogTests.AbortSessionAsync_ClearsQueueAndProcessingStatus",
+                "ProcessingWatchdogTests.AbortSessionAsync_WorksRegardlessOfGeneration"
+            ],
+            "steps": [
+                {
+                    "action": "note",
+                    "note": "A session must be actively processing (IsProcessing=true)"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.send-btn.stop-btn') !== null",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "Stop button should be visible for processing sessions"
+                },
+                {
+                    "action": "click",
+                    "target": ".send-btn.stop-btn",
+                    "note": "Click the stop button"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "!document.querySelector('.expanded-card.processing')",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "Session card should no longer show processing state after stop"
+                }
+            ]
+        },
+        {
+            "id": "processing-status-indicator",
+            "name": "Processing sessions show elapsed time and tool round count",
+            "description": "When a session is processing, the UI shows a status indicator with elapsed time and tool round count. Before the first SDK event, it shows 'Waiting for first response'. Processing status fields are synced via bridge to mobile.",
+            "category": "session-management",
+            "unitTestCoverage": [
+                "AgentSessionInfoTests.NewSession_HasDefaultProcessingStatusFields",
+                "AgentSessionInfoTests.ProcessingStatusFields_CanBeSetAndCleared",
+                "BridgeMessageTests.Serialize_CamelCaseNaming",
+                "BridgeMessageTests.SessionsListPayload_RoundTrip"
+            ],
+            "steps": [
+                {
+                    "action": "note",
+                    "note": "A session must be actively processing"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.expanded-card.processing') !== null",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "Active session should show processing card state"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.processing-status') !== null || document.querySelector('.chat-message-list')?.textContent?.includes('Working') || document.querySelector('.chat-message-list')?.textContent?.includes('Waiting')",
+                    "expect": {
+                        "equals": "true"
+                    },
+                    "note": "Processing status text (elapsed time / tool rounds / waiting) should be visible"
+                }
+            ]
+        },
+        {
+            "id": "stale-session-not-marked-processing-on-restore",
+            "name": "Stale sessions are NOT marked as processing on restore",
+            "description": "When a session's events.jsonl hasn't been modified in over 10 minutes, the session should not be restored with IsProcessing=true, even if the last event was an 'active' type. This prevents hours-old sessions from showing a permanent 'Thinking' indicator.",
+            "unitTestCoverage": [
+                "StuckSessionRecoveryTests.IsSessionStillProcessing_StaleFile_ReturnsFalse",
+                "StuckSessionRecoveryTests.IsSessionStillProcessing_RecentFile_ActiveEvent_ReturnsTrue",
+                "StuckSessionRecoveryTests.IsSessionStillProcessing_RecentFile_IdleEvent_ReturnsFalse",
+                "StuckSessionRecoveryTests.StalenessThreshold_UsesWatchdogToolExecutionTimeout"
+            ],
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.status')?.className",
+                    "expect": {
+                        "contains": "connected"
+                    },
+                    "note": "App should be connected"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('.session-card.processing, .session-item .processing-dot')).length",
+                    "note": "Count sessions showing processing state — stale sessions should not be here"
+                },
+                {
+                    "action": "note",
+                    "text": "Manual verification: check debug info for any sessions with IsProcessing=true where LastUpdatedAt is over 10 minutes old. Such sessions should have been detected as stale during restore."
+                }
+            ]
+        },
+        {
+            "id": "saved-sessions-visible-on-desktop",
+            "name": "Saved Sessions section visible on desktop with session count",
+            "steps": [
+                {
+                    "action": "click",
+                    "selector": "a[href='/']",
+                    "note": "Navigate to dashboard"
+                },
+                {
+                    "action": "wait",
+                    "ms": 2000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.section-header-label')?.textContent?.trim()",
+                    "expect": {
+                        "matches": "Saved Sessions \\(\\d+\\)"
+                    },
+                    "note": "Section header shows 'Saved Sessions (N)' with non-zero count"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.toggle-icon')?.textContent?.trim()",
+                    "expect": {
+                        "equals": "▶"
+                    },
+                    "note": "Section starts collapsed"
+                },
+                {
+                    "action": "click",
+                    "selector": ".section-header",
+                    "note": "Expand saved sessions section"
+                },
+                {
+                    "action": "wait",
+                    "ms": 1000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.toggle-icon')?.textContent?.trim()",
+                    "expect": {
+                        "equals": "▼"
+                    },
+                    "note": "Section is now expanded"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.session-item.persisted').length",
+                    "expect": {
+                        "greaterThan": 0
+                    },
+                    "note": "At least one persisted session item is rendered"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.filter-input')?.placeholder",
+                    "expect": {
+                        "equals": "Filter sessions..."
+                    },
+                    "note": "Filter input is visible when expanded"
+                }
+            ]
+        },
+        {
+            "id": "settings-qr-code-blur",
+            "name": "QR code and token have independent blur toggles",
+            "steps": [
+                {
+                    "action": "note",
+                    "note": "Navigate to /settings page. Requires an active DevTunnel to see QR code."
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.qr-code img')?.classList.contains('blurred')",
+                    "expect": {
+                        "equals": true
+                    },
+                    "note": "QR code image is blurred by default (showQrCode=false)"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.token-value')?.classList.contains('blurred')",
+                    "expect": {
+                        "equals": true
+                    },
+                    "note": "Token value is also blurred by default (showToken=false)"
+                },
+                {
+                    "action": "click",
+                    "selector": ".qr-code .qr-reveal-btn",
+                    "note": "Click the QR-specific reveal button (independent from token reveal)"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.qr-code img')?.classList.contains('blurred')",
+                    "expect": {
+                        "equals": false
+                    },
+                    "note": "QR code is revealed after clicking its own reveal button"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.token-value')?.classList.contains('blurred')",
+                    "expect": {
+                        "equals": true
+                    },
+                    "note": "Token remains blurred — QR and token toggles are independent"
+                }
+            ]
+        },
+        {
+            "id": "cli-source-builtin-card-not-disabled-with-system-fallback",
+            "name": "Built-in CLI card is selectable when bundled CLI is missing but system CLI exists (fallback)",
+            "steps": [
+                {
+                    "action": "click",
+                    "selector": "a[href='/settings']",
+                    "note": "Navigate to Settings"
+                },
+                {
+                    "action": "wait",
+                    "duration": 2000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.cli-card')[0].classList.contains('disabled')",
+                    "expect": {
+                        "equals": "false"
+                    },
+                    "note": "Built-in card should NOT be disabled even if bundled CLI is missing (system fallback exists)"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.cli-card')[1].click()",
+                    "note": "Click System CLI card"
+                },
+                {
+                    "action": "wait",
+                    "duration": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+                    "expect": {
+                        "equals": "System"
+                    },
+                    "note": "Verify System is now selected"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.cli-card')[0].click()",
+                    "note": "Click Built-in card to switch back"
+                },
+                {
+                    "action": "wait",
+                    "duration": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+                    "expect": {
+                        "equals": "Built-in"
+                    },
+                    "note": "Verify Built-in is selected again (this was the bug: could not switch back)"
+                },
+                {
+                    "action": "shell",
+                    "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)[\\\"CliSource\\\"])\"",
+                    "expect": {
+                        "equals": "0"
+                    },
+                    "note": "Verify CliSource=0 (BuiltIn) persisted to disk after switching back"
+                }
+            ]
+        },
+        {
+            "id": "shell-command-uses-platform-shell",
+            "name": "Bang commands use platform-appropriate shell (cmd.exe on Windows, /bin/bash on Mac/Linux)",
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.chat-input textarea') !== null",
+                    "expect": {
+                        "equals": true
+                    },
+                    "note": "Chat input is present"
+                },
+                {
+                    "action": "type",
+                    "selector": ".chat-input textarea",
+                    "text": "!echo hello"
+                },
+                {
+                    "action": "click",
+                    "selector": ".chat-input .send-btn",
+                    "note": "Send the shell command"
+                },
+                {
+                    "action": "wait",
+                    "duration": 3000,
+                    "note": "Wait for shell command to execute"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.shell-output')?.textContent?.includes('hello')",
+                    "expect": {
+                        "equals": true
+                    },
+                    "note": "Shell output contains the echoed text, confirming the platform shell executed successfully"
+                }
+            ]
         }
-      ]
-    },
-    {
-      "id": "persistent-failure-shows-needs-configuration",
-      "name": "Connecting to unreachable server shows configuration needed",
-      "steps": [
-        {
-          "action": "click",
-          "selector": "a[href='/settings']"
-        },
-        {
-          "action": "wait",
-          "ms": 1000
-        },
-        {
-          "action": "click",
-          "selector": ".mode-card:nth-child(2)",
-          "note": "Persistent mode"
-        },
-        {
-          "action": "wait",
-          "ms": 500
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('input[placeholder*=\"Port\"]').value = '19999'; document.querySelector('input[placeholder*=\"Port\"]').dispatchEvent(new Event('change')); 'set'",
-          "note": "Set port to 19999 (unreachable)"
-        },
-        {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
-        },
-        {
-          "action": "wait",
-          "ms": 10000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.status')?.className",
-          "expect": {
-            "notContains": "connected"
-          },
-          "note": "Status should NOT show connected"
-        }
-      ]
-    },
-    {
-      "id": "failed-persistent-then-demo-recovery",
-      "name": "After failed Persistent connection, switching to Demo recovers",
-      "steps": [
-        {
-          "action": "click",
-          "selector": "a[href='/settings']"
-        },
-        {
-          "action": "wait",
-          "ms": 1000
-        },
-        {
-          "action": "click",
-          "selector": ".mode-card:nth-child(2)",
-          "note": "Persistent"
-        },
-        {
-          "action": "wait",
-          "ms": 500
-        },
-        {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
-        },
-        {
-          "action": "wait",
-          "ms": 10000
-        },
-        {
-          "action": "click",
-          "selector": ".mode-card:last-child",
-          "note": "Switch to Demo mode (last card)"
-        },
-        {
-          "action": "wait",
-          "ms": 500
-        },
-        {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
-        },
-        {
-          "action": "wait",
-          "ms": 5000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.status')?.className",
-          "expect": {
-            "contains": "connected"
-          }
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": {
-            "contains": "Demo"
-          }
-        }
-      ]
-    },
-    {
-      "id": "startup-sessions-restore",
-      "name": "Sessions from active-sessions.json appear after app restart",
-      "steps": [
-        {
-          "action": "shell",
-          "command": "python3 -c \"import json,os; print(len(json.load(open(os.path.expanduser('~/.polypilot/active-sessions.json')))))\"",
-          "capture": "expectedCount"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.status')?.className",
-          "expect": {
-            "contains": "connected"
-          }
-        },
-        {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('.group-count')).reduce((sum, el) => sum + parseInt(el.textContent.trim() || '0'), 0)",
-          "note": "Sum all group counts (includes collapsed groups)",
-          "expect": {
-            "greaterThanOrEqual": "expectedCount"
-          }
-        }
-      ]
-    },
-    {
-      "id": "cli-source-switch-builtin-to-system",
-      "name": "CLI source switches between Built-in and System and persists",
-      "steps": [
-        {
-          "action": "click",
-          "selector": "a[href='/settings']",
-          "note": "Navigate to Settings"
-        },
-        {
-          "action": "wait",
-          "duration": 2000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
-          "note": "Record initial CLI source",
-          "saveAs": "initialCliSource"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.cli-card')[1].click()",
-          "note": "Click System CLI card"
-        },
-        {
-          "action": "wait",
-          "duration": 1000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
-          "expect": {
-            "equals": "System"
-          },
-          "note": "Verify System is now selected"
-        },
-        {
-          "action": "shell",
-          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['CliSource'])\"",
-          "expect": {
-            "equals": "1"
-          },
-          "note": "Verify CliSource=1 (System) persisted to disk"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.cli-card')[0].click()",
-          "note": "Switch back to Built-in"
-        },
-        {
-          "action": "wait",
-          "duration": 1000
-        },
-        {
-          "action": "shell",
-          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['CliSource'])\"",
-          "expect": {
-            "equals": "0"
-          },
-          "note": "Verify CliSource=0 (BuiltIn) persisted to disk"
-        }
-      ]
-    },
-    {
-      "id": "mode-persists-without-save-reconnect",
-      "name": "Mode selection persists to disk immediately without Save & Reconnect",
-      "steps": [
-        {
-          "action": "click",
-          "selector": "a[href='/settings']",
-          "note": "Navigate to Settings"
-        },
-        {
-          "action": "wait",
-          "duration": 2000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.mode-card')[0].click()",
-          "note": "Click Embedded mode card"
-        },
-        {
-          "action": "wait",
-          "duration": 1000
-        },
-        {
-          "action": "shell",
-          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['Mode'])\"",
-          "expect": {
-            "equals": "0"
-          },
-          "note": "Verify Mode=0 (Embedded) persisted immediately"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.mode-card')[1].click()",
-          "note": "Switch back to Persistent"
-        },
-        {
-          "action": "wait",
-          "duration": 1000
-        },
-        {
-          "action": "shell",
-          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['Mode'])\"",
-          "expect": {
-            "equals": "1"
-          },
-          "note": "Verify Mode=1 (Persistent) persisted immediately"
-        }
-      ]
-    },
-    {
-      "id": "bug-report-button-visible",
-      "name": "Bug report button is visible in sidebar footer and opens inline form",
-      "steps": [
-        {
-          "action": "click",
-          "selector": "a[href='/']",
-          "note": "Navigate to Dashboard"
-        },
-        {
-          "action": "wait",
-          "duration": 1000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.bug-report-btn')?.textContent?.trim()",
-          "expect": {
-            "contains": "Report Bug"
-          },
-          "note": "Verify bug report button exists in sidebar"
-        },
-        {
-          "action": "click",
-          "selector": ".bug-report-btn",
-          "note": "Click Report Bug button"
-        },
-        {
-          "action": "wait",
-          "duration": 500
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.bug-report-inline') !== null",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "Verify inline form opened"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.bug-report-textarea') !== null",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "Verify textarea exists"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.bug-report-submit') !== null",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "Verify submit button exists"
-        }
-      ]
-    },
-    {
-      "id": "refresh-sessions-button-visible",
-      "name": "Refresh sessions button is visible in sidebar toolbar and can be clicked",
-      "steps": [
-        {
-          "action": "click",
-          "selector": "a[href='/']",
-          "note": "Navigate to Dashboard"
-        },
-        {
-          "action": "wait",
-          "duration": 1000
-        },
-        {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('.sidebar-toolbar .new-group-btn')).some(b => b.textContent.includes('Refresh'))",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "Verify refresh button exists"
-        },
-        {
-          "action": "evaluate",
-          "script": "(() => { const btn = Array.from(document.querySelectorAll('.sidebar-toolbar .new-group-btn')).find(b => b.textContent.includes('Refresh')); if (!btn) return 'missing'; btn.click(); return 'clicked'; })()",
-          "expect": {
-            "equals": "clicked"
-          },
-          "note": "Click refresh button"
-        },
-        {
-          "action": "wait",
-          "duration": 500
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.sidebar-toolbar') !== null",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "Verify toolbar remains available after refresh"
-        }
-      ]
-    },
-    {
-      "id": "stuck-session-recovery-after-server-disconnect",
-      "name": "Sessions recover from 'Thinking' state when persistent server dies mid-turn",
-      "description": "Validates that sessions stuck in IsProcessing=true recover automatically via the processing watchdog when the persistent server becomes unreachable.",
-      "unitTestCoverage": [
-        "ProcessingWatchdogTests.WatchdogCheckInterval_IsReasonable",
-        "ProcessingWatchdogTests.WatchdogInactivityTimeout_IsReasonable",
-        "ProcessingWatchdogTests.WatchdogToolExecutionTimeout_IsReasonable",
-        "ProcessingWatchdogTests.WatchdogTimeout_IsGreaterThanCheckInterval",
-        "ProcessingWatchdogTests.SystemMessage_ConnectionLost_HasExpectedContent",
-        "ProcessingWatchdogTests.SystemMessage_AddedToHistory_IsVisible"
-      ],
-      "steps": [
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.session-item').length > 0",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "At least one session exists"
-        },
-        {
-          "action": "click",
-          "selector": ".session-item:first-child",
-          "note": "Open a session"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.chat-input textarea') !== null",
-          "expect": {
-            "equals": "true"
-          }
-        },
-        {
-          "action": "type",
-          "selector": ".chat-input textarea",
-          "text": "Test message for watchdog scenario"
-        },
-        {
-          "action": "click",
-          "selector": ".chat-input button[type=submit]"
-        },
-        {
-          "action": "wait",
-          "duration": 2000,
-          "note": "Wait for message to be sent and processing to start"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.action-item.running .action-label')?.textContent || document.querySelector('.chat-msg.tool .chat-msg-text')?.textContent",
-          "note": "Should show 'Thinking' or activity text while processing"
-        },
-        {
-          "action": "note",
-          "text": "To fully test: kill the persistent server process while session is processing, then wait up to 2 minutes for the watchdog to detect inactivity and clear the stuck state (10 min if a tool is running). The session should show a system message: 'Session appears stuck \u2014 no response received.'"
-        },
-        {
-          "action": "wait",
-          "duration": 130000,
-          "note": "Wait for watchdog timeout (120s when no tool running) + buffer. In manual testing, kill server during this wait."
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.action-item.running') === null",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "Processing indicator should be gone after watchdog fires"
-        },
-        {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('.chat-msg')).some(el => el.textContent.includes('appears stuck'))",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "System message about stuck session should appear in chat"
-        }
-      ]
-    },
-    {
-      "id": "relaunch-with-stale-server-shows-sessions",
-      "name": "After relaunch, all previously-active sessions should be visible",
-      "description": "Validates that after relaunch.sh deploys a new build, session restore failures don't silently leave the app with 0 sessions. Covers the scenario where an old copilot server is running but individual session resumes fail.",
-      "unitTestCoverage": [
-        "ProcessingWatchdogTests.PersistentMode_FailedInit_SetsNeedsConfiguration",
-        "ProcessingWatchdogTests.PersistentMode_FailedInit_NoSessionsStuckProcessing",
-        "ProcessingWatchdogTests.DemoMode_SessionRestore_AllSessionsVisible",
-        "ProcessingWatchdogTests.ReconnectAsync_IsInitialized_CorrectForEachMode",
-        "ProcessingWatchdogTests.ReconnectAsync_ClearsStuckProcessingFromPreviousMode",
-        "ProcessingWatchdogTests.OnStateChanged_FiresDuringReconnect"
-      ],
-      "steps": [
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.session-item').length",
-          "capture": "preRelaunchCount",
-          "note": "Record session count before relaunch"
-        },
-        {
-          "action": "shell",
-          "command": "cd PolyPilot && ./relaunch.sh",
-          "note": "Rebuild and relaunch the app"
-        },
-        {
-          "action": "wait",
-          "duration": 20000,
-          "note": "Wait for app to restart and restore sessions"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": {
-            "not_contains": "Disconnected"
-          },
-          "note": "App should be connected (Persistent or Embedded fallback)"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.session-item').length > 0",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "Sessions should be visible after relaunch \u2014 not silently lost"
-        },
-        {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('.session-item')).filter(el => el.querySelector('.processing')).length === 0",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "No sessions should be stuck in processing state after relaunch"
-        }
-      ]
-    },
-    {
-      "id": "abort-clears-queue-and-status",
-      "name": "Stop button clears message queue and processing status",
-      "description": "When user clicks Stop on an active session, the message queue is cleared so no more messages auto-send, and processing status fields (elapsed time, tool rounds) are reset.",
-      "category": "session-management",
-      "unitTestCoverage": [
-        "ProcessingWatchdogTests.AbortSessionAsync_ClearsQueueAndProcessingStatus",
-        "ProcessingWatchdogTests.AbortSessionAsync_WorksRegardlessOfGeneration"
-      ],
-      "steps": [
-        {
-          "action": "note",
-          "note": "A session must be actively processing (IsProcessing=true)"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.send-btn.stop-btn') !== null",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "Stop button should be visible for processing sessions"
-        },
-        {
-          "action": "click",
-          "target": ".send-btn.stop-btn",
-          "note": "Click the stop button"
-        },
-        {
-          "action": "evaluate",
-          "script": "!document.querySelector('.expanded-card.processing')",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "Session card should no longer show processing state after stop"
-        }
-      ]
-    },
-    {
-      "id": "processing-status-indicator",
-      "name": "Processing sessions show elapsed time and tool round count",
-      "description": "When a session is processing, the UI shows a status indicator with elapsed time and tool round count. Before the first SDK event, it shows 'Waiting for first response'. Processing status fields are synced via bridge to mobile.",
-      "category": "session-management",
-      "unitTestCoverage": [
-        "AgentSessionInfoTests.NewSession_HasDefaultProcessingStatusFields",
-        "AgentSessionInfoTests.ProcessingStatusFields_CanBeSetAndCleared",
-        "BridgeMessageTests.Serialize_CamelCaseNaming",
-        "BridgeMessageTests.SessionsListPayload_RoundTrip"
-      ],
-      "steps": [
-        {
-          "action": "note",
-          "note": "A session must be actively processing"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.expanded-card.processing') !== null",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "Active session should show processing card state"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.processing-status') !== null || document.querySelector('.chat-message-list')?.textContent?.includes('Working') || document.querySelector('.chat-message-list')?.textContent?.includes('Waiting')",
-          "expect": {
-            "equals": "true"
-          },
-          "note": "Processing status text (elapsed time / tool rounds / waiting) should be visible"
-        }
-      ]
-    },
-    {
-      "id": "stale-session-not-marked-processing-on-restore",
-      "name": "Stale sessions are NOT marked as processing on restore",
-      "description": "When a session's events.jsonl hasn't been modified in over 10 minutes, the session should not be restored with IsProcessing=true, even if the last event was an 'active' type. This prevents hours-old sessions from showing a permanent 'Thinking' indicator.",
-      "unitTestCoverage": [
-        "StuckSessionRecoveryTests.IsSessionStillProcessing_StaleFile_ReturnsFalse",
-        "StuckSessionRecoveryTests.IsSessionStillProcessing_RecentFile_ActiveEvent_ReturnsTrue",
-        "StuckSessionRecoveryTests.IsSessionStillProcessing_RecentFile_IdleEvent_ReturnsFalse",
-        "StuckSessionRecoveryTests.StalenessThreshold_UsesWatchdogToolExecutionTimeout"
-      ],
-      "steps": [
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.status')?.className",
-          "expect": {
-            "contains": "connected"
-          },
-          "note": "App should be connected"
-        },
-        {
-          "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('.session-card.processing, .session-item .processing-dot')).length",
-          "note": "Count sessions showing processing state \u2014 stale sessions should not be here"
-        },
-        {
-          "action": "note",
-          "text": "Manual verification: check debug info for any sessions with IsProcessing=true where LastUpdatedAt is over 10 minutes old. Such sessions should have been detected as stale during restore."
-        }
-      ]
-    },
-    {
-      "id": "saved-sessions-visible-on-desktop",
-      "name": "Saved Sessions section visible on desktop with session count",
-      "steps": [
-        {
-          "action": "click",
-          "selector": "a[href='/']",
-          "note": "Navigate to dashboard"
-        },
-        {
-          "action": "wait",
-          "ms": 2000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.section-header-label')?.textContent?.trim()",
-          "expect": {
-            "matches": "Saved Sessions \\(\\d+\\)"
-          },
-          "note": "Section header shows 'Saved Sessions (N)' with non-zero count"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.toggle-icon')?.textContent?.trim()",
-          "expect": {
-            "equals": "\u25b6"
-          },
-          "note": "Section starts collapsed"
-        },
-        {
-          "action": "click",
-          "selector": ".section-header",
-          "note": "Expand saved sessions section"
-        },
-        {
-          "action": "wait",
-          "ms": 1000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.toggle-icon')?.textContent?.trim()",
-          "expect": {
-            "equals": "\u25bc"
-          },
-          "note": "Section is now expanded"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.session-item.persisted').length",
-          "expect": {
-            "greaterThan": 0
-          },
-          "note": "At least one persisted session item is rendered"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.filter-input')?.placeholder",
-          "expect": {
-            "equals": "Filter sessions..."
-          },
-          "note": "Filter input is visible when expanded"
-        }
-      ]
-    },
-    {
-      "id": "settings-qr-code-blur",
-      "name": "QR code and token have independent blur toggles",
-      "steps": [
-        {
-          "action": "note",
-          "note": "Navigate to /settings page. Requires an active DevTunnel to see QR code."
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.qr-code img')?.classList.contains('blurred')",
-          "expect": {
-            "equals": true
-          },
-          "note": "QR code image is blurred by default (showQrCode=false)"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.token-value')?.classList.contains('blurred')",
-          "expect": {
-            "equals": true
-          },
-          "note": "Token value is also blurred by default (showToken=false)"
-        },
-        {
-          "action": "click",
-          "selector": ".qr-code .qr-reveal-btn",
-          "note": "Click the QR-specific reveal button (independent from token reveal)"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.qr-code img')?.classList.contains('blurred')",
-          "expect": {
-            "equals": false
-          },
-          "note": "QR code is revealed after clicking its own reveal button"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.token-value')?.classList.contains('blurred')",
-          "expect": {
-            "equals": true
-          },
-          "note": "Token remains blurred \u2014 QR and token toggles are independent"
-        }
-      ]
-    },
-    {
-      "id": "cli-source-builtin-card-not-disabled-with-system-fallback",
-      "name": "Built-in CLI card is selectable when bundled CLI is missing but system CLI exists (fallback)",
-      "steps": [
-        {
-          "action": "click",
-          "selector": "a[href='/settings']",
-          "note": "Navigate to Settings"
-        },
-        {
-          "action": "wait",
-          "duration": 2000
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.cli-card')[0].classList.contains('disabled')",
-          "expect": {
-            "equals": "false"
-          },
-          "note": "Built-in card should NOT be disabled even if bundled CLI is missing (system fallback exists)"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.cli-card')[1].click()",
-          "note": "Click System CLI card"
-        },
-        {
-          "action": "wait",
-          "duration": 500
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
-          "expect": {
-            "equals": "System"
-          },
-          "note": "Verify System is now selected"
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelectorAll('.cli-card')[0].click()",
-          "note": "Click Built-in card to switch back"
-        },
-        {
-          "action": "wait",
-          "duration": 500
-        },
-        {
-          "action": "evaluate",
-          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
-          "expect": {
-            "equals": "Built-in"
-          },
-          "note": "Verify Built-in is selected again (this was the bug: could not switch back)"
-        },
-        {
-          "action": "shell",
-          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)[\\\"CliSource\\\"])\"",
-          "expect": {
-            "equals": "0"
-          },
-          "note": "Verify CliSource=0 (BuiltIn) persisted to disk after switching back"
-        }
-      ]
-    }
-  ]
+    ]
 }

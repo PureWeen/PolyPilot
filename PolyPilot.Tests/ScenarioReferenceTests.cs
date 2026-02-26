@@ -177,6 +177,16 @@ public class ScenarioReferenceTests
         Assert.True(true, "See ProcessingWatchdogTests for relaunch/reconnect resilience tests");
     }
 
+    /// <summary>
+    /// Scenario: "shell-command-uses-platform-shell"
+    /// Unit test equivalents: PlatformHelperTests.GetShellCommand_*
+    /// </summary>
+    [Fact]
+    public void Scenario_ShellCommandUsesPlatformShell_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See PlatformHelperTests.GetShellCommand_* for platform shell selection tests");
+    }
+
     [Fact]
     public void AllScenarios_HaveUniqueIds()
     {

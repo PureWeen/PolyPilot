@@ -30,4 +30,17 @@ public static class PlatformHelper
     /// The only character that needs escaping inside single quotes is ' itself.
     /// </summary>
     public static string ShellEscape(string value) => "'" + value.Replace("'", "'\"'\"'") + "'";
+
+    /// <summary>
+    /// Returns the platform-appropriate shell executable and arguments for running a command.
+    /// On Windows uses cmd.exe /c; on Mac/Linux uses /bin/bash -c.
+    /// </summary>
+    public static (string FileName, string Arguments) GetShellCommand(string command)
+    {
+        if (OperatingSystem.IsWindows())
+            return ("cmd.exe", $"/c {command}");
+
+        var escaped = command.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        return ("/bin/bash", $"-c \"{escaped}\"");
+    }
 }
