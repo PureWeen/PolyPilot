@@ -9,6 +9,26 @@ public class AgentSessionInfo
     public bool IsProcessing { get; set; }
     public List<ChatMessage> History { get; } = new();
     public List<string> MessageQueue { get; } = new();
+
+    /// <summary>
+    /// Lock for thread-safe access to History. Must be held when mutating History from
+    /// background threads (SDK events, bridge sync). UI-thread reads can skip the lock
+    /// when tolerant of stale data, but cross-thread reads (e.g., WsBridgeServer snapshot)
+    /// must lock.
+    /// </summary>
+    public readonly object HistoryLock = new();
+
+    /// <summary>
+    /// Thread-safe snapshot of History. Use this from any non-UI thread that needs
+    /// to iterate or serialize History without risking concurrent modification.
+    /// </summary>
+    public ChatMessage[] GetHistorySnapshot()
+    {
+        lock (HistoryLock)
+        {
+            return History.ToArray();
+        }
+    }
     
     public string? WorkingDirectory { get; set; }
     public string? GitBranch { get; set; }
@@ -61,17 +81,9 @@ public class AgentSessionInfo
     {
         get
         {
-            try
-            {
-                // Snapshot to avoid collection-modified exceptions from background threads
-                var snapshot = History.ToArray();
-                return Math.Max(0,
-                    snapshot.Skip(LastReadMessageCount).Count(m => m?.Role == "assistant"));
-            }
-            catch
-            {
-                return 0;
-            }
+            var snapshot = GetHistorySnapshot();
+            return Math.Max(0,
+                snapshot.Skip(LastReadMessageCount).Count(m => m?.Role == "assistant"));
         }
     }
 

@@ -148,11 +148,15 @@ public partial class CopilotService
             // Register in pending map BEFORE posting to UI thread — this prevents
             // rapid consecutive deltas from creating duplicates
             state.PendingReasoningMessages[normalizedReasoningId] = reasoningMsg;
-            // Must add to History on UI thread to avoid concurrent List<T> mutation
+            // Must add to History on UI thread; hold HistoryLock to guard against
+            // concurrent bridge background thread mutations (OnContentReceived, etc.)
             InvokeOnUI(() =>
             {
-                state.Info.History.Add(reasoningMsg);
-                state.Info.MessageCount = state.Info.History.Count;
+                lock (state.Info.HistoryLock)
+                {
+                    state.Info.History.Add(reasoningMsg);
+                    state.Info.MessageCount = state.Info.History.Count;
+                }
                 // Remove from pending — now findable via History search
                 state.PendingReasoningMessages.TryRemove(normalizedReasoningId, out _);
             });
@@ -179,26 +183,35 @@ public partial class CopilotService
 
     private void CompleteReasoningMessages(SessionState state, string sessionName)
     {
-        var openReasoningMessages = state.Info.History
-            .Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete)
-            .ToList();
+        List<ChatMessage> openReasoningMessages;
+        var completedIds = new List<string>();
+        // Capture content snapshots for DB writes outside the lock
+        var dbUpdates = new List<(string sessionId, string reasoningId, string? content)>();
+        lock (state.Info.HistoryLock)
+        {
+            openReasoningMessages = state.Info.History
+                .Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete)
+                .ToList();
+            foreach (var msg in openReasoningMessages)
+            {
+                msg.IsComplete = true;
+                msg.IsCollapsed = true;
+                msg.Timestamp = DateTime.Now;
+                if (!string.IsNullOrEmpty(msg.ReasoningId))
+                {
+                    completedIds.Add(msg.ReasoningId);
+                    if (!string.IsNullOrEmpty(state.Info.SessionId))
+                        dbUpdates.Add((state.Info.SessionId, msg.ReasoningId, msg.Content));
+                }
+            }
+            if (openReasoningMessages.Count > 0)
+                state.Info.LastUpdatedAt = DateTime.Now;
+        }
         if (openReasoningMessages.Count == 0) return;
 
-        var completedIds = new List<string>();
-        foreach (var msg in openReasoningMessages)
-        {
-            msg.IsComplete = true;
-            msg.IsCollapsed = true;
-            msg.Timestamp = DateTime.Now;
-            if (!string.IsNullOrEmpty(msg.ReasoningId))
-            {
-                completedIds.Add(msg.ReasoningId);
-                if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.UpdateReasoningContentAsync(state.Info.SessionId, msg.ReasoningId, msg.Content, true);
-            }
-        }
+        foreach (var (sessionId, reasoningId, content) in dbUpdates)
+            _ = _chatDb.UpdateReasoningContentAsync(sessionId, reasoningId, content ?? "", true);
 
-        state.Info.LastUpdatedAt = DateTime.Now;
         InvokeOnUI(() =>
         {
             foreach (var reasoningId in completedIds)
@@ -308,12 +321,15 @@ public partial class CopilotService
                 if (!FilteredTools.Contains(startToolName))
                 {
                     // Deduplicate: SDK replays events on resume/reconnect — update existing
-                    var existingTool = state.Info.History.FirstOrDefault(m => m.ToolCallId == startCallId);
-                    if (existingTool != null)
+                    lock (state.Info.HistoryLock)
                     {
-                        // Update with potentially fresher data
-                        if (!string.IsNullOrEmpty(toolInput)) existingTool.ToolInput = toolInput;
-                        break;
+                        var existingTool = state.Info.History.FirstOrDefault(m => m.ToolCallId == startCallId);
+                        if (existingTool != null)
+                        {
+                            // Update with potentially fresher data
+                            if (!string.IsNullOrEmpty(toolInput)) existingTool.ToolInput = toolInput;
+                            break;
+                        }
                     }
 
                     // Flush any accumulated assistant text before adding tool message,
@@ -325,7 +341,10 @@ public partial class CopilotService
                         Invoke(() =>
                         {
                             FlushCurrentResponse(state);
-                            state.Info.History.Add(imgPlaceholder);
+                            lock (state.Info.HistoryLock)
+                            {
+                                state.Info.History.Add(imgPlaceholder);
+                            }
                             OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
                         });
                     }
@@ -335,7 +354,10 @@ public partial class CopilotService
                         Invoke(() =>
                         {
                             FlushCurrentResponse(state);
-                            state.Info.History.Add(toolMsg);
+                            lock (state.Info.HistoryLock)
+                            {
+                                state.Info.History.Add(toolMsg);
+                            }
                             OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
                             OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
                         });
@@ -363,27 +385,32 @@ public partial class CopilotService
                 if (resultStr == "Intent logged")
                     break;
 
-                // Update the matching tool message in history
-                var histToolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == completeCallId);
-                if (histToolMsg != null)
+                // Update the matching tool message in history — hold the lock for the full
+                // lookup + mutation sequence to prevent the UI thread from reading a
+                // partially-updated message (e.g. IsComplete=true but Content still null).
+                lock (state.Info.HistoryLock)
                 {
-                    var effectiveToolName = completeToolName ?? histToolMsg.ToolName;
-                    if (effectiveToolName == ShowImageTool.ToolName && !hasError)
+                    var histToolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == completeCallId);
+                    if (histToolMsg != null)
                     {
-                        // Convert tool call placeholder into an Image message
-                        (string? imgPath, string? imgCaption) = ShowImageTool.ParseResult(resultStr);
-                        histToolMsg.MessageType = ChatMessageType.Image;
-                        histToolMsg.ImagePath = imgPath;
-                        histToolMsg.Caption = imgCaption;
-                        histToolMsg.IsComplete = true;
-                        histToolMsg.IsSuccess = true;
-                        histToolMsg.Content = resultStr;
-                    }
-                    else
-                    {
-                        histToolMsg.IsComplete = true;
-                        histToolMsg.IsSuccess = !hasError;
-                        histToolMsg.Content = resultStr;
+                        var effectiveToolName = completeToolName ?? histToolMsg.ToolName;
+                        if (effectiveToolName == ShowImageTool.ToolName && !hasError)
+                        {
+                            // Convert tool call placeholder into an Image message
+                            (string? imgPath, string? imgCaption) = ShowImageTool.ParseResult(resultStr);
+                            histToolMsg.MessageType = ChatMessageType.Image;
+                            histToolMsg.ImagePath = imgPath;
+                            histToolMsg.Caption = imgCaption;
+                            histToolMsg.IsComplete = true;
+                            histToolMsg.IsSuccess = true;
+                            histToolMsg.Content = resultStr;
+                        }
+                        else
+                        {
+                            histToolMsg.IsComplete = true;
+                            histToolMsg.IsSuccess = !hasError;
+                            histToolMsg.Content = resultStr;
+                        }
                     }
                 }
 
@@ -681,22 +708,33 @@ public partial class CopilotService
         
         // Dedup guard: if this exact text was already flushed (e.g., SDK replayed events
         // after resume and content was re-appended to CurrentResponse), don't duplicate.
-        var lastAssistant = state.Info.History.LastOrDefault(m => 
-            m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
-        if (lastAssistant?.Content == text)
+        ChatMessage? msg = null;
+        bool isDuplicate = false;
+        lock (state.Info.HistoryLock)
+        {
+            var lastAssistant = state.Info.History.LastOrDefault(m =>
+                m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
+            if (lastAssistant?.Content == text)
+            {
+                isDuplicate = true;
+                state.CurrentResponse.Clear();
+                state.HasReceivedDeltasThisTurn = false;
+            }
+            else
+            {
+                msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
+                state.Info.History.Add(msg);
+                state.Info.MessageCount = state.Info.History.Count;
+            }
+        }
+        if (isDuplicate)
         {
             Debug($"[DEDUP] FlushCurrentResponse skipped duplicate content ({text.Length} chars) for session '{state.Info.Name}'");
-            state.CurrentResponse.Clear();
-            state.HasReceivedDeltasThisTurn = false;
             return;
         }
         
-        var msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
-        state.Info.History.Add(msg);
-        state.Info.MessageCount = state.Info.History.Count;
-        
         if (!string.IsNullOrEmpty(state.Info.SessionId))
-            _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+            _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg!);
         
         // Track code suggestions from accumulated response segment
         _usageStats?.TrackCodeSuggestion(text);
@@ -760,18 +798,22 @@ public partial class CopilotService
         state.HasUsedToolsThisTurn = false;
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
+        ChatMessage? completionMsg = null;
         if (!string.IsNullOrWhiteSpace(response))
         {
-            var msg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
-            state.Info.History.Add(msg);
-            state.Info.MessageCount = state.Info.History.Count;
-            // If user is viewing this session, keep it read
-            if (state.Info.Name == _activeSessionName)
-                state.Info.LastReadMessageCount = state.Info.History.Count;
+            completionMsg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
+            lock (state.Info.HistoryLock)
+            {
+                state.Info.History.Add(completionMsg);
+                state.Info.MessageCount = state.Info.History.Count;
+                // If user is viewing this session, keep it read
+                if (state.Info.Name == _activeSessionName)
+                    state.Info.LastReadMessageCount = state.Info.History.Count;
+            }
 
-            // Write-through to DB
+            // Write-through to DB (outside lock — async fire-and-forget)
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+                _ = _chatDb.AddMessageAsync(state.Info.SessionId, completionMsg);
             
             // Track code suggestions from final response segment
             _usageStats?.TrackCodeSuggestion(response);

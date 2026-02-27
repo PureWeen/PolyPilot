@@ -880,6 +880,12 @@ public class WsBridgeServer : IDisposable
         await SendToClientAsync(clientId, ws, msg, ct);
     }
 
+    /// <summary>
+    /// Server-side maximum for history payloads. Even if the client requests unlimited history,
+    /// cap to this to prevent massive WebSocket payloads from blocking the channel.
+    /// </summary>
+    private const int MaxHistoryPayloadMessages = 500;
+
     private async Task SendSessionHistoryToClient(string clientId, WebSocket ws, string sessionName, int? limit, CancellationToken ct)
     {
         if (_copilot == null) return;
@@ -887,28 +893,23 @@ public class WsBridgeServer : IDisposable
         var session = _copilot.GetSession(sessionName);
         if (session == null) return;
 
-        // Take a defensive snapshot — History is a plain List<ChatMessage> that may be
+        // Thread-safe snapshot via lock — History is a plain List<ChatMessage> that may be
         // modified concurrently by SDK event handlers on background threads.
-        // ToArray() uses Array.Copy internally so it won't throw InvalidOperationException,
-        // but can hit ArgumentOutOfRangeException if the list resizes during copy.
-        // On failure, skip sending entirely — never send an empty authoritative payload
-        // (that would make the client think the session has no history with no recovery path).
-        ChatMessage[] snapshot;
-        try { snapshot = session.History.ToArray(); }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[WsBridge] History snapshot failed for '{sessionName}': {ex.Message}");
-            return;
-        }
+        var snapshot = session.GetHistorySnapshot();
 
         var totalCount = snapshot.Length;
+
+        // Apply server-side cap, then client-requested limit
+        var effectiveLimit = limit.HasValue
+            ? Math.Min(limit.Value, MaxHistoryPayloadMessages)
+            : MaxHistoryPayloadMessages;
         
         // Apply limit — take the most recent N messages
         List<ChatMessage> messagesToSend;
         bool hasMore;
-        if (limit.HasValue && limit.Value < totalCount)
+        if (effectiveLimit < totalCount)
         {
-            messagesToSend = snapshot.Skip(totalCount - limit.Value).ToList();
+            messagesToSend = snapshot.Skip(totalCount - effectiveLimit).ToList();
             hasMore = true;
         }
         else
@@ -952,7 +953,7 @@ public class WsBridgeServer : IDisposable
             Name = s.Name,
             Model = s.Model,
             CreatedAt = s.CreatedAt,
-            MessageCount = s.History.Count,
+            MessageCount = s.MessageCount,
             IsProcessing = s.IsProcessing,
             SessionId = s.SessionId,
             WorkingDirectory = s.WorkingDirectory,
