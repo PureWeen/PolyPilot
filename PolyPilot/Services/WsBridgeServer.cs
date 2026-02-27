@@ -678,7 +678,8 @@ public class WsBridgeServer : IDisposable
                                         BridgeMessage.Create(BridgeMessageTypes.RepoProgress,
                                             new RepoProgressPayload { RequestId = addReq.RequestId, Message = progress }), ct);
                                 }, ct);
-                                _copilot?.GetOrCreateRepoGroup(repo.Id, repo.Name, explicitly: true);
+                                _copilot?.InvokeOnUI(() =>
+                                    _copilot?.GetOrCreateRepoGroup(repo.Id, repo.Name, explicitly: true));
                                 await SendToClientAsync(clientId, ws,
                                     BridgeMessage.Create(BridgeMessageTypes.RepoAdded,
                                         new RepoAddedPayload
