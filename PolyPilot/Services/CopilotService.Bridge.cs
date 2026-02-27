@@ -233,8 +233,11 @@ public partial class CopilotService
                     session.ToolCallCount = 0;
                     session.ProcessingPhase = 0;
                     // Mark last assistant message as complete
-                    var lastAssistant = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
-                    if (lastAssistant != null) { lastAssistant.IsComplete = true; lastAssistant.Model = session.Model; }
+                    lock (session.HistoryLock)
+                    {
+                        var lastAssistant = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
+                        if (lastAssistant != null) { lastAssistant.IsComplete = true; lastAssistant.Model = session.Model; }
+                    }
                 }
                 OnTurnEnd?.Invoke(s);
             });
@@ -511,11 +514,14 @@ public partial class CopilotService
 
                 if (messages.Count >= s.Info.History.Count)
                 {
-                    Debug($"SyncRemoteSessions: Syncing {messages.Count} messages for '{name}'");
                     lock (s.Info.HistoryLock)
                     {
-                        s.Info.History.Clear();
-                        s.Info.History.AddRange(messages);
+                        if (messages.Count >= s.Info.History.Count)
+                        {
+                            Debug($"SyncRemoteSessions: Syncing {messages.Count} messages for '{name}'");
+                            s.Info.History.Clear();
+                            s.Info.History.AddRange(messages);
+                        }
                     }
                     _requestedHistorySessions.TryRemove(name, out _);
                 }

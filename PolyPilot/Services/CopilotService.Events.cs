@@ -169,7 +169,6 @@ public partial class CopilotService
         reasoningMsg.Timestamp = DateTime.Now;
         MergeReasoningContent(reasoningMsg, content, isDelta);
         state.Info.LastUpdatedAt = DateTime.Now;
-        }
 
         if (!string.IsNullOrEmpty(state.Info.SessionId))
         {
@@ -709,22 +708,33 @@ public partial class CopilotService
         
         // Dedup guard: if this exact text was already flushed (e.g., SDK replayed events
         // after resume and content was re-appended to CurrentResponse), don't duplicate.
-        var lastAssistant = state.Info.History.LastOrDefault(m => 
-            m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
-        if (lastAssistant?.Content == text)
+        ChatMessage? msg = null;
+        bool isDuplicate = false;
+        lock (state.Info.HistoryLock)
+        {
+            var lastAssistant = state.Info.History.LastOrDefault(m =>
+                m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
+            if (lastAssistant?.Content == text)
+            {
+                isDuplicate = true;
+                state.CurrentResponse.Clear();
+                state.HasReceivedDeltasThisTurn = false;
+            }
+            else
+            {
+                msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
+                state.Info.History.Add(msg);
+                state.Info.MessageCount = state.Info.History.Count;
+            }
+        }
+        if (isDuplicate)
         {
             Debug($"[DEDUP] FlushCurrentResponse skipped duplicate content ({text.Length} chars) for session '{state.Info.Name}'");
-            state.CurrentResponse.Clear();
-            state.HasReceivedDeltasThisTurn = false;
             return;
         }
         
-        var msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
-        state.Info.History.Add(msg);
-        state.Info.MessageCount = state.Info.History.Count;
-        
         if (!string.IsNullOrEmpty(state.Info.SessionId))
-            _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+            _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg!);
         
         // Track code suggestions from accumulated response segment
         _usageStats?.TrackCodeSuggestion(text);
@@ -788,18 +798,22 @@ public partial class CopilotService
         state.HasUsedToolsThisTurn = false;
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
+        ChatMessage? completionMsg = null;
         if (!string.IsNullOrWhiteSpace(response))
         {
-            var msg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
-            state.Info.History.Add(msg);
-            state.Info.MessageCount = state.Info.History.Count;
-            // If user is viewing this session, keep it read
-            if (state.Info.Name == _activeSessionName)
-                state.Info.LastReadMessageCount = state.Info.History.Count;
+            completionMsg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
+            lock (state.Info.HistoryLock)
+            {
+                state.Info.History.Add(completionMsg);
+                state.Info.MessageCount = state.Info.History.Count;
+                // If user is viewing this session, keep it read
+                if (state.Info.Name == _activeSessionName)
+                    state.Info.LastReadMessageCount = state.Info.History.Count;
+            }
 
-            // Write-through to DB
+            // Write-through to DB (outside lock — async fire-and-forget)
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+                _ = _chatDb.AddMessageAsync(state.Info.SessionId, completionMsg);
             
             // Track code suggestions from final response segment
             _usageStats?.TrackCodeSuggestion(response);
