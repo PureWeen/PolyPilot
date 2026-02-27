@@ -608,7 +608,7 @@
         {
             var connSettings = ConnectionSettings.Load();
             connSettings.Mode = ConnectionMode.Remote;
-            connSettings.RemoteUrl = mobileRemoteUrl;
+            connSettings.RemoteUrl = ConnectionSettings.NormalizeRemoteUrl(mobileRemoteUrl) ?? mobileRemoteUrl;
             connSettings.RemoteToken = mobileRemoteToken;
             connSettings.Save();
             await CopilotService.ReconnectAsync(connSettings);
