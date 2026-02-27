@@ -1850,9 +1850,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Prompt = prompt
             };
 
-            // Set SDK agent mode if specified (autopilot, plan, etc.)
-            if (!string.IsNullOrEmpty(agentMode))
-                messageOptions.Mode = agentMode;
+            // NOTE: MessageOptions.Mode is reserved for routing ("immediate" = steer-without-abort,
+            // null = default enqueue). Do NOT set Mode to an agent mode string here.
+            // The .NET SDK has no public mechanism to set session agent mode (autopilot/plan/interactive).
+            // Agent mode is controlled by session-level configuration (system message, available tools)
+            // set at session creation time via SessionConfig. The agentMode parameter is preserved
+            // in the pipeline for logging and future use when the SDK exposes this capability.
             
             // Attach images via SDK if available
             if (imagePaths != null && imagePaths.Count > 0)
@@ -1928,8 +1931,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     {
                         Prompt = prompt
                     };
-                    if (!string.IsNullOrEmpty(agentMode))
-                        retryOptions.Mode = agentMode;
                     await state.Session.SendAsync(retryOptions, cancellationToken);
                 }
                 catch (Exception retryEx)
