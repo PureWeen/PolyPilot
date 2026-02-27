@@ -1668,6 +1668,7 @@ else
     }
 
     // --- Bug Report / Fix It ---
+    internal const int AutoClosePanelDelayMs = 5000;
     private bool showBugReport;
     private bool showFixIt;
     private string bugDescription = "";
@@ -1925,6 +1926,22 @@ else
 
             footerStatus = "✓ Copilot launched in new terminal";
             bugDescription = "";
+            footerSubmitting = false;
+            StateHasChanged();
+
+            // Auto-close the dialog after briefly showing the success message
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(AutoClosePanelDelayMs);
+                await InvokeAsync(() =>
+                {
+                    if (footerStatus == "✓ Copilot launched in new terminal")
+                    {
+                        CloseFooterPanel();
+                    }
+                });
+            });
+            return;
         }
         catch (Exception ex)
         {
