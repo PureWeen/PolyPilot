@@ -1613,8 +1613,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
         if (repo != null)
         {
-            var group = GetOrCreateRepoGroup(repo.Id, repo.Name);
-            MoveSession(sessionInfo.Name, group.Id);
+            var group = GetOrCreateRepoGroup(repo.Id, repo.Name, explicitly: true);
+            if (group != null)
+                MoveSession(sessionInfo.Name, group.Id);
             var meta = GetSessionMeta(sessionInfo.Name);
             if (meta != null) meta.WorktreeId = wt.Id;
         }

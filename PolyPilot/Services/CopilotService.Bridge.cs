@@ -460,7 +460,7 @@ public partial class CopilotService
         if (!IsRemoteMode)
         {
             var repo = await _repoManager.AddRepositoryAsync(url, onProgress, ct);
-            GetOrCreateRepoGroup(repo.Id, repo.Name);
+            GetOrCreateRepoGroup(repo.Id, repo.Name, explicitly: true);
             return (repo.Id, repo.Name);
         }
 
