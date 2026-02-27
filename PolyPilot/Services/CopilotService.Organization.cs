@@ -132,17 +132,26 @@ public partial class CopilotService
         // NOTE: Do NOT call ReconcileOrganization() here — _sessions is empty at load time,
         // so reconciliation would prune all session metadata. Reconcile is called explicitly
         // after RestorePreviousSessionsAsync populates _sessions (line 403 and 533).
+
+        // Self-healing: if any group has orchestrator/worker sessions but IsMultiAgent is false,
+        // restore IsMultiAgent. This protects against stale debounce writes or serialization issues.
+        foreach (var group in Organization.Groups)
+        {
+            if (!group.IsMultiAgent && Organization.Sessions.Any(m => m.GroupId == group.Id && m.Role == MultiAgentRole.Orchestrator))
+            {
+                Debug($"LoadOrganization: healing group '{group.Name}' (Id={group.Id}) — has orchestrator session but IsMultiAgent=false");
+                group.IsMultiAgent = true;
+            }
+        }
     }
 
     public void SaveOrganization()
     {
         InvalidateOrganizedSessionsCache();
-        // Snapshot JSON on caller's thread to avoid concurrent mutation during serialization
-        string json;
-        try { json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true }); }
-        catch { return; }
+        // Debounce: restart the timer. The callback marshals to the UI thread for
+        // serialization since Organization contains non-thread-safe List<T> collections.
         _saveOrgDebounce?.Dispose();
-        _saveOrgDebounce = new Timer(_ => WriteOrgFile(json), null, 2000, Timeout.Infinite);
+        _saveOrgDebounce = new Timer(_ => InvokeOnUI(() => SaveOrganizationCore()), null, 2000, Timeout.Infinite);
     }
 
     internal void FlushSaveOrganization()
@@ -622,7 +631,10 @@ public partial class CopilotService
     {
         // Skip multi-agent groups — they have a RepoId for worktree context but are
         // not the "repo group" that regular sessions should auto-join.
-        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent);
+        // Also skip groups that have orchestrator/worker sessions (defensive: protects against
+        // IsMultiAgent being lost due to stale writes or serialization issues).
+        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent
+            && !Organization.Sessions.Any(m => m.GroupId == g.Id && m.Role == MultiAgentRole.Orchestrator));
         if (existing != null) return existing;
 
         // Don't recreate groups the user explicitly deleted (unless re-adding)
@@ -978,7 +990,7 @@ public partial class CopilotService
         }
     }
 
-    private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions, string? routingContext = null)
+    private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions, string? routingContext = null, bool dispatcherOnly = false)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available:");
@@ -1014,14 +1026,24 @@ public partial class CopilotService
         }
         sb.AppendLine();
         sb.AppendLine("## Your Task");
-        sb.AppendLine("Analyze the request and assign specific tasks to your workers. Use this exact format for each assignment:");
+        if (dispatcherOnly)
+        {
+            sb.AppendLine("You are a DISPATCHER ONLY. You do NOT have tools. You CANNOT write code, read files, or run commands yourself.");
+            sb.AppendLine("Your ONLY job is to write @worker/@end blocks that assign work to your workers.");
+        }
+        else
+        {
+            sb.AppendLine("Break the request into tasks and assign them to workers. You may also do some coordination work yourself (e.g., verifying results, running commands).");
+        }
+        sb.AppendLine("Use this exact format for each assignment:");
         sb.AppendLine();
         sb.AppendLine("@worker:worker-name");
         sb.AppendLine("Detailed task description for this worker.");
         sb.AppendLine("@end");
         sb.AppendLine();
-        sb.AppendLine("You may include your analysis and reasoning as normal text. Only the @worker/@end blocks will be dispatched.");
-        sb.AppendLine("If you can handle the request entirely yourself, just respond normally without any @worker blocks.");
+        sb.AppendLine("You may include brief analysis before the @worker blocks, but you MUST produce at least one @worker block.");
+        if (dispatcherOnly)
+            sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
         return sb.ToString();
     }
 
@@ -1118,7 +1140,12 @@ public partial class CopilotService
         {
             sb.AppendLine($"### {result.WorkerName} ({(result.Success ? "✅ completed" : "❌ failed")}, {result.Duration.TotalSeconds:F1}s)");
             if (result.Success)
-                sb.AppendLine(result.Response);
+            {
+                // Strip completion sentinel from worker responses to prevent the orchestrator
+                // from echoing it and causing false loop termination in the reflect cycle.
+                var sanitized = result.Response?.Replace("[[GROUP_REFLECT_COMPLETE]]", "[WORKER_APPROVED]", StringComparison.OrdinalIgnoreCase) ?? "";
+                sb.AppendLine(sanitized);
+            }
             else
                 sb.AppendLine($"*Error: {result.Error}*");
             sb.AppendLine();
@@ -1427,6 +1454,8 @@ public partial class CopilotService
         // Store Squad context (routing, decisions) on the group for use during orchestration
         group.SharedContext = preset.SharedContext;
         group.RoutingContext = preset.RoutingContext;
+        if (preset.MaxReflectIterations.HasValue)
+            group.MaxReflectIterations = preset.MaxReflectIterations;
 
         // Determine orchestrator working directory based on strategy
         var orchWorkDir = workingDirectory;
@@ -1648,6 +1677,15 @@ public partial class CopilotService
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
         if (group == null) return;
 
+        // Don't overwrite an active reflection — the user must stop it first.
+        // This runs on the UI thread (called from Dashboard.razor event handlers),
+        // so no lock is needed — all Organization mutations are UI-thread-only.
+        if (group.ReflectionState is { IsActive: true, IsCancelled: false })
+        {
+            Debug($"StartGroupReflection: skipping — group '{group.Name}' already has active reflection (iteration {group.ReflectionState.CurrentIteration})");
+            return;
+        }
+
         group.ReflectionState = ReflectionCycle.Create(goal, maxIterations);
         group.OrchestratorMode = MultiAgentMode.OrchestratorReflect;
         SaveOrganization();
@@ -1702,6 +1740,10 @@ public partial class CopilotService
         }
 
         var workerNames = members.Where(m => m != orchestratorName).ToList();
+        // Tracks workers that have successfully completed at least once across all iterations.
+        // Access is sequential (single async flow, no concurrent modification).
+        var dispatchedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var attemptedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
@@ -1722,11 +1764,11 @@ public partial class CopilotService
             string planPrompt;
             if (reflectState.CurrentIteration == 1)
             {
-                planPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext);
+                planPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext, dispatcherOnly: true);
             }
             else
             {
-                planPrompt = BuildReplanPrompt(reflectState.LastEvaluation ?? "Continue iterating.", workerNames, prompt);
+                planPrompt = BuildReplanPrompt(reflectState.LastEvaluation ?? "Continue iterating.", workerNames, prompt, group.RoutingContext);
             }
 
             var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct);
@@ -1781,10 +1823,21 @@ public partial class CopilotService
             var workerTasks = assignments.Select(a => ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, ct));
             var results = await Task.WhenAll(workerTasks);
 
+            // Track both attempted and successful workers across all iterations
+            foreach (var a in assignments)
+                attemptedWorkers.Add(a.WorkerName);
+            foreach (var r in results.Where(r => r.Success))
+                dispatchedWorkers.Add(r.WorkerName);
+
             // Phase 4: Synthesize + Evaluate
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, iterDetail));
 
-            var synthEvalPrompt = BuildSynthesisWithEvalPrompt(prompt, results.ToList(), reflectState);
+            var synthEvalPrompt = BuildSynthesisWithEvalPrompt(prompt, results.ToList(), reflectState,
+                group.RoutingContext, dispatchedWorkers, workerNames);
+
+            // Check worker participation once for both evaluator and self-eval paths
+            var allWorkersDispatched = workerNames.All(w => dispatchedWorkers.Contains(w));
+
 
             // Use dedicated evaluator session if configured, otherwise orchestrator self-evaluates
             string evaluatorName = reflectState.EvaluatorSessionName ?? orchestratorName;
@@ -1804,8 +1857,9 @@ public partial class CopilotService
                 var evaluatorModel = GetEffectiveModel(evaluatorName);
                 var trend = reflectState.RecordEvaluation(reflectState.CurrentIteration, score, rationale, evaluatorModel);
 
-                // Check if evaluator says complete
-                if (evalResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) || score >= 0.9)
+                // Check if evaluator says complete — but only if all workers have participated successfully
+                if ((evalResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) || score >= 0.9)
+                    && allWorkersDispatched)
                 {
                     reflectState.GoalMet = true;
                     reflectState.IsActive = false;
@@ -1813,7 +1867,23 @@ public partial class CopilotService
                     break;
                 }
 
-                reflectState.LastEvaluation = rationale;
+                if (!allWorkersDispatched)
+                {
+                    var missing = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
+                    var failedButAttempted = missing.Where(w => attemptedWorkers.Contains(w)).ToList();
+                    var neverDispatched = missing.Where(w => !attemptedWorkers.Contains(w)).ToList();
+                    var detail = neverDispatched.Count > 0
+                        ? $"Not yet dispatched: {string.Join(", ", neverDispatched)}."
+                        : $"Dispatched but failed: {string.Join(", ", failedButAttempted)}. Retry or address errors.";
+                    Debug($"Reflection: overriding completion — {detail}");
+                    reflectState.LastEvaluation = $"{detail} Dispatch to the remaining workers before completing.";
+                    AddOrchestratorSystemMessage(orchestratorName, $"🔄 Overriding completion — {detail}");
+                }
+                else
+                {
+                    reflectState.LastEvaluation = rationale;
+                }
+
                 if (trend == Models.QualityTrend.Degrading)
                     reflectState.PendingAdjustments.Add("📉 Quality degrading — consider changing worker models or refining the goal.");
             }
@@ -1821,8 +1891,9 @@ public partial class CopilotService
             {
                 synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthEvalPrompt, ct);
 
-                // Check completion sentinel
-                if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase))
+                // Check completion sentinel — but only if all workers have participated successfully
+                if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase)
+                    && allWorkersDispatched)
                 {
                     reflectState.GoalMet = true;
                     reflectState.IsActive = false;
@@ -1830,13 +1901,32 @@ public partial class CopilotService
                     break;
                 }
 
-                // Extract evaluation for next iteration
-                reflectState.LastEvaluation = ExtractIterationEvaluation(synthesisResponse);
+                if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase)
+                    && !allWorkersDispatched)
+                {
+                    // Override premature completion — not all workers have participated
+                    var missing = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
+                    var failedButAttempted = missing.Where(w => attemptedWorkers.Contains(w)).ToList();
+                    var neverDispatched = missing.Where(w => !attemptedWorkers.Contains(w)).ToList();
+                    var detail = neverDispatched.Count > 0
+                        ? $"Not yet dispatched: {string.Join(", ", neverDispatched)}."
+                        : $"Dispatched but failed: {string.Join(", ", failedButAttempted)}. Retry or address errors.";
+                    Debug($"Reflection: overriding [[GROUP_REFLECT_COMPLETE]] — {detail}");
+                    reflectState.LastEvaluation = $"{detail} Dispatch to the remaining workers before completing.";
+                    AddOrchestratorSystemMessage(orchestratorName, $"🔄 Overriding completion — {detail}");
+                    reflectState.RecordEvaluation(reflectState.CurrentIteration, 0.3,
+                        reflectState.LastEvaluation, GetEffectiveModel(orchestratorName));
+                }
+                else
+                {
+                    // Extract evaluation for next iteration
+                    reflectState.LastEvaluation = ExtractIterationEvaluation(synthesisResponse);
 
-                // Record a self-eval score (estimated from sentinel presence)
-                var selfScore = synthesisResponse.Contains("[[NEEDS_ITERATION]]", StringComparison.OrdinalIgnoreCase) ? 0.4 : 0.7;
-                reflectState.RecordEvaluation(reflectState.CurrentIteration, selfScore,
-                    reflectState.LastEvaluation ?? "", GetEffectiveModel(orchestratorName));
+                    // Record a self-eval score (estimated from sentinel presence)
+                    var selfScore = synthesisResponse.Contains("[[NEEDS_ITERATION]]", StringComparison.OrdinalIgnoreCase) ? 0.4 : 0.7;
+                    reflectState.RecordEvaluation(reflectState.CurrentIteration, selfScore,
+                        reflectState.LastEvaluation ?? "", GetEffectiveModel(orchestratorName));
+                }
             }
 
             // Auto-adjustment: analyze worker results and suggest/apply changes
@@ -1900,12 +1990,13 @@ public partial class CopilotService
             reflectState.IsCancelled = true;
             AddOrchestratorSystemMessage(orchestratorName, $"⏱️ {reflectState.BuildCompletionSummary()}");
         }
-
-        reflectState.IsActive = false;
-        reflectState.CompletedAt = DateTime.Now;
         }
         finally
         {
+            // Always clear IsActive — even on OperationCanceledException.
+            // Without this, a cancelled reflection permanently blocks future reflections.
+            reflectState.IsActive = false;
+            reflectState.CompletedAt = DateTime.Now;
             ClearPendingOrchestration();
             SaveOrganization();
             InvokeOnUI(() =>
@@ -1916,11 +2007,30 @@ public partial class CopilotService
         }
     }
 
-    private string BuildSynthesisWithEvalPrompt(string originalPrompt, List<WorkerResult> results, ReflectionCycle state)
+    private string BuildSynthesisWithEvalPrompt(string originalPrompt, List<WorkerResult> results, ReflectionCycle state,
+        string? routingContext = null, HashSet<string>? dispatchedWorkers = null, List<string>? allWorkers = null)
     {
         var sb = new System.Text.StringBuilder();
         sb.Append(BuildSynthesisPrompt(originalPrompt, results));
         sb.AppendLine();
+        if (!string.IsNullOrEmpty(routingContext))
+        {
+            sb.AppendLine("## Work Routing (from team definition)");
+            sb.AppendLine(routingContext);
+            sb.AppendLine();
+        }
+        // Show which workers have/haven't participated
+        if (dispatchedWorkers != null && allWorkers != null)
+        {
+            var missing = allWorkers.Where(w => !dispatchedWorkers.Contains(w)).ToList();
+            if (missing.Count > 0)
+            {
+                sb.AppendLine("### ⚠️ Worker Participation");
+                sb.AppendLine($"The following workers have NOT yet been dispatched: **{string.Join(", ", missing)}**");
+                sb.AppendLine("You MUST include `[[NEEDS_ITERATION]]` and dispatch to them before marking complete.");
+                sb.AppendLine();
+            }
+        }
         sb.AppendLine($"## Evaluation Check (Iteration {state.CurrentIteration}/{state.MaxIterations})");
         sb.AppendLine($"**Goal:** {state.Goal}");
         sb.AppendLine();
@@ -1952,20 +2062,31 @@ public partial class CopilotService
         return sb.ToString();
     }
 
-    private string BuildReplanPrompt(string lastEvaluation, List<string> workerNames, string originalPrompt)
+    private string BuildReplanPrompt(string lastEvaluation, List<string> workerNames, string originalPrompt,
+        string? routingContext = null)
     {
         var sb = new System.Text.StringBuilder();
+        sb.AppendLine("You are a DISPATCHER ONLY. You do NOT have tools. You CANNOT write code, read files, or run commands yourself.");
+        sb.AppendLine("Your ONLY job is to write @worker/@end blocks that assign work to your workers.");
+        sb.AppendLine();
         sb.AppendLine("## Previous Iteration Evaluation");
         sb.AppendLine(lastEvaluation);
         sb.AppendLine();
         sb.AppendLine("## Original Request (context)");
         sb.AppendLine(originalPrompt);
         sb.AppendLine();
+        if (!string.IsNullOrEmpty(routingContext))
+        {
+            sb.AppendLine("## Work Routing (from team definition)");
+            sb.AppendLine(routingContext);
+            sb.AppendLine();
+        }
         sb.AppendLine($"Available workers ({workerNames.Count}):");
         foreach (var w in workerNames)
             sb.AppendLine($"  - '{w}' (model: {GetEffectiveModel(w)})");
         sb.AppendLine();
         sb.AppendLine("Assign refined tasks using `@worker:name` / `@end` blocks to address the gaps identified above.");
+        sb.AppendLine("You MUST produce at least one @worker block. NEVER attempt to do the work yourself.");
         return sb.ToString();
     }
 

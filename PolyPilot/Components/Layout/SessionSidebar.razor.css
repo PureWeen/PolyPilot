@@ -1561,6 +1561,28 @@
 .preset-repo {
     border-left: 2px solid var(--accent-blue, #58a6ff);
     padding-left: 0.3rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.preset-item-row {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+}
+
+.preset-delete-btn {
+    all: unset;
+    cursor: pointer;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.25rem;
+    border-radius: 4px;
+    opacity: 0.4;
+    flex-shrink: 0;
+}
+.preset-delete-btn:hover {
+    opacity: 1;
+    background: var(--danger-bg, rgba(248, 81, 73, 0.15));
 }
 
 .preset-badge {

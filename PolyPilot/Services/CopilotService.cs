@@ -22,6 +22,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();
     // Session IDs explicitly closed by the user — excluded from merge-back during SaveActiveSessionsToDisk
     private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
+    private readonly ConcurrentDictionary<string, byte> _closedSessionNames = new();
     // Image paths queued alongside messages when session is busy (keyed by session name, list per queued message)
     private readonly ConcurrentDictionary<string, List<List<string>>> _queuedImagePaths = new();
     private readonly ConcurrentDictionary<string, List<string?>> _queuedAgentModes = new();
@@ -234,6 +235,10 @@ public partial class CopilotService : IAsyncDisposable
         public required AgentSessionInfo Info { get; init; }
         public TaskCompletionSource<string>? ResponseCompletion { get; set; }
         public StringBuilder CurrentResponse { get; } = new();
+        /// <summary>Accumulates text that FlushCurrentResponse moved to history mid-turn.
+        /// CompleteResponse combines this with CurrentResponse for the TCS result so
+        /// orchestrator dispatch gets the full response text.</summary>
+        public StringBuilder FlushedResponse { get; } = new();
         public bool HasReceivedDeltasThisTurn { get; set; }
         public bool HasReceivedEventsSinceResume;
         public string? LastMessageId { get; set; }
@@ -263,6 +268,13 @@ public partial class CopilotService : IAsyncDisposable
         /// 0 = idle, 1 = sending. Set via Interlocked.CompareExchange.
         /// </summary>
         public int SendingFlag;
+        /// <summary>
+        /// Tracks reasoning messages that have been created but not yet added to History
+        /// (pending InvokeOnUI). Prevents duplicate creation when rapid deltas arrive
+        /// for the same reasoningId before the UI thread posts the History.Add.
+        /// Cleared on CompleteResponse and SendPromptAsync.
+        /// </summary>
+        public ConcurrentDictionary<string, ChatMessage> PendingReasoningMessages { get; } = new();
     }
 
     private void Debug(string message)
@@ -567,6 +579,7 @@ public partial class CopilotService : IAsyncDisposable
         }
         _sessions.Clear();
         _closedSessionIds.Clear();
+        _closedSessionNames.Clear();
         lock (_imageQueueLock)
         {
             _queuedImagePaths.Clear();
@@ -1233,7 +1246,7 @@ public partial class CopilotService : IAsyncDisposable
         var resumeModel = Models.ModelHelper.NormalizeToSlug(model ?? GetSessionModelFromDisk(sessionId) ?? DefaultModel);
         if (string.IsNullOrEmpty(resumeModel)) resumeModel = DefaultModel;
         Debug($"Resuming session '{displayName}' with model: '{resumeModel}', cwd: '{resumeWorkingDirectory}'");
-        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() } };
+        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions };
         var copilotSession = await _client.ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
 
         var isStillProcessing = IsSessionStillProcessing(sessionId);
@@ -1351,6 +1364,11 @@ public partial class CopilotService : IAsyncDisposable
         return info;
     }
 
+    /// <summary>Auto-approve all tool permission requests. Without this, worker sessions
+    /// (which have no interactive user) get "Permission denied" on every tool call.</summary>
+    private static Task<PermissionRequestResult> AutoApprovePermissions(PermissionRequest request, PermissionInvocation invocation)
+        => Task.FromResult(new PermissionRequestResult { Kind = "approved" });
+
     public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
         // In demo mode, create a local mock session
@@ -1446,7 +1464,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 Mode = SystemMessageMode.Append,
                 Content = systemContent.ToString()
-            }
+            },
+            // Auto-approve all tool permission requests so worker sessions (which have no
+            // interactive user) can execute tools without getting "Permission denied".
+            OnPermissionRequest = AutoApprovePermissions,
         };
         if (mcpServers != null)
             Debug($"Session config includes {mcpServers.Count} MCP server(s): {string.Join(", ", mcpServers.Keys)}");
@@ -1712,7 +1733,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 Model = normalizedModel,
                 WorkingDirectory = state.Info.WorkingDirectory,
-                Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }
+                Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
+                OnPermissionRequest = AutoApprovePermissions,
             };
             var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, cancellationToken);
 
@@ -1797,6 +1819,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         state.CurrentResponse.Clear();
+        state.FlushedResponse.Clear();
+        state.PendingReasoningMessages.Clear();
         StartProcessingWatchdog(state, sessionName);
 
         if (!skipHistoryMessage)
@@ -1859,6 +1883,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     var reconnectModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
                     var reconnectConfig = new ResumeSessionConfig();
                     reconnectConfig.Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
+                    reconnectConfig.OnPermissionRequest = AutoApprovePermissions;
                     if (!string.IsNullOrEmpty(reconnectModel))
                         reconnectConfig.Model = reconnectModel;
                     if (!string.IsNullOrEmpty(state.Info.WorkingDirectory))
@@ -1891,6 +1916,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Interlocked.Increment(ref state.ProcessingGeneration);
                     state.Info.IsProcessing = true;
                     state.CurrentResponse.Clear();
+                    state.FlushedResponse.Clear();
+                    state.PendingReasoningMessages.Clear();
                     Debug($"[RECONNECT] '{sessionName}' reset processing state: gen={Interlocked.Read(ref state.ProcessingGeneration)}");
                     
                     // Start fresh watchdog for the new connection
@@ -1996,6 +2023,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         // Flush any accumulated streaming content to history before clearing state.
         // Without this, clicking Stop discards the partial response the user was waiting for.
+        // FlushedResponse was already committed to History by FlushCurrentResponse — only
+        // CurrentResponse (the un-flushed current sub-turn) needs to be saved here.
         var partialResponse = state.CurrentResponse.ToString();
         if (!string.IsNullOrEmpty(partialResponse))
         {
@@ -2020,6 +2049,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         _queuedImagePaths.TryRemove(sessionName, out _);
         _queuedAgentModes.TryRemove(sessionName, out _);
         CancelProcessingWatchdog(state);
+        state.FlushedResponse.Clear();
+        state.PendingReasoningMessages.Clear();
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();
     }
@@ -2391,14 +2422,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             sem.Dispose();
 
         // Track as explicitly closed so merge doesn't re-add from file
+        // Track by both ID (primary) and display name (handles duplicate entries with different IDs)
         if (state.Info.SessionId != null)
             _closedSessionIds[state.Info.SessionId] = 0;
+        _closedSessionNames[name] = 0;
 
         // Track session close using display name (consistent with TrackSessionStart key)
         _usageStats?.TrackSessionEnd(name);
-
-        if (state.Session is not null)
-            try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
 
         // Clean up auto-created temp directory for empty sessions
         if (state.Info.WorkingDirectory != null)
@@ -2419,12 +2449,31 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             _activeSessionName = _sessions.Keys.FirstOrDefault();
         }
 
+        // Single state change notification — ReconcileOrganization is unnecessary here
+        // because the session was already removed from _sessions above. Calling it would
+        // trigger a second OnStateChanged, causing rapid render batch churn that crashes
+        // Blazor with "r.parentNode.removeChild" on null (render batch ordering race).
+        // Instead, directly remove from Organization.Sessions so the deletion persists across restarts.
+        Organization.Sessions.RemoveAll(m => m.SessionName == name);
         if (notifyUi)
             OnStateChanged?.Invoke();
         if (!IsRemoteMode)
         {
             SaveActiveSessionsToDisk();
-            ReconcileOrganization();
+            FlushSaveOrganization();
+        }
+
+        // Dispose the SDK session AFTER UI has updated — DisposeAsync talks to the CLI
+        // process and may trigger additional SDK events on background threads. Running it
+        // after the state change prevents render batch collisions.
+        if (state.Session is not null)
+        {
+            var session = state.Session;
+            _ = Task.Run(async () =>
+            {
+                try { await session.DisposeAsync(); }
+                catch { /* session may already be disposed */ }
+            });
         }
         return true;
     }

@@ -93,7 +93,8 @@ public partial class CopilotService
                     if (existingEntries != null)
                     {
                         var closedIds = new HashSet<string>(_closedSessionIds.Keys, StringComparer.OrdinalIgnoreCase);
-                        entries = MergeSessionEntries(entries, existingEntries, closedIds,
+                        var closedNames = new HashSet<string>(_closedSessionNames.Keys, StringComparer.OrdinalIgnoreCase);
+                        entries = MergeSessionEntries(entries, existingEntries, closedIds, closedNames,
                             sessionId => Directory.Exists(Path.Combine(SessionStatePath, sessionId)));
                     }
                 }
@@ -118,12 +119,13 @@ public partial class CopilotService
     /// <summary>
     /// Merge active (in-memory) session entries with persisted (on-disk) entries.
     /// Persisted entries are kept if they aren't already active, weren't explicitly
-    /// closed, and their session directory still exists.
+    /// closed (by ID or display name), and their session directory still exists.
     /// </summary>
     internal static List<ActiveSessionEntry> MergeSessionEntries(
         List<ActiveSessionEntry> active,
         List<ActiveSessionEntry> persisted,
         ISet<string> closedIds,
+        ISet<string> closedNames,
         Func<string, bool> sessionDirExists)
     {
         var merged = new List<ActiveSessionEntry>(active);
@@ -133,6 +135,7 @@ public partial class CopilotService
         {
             if (activeIds.Contains(existing.SessionId)) continue;
             if (closedIds.Contains(existing.SessionId)) continue;
+            if (closedNames.Contains(existing.DisplayName)) continue;
             if (!sessionDirExists(existing.SessionId)) continue;
 
             merged.Add(existing);
@@ -205,6 +208,24 @@ public partial class CopilotService
                         catch (Exception ex)
                         {
                             Debug($"Failed to restore '{entry.DisplayName}': {ex.GetType().Name}: {ex.Message}");
+
+                            // "Session not found" means the CLI server doesn't know this session
+                            // (e.g., worker sessions that were created but never received a message).
+                            // Fall back to creating a fresh session so multi-agent workers don't vanish.
+                            if (ex.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase))
+                            {
+                                try
+                                {
+                                    Debug($"Falling back to CreateSessionAsync for '{entry.DisplayName}'");
+                                    await CreateSessionAsync(entry.DisplayName, entry.Model, entry.WorkingDirectory, cancellationToken);
+                                    Debug($"Recreated session: {entry.DisplayName}");
+                                    continue;
+                                }
+                                catch (Exception createEx)
+                                {
+                                    Debug($"Fallback CreateSessionAsync also failed for '{entry.DisplayName}': {createEx.Message}");
+                                }
+                            }
 
                             // If the connection broke, recreate the client
                             if (ex is System.IO.IOException or System.Net.Sockets.SocketException

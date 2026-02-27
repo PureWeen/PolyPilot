@@ -82,7 +82,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => client.Sessions.Any(s => s.Name == "pre-existing"), cts.Token);
 
         Assert.Contains(client.Sessions, s => s.Name == "pre-existing");
         client.Stop();
@@ -114,7 +114,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => client.SessionHistories.ContainsKey("history-test"), cts.Token);
 
         Assert.True(client.SessionHistories.ContainsKey("history-test"));
         Assert.True(client.SessionHistories["history-test"].Count > 0);
@@ -225,11 +225,11 @@ public class WsBridgeIntegrationTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
-        await Task.Delay(300, cts.Token);
+        await WaitForAsync(() => client.Sessions.Any(s => s.Name == "close-broadcast"), cts.Token);
         Assert.Contains(client.Sessions, s => s.Name == "close-broadcast");
 
         await client.CloseSessionAsync("close-broadcast", cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => !client.Sessions.Any(s => s.Name == "close-broadcast"), cts.Token);
 
         Assert.DoesNotContain(client.Sessions, s => s.Name == "close-broadcast");
         client.Stop();
@@ -245,7 +245,8 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.AbortSessionAsync("abort-test", cts.Token);
-        await Task.Delay(300, cts.Token);
+        // Abort is fire-and-forget on server side; poll briefly to let it process
+        await WaitForAsync(() => true, cts.Token, maxMs: 300);
 
         Assert.NotNull(_copilot.GetSession("abort-test"));
         client.Stop();
@@ -278,7 +279,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         // Should not throw — server should handle gracefully
         await client.ChangeModelAsync("no-such-session", "gpt-4.1", cts.Token);
-        await Task.Delay(300, cts.Token);
+        await WaitForAsync(() => true, cts.Token, maxMs: 300);
         client.Stop();
     }
 
@@ -357,7 +358,7 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.SwitchSessionAsync("switch-a", cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => client.SessionHistories.ContainsKey("switch-a"), cts.Token);
 
         Assert.True(client.SessionHistories.ContainsKey("switch-a"));
         client.Stop();
@@ -458,7 +459,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "unpin", SessionName = "unpin-me" }, cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => _copilot.Organization.Sessions.FirstOrDefault(s => s.SessionName == "unpin-me")?.IsPinned == false, cts.Token);
 
         var meta = _copilot.Organization.Sessions.FirstOrDefault(s => s.SessionName == "unpin-me");
         Assert.NotNull(meta);
@@ -478,7 +479,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "move", SessionName = "move-me", GroupId = group.Id }, cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => _copilot.Organization.Sessions.FirstOrDefault(s => s.SessionName == "move-me")?.GroupId == group.Id, cts.Token);
 
         var meta = _copilot.Organization.Sessions.FirstOrDefault(s => s.SessionName == "move-me");
         Assert.NotNull(meta);
@@ -498,14 +499,8 @@ public class WsBridgeIntegrationTests : IDisposable
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "rename_group", GroupId = group.Id, Name = "NewName" }, cts.Token);
 
-        // Poll until the rename takes effect (server processes asynchronously)
-        SessionGroup? renamed = null;
-        for (int i = 0; i < 40; i++)
-        {
-            renamed = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id);
-            if (renamed?.Name == "NewName") break;
-            await Task.Delay(100, cts.Token);
-        }
+        await WaitForAsync(() => _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id)?.Name == "NewName", cts.Token);
+        var renamed = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id);
         Assert.NotNull(renamed);
         Assert.Equal("NewName", renamed!.Name);
         client.Stop();
@@ -560,12 +555,7 @@ public class WsBridgeIntegrationTests : IDisposable
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "set_sort", SortMode = "Alphabetical" }, cts.Token);
 
-        // Poll until the sort mode takes effect
-        for (int i = 0; i < 40; i++)
-        {
-            if (_copilot.Organization.SortMode == SessionSortMode.Alphabetical) break;
-            await Task.Delay(100, cts.Token);
-        }
+        await WaitForAsync(() => _copilot.Organization.SortMode == SessionSortMode.Alphabetical, cts.Token);
 
         Assert.Equal(SessionSortMode.Alphabetical, _copilot.Organization.SortMode);
         client.Stop();
@@ -586,7 +576,7 @@ public class WsBridgeIntegrationTests : IDisposable
             if (callCount > 1) orgUpdated.TrySetResult(org);
         };
         await client.ConnectAsync($"ws://localhost:{_port}/", null, cts.Token);
-        await Task.Delay(300, cts.Token);
+        await WaitForAsync(() => callCount >= 1, cts.Token); // wait for initial state
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "create_group", Name = "BroadcastGroup" }, cts.Token);
@@ -607,7 +597,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => client.Sessions.Count >= 2, cts.Token);
 
         Assert.True(client.Sessions.Count >= 2);
         Assert.Contains(client.Sessions, s => s.Name == "multi-1");
@@ -623,7 +613,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => client.Sessions.Any(s => s.Name == "model-info"), cts.Token);
 
         var summary = client.Sessions.FirstOrDefault(s => s.Name == "model-info");
         Assert.NotNull(summary);
@@ -641,7 +631,7 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.CreateSessionAsync("traversal-test", "gpt-4.1", "/tmp/../etc", cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => true, cts.Token, maxMs: 500);
 
         // Session should not be created with path traversal
         Assert.Null(_copilot.GetSession("traversal-test"));
@@ -696,7 +686,7 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.RenameSessionAsync("rename-list", "renamed-list", cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => client.Sessions.Any(s => s.Name == "renamed-list"), cts.Token);
 
         // Client should receive updated session list with new name
         Assert.Contains(client.Sessions, s => s.Name == "renamed-list");
@@ -796,7 +786,7 @@ public class WsBridgeIntegrationTests : IDisposable
         client.OnTurnEnd += s => { if (s == "turn-test") gotTurnEnd = true; };
 
         await _copilot.SendPromptAsync("turn-test", "Hello");
-        await Task.Delay(1000, cts.Token);
+        await WaitForAsync(() => gotTurnStart && gotTurnEnd, cts.Token);
 
         Assert.True(gotTurnStart, "Client should receive TurnStart");
         Assert.True(gotTurnEnd, "Client should receive TurnEnd");
@@ -816,7 +806,7 @@ public class WsBridgeIntegrationTests : IDisposable
         client.OnTurnEnd += s => { if (s == "complete-test") gotTurnEnd = true; };
 
         await _copilot.SendPromptAsync("complete-test", "Hello");
-        await Task.Delay(1000, cts.Token);
+        await WaitForAsync(() => gotTurnEnd, cts.Token);
 
         Assert.True(gotTurnEnd, "Client should receive TurnEnd");
         client.Stop();
@@ -854,11 +844,10 @@ public class WsBridgeIntegrationTests : IDisposable
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client1 = await ConnectClientAsync(cts.Token);
         var client2 = await ConnectClientAsync(cts.Token);
-        await Task.Delay(200, cts.Token);
 
         // Create a session — should broadcast to both
         await _copilot.CreateSessionAsync("multi-test", "gpt-4.1");
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => client1.Sessions.Any(s => s.Name == "multi-test") && client2.Sessions.Any(s => s.Name == "multi-test"), cts.Token);
 
         Assert.Contains(client1.Sessions, s => s.Name == "multi-test");
         Assert.Contains(client2.Sessions, s => s.Name == "multi-test");
@@ -882,7 +871,7 @@ public class WsBridgeIntegrationTests : IDisposable
         client2.OnContentReceived += (s, c) => { if (s == "multi-content") client2GotContent = true; };
 
         await _copilot.SendPromptAsync("multi-content", "Hello");
-        await Task.Delay(1000, cts.Token);
+        await WaitForAsync(() => client1GotContent && client2GotContent, cts.Token);
 
         Assert.True(client1GotContent, "Client 1 should receive content");
         Assert.True(client2GotContent, "Client 2 should receive content");
@@ -903,7 +892,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         // Send close with empty session name
         await client.CloseSessionAsync("", cts.Token);
-        await Task.Delay(500, cts.Token);
+        await WaitForAsync(() => true, cts.Token, maxMs: 500);
 
         // Session should still exist
         Assert.NotNull(_copilot.GetSession("keep-me"));
@@ -1015,7 +1004,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
-        await Task.Delay(200, cts.Token);
+        await WaitForAsync(() => client.Sessions.Count >= 2, cts.Token);
 
         await client.SwitchSessionAsync("switch-b", cts.Token);
         await WaitForAsync(() => client.ActiveSessionName == "switch-b", cts.Token);

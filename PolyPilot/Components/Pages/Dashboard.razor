@@ -1285,6 +1285,7 @@
 
             if (isOrchestrator && (imagePaths == null || imagePaths.Count == 0))
             {
+                AutoStartReflectionIfNeeded(group!.Id, finalPrompt);
                 _ = CopilotService.SendToMultiAgentGroupAsync(group!.Id, finalPrompt).ContinueWith(t =>
                 {
                     if (t.IsFaulted)
@@ -2429,7 +2430,8 @@
     private int GetMaxIterations(string groupId)
     {
         if (_groupMaxIterations.TryGetValue(groupId, out var val)) return val;
-        return 5;
+        var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        return group?.MaxReflectIterations ?? 5;
     }
 
     private void SetMaxIterations(string groupId, ChangeEventArgs e)

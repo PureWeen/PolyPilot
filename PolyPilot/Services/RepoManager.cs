@@ -89,6 +89,141 @@ public class RepoManager
             Console.WriteLine($"[RepoManager] Failed to load state: {ex.Message}");
             _state = new RepositoryState();
         }
+
+        // Self-healing: discover bare clones on disk that aren't tracked in repos.json.
+        // This recovers from corrupted state (e.g., test race overwrote repos.json with test data).
+        var healed = HealMissingRepos();
+        if (healed > 0)
+        {
+            _loadedSuccessfully = true;
+            Save();
+        }
+    }
+
+    /// <summary>
+    /// Scans the repos directory for bare clones that exist on disk but aren't in state.
+    /// Re-adds them by reading the remote URL from git config.
+    /// Also scans the worktrees directory to reconstruct missing worktree entries.
+    /// Returns the number of entries healed.
+    /// </summary>
+    internal int HealMissingRepos()
+    {
+        var healed = 0;
+        try
+        {
+            var reposDir = ReposDir;
+            if (!Directory.Exists(reposDir)) return 0;
+
+            var trackedIds = new HashSet<string>(_state.Repositories.Select(r => r.Id));
+
+            foreach (var bareDir in Directory.GetDirectories(reposDir, "*.git"))
+            {
+                var dirName = Path.GetFileName(bareDir);
+                var repoId = dirName.EndsWith(".git", StringComparison.OrdinalIgnoreCase)
+                    ? dirName[..^4] : dirName;
+
+                if (trackedIds.Contains(repoId)) continue;
+
+                // Read remote URL from bare clone's git config
+                var url = "";
+                try
+                {
+                    var configPath = Path.Combine(bareDir, "config");
+                    if (File.Exists(configPath))
+                    {
+                        var lines = File.ReadAllLines(configPath);
+                        for (int i = 0; i < lines.Length; i++)
+                        {
+                            if (lines[i].Trim().StartsWith("url = ", StringComparison.Ordinal))
+                            {
+                                url = lines[i].Trim()["url = ".Length..].Trim();
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch { /* best effort */ }
+
+                var name = repoId.Contains('-') ? repoId.Split('-').Last() : repoId;
+                _state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = repoId,
+                    Name = name,
+                    Url = url,
+                    BareClonePath = bareDir,
+                    AddedAt = DateTime.UtcNow
+                });
+                trackedIds.Add(repoId);
+                healed++;
+                Console.WriteLine($"[RepoManager] Healed missing repo: {repoId} ({url})");
+            }
+
+            // Also heal missing worktree entries
+            var worktreesDir = WorktreesDir;
+            if (Directory.Exists(worktreesDir))
+            {
+                var trackedWorktreePaths = new HashSet<string>(
+                    _state.Worktrees.Select(w => w.Path), StringComparer.OrdinalIgnoreCase);
+
+                foreach (var wtDir in Directory.GetDirectories(worktreesDir))
+                {
+                    if (trackedWorktreePaths.Contains(wtDir)) continue;
+
+                    var dirName = Path.GetFileName(wtDir);
+                    // Worktree dirs are named "{repoId}-{guid8}" — find the repo ID
+                    var lastDash = dirName.LastIndexOf('-');
+                    if (lastDash < 0) continue;
+
+                    var candidateRepoId = dirName[..lastDash];
+                    var worktreeId = dirName[(lastDash + 1)..];
+
+                    if (!trackedIds.Contains(candidateRepoId)) continue;
+                    if (!Directory.Exists(Path.Combine(wtDir, ".git"))) continue;
+
+                    // Get the branch name
+                    var branch = "";
+                    try
+                    {
+                        var headFile = Path.Combine(wtDir, ".git");
+                        // In a worktree, .git is a file containing "gitdir: /path/to/bare/worktrees/name"
+                        // The actual HEAD ref is in the bare repo's worktrees directory
+                        // Simplest: read from git symbolic-ref
+                        var psi = new System.Diagnostics.ProcessStartInfo("git", "rev-parse --abbrev-ref HEAD")
+                        {
+                            WorkingDirectory = wtDir,
+                            RedirectStandardOutput = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        using var proc = System.Diagnostics.Process.Start(psi);
+                        if (proc != null)
+                        {
+                            branch = proc.StandardOutput.ReadToEnd().Trim();
+                            proc.WaitForExit(5000);
+                        }
+                    }
+                    catch { /* best effort */ }
+
+                    if (string.IsNullOrEmpty(branch)) branch = dirName;
+
+                    _state.Worktrees.Add(new WorktreeInfo
+                    {
+                        Id = worktreeId,
+                        RepoId = candidateRepoId,
+                        Branch = branch,
+                        Path = wtDir,
+                        CreatedAt = Directory.GetCreationTimeUtc(wtDir)
+                    });
+                    healed++;
+                    Console.WriteLine($"[RepoManager] Healed missing worktree: {dirName} (branch: {branch})");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[RepoManager] Self-healing scan failed: {ex.Message}");
+        }
+        return healed;
     }
 
     private void Save()

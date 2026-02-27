@@ -179,6 +179,11 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     /// </summary>
     public WorktreeStrategy? DefaultWorktreeStrategy { get; init; }
 
+    /// <summary>
+    /// Maximum reflection iterations for OrchestratorReflect mode. Null = use default (5).
+    /// </summary>
+    public int? MaxReflectIterations { get; init; }
+
     private const string WorkerReviewPrompt = """
         You are a PR reviewer. When assigned a PR, follow this process:
 
@@ -306,45 +311,38 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         },
 
         new GroupPreset(
-            "Code Review Team", "Opus orchestrates, specialized reviewers execute",
-            "🔍", MultiAgentMode.Orchestrator,
-            "claude-opus-4.6", new[] { "gpt-5.1-codex", "claude-sonnet-4.5" })
+            "Implement & Challenge", "Implementer builds, challenger reviews — loop until solid",
+            "⚔️", MultiAgentMode.OrchestratorReflect,
+            "claude-opus-4.6", new[] { "claude-sonnet-4.6", "claude-opus-4.6" })
         {
             WorkerSystemPrompts = new[]
             {
-                "You are a code correctness reviewer. Focus on logic errors, edge cases, off-by-one bugs, null safety, and incorrect assumptions. Flag anything that could cause runtime failures or data corruption.",
-                "You are a security and architecture reviewer. Focus on vulnerabilities (injection, auth flaws, data exposure), architectural anti-patterns, and maintainability issues. Suggest concrete fixes."
-            }
-        },
+                """You are the Implementer. Your job is to write correct, clean, production-ready code that satisfies the requirements. You MUST make actual code changes using the edit/create tools — never just describe what to do. After making changes, run the build and tests to verify your work. When you receive feedback from the Challenger, address every point — fix bugs, handle edge cases, and improve the implementation. Commit your changes with descriptive messages after each iteration. If you disagree with feedback, explain why with evidence.""",
+                """You are the Challenger. Your job is to find real problems in the Implementer's work. First, run `git diff` in your worktree to see exactly what changed. Then review the actual diffs for: bugs, missed edge cases, race conditions, incorrect assumptions, security issues, logic errors, and missing tests. Be specific — cite exact file paths, line numbers, and explain the failure scenario. Do NOT nitpick style or formatting. Run the build and tests yourself to verify correctness. If the implementation is solid and tests pass, say so clearly and emit [[GROUP_REFLECT_COMPLETE]].""",
+            },
+            RoutingContext = """
+                ## Implement & Challenge Loop
 
-        new GroupPreset(
-            "Multi-Perspective Analysis", "Different models analyze the same problem",
-            "🔬", MultiAgentMode.Broadcast,
-            "claude-opus-4.6", new[] { "gpt-5", "gemini-3-pro", "claude-sonnet-4.5" }),
+                You orchestrate a two-agent loop between two workers. Your ONLY role is to relay messages between them using @worker: blocks.
 
-        new GroupPreset(
-            "Quick Reflection Cycle", "Fast workers + smart evaluator for iterative refinement",
-            "🔄", MultiAgentMode.OrchestratorReflect,
-            "claude-opus-4.6", new[] { "gpt-4.1", "gpt-4.1", "gpt-5.1-codex-mini" })
-        {
-            WorkerSystemPrompts = new[]
-            {
-                "You are an implementation specialist. Write clean, correct code. Focus on getting the logic right and handling edge cases.",
-                "You are a testing and validation specialist. Review solutions for correctness, write test cases, and identify gaps in coverage.",
-                "You are a documentation and UX specialist. Ensure code is well-documented, APIs are intuitive, and error messages are helpful."
-            }
-        },
+                ### Worker Names
+                - **worker-1** = Implementer (writes code)
+                - **worker-2** = Challenger (reviews code)
+                Use their full session names in @worker: directives (e.g., @worker:Implement & Challenge-worker-1).
 
-        new GroupPreset(
-            "Deep Research", "Strong reasoning models collaborate on complex problems",
-            "🧠", MultiAgentMode.Orchestrator,
-            "claude-opus-4.6", new[] { "gpt-5.1", "gemini-3-pro" })
-        {
-            WorkerSystemPrompts = new[]
-            {
-                "You are a deep reasoning analyst. Break down complex problems methodically. Provide thorough analysis with evidence and citations where possible.",
-                "You are a creative problem solver. Explore unconventional approaches, challenge assumptions, and propose alternative solutions that others might miss."
-            }
+                ### Dispatch Pattern
+                1. **First dispatch**: Forward the user request to worker-1 via @worker: block.
+                2. **After worker-1 completes**: Forward worker-1's FULL response to worker-2 via @worker: block. Ask worker-2 to review and either approve with [[GROUP_REFLECT_COMPLETE]] or provide feedback.
+                3. **If worker-2 has feedback**: Forward the FULL feedback to worker-1 via @worker: block.
+                4. **Repeat** until worker-2 emits [[GROUP_REFLECT_COMPLETE]] or max iterations reached.
+
+                ### Rules
+                - Always alternate: worker-1 → worker-2 → worker-1 → worker-2
+                - Include the FULL output in every @worker: block (don't summarize)
+                - You are a message relay — NEVER do work yourself, ONLY write @worker: blocks
+                - Each response you give MUST contain exactly one @worker: block
+                """,
+            MaxReflectIterations = 10,
         },
     };
 }
@@ -380,18 +378,45 @@ public static class UserPresets
         catch { /* best-effort persistence */ }
     }
 
-    /// <summary>Get all presets: built-in + user-defined + repo-level (Squad). Repo overrides by name.</summary>
+    /// <summary>Get all presets: built-in + user-defined + repo-level (Squad). Built-ins are never overridden.</summary>
     public static GroupPreset[] GetAll(string baseDir, string? repoWorkingDirectory = null)
     {
+        var builtInNames = new HashSet<string>(GroupPreset.BuiltIn.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
         var merged = new Dictionary<string, GroupPreset>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in GroupPreset.BuiltIn) merged[p.Name] = p;
-        foreach (var p in Load(baseDir)) merged[p.Name] = p;
+        foreach (var p in Load(baseDir))
+            if (!builtInNames.Contains(p.Name)) merged[p.Name] = p;
         if (repoWorkingDirectory != null)
         {
             foreach (var p in SquadDiscovery.Discover(repoWorkingDirectory))
-                merged[p.Name] = p;
+                if (!builtInNames.Contains(p.Name)) merged[p.Name] = p;
         }
         return merged.Values.ToArray();
+    }
+
+    /// <summary>Delete a repo-level preset by removing its .squad/ directory.</summary>
+    public static bool DeleteRepoPreset(string repoWorkingDirectory, string presetName)
+    {
+        var presets = SquadDiscovery.Discover(repoWorkingDirectory);
+        var match = presets.FirstOrDefault(p => string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
+        if (match?.SourcePath == null) return false;
+
+        // Validate the path is within the repo directory (prevent traversal)
+        var fullRepoPath = Path.GetFullPath(repoWorkingDirectory);
+        var fullSourcePath = Path.GetFullPath(match.SourcePath);
+        if (!fullSourcePath.StartsWith(fullRepoPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var dirName = Path.GetFileName(match.SourcePath);
+        if (dirName != ".squad" && dirName != ".ai-team")
+            return false;
+        try
+        {
+            if (Directory.Exists(match.SourcePath))
+                Directory.Delete(match.SourcePath, recursive: true);
+            return true;
+        }
+        catch { return false; }
     }
 
     /// <summary>Save the current multi-agent group as a reusable preset.</summary>

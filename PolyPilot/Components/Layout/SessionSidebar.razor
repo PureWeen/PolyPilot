@@ -247,6 +247,7 @@ else
                     <div style="margin: 6px 8px; padding: 6px 8px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--control-border);">
                         <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">🌿 Worktree Isolation</div>
                         <select class="sort-select" style="width: 100%; font-size: 12px; padding: 4px 6px;" @onchange="OnStrategyChanged">
+                            <option value="" selected="@(selectedStrategy == null)">📋 Preset default</option>
                             <option value="FullyIsolated" selected="@(selectedStrategy == WorktreeStrategy.FullyIsolated)">🔒 Each agent gets own worktree</option>
                             <option value="OrchestratorIsolated" selected="@(selectedStrategy == WorktreeStrategy.OrchestratorIsolated)">🔀 Manager isolated, workers share</option>
                             <option value="Shared" selected="@(selectedStrategy == WorktreeStrategy.Shared)">📁 Everyone shares one worktree</option>
@@ -265,11 +266,14 @@ else
                         @foreach (var preset in repoPresets)
                         {
                             var p = preset;
-                            <button class="preset-item preset-repo" @onclick="() => CreateFromPresetForRepo(p, pendingMultiAgentRepo)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
-                                <span class="preset-emoji">@p.Emoji</span>
-                                <span class="preset-name">@p.Name</span>
-                                <span class="preset-badge">🫡</span>
-                            </button>
+                            <div class="preset-item-row">
+                                <button class="preset-item preset-repo" @onclick="() => CreateFromPresetForRepo(p, pendingMultiAgentRepo)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                                    <span class="preset-emoji">@p.Emoji</span>
+                                    <span class="preset-name">@p.Name</span>
+                                    <span class="preset-badge">🫡</span>
+                                </button>
+                                <button class="preset-delete-btn" @onclick="() => DeleteRepoPreset(p, repoWorktree)" title="Delete repo preset">🗑️</button>
+                            </div>
                         }
                     }
                     @if (builtInPresets.Any())
@@ -1388,11 +1392,14 @@ else
     }
 
     private RepositoryInfo? pendingMultiAgentRepo;
-    private WorktreeStrategy selectedStrategy = WorktreeStrategy.FullyIsolated;
+    private WorktreeStrategy? selectedStrategy = null;
 
     private void OnStrategyChanged(ChangeEventArgs e)
     {
-        if (Enum.TryParse<WorktreeStrategy>(e.Value?.ToString(), out var s))
+        var val = e.Value?.ToString();
+        if (string.IsNullOrEmpty(val))
+            selectedStrategy = null;
+        else if (Enum.TryParse<WorktreeStrategy>(val, out var s))
             selectedStrategy = s;
     }
 
@@ -1407,7 +1414,7 @@ else
 
         var strategyOverride = selectedStrategy;
         pendingMultiAgentRepo = null;
-        selectedStrategy = WorktreeStrategy.FullyIsolated; // reset for next time
+        selectedStrategy = null; // reset for next time
         StateHasChanged();
         try
         {
@@ -1422,6 +1429,13 @@ else
         {
             Console.WriteLine($"Failed to create from preset: {ex.Message}");
         }
+    }
+
+    private void DeleteRepoPreset(GroupPreset preset, WorktreeInfo? worktree)
+    {
+        if (worktree?.Path == null) return;
+        if (UserPresets.DeleteRepoPreset(worktree.Path, preset.Name))
+            StateHasChanged();
     }
 
     private static string ShortenPath(string path)
@@ -1477,7 +1491,8 @@ else
     private int GetGroupMaxIterations(string groupId)
     {
         if (_groupMaxIterations.TryGetValue(groupId, out var val)) return val;
-        return 5;
+        var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        return group?.MaxReflectIterations ?? 5;
     }
 
     private void SetGroupMaxIterations(string groupId, ChangeEventArgs e)
