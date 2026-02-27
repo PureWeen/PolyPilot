@@ -2,6 +2,7 @@
 @using PolyPilot.Models
 @inject CopilotService CopilotService
 @inject RepoManager RepoManager
+@inject EfficiencyAnalysisService EfficiencyAnalysis
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @implements IDisposable
@@ -642,7 +643,8 @@ else
                                              OnToggleMenu="() => ToggleSessionMenu(sName)"
                                              OnCloseMenu="() => { openMenuSession = null; }"
                                              OnReportBug="() => OpenBugReportForSession(sName)"
-                                             OnFixWithCopilot="() => OpenFixItForSession(sName)" />
+                                             OnFixWithCopilot="() => OpenFixItForSession(sName)"
+                                             OnAnalyze="() => AnalyzeSessionEfficiency(sName)" />
                         }
                     }
                 }
@@ -1719,6 +1721,21 @@ else
         OpenFixIt();
         selectedBugSession = sessionName;
         StateHasChanged();
+    }
+
+    private async Task AnalyzeSessionEfficiency(string sessionName)
+    {
+        try
+        {
+            var analysisName = await EfficiencyAnalysis.AnalyzeSessionAsync(sessionName);
+            CopilotService.SwitchSession(analysisName);
+            CopilotService.SaveUiState(currentPage);
+            await OnSessionSelected.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionSidebar] Analyze efficiency error: {ex.Message}");
+        }
     }
 
     private void CloseFooterPanel()
