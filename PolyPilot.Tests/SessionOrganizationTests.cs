@@ -2551,6 +2551,7 @@ public class WorktreeTeamAssociationTests
 /// Guards against the recurring bug where multi-agent group sessions get moved
 /// to repo groups after app restart.
 /// </summary>
+[Collection("BaseDir")]
 public class GroupingStabilityTests
 {
     private readonly StubChatDatabase _chatDb = new();

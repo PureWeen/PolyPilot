@@ -2014,10 +2014,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         // Flush any accumulated streaming content to history before clearing state.
         // Without this, clicking Stop discards the partial response the user was waiting for.
-        // Combine FlushedResponse (text from prior sub-turns) + CurrentResponse (current sub-turn).
-        var flushed = state.FlushedResponse.ToString();
-        var current = state.CurrentResponse.ToString();
-        var partialResponse = string.IsNullOrEmpty(flushed) ? current : flushed + current;
+        // FlushedResponse was already committed to History by FlushCurrentResponse — only
+        // CurrentResponse (the un-flushed current sub-turn) needs to be saved here.
+        var partialResponse = state.CurrentResponse.ToString();
         if (!string.IsNullOrEmpty(partialResponse))
         {
             var msg = new ChatMessage("assistant", partialResponse, DateTime.Now) { Model = state.Info.Model };

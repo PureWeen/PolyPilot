@@ -304,8 +304,9 @@ public partial class CopilotService
                         break;
                     }
 
-                    // Flush any accumulated assistant text before adding tool message
-                    FlushCurrentResponse(state);
+                    // Flush any accumulated assistant text before adding tool message.
+                    // Must run on the UI thread since FlushCurrentResponse accesses History.
+                    Invoke(() => FlushCurrentResponse(state));
                     
                     if (startToolName == ShowImageTool.ToolName)
                     {
