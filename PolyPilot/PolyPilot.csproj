@@ -82,13 +82,6 @@
         <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.11.0" />
     </ItemGroup>
 
-    <!-- LLM efficiency analysis skill resources -->
-    <ItemGroup>
-        <EmbeddedResource Include="Resources\LlmEfficiency\SKILL.md" LogicalName="llm-efficiency.SKILL.md" />
-        <EmbeddedResource Include="Resources\LlmEfficiency\extract_session_metrics.py" LogicalName="llm-efficiency.extract_session_metrics.py" />
-        <MauiAsset Remove="Resources\LlmEfficiency\**" />
-    </ItemGroup>
-
     <!-- Prevent linker from trimming SDK event types needed for pattern matching -->
     <ItemGroup>
         <TrimmerRootAssembly Include="GitHub.Copilot.SDK" RootMode="All" />
