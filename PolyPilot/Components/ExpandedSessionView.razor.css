@@ -557,7 +557,7 @@
 }
 
 /* Skills in status bar */
-.skills-trigger {
+.skills-trigger, .log-label {
     font-size: var(--type-footnote);
     color: var(--accent-primary, #7c5cfc);
     cursor: pointer;
