@@ -99,7 +99,8 @@
                          Compact="true"
                          UserAvatarUrl="@UserAvatarUrl"
                          Layout="@Layout"
-                         Style="@Style" />
+                         Style="@Style"
+                         RepoUrl="@RepoUrl" />
     </div>
 
     @if (!string.IsNullOrEmpty(Error))
@@ -164,6 +165,7 @@
     [Parameter] public string? Error { get; set; }
     [Parameter] public List<PendingImage> PendingImages { get; set; } = new();
     [Parameter] public string? UserAvatarUrl { get; set; }
+    [Parameter] public string? RepoUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
     [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
     
