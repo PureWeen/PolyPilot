@@ -73,6 +73,7 @@ public class ChatMessageEntity
 public class ChatDatabase : IChatDatabase
 {
     private SQLiteAsyncConnection? _db;
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
     private static string? _dbPath;
     private static string DbPath => _dbPath ??= GetDbPath();
 
@@ -171,16 +172,30 @@ public class ChatDatabase : IChatDatabase
 
     /// <summary>
     /// Append a single message to a session's history.
+    /// Serialized via _writeLock to prevent TOCTOU race on OrderIndex.
     /// </summary>
     public async Task<int> AddMessageAsync(string sessionId, ChatMessage msg)
     {
-        var db = await GetConnectionAsync();
-        var maxOrder = await db.ExecuteScalarAsync<int>(
-            "SELECT COALESCE(MAX(OrderIndex), -1) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+        await _writeLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var db = await GetConnectionAsync();
+            var maxOrder = await db.ExecuteScalarAsync<int>(
+                "SELECT COALESCE(MAX(OrderIndex), -1) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
 
-        var entity = ChatMessageEntity.FromChatMessage(msg, sessionId, maxOrder + 1);
-        await db.InsertAsync(entity);
-        return entity.Id;
+            var entity = ChatMessageEntity.FromChatMessage(msg, sessionId, maxOrder + 1);
+            await db.InsertAsync(entity);
+            return entity.Id;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ChatDatabase] AddMessageAsync failed for session {sessionId}: {ex.Message}");
+            return -1;
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 
     /// <summary>
@@ -188,10 +203,22 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task UpdateToolCompleteAsync(string sessionId, string toolCallId, string content, bool isSuccess)
     {
-        var db = await GetConnectionAsync();
-        await db.ExecuteAsync(
-            "UPDATE ChatMessageEntity SET Content = ?, IsComplete = 1, IsSuccess = ? WHERE SessionId = ? AND ToolCallId = ?",
-            content, isSuccess, sessionId, toolCallId);
+        await _writeLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var db = await GetConnectionAsync();
+            await db.ExecuteAsync(
+                "UPDATE ChatMessageEntity SET Content = ?, IsComplete = 1, IsSuccess = ? WHERE SessionId = ? AND ToolCallId = ?",
+                content, isSuccess, sessionId, toolCallId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ChatDatabase] UpdateToolCompleteAsync failed for session {sessionId}: {ex.Message}");
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 
     /// <summary>
@@ -199,10 +226,22 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task UpdateReasoningContentAsync(string sessionId, string reasoningId, string content, bool isComplete)
     {
-        var db = await GetConnectionAsync();
-        await db.ExecuteAsync(
-            "UPDATE ChatMessageEntity SET Content = ?, IsComplete = ? WHERE SessionId = ? AND ReasoningId = ?",
-            content, isComplete, sessionId, reasoningId);
+        await _writeLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var db = await GetConnectionAsync();
+            await db.ExecuteAsync(
+                "UPDATE ChatMessageEntity SET Content = ?, IsComplete = ? WHERE SessionId = ? AND ReasoningId = ?",
+                content, isComplete, sessionId, reasoningId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ChatDatabase] UpdateReasoningContentAsync failed for session {sessionId}: {ex.Message}");
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 
     /// <summary>
@@ -210,13 +249,25 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task BulkInsertAsync(string sessionId, List<ChatMessage> messages)
     {
-        var db = await GetConnectionAsync();
+        await _writeLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var db = await GetConnectionAsync();
 
-        // Clear existing messages for this session first
-        await db.ExecuteAsync("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+            // Clear existing messages for this session first
+            await db.ExecuteAsync("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
 
-        var entities = messages.Select((m, i) => ChatMessageEntity.FromChatMessage(m, sessionId, i)).ToList();
-        await db.InsertAllAsync(entities);
+            var entities = messages.Select((m, i) => ChatMessageEntity.FromChatMessage(m, sessionId, i)).ToList();
+            await db.InsertAllAsync(entities);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ChatDatabase] BulkInsertAsync failed for session {sessionId}: {ex.Message}");
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 
     /// <summary>
@@ -224,7 +275,19 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task ClearSessionAsync(string sessionId)
     {
-        var db = await GetConnectionAsync();
-        await db.ExecuteAsync("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+        await _writeLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var db = await GetConnectionAsync();
+            await db.ExecuteAsync("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ChatDatabase] ClearSessionAsync failed for session {sessionId}: {ex.Message}");
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 }
