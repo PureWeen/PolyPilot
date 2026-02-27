@@ -21,6 +21,16 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
 
     public bool IsConnected => _ws?.State == WebSocketState.Open;
     public bool HasReceivedSessionsList { get; private set; }
+    public string? ActiveUrl { get; private set; }
+
+    // Shared HttpClient for LAN probes — avoids socket exhaustion from per-call instances.
+    private static readonly HttpClient _probeClient = new() { Timeout = TimeSpan.FromSeconds(3) };
+
+    // Dual-URL state for smart switching
+    private string? _tunnelWsUrl;
+    private string? _tunnelToken;
+    private string? _lanWsUrl;
+    private string? _lanToken;
 
     // --- State mirroring CopilotService ---
     public List<SessionSummary> Sessions { get; private set; } = new();
@@ -54,10 +64,36 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     /// </summary>
     public async Task ConnectAsync(string wsUrl, string? authToken = null, CancellationToken ct = default)
     {
+        // Single-URL connect clears dual-URL state
+        _tunnelWsUrl = null;
+        _tunnelToken = null;
+        _lanWsUrl = null;
+        _lanToken = null;
+        await ConnectCoreAsync(wsUrl, authToken, ct);
+    }
+
+    /// <summary>
+    /// Smart connect: tries LAN first (2s probe), falls back to tunnel.
+    /// Stores both URLs for smart reconnection.
+    /// </summary>
+    public async Task ConnectSmartAsync(string? tunnelWsUrl, string? tunnelToken, string? lanWsUrl, string? lanToken, CancellationToken ct = default)
+    {
+        _tunnelWsUrl = tunnelWsUrl;
+        _tunnelToken = tunnelToken;
+        _lanWsUrl = lanWsUrl;
+        _lanToken = lanToken;
+
+        var (url, token) = await ResolveUrlAsync(ct);
+        await ConnectCoreAsync(url, token, ct);
+    }
+
+    private async Task ConnectCoreAsync(string wsUrl, string? authToken, CancellationToken ct)
+    {
         Stop();
 
         _remoteWsUrl = wsUrl;
         _authToken = authToken;
+        ActiveUrl = wsUrl;
         _cts = new CancellationTokenSource();
 
         _ws = new ClientWebSocket();
@@ -149,6 +185,90 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         _receiveTask = ReceiveLoopAsync(_cts.Token);
     }
 
+    /// <summary>
+    /// Resolve which URL to use: try LAN first (if on WiFi), fall back to tunnel.
+    /// </summary>
+    internal async Task<(string url, string? token)> ResolveUrlAsync(CancellationToken ct)
+    {
+        // If only one URL is available, use it
+        if (string.IsNullOrEmpty(_lanWsUrl) && string.IsNullOrEmpty(_tunnelWsUrl))
+            throw new InvalidOperationException("At least one URL must be configured for smart connection");
+        if (string.IsNullOrEmpty(_lanWsUrl))
+            return (_tunnelWsUrl!, _tunnelToken);
+        if (string.IsNullOrEmpty(_tunnelWsUrl))
+            return (_lanWsUrl, _lanToken);
+
+        // On cellular-only, skip LAN probe entirely
+        if (IsCellularOnly())
+        {
+            Console.WriteLine("[WsBridgeClient] Cellular-only — using tunnel URL");
+            return (_tunnelWsUrl!, _tunnelToken);
+        }
+
+        // Probe LAN with 2-second timeout
+        if (await ProbeLanAsync(ct))
+        {
+            Console.WriteLine("[WsBridgeClient] LAN probe succeeded — using LAN URL");
+            return (_lanWsUrl, _lanToken);
+        }
+
+        Console.WriteLine("[WsBridgeClient] LAN probe failed — using tunnel URL");
+        return (_tunnelWsUrl!, _tunnelToken);
+    }
+
+    /// <summary>
+    /// Probe the LAN server with a fast HTTP GET (2s timeout).
+    /// WsBridgeServer returns "WsBridge OK" on non-WebSocket GETs.
+    /// </summary>
+    internal static async Task<bool> ProbeLanAsync(string? lanWsUrl, string? lanToken, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(lanWsUrl)) return false;
+        try
+        {
+            // Convert ws:// → http:// for the probe
+            var httpUrl = lanWsUrl
+                .Replace("wss://", "https://", StringComparison.OrdinalIgnoreCase)
+                .Replace("ws://", "http://", StringComparison.OrdinalIgnoreCase);
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(2));
+
+            var request = new HttpRequestMessage(HttpMethod.Get, httpUrl);
+            if (!string.IsNullOrEmpty(lanToken))
+                request.Headers.Add("X-Tunnel-Authorization", $"tunnel {lanToken}");
+
+            using var response = await _probeClient.SendAsync(request, cts.Token);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private Task<bool> ProbeLanAsync(CancellationToken ct) =>
+        ProbeLanAsync(_lanWsUrl, _lanToken, ct);
+
+    /// <summary>
+    /// Returns true when the device is on cellular only (no WiFi/Ethernet).
+    /// Used to skip LAN probing when it can't possibly succeed.
+    /// </summary>
+    internal static bool IsCellularOnly()
+    {
+        try
+        {
+#if IOS || ANDROID
+            var profiles = Microsoft.Maui.Networking.Connectivity.Current.ConnectionProfiles;
+            return profiles.Contains(Microsoft.Maui.Networking.ConnectionProfile.Cellular)
+                && !profiles.Contains(Microsoft.Maui.Networking.ConnectionProfile.WiFi)
+                && !profiles.Contains(Microsoft.Maui.Networking.ConnectionProfile.Ethernet);
+#else
+            return false; // Desktop always tries LAN
+#endif
+        }
+        catch { return false; } // Fail open — try LAN anyway
+    }
+
     public void Stop()
     {
         var oldCts = _cts;
@@ -164,6 +284,18 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         _ws?.Dispose();
         _ws = null;
         Console.WriteLine("[WsBridgeClient] Stopped");
+    }
+
+    /// <summary>
+    /// Force-close the WebSocket without cancelling the reconnect CTS.
+    /// ReceiveLoopAsync catches the resulting WebSocketException, checks
+    /// !ct.IsCancellationRequested == true, and fires the auto-reconnect loop,
+    /// which calls ResolveUrlAsync to re-probe LAN vs. tunnel.
+    /// Use this for network-change triggered reconnects; use Stop() for intentional disconnects.
+    /// </summary>
+    public void AbortForReconnect()
+    {
+        try { _ws?.Abort(); } catch { }
     }
 
     // --- Send commands to server ---
@@ -429,12 +561,28 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
 
             try
             {
+                // Re-resolve URL on each reconnect — network may have changed
+                string wsUrl;
+                string? authToken;
+                if (!string.IsNullOrEmpty(_tunnelWsUrl) || !string.IsNullOrEmpty(_lanWsUrl))
+                {
+                    (wsUrl, authToken) = await ResolveUrlAsync(cts.Token);
+                }
+                else
+                {
+                    wsUrl = _remoteWsUrl!;
+                    authToken = _authToken;
+                }
+                _remoteWsUrl = wsUrl;
+                _authToken = authToken;
+                ActiveUrl = wsUrl;
+
                 _ws?.Dispose();
                 _ws = new ClientWebSocket();
-                if (!string.IsNullOrEmpty(_authToken))
-                    _ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {_authToken}");
+                if (!string.IsNullOrEmpty(authToken))
+                    _ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {authToken}");
 
-                var uri = new Uri(_remoteWsUrl!);
+                var uri = new Uri(wsUrl);
 
                 HttpMessageInvoker? invoker = null;
                 try
@@ -464,12 +612,12 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                     invoker = null;
                     _ws?.Dispose();
                     _ws = new ClientWebSocket();
-                    if (!string.IsNullOrEmpty(_authToken))
-                        _ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {_authToken}");
+                    if (!string.IsNullOrEmpty(authToken))
+                        _ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {authToken}");
                     await _ws.ConnectAsync(uri, cts.Token);
                 }
 
-                Console.WriteLine("[WsBridgeClient] Reconnected");
+                Console.WriteLine($"[WsBridgeClient] Reconnected via {(wsUrl == _lanWsUrl ? "LAN" : "tunnel")}");
                 OnStateChanged?.Invoke();
 
                 // Request fresh state

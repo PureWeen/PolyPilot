@@ -775,15 +775,25 @@
     {
         try
         {
-            // Encode URL and token as JSON so the client gets everything from the QR code
-            var payload = string.IsNullOrEmpty(token)
-                ? url
-                : System.Text.Json.JsonSerializer.Serialize(new { url, token });
+            // Build JSON payload with tunnel URL and optionally LAN URL
+            var payload = new Dictionary<string, string> { ["url"] = url };
+            if (!string.IsNullOrEmpty(token))
+                payload["token"] = token;
 
-            Console.WriteLine($"[QR] Generating QR code: url={url}, hasToken={!string.IsNullOrEmpty(token)}, payloadLen={payload.Length}");
+            // Include LAN URL if direct sharing is also running
+            if (WsBridgeServer.IsRunning && localIps.Count > 0)
+            {
+                var lanHost = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp ?? localIps.First();
+                payload["lanUrl"] = $"http://{lanHost}:{DevTunnelService.BridgePort}";
+                if (!string.IsNullOrEmpty(settings.ServerPassword))
+                    payload["lanToken"] = settings.ServerPassword;
+            }
+
+            var json = System.Text.Json.JsonSerializer.Serialize(payload);
+            Console.WriteLine($"[QR] Generating QR code: url={url}, hasLan={payload.ContainsKey("lanUrl")}, payloadLen={json.Length}");
 
             using var qrGenerator = new QRCoder.QRCodeGenerator();
-            using var qrCodeData = qrGenerator.CreateQrCode(payload, QRCoder.QRCodeGenerator.ECCLevel.L);
+            using var qrCodeData = qrGenerator.CreateQrCode(json, QRCoder.QRCodeGenerator.ECCLevel.L);
             using var qrCode = new QRCoder.PngByteQRCode(qrCodeData);
             var pngBytes = qrCode.GetGraphic(4, new byte[] { 0, 0, 0 }, new byte[] { 255, 255, 255 });
             qrCodeDataUri = $"data:image/png;base64,{Convert.ToBase64String(pngBytes)}";
@@ -850,7 +860,7 @@
         var result = await QrScanner.ScanAsync();
         if (string.IsNullOrEmpty(result)) return;
 
-        // QR code contains JSON { url, token }, a polypilot:// URI, or a plain URL string
+        // QR code contains JSON { url, token, lanUrl, lanToken }, a polypilot:// URI, or a plain URL string
         string? url = null;
         try
         {
@@ -859,6 +869,10 @@
                 url = urlProp.GetString();
             if (doc.RootElement.TryGetProperty("token", out var tokenProp))
                 settings.RemoteToken = tokenProp.GetString();
+            if (doc.RootElement.TryGetProperty("lanUrl", out var lanUrlProp))
+                settings.LanUrl = lanUrlProp.GetString();
+            if (doc.RootElement.TryGetProperty("lanToken", out var lanTokenProp))
+                settings.LanToken = lanTokenProp.GetString();
         }
         catch
         {
@@ -1149,7 +1163,7 @@
             return;
         }
 
-        if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl))
+        if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl) && string.IsNullOrWhiteSpace(settings.LanUrl))
         {
             ShowStatus("Enter a remote server URL", "error", 5000);
             return;
@@ -1231,12 +1245,36 @@
     {
         var host = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp ?? localIps.FirstOrDefault();
         if (host == null) return;
-        var url = $"http://{host}:{DevTunnelService.BridgePort}";
-        var connectUrl = $"polypilot://connect?url={Uri.EscapeDataString(url)}&token={Uri.EscapeDataString(settings.ServerPassword ?? "")}";
+
+        var payload = new Dictionary<string, string>
+        {
+            ["lanUrl"] = $"http://{host}:{DevTunnelService.BridgePort}"
+        };
+        if (!string.IsNullOrEmpty(settings.ServerPassword))
+            payload["lanToken"] = settings.ServerPassword;
+
+        // Include tunnel URL if tunnel is also running
+        if (DevTunnelService.State == TunnelState.Running && !string.IsNullOrEmpty(DevTunnelService.TunnelUrl))
+        {
+            payload["url"] = DevTunnelService.TunnelUrl;
+            if (!string.IsNullOrEmpty(DevTunnelService.AccessToken))
+                payload["token"] = DevTunnelService.AccessToken;
+        }
+
+        // Backward compat: old apps only read "url" + "token". If no tunnel, alias LAN URL to "url"
+        // so older clients can still connect (they'll use LAN directly, no smart switching).
+        if (!payload.ContainsKey("url") && !string.IsNullOrEmpty(host))
+        {
+            payload["url"] = $"http://{host}:{DevTunnelService.BridgePort}";
+            if (!string.IsNullOrEmpty(settings.ServerPassword))
+                payload["token"] = settings.ServerPassword;
+        }
+
+        var json = System.Text.Json.JsonSerializer.Serialize(payload);
         try
         {
             using var qr = new QRCoder.QRCodeGenerator();
-            using var data = qr.CreateQrCode(connectUrl, QRCoder.QRCodeGenerator.ECCLevel.M);
+            using var data = qr.CreateQrCode(json, QRCoder.QRCodeGenerator.ECCLevel.M);
             using var png = new QRCoder.PngByteQRCode(data);
             var bytes = png.GetGraphic(12, new byte[] { 0, 0, 0 }, new byte[] { 255, 255, 255 });
             directQrCodeDataUri = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";

@@ -14,21 +14,31 @@ public partial class CopilotService
     private const int TurnEndHistoryLimit = 200;
 
     /// <summary>
+    /// Convert an HTTP(S) URL to its WebSocket equivalent. Returns null for null/empty input.
+    /// </summary>
+    private static string? ToWebSocketUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        var trimmed = url.TrimEnd('/');
+        if (trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return "wss://" + trimmed[8..];
+        if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            return "ws://" + trimmed[7..];
+        if (trimmed.StartsWith("wss://", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+            return trimmed;
+        return "wss://" + trimmed;
+    }
+
+    /// <summary>
     /// Initialize in Remote mode: connect WsBridgeClient for state-sync with server.
     /// </summary>
     private async Task InitializeRemoteAsync(ConnectionSettings settings, CancellationToken ct)
     {
-        var normalized = ConnectionSettings.NormalizeRemoteUrl(settings.RemoteUrl) ?? settings.RemoteUrl!;
-        var wsUrl = normalized.TrimEnd('/');
-        if (wsUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            wsUrl = "wss://" + wsUrl[8..];
-        else if (wsUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-            wsUrl = "ws://" + wsUrl[7..];
-        else if (wsUrl.StartsWith("wss://", StringComparison.OrdinalIgnoreCase)
-              || wsUrl.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
-            { /* already a WebSocket URL */ }
+        var tunnelWsUrl = ToWebSocketUrl(settings.RemoteUrl);
+        var lanWsUrl = ToWebSocketUrl(settings.LanUrl);
 
-        Debug($"Remote mode: connecting to {wsUrl}");
+        Debug($"Remote mode: tunnel={tunnelWsUrl ?? "(none)"}, lan={lanWsUrl ?? "(none)"}");
 
         // Wire WsBridgeClient events only once (survives reconnects)
         if (!_bridgeEventsWired)
@@ -260,7 +270,17 @@ public partial class CopilotService
 
         } // end if (!_bridgeEventsWired)
 
-        await _bridgeClient.ConnectAsync(wsUrl, settings.RemoteToken, ct);
+        // Use smart connect when both URLs are available, single connect otherwise
+        if (!string.IsNullOrEmpty(tunnelWsUrl) && !string.IsNullOrEmpty(lanWsUrl))
+        {
+            await _bridgeClient.ConnectSmartAsync(tunnelWsUrl, settings.RemoteToken, lanWsUrl, settings.LanToken, ct);
+        }
+        else
+        {
+            var wsUrl = tunnelWsUrl ?? lanWsUrl ?? throw new InvalidOperationException("No remote URL configured");
+            var token = !string.IsNullOrEmpty(tunnelWsUrl) ? settings.RemoteToken : settings.LanToken;
+            await _bridgeClient.ConnectAsync(wsUrl, token, ct);
+        }
 
         // Wait for initial session list from server (arrives immediately after connect)
         var deadline = DateTime.UtcNow.AddSeconds(5);
@@ -289,7 +309,74 @@ public partial class CopilotService
 
         // Request repos/worktrees so the worktree picker works on mobile
         _ = Task.Run(async () => { try { await _bridgeClient.RequestReposAsync(ct); } catch { } });
+
+        // Start monitoring network changes for smart URL switching
+        StartConnectivityMonitoring(settings);
     }
+
+    private Timer? _connectivityDebounce;
+    private ConnectionSettings? _remoteSettings;
+
+    private void StartConnectivityMonitoring(ConnectionSettings settings)
+    {
+        StopConnectivityMonitoring(); // Unsubscribe any prior handler to prevent double-registration
+        _remoteSettings = settings;
+        // Only monitor if both URLs are available (otherwise nothing to switch)
+        if (string.IsNullOrWhiteSpace(settings.RemoteUrl) || string.IsNullOrWhiteSpace(settings.LanUrl))
+            return;
+
+#if IOS || ANDROID
+        try
+        {
+            Microsoft.Maui.Networking.Connectivity.Current.ConnectivityChanged += OnConnectivityChanged;
+        }
+        catch (Exception ex)
+        {
+            Debug($"Connectivity monitoring unavailable: {ex.Message}");
+        }
+#endif
+    }
+
+    private void StopConnectivityMonitoring()
+    {
+#if IOS || ANDROID
+        try { Microsoft.Maui.Networking.Connectivity.Current.ConnectivityChanged -= OnConnectivityChanged; } catch { }
+#endif
+        Interlocked.Exchange(ref _connectivityDebounce, null)?.Dispose();
+    }
+
+#if IOS || ANDROID
+    private void OnConnectivityChanged(object? sender, Microsoft.Maui.Networking.ConnectivityChangedEventArgs e)
+    {
+        // Debounce: iOS fires multiple events per transition. Use Interlocked to avoid race.
+        var newTimer = new Timer(_ =>
+        {
+            Debug($"[SmartURL] Network changed: {string.Join(", ", e.ConnectionProfiles)}");
+            // The reconnect loop re-resolves URLs automatically.
+            // If we're currently connected via LAN and lost WiFi, force a reconnect attempt.
+            if (!_bridgeClient.IsConnected) return;
+
+            var onWiFi = e.ConnectionProfiles.Contains(Microsoft.Maui.Networking.ConnectionProfile.WiFi);
+            var lanWs = ToWebSocketUrl(_remoteSettings?.LanUrl);
+            var usingLan = _bridgeClient.ActiveUrl != null
+                && lanWs != null
+                && _bridgeClient.ActiveUrl == lanWs;
+
+            if (usingLan && !onWiFi)
+            {
+                Debug("[SmartURL] Lost WiFi while on LAN — aborting connection to re-resolve via tunnel");
+                _bridgeClient.AbortForReconnect();
+            }
+            else if (!usingLan && onWiFi && !string.IsNullOrEmpty(_remoteSettings?.LanUrl))
+            {
+                Debug("[SmartURL] Gained WiFi while on tunnel — aborting connection to re-resolve via LAN");
+                _bridgeClient.AbortForReconnect();
+            }
+        }, null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
+        var oldTimer = Interlocked.Exchange(ref _connectivityDebounce, newTimer);
+        oldTimer?.Dispose();
+    }
+#endif
 
     /// <summary>
     /// Sync remote session list from WsBridgeClient into our local _sessions dictionary.

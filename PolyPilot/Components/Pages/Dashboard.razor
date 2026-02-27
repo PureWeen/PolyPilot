@@ -356,6 +356,8 @@
     private string? expandedSession;
     private string mobileRemoteUrl = "";
     private string mobileRemoteToken = "";
+    private string mobileLanUrl = "";
+    private string mobileLanToken = "";
     private bool mobileConnecting;
     private string? mobileConnectError;
     private bool _needsScrollToBottom;
@@ -413,6 +415,8 @@
             var cs = ConnectionSettings.Load();
             mobileRemoteUrl = cs.RemoteUrl ?? "";
             mobileRemoteToken = cs.RemoteToken ?? "";
+            mobileLanUrl = cs.LanUrl ?? "";
+            mobileLanToken = cs.LanToken ?? "";
         }
     }
 
@@ -570,12 +574,16 @@
 
         try
         {
-            // Try JSON format first: { "url": "...", "token": "..." }
+            // Try JSON format first: { "url": "...", "token": "...", "lanUrl": "...", "lanToken": "..." }
             var doc = System.Text.Json.JsonDocument.Parse(result);
             if (doc.RootElement.TryGetProperty("url", out var urlProp))
                 mobileRemoteUrl = urlProp.GetString() ?? "";
             if (doc.RootElement.TryGetProperty("token", out var tokenProp))
                 mobileRemoteToken = tokenProp.GetString() ?? "";
+            if (doc.RootElement.TryGetProperty("lanUrl", out var lanUrlProp))
+                mobileLanUrl = lanUrlProp.GetString() ?? "";
+            if (doc.RootElement.TryGetProperty("lanToken", out var lanTokenProp))
+                mobileLanToken = lanTokenProp.GetString() ?? "";
         }
         catch
         {
@@ -599,7 +607,7 @@
 
     private async Task DashboardConnect()
     {
-        if (string.IsNullOrWhiteSpace(mobileRemoteUrl)) return;
+        if (string.IsNullOrWhiteSpace(mobileRemoteUrl) && string.IsNullOrWhiteSpace(mobileLanUrl)) return;
         mobileConnecting = true;
         mobileConnectError = null;
         StateHasChanged();
@@ -610,6 +618,8 @@
             connSettings.Mode = ConnectionMode.Remote;
             connSettings.RemoteUrl = ConnectionSettings.NormalizeRemoteUrl(mobileRemoteUrl) ?? mobileRemoteUrl;
             connSettings.RemoteToken = mobileRemoteToken;
+            connSettings.LanUrl = mobileLanUrl;
+            connSettings.LanToken = mobileLanToken;
             connSettings.Save();
             await CopilotService.ReconnectAsync(connSettings);
         }

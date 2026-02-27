@@ -47,6 +47,8 @@ public class ConnectionSettings
     public bool AutoStartServer { get; set; } = false;
     public string? RemoteUrl { get; set; }
     public string? RemoteToken { get; set; }
+    public string? LanUrl { get; set; }
+    public string? LanToken { get; set; }
     public string? TunnelId { get; set; }
     public bool AutoStartTunnel { get; set; } = false;
     public string? ServerPassword { get; set; }
