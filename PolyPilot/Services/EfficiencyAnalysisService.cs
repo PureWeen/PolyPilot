@@ -35,6 +35,17 @@ public class EfficiencyAnalysisService
 
         var metrics = SessionMetricsExtractor.Extract(sessionDir);
 
+        // Write metrics JSON to the target session's files/ directory
+        var filesDir = Path.Combine(sessionDir, "files");
+        Directory.CreateDirectory(filesDir);
+        var metricsPath = Path.Combine(filesDir, "efficiency-metrics.json");
+        var metricsJson = JsonSerializer.Serialize(metrics, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        });
+        File.WriteAllText(metricsPath, metricsJson);
+
         // Build unique analysis session name
         var analysisName = $"📊 {sessionName}";
         var existing = _copilotService.GetAllSessions().Select(s => s.Name).ToHashSet();
@@ -49,21 +60,15 @@ public class EfficiencyAnalysisService
 
         await _copilotService.CreateSessionAsync(finalName, null, workDir);
 
-        // Send prompt with pre-extracted data
-        var prompt = BuildPrompt(sessionName, sessionDir, metrics);
+        // Send prompt referencing the metrics file
+        var prompt = BuildPrompt(sessionName, sessionDir, metricsPath);
         _ = _copilotService.SendPromptAsync(finalName, prompt);
 
         return finalName;
     }
 
-    private static string BuildPrompt(string sessionName, string sessionDir, SessionMetricsExtractor.SessionMetrics metrics)
+    private static string BuildPrompt(string sessionName, string sessionDir, string metricsPath)
     {
-        var metricsJson = JsonSerializer.Serialize(metrics, new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        });
-
         return $"""
             # LLM Efficiency Analysis Skill — Copilot CLI
 
@@ -92,20 +97,21 @@ public class EfficiencyAnalysisService
 
             ### Step 1: Load the data
 
-            The session metrics have already been extracted in-process and are provided below as JSON.
-            The raw session data files are also available if you need additional context:
+            The session metrics have already been extracted and saved to a JSON file.
+            Start by reading this file to get all the data you need:
 
+            - **Extracted metrics JSON:** `{metricsPath}`
             - **Session name:** {sessionName}
             - **Session state directory:** {sessionDir}
             - **Events file:** {sessionDir}/events.jsonl
             - **Workspace metadata:** {sessionDir}/workspace.yaml
 
-            The extracted metrics JSON is at the bottom of this prompt.
+            Read the metrics JSON file first. If it shows `llmCallsFound: 0`, the process log was not found
+            or contained no matching telemetry. In that case, read the events.jsonl file directly and estimate
+            tokens from `assistant.message` content fields (divide character count by 4 for ~tokens). Flag the
+            report as using estimated tokens.
 
-            If the extracted metrics JSON has `llmCallsFound: 0`, the process log was not found or contained
-            no matching telemetry. In that case, read the events.jsonl file directly and estimate tokens from
-            `assistant.message` content fields (divide character count by 4 for ~tokens). Flag the report
-            as using estimated tokens.
+            You can also grep/search the events.jsonl for additional context about specific events.
 
             ### Step 2: Analyze and classify waste patterns
 
@@ -373,11 +379,12 @@ public class EfficiencyAnalysisService
 
             ---
 
-            ## Extracted Metrics JSON
+            ## Data Files
 
-            ```json
-            {metricsJson}
-            ```
+            Start by reading the extracted metrics JSON file:
+            `{metricsPath}`
+
+            Then proceed with the analysis workflow above.
             """;
     }
 }
