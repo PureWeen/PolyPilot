@@ -142,8 +142,12 @@ public partial class CopilotService
         if (reasoningMsg == null)
         {
             reasoningMsg = ChatMessage.ReasoningMessage(normalizedReasoningId);
-            state.Info.History.Add(reasoningMsg);
-            state.Info.MessageCount = state.Info.History.Count;
+            // Must add to History on UI thread to avoid concurrent List<T> mutation
+            InvokeOnUI(() =>
+            {
+                state.Info.History.Add(reasoningMsg);
+                state.Info.MessageCount = state.Info.History.Count;
+            });
             isNew = true;
         }
 
@@ -304,24 +308,26 @@ public partial class CopilotService
                         break;
                     }
 
-                    // Flush any accumulated assistant text before adding tool message.
-                    // Must run on the UI thread since FlushCurrentResponse accesses History.
-                    Invoke(() => FlushCurrentResponse(state));
-                    
+                    // Flush any accumulated assistant text before adding tool message,
+                    // then add the tool message — all on the UI thread to avoid
+                    // concurrent writes to List<ChatMessage> (History).
                     if (startToolName == ShowImageTool.ToolName)
                     {
-                        // show_image: add a placeholder that will be converted to Image on complete
                         var imgPlaceholder = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
-                        state.Info.History.Add(imgPlaceholder);
-                        Invoke(() => OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput));
+                        Invoke(() =>
+                        {
+                            FlushCurrentResponse(state);
+                            state.Info.History.Add(imgPlaceholder);
+                            OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
+                        });
                     }
                     else
                     {
                         var toolMsg = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
-                        state.Info.History.Add(toolMsg);
-                        
                         Invoke(() =>
                         {
+                            FlushCurrentResponse(state);
+                            state.Info.History.Add(toolMsg);
                             OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
                             OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
                         });
