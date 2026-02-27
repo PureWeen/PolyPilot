@@ -1763,6 +1763,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default, bool skipHistoryMessage = false, string? agentMode = null)
     {
+        // Normalize smart punctuation (macOS/WebKit converts -- to em dash, etc.)
+        prompt = SmartPunctuationNormalizer.Normalize(prompt);
+
         // In demo mode, simulate a response locally
         if (IsDemoMode)
         {

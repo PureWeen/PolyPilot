@@ -329,9 +329,20 @@
         };
 
         // Safe DOM helpers — avoid eval() with interpolated strings
+        // Normalize smart punctuation (macOS/WebKit converts -- to em dash, etc.)
+        window.normalizeSmartPunctuation = function(text) {
+            if (!text) return text;
+            return text
+                .replace(/\u2014/g, '--')   // em dash → --
+                .replace(/\u2013/g, '-')    // en dash → -
+                .replace(/[\u2018\u2019]/g, "'")  // smart single quotes → '
+                .replace(/[\u201C\u201D]/g, '"'); // smart double quotes → "
+        };
+
         window.getElementValue = function(elementId) {
             var el = document.getElementById(elementId);
-            return el ? (el.value || '') : '';
+            var val = el ? (el.value || '') : '';
+            return window.normalizeSmartPunctuation(val);
         };
 
         window.clearElementValue = function(elementId) {

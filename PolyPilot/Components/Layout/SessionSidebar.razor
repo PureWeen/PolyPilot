@@ -567,7 +567,7 @@ else
                                 @if (group.OrchestratorMode != MultiAgentMode.Orchestrator && group.OrchestratorMode != MultiAgentMode.OrchestratorReflect)
                                 {
                                 <div class="sidebar-ma-input-bar">
-                                    <textarea id="sidebar-ma-input-@maGroupId" class="sidebar-ma-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)" rows="1" @onclick:stopPropagation="true"></textarea>
+                                    <textarea id="sidebar-ma-input-@maGroupId" class="sidebar-ma-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)" autocorrect="off" rows="1" @onclick:stopPropagation="true"></textarea>
                                     <button class="sidebar-ma-send-btn" @onclick="() => SendToSidebarMultiAgentGroup(maGroupId)" @onclick:stopPropagation="true">📡</button>
                                 </div>
                                 }
