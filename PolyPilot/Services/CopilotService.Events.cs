@@ -169,6 +169,7 @@ public partial class CopilotService
         reasoningMsg.Timestamp = DateTime.Now;
         MergeReasoningContent(reasoningMsg, content, isDelta);
         state.Info.LastUpdatedAt = DateTime.Now;
+        }
 
         if (!string.IsNullOrEmpty(state.Info.SessionId))
         {
@@ -184,29 +185,34 @@ public partial class CopilotService
     private void CompleteReasoningMessages(SessionState state, string sessionName)
     {
         List<ChatMessage> openReasoningMessages;
+        var completedIds = new List<string>();
+        // Capture content snapshots for DB writes outside the lock
+        var dbUpdates = new List<(string sessionId, string reasoningId, string? content)>();
         lock (state.Info.HistoryLock)
         {
             openReasoningMessages = state.Info.History
                 .Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete)
                 .ToList();
+            foreach (var msg in openReasoningMessages)
+            {
+                msg.IsComplete = true;
+                msg.IsCollapsed = true;
+                msg.Timestamp = DateTime.Now;
+                if (!string.IsNullOrEmpty(msg.ReasoningId))
+                {
+                    completedIds.Add(msg.ReasoningId);
+                    if (!string.IsNullOrEmpty(state.Info.SessionId))
+                        dbUpdates.Add((state.Info.SessionId, msg.ReasoningId, msg.Content));
+                }
+            }
+            if (openReasoningMessages.Count > 0)
+                state.Info.LastUpdatedAt = DateTime.Now;
         }
         if (openReasoningMessages.Count == 0) return;
 
-        var completedIds = new List<string>();
-        foreach (var msg in openReasoningMessages)
-        {
-            msg.IsComplete = true;
-            msg.IsCollapsed = true;
-            msg.Timestamp = DateTime.Now;
-            if (!string.IsNullOrEmpty(msg.ReasoningId))
-            {
-                completedIds.Add(msg.ReasoningId);
-                if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.UpdateReasoningContentAsync(state.Info.SessionId, msg.ReasoningId, msg.Content, true);
-            }
-        }
+        foreach (var (sessionId, reasoningId, content) in dbUpdates)
+            _ = _chatDb.UpdateReasoningContentAsync(sessionId, reasoningId, content ?? "", true);
 
-        state.Info.LastUpdatedAt = DateTime.Now;
         InvokeOnUI(() =>
         {
             foreach (var reasoningId in completedIds)
@@ -380,31 +386,32 @@ public partial class CopilotService
                 if (resultStr == "Intent logged")
                     break;
 
-                // Update the matching tool message in history
-                ChatMessage? histToolMsg;
+                // Update the matching tool message in history — hold the lock for the full
+                // lookup + mutation sequence to prevent the UI thread from reading a
+                // partially-updated message (e.g. IsComplete=true but Content still null).
                 lock (state.Info.HistoryLock)
                 {
-                    histToolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == completeCallId);
-                }
-                if (histToolMsg != null)
-                {
-                    var effectiveToolName = completeToolName ?? histToolMsg.ToolName;
-                    if (effectiveToolName == ShowImageTool.ToolName && !hasError)
+                    var histToolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == completeCallId);
+                    if (histToolMsg != null)
                     {
-                        // Convert tool call placeholder into an Image message
-                        (string? imgPath, string? imgCaption) = ShowImageTool.ParseResult(resultStr);
-                        histToolMsg.MessageType = ChatMessageType.Image;
-                        histToolMsg.ImagePath = imgPath;
-                        histToolMsg.Caption = imgCaption;
-                        histToolMsg.IsComplete = true;
-                        histToolMsg.IsSuccess = true;
-                        histToolMsg.Content = resultStr;
-                    }
-                    else
-                    {
-                        histToolMsg.IsComplete = true;
-                        histToolMsg.IsSuccess = !hasError;
-                        histToolMsg.Content = resultStr;
+                        var effectiveToolName = completeToolName ?? histToolMsg.ToolName;
+                        if (effectiveToolName == ShowImageTool.ToolName && !hasError)
+                        {
+                            // Convert tool call placeholder into an Image message
+                            (string? imgPath, string? imgCaption) = ShowImageTool.ParseResult(resultStr);
+                            histToolMsg.MessageType = ChatMessageType.Image;
+                            histToolMsg.ImagePath = imgPath;
+                            histToolMsg.Caption = imgCaption;
+                            histToolMsg.IsComplete = true;
+                            histToolMsg.IsSuccess = true;
+                            histToolMsg.Content = resultStr;
+                        }
+                        else
+                        {
+                            histToolMsg.IsComplete = true;
+                            histToolMsg.IsSuccess = !hasError;
+                            histToolMsg.Content = resultStr;
+                        }
                     }
                 }
 

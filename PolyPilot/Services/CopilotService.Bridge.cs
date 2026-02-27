@@ -99,7 +99,10 @@ public partial class CopilotService
                     if (existing != null)
                         existing.Content += c;
                     else
+                    {
                         session.History.Add(new ChatMessage("assistant", c, DateTime.Now, ChatMessageType.Assistant) { IsComplete = false });
+                        session.MessageCount = session.History.Count;
+                    }
                 }
             }
             InvokeOnUI(() => OnContentReceived?.Invoke(s, c));
@@ -110,7 +113,10 @@ public partial class CopilotService
             if (session != null)
             {
                 lock (session.HistoryLock)
+                {
                     session.History.Add(ChatMessage.ToolCallMessage(tool, id, input));
+                    session.MessageCount = session.History.Count;
+                }
             }
             InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id, input));
         };
@@ -530,11 +536,13 @@ public partial class CopilotService
                     sessionsNeedingHistory.Add(rs.Name);
                     _requestedHistorySessions[rs.Name] = 0;
                 }
-                else
+                else if (_requestedHistorySessions.TryGetValue(rs.Name, out var retryCount) && retryCount < 5)
                 {
-                    // Previous request may have failed — retry
+                    // Previous request may have failed — retry up to 5 times
                     sessionsNeedingHistory.Add(rs.Name);
+                    _requestedHistorySessions[rs.Name] = (byte)(retryCount + 1);
                 }
+                // else: retry cap exceeded, stop requesting
             }
         }
 
