@@ -1040,4 +1040,42 @@ public class AgentSessionInfoReflectionCycleTests
     }
 
     #endregion
+
+    #region ReflectionCycle Cancellation Tests
+
+    [Fact]
+    public void ReflectionCycle_IsCancelled_StillClearsIsActive()
+    {
+        // Verify the data contract: if IsCancelled is set, IsActive should also be clearable.
+        // The actual cleanup happens in SendViaOrchestratorReflectAsync's finally block,
+        // but we verify the model supports both states simultaneously.
+        var cycle = ReflectionCycle.Create("Fix bug");
+        Assert.True(cycle.IsActive);
+
+        // Simulate cancellation path: set IsCancelled without clearing IsActive first
+        cycle.IsCancelled = true;
+        Assert.True(cycle.IsActive); // still active until finally clears it
+
+        // Simulate finally block cleanup
+        cycle.IsActive = false;
+        cycle.CompletedAt = DateTime.Now;
+
+        Assert.False(cycle.IsActive);
+        Assert.True(cycle.IsCancelled);
+        Assert.NotNull(cycle.CompletedAt);
+    }
+
+    [Fact]
+    public void ReflectionCycle_CompletionSummary_WhenCancelled()
+    {
+        var cycle = ReflectionCycle.Create("Fix bug");
+        cycle.IsCancelled = true;
+        cycle.IsActive = false;
+        cycle.CompletedAt = DateTime.Now;
+
+        var summary = cycle.BuildCompletionSummary();
+        Assert.Contains("cancelled", summary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    #endregion
 }

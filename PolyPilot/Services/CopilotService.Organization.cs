@@ -1990,12 +1990,13 @@ public partial class CopilotService
             reflectState.IsCancelled = true;
             AddOrchestratorSystemMessage(orchestratorName, $"⏱️ {reflectState.BuildCompletionSummary()}");
         }
-
-        reflectState.IsActive = false;
-        reflectState.CompletedAt = DateTime.Now;
         }
         finally
         {
+            // Always clear IsActive — even on OperationCanceledException.
+            // Without this, a cancelled reflection permanently blocks future reflections.
+            reflectState.IsActive = false;
+            reflectState.CompletedAt = DateTime.Now;
             ClearPendingOrchestration();
             SaveOrganization();
             InvokeOnUI(() =>

@@ -268,6 +268,13 @@ public partial class CopilotService : IAsyncDisposable
         /// 0 = idle, 1 = sending. Set via Interlocked.CompareExchange.
         /// </summary>
         public int SendingFlag;
+        /// <summary>
+        /// Tracks reasoning messages that have been created but not yet added to History
+        /// (pending InvokeOnUI). Prevents duplicate creation when rapid deltas arrive
+        /// for the same reasoningId before the UI thread posts the History.Add.
+        /// Cleared on CompleteResponse and SendPromptAsync.
+        /// </summary>
+        public ConcurrentDictionary<string, ChatMessage> PendingReasoningMessages { get; } = new();
     }
 
     private void Debug(string message)
@@ -1813,6 +1820,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         state.CurrentResponse.Clear();
         state.FlushedResponse.Clear();
+        state.PendingReasoningMessages.Clear();
         StartProcessingWatchdog(state, sessionName);
 
         if (!skipHistoryMessage)
@@ -1909,6 +1917,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     state.Info.IsProcessing = true;
                     state.CurrentResponse.Clear();
                     state.FlushedResponse.Clear();
+                    state.PendingReasoningMessages.Clear();
                     Debug($"[RECONNECT] '{sessionName}' reset processing state: gen={Interlocked.Read(ref state.ProcessingGeneration)}");
                     
                     // Start fresh watchdog for the new connection
@@ -2041,6 +2050,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         _queuedAgentModes.TryRemove(sessionName, out _);
         CancelProcessingWatchdog(state);
         state.FlushedResponse.Clear();
+        state.PendingReasoningMessages.Clear();
         state.ResponseCompletion?.TrySetCanceled();
         OnStateChanged?.Invoke();
     }

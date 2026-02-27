@@ -137,16 +137,24 @@ public partial class CopilotService
         if (string.IsNullOrEmpty(content)) return;
 
         var normalizedReasoningId = ResolveReasoningId(state.Info, reasoningId);
-        var reasoningMsg = FindReasoningMessage(state.Info, normalizedReasoningId);
+
+        // Check pending map first (covers the race window before InvokeOnUI fires)
+        var reasoningMsg = state.PendingReasoningMessages.GetValueOrDefault(normalizedReasoningId)
+            ?? FindReasoningMessage(state.Info, normalizedReasoningId);
         var isNew = false;
         if (reasoningMsg == null)
         {
             reasoningMsg = ChatMessage.ReasoningMessage(normalizedReasoningId);
+            // Register in pending map BEFORE posting to UI thread — this prevents
+            // rapid consecutive deltas from creating duplicates
+            state.PendingReasoningMessages[normalizedReasoningId] = reasoningMsg;
             // Must add to History on UI thread to avoid concurrent List<T> mutation
             InvokeOnUI(() =>
             {
                 state.Info.History.Add(reasoningMsg);
                 state.Info.MessageCount = state.Info.History.Count;
+                // Remove from pending — now findable via History search
+                state.PendingReasoningMessages.TryRemove(normalizedReasoningId, out _);
             });
             isNew = true;
         }
@@ -559,6 +567,7 @@ public partial class CopilotService
                     // Flush any accumulated partial response before clearing the accumulator
                     FlushCurrentResponse(state);
                     state.FlushedResponse.Clear();
+                    state.PendingReasoningMessages.Clear();
                     state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                     Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
                     state.Info.IsProcessing = false;
@@ -783,6 +792,7 @@ public partial class CopilotService
         // call must see IsProcessing=false or it throws "already processing".
         state.CurrentResponse.Clear();
         state.FlushedResponse.Clear();
+        state.PendingReasoningMessages.Clear();
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false; // After first successful completion, use normal watchdog timeouts
         Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
@@ -1399,6 +1409,7 @@ public partial class CopilotService
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
                         var watchdogResponse = state.FlushedResponse.ToString();
                         state.FlushedResponse.Clear();
+                        state.PendingReasoningMessages.Clear();
                         state.ResponseCompletion?.TrySetResult(watchdogResponse);
                         OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutDisplay}.");
                         OnStateChanged?.Invoke();
