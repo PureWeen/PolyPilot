@@ -986,4 +986,58 @@ public class AgentSessionInfoReflectionCycleTests
     }
 
     #endregion
+
+    #region BuildSynthesisPrompt Sentinel Stripping
+
+    [Fact]
+    public void BuildSynthesisPrompt_StripsSentinelFromWorkerResponse()
+    {
+        var svc = CreateService();
+        var method = typeof(CopilotService).GetMethod("BuildSynthesisPrompt",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(method);
+
+        // Create WorkerResult via reflection since it's a private record
+        var workerResultType = typeof(CopilotService).GetNestedType("WorkerResult",
+            System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(workerResultType);
+
+        var workerResponse = "Review looks great! All tests pass.\n[[GROUP_REFLECT_COMPLETE]]\nFinal notes here.";
+        var result = Activator.CreateInstance(workerResultType!, "worker-1", workerResponse, true, (string?)null, TimeSpan.FromSeconds(5));
+        var results = (System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(workerResultType!))!;
+        results.Add(result!);
+
+        var synthesisPrompt = (string)method!.Invoke(svc, new object[] { "Review this PR", results })!;
+
+        Assert.DoesNotContain("[[GROUP_REFLECT_COMPLETE]]", synthesisPrompt);
+        Assert.Contains("[WORKER_APPROVED]", synthesisPrompt);
+        Assert.Contains("Review looks great!", synthesisPrompt);
+        Assert.Contains("Final notes here.", synthesisPrompt);
+    }
+
+    [Fact]
+    public void BuildSynthesisPrompt_StripsMultipleSentinelOccurrences()
+    {
+        var svc = CreateService();
+        var method = typeof(CopilotService).GetMethod("BuildSynthesisPrompt",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(method);
+
+        var workerResultType = typeof(CopilotService).GetNestedType("WorkerResult",
+            System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(workerResultType);
+
+        var workerResponse = "[[GROUP_REFLECT_COMPLETE]] middle text [[GROUP_REFLECT_COMPLETE]]";
+        var result = Activator.CreateInstance(workerResultType!, "worker-1", workerResponse, true, (string?)null, TimeSpan.FromSeconds(1));
+        var results = (System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(workerResultType!))!;
+        results.Add(result!);
+
+        var synthesisPrompt = (string)method!.Invoke(svc, new object[] { "task", results })!;
+
+        Assert.DoesNotContain("[[GROUP_REFLECT_COMPLETE]]", synthesisPrompt);
+        // Both occurrences should be replaced
+        Assert.Equal(2, synthesisPrompt.Split("[WORKER_APPROVED]").Length - 1);
+    }
+
+    #endregion
 }

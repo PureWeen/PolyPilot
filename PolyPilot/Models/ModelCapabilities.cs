@@ -400,6 +400,13 @@ public static class UserPresets
         var presets = SquadDiscovery.Discover(repoWorkingDirectory);
         var match = presets.FirstOrDefault(p => string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
         if (match?.SourcePath == null) return false;
+
+        // Validate the path is within the repo directory (prevent traversal)
+        var fullRepoPath = Path.GetFullPath(repoWorkingDirectory);
+        var fullSourcePath = Path.GetFullPath(match.SourcePath);
+        if (!fullSourcePath.StartsWith(fullRepoPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return false;
+
         var dirName = Path.GetFileName(match.SourcePath);
         if (dirName != ".squad" && dirName != ".ai-team")
             return false;

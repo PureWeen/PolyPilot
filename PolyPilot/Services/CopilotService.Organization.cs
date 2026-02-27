@@ -148,10 +148,10 @@ public partial class CopilotService
     public void SaveOrganization()
     {
         InvalidateOrganizedSessionsCache();
-        // Debounce: restart the timer. The actual write always re-serializes from live state
-        // to avoid stale-snapshot races (old snapshot overwriting newer flush).
+        // Debounce: restart the timer. The callback marshals to the UI thread for
+        // serialization since Organization contains non-thread-safe List<T> collections.
         _saveOrgDebounce?.Dispose();
-        _saveOrgDebounce = new Timer(_ => SaveOrganizationCore(), null, 2000, Timeout.Infinite);
+        _saveOrgDebounce = new Timer(_ => InvokeOnUI(() => SaveOrganizationCore()), null, 2000, Timeout.Infinite);
     }
 
     internal void FlushSaveOrganization()
@@ -1677,9 +1677,14 @@ public partial class CopilotService
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
         if (group == null) return;
 
-        // Don't overwrite an active reflection — the user must stop it first
+        // Don't overwrite an active reflection — the user must stop it first.
+        // This runs on the UI thread (called from Dashboard.razor event handlers),
+        // so no lock is needed — all Organization mutations are UI-thread-only.
         if (group.ReflectionState is { IsActive: true, IsCancelled: false })
+        {
+            Debug($"StartGroupReflection: skipping — group '{group.Name}' already has active reflection (iteration {group.ReflectionState.CurrentIteration})");
             return;
+        }
 
         group.ReflectionState = ReflectionCycle.Create(goal, maxIterations);
         group.OrchestratorMode = MultiAgentMode.OrchestratorReflect;
