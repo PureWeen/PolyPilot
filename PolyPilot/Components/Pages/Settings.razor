@@ -1261,6 +1261,15 @@
                 payload["token"] = DevTunnelService.AccessToken;
         }
 
+        // Backward compat: old apps only read "url" + "token". If no tunnel, alias LAN URL to "url"
+        // so older clients can still connect (they'll use LAN directly, no smart switching).
+        if (!payload.ContainsKey("url") && !string.IsNullOrEmpty(host))
+        {
+            payload["url"] = $"http://{host}:{DevTunnelService.BridgePort}";
+            if (!string.IsNullOrEmpty(settings.ServerPassword))
+                payload["token"] = settings.ServerPassword;
+        }
+
         var json = System.Text.Json.JsonSerializer.Serialize(payload);
         try
         {

@@ -319,6 +319,7 @@ public partial class CopilotService
 
     private void StartConnectivityMonitoring(ConnectionSettings settings)
     {
+        StopConnectivityMonitoring(); // Unsubscribe any prior handler to prevent double-registration
         _remoteSettings = settings;
         // Only monitor if both URLs are available (otherwise nothing to switch)
         if (string.IsNullOrWhiteSpace(settings.RemoteUrl) || string.IsNullOrWhiteSpace(settings.LanUrl))
@@ -364,6 +365,11 @@ public partial class CopilotService
             if (usingLan && !onWiFi)
             {
                 Debug("[SmartURL] Lost WiFi while on LAN — aborting connection to re-resolve via tunnel");
+                _bridgeClient.AbortForReconnect();
+            }
+            else if (!usingLan && onWiFi && !string.IsNullOrEmpty(_remoteSettings?.LanUrl))
+            {
+                Debug("[SmartURL] Gained WiFi while on tunnel — aborting connection to re-resolve via LAN");
                 _bridgeClient.AbortForReconnect();
             }
         }, null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
