@@ -491,8 +491,10 @@ public partial class CopilotService
             }
         }
 
-        // Track deleted repo groups so ReconcileOrganization won't resurrect them
-        if (group?.RepoId != null)
+        // Track deleted repo groups so ReconcileOrganization won't resurrect them.
+        // Only tombstone for regular repo groups — multi-agent groups share the same RepoId key
+        // but are tracked separately, so deleting a squad must not suppress the regular sidebar group.
+        if (group?.RepoId != null && !isMultiAgent)
             Organization.DeletedRepoGroupRepoIds.Add(group.RepoId);
 
         Organization.Groups.RemoveAll(g => g.Id == groupId);
