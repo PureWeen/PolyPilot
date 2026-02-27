@@ -100,6 +100,22 @@ public class ChatDatabase : IChatDatabase
     {
     }
 
+    /// <summary>
+    /// Override DB path for testing. Clears any cached connection.
+    /// </summary>
+    internal static void SetDbPathForTesting(string path)
+    {
+        _dbPath = path;
+    }
+
+    /// <summary>
+    /// Reset the cached connection (for testing error recovery).
+    /// </summary>
+    internal void ResetConnection()
+    {
+        _db = null;
+    }
+
     private async Task<SQLiteAsyncConnection> GetConnectionAsync()
     {
         if (_db != null) return _db;
@@ -108,13 +124,14 @@ public class ChatDatabase : IChatDatabase
         if (!Directory.Exists(dir))
             Directory.CreateDirectory(dir);
 
-        _db = new SQLiteAsyncConnection(DbPath);
-        await _db.CreateTableAsync<ChatMessageEntity>();
+        var conn = new SQLiteAsyncConnection(DbPath);
+        await conn.CreateTableAsync<ChatMessageEntity>();
 
         // Create index for fast session + order lookups
-        await _db.ExecuteAsync(
+        await conn.ExecuteAsync(
             "CREATE INDEX IF NOT EXISTS idx_session_order ON ChatMessageEntity (SessionId, OrderIndex)");
 
+        _db = conn;
         return _db;
     }
 
@@ -123,10 +140,18 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task<bool> HasMessagesAsync(string sessionId)
     {
-        var db = await GetConnectionAsync();
-        var count = await db.ExecuteScalarAsync<int>(
-            "SELECT COUNT(*) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
-        return count > 0;
+        try
+        {
+            var db = await GetConnectionAsync();
+            var count = await db.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+            return count > 0;
+        }
+        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        {
+            LogError("HasMessagesAsync", ex);
+            return false;
+        }
     }
 
     /// <summary>
@@ -134,9 +159,17 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task<int> GetMessageCountAsync(string sessionId)
     {
-        var db = await GetConnectionAsync();
-        return await db.ExecuteScalarAsync<int>(
-            "SELECT COUNT(*) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+        try
+        {
+            var db = await GetConnectionAsync();
+            return await db.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+        }
+        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        {
+            LogError("GetMessageCountAsync", ex);
+            return 0;
+        }
     }
 
     /// <summary>
@@ -144,20 +177,28 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task<List<ChatMessage>> GetMessagesAsync(string sessionId, int limit = 50, int offset = 0)
     {
-        var db = await GetConnectionAsync();
-        var total = await GetMessageCountAsync(sessionId);
+        try
+        {
+            var db = await GetConnectionAsync();
+            var total = await GetMessageCountAsync(sessionId);
 
-        // We want the LAST `limit` messages starting from offset from the end
-        var skipFromStart = Math.Max(0, total - offset - limit);
-        var take = Math.Min(limit, total - offset);
+            // We want the LAST `limit` messages starting from offset from the end
+            var skipFromStart = Math.Max(0, total - offset - limit);
+            var take = Math.Min(limit, total - offset);
 
-        if (take <= 0) return new List<ChatMessage>();
+            if (take <= 0) return new List<ChatMessage>();
 
-        var entities = await db.QueryAsync<ChatMessageEntity>(
-            "SELECT * FROM ChatMessageEntity WHERE SessionId = ? ORDER BY OrderIndex ASC LIMIT ? OFFSET ?",
-            sessionId, take, skipFromStart);
+            var entities = await db.QueryAsync<ChatMessageEntity>(
+                "SELECT * FROM ChatMessageEntity WHERE SessionId = ? ORDER BY OrderIndex ASC LIMIT ? OFFSET ?",
+                sessionId, take, skipFromStart);
 
-        return entities.Select(e => e.ToChatMessage()).ToList();
+            return entities.Select(e => e.ToChatMessage()).ToList();
+        }
+        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        {
+            LogError("GetMessagesAsync", ex);
+            return new List<ChatMessage>();
+        }
     }
 
     /// <summary>
@@ -165,13 +206,21 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task<List<ChatMessage>> GetAllMessagesAsync(string sessionId)
     {
-        var db = await GetConnectionAsync();
-        var entities = await db.Table<ChatMessageEntity>()
-            .Where(e => e.SessionId == sessionId)
-            .OrderBy(e => e.OrderIndex)
-            .ToListAsync();
+        try
+        {
+            var db = await GetConnectionAsync();
+            var entities = await db.Table<ChatMessageEntity>()
+                .Where(e => e.SessionId == sessionId)
+                .OrderBy(e => e.OrderIndex)
+                .ToListAsync();
 
-        return entities.Select(e => e.ToChatMessage()).ToList();
+            return entities.Select(e => e.ToChatMessage()).ToList();
+        }
+        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        {
+            LogError("GetAllMessagesAsync", ex);
+            return new List<ChatMessage>();
+        }
     }
 
     /// <summary>
@@ -179,13 +228,21 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task<int> AddMessageAsync(string sessionId, ChatMessage msg)
     {
-        var db = await GetConnectionAsync();
-        var maxOrder = await db.ExecuteScalarAsync<int>(
-            "SELECT COALESCE(MAX(OrderIndex), -1) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+        try
+        {
+            var db = await GetConnectionAsync();
+            var maxOrder = await db.ExecuteScalarAsync<int>(
+                "SELECT COALESCE(MAX(OrderIndex), -1) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
 
-        var entity = ChatMessageEntity.FromChatMessage(msg, sessionId, maxOrder + 1);
-        await db.InsertAsync(entity);
-        return entity.Id;
+            var entity = ChatMessageEntity.FromChatMessage(msg, sessionId, maxOrder + 1);
+            await db.InsertAsync(entity);
+            return entity.Id;
+        }
+        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        {
+            LogError("AddMessageAsync", ex);
+            return -1;
+        }
     }
 
     /// <summary>
@@ -193,10 +250,17 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task UpdateToolCompleteAsync(string sessionId, string toolCallId, string content, bool isSuccess)
     {
-        var db = await GetConnectionAsync();
-        await db.ExecuteAsync(
-            "UPDATE ChatMessageEntity SET Content = ?, IsComplete = 1, IsSuccess = ? WHERE SessionId = ? AND ToolCallId = ?",
-            content, isSuccess, sessionId, toolCallId);
+        try
+        {
+            var db = await GetConnectionAsync();
+            await db.ExecuteAsync(
+                "UPDATE ChatMessageEntity SET Content = ?, IsComplete = 1, IsSuccess = ? WHERE SessionId = ? AND ToolCallId = ?",
+                content, isSuccess, sessionId, toolCallId);
+        }
+        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        {
+            LogError("UpdateToolCompleteAsync", ex);
+        }
     }
 
     /// <summary>
@@ -204,10 +268,17 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task UpdateReasoningContentAsync(string sessionId, string reasoningId, string content, bool isComplete)
     {
-        var db = await GetConnectionAsync();
-        await db.ExecuteAsync(
-            "UPDATE ChatMessageEntity SET Content = ?, IsComplete = ? WHERE SessionId = ? AND ReasoningId = ?",
-            content, isComplete, sessionId, reasoningId);
+        try
+        {
+            var db = await GetConnectionAsync();
+            await db.ExecuteAsync(
+                "UPDATE ChatMessageEntity SET Content = ?, IsComplete = ? WHERE SessionId = ? AND ReasoningId = ?",
+                content, isComplete, sessionId, reasoningId);
+        }
+        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        {
+            LogError("UpdateReasoningContentAsync", ex);
+        }
     }
 
     /// <summary>
@@ -215,13 +286,20 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task BulkInsertAsync(string sessionId, List<ChatMessage> messages)
     {
-        var db = await GetConnectionAsync();
+        try
+        {
+            var db = await GetConnectionAsync();
 
-        // Clear existing messages for this session first
-        await db.ExecuteAsync("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+            // Clear existing messages for this session first
+            await db.ExecuteAsync("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
 
-        var entities = messages.Select((m, i) => ChatMessageEntity.FromChatMessage(m, sessionId, i)).ToList();
-        await db.InsertAllAsync(entities);
+            var entities = messages.Select((m, i) => ChatMessageEntity.FromChatMessage(m, sessionId, i)).ToList();
+            await db.InsertAllAsync(entities);
+        }
+        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        {
+            LogError("BulkInsertAsync", ex);
+        }
     }
 
     /// <summary>
@@ -229,7 +307,21 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     public async Task ClearSessionAsync(string sessionId)
     {
-        var db = await GetConnectionAsync();
-        await db.ExecuteAsync("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+        try
+        {
+            var db = await GetConnectionAsync();
+            await db.ExecuteAsync("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+        }
+        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        {
+            LogError("ClearSessionAsync", ex);
+        }
+    }
+
+    private void LogError(string method, Exception ex)
+    {
+        // Reset cached connection so next call retries
+        _db = null;
+        System.Diagnostics.Debug.WriteLine($"[ChatDatabase] {method} failed: {ex.Message}");
     }
 }
