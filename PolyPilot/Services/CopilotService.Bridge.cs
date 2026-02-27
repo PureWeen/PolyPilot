@@ -511,6 +511,7 @@ public partial class CopilotService
                         s.Info.History.Clear();
                         s.Info.History.AddRange(messages);
                     }
+                    _requestedHistorySessions.TryRemove(name, out _);
                 }
             }
         }

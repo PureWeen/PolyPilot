@@ -148,11 +148,15 @@ public partial class CopilotService
             // Register in pending map BEFORE posting to UI thread — this prevents
             // rapid consecutive deltas from creating duplicates
             state.PendingReasoningMessages[normalizedReasoningId] = reasoningMsg;
-            // Must add to History on UI thread to avoid concurrent List<T> mutation
+            // Must add to History on UI thread; hold HistoryLock to guard against
+            // concurrent bridge background thread mutations (OnContentReceived, etc.)
             InvokeOnUI(() =>
             {
-                state.Info.History.Add(reasoningMsg);
-                state.Info.MessageCount = state.Info.History.Count;
+                lock (state.Info.HistoryLock)
+                {
+                    state.Info.History.Add(reasoningMsg);
+                    state.Info.MessageCount = state.Info.History.Count;
+                }
                 // Remove from pending — now findable via History search
                 state.PendingReasoningMessages.TryRemove(normalizedReasoningId, out _);
             });
@@ -179,9 +183,13 @@ public partial class CopilotService
 
     private void CompleteReasoningMessages(SessionState state, string sessionName)
     {
-        var openReasoningMessages = state.Info.History
-            .Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete)
-            .ToList();
+        List<ChatMessage> openReasoningMessages;
+        lock (state.Info.HistoryLock)
+        {
+            openReasoningMessages = state.Info.History
+                .Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete)
+                .ToList();
+        }
         if (openReasoningMessages.Count == 0) return;
 
         var completedIds = new List<string>();
@@ -308,12 +316,15 @@ public partial class CopilotService
                 if (!FilteredTools.Contains(startToolName))
                 {
                     // Deduplicate: SDK replays events on resume/reconnect — update existing
-                    var existingTool = state.Info.History.FirstOrDefault(m => m.ToolCallId == startCallId);
-                    if (existingTool != null)
+                    lock (state.Info.HistoryLock)
                     {
-                        // Update with potentially fresher data
-                        if (!string.IsNullOrEmpty(toolInput)) existingTool.ToolInput = toolInput;
-                        break;
+                        var existingTool = state.Info.History.FirstOrDefault(m => m.ToolCallId == startCallId);
+                        if (existingTool != null)
+                        {
+                            // Update with potentially fresher data
+                            if (!string.IsNullOrEmpty(toolInput)) existingTool.ToolInput = toolInput;
+                            break;
+                        }
                     }
 
                     // Flush any accumulated assistant text before adding tool message,
@@ -325,7 +336,10 @@ public partial class CopilotService
                         Invoke(() =>
                         {
                             FlushCurrentResponse(state);
-                            state.Info.History.Add(imgPlaceholder);
+                            lock (state.Info.HistoryLock)
+                            {
+                                state.Info.History.Add(imgPlaceholder);
+                            }
                             OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
                         });
                     }
@@ -335,7 +349,10 @@ public partial class CopilotService
                         Invoke(() =>
                         {
                             FlushCurrentResponse(state);
-                            state.Info.History.Add(toolMsg);
+                            lock (state.Info.HistoryLock)
+                            {
+                                state.Info.History.Add(toolMsg);
+                            }
                             OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
                             OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
                         });
@@ -364,7 +381,11 @@ public partial class CopilotService
                     break;
 
                 // Update the matching tool message in history
-                var histToolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == completeCallId);
+                ChatMessage? histToolMsg;
+                lock (state.Info.HistoryLock)
+                {
+                    histToolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == completeCallId);
+                }
                 if (histToolMsg != null)
                 {
                     var effectiveToolName = completeToolName ?? histToolMsg.ToolName;

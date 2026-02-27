@@ -1786,7 +1786,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var session = GetRemoteSession(sessionName);
             if (session != null && !skipHistoryMessage)
             {
-                session.History.Add(ChatMessage.UserMessage(prompt));
+                lock (session.HistoryLock)
+                {
+                    session.History.Add(ChatMessage.UserMessage(prompt));
+                }
             }
             if (session != null)
                 session.IsProcessing = true;
@@ -2029,8 +2032,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!string.IsNullOrEmpty(partialResponse))
         {
             var msg = new ChatMessage("assistant", partialResponse, DateTime.Now) { Model = state.Info.Model };
-            state.Info.History.Add(msg);
-            state.Info.MessageCount = state.Info.History.Count;
+            lock (state.Info.HistoryLock)
+            {
+                state.Info.History.Add(msg);
+                state.Info.MessageCount = state.Info.History.Count;
+            }
             if (!string.IsNullOrEmpty(state.Info.SessionId))
                 _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
         }
@@ -2482,8 +2488,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     {
         if (_sessions.TryGetValue(name, out var state))
         {
-            state.Info.History.Clear();
-            state.Info.MessageCount = 0;
+            lock (state.Info.HistoryLock)
+            {
+                state.Info.History.Clear();
+                state.Info.MessageCount = 0;
+            }
             OnStateChanged?.Invoke();
         }
     }
