@@ -974,6 +974,102 @@
                     "note": "Shell output contains the echoed text, confirming the platform shell executed successfully"
                 }
             ]
+        },
+        {
+            "id": "session-menu-closes-on-click-outside",
+            "name": "Session contextual menu (⋯) closes when clicking outside, including main content area",
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.more-btn').length > 0",
+                    "expect": {
+                        "equals": true
+                    },
+                    "note": "At least one session exists with a more-btn"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.more-btn')[0].dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true})); true",
+                    "note": "Open the session menu"
+                },
+                {
+                    "action": "wait",
+                    "duration": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.session-menu').length",
+                    "expect": {
+                        "equals": 1
+                    },
+                    "note": "Session menu is open"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('main').dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true})); true",
+                    "note": "Click in the main content area (outside sidebar)"
+                },
+                {
+                    "action": "wait",
+                    "duration": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.session-menu').length",
+                    "expect": {
+                        "equals": 0
+                    },
+                    "note": "Session menu closed after clicking outside in main content area"
+                }
+            ]
+        },
+        {
+            "id": "group-menu-closes-on-click-outside",
+            "name": "Group contextual menu closes when clicking outside, including main content area",
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.group-more-btn').length > 0",
+                    "expect": {
+                        "equals": true
+                    },
+                    "note": "At least one group exists with a more-btn"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.group-more-btn')[0].dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true})); true",
+                    "note": "Open the group menu"
+                },
+                {
+                    "action": "wait",
+                    "duration": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.group-menu').length",
+                    "expect": {
+                        "equals": 1
+                    },
+                    "note": "Group menu is open"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('main').dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true})); true",
+                    "note": "Click in the main content area"
+                },
+                {
+                    "action": "wait",
+                    "duration": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.group-menu').length",
+                    "expect": {
+                        "equals": 0
+                    },
+                    "note": "Group menu closed after clicking outside in main content area"
+                }
+            ]
         }
     ]
 }
