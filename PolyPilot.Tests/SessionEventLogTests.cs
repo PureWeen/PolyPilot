@@ -230,7 +230,7 @@ public class SessionEventLogTests
         if (!File.Exists(razorPath)) return; // Skip if source not available
         var content = File.ReadAllText(razorPath);
         Assert.Contains("@onclick=\"ShowLogPopup\"", content);
-        Assert.Contains("data-trigger=\"log\"", content);
+        Assert.Contains("data-trigger=\"log-", content);
         Assert.Contains("class=\"log-label\"", content);
     }
 

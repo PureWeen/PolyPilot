@@ -254,6 +254,8 @@ public partial class CopilotService
                 }
                 catch { /* skip malformed lines */ }
             }
+            if (result.Count > 500)
+                result = result.GetRange(result.Count - 500, 500);
         }
         catch { /* file read error */ }
         return result;

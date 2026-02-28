@@ -225,7 +225,7 @@
                 <button class="mode-btn" style="margin-left:8px;opacity:0.7" title="Start a reflection cycle" @onclick="InsertReflectCommand">Reflect</button>
             }
             <span class="status-sep">·</span>
-            <span class="log-label" style="font-size:var(--type-footnote)" data-trigger="log" title="View session event log" @onclick="ShowLogPopup">Log</span>
+            <span class="log-label" style="font-size:var(--type-footnote)" data-trigger="log-@EscapeForJs(Session.SessionId ?? "")" title="View session event log" @onclick="ShowLogPopup">Log</span>
             <span class="status-sep">·</span>
             <span class="status-msgs" title="Total messages in this session">@Session.History.Count msgs</span>
             @if (availableSkills?.Count > 0)
@@ -611,16 +611,18 @@
 
     private async Task ShowLogPopup()
     {
-        var entries = CopilotService.GetSessionEventLogSummary(Session.SessionId);
+        var entries = await Task.Run(() => CopilotService.GetSessionEventLogSummary(Session.SessionId));
         string rowsHtml;
+        List<(string Timestamp, string EventType, string Detail)> filtered;
         if (entries.Count == 0)
         {
+            filtered = entries;
             rowsHtml = "<div style=\"padding:14px;color:#6c7086;text-align:center\">No event log available</div>";
         }
         else
         {
             // Skip noisy delta events and show compact log
-            var filtered = entries.Where(e => e.EventType != "assistant.message_delta").ToList();
+            filtered = entries.Where(e => e.EventType != "assistant.message_delta").ToList();
             var rows = string.Join("", filtered.Select(e =>
             {
                 var typeColor = e.EventType switch
@@ -642,12 +644,13 @@
             rowsHtml = rows;
         }
         var jsRows = EscapeForJs(rowsHtml);
-        var headerHtml = EscapeForJs($"<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600;display:flex;justify-content:space-between\"><span>Session Event Log</span><span>{entries.Count} events</span></div>");
+        var sessionTrigger = EscapeForJs("log-" + (Session.SessionId ?? ""));
+        var headerHtml = EscapeForJs($"<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600;display:flex;justify-content:space-between\"><span>Session Event Log</span><span>{filtered.Count} events</span></div>");
         await JS.InvokeVoidAsync("eval", $@"
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
                 if(old) old.remove();
-                var trigger = document.querySelector('[data-trigger=""log""]');
+                var trigger = document.querySelector('[data-trigger=""{sessionTrigger}""]');
                 var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
                 var ov = document.createElement('div');
                 ov.id = 'skills-popup-overlay';
@@ -672,7 +675,8 @@
     }
 
     private static string EscapeForJs(string s) =>
-        s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "");
+        s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "")
+         .Replace("\u2028", "\\u2028").Replace("\u2029", "\\u2029");
 
     private static string TruncateDesc(string desc)
     {
