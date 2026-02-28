@@ -1360,7 +1360,7 @@ public partial class CopilotService
         try
         {
             var synthesisPrompt = BuildSynthesisPrompt(pending.OriginalPrompt, results);
-            await SendPromptAsync(pending.OrchestratorName, synthesisPrompt, cancellationToken: ct);
+            await SendPromptAsync(pending.OrchestratorName, synthesisPrompt, cancellationToken: ct, originalPrompt: pending.OriginalPrompt);
             Debug($"[DISPATCH] Resume synthesis sent to '{pending.OrchestratorName}'");
         }
         catch (Exception ex)
