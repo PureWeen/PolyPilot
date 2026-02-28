@@ -363,6 +363,27 @@ h1:focus {
     color: #e50000;
 }
 
+/* Pre-Blazor loading state — shown before the framework initializes */
+#app > .app-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    background: #0f0f23;
+}
+
+.app-loading-logo {
+    width: 80px;
+    height: auto;
+    opacity: 0.5;
+    animation: pulse-fade 2s ease-in-out infinite;
+}
+
+@keyframes pulse-fade {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.7; }
+}
+
 #blazor-error-ui {
     color-scheme: light only;
     background: lightyellow;
