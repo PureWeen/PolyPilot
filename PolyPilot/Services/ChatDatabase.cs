@@ -77,7 +77,8 @@ public class ChatMessageEntity
 
 public class ChatDatabase : IChatDatabase
 {
-    private SQLiteAsyncConnection? _db;
+    private static SQLiteAsyncConnection? _db;
+    private static readonly SemaphoreSlim _initLock = new(1, 1);
     private static string? _dbPath;
     private static string DbPath => _dbPath ??= GetDbPath();
 
@@ -106,6 +107,7 @@ public class ChatDatabase : IChatDatabase
     internal static void SetDbPathForTesting(string path)
     {
         _dbPath = path;
+        _db = null;
     }
 
     /// <summary>
@@ -120,19 +122,29 @@ public class ChatDatabase : IChatDatabase
     {
         if (_db != null) return _db;
 
-        var dir = Path.GetDirectoryName(DbPath)!;
-        if (!Directory.Exists(dir))
-            Directory.CreateDirectory(dir);
+        await _initLock.WaitAsync();
+        try
+        {
+            if (_db != null) return _db;
 
-        var conn = new SQLiteAsyncConnection(DbPath);
-        await conn.CreateTableAsync<ChatMessageEntity>();
+            var dir = Path.GetDirectoryName(DbPath)!;
+            if (!Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
 
-        // Create index for fast session + order lookups
-        await conn.ExecuteAsync(
-            "CREATE INDEX IF NOT EXISTS idx_session_order ON ChatMessageEntity (SessionId, OrderIndex)");
+            var conn = new SQLiteAsyncConnection(DbPath);
+            await conn.CreateTableAsync<ChatMessageEntity>();
 
-        _db = conn;
-        return _db;
+            // Create index for fast session + order lookups
+            await conn.ExecuteAsync(
+                "CREATE INDEX IF NOT EXISTS idx_session_order ON ChatMessageEntity (SessionId, OrderIndex)");
+
+            _db = conn;
+            return _db;
+        }
+        finally
+        {
+            _initLock.Release();
+        }
     }
 
     /// <summary>
@@ -290,11 +302,12 @@ public class ChatDatabase : IChatDatabase
         {
             var db = await GetConnectionAsync();
 
-            // Clear existing messages for this session first
-            await db.ExecuteAsync("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
-
             var entities = messages.Select((m, i) => ChatMessageEntity.FromChatMessage(m, sessionId, i)).ToList();
-            await db.InsertAllAsync(entities);
+            await db.RunInTransactionAsync(tran =>
+            {
+                tran.Execute("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
+                tran.InsertAll(entities);
+            });
         }
         catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
         {
