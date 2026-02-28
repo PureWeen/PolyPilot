@@ -1187,6 +1187,25 @@
         };
     </script>
 
+    <script>
+        // Click-outside handler for contextual menus.
+        // WebKit treats position:sticky as creating a stacking context, so
+        // position:fixed overlays inside the sidebar don't receive clicks
+        // that land on the main content area. This global mousedown listener
+        // detects clicks outside any open menu and programmatically clicks
+        // the overlay to trigger Blazor's close handler.
+        document.addEventListener('mousedown', function (e) {
+            var overlays = document.querySelectorAll('.menu-overlay, .group-menu-overlay');
+            if (!overlays.length) return;
+            overlays.forEach(function (overlay) {
+                var container = overlay.closest('.session-actions, .card-more-wrapper, .group-menu-wrapper');
+                if (container && !container.contains(e.target)) {
+                    overlay.click();
+                }
+            });
+        });
+    </script>
+
 </body>
 
 </html>
