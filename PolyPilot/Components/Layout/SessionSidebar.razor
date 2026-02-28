@@ -1669,6 +1669,7 @@ else
 
     // --- Bug Report / Fix It ---
     internal const int AutoClosePanelDelayMs = 5000;
+    private CancellationTokenSource? _autoCloseCts;
     private bool showBugReport;
     private bool showFixIt;
     private string bugDescription = "";
@@ -1926,20 +1927,26 @@ else
 
             footerStatus = "✓ Copilot launched in new terminal";
             bugDescription = "";
-            footerSubmitting = false;
-            StateHasChanged();
 
             // Auto-close the dialog after briefly showing the success message
+            _autoCloseCts?.Cancel();
+            _autoCloseCts = new CancellationTokenSource();
+            var cts = _autoCloseCts;
             _ = Task.Run(async () =>
             {
-                await Task.Delay(AutoClosePanelDelayMs);
-                await InvokeAsync(() =>
+                try
                 {
-                    if (footerStatus == "✓ Copilot launched in new terminal")
+                    await Task.Delay(AutoClosePanelDelayMs, cts.Token);
+                    await InvokeAsync(() =>
                     {
-                        CloseFooterPanel();
-                    }
-                });
+                        if (footerStatus == "✓ Copilot launched in new terminal")
+                        {
+                            CloseFooterPanel();
+                        }
+                    });
+                }
+                catch (OperationCanceledException) { }
+                catch (ObjectDisposedException) { }
             });
             return;
         }
@@ -2106,6 +2113,8 @@ Important conventions:
 
     public void Dispose()
     {
+        _autoCloseCts?.Cancel();
+        _autoCloseCts?.Dispose();
         CopilotService.OnStateChanged -= RefreshSessions;
         CopilotService.OnSessionComplete -= HandleSessionComplete;
         CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;

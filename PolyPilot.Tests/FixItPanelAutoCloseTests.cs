@@ -50,7 +50,7 @@ public class FixItPanelAutoCloseTests
     {
         // Verify the auto-close uses Task.Delay (not immediate close)
         var content = ReadSessionSidebar();
-        Assert.Contains("Task.Delay(AutoClosePanelDelayMs)", content);
+        Assert.Contains("Task.Delay(AutoClosePanelDelayMs,", content);
     }
 
     [Fact]
