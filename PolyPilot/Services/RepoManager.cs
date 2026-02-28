@@ -44,7 +44,7 @@ public class RepoManager
 
     // Disk size cache: repoId → (totalBytes, computedAt)
     private readonly ConcurrentDictionary<string, (long Bytes, DateTime ComputedAt)> _diskSizeCache = new();
-    internal static readonly TimeSpan DiskSizeCacheTtl = TimeSpan.FromMinutes(5);
+    internal static readonly TimeSpan DiskSizeCacheTtl = TimeSpan.FromMinutes(7);
 
     public event Action? OnStateChanged;
 
