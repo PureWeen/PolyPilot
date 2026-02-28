@@ -45,6 +45,7 @@ public class RepoManager
     // Disk size cache: repoId → (totalBytes, computedAt)
     private readonly ConcurrentDictionary<string, (long Bytes, DateTime ComputedAt)> _diskSizeCache = new();
     internal static readonly TimeSpan DiskSizeCacheTtl = TimeSpan.FromMinutes(7);
+    private int _refreshingDiskSizes;
 
     public event Action? OnStateChanged;
 
@@ -905,33 +906,43 @@ public class RepoManager
     /// </summary>
     public Task RefreshDiskSizesAsync()
     {
+        if (Interlocked.CompareExchange(ref _refreshingDiskSizes, 1, 0) != 0)
+            return Task.CompletedTask;
+
         return Task.Run(() =>
         {
-            EnsureLoaded();
-            List<RepositoryInfo> repos;
-            List<WorktreeInfo> worktrees;
-            lock (_stateLock)
+            try
             {
-                repos = _state.Repositories.ToList();
-                worktrees = _state.Worktrees.ToList();
-            }
-
-            foreach (var repo in repos)
-            {
-                long total = 0;
-                if (!string.IsNullOrEmpty(repo.BareClonePath) && Directory.Exists(repo.BareClonePath))
-                    total += GetDirectorySizeBytes(repo.BareClonePath);
-
-                foreach (var wt in worktrees.Where(w => w.RepoId == repo.Id))
+                EnsureLoaded();
+                List<RepositoryInfo> repos;
+                List<WorktreeInfo> worktrees;
+                lock (_stateLock)
                 {
-                    if (!string.IsNullOrEmpty(wt.Path) && Directory.Exists(wt.Path))
-                        total += GetDirectorySizeBytes(wt.Path);
+                    repos = _state.Repositories.ToList();
+                    worktrees = _state.Worktrees.ToList();
                 }
 
-                _diskSizeCache[repo.Id] = (total, DateTime.UtcNow);
-            }
+                foreach (var repo in repos)
+                {
+                    long total = 0;
+                    if (!string.IsNullOrEmpty(repo.BareClonePath) && Directory.Exists(repo.BareClonePath))
+                        total += GetDirectorySizeBytes(repo.BareClonePath);
 
-            OnStateChanged?.Invoke();
+                    foreach (var wt in worktrees.Where(w => w.RepoId == repo.Id))
+                    {
+                        if (!string.IsNullOrEmpty(wt.Path) && Directory.Exists(wt.Path))
+                            total += GetDirectorySizeBytes(wt.Path);
+                    }
+
+                    _diskSizeCache[repo.Id] = (total, DateTime.UtcNow);
+                }
+
+                OnStateChanged?.Invoke();
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _refreshingDiskSizes, 0);
+            }
         });
     }
 
