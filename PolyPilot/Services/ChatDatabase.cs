@@ -333,8 +333,10 @@ public class ChatDatabase : IChatDatabase
 
     private void LogError(string method, Exception ex)
     {
-        // Reset cached connection so next call retries
+        // Close and reset cached connection so next call retries with a fresh one
+        var old = _db;
         _db = null;
+        try { _ = old?.CloseAsync(); } catch { }
         System.Diagnostics.Debug.WriteLine($"[ChatDatabase] {method} failed: {ex.Message}");
     }
 }
