@@ -1875,7 +1875,7 @@ public class MultiAgentScenarioTests
 
         // Sidebar would show: 🔄 1/5 📊 0.4 (gpt-4.1)
         var lastEval = state.EvaluationHistory.Last();
-        Assert.Equal("0.4", lastEval.Score.ToString("F1"));
+        Assert.Equal("0.4", lastEval.Score.ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
         Assert.Equal("gpt-4.1", lastEval.EvaluatorModel);
 
         // Step 6: Iteration 2 — significant improvement
