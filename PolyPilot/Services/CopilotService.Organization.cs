@@ -610,6 +610,37 @@ public partial class CopilotService
         Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
 
     /// <summary>
+    /// Resolves the GitHub repo URL for a session (via WorktreeId or group RepoId).
+    /// Returns null if the session has no associated repo.
+    /// </summary>
+    public string? GetRepoUrlForSession(string sessionName)
+    {
+        var meta = GetSessionMeta(sessionName);
+        if (meta == null) return null;
+
+        // Try via WorktreeId first
+        if (meta.WorktreeId != null)
+        {
+            var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
+            if (wt != null)
+            {
+                var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
+                if (repo != null) return repo.Url;
+            }
+        }
+
+        // Fall back to group's RepoId
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+        if (group?.RepoId != null)
+        {
+            var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == group.RepoId);
+            if (repo != null) return repo.Url;
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Check whether a session belongs to a multi-agent group.
     /// Used by the watchdog to apply the longer timeout for orchestrated workers.
     /// </summary>
