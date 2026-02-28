@@ -9,6 +9,11 @@ namespace PolyPilot.Services;
 /// </summary>
 public static class GitHubReferenceLinker
 {
+    // Allowlist for owner/repo path segments — prevents HTML attribute injection
+    private static readonly Regex SafeOwnerRepoRegex = new(
+        @"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+        RegexOptions.Compiled);
+
     // Tags whose content should NOT be processed
     private static readonly HashSet<string> SkipTags = new(StringComparer.OrdinalIgnoreCase)
         { "a", "code", "pre", "script", "style" };
@@ -155,6 +160,7 @@ public static class GitHubReferenceLinker
                     path = path.TrimEnd('/');
                     if (path.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
                         path = path[..^4];
+                    if (!SafeOwnerRepoRegex.IsMatch(path)) return null;
                     return path;
                 }
             }
@@ -168,7 +174,11 @@ public static class GitHubReferenceLinker
 
                 var parts = path.Split('/');
                 if (parts.Length >= 2)
-                    return $"{parts[0]}/{parts[1]}";
+                {
+                    var result = $"{parts[0]}/{parts[1]}";
+                    if (!SafeOwnerRepoRegex.IsMatch(result)) return null;
+                    return result;
+                }
             }
         }
         catch { /* Malformed URL — return null */ }

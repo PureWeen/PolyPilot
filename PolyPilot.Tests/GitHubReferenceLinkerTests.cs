@@ -266,4 +266,18 @@ public class GitHubReferenceLinkerTests
         var result = GitHubReferenceLinker.LinkifyReferences(html);
         Assert.DoesNotContain("href=", result);
     }
+
+    [Fact]
+    public void ExtractOwnerRepo_MaliciousSshUrl_ReturnsNull()
+    {
+        var result = GitHubReferenceLinker.ExtractOwnerRepo("git@github.com:org/repo\" onclick=\"alert(1).git");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ExtractOwnerRepo_MaliciousHttpsUrl_ReturnsNull()
+    {
+        var result = GitHubReferenceLinker.ExtractOwnerRepo("https://github.com/org/repo\"onclick=\"alert(1)");
+        Assert.Null(result);
+    }
 }
