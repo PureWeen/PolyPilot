@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using PolyPilot.Models;
@@ -40,6 +41,11 @@ public class RepoManager
     private readonly object _stateLock = new();
     public IReadOnlyList<RepositoryInfo> Repositories { get { EnsureLoaded(); lock (_stateLock) return _state.Repositories.ToList().AsReadOnly(); } }
     public IReadOnlyList<WorktreeInfo> Worktrees { get { EnsureLoaded(); lock (_stateLock) return _state.Worktrees.ToList().AsReadOnly(); } }
+
+    // Disk size cache: repoId → (totalBytes, computedAt)
+    private readonly ConcurrentDictionary<string, (long Bytes, DateTime ComputedAt)> _diskSizeCache = new();
+    internal static readonly TimeSpan DiskSizeCacheTtl = TimeSpan.FromMinutes(7);
+    private int _refreshingDiskSizes;
 
     public event Action? OnStateChanged;
 
@@ -879,4 +885,102 @@ public class RepoManager
 
         return output;
     }
+
+    #region Disk Size
+
+    /// <summary>
+    /// Returns the cached disk size for a repo (bare clone + worktrees).
+    /// Returns null if not yet computed. Call <see cref="RefreshDiskSizesAsync"/> to populate.
+    /// </summary>
+    public long? GetRepoDiskSize(string repoId)
+    {
+        if (_diskSizeCache.TryGetValue(repoId, out var entry)
+            && DateTime.UtcNow - entry.ComputedAt < DiskSizeCacheTtl)
+            return entry.Bytes;
+        return null;
+    }
+
+    /// <summary>
+    /// Recalculates disk sizes for all tracked repos on a background thread.
+    /// Fires <see cref="OnStateChanged"/> when done so the UI can re-render.
+    /// </summary>
+    public Task RefreshDiskSizesAsync()
+    {
+        if (Interlocked.CompareExchange(ref _refreshingDiskSizes, 1, 0) != 0)
+            return Task.CompletedTask;
+
+        return Task.Run(() =>
+        {
+            try
+            {
+                EnsureLoaded();
+                List<RepositoryInfo> repos;
+                List<WorktreeInfo> worktrees;
+                lock (_stateLock)
+                {
+                    repos = _state.Repositories.ToList();
+                    worktrees = _state.Worktrees.ToList();
+                }
+
+                foreach (var repo in repos)
+                {
+                    long total = 0;
+                    if (!string.IsNullOrEmpty(repo.BareClonePath) && Directory.Exists(repo.BareClonePath))
+                        total += GetDirectorySizeBytes(repo.BareClonePath);
+
+                    foreach (var wt in worktrees.Where(w => w.RepoId == repo.Id))
+                    {
+                        if (!string.IsNullOrEmpty(wt.Path) && Directory.Exists(wt.Path))
+                            total += GetDirectorySizeBytes(wt.Path);
+                    }
+
+                    _diskSizeCache[repo.Id] = (total, DateTime.UtcNow);
+                }
+
+                OnStateChanged?.Invoke();
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _refreshingDiskSizes, 0);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Recursively calculates total file size in bytes for a directory.
+    /// </summary>
+    internal static long GetDirectorySizeBytes(string path)
+    {
+        long total = 0;
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+            {
+                try { total += new FileInfo(file).Length; }
+                catch { /* skip inaccessible files */ }
+            }
+        }
+        catch { /* directory may have become inaccessible */ }
+        return total;
+    }
+
+    /// <summary>
+    /// Formats a byte count as a human-readable string (e.g., "1.2 GB", "340 MB").
+    /// </summary>
+    public static string FormatSize(long bytes)
+    {
+        const long KB = 1024;
+        const long MB = KB * 1024;
+        const long GB = MB * 1024;
+
+        return bytes switch
+        {
+            >= GB => string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:F1} GB", bytes / (double)GB),
+            >= MB => string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:F1} MB", bytes / (double)MB),
+            >= KB => string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:F1} KB", bytes / (double)KB),
+            _ => $"{bytes} B"
+        };
+    }
+
+    #endregion
 }

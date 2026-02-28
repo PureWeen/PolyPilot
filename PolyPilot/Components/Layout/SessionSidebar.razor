@@ -173,6 +173,7 @@ else
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
 
     private Dictionary<string, (OrchestratorPhase Phase, string? Detail)> _groupPhases = new();
+    private Timer? _diskSizeTimer;
 
     private static string PhaseLabel(OrchestratorPhase phase, string? detail) => phase switch
     {
@@ -385,6 +386,9 @@ else
                         var isRepoGroup = !string.IsNullOrEmpty(group.RepoId);
                         var repoForGroup = isRepoGroup ? RepoManager.Repositories.FirstOrDefault(r => r.Id == group.RepoId) : null;
                         var groupTitle = repoForGroup != null ? $"{repoForGroup.Url}\n{repoForGroup.BareClonePath}" : "";
+                        var repoDiskSize = repoForGroup != null ? RepoManager.GetRepoDiskSize(repoForGroup.Id) : null;
+                        if (repoDiskSize.HasValue)
+                            groupTitle += $"\nDisk: {RepoManager.FormatSize(repoDiskSize.Value)}";
                         <div class="group-header @(group.IsCollapsed ? "collapsed" : "") @(isRepoGroup ? "repo-group" : "")"
                              title="@groupTitle"
                              @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
@@ -419,6 +423,10 @@ else
                                 <span class="group-name">@group.Name</span>
                             }
                             <span class="group-count">@groupSessions.Count</span>
+                            @if (repoDiskSize.HasValue)
+                            {
+                                <span class="group-disk-size">@RepoManager.FormatSize(repoDiskSize.Value)</span>
+                            }
                             @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
                             {
                                 <span class="group-busy-dot"></span>
@@ -864,6 +872,11 @@ else
                     }
                 });
             ");
+
+            // Initial disk size scan + periodic refresh
+            _ = RepoManager.RefreshDiskSizesAsync();
+            _diskSizeTimer = new Timer(_ => _ = RepoManager.RefreshDiskSizesAsync(),
+                null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
         }
     }
 
@@ -2116,6 +2129,7 @@ Important conventions:
     {
         _autoCloseCts?.Cancel();
         _autoCloseCts?.Dispose();
+        _diskSizeTimer?.Dispose();
         CopilotService.OnStateChanged -= RefreshSessions;
         CopilotService.OnSessionComplete -= HandleSessionComplete;
         CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;

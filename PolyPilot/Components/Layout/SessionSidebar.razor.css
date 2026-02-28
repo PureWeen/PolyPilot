@@ -275,6 +275,13 @@
 .group-count::before { content: "("; }
 .group-count::after { content: ")"; }
 
+.group-disk-size {
+    font-size: var(--type-caption2);
+    color: var(--text-dim);
+    margin-left: 2px;
+    white-space: nowrap;
+}
+
 .group-worktree-badge {
     font-size: var(--type-caption2);
     color: var(--text-dim);
