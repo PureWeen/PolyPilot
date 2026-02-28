@@ -61,6 +61,11 @@ public class ConnectionSettings
     public List<string> DisabledMcpServers { get; set; } = new();
     public List<string> DisabledPlugins { get; set; } = new();
     public bool EnableSessionNotifications { get; set; } = false;
+    /// <summary>
+    /// Custom directory for storing bare repo clones and worktrees.
+    /// When null, uses the default ~/.polypilot location.
+    /// </summary>
+    public string? RepoStorageDir { get; set; }
 
     /// <summary>
     /// Normalizes a remote URL by ensuring it has an http(s):// scheme.
