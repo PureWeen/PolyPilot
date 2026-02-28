@@ -1761,7 +1761,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
-    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default, bool skipHistoryMessage = false, string? agentMode = null)
+    public async Task<string> SendPromptAsync(string sessionName, string prompt, List<string>? imagePaths = null, CancellationToken cancellationToken = default, bool skipHistoryMessage = false, string? agentMode = null, string? originalPrompt = null)
     {
         // Normalize smart punctuation (macOS/WebKit converts -- to em dash, etc.)
         prompt = SmartPunctuationNormalizer.Normalize(prompt);
@@ -1773,7 +1773,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 throw new InvalidOperationException($"Session '{sessionName}' not found.");
             if (!skipHistoryMessage)
             {
-                demoState.Info.History.Add(ChatMessage.UserMessage(prompt));
+                var msg = ChatMessage.UserMessage(prompt);
+                if (originalPrompt != null) msg.OriginalContent = originalPrompt;
+                demoState.Info.History.Add(msg);
                 demoState.Info.MessageCount = demoState.Info.History.Count;
             }
             demoState.CurrentResponse.Clear();
@@ -1789,7 +1791,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var session = GetRemoteSession(sessionName);
             if (session != null && !skipHistoryMessage)
             {
-                session.History.Add(ChatMessage.UserMessage(prompt));
+                var msg = ChatMessage.UserMessage(prompt);
+                if (originalPrompt != null) msg.OriginalContent = originalPrompt;
+                session.History.Add(msg);
             }
             if (session != null)
                 session.IsProcessing = true;
@@ -1832,7 +1836,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var displayPrompt = prompt;
             if (imagePaths != null && imagePaths.Count > 0)
                 displayPrompt += "\n" + string.Join("\n", imagePaths);
-            state.Info.History.Add(new ChatMessage("user", displayPrompt, DateTime.Now));
+            var userMsg = new ChatMessage("user", displayPrompt, DateTime.Now);
+            if (originalPrompt != null) userMsg.OriginalContent = originalPrompt;
+            state.Info.History.Add(userMsg);
 
             state.Info.MessageCount = state.Info.History.Count;
             state.Info.LastReadMessageCount = state.Info.History.Count;

@@ -907,7 +907,7 @@ public partial class CopilotService
 
             try
             {
-                await SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken);
+                await SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken, originalPrompt: prompt);
             }
             catch (Exception ex)
             {
@@ -938,7 +938,7 @@ public partial class CopilotService
 
             try
             {
-                await SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken);
+                await SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken, originalPrompt: prompt);
             }
             catch (Exception ex)
             {
@@ -965,7 +965,7 @@ public partial class CopilotService
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Planning, null));
 
         var planningPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group?.OrchestratorPrompt, group?.RoutingContext);
-        var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken);
+        var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken, originalPrompt: prompt);
 
         // Phase 2: Parse task assignments from orchestrator response
         var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
@@ -1012,7 +1012,7 @@ public partial class CopilotService
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
 
             var synthesisPrompt = BuildSynthesisPrompt(prompt, results.ToList());
-            await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken);
+            await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken, originalPrompt: prompt);
         }
         finally
         {
@@ -1141,7 +1141,7 @@ public partial class CopilotService
         try
         {
             Debug($"[DISPATCH] Worker '{workerName}' starting (prompt len={workerPrompt.Length})");
-            var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken);
+            var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
             Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response.Length}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
             return new WorkerResult(workerName, response, true, null, sw.Elapsed);
         }
@@ -1152,14 +1152,14 @@ public partial class CopilotService
         }
     }
 
-    private async Task<string> SendPromptAndWaitAsync(string sessionName, string prompt, CancellationToken cancellationToken)
+    private async Task<string> SendPromptAndWaitAsync(string sessionName, string prompt, CancellationToken cancellationToken, string? originalPrompt = null)
     {
         // Use SendPromptAsync directly — it already awaits ResponseCompletion internally.
         // Do NOT capture state and await its TCS separately: reconnection replaces the state
         // object, orphaning the old TCS and causing a 10-minute hang.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromMinutes(10));
-        return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token);
+        return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token, originalPrompt: originalPrompt);
     }
 
     private string BuildSynthesisPrompt(string originalPrompt, List<WorkerResult> results)
@@ -1391,7 +1391,7 @@ public partial class CopilotService
         try
         {
             var synthesisPrompt = BuildSynthesisPrompt(pending.OriginalPrompt, results);
-            await SendPromptAsync(pending.OrchestratorName, synthesisPrompt, cancellationToken: ct);
+            await SendPromptAsync(pending.OrchestratorName, synthesisPrompt, cancellationToken: ct, originalPrompt: pending.OriginalPrompt);
             Debug($"[DISPATCH] Resume synthesis sent to '{pending.OrchestratorName}'");
         }
         catch (Exception ex)
@@ -1802,9 +1802,8 @@ public partial class CopilotService
                 planPrompt = BuildReplanPrompt(reflectState.LastEvaluation ?? "Continue iterating.", workerNames, prompt, group.RoutingContext);
             }
 
-            var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct);
+            var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct, originalPrompt: prompt);
             var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
-            // Deduplicate: merge multiple tasks for the same worker into one prompt
             var assignments = rawAssignments
                 .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
                 .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
@@ -1877,11 +1876,11 @@ public partial class CopilotService
             {
                 // Send results to orchestrator for synthesis
                 var synthOnlyPrompt = BuildSynthesisOnlyPrompt(prompt, results.ToList());
-                synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthOnlyPrompt, ct);
+                synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthOnlyPrompt, ct, originalPrompt: prompt);
 
                 // Send to evaluator for independent scoring
                 var evalOnlyPrompt = BuildEvaluatorPrompt(prompt, synthesisResponse, reflectState);
-                var evalResponse = await SendPromptAndWaitAsync(evaluatorName, evalOnlyPrompt, ct);
+                var evalResponse = await SendPromptAndWaitAsync(evaluatorName, evalOnlyPrompt, ct, originalPrompt: prompt);
 
                 // Parse score from evaluator
                 var (score, rationale) = ParseEvaluationScore(evalResponse);
@@ -1920,7 +1919,7 @@ public partial class CopilotService
             }
             else
             {
-                synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthEvalPrompt, ct);
+                synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthEvalPrompt, ct, originalPrompt: prompt);
 
                 // Check completion sentinel — but only if all workers have participated successfully
                 if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase)

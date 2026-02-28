@@ -33,6 +33,9 @@ public class ChatMessageEntity
     // Cached base64 data URI for image tool results
     public string? ImageDataUri { get; set; }
 
+    // Original user-typed prompt before orchestration wrapper was prepended
+    public string? OriginalContent { get; set; }
+
     public ChatMessage ToChatMessage()
     {
         var type = Enum.TryParse<ChatMessageType>(MessageType, out var mt) ? mt : ChatMessageType.User;
@@ -46,7 +49,8 @@ public class ChatMessageEntity
             IsSuccess = IsSuccess,
             IsCollapsed = type is ChatMessageType.ToolCall or ChatMessageType.Reasoning,
             ReasoningId = ReasoningId,
-            Model = Model
+            Model = Model,
+            OriginalContent = OriginalContent
         };
         return msg;
     }
@@ -65,7 +69,8 @@ public class ChatMessageEntity
             IsSuccess = msg.IsSuccess,
             ReasoningId = msg.ReasoningId,
             Timestamp = msg.Timestamp,
-            Model = msg.Model
+            Model = msg.Model,
+            OriginalContent = msg.OriginalContent
         };
     }
 }

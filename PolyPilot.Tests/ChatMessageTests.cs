@@ -170,6 +170,49 @@ public class ChatMessageTests
         Assert.Null(msg.Model);
     }
 
+    [Fact]
+    public void OriginalContent_DefaultsToNull()
+    {
+        var msg = ChatMessage.UserMessage("hello");
+        Assert.Null(msg.OriginalContent);
+    }
+
+    [Fact]
+    public void OriginalContent_CanBeSet()
+    {
+        var msg = ChatMessage.UserMessage("[Multi-agent context: ...]\n\nfix the bug");
+        msg.OriginalContent = "fix the bug";
+
+        Assert.Equal("fix the bug", msg.OriginalContent);
+        Assert.Equal("[Multi-agent context: ...]\n\nfix the bug", msg.Content);
+    }
+
+    [Fact]
+    public void OriginalContent_PreservedOnDeserialization()
+    {
+        var msg = new ChatMessage("user", "full orchestration prompt", DateTime.Now)
+        {
+            OriginalContent = "user typed this"
+        };
+
+        // Simulate round-trip via JSON
+        var json = System.Text.Json.JsonSerializer.Serialize(msg);
+        var deserialized = System.Text.Json.JsonSerializer.Deserialize<ChatMessage>(json);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal("user typed this", deserialized!.OriginalContent);
+        Assert.Equal("full orchestration prompt", deserialized.Content);
+    }
+
+    [Fact]
+    public void OriginalContent_NullWhenNotOrchestrated()
+    {
+        // Regular user messages should not have OriginalContent set
+        var msg = ChatMessage.UserMessage("simple prompt");
+        Assert.Null(msg.OriginalContent);
+        Assert.Equal("simple prompt", msg.Content);
+    }
+
     // --- Interrupted turn system messages ---
 
     [Fact]

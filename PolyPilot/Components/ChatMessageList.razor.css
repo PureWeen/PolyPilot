@@ -121,6 +121,36 @@
     margin-bottom: 0;
 }
 
+::deep .orchestration-prompt-details {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+}
+
+::deep .orchestration-prompt-details summary {
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 0.75rem;
+    user-select: none;
+}
+
+::deep .orchestration-prompt-details summary:hover {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+::deep .orchestration-prompt-details .orchestration-prompt-content {
+    margin-top: 0.4rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.55);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
 .chat-message-list.full ::deep .chat-msg.assistant .chat-msg-content {
     background: rgba(0, 195, 91, 0.06);
     border: 1px solid rgba(0, 195, 91, 0.12);
