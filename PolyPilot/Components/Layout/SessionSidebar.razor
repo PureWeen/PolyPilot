@@ -1930,6 +1930,7 @@ else
 
             // Auto-close the dialog after briefly showing the success message
             _autoCloseCts?.Cancel();
+            _autoCloseCts?.Dispose();
             _autoCloseCts = new CancellationTokenSource();
             var cts = _autoCloseCts;
             _ = Task.Run(async () =>
