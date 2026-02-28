@@ -107,7 +107,9 @@ public class ChatDatabase : IChatDatabase
     internal static void SetDbPathForTesting(string path)
     {
         _dbPath = path;
+        var old = _db;
         _db = null;
+        try { _ = old?.CloseAsync(); } catch { }
     }
 
     /// <summary>
@@ -115,7 +117,9 @@ public class ChatDatabase : IChatDatabase
     /// </summary>
     internal void ResetConnection()
     {
+        var old = _db;
         _db = null;
+        try { _ = old?.CloseAsync(); } catch { }
     }
 
     private async Task<SQLiteAsyncConnection> GetConnectionAsync()
