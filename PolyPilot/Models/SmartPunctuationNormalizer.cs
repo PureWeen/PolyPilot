@@ -7,10 +7,10 @@ namespace PolyPilot.Models;
 /// </summary>
 public static class SmartPunctuationNormalizer
 {
-    public static string Normalize(string text)
+    public static string Normalize(string? text)
     {
         if (string.IsNullOrEmpty(text))
-            return text;
+            return text ?? string.Empty;
 
         return text
             .Replace("\u2014", "--")  // em dash → --

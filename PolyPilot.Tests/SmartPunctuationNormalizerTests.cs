@@ -55,9 +55,9 @@ public class SmartPunctuationNormalizerTests
     }
 
     [Fact]
-    public void NullInput_ReturnsNull()
+    public void NullInput_ReturnsEmpty()
     {
-        Assert.Null(SmartPunctuationNormalizer.Normalize(null!));
+        Assert.Equal(string.Empty, SmartPunctuationNormalizer.Normalize(null!));
     }
 
     [Fact]

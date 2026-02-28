@@ -341,8 +341,7 @@
 
         window.getElementValue = function(elementId) {
             var el = document.getElementById(elementId);
-            var val = el ? (el.value || '') : '';
-            return window.normalizeSmartPunctuation(val);
+            return el ? (el.value || '') : '';
         };
 
         window.clearElementValue = function(elementId) {
