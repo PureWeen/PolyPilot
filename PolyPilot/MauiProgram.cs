@@ -1,4 +1,5 @@
 using PolyPilot.Services;
+using PolyPilot.Models;
 using Microsoft.Extensions.Logging;
 using ZXing.Net.Maui.Controls;
 using MauiDevFlow.Agent;
@@ -113,7 +114,12 @@ public static class MauiProgram
 		builder.AddMauiBlazorDevFlowTools();
 #endif
 
-		return builder.Build();
+		var app = builder.Build();
+		// Apply custom repo storage directory from settings before any RepoManager access.
+		// Failure is intentionally swallowed — a bad path won't prevent the app from starting;
+		// RepoManager will fall back to the default ~/.polypilot location.
+		try { RepoManager.SetCustomStorageDir(ConnectionSettings.Load().RepoStorageDir); } catch { }
+		return app;
 	}
 
 	private static void LogException(string source, Exception? ex)
