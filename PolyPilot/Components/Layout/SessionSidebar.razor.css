@@ -1723,3 +1723,66 @@
     padding: 2px 0 0;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Scheduled prompt form */
+.schedule-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+}
+.schedule-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    min-width: 30px;
+}
+.schedule-select {
+    flex: 1;
+    background: var(--surface-secondary);
+    border: 1px solid var(--control-border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    padding: 3px 6px;
+}
+.schedule-list {
+    border-top: 1px solid var(--control-border);
+    margin-top: 6px;
+    padding: 6px 8px 0;
+}
+.schedule-list-header {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+.schedule-list-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 0;
+    font-size: 0.75rem;
+}
+.schedule-list-item.disabled { opacity: 0.5; }
+.schedule-item-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+.schedule-item-time {
+    font-size: 0.7rem;
+    color: var(--accent-secondary, #58a6ff);
+    white-space: nowrap;
+}
+.schedule-item-delete {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    padding: 0 2px;
+    font-size: 0.75rem;
+    opacity: 0.6;
+}
+.schedule-item-delete:hover { color: var(--accent-primary); opacity: 1; }

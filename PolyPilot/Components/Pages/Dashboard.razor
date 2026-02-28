@@ -10,6 +10,7 @@
 @inject GitAutoUpdateService GitAutoUpdate
 @inject QrScannerService QrScanner
 @inject FiestaService FiestaService
+@inject ScheduledPromptService ScheduledPrompts
 @implements IAsyncDisposable
 
 <div class="dashboard @(expandedSession != null ? "expanded-mode" : "")">
@@ -324,12 +325,90 @@
                                  OnSend="(text) => SendFromCard(session.Name, text)"
                                  OnStartRename="() => StartCardRename(session.Name)"
                                  OnCommitRename="(newName) => CommitCardRename()"
-                                 OnCloseMenu="() => { cardMenuSession = null; }" />
+                                 OnCloseMenu="() => { cardMenuSession = null; }"
+                                 OnSchedulePrompt="(name) => OpenSchedulePanel(name)" />
 
                 }
                 </div>
             }
         }
+    }
+
+    @if (_scheduleDialogSession != null)
+    {
+        <div class="schedule-dialog-overlay" @onclick="CloseSchedulePanel">
+            <div class="schedule-dialog" @onclick:stopPropagation="true">
+                <div class="schedule-dialog-header">
+                    <span>📅 Schedule a Prompt</span>
+                    <button class="flyout-close-btn" @onclick="CloseSchedulePanel">✕</button>
+                </div>
+                <label class="schedule-dialog-label">Session: <strong>@_scheduleDialogSession</strong></label>
+                <input type="text" class="schedule-dialog-input" @bind="_scheduleLabel" placeholder="Label (optional)" />
+                <textarea class="schedule-dialog-textarea" @bind="_schedulePrompt" placeholder="Prompt to send when timer fires…" rows="4"></textarea>
+                <div class="schedule-dialog-row">
+                    <label>Run:</label>
+                    <select @bind="_scheduleType">
+                        <option value="delay">After a delay</option>
+                        <option value="repeat">Repeating</option>
+                    </select>
+                </div>
+                @if (_scheduleType == "delay")
+                {
+                    <div class="schedule-dialog-row">
+                        <label>Delay:</label>
+                        <select @bind="_scheduleDelayMinutes">
+                            <option value="1">In 1 minute</option>
+                            <option value="5">In 5 minutes</option>
+                            <option value="10">In 10 minutes</option>
+                            <option value="15">In 15 minutes</option>
+                            <option value="30">In 30 minutes</option>
+                            <option value="60">In 1 hour</option>
+                            <option value="120">In 2 hours</option>
+                        </select>
+                    </div>
+                }
+                else
+                {
+                    <div class="schedule-dialog-row">
+                        <label>Every:</label>
+                        <select @bind="_scheduleRepeatMinutes">
+                            <option value="5">5 minutes</option>
+                            <option value="15">15 minutes</option>
+                            <option value="30">30 minutes</option>
+                            <option value="60">1 hour</option>
+                            <option value="120">2 hours</option>
+                            <option value="360">6 hours</option>
+                            <option value="1440">Daily</option>
+                        </select>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(_scheduleStatus))
+                {
+                    <div class="schedule-dialog-status @(_scheduleStatus.StartsWith("✓") ? "success" : "error")">@_scheduleStatus</div>
+                }
+                <div class="schedule-dialog-actions">
+                    <button class="schedule-dialog-btn" @onclick="ConfirmSchedule">Schedule</button>
+                </div>
+                @{
+                    var existing = ScheduledPrompts.Prompts.Where(p => p.SessionName == _scheduleDialogSession).ToList();
+                }
+                @if (existing.Any())
+                {
+                    <div class="schedule-dialog-list">
+                        <div class="schedule-dialog-list-title">Active schedules for @_scheduleDialogSession</div>
+                        @foreach (var sp in existing)
+                        {
+                            var spId = sp.Id;
+                            <div class="schedule-dialog-list-item @(sp.IsEnabled ? "" : "disabled")">
+                                <span class="sdi-name" title="@sp.Prompt">@sp.DisplayName</span>
+                                <span class="sdi-time">@FormatCardNextRun(sp)</span>
+                                <button class="sdi-delete" @onclick="() => ScheduledPrompts.Remove(spId)" title="Remove">✕</button>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
     }
 
     @if (_showFontBubble)
@@ -379,6 +458,15 @@
     private string? initError;
     private bool _initializationComplete = false;
     private readonly Dictionary<string, ChatMessage> _fiestaStreamingMessages = new(StringComparer.Ordinal);
+
+    // Scheduled prompt dialog state (card-triggered)
+    private string? _scheduleDialogSession;
+    private string _scheduleLabel = "";
+    private string _schedulePrompt = "";
+    private string _scheduleType = "delay";
+    private int _scheduleDelayMinutes = 5;
+    private int _scheduleRepeatMinutes = 60;
+    private string? _scheduleStatus;
     private Dictionary<string, (OrchestratorPhase Phase, string? Detail)> _groupPhases = new();
 
     protected override async Task OnInitializedAsync()
@@ -2352,6 +2440,50 @@
         {
             CopilotService.RenameSession(oldName, newName.Trim());
         }
+    }
+
+    private void OpenSchedulePanel(string sessionName)
+    {
+        _scheduleDialogSession = sessionName;
+        _scheduleLabel = "";
+        _schedulePrompt = "";
+        _scheduleType = "delay";
+        _scheduleDelayMinutes = 5;
+        _scheduleStatus = null;
+    }
+
+    private void CloseSchedulePanel()
+    {
+        _scheduleDialogSession = null;
+        _scheduleStatus = null;
+    }
+
+    private void ConfirmSchedule()
+    {
+        if (string.IsNullOrWhiteSpace(_schedulePrompt))
+        {
+            _scheduleStatus = "⚠ Enter a prompt.";
+            return;
+        }
+        var runAt = _scheduleType == "delay"
+            ? DateTime.UtcNow.AddMinutes(_scheduleDelayMinutes)
+            : DateTime.UtcNow.AddMinutes(_scheduleRepeatMinutes);
+        var repeat = _scheduleType == "repeat" ? _scheduleRepeatMinutes : 0;
+        ScheduledPrompts.Add(_scheduleDialogSession!, _schedulePrompt, _scheduleLabel, runAt, repeat);
+        _scheduleStatus = "✓ Scheduled!";
+        _schedulePrompt = "";
+        _scheduleLabel = "";
+    }
+
+    private static string FormatCardNextRun(ScheduledPrompt sp)
+    {
+        if (!sp.IsEnabled || sp.NextRunAt == null) return "disabled";
+        var diff = sp.NextRunAt.Value - DateTime.UtcNow;
+        if (diff.TotalSeconds < 0) return "due now";
+        if (diff.TotalMinutes < 1) return "< 1 min";
+        if (diff.TotalHours < 1) return $"{(int)diff.TotalMinutes}m";
+        if (diff.TotalDays < 1) return $"{(int)diff.TotalHours}h {diff.Minutes}m";
+        return $"{(int)diff.TotalDays}d";
     }
 
     private async Task HandleCardRenameKeyDown(KeyboardEventArgs e)

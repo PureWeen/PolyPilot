@@ -71,6 +71,8 @@
     <Compile Include="../PolyPilot/Models/TutorialStep.cs" Link="Shared/TutorialStep.cs" />
     <Compile Include="../PolyPilot/Services/TutorialService.cs" Link="Shared/TutorialService.cs" />
     <Compile Include="../PolyPilot/BuildInfo.cs" Link="Shared/BuildInfo.cs" />
+    <Compile Include="../PolyPilot/Models/ScheduledPrompt.cs" Link="Shared/ScheduledPrompt.cs" />
+    <Compile Include="../PolyPilot/Services/ScheduledPromptService.cs" Link="Shared/ScheduledPromptService.cs" />
   </ItemGroup>
 
 </Project>

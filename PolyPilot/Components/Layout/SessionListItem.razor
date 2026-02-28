@@ -129,6 +129,9 @@
                         🔔 Notify when done
                     </button>
                 }
+                <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnSchedulePrompt.InvokeAsync(Session.Name); }">
+                    📅 Schedule a prompt…
+                </button>
                 @if (Groups != null && Groups.Count > 1)
                 {
                     <div class="menu-separator"></div>
@@ -244,6 +247,7 @@
     [Parameter] public EventCallback OnCloseMenu { get; set; }
     [Parameter] public EventCallback OnReportBug { get; set; }
     [Parameter] public EventCallback OnFixWithCopilot { get; set; }
+    [Parameter] public EventCallback<string> OnSchedulePrompt { get; set; }
 
     /// <summary>
     /// Show close confirmation via a JS-created dialog (outside Blazor's DOM tree).

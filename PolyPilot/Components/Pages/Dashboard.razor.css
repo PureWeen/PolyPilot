@@ -1444,3 +1444,138 @@
 .ma-expanded-toolbar-input::placeholder {
     color: var(--text-muted);
 }
+
+/* Schedule prompt dialog (card-triggered overlay) */
+.schedule-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.schedule-dialog {
+    background: var(--surface-primary);
+    border: 1px solid var(--control-border);
+    border-radius: 10px;
+    padding: 16px;
+    width: 340px;
+    max-width: 90vw;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.schedule-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+.schedule-dialog-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+.schedule-dialog-input {
+    background: var(--surface-secondary);
+    border: 1px solid var(--control-border);
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-size: 0.82rem;
+    padding: 6px 8px;
+    width: 100%;
+    box-sizing: border-box;
+}
+.schedule-dialog-textarea {
+    background: var(--surface-secondary);
+    border: 1px solid var(--control-border);
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-size: 0.82rem;
+    padding: 6px 8px;
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    font-family: inherit;
+}
+.schedule-dialog-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+}
+.schedule-dialog-row label { color: var(--text-secondary); white-space: nowrap; }
+.schedule-dialog-row select {
+    flex: 1;
+    background: var(--surface-secondary);
+    border: 1px solid var(--control-border);
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-size: 0.82rem;
+    padding: 4px 6px;
+}
+.schedule-dialog-status {
+    font-size: 0.78rem;
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+.schedule-dialog-status.success { color: #3fb950; }
+.schedule-dialog-status.error { color: var(--accent-primary); }
+.schedule-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+.schedule-dialog-btn {
+    background: var(--accent-secondary, #58a6ff);
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: 6px 16px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+.schedule-dialog-btn:hover { opacity: 0.85; }
+.schedule-dialog-list {
+    border-top: 1px solid var(--control-border);
+    padding-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.schedule-dialog-list-title {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+}
+.schedule-dialog-list-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.78rem;
+}
+.schedule-dialog-list-item.disabled { opacity: 0.45; }
+.sdi-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+.sdi-time {
+    font-size: 0.7rem;
+    color: var(--accent-secondary, #58a6ff);
+    white-space: nowrap;
+}
+.sdi-delete {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    padding: 0 2px;
+    opacity: 0.6;
+}
+.sdi-delete:hover { color: var(--accent-primary); opacity: 1; }
