@@ -10,6 +10,10 @@
             {
                 <span class="card-pin-indicator">📌</span>
             }
+            @if (Session.NotifyOnComplete)
+            {
+                <span class="card-pin-indicator" title="Notify when done">🔔</span>
+            }
             <span class="card-status-dot @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : "idle")"></span>
             @if (IsRenaming)
             {
@@ -49,6 +53,21 @@
                         📌 Pin
                     </button>
                 }
+                @if (Session.NotifyOnComplete)
+                {
+                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionNotifyOnComplete(Session.Name, false); }">
+                        🔔 Watching (tap to stop)
+                    </button>
+                }
+                else
+                {
+                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionNotifyOnComplete(Session.Name, true); }">
+                        🔔 Notify when done
+                    </button>
+                }
+                <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnSchedulePrompt.InvokeAsync(Session.Name); }">
+                    📅 Schedule a prompt…
+                </button>
                 <div class="card-menu-separator"></div>
                 <button class="card-menu-item destructive" @onclick="async () => { await OnCloseMenu.InvokeAsync(); _ = CopilotService.CloseSessionAsync(Session.Name); }">
                     ✕ Close Session
@@ -185,6 +204,7 @@
     [Parameter] public EventCallback OnClearQueue { get; set; }
     [Parameter] public EventCallback<int> OnRemovePendingImage { get; set; }
     [Parameter] public EventCallback<string> OnSend { get; set; } // message text
+    [Parameter] public EventCallback<string> OnSchedulePrompt { get; set; }
     private async Task HandleRenameKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")

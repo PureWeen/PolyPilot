@@ -167,4 +167,22 @@ public class AgentSessionInfoTests
 
         Assert.Equal(0, session.UnreadCount);
     }
+
+    [Fact]
+    public void NotifyOnComplete_DefaultsFalse()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        Assert.False(session.NotifyOnComplete);
+    }
+
+    [Fact]
+    public void NotifyOnComplete_CanBeSetAndCleared()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.NotifyOnComplete = true;
+        Assert.True(session.NotifyOnComplete);
+
+        session.NotifyOnComplete = false;
+        Assert.False(session.NotifyOnComplete);
+    }
 }

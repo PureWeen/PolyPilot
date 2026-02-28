@@ -105,6 +105,7 @@ public static class MauiProgram
 	builder.Services.AddSingleton<TutorialService>();
 	builder.Services.AddSingleton<UsageStatsService>();
 	builder.Services.AddSingleton<INotificationManagerService, NotificationManagerService>();
+	builder.Services.AddSingleton<ScheduledPromptService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

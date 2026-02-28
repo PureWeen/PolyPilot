@@ -2,6 +2,7 @@
 @using PolyPilot.Models
 @inject CopilotService CopilotService
 @inject RepoManager RepoManager
+@inject ScheduledPromptService ScheduledPrompts
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @implements IDisposable
@@ -142,6 +143,85 @@ else
                             @(footerSubmitting ? "Launching…" : "Launch Copilot")
                         </button>
                     </div>
+                </div>
+            }
+            else if (showSchedule)
+            {
+                <div class="bug-report-inline">
+                    <div class="bug-report-header">
+                        <span>📅 Schedule a Prompt</span>
+                        <button class="flyout-close-btn" @onclick="CloseFooterPanel" aria-label="Close panel">✕</button>
+                    </div>
+                    <select class="bug-report-select" @bind="scheduleSessionName" aria-label="Select session">
+                        @foreach (var s in CopilotService.GetAllSessions())
+                        {
+                            <option value="@s.Name">@s.Name</option>
+                        }
+                    </select>
+                    <input type="text" class="bug-report-select" @bind="scheduleLabel" placeholder="Label (optional)" aria-label="Label" />
+                    <textarea class="bug-report-textarea" @bind="schedulePrompt" placeholder="Prompt to send…" rows="3" aria-label="Prompt"></textarea>
+                    <div class="schedule-row">
+                        <label class="schedule-label">Run:</label>
+                        <select class="schedule-select" @bind="scheduleType">
+                            <option value="delay">After a delay</option>
+                            <option value="repeat">On a repeating schedule</option>
+                        </select>
+                    </div>
+                    @if (scheduleType == "delay")
+                    {
+                        <div class="schedule-row">
+                            <label class="schedule-label">Delay:</label>
+                            <select class="schedule-select" @bind="scheduleDelayMinutes">
+                                <option value="1">In 1 minute</option>
+                                <option value="5">In 5 minutes</option>
+                                <option value="10">In 10 minutes</option>
+                                <option value="15">In 15 minutes</option>
+                                <option value="30">In 30 minutes</option>
+                                <option value="60">In 1 hour</option>
+                                <option value="120">In 2 hours</option>
+                            </select>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="schedule-row">
+                            <label class="schedule-label">Every:</label>
+                            <select class="schedule-select" @bind="scheduleRepeatMinutes">
+                                <option value="5">5 minutes</option>
+                                <option value="15">15 minutes</option>
+                                <option value="30">30 minutes</option>
+                                <option value="60">1 hour</option>
+                                <option value="120">2 hours</option>
+                                <option value="360">6 hours</option>
+                                <option value="1440">Daily</option>
+                            </select>
+                        </div>
+                    }
+                    <div class="bug-report-actions">
+                        @if (!string.IsNullOrEmpty(scheduleStatus))
+                        {
+                            <span class="bug-report-status @(scheduleStatus.StartsWith("✓") ? "success" : "error")">@scheduleStatus</span>
+                        }
+                        <button class="bug-report-submit" @onclick="CreateScheduledPrompt">Schedule</button>
+                    </div>
+                    @{
+                        var sessionSchedules = ScheduledPrompts.Prompts.Where(p => p.SessionName == scheduleSessionName).ToList();
+                    }
+                    @if (sessionSchedules.Any())
+                    {
+                        <div class="schedule-list">
+                            <div class="schedule-list-header">Scheduled for @scheduleSessionName</div>
+                            @foreach (var sp in sessionSchedules)
+                            {
+                                var spId = sp.Id;
+                                <div class="schedule-list-item @(sp.IsEnabled ? "" : "disabled")">
+                                    <span class="schedule-item-name" title="@sp.Prompt">@sp.DisplayName</span>
+                                    <span class="schedule-item-time">@FormatNextRun(sp)</span>
+                                    <button class="schedule-item-delete" @onclick="() => ScheduledPrompts.Remove(spId)" title="Remove">✕</button>
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
             }
             else
@@ -642,7 +722,8 @@ else
                                              OnToggleMenu="() => ToggleSessionMenu(sName)"
                                              OnCloseMenu="() => { openMenuSession = null; }"
                                              OnReportBug="() => OpenBugReportForSession(sName)"
-                                             OnFixWithCopilot="() => OpenFixItForSession(sName)" />
+                                             OnFixWithCopilot="() => OpenFixItForSession(sName)"
+                                             OnSchedulePrompt="(name) => OpenScheduleDialog(name)" />
                         }
                     }
                 }
@@ -1672,10 +1753,20 @@ else
     private CancellationTokenSource? _autoCloseCts;
     private bool showBugReport;
     private bool showFixIt;
+    private bool showSchedule;
     private string bugDescription = "";
     private string selectedBugSession = "";
     private bool footerSubmitting;
     private string? footerStatus;
+
+    // Schedule prompt form state
+    private string scheduleSessionName = "";
+    private string scheduleLabel = "";
+    private string schedulePrompt = "";
+    private string scheduleType = "delay";
+    private int scheduleDelayMinutes = 5;
+    private int scheduleRepeatMinutes = 60;
+    private string? scheduleStatus;
 
     private void OpenBugReport()
     {
@@ -1723,10 +1814,61 @@ else
         StateHasChanged();
     }
 
+    private void OpenScheduleDialog(string sessionName)
+    {
+        showSchedule = true;
+        showBugReport = false;
+        showFixIt = false;
+        scheduleSessionName = sessionName;
+        scheduleLabel = "";
+        schedulePrompt = "";
+        scheduleType = "delay";
+        scheduleDelayMinutes = 5;
+        scheduleStatus = null;
+        StateHasChanged();
+    }
+
+    private void CreateScheduledPrompt()
+    {
+        if (string.IsNullOrWhiteSpace(schedulePrompt))
+        {
+            scheduleStatus = "⚠ Enter a prompt.";
+            StateHasChanged();
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(scheduleSessionName))
+        {
+            scheduleStatus = "⚠ Select a session.";
+            StateHasChanged();
+            return;
+        }
+        var runAt = scheduleType == "delay"
+            ? DateTime.UtcNow.AddMinutes(scheduleDelayMinutes)
+            : DateTime.UtcNow.AddMinutes(scheduleRepeatMinutes); // first run after one interval
+        var repeatInterval = scheduleType == "repeat" ? scheduleRepeatMinutes : 0;
+        ScheduledPrompts.Add(scheduleSessionName, schedulePrompt, scheduleLabel, runAt, repeatInterval);
+        scheduleStatus = "✓ Scheduled!";
+        schedulePrompt = "";
+        scheduleLabel = "";
+        StateHasChanged();
+    }
+
+    private static string FormatNextRun(ScheduledPrompt sp)
+    {
+        if (!sp.IsEnabled || sp.NextRunAt == null) return "disabled";
+        var diff = sp.NextRunAt.Value - DateTime.UtcNow;
+        if (diff.TotalSeconds < 0) return "due now";
+        if (diff.TotalMinutes < 1) return "< 1 min";
+        if (diff.TotalHours < 1) return $"{(int)diff.TotalMinutes}m";
+        if (diff.TotalDays < 1) return $"{(int)diff.TotalHours}h {diff.Minutes}m";
+        return $"{(int)diff.TotalDays}d";
+    }
+
     private void CloseFooterPanel()
     {
         showBugReport = false;
         showFixIt = false;
+        showSchedule = false;
         StateHasChanged();
     }
 

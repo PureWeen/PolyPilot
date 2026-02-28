@@ -269,6 +269,11 @@ public partial class CopilotService : IAsyncDisposable
         /// </summary>
         public int SendingFlag;
         /// <summary>
+        /// Tracks when the last "still running" reminder notification was sent (in minutes elapsed).
+        /// Used by the watchdog to avoid sending duplicate reminders in the same interval window.
+        /// </summary>
+        public int LastReminderSentAtMinutes;
+        /// <summary>
         /// Tracks reasoning messages that have been created but not yet added to History
         /// (pending InvokeOnUI). Prevents duplicate creation when rapid deltas arrive
         /// for the same reasoningId before the UI thread posts the History.Add.
@@ -1823,6 +1828,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName); // Cache for watchdog (UI thread safe)
+        Interlocked.Exchange(ref state.LastReminderSentAtMinutes, 0); // Reset reminder timer for new turn
         Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         state.CurrentResponse.Clear();
@@ -2288,6 +2294,17 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             _ = _bridgeClient.SwitchSessionAsync(name);
         OnStateChanged?.Invoke();
         return true;
+    }
+
+    /// <summary>
+    /// Sets per-session notification preference.
+    /// When true, a system notification is sent when this session completes,
+    /// regardless of the global EnableSessionNotifications setting.
+    /// </summary>
+    public void SetSessionNotifyOnComplete(string sessionName, bool notify)
+    {
+        if (_sessions.TryGetValue(sessionName, out var state))
+            state.Info.NotifyOnComplete = notify;
     }
 
     public bool RenameSession(string oldName, string newName)

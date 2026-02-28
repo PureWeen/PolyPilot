@@ -63,6 +63,12 @@ public class ConnectionSettings
     public bool EnableSessionNotifications { get; set; } = false;
 
     /// <summary>
+    /// When non-zero, sends a "still running" reminder notification every N minutes
+    /// while a session is processing. 0 = disabled.
+    /// </summary>
+    public int NotificationReminderIntervalMinutes { get; set; } = 0;
+
+    /// <summary>
     /// Normalizes a remote URL by ensuring it has an http(s):// scheme.
     /// Plain IPs/hostnames get http://, devtunnels/known TLS hosts get https://.
     /// Already-schemed URLs pass through unchanged. Returns null for null/empty input.

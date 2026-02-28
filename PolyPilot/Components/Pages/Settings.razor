@@ -515,6 +515,23 @@
                 </label>
                 <p class="toggle-hint">Get a system notification when an agent finishes responding</p>
             </div>
+            @if (settings.EnableSessionNotifications)
+            {
+                <div class="notifications-toggle" style="margin-top: 8px;">
+                    <label class="toggle-label" style="align-items: center;">
+                        <span class="toggle-text">⏱ Reminder interval</span>
+                        <select class="form-input" style="margin-left: 8px; width: auto;" value="@settings.NotificationReminderIntervalMinutes" @onchange="OnReminderIntervalChanged">
+                            <option value="0">Off</option>
+                            <option value="2">Every 2 min</option>
+                            <option value="5">Every 5 min</option>
+                            <option value="10">Every 10 min</option>
+                            <option value="15">Every 15 min</option>
+                            <option value="30">Every 30 min</option>
+                        </select>
+                    </label>
+                    <p class="toggle-hint">Send a "still running" reminder while a session is processing</p>
+                </div>
+            }
         </div>
     </div>
 
@@ -1014,6 +1031,15 @@
             var notifService = ServiceProvider.GetService<INotificationManagerService>();
             if (notifService != null && !notifService.HasPermission)
                 await notifService.InitializeAsync();
+        }
+    }
+
+    private void OnReminderIntervalChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var minutes))
+        {
+            settings.NotificationReminderIntervalMinutes = minutes;
+            settings.Save();
         }
     }
 

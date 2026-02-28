@@ -33,6 +33,10 @@
             {
                 <span class="pin-badge" title="Pinned" @onclick="() => OnPin.InvokeAsync(false)" @onclick:stopPropagation="true">📌</span>
             }
+            @if (Session.NotifyOnComplete)
+            {
+                <span class="pin-badge" title="Notify when done" @onclick="() => { CopilotService.SetSessionNotifyOnComplete(Session.Name, false); }" @onclick:stopPropagation="true">🔔</span>
+            }
             @if (IsCompleted)
             {
                 <span class="done-badge">✅</span>
@@ -113,6 +117,21 @@
                         📌 Pin
                     </button>
                 }
+                @if (Session.NotifyOnComplete)
+                {
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionNotifyOnComplete(Session.Name, false); }">
+                        🔔 Watching (tap to stop)
+                    </button>
+                }
+                else
+                {
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionNotifyOnComplete(Session.Name, true); }">
+                        🔔 Notify when done
+                    </button>
+                }
+                <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnSchedulePrompt.InvokeAsync(Session.Name); }">
+                    📅 Schedule a prompt…
+                </button>
                 @if (Groups != null && Groups.Count > 1)
                 {
                     <div class="menu-separator"></div>
@@ -228,6 +247,7 @@
     [Parameter] public EventCallback OnCloseMenu { get; set; }
     [Parameter] public EventCallback OnReportBug { get; set; }
     [Parameter] public EventCallback OnFixWithCopilot { get; set; }
+    [Parameter] public EventCallback<string> OnSchedulePrompt { get; set; }
 
     /// <summary>
     /// Show close confirmation via a JS-created dialog (outside Blazor's DOM tree).
