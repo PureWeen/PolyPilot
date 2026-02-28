@@ -362,12 +362,8 @@ public class ChatDatabase : IChatDatabase
             if (Interlocked.CompareExchange(ref _db!, null!, failedConn) == failedConn)
                 try { _ = failedConn.CloseAsync(); } catch { }
         }
-        else
-        {
-            var old = _db;
-            _db = null;
-            try { _ = old?.CloseAsync(); } catch { }
-        }
+        // When failedConn is null, GetConnectionAsync already cleaned up the failed
+        // connection before throwing — _db was never set, so there is nothing to evict.
         System.Diagnostics.Debug.WriteLine($"[ChatDatabase] {method} failed: {ex.Message}");
     }
 }
