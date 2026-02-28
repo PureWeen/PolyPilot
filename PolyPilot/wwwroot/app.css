@@ -672,7 +672,7 @@ h1:focus {
     border: none;
     border-radius: 6px;
     background: var(--accent-error);
-    color: #fff;
+    color: var(--text-bright);
     cursor: pointer;
     font-size: var(--type-footnote);
     font-weight: 600;

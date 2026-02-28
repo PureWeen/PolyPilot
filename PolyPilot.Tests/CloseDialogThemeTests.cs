@@ -69,6 +69,8 @@ public class CloseDialogThemeTests
         Assert.NotNull(block);
         Assert.Contains("var(--accent-error)", block);
         Assert.DoesNotContain("#ff6b6b", block);
+        Assert.Contains("var(--text-bright)", block);
+        Assert.DoesNotContain("color: #fff", block);
     }
 
     [Fact]
