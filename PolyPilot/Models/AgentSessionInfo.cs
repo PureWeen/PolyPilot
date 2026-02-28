@@ -82,4 +82,10 @@ public class AgentSessionInfo
     /// Hidden sessions are not shown in the sidebar (e.g., evaluator sessions).
     /// </summary>
     public bool IsHidden { get; set; }
+
+    /// <summary>
+    /// When true, a system notification is sent when this session completes,
+    /// regardless of the global EnableSessionNotifications setting.
+    /// </summary>
+    public bool NotifyOnComplete { get; set; }
 }

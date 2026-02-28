@@ -464,7 +464,9 @@ public partial class CopilotService
                     try
                     {
                         var currentSettings = ConnectionSettings.Load();
-                        if (!currentSettings.EnableSessionNotifications) return;
+                        var notifyGlobal = currentSettings.EnableSessionNotifications;
+                        var notifySession = state.Info.NotifyOnComplete;
+                        if (!notifyGlobal && !notifySession) return;
                         var notifService = _serviceProvider?.GetService<INotificationManagerService>();
                         if (notifService == null || !notifService.HasPermission) return;
                         var lastMsg = state.Info.History.LastOrDefault(m => m.Role == "assistant");
@@ -1366,6 +1368,11 @@ public partial class CopilotService
                     : 0;
                 var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds;
 
+                // Send periodic "still running" reminder if configured — load settings once per check
+                // (not inside the helper) to avoid redundant disk reads per watchdog iteration.
+                var watchdogSettings = ConnectionSettings.Load();
+                _ = SendReminderNotificationIfDueAsync(state, sessionName, totalProcessingSeconds, watchdogSettings.NotificationReminderIntervalMinutes);
+
                 if (elapsed >= effectiveTimeout || exceededMaxTime)
                 {
                     var timeoutDisplay = exceededMaxTime
@@ -1420,5 +1427,40 @@ public partial class CopilotService
         }
         catch (OperationCanceledException) { /* Normal cancellation when response completes */ }
         catch (Exception ex) { Debug($"Watchdog error for '{sessionName}': {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Fires a "still running" reminder notification if the configured interval has elapsed
+    /// since the last reminder. Safe to call from the watchdog background thread.
+    /// </summary>
+    private async Task SendReminderNotificationIfDueAsync(SessionState state, string sessionName, double totalProcessingSeconds, int intervalMinutes)
+    {
+        try
+        {
+            if (intervalMinutes <= 0) return;
+            var notifService = _serviceProvider?.GetService<INotificationManagerService>();
+            if (notifService == null || !notifService.HasPermission) return;
+
+            var elapsedMinutes = (int)(totalProcessingSeconds / 60);
+            if (elapsedMinutes < intervalMinutes) return;
+
+            // Compute how many complete intervals have elapsed
+            var intervalsDone = elapsedMinutes / intervalMinutes;
+            var lastSent = Volatile.Read(ref state.LastReminderSentAtMinutes);
+            // Only send once per interval window
+            if (intervalsDone <= lastSent) return;
+
+            // Atomically claim this interval so concurrent checks don't double-fire
+            if (Interlocked.CompareExchange(ref state.LastReminderSentAtMinutes, intervalsDone, lastSent) != lastSent) return;
+
+            var elapsed = elapsedMinutes >= 60
+                ? $"{elapsedMinutes / 60}h {elapsedMinutes % 60}m"
+                : $"{elapsedMinutes}m";
+            await notifService.SendNotificationAsync(
+                sessionName,
+                $"⏱ Still running · {elapsed} elapsed",
+                state.Info.SessionId);
+        }
+        catch (Exception ex) { Debug($"Reminder notification failed for '{sessionName}': {ex.Message}"); }
     }
 }

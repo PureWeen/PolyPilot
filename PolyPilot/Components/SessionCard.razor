@@ -10,6 +10,10 @@
             {
                 <span class="card-pin-indicator">📌</span>
             }
+            @if (Session.NotifyOnComplete)
+            {
+                <span class="card-pin-indicator" title="Notify when done">🔔</span>
+            }
             <span class="card-status-dot @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : "idle")"></span>
             @if (IsRenaming)
             {
@@ -47,6 +51,18 @@
                 {
                     <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.PinSession(Session.Name, true); }">
                         📌 Pin
+                    </button>
+                }
+                @if (Session.NotifyOnComplete)
+                {
+                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionNotifyOnComplete(Session.Name, false); }">
+                        🔔 Watching (tap to stop)
+                    </button>
+                }
+                else
+                {
+                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionNotifyOnComplete(Session.Name, true); }">
+                        🔔 Notify when done
                     </button>
                 }
                 <div class="card-menu-separator"></div>

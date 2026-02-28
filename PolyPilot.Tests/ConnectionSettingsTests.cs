@@ -391,6 +391,48 @@ public class ConnectionSettingsTests
         Assert.Equal("http://http://example.com", result);
     }
 
+    [Fact]
+    public void EnableSessionNotifications_DefaultsFalse()
+    {
+        var settings = new ConnectionSettings();
+        Assert.False(settings.EnableSessionNotifications);
+    }
+
+    [Fact]
+    public void NotificationReminderIntervalMinutes_DefaultsZero()
+    {
+        var settings = new ConnectionSettings();
+        Assert.Equal(0, settings.NotificationReminderIntervalMinutes);
+    }
+
+    [Fact]
+    public void NotificationReminderIntervalMinutes_CanBeSet()
+    {
+        var settings = new ConnectionSettings { NotificationReminderIntervalMinutes = 5 };
+        Assert.Equal(5, settings.NotificationReminderIntervalMinutes);
+    }
+
+    [Fact]
+    public void NotificationReminderIntervalMinutes_RoundTripsViaSerialization()
+    {
+        var original = new ConnectionSettings { NotificationReminderIntervalMinutes = 10 };
+        var json = JsonSerializer.Serialize(original);
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(10, loaded!.NotificationReminderIntervalMinutes);
+    }
+
+    [Fact]
+    public void NotificationReminderIntervalMinutes_BackwardCompatibility_DefaultsZero()
+    {
+        var json = """{"Mode":0,"Host":"localhost","Port":4321}""";
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(0, loaded!.NotificationReminderIntervalMinutes);
+    }
+
     private void Dispose()
     {
         try { Directory.Delete(_testDir, true); } catch { }

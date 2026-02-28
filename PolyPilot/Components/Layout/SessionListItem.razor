@@ -33,6 +33,10 @@
             {
                 <span class="pin-badge" title="Pinned" @onclick="() => OnPin.InvokeAsync(false)" @onclick:stopPropagation="true">📌</span>
             }
+            @if (Session.NotifyOnComplete)
+            {
+                <span class="pin-badge" title="Notify when done" @onclick="() => { CopilotService.SetSessionNotifyOnComplete(Session.Name, false); }" @onclick:stopPropagation="true">🔔</span>
+            }
             @if (IsCompleted)
             {
                 <span class="done-badge">✅</span>
@@ -111,6 +115,18 @@
                 {
                     <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnPin.InvokeAsync(true); }">
                         📌 Pin
+                    </button>
+                }
+                @if (Session.NotifyOnComplete)
+                {
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionNotifyOnComplete(Session.Name, false); }">
+                        🔔 Watching (tap to stop)
+                    </button>
+                }
+                else
+                {
+                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionNotifyOnComplete(Session.Name, true); }">
+                        🔔 Notify when done
                     </button>
                 }
                 @if (Groups != null && Groups.Count > 1)
