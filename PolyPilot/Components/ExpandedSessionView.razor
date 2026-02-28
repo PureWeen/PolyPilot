@@ -225,7 +225,7 @@
                 <button class="mode-btn" style="margin-left:8px;opacity:0.7" title="Start a reflection cycle" @onclick="InsertReflectCommand">Reflect</button>
             }
             <span class="status-sep">·</span>
-            <span class="log-label" style="font-size:var(--type-footnote)" title="View session event log">Log</span>
+            <span class="log-label" style="font-size:var(--type-footnote)" data-trigger="log-@EscapeForJs(Session.SessionId ?? "")" title="View session event log" @onclick="ShowLogPopup">Log</span>
             <span class="status-sep">·</span>
             <span class="status-msgs" title="Total messages in this session">@Session.History.Count msgs</span>
             @if (availableSkills?.Count > 0)
@@ -609,6 +609,65 @@
     private static string EscapeHtml(string s) =>
         s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 
+    private async Task ShowLogPopup()
+    {
+        var entries = await Task.Run(() => CopilotService.GetSessionEventLogSummary(Session.SessionId));
+        string rowsHtml;
+        List<(string Timestamp, string EventType, string Detail)> filtered;
+        if (entries.Count == 0)
+        {
+            filtered = entries;
+            rowsHtml = "<div style=\"padding:14px;color:#6c7086;text-align:center\">No event log available</div>";
+        }
+        else
+        {
+            // Skip noisy delta events and show compact log
+            filtered = entries.Where(e => e.EventType != "assistant.message_delta").ToList();
+            var rows = string.Join("", filtered.Select(e =>
+            {
+                var typeColor = e.EventType switch
+                {
+                    "user.message" => "#89b4fa",
+                    "assistant.message" => "#a6e3a1",
+                    "tool.execution_start" or "tool.execution_complete" => "#f9e2af",
+                    "session.error" => "#f38ba8",
+                    _ => "#6c7086"
+                };
+                var shortType = e.EventType.Replace("assistant.", "ai.").Replace("tool.execution_", "tool.");
+                var detail = string.IsNullOrEmpty(e.Detail) ? "" :
+                    $"<span style=\"color:#a6adc8;margin-left:6px\">{EscapeHtml(e.Detail)}</span>";
+                return $"<div style=\"padding:3px 14px;font-size:12px;font-family:monospace;border-bottom:1px solid #1e1e2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">" +
+                    $"<span style=\"color:#6c7086\">{EscapeHtml(e.Timestamp)}</span> " +
+                    $"<span style=\"color:{typeColor}\">{EscapeHtml(shortType)}</span>" +
+                    detail + "</div>";
+            }));
+            rowsHtml = rows;
+        }
+        var jsRows = EscapeForJs(rowsHtml);
+        var sessionTrigger = EscapeForJs("log-" + (Session.SessionId ?? ""));
+        var headerHtml = EscapeForJs($"<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600;display:flex;justify-content:space-between\"><span>Session Event Log</span><span>{filtered.Count} events</span></div>");
+        await JS.InvokeVoidAsync("eval", $@"
+            (function(){{
+                var old = document.getElementById('skills-popup-overlay');
+                if(old) old.remove();
+                var trigger = document.querySelector('[data-trigger=""{sessionTrigger}""]');
+                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
+                var ov = document.createElement('div');
+                ov.id = 'skills-popup-overlay';
+                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
+                ov.onclick = function(){{ ov.remove(); }};
+                var popup = document.createElement('div');
+                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 468));
+                var bottom = window.innerHeight - rect.top + 8;
+                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:320px;max-width:460px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
+                popup.innerHTML = '{headerHtml}{jsRows}';
+                popup.onclick = function(e){{ e.stopPropagation(); }};
+                ov.appendChild(popup);
+                document.body.appendChild(ov);
+            }})()
+        ");
+    }
+
     private async Task InsertReflectCommand()
     {
         var inputId = EscapeForJs("input-" + Session.Name.Replace(" ", "-"));
@@ -616,7 +675,8 @@
     }
 
     private static string EscapeForJs(string s) =>
-        s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "");
+        s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "")
+         .Replace("\u2028", "\\u2028").Replace("\u2029", "\\u2029");
 
     private static string TruncateDesc(string desc)
     {
