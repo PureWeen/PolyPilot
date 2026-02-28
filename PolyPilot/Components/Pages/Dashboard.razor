@@ -282,7 +282,7 @@
                     {
                     <div class="multi-agent-input-bar" @onclick:stopPropagation="true">
                         <textarea id="ma-input-@group.Id" class="ma-broadcast-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)"
-                                  rows="1"></textarea>
+                                  autocorrect="off" rows="1"></textarea>
                         <button class="ma-send-btn" @onclick="() => SendToMultiAgentGroup(group.Id)" title="Send to all sessions">
                             📡 Send All
                         </button>
