@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging;
 using ZXing.Net.Maui.Controls;
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
+using CommunityToolkit.Maui;
+using CommunityToolkit.Maui.Media;
 #if MACCATALYST
 using Microsoft.Maui.LifecycleEvents;
 using UIKit;
@@ -51,6 +53,7 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
+			.UseMauiCommunityToolkit()
 			.UseBarcodeReader()
 			.ConfigureFonts(fonts =>
 			{
@@ -105,6 +108,7 @@ public static class MauiProgram
 	builder.Services.AddSingleton<TutorialService>();
 	builder.Services.AddSingleton<UsageStatsService>();
 	builder.Services.AddSingleton<INotificationManagerService, NotificationManagerService>();
+	builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

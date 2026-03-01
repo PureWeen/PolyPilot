@@ -357,6 +357,16 @@
             }
         };
 
+        // Speech-to-text: append final recognized text to textarea
+        window.appendSpeechText = function(elementId, text) {
+            var el = document.getElementById(elementId);
+            if (!el) return;
+            var existing = el.value || '';
+            el.value = existing ? existing + ' ' + text : text;
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+        };
+
         window.escapeHtml = function(str) {
             var div = document.createElement('div');
             div.appendChild(document.createTextNode(str));

@@ -518,6 +518,101 @@
 }
 .attach-btn:hover { background: rgba(59,130,246,0.3); color: white; }
 
+/* Mic button */
+.mic-btn {
+    border: none;
+    border-radius: 50%;
+    background: var(--control-bg);
+    color: var(--text-on-surface);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    height: 36px;
+    aspect-ratio: 1;
+    padding: 0;
+}
+.mic-btn:hover { background: rgba(59,130,246,0.3); color: white; }
+.mic-btn.listening { background: rgba(239,68,68,0.25); color: #ef4444; }
+
+/* Speech-to-text overlay (compact inline popover) */
+.stt-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 80px;
+    animation: stt-fade-in 0.15s ease;
+}
+@keyframes stt-fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+.stt-overlay-content {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1.25rem;
+    background: var(--bg-tertiary, #1e1e2e);
+    border: 1px solid var(--border-default, #333);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+    max-width: 420px;
+}
+
+.stt-mic-circle {
+    all: unset;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #ef4444;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    animation: stt-pulse 1.5s ease-in-out infinite;
+    transition: transform 0.15s ease;
+}
+.stt-mic-circle:hover { transform: scale(1.1); }
+@keyframes stt-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.45); }
+    50% { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+}
+
+.stt-transcript {
+    font-size: 0.9rem;
+    color: var(--text-primary, #e0e0e0);
+    min-width: 80px;
+    max-width: 320px;
+    word-break: break-word;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.stt-hint {
+    display: none;
+}
+
+.stt-send-btn {
+    all: unset;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--accent-primary, #3b82f6);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+.stt-send-btn:hover { background: #2563eb; transform: scale(1.08); }
+
 /* Status bar (expanded) */
 .input-status-bar {
     display: flex;

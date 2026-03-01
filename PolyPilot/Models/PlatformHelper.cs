@@ -18,7 +18,11 @@ public static class PlatformHelper
 
     public static ConnectionMode[] AvailableModes => IsDesktop
         ? [ConnectionMode.Embedded, ConnectionMode.Persistent, ConnectionMode.Remote]
+#if DEBUG
+        : [ConnectionMode.Remote, ConnectionMode.Demo];
+#else
         : [ConnectionMode.Remote];
+#endif
 
     public static ConnectionMode DefaultMode => IsDesktop
         ? ConnectionMode.Persistent
