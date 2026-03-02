@@ -224,7 +224,6 @@ public static class SettingsRegistry
                     _ => isDark ? UiTheme.PolyPilotDark : UiTheme.PolyPilotLight
                 };
             },
-            IsVisible = ctx => ctx.Settings.Theme != UiTheme.System
         });
 
         list.Add(new SettingDescriptor

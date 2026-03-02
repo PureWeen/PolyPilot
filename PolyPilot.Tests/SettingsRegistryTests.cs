@@ -124,12 +124,13 @@ public class SettingsRegistryTests
     }
 
     [Fact]
-    public void ThemeStyle_HiddenWhenSystemTheme()
+    public void ThemeStyle_VisibleEvenWhenSystemTheme()
     {
         var settings = new ConnectionSettings { Theme = UiTheme.System };
         var ctx = CreateContext(settings);
         var desc = SettingsRegistry.All.First(s => s.Id == "ui.themeStyle");
-        Assert.False(desc.IsVisible!(ctx));
+        // Style picker is always visible so user can choose PolyPilot vs Solarized
+        Assert.Null(desc.IsVisible);
     }
 
     [Fact]
