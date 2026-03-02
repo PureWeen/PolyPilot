@@ -269,4 +269,54 @@ public class SessionMetricsExtractorTests
         }
         finally { Directory.Delete(dir, true); }
     }
+
+    [Fact]
+    public void Extract_MetaSessionDirIsFilesystemPath()
+    {
+        var dir = CreateTempSession(
+            """{"type":"session.start","timestamp":"2026-01-01T00:00:00Z","data":{"sessionId":"abc-123"}}""");
+        try
+        {
+            var metrics = SessionMetricsExtractor.Extract(dir);
+            Assert.Equal(dir, metrics.Meta.SessionDir);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void ParseProcessLog_MalformedTelemetryDoesNotDropSubsequentEntries()
+    {
+        // Malformed entry (no { line after [Telemetry]) followed by a valid entry
+        var dir = CreateTempSession(
+            """{"type":"session.start","timestamp":"2026-01-01T00:00:00Z","data":{"sessionId":"test-sess"}}""");
+        var logDir = Path.Combine(Path.GetTempPath(), $"test-logs-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(logDir);
+        var logPath = Path.Combine(logDir, "process-test.log");
+        File.WriteAllText(logPath, """
+            [Telemetry] cli.telemetry:
+            this line has no opening brace - malformed
+            [Telemetry] cli.telemetry:
+            {
+              "kind": "assistant_usage",
+              "session_id": "test-sess",
+              "model": "claude-sonnet-4.5",
+              "input_tokens": 100,
+              "output_tokens": 50,
+              "cache_read_tokens": 10,
+              "cache_creation_tokens": 0,
+              "duration_ms": 500,
+              "initiator": "user"
+            }
+            """);
+        try
+        {
+            var metrics = SessionMetricsExtractor.Extract(dir, logPath);
+            Assert.Equal(1, metrics.Meta.LlmCallsFound);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+            Directory.Delete(logDir, true);
+        }
+    }
 }

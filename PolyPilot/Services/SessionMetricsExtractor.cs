@@ -87,7 +87,7 @@ public static partial class SessionMetricsExtractor
         var logPath = processLogPath ?? FindProcessLog(sessionId);
         var llmCalls = logPath != null ? ParseProcessLog(logPath, sessionId) : [];
 
-        return BuildMetrics(parsed, llmCalls, logPath);
+        return BuildMetrics(parsed, llmCalls, logPath, sessionDir);
     }
 
     /// <summary>
@@ -342,10 +342,8 @@ public static partial class SessionMetricsExtractor
         {
             try
             {
-                var lineCount = 0;
                 foreach (var line in File.ReadLines(logFile))
                 {
-                    if (lineCount++ > 30) break;
                     if (line.Contains(sessionId))
                         return logFile;
                 }
@@ -387,7 +385,7 @@ public static partial class SessionMetricsExtractor
                         braceCount += stripped.Count(c => c == '{') - stripped.Count(c => c == '}');
                         if (braceCount <= 0) break;
                     }
-                    else if (started)
+                    else
                         break;
 
                     i++;
@@ -430,7 +428,7 @@ public static partial class SessionMetricsExtractor
         return calls;
     }
 
-    private static SessionMetrics BuildMetrics(ParsedEvents parsed, List<LlmCallInfo> llmCalls, string? logPath)
+    private static SessionMetrics BuildMetrics(ParsedEvents parsed, List<LlmCallInfo> llmCalls, string? logPath, string sessionDir)
     {
         var session = parsed.SessionInfo;
 
@@ -557,7 +555,7 @@ public static partial class SessionMetricsExtractor
             },
             Meta = new MetaInfo
             {
-                SessionDir = Path.GetDirectoryName(Path.Combine("dummy", "events.jsonl")) is { } _ ? Path.GetDirectoryName(Path.Combine(parsed.SessionInfo.Id ?? "", "events.jsonl")) : null,
+                SessionDir = sessionDir,
                 ProcessLog = logPath,
                 LlmCallsFound = llmCalls.Count,
             },

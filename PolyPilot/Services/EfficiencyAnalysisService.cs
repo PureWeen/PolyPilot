@@ -62,7 +62,14 @@ public class EfficiencyAnalysisService
 
         // Send prompt referencing the metrics file
         var prompt = BuildPrompt(sessionName, sessionDir, metricsPath);
-        _ = _copilotService.SendPromptAsync(finalName, prompt);
+        try
+        {
+            await _copilotService.SendPromptAsync(finalName, prompt);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[EfficiencyAnalysis] SendPromptAsync failed: {ex.Message}");
+        }
 
         return finalName;
     }
