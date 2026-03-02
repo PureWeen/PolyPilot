@@ -968,6 +968,7 @@ public class WsBridgeServer : IDisposable
             ActiveSession = _copilot.ActiveSessionName,
             GitHubAvatarUrl = _copilot.GitHubAvatarUrl,
             GitHubLogin = _copilot.GitHubLogin,
+            ServerMachineName = Environment.MachineName,
         };
     }
 

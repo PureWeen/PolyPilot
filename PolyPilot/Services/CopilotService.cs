@@ -168,6 +168,7 @@ public partial class CopilotService : IAsyncDisposable
     public bool NeedsConfiguration { get; private set; }
     public bool IsRemoteMode { get; private set; }
     public bool IsBridgeConnected => _bridgeClient.IsConnected;
+    public string? ServerMachineName => _bridgeClient.ServerMachineName;
     public bool IsDemoMode { get; private set; }
     public string? ActiveSessionName => _activeSessionName;
     public IChatDatabase ChatDb => _chatDb;

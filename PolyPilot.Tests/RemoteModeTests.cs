@@ -120,6 +120,54 @@ public class RemoteModeTests
     }
 
     [Fact]
+    public void SessionsListPayload_ServerMachineName_RoundTrip()
+    {
+        var payload = new SessionsListPayload
+        {
+            Sessions = new() { new SessionSummary { Name = "s1", Model = "gpt-5" } },
+            ActiveSession = "s1",
+            ServerMachineName = "REMOTE-DEV-BOX"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.SessionsList, payload);
+        var restored = BridgeMessage.Deserialize(msg.Serialize())!
+            .GetPayload<SessionsListPayload>();
+
+        Assert.Equal("REMOTE-DEV-BOX", restored!.ServerMachineName);
+    }
+
+    [Fact]
+    public void SessionsListPayload_NullServerMachineName_OmittedInJson()
+    {
+        var payload = new SessionsListPayload
+        {
+            Sessions = new(),
+            ActiveSession = null,
+            ServerMachineName = null
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.SessionsList, payload);
+        var json = msg.Serialize();
+
+        // Null fields should be excluded (WhenWritingNull)
+        Assert.DoesNotContain("serverMachineName", json);
+
+        var restored = BridgeMessage.Deserialize(json)!
+            .GetPayload<SessionsListPayload>();
+        Assert.Null(restored!.ServerMachineName);
+    }
+
+    [Fact]
+    public void SessionsListPayload_LegacyPayload_WithoutServerMachineName()
+    {
+        // Simulate a payload from an older server that doesn't send ServerMachineName
+        var json = """{"type":"sessions_list","payload":{"sessions":[],"activeSession":null}}""";
+        var restored = BridgeMessage.Deserialize(json)!
+            .GetPayload<SessionsListPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Null(restored!.ServerMachineName);
+    }
+
+    [Fact]
     public void CreateSessionPayload_NullOptionalFields()
     {
         var payload = new CreateSessionPayload { Name = "test" };

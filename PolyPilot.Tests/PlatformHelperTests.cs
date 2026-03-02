@@ -143,4 +143,41 @@ public class PlatformHelperTests
         var (_, arguments) = PlatformHelper.GetShellCommand("code .");
         Assert.Contains("code .", arguments);
     }
+
+    // --- BuildVSCodeRemoteArg tests ---
+
+    [Fact]
+    public void BuildVSCodeRemoteArg_RemoteMode_ReturnsTunnelArg()
+    {
+        var result = PlatformHelper.BuildVSCodeRemoteArg(true, "DEV-SERVER");
+        Assert.Equal("tunnel+DEV-SERVER", result);
+    }
+
+    [Fact]
+    public void BuildVSCodeRemoteArg_NotRemoteMode_ReturnsNull()
+    {
+        var result = PlatformHelper.BuildVSCodeRemoteArg(false, "DEV-SERVER");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void BuildVSCodeRemoteArg_NullMachineName_ReturnsNull()
+    {
+        var result = PlatformHelper.BuildVSCodeRemoteArg(true, null);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void BuildVSCodeRemoteArg_EmptyMachineName_ReturnsNull()
+    {
+        var result = PlatformHelper.BuildVSCodeRemoteArg(true, "");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void BuildVSCodeRemoteArg_LowercaseMachineName_Preserved()
+    {
+        var result = PlatformHelper.BuildVSCodeRemoteArg(true, "my-laptop");
+        Assert.Equal("tunnel+my-laptop", result);
+    }
 }

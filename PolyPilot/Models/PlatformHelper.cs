@@ -48,4 +48,15 @@ public static class PlatformHelper
         var escaped = command.Replace("\\", "\\\\").Replace("\"", "\\\"");
         return ("/bin/bash", $"-c \"{escaped}\"");
     }
+
+    /// <summary>
+    /// Builds the VS Code <c>--remote</c> argument for Remote - Tunnels when connected to
+    /// a remote PolyPilot server. Returns null when not in remote mode or machine name unknown.
+    /// </summary>
+    public static string? BuildVSCodeRemoteArg(bool isRemoteMode, string? serverMachineName)
+    {
+        if (!isRemoteMode || string.IsNullOrEmpty(serverMachineName))
+            return null;
+        return $"tunnel+{serverMachineName}";
+    }
 }
