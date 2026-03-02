@@ -181,19 +181,19 @@ public static class SettingsRegistry
             },
             GetValue = ctx => ctx.Settings.Theme switch
             {
-                UiTheme.System => "System",
+                UiTheme.System or UiTheme.SystemSolarized => "System",
                 UiTheme.PolyPilotDark or UiTheme.SolarizedDark => "Dark",
                 UiTheme.PolyPilotLight or UiTheme.SolarizedLight => "Light",
                 _ => "System"
             },
             SetValue = (ctx, v) =>
             {
-                var isSolarized = ctx.Settings.Theme is UiTheme.SolarizedDark or UiTheme.SolarizedLight;
+                var isSolarized = ctx.Settings.Theme is UiTheme.SolarizedDark or UiTheme.SolarizedLight or UiTheme.SystemSolarized;
                 ctx.Settings.Theme = (v as string) switch
                 {
                     "Dark" => isSolarized ? UiTheme.SolarizedDark : UiTheme.PolyPilotDark,
                     "Light" => isSolarized ? UiTheme.SolarizedLight : UiTheme.PolyPilotLight,
-                    _ => UiTheme.System
+                    _ => isSolarized ? UiTheme.SystemSolarized : UiTheme.System
                 };
             }
         });
@@ -213,15 +213,16 @@ public static class SettingsRegistry
                 new SettingOption("PolyPilot", "PolyPilot", "tp-pp-dark"),
                 new SettingOption("Solarized", "Solarized", "tp-sol-dark"),
             },
-            GetValue = ctx => ctx.Settings.Theme is UiTheme.SolarizedDark or UiTheme.SolarizedLight
+            GetValue = ctx => ctx.Settings.Theme is UiTheme.SolarizedDark or UiTheme.SolarizedLight or UiTheme.SystemSolarized
                 ? "Solarized" : "PolyPilot",
             SetValue = (ctx, v) =>
             {
-                var isDark = ctx.Settings.Theme is UiTheme.PolyPilotDark or UiTheme.SolarizedDark or UiTheme.System;
+                var isSystem = ctx.Settings.Theme is UiTheme.System or UiTheme.SystemSolarized;
+                var isDark = ctx.Settings.Theme is UiTheme.PolyPilotDark or UiTheme.SolarizedDark or UiTheme.System or UiTheme.SystemSolarized;
                 ctx.Settings.Theme = (v as string) switch
                 {
-                    "Solarized" => isDark ? UiTheme.SolarizedDark : UiTheme.SolarizedLight,
-                    _ => isDark ? UiTheme.PolyPilotDark : UiTheme.PolyPilotLight
+                    "Solarized" => isSystem ? UiTheme.SystemSolarized : (isDark ? UiTheme.SolarizedDark : UiTheme.SolarizedLight),
+                    _ => isSystem ? UiTheme.System : (isDark ? UiTheme.PolyPilotDark : UiTheme.PolyPilotLight)
                 };
             },
         });

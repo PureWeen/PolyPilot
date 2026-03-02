@@ -105,6 +105,16 @@ public class SettingsRegistryTests
     }
 
     [Fact]
+    public void ColorScheme_SystemPreservesSolarized()
+    {
+        var settings = new ConnectionSettings { Theme = UiTheme.SolarizedDark };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.colorScheme");
+        desc.SetValue!(ctx, "System");
+        Assert.Equal(UiTheme.SystemSolarized, settings.Theme);
+    }
+
+    [Fact]
     public void ThemeStyle_GetValue_ReturnsSolarized()
     {
         var settings = new ConnectionSettings { Theme = UiTheme.SolarizedDark };
@@ -131,6 +141,36 @@ public class SettingsRegistryTests
         var desc = SettingsRegistry.All.First(s => s.Id == "ui.themeStyle");
         // Style picker is always visible so user can choose PolyPilot vs Solarized
         Assert.Null(desc.IsVisible);
+    }
+
+    [Fact]
+    public void ThemeStyle_SystemPlusSolarized()
+    {
+        var settings = new ConnectionSettings { Theme = UiTheme.System };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.themeStyle");
+        desc.SetValue!(ctx, "Solarized");
+        Assert.Equal(UiTheme.SystemSolarized, settings.Theme);
+    }
+
+    [Fact]
+    public void ThemeStyle_SystemSolarizedBackToPolyPilot()
+    {
+        var settings = new ConnectionSettings { Theme = UiTheme.SystemSolarized };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.themeStyle");
+        Assert.Equal("Solarized", desc.GetValue!(ctx));
+        desc.SetValue!(ctx, "PolyPilot");
+        Assert.Equal(UiTheme.System, settings.Theme);
+    }
+
+    [Fact]
+    public void ColorScheme_SystemSolarizedReturnsSystem()
+    {
+        var settings = new ConnectionSettings { Theme = UiTheme.SystemSolarized };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.colorScheme");
+        Assert.Equal("System", desc.GetValue!(ctx));
     }
 
     [Fact]
