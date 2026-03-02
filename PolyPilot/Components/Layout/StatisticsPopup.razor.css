@@ -1,0 +1,106 @@
+.stats-popup-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.stats-popup-overlay.open {
+    display: flex;
+}
+
+.stats-popup {
+    background: var(--bg-secondary, #1e1e2e);
+    border: 1px solid var(--control-border, #333);
+    border-radius: 12px;
+    padding: 1.5rem;
+    min-width: 400px;
+    max-width: 600px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.stats-popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.stats-popup-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--text-primary, #e0e0e0);
+}
+
+.stats-close-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim, #888);
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+
+.stats-close-btn:hover {
+    background: var(--hover-bg, rgba(255, 255, 255, 0.08));
+    color: var(--text-primary, #e0e0e0);
+}
+
+.stats-desc {
+    font-size: 0.85rem;
+    color: var(--text-dim, #888);
+    margin: 0 0 1rem 0;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.stat-card {
+    background: var(--bg-input, #2a2a3e);
+    border: 1px solid var(--control-border, #333);
+    border-radius: 8px;
+    padding: 0.85rem;
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--accent-primary, #7c5cfc);
+    margin-bottom: 0.2rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+    font-size: 0.75rem;
+    color: var(--text-dim, #888);
+}
+
+.stats-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--control-border, #333);
+}
+
+.stats-date {
+    font-size: 0.75rem;
+    color: var(--text-dim, #888);
+}
+
+.stats-empty {
+    color: var(--text-dim, #888);
+    font-size: 0.9rem;
+}

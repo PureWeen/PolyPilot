@@ -1084,6 +1084,167 @@
                     "note": ".sidebar-content must have overflow:visible so the absolutely-positioned info popover can render outside sidebar bounds without being clipped"
                 }
             ]
+        },
+        {
+            "id": "cmd-comma-opens-settings",
+            "name": "Cmd+, keyboard shortcut navigates to Settings page",
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.settings-page')",
+                    "expect": {
+                        "equals": null
+                    },
+                    "note": "Not on settings page initially"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.dispatchEvent(new KeyboardEvent('keydown', {key: ',', metaKey: true, bubbles: true})); true",
+                    "note": "Simulate Cmd+,"
+                },
+                {
+                    "action": "wait",
+                    "duration": 1000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.settings-page') !== null",
+                    "expect": {
+                        "equals": true
+                    },
+                    "note": "Settings page is now displayed"
+                }
+            ]
+        },
+        {
+            "id": "statistics-popup-opens-from-sidebar",
+            "name": "Statistics popup opens when clicking chart icon in sidebar header",
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.stats-popup-overlay.open')",
+                    "expect": {
+                        "equals": null
+                    },
+                    "note": "Statistics popup is initially closed"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('button[title=\"Statistics\"]').click(); true",
+                    "note": "Click the statistics icon button"
+                },
+                {
+                    "action": "wait",
+                    "duration": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.stats-popup-overlay.open') !== null",
+                    "expect": {
+                        "equals": true
+                    },
+                    "note": "Statistics popup is now open"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.stats-popup-header h3')?.textContent",
+                    "expect": {
+                        "equals": "Usage Statistics"
+                    },
+                    "note": "Popup displays correct title"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.stats-popup-overlay').click(); true",
+                    "note": "Click overlay to close"
+                },
+                {
+                    "action": "wait",
+                    "duration": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.stats-popup-overlay.open')",
+                    "expect": {
+                        "equals": null
+                    },
+                    "note": "Statistics popup is closed again"
+                }
+            ]
+        },
+        {
+            "id": "settings-category-nav-scrolls-to-section",
+            "name": "Settings page category navigation scrolls to the selected section",
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "note": "Navigate to settings page",
+                    "script": "window.location.href = '/settings'; true"
+                },
+                {
+                    "action": "wait",
+                    "duration": 1000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.settings-nav') !== null",
+                    "expect": {
+                        "equals": true
+                    },
+                    "note": "Category nav is visible"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelector('.settings-nav-item.active')?.textContent?.trim()",
+                    "note": "Check which category is active"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.querySelectorAll('.settings-nav-item')[2]?.click(); true",
+                    "note": "Click the UI category nav item"
+                },
+                {
+                    "action": "wait",
+                    "duration": 500
+                },
+                {
+                    "action": "evaluate",
+                    "script": "document.getElementById('settings-ui') !== null",
+                    "expect": {
+                        "equals": true
+                    },
+                    "note": "UI settings section exists with correct id"
+                }
+            ]
+        },
+        {
+            "id": "settings-no-statistics-section",
+            "name": "Settings page no longer contains Statistics section",
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "note": "Navigate to settings page",
+                    "script": "window.location.href = '/settings'; true"
+                },
+                {
+                    "action": "wait",
+                    "duration": 1000
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('.group-title')).map(e => e.textContent)",
+                    "capture": "groupTitles",
+                    "note": "Get all group titles"
+                },
+                {
+                    "action": "evaluate",
+                    "script": "Array.from(document.querySelectorAll('.group-title')).some(e => e.textContent === 'Statistics')",
+                    "expect": {
+                        "equals": false
+                    },
+                    "note": "Statistics is not a settings group"
+                }
+            ]
         }
     ]
 }
