@@ -12,6 +12,7 @@ namespace PolyPilot.Services;
 public class RepoManager
 {
     private static string? _baseDirOverride;
+    private static string? _customStorageDir;
     private static readonly object _pathLock = new();
     private static string? _reposDir;
     private static string ReposDir { get { lock (_pathLock) return _reposDir ??= GetReposDir(); } }
@@ -29,9 +30,48 @@ public class RepoManager
         lock (_pathLock)
         {
             _baseDirOverride = path;
+            _customStorageDir = null;
             _reposDir = null;
             _worktreesDir = null;
             _stateFile = null;
+        }
+    }
+
+    /// <summary>
+    /// Set a custom directory for storing bare repo clones and worktrees.
+    /// When non-null, repos go to &lt;customDir&gt;/repos/ and worktrees to &lt;customDir&gt;/worktrees/.
+    /// The state file (repos.json) remains in the default ~/.polypilot location.
+    /// </summary>
+    public static void SetCustomStorageDir(string? path)
+    {
+        lock (_pathLock)
+        {
+            _customStorageDir = string.IsNullOrWhiteSpace(path) ? null : path.Trim();
+            _reposDir = null;
+            _worktreesDir = null;
+        }
+    }
+
+    /// <summary>
+    /// Returns the effective directory used for repos and worktrees.
+    /// </summary>
+    public static string GetEffectiveStorageDir()
+    {
+        lock (_pathLock)
+        {
+            if (_customStorageDir != null) return _customStorageDir;
+            if (_baseDirOverride != null) return _baseDirOverride;
+            try
+            {
+                var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                if (string.IsNullOrEmpty(home))
+                    home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                return Path.Combine(home, ".polypilot");
+            }
+            catch
+            {
+                return Path.Combine(Path.GetTempPath(), ".polypilot");
+            }
         }
     }
 
@@ -72,8 +112,19 @@ public class RepoManager
         }
     }
 
-    private static string GetReposDir() => Path.Combine(GetBaseDir(), "repos");
-    private static string GetWorktreesDir() => Path.Combine(GetBaseDir(), "worktrees");
+    private static string GetReposDir()
+    {
+        // _customStorageDir overrides where repos are stored (but not the state file)
+        if (_customStorageDir != null) return Path.Combine(_customStorageDir, "repos");
+        return Path.Combine(GetBaseDir(), "repos");
+    }
+
+    private static string GetWorktreesDir()
+    {
+        if (_customStorageDir != null) return Path.Combine(_customStorageDir, "worktrees");
+        return Path.Combine(GetBaseDir(), "worktrees");
+    }
+
     private static string GetStateFile() => Path.Combine(GetBaseDir(), "repos.json");
 
     public void Load()

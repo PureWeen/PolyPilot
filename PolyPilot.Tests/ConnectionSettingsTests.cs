@@ -391,6 +391,31 @@ public class ConnectionSettingsTests
         Assert.Equal("http://http://example.com", result);
     }
 
+    [Fact]
+    public void RepoStorageDir_DefaultsToNull()
+    {
+        var settings = new ConnectionSettings();
+        Assert.Null(settings.RepoStorageDir);
+    }
+
+    [Fact]
+    public void RepoStorageDir_RoundTripsViaSerialization()
+    {
+        var original = new ConnectionSettings { RepoStorageDir = @"D:\code\polypilot" };
+        var json = System.Text.Json.JsonSerializer.Serialize(original);
+        var loaded = System.Text.Json.JsonSerializer.Deserialize<ConnectionSettings>(json)!;
+        Assert.Equal(@"D:\code\polypilot", loaded.RepoStorageDir);
+    }
+
+    [Fact]
+    public void RepoStorageDir_NullRoundTripsViaSerialization()
+    {
+        var original = new ConnectionSettings { RepoStorageDir = null };
+        var json = System.Text.Json.JsonSerializer.Serialize(original);
+        var loaded = System.Text.Json.JsonSerializer.Deserialize<ConnectionSettings>(json)!;
+        Assert.Null(loaded.RepoStorageDir);
+    }
+
     private void Dispose()
     {
         try { Directory.Delete(_testDir, true); } catch { }

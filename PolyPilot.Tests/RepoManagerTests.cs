@@ -366,4 +366,64 @@ public class RepoManagerTests
     }
 
     #endregion
+
+    #region Custom Storage Dir Tests
+
+    [Fact]
+    public void SetCustomStorageDir_ChangesReposDirAndWorktreesDir()
+    {
+        var customDir = Path.Combine(Path.GetTempPath(), $"custom-storage-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(customDir);
+        try
+        {
+            RepoManager.SetCustomStorageDir(customDir);
+            try
+            {
+                var effectiveDir = RepoManager.GetEffectiveStorageDir();
+                Assert.Equal(customDir, effectiveDir);
+            }
+            finally
+            {
+                // Restore test isolation
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            Directory.Delete(customDir, true);
+        }
+    }
+
+    [Fact]
+    public void SetCustomStorageDir_Null_FallsBackToDefault()
+    {
+        RepoManager.SetCustomStorageDir(null);
+        try
+        {
+            var effectiveDir = RepoManager.GetEffectiveStorageDir();
+            // Should be the test base dir (set by SetBaseDirForTesting in TestSetup)
+            Assert.Equal(TestSetup.TestBaseDir, effectiveDir);
+        }
+        finally
+        {
+            RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+        }
+    }
+
+    [Fact]
+    public void SetCustomStorageDir_WhitespaceString_TreatedAsNull()
+    {
+        RepoManager.SetCustomStorageDir("   ");
+        try
+        {
+            var effectiveDir = RepoManager.GetEffectiveStorageDir();
+            Assert.Equal(TestSetup.TestBaseDir, effectiveDir);
+        }
+        finally
+        {
+            RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+        }
+    }
+
+    #endregion
 }
