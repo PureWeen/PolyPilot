@@ -50,13 +50,20 @@ public static class PlatformHelper
     }
 
     /// <summary>
-    /// Builds the VS Code <c>--remote</c> argument for Remote - Tunnels when connected to
-    /// a remote PolyPilot server. Returns null when not in remote mode or machine name unknown.
+    /// Builds a <c>vscode-remote://</c> folder URI for opening a remote folder in VS Code
+    /// via the Remote - Tunnels extension. Returns null when not in remote mode or machine name unknown.
     /// </summary>
-    public static string? BuildVSCodeRemoteArg(bool isRemoteMode, string? serverMachineName)
+    public static string? BuildVSCodeRemoteFolderUri(bool isRemoteMode, string? serverMachineName, string? folderPath)
     {
-        if (!isRemoteMode || string.IsNullOrEmpty(serverMachineName))
+        if (!isRemoteMode || string.IsNullOrEmpty(serverMachineName) || string.IsNullOrEmpty(folderPath))
             return null;
-        return $"tunnel+{serverMachineName}";
+
+        // Normalize to forward slashes for URI path
+        var uriPath = folderPath.Replace('\\', '/');
+        // Windows paths like C:/Users/... need a leading slash → /C:/Users/...
+        if (uriPath.Length >= 2 && uriPath[1] == ':')
+            uriPath = "/" + uriPath;
+
+        return $"vscode-remote://tunnel+{serverMachineName}{uriPath}";
     }
 }

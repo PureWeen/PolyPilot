@@ -144,40 +144,54 @@ public class PlatformHelperTests
         Assert.Contains("code .", arguments);
     }
 
-    // --- BuildVSCodeRemoteArg tests ---
+    // --- BuildVSCodeRemoteFolderUri tests ---
 
     [Fact]
-    public void BuildVSCodeRemoteArg_RemoteMode_ReturnsTunnelArg()
+    public void BuildVSCodeRemoteFolderUri_RemoteMode_UnixPath()
     {
-        var result = PlatformHelper.BuildVSCodeRemoteArg(true, "DEV-SERVER");
-        Assert.Equal("tunnel+DEV-SERVER", result);
+        var result = PlatformHelper.BuildVSCodeRemoteFolderUri(true, "DEV-SERVER", "/home/user/project");
+        Assert.Equal("vscode-remote://tunnel+DEV-SERVER/home/user/project", result);
     }
 
     [Fact]
-    public void BuildVSCodeRemoteArg_NotRemoteMode_ReturnsNull()
+    public void BuildVSCodeRemoteFolderUri_RemoteMode_WindowsPath()
     {
-        var result = PlatformHelper.BuildVSCodeRemoteArg(false, "DEV-SERVER");
+        var result = PlatformHelper.BuildVSCodeRemoteFolderUri(true, "DEV-SERVER", @"C:\Users\dev\project");
+        Assert.Equal("vscode-remote://tunnel+DEV-SERVER/C:/Users/dev/project", result);
+    }
+
+    [Fact]
+    public void BuildVSCodeRemoteFolderUri_NotRemoteMode_ReturnsNull()
+    {
+        var result = PlatformHelper.BuildVSCodeRemoteFolderUri(false, "DEV-SERVER", "/home/user/project");
         Assert.Null(result);
     }
 
     [Fact]
-    public void BuildVSCodeRemoteArg_NullMachineName_ReturnsNull()
+    public void BuildVSCodeRemoteFolderUri_NullMachineName_ReturnsNull()
     {
-        var result = PlatformHelper.BuildVSCodeRemoteArg(true, null);
+        var result = PlatformHelper.BuildVSCodeRemoteFolderUri(true, null, "/home/user/project");
         Assert.Null(result);
     }
 
     [Fact]
-    public void BuildVSCodeRemoteArg_EmptyMachineName_ReturnsNull()
+    public void BuildVSCodeRemoteFolderUri_EmptyMachineName_ReturnsNull()
     {
-        var result = PlatformHelper.BuildVSCodeRemoteArg(true, "");
+        var result = PlatformHelper.BuildVSCodeRemoteFolderUri(true, "", "/home/user/project");
         Assert.Null(result);
     }
 
     [Fact]
-    public void BuildVSCodeRemoteArg_LowercaseMachineName_Preserved()
+    public void BuildVSCodeRemoteFolderUri_NullPath_ReturnsNull()
     {
-        var result = PlatformHelper.BuildVSCodeRemoteArg(true, "my-laptop");
-        Assert.Equal("tunnel+my-laptop", result);
+        var result = PlatformHelper.BuildVSCodeRemoteFolderUri(true, "DEV-SERVER", null);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void BuildVSCodeRemoteFolderUri_LowercaseMachineName_Preserved()
+    {
+        var result = PlatformHelper.BuildVSCodeRemoteFolderUri(true, "my-laptop", "/tmp/work");
+        Assert.Equal("vscode-remote://tunnel+my-laptop/tmp/work", result);
     }
 }

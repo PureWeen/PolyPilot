@@ -374,9 +374,9 @@
         if (string.IsNullOrEmpty(dir)) return;
         try
         {
-            // In remote mode, use VS Code Remote - Tunnels to connect to the server machine
-            var remoteArg = PlatformHelper.BuildVSCodeRemoteArg(
-                CopilotService.IsRemoteMode, CopilotService.ServerMachineName);
+            // In remote mode, use --folder-uri with vscode-remote:// to open via Remote - Tunnels
+            var remoteFolderUri = PlatformHelper.BuildVSCodeRemoteFolderUri(
+                CopilotService.IsRemoteMode, CopilotService.ServerMachineName, dir);
 
             if (OperatingSystem.IsWindows())
             {
@@ -388,12 +388,15 @@
                 };
                 psi.ArgumentList.Add("/c");
                 psi.ArgumentList.Add("code");
-                if (remoteArg != null)
+                if (remoteFolderUri != null)
                 {
-                    psi.ArgumentList.Add("--remote");
-                    psi.ArgumentList.Add(remoteArg);
+                    psi.ArgumentList.Add("--folder-uri");
+                    psi.ArgumentList.Add(remoteFolderUri);
                 }
-                psi.ArgumentList.Add(dir);
+                else
+                {
+                    psi.ArgumentList.Add(dir);
+                }
                 Process.Start(psi);
             }
             else
@@ -403,12 +406,15 @@
                     FileName = "code",
                     UseShellExecute = false
                 };
-                if (remoteArg != null)
+                if (remoteFolderUri != null)
                 {
-                    psi.ArgumentList.Add("--remote");
-                    psi.ArgumentList.Add(remoteArg);
+                    psi.ArgumentList.Add("--folder-uri");
+                    psi.ArgumentList.Add(remoteFolderUri);
                 }
-                psi.ArgumentList.Add(dir);
+                else
+                {
+                    psi.ArgumentList.Add(dir);
+                }
                 Process.Start(psi);
             }
         }

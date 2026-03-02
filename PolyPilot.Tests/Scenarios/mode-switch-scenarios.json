@@ -1077,10 +1077,12 @@
             "description": "When connected to a remote PolyPilot server, clicking the VS Code context menu item should open VS Code with --remote tunnel+<serverMachineName> so it connects via the Remote - Tunnels extension instead of opening a local path.",
             "category": "remote-mode",
             "unitTestCoverage": [
-                "PlatformHelperTests.BuildVSCodeRemoteArg_RemoteMode_ReturnsTunnelArg",
-                "PlatformHelperTests.BuildVSCodeRemoteArg_NotRemoteMode_ReturnsNull",
-                "PlatformHelperTests.BuildVSCodeRemoteArg_NullMachineName_ReturnsNull",
-                "PlatformHelperTests.BuildVSCodeRemoteArg_EmptyMachineName_ReturnsNull",
+                "PlatformHelperTests.BuildVSCodeRemoteFolderUri_RemoteMode_UnixPath",
+                "PlatformHelperTests.BuildVSCodeRemoteFolderUri_RemoteMode_WindowsPath",
+                "PlatformHelperTests.BuildVSCodeRemoteFolderUri_NotRemoteMode_ReturnsNull",
+                "PlatformHelperTests.BuildVSCodeRemoteFolderUri_NullMachineName_ReturnsNull",
+                "PlatformHelperTests.BuildVSCodeRemoteFolderUri_EmptyMachineName_ReturnsNull",
+                "PlatformHelperTests.BuildVSCodeRemoteFolderUri_NullPath_ReturnsNull",
                 "RemoteModeTests.SessionsListPayload_ServerMachineName_RoundTrip",
                 "RemoteModeTests.SessionsListPayload_NullServerMachineName_OmittedInJson",
                 "RemoteModeTests.SessionsListPayload_LegacyPayload_WithoutServerMachineName"
