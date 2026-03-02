@@ -1,3 +1,5 @@
+using CommunityToolkit.Maui;
+using CommunityToolkit.Maui.Media;
 using MauiDevFlow.Agent.Gtk;
 using MauiDevFlow.Blazor.Gtk;
 using Microsoft.Extensions.Logging;
@@ -15,6 +17,7 @@ public static class MauiProgram
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiAppLinuxGtk4<App>()
+            .UseMauiCommunityToolkit()
             .AddLinuxGtk4Essentials()
             .ConfigureFonts(fonts =>
             {
@@ -43,7 +46,10 @@ public static class MauiProgram
         builder.Services.AddSingleton<KeyCommandService>();
         builder.Services.AddSingleton<GitAutoUpdateService>();
         builder.Services.AddSingleton<RepoManager>();
+        builder.Services.AddSingleton<TutorialService>();
+        builder.Services.AddSingleton<UsageStatsService>();
         builder.Services.AddSingleton<INotificationManagerService, NotificationManagerService>();
+        builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
 
 #if DEBUG
         builder.Logging.AddDebug();
