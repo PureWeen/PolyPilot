@@ -74,6 +74,8 @@
     position: relative;
     display: flex;
     align-items: center;
+    flex: 1;
+    min-width: 0;
 }
 
 .search-icon {
@@ -84,20 +86,19 @@
 }
 
 .search-input {
-    padding: 0.35rem 1.6rem 0.35rem 1.8rem;
+    padding: 0.45rem 1.6rem 0.45rem 2rem;
     border: 1px solid var(--control-border);
     border-radius: 6px;
     background: var(--bg-input);
     color: var(--text-primary);
     font-size: var(--type-callout);
-    width: 160px;
+    width: 100%;
     outline: none;
-    transition: border-color 0.2s, width 0.2s;
+    transition: border-color 0.2s;
 }
 
 .search-input:focus {
     border-color: var(--accent-primary);
-    width: 220px;
 }
 
 .search-input::placeholder {

@@ -1,0 +1,180 @@
+@using PolyPilot.Models
+
+@if (Descriptor.Type == SettingType.Bool)
+{
+    var val = Descriptor.GetValue?.Invoke(Context) is true;
+    <div class="setting-row">
+        <div class="setting-info">
+            <span class="setting-label">@Descriptor.Label</span>
+            @if (!string.IsNullOrEmpty(Descriptor.Description))
+            {
+                <span class="setting-desc">@Descriptor.Description</span>
+            }
+        </div>
+        <div class="setting-control">
+            <label class="toggle-label">
+                <input type="checkbox" checked="@val" @onchange="e => OnBoolChange(e)" />
+            </label>
+        </div>
+    </div>
+}
+else if (Descriptor.Type == SettingType.String)
+{
+    var val = Descriptor.GetValue?.Invoke(Context) as string ?? "";
+    <div class="setting-row">
+        <div class="setting-info">
+            <span class="setting-label">@Descriptor.Label</span>
+            @if (!string.IsNullOrEmpty(Descriptor.Description))
+            {
+                <span class="setting-desc">@Descriptor.Description</span>
+            }
+        </div>
+        <div class="setting-control">
+            <input type="@(Descriptor.IsSecret ? "password" : "text")"
+                   class="setting-input"
+                   value="@val"
+                   @onchange="e => OnStringChange(e)" />
+        </div>
+    </div>
+}
+else if (Descriptor.Type == SettingType.Int)
+{
+    var val = Descriptor.GetValue?.Invoke(Context) is int i ? i : 0;
+    <div class="setting-row">
+        <div class="setting-info">
+            <span class="setting-label">@Descriptor.Label</span>
+            @if (!string.IsNullOrEmpty(Descriptor.Description))
+            {
+                <span class="setting-desc">@Descriptor.Description</span>
+            }
+        </div>
+        <div class="setting-control setting-int-control">
+            <button class="setting-int-btn" disabled="@(val <= (Descriptor.Min ?? int.MinValue))"
+                    @onclick="() => OnIntDelta(-1)">−</button>
+            <span class="setting-int-value">@val</span>
+            <button class="setting-int-btn" disabled="@(val >= (Descriptor.Max ?? int.MaxValue))"
+                    @onclick="() => OnIntDelta(1)">+</button>
+        </div>
+    </div>
+}
+else if (Descriptor.Type == SettingType.Enum)
+{
+    var val = Descriptor.GetValue?.Invoke(Context) as string ?? "";
+    <div class="setting-row">
+        <div class="setting-info">
+            <span class="setting-label">@Descriptor.Label</span>
+            @if (!string.IsNullOrEmpty(Descriptor.Description))
+            {
+                <span class="setting-desc">@Descriptor.Description</span>
+            }
+        </div>
+        <div class="setting-control">
+            <select class="setting-select" value="@val" @onchange="e => OnStringChange(e)">
+                @if (Descriptor.Options != null)
+                {
+                    @foreach (var opt in Descriptor.Options)
+                    {
+                        <option value="@opt.Value" selected="@(val == opt.Value)">@opt.Label</option>
+                    }
+                }
+            </select>
+        </div>
+    </div>
+}
+else if (Descriptor.Type == SettingType.CardEnum)
+{
+    var val = Descriptor.GetValue?.Invoke(Context) as string ?? "";
+    <div class="setting-row setting-row-vertical">
+        <div class="setting-info">
+            <span class="setting-label">@Descriptor.Label</span>
+            @if (!string.IsNullOrEmpty(Descriptor.Description))
+            {
+                <span class="setting-desc">@Descriptor.Description</span>
+            }
+        </div>
+        <div class="setting-control">
+            <div class="setting-cards">
+                @if (Descriptor.Options != null)
+                {
+                    @foreach (var opt in Descriptor.Options)
+                    {
+                        <div class="setting-card @(val == opt.Value ? "selected" : "")"
+                             @onclick="() => OnCardSelect(opt.Value)">
+                            @if (!string.IsNullOrEmpty(opt.PreviewClass))
+                            {
+                                <div class="theme-preview @opt.PreviewClass">
+                                    <div class="tp-bar"></div>
+                                    <div class="tp-content">
+                                        <div class="tp-line tp-line-1"></div>
+                                        <div class="tp-line tp-line-2"></div>
+                                    </div>
+                                </div>
+                            }
+                            <div class="setting-card-label">@opt.Label</div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+else if (Descriptor.Type == SettingType.Action)
+{
+    <div class="setting-row">
+        <div class="setting-info">
+            <span class="setting-label">@Descriptor.Label</span>
+            @if (!string.IsNullOrEmpty(Descriptor.Description))
+            {
+                <span class="setting-desc">@Descriptor.Description</span>
+            }
+        </div>
+        <div class="setting-control">
+            <button class="setting-action-btn" @onclick="OnActionClick">
+                @(Descriptor.ActionLabel ?? Descriptor.Label)
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public required SettingDescriptor Descriptor { get; set; }
+    [Parameter] public required SettingsContext Context { get; set; }
+    [Parameter] public EventCallback<string> OnChanged { get; set; }
+
+    private async Task OnBoolChange(ChangeEventArgs e)
+    {
+        var val = e.Value is true;
+        Descriptor.SetValue?.Invoke(Context, val);
+        await OnChanged.InvokeAsync(Descriptor.Id);
+    }
+
+    private async Task OnStringChange(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        Descriptor.SetValue?.Invoke(Context, val);
+        await OnChanged.InvokeAsync(Descriptor.Id);
+    }
+
+    private async Task OnIntDelta(int delta)
+    {
+        var current = Descriptor.GetValue?.Invoke(Context) is int i ? i : 0;
+        var next = Math.Clamp(current + delta, Descriptor.Min ?? int.MinValue, Descriptor.Max ?? int.MaxValue);
+        Descriptor.SetValue?.Invoke(Context, next);
+        await OnChanged.InvokeAsync(Descriptor.Id);
+    }
+
+    private async Task OnCardSelect(string value)
+    {
+        Descriptor.SetValue?.Invoke(Context, value);
+        await OnChanged.InvokeAsync(Descriptor.Id);
+    }
+
+    private async Task OnActionClick()
+    {
+        if (Descriptor.OnAction != null)
+        {
+            await Descriptor.OnAction(Context);
+        }
+        await OnChanged.InvokeAsync(Descriptor.Id);
+    }
+}
