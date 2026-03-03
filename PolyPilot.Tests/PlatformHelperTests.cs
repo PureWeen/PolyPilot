@@ -23,11 +23,12 @@ public class PlatformHelperTests
     [Fact]
     public void AvailableModes_OnNonDesktop_IsRemoteOnly()
     {
-        // When IsDesktop is false (test host), only Remote mode is available
+        // When IsDesktop is false (test host), Remote and Demo modes are available
         if (!PlatformHelper.IsDesktop)
         {
-            Assert.Single(PlatformHelper.AvailableModes);
-            Assert.Equal(ConnectionMode.Remote, PlatformHelper.AvailableModes[0]);
+            Assert.Equal(2, PlatformHelper.AvailableModes.Length);
+            Assert.Contains(ConnectionMode.Remote, PlatformHelper.AvailableModes);
+            Assert.Contains(ConnectionMode.Demo, PlatformHelper.AvailableModes);
         }
     }
 
