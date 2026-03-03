@@ -215,6 +215,13 @@ public class WsBridgeServer : IDisposable
                 }
                 else
                 {
+                    // Validate auth so LAN probes correctly fail when token is missing/wrong
+                    if (!ValidateClientToken(context.Request))
+                    {
+                        context.Response.StatusCode = 401;
+                        context.Response.Close();
+                        continue;
+                    }
                     context.Response.StatusCode = 200;
                     context.Response.ContentType = "text/plain";
                     var buffer = Encoding.UTF8.GetBytes("WsBridge OK");
