@@ -636,23 +636,22 @@ public class WsBridgeServer : IDisposable
                         var imgResponse = new FetchImageResponsePayload { RequestId = imgReq.RequestId };
                         try
                         {
-                            var validationError = ValidateImagePath(imgReq.Path);
+                            var validationError = ValidateImagePath(imgReq.Path, out var resolvedPath);
                             if (validationError != null)
                             {
                                 imgResponse.Error = validationError;
                             }
                             else
                             {
-                                var fullPath = Path.GetFullPath(imgReq.Path!);
-                                if (!File.Exists(fullPath))
+                                if (!File.Exists(resolvedPath))
                                 {
                                     imgResponse.Error = "File not found";
                                 }
                                 else
                                 {
-                                    var bytes = await File.ReadAllBytesAsync(fullPath, ct);
+                                    var bytes = await File.ReadAllBytesAsync(resolvedPath, ct);
                                     imgResponse.ImageData = Convert.ToBase64String(bytes);
-                                    imgResponse.MimeType = ImageMimeType(fullPath);
+                                    imgResponse.MimeType = ImageMimeType(resolvedPath);
                                 }
                             }
                         }
@@ -1115,8 +1114,10 @@ public class WsBridgeServer : IDisposable
     /// <summary>
     /// Validates that an image path is safe to read. Returns an error string if invalid, null if OK.
     /// </summary>
-    internal static string? ValidateImagePath(string? path)
+    internal static string? ValidateImagePath(string? path, out string resolvedPath)
     {
+        resolvedPath = string.Empty;
+
         if (string.IsNullOrEmpty(path) || !Path.IsPathRooted(path))
             return "Invalid path";
 
@@ -1154,8 +1155,13 @@ public class WsBridgeServer : IDisposable
         if (!allowedExts.Contains(ext))
             return "Unsupported file type";
 
+        resolvedPath = pathToCheck;
         return null;
     }
+
+    /// <summary>Convenience overload for callers that don't need the resolved path.</summary>
+    internal static string? ValidateImagePath(string? path)
+        => ValidateImagePath(path, out _);
 
     /// <summary>
     /// Walks parent directories from the given dir up to allowedDir, checking each for

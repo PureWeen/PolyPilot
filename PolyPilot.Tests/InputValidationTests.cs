@@ -100,6 +100,23 @@ public class InputValidationTests
     }
 
     [Fact]
+    public void ValidateImagePath_OutOverload_ReturnsResolvedPath()
+    {
+        var path = Path.Combine(ShowImageTool.GetImagesDir(), "test.png");
+        var error = WsBridgeServer.ValidateImagePath(path, out var resolvedPath);
+        Assert.Null(error);
+        Assert.Equal(Path.GetFullPath(path), resolvedPath);
+    }
+
+    [Fact]
+    public void ValidateImagePath_OutOverload_ErrorReturnsEmpty()
+    {
+        var error = WsBridgeServer.ValidateImagePath("/etc/passwd", out var resolvedPath);
+        Assert.NotNull(error);
+        Assert.Equal(string.Empty, resolvedPath);
+    }
+
+    [Fact]
     public void ValidateImagePath_SymlinkOutsideImagesDir_ReturnsNotAllowed()
     {
         var imagesDir = ShowImageTool.GetImagesDir();
