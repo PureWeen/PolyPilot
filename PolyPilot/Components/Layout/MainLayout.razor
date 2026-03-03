@@ -34,6 +34,7 @@
     private int fontSize = 20;
     private Timer? _holidayTimer;
     private bool _lastHolidayCheck;
+    private bool _disposed;
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private CopilotService CopilotService { get; set; } = default!;
@@ -101,38 +102,52 @@
 
     private void OnHolidayTimerTick(object? state)
     {
+        if (_disposed) return;
+
         var holidayTheme = HolidayThemeHelper.GetActiveHolidayTheme();
         var isHoliday = holidayTheme.HasValue;
 
         if (isHoliday && !_lastHolidayCheck && !CopilotService.HolidayThemeDismissed)
         {
-            // Just crossed into a holiday — activate theme
-            _lastHolidayCheck = true;
-            CopilotService.HolidayThemeDismissed = false;
             _ = InvokeAsync(async () =>
             {
-                CopilotService.Theme = holidayTheme!.Value;
-                var dt = HolidayThemeHelper.GetDataThemeString(holidayTheme!.Value);
-                await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dt}')");
-                StateHasChanged();
+                if (_disposed) return;
+                try
+                {
+                    // Just crossed into a holiday — activate theme
+                    _lastHolidayCheck = true;
+                    CopilotService.HolidayThemeDismissed = false;
+                    CopilotService.Theme = holidayTheme!.Value;
+                    var dt = HolidayThemeHelper.GetDataThemeString(holidayTheme!.Value);
+                    await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dt}')");
+                    StateHasChanged();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error activating holiday theme: {ex.Message}");
+                }
             });
         }
         else if (!isHoliday && _lastHolidayCheck)
         {
-            // Holiday ended — revert to user's saved theme
-            _lastHolidayCheck = false;
-            CopilotService.HolidayThemeDismissed = false;
             _ = InvokeAsync(async () =>
             {
+                if (_disposed) return;
                 try
                 {
+                    // Holiday ended — revert to user's saved theme
+                    _lastHolidayCheck = false;
+                    CopilotService.HolidayThemeDismissed = false;
                     var saved = ConnectionSettings.Load();
                     CopilotService.Theme = saved.Theme;
                     var dt = HolidayThemeHelper.GetDataThemeString(saved.Theme);
                     await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dt}')");
                     StateHasChanged();
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error reverting holiday theme: {ex.Message}");
+                }
             });
         }
     }
@@ -197,6 +212,7 @@
 
     public void Dispose()
     {
+        _disposed = true;
         _holidayTimer?.Dispose();
         _navRef?.Dispose();
     }

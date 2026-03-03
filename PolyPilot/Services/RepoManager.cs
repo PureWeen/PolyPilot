@@ -271,11 +271,18 @@ public class RepoManager
             return id;
         }
         // Handle HTTPS, ssh://, and other protocol URLs
-        var uri = new Uri(url);
-        var result = uri.AbsolutePath.Trim('/').Replace('/', '-');
-        if (result.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
-            result = result[..^4];
-        return result;
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            var result = uri.AbsolutePath.Trim('/').Replace('/', '-');
+            if (result.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+                result = result[..^4];
+            return result;
+        }
+        // Fallback: treat as plain text ID (e.g. "owner/repo" that wasn't normalized)
+        var fallback = url.Trim('/').Replace('/', '-');
+        if (fallback.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+            fallback = fallback[..^4];
+        return fallback;
     }
 
     /// <summary>
@@ -287,9 +294,9 @@ public class RepoManager
         // Already a full URL or SSH path
         if (input.StartsWith("http://") || input.StartsWith("https://") || input.Contains("@"))
             return input;
-        // GitHub shorthand: owner/repo (no dots, no colons, exactly one slash)
+        // GitHub shorthand: owner/repo (no colons, exactly one slash)
         var parts = input.Split('/');
-        if (parts.Length == 2 && !input.Contains('.') && !input.Contains(':')
+        if (parts.Length == 2 && !parts[0].Contains('.') && !input.Contains(':')
             && !string.IsNullOrWhiteSpace(parts[0]) && !string.IsNullOrWhiteSpace(parts[1]))
             return $"https://github.com/{input}";
         return input;
