@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @using PolyPilot.Services
 @using PolyPilot.Models
+@implements IDisposable
 
 <div class="page @(flyoutOpen ? "flyout-open" : "")">
     <div class="sidebar desktop-only">
@@ -147,5 +148,10 @@
     private void CloseStatistics()
     {
         showStatistics = false;
+    }
+
+    public void Dispose()
+    {
+        _navRef?.Dispose();
     }
 }
