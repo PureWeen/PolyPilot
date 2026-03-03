@@ -548,7 +548,7 @@
             PromptLibraryService.SavePrompt(name, content, string.IsNullOrWhiteSpace(description) ? null : description);
             var workDir = Session.WorkingDirectory;
             availablePrompts = await Task.Run(() => PromptLibraryService.DiscoverPrompts(workDir));
-            StateHasChanged();
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
@@ -564,7 +564,7 @@
             PromptLibraryService.DeletePrompt(name);
             var workDir = Session.WorkingDirectory;
             availablePrompts = await Task.Run(() => PromptLibraryService.DiscoverPrompts(workDir));
-            StateHasChanged();
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
@@ -1011,10 +1011,10 @@
         return desc[..117] + "…";
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
+        try { await JS.InvokeVoidAsync("eval", "window.__ppRef = null;"); } catch { }
         _promptDotNetRef?.Dispose();
         _promptDotNetRef = null;
-        return ValueTask.CompletedTask;
     }
 }
