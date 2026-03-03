@@ -1125,7 +1125,7 @@ public class WsBridgeServer : IDisposable
 
         // Resolve symlinks so a link inside images/ pointing outside is caught
         var fi = new FileInfo(fullPath);
-        if (fi.Exists && fi.LinkTarget != null)
+        if (fi.LinkTarget != null)
         {
             var resolved = fi.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? fullPath;
             if (!resolved.StartsWith(allowedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))

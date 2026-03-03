@@ -1,4 +1,3 @@
-using Markdig;
 using PolyPilot.Models;
 using PolyPilot.Services;
 
@@ -122,12 +121,8 @@ public class InputValidationTests
 
     #region Markdown HTML Handling
 
-    // The app's Markdig pipeline uses .DisableHtml() to prevent raw HTML injection.
-    // These tests verify the same pipeline configuration strips dangerous tags.
-    private static readonly MarkdownPipeline TestPipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions().DisableHtml().Build();
-
-    private static string Render(string markdown) => Markdown.ToHtml(markdown, TestPipeline);
+    // Tests use the production MarkdownRenderer.Pipeline (shared with ChatMessageList)
+    private static string Render(string markdown) => MarkdownRenderer.ToHtml(markdown);
 
     [Fact]
     public void RenderMarkdown_ScriptTag_IsNotRendered()

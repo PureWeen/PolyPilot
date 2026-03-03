@@ -158,8 +158,7 @@
         return ToolActivities.Where(a => !historyCallIds.Contains(a.CallId));
     }
 
-    private static readonly MarkdownPipeline MdPipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions().DisableHtml().Build();
+    private static readonly MarkdownPipeline MdPipeline = MarkdownRenderer.Pipeline;
 
     private static readonly Dictionary<string, string> _imageCache = new();
     // LRU markdown cache: uses content string as key (no hash collisions), with eviction at 1000 entries
