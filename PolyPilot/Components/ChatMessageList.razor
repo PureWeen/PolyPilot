@@ -1,5 +1,5 @@
 @using PolyPilot.Models
-@using Markdig
+@using PolyPilot.Services
 
 @* Shared chat message list — used by Dashboard.razor (grid=compact, expanded=full) *@
 
@@ -158,9 +158,6 @@
         return ToolActivities.Where(a => !historyCallIds.Contains(a.CallId));
     }
 
-    private static readonly MarkdownPipeline MdPipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions().Build();
-
     private static readonly Dictionary<string, string> _imageCache = new();
     // LRU markdown cache: uses content string as key (no hash collisions), with eviction at 1000 entries
     private static readonly Dictionary<string, string> _markdownCache = new();
@@ -178,7 +175,7 @@
         if (_markdownCache.TryGetValue(cacheKey, out var cached)) return cached;
         try
         {
-            var html = Markdig.Markdown.ToHtml(content, MdPipeline);
+            var html = MarkdownRenderer.ToHtml(content);
             html = ImagePathRegex.Replace(html, match =>
             {
                 var path = match.Value;
