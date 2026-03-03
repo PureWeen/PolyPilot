@@ -108,8 +108,7 @@ public partial class QrScannerPage : ContentPage
             catch (Exception ex)
             {
                 Console.WriteLine($"[QrScanner] Error dismissing scanner: {ex}");
-                // Ensure result is delivered even if navigation fails
-                _service.SetResult(result.Value);
+                try { await Navigation.PopModalAsync(false); } catch { }
             }
         });
     }
