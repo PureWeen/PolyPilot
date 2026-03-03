@@ -892,4 +892,53 @@ public class CopilotServiceInitializationTests
         // Session should NOT be re-added
         Assert.Null(svc.GetSession("wt-session"));
     }
+
+    [Fact]
+    public async Task CreateSessionAsync_DemoMode_IsCreatingIsFalse()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("test-session");
+        Assert.False(session.IsCreating);
+    }
+
+    [Fact]
+    public async Task CreateSessionAsync_DemoMode_SessionActiveImmediately()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("instant");
+        Assert.Equal("instant", svc.ActiveSessionName);
+        Assert.NotNull(svc.GetSession("instant"));
+    }
+
+    [Fact]
+    public async Task CreateSession_BeforeInitialize_NoOptimisticAdd()
+    {
+        // If service is not initialized, CreateSessionAsync should throw
+        // without leaving an optimistic placeholder in _sessions
+        var svc = CreateService();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => svc.CreateSessionAsync("test", cancellationToken: CancellationToken.None));
+
+        Assert.Empty(svc.GetAllSessions());
+        Assert.Null(svc.ActiveSessionName);
+    }
+
+    [Fact]
+    public async Task CreateSessionAsync_EmptyName_Throws()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Persistent, Host = "localhost", Port = 19999 });
+
+        // Empty name should throw before any optimistic add
+        // (Service isn't initialized so this hits that check first)
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => svc.CreateSessionAsync("", cancellationToken: CancellationToken.None));
+
+        Assert.Empty(svc.GetAllSessions());
+    }
 }

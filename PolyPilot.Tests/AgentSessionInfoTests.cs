@@ -167,4 +167,21 @@ public class AgentSessionInfoTests
 
         Assert.Equal(0, session.UnreadCount);
     }
+
+    [Fact]
+    public void IsCreating_DefaultsToFalse()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        Assert.False(session.IsCreating);
+    }
+
+    [Fact]
+    public void IsCreating_CanBeSetAndCleared()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5", IsCreating = true };
+        Assert.True(session.IsCreating);
+
+        session.IsCreating = false;
+        Assert.False(session.IsCreating);
+    }
 }

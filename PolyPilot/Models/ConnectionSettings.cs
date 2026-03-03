@@ -26,11 +26,12 @@ public enum ChatStyle
 
 public enum UiTheme
 {
-    System,          // Follow OS light/dark preference
+    System,          // Follow OS light/dark preference (PolyPilot palette)
     PolyPilotDark,   // Default dark theme
     PolyPilotLight,  // Light variant
     SolarizedDark,   // Solarized dark
-    SolarizedLight   // Solarized light
+    SolarizedLight,  // Solarized light
+    SystemSolarized  // Follow OS light/dark preference (Solarized palette)
 }
 
 public enum CliSourceMode

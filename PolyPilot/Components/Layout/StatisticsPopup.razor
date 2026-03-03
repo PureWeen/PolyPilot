@@ -1,0 +1,75 @@
+@using PolyPilot.Services
+@using PolyPilot.Models
+@inject UsageStatsService UsageStats
+
+<div class="stats-popup-overlay @(Visible ? "open" : "")" @onclick="Close">
+    <div class="stats-popup" @onclick:stopPropagation="true">
+        <div class="stats-popup-header">
+            <h3>Usage Statistics</h3>
+            <button class="stats-close-btn" @onclick="Close">✕</button>
+        </div>
+        <p class="stats-desc">Track your app usage and Copilot activity.</p>
+
+        @if (stats != null)
+        {
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value">@stats.TotalSessionsCreated</div>
+                    <div class="stat-label">Sessions Created</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">@stats.TotalSessionsClosed</div>
+                    <div class="stat-label">Sessions Closed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">@FormatDuration(stats.TotalSessionTimeSeconds)</div>
+                    <div class="stat-label">Total Session Time</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">@FormatDuration(stats.LongestSessionSeconds)</div>
+                    <div class="stat-label">Longest Session</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">@stats.TotalLinesSuggested.ToString("N0")</div>
+                    <div class="stat-label">Lines of Code Suggested</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">@stats.TotalMessagesReceived</div>
+                    <div class="stat-label">Messages Received</div>
+                </div>
+            </div>
+            <div class="stats-footer">
+                <span class="stats-date">First used: @stats.FirstUsedAt.ToLocalTime().ToString("MMM dd, yyyy")</span>
+                <span class="stats-date">Last updated: @stats.LastUpdatedAt.ToLocalTime().ToString("MMM dd, yyyy HH:mm")</span>
+            </div>
+        }
+        else
+        {
+            <p class="stats-empty">No statistics available yet.</p>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private UsageStatistics? stats;
+
+    protected override void OnParametersSet()
+    {
+        if (Visible)
+            stats = UsageStats.GetStats();
+    }
+
+    private async Task Close() => await OnClose.InvokeAsync();
+
+    private string FormatDuration(long totalSeconds)
+    {
+        if (totalSeconds < 60) return $"{totalSeconds}s";
+        if (totalSeconds < 3600) return $"{totalSeconds / 60}m {totalSeconds % 60}s";
+        var h = totalSeconds / 3600;
+        var m = (totalSeconds % 3600) / 60;
+        return $"{h}h {m}m";
+    }
+}
