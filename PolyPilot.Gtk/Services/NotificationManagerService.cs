@@ -42,7 +42,7 @@ public class NotificationManagerService : INotificationManagerService
 
         try
         {
-            Process.Start(new ProcessStartInfo
+            using var proc = Process.Start(new ProcessStartInfo
             {
                 FileName = "notify-send",
                 ArgumentList = { "--app-name=PolyPilot", title, body },
