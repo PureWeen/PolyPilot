@@ -713,10 +713,10 @@
                     if(row){{
                         var name = row.getAttribute('data-agent');
                         ov.remove();
-                        var inputEl = document.querySelector('[data-session=""{EscapeForJs(Session.Name)}""] textarea');
+                        var inputEl = document.querySelector('[data-session=' + JSON.stringify('{EscapeForJs(Session.Name)}') + '] textarea');
                         if(inputEl){{
                             inputEl.value = '@' + name + ' ';
-                            inputEl.dispatchEvent(new Event('input'));
+                            inputEl.dispatchEvent(new Event('input', {{bubbles: true}}));
                             inputEl.focus();
                         }}
                     }}
@@ -762,10 +762,10 @@
                     if(row){{
                         var name = row.getAttribute('data-prompt');
                         ov.remove();
-                        var inputEl = document.querySelector('[data-session=""{EscapeForJs(Session.Name)}""] textarea');
+                        var inputEl = document.querySelector('[data-session=' + JSON.stringify('{EscapeForJs(Session.Name)}') + '] textarea');
                         if(inputEl){{
                             inputEl.value = '/prompt use ' + name;
-                            inputEl.dispatchEvent(new Event('input'));
+                            inputEl.dispatchEvent(new Event('input', {{bubbles: true}}));
                         }}
                     }}
                 }};
