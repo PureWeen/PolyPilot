@@ -1518,6 +1518,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         info.SessionId = copilotSession.SessionId;
         info.IsCreating = false;
 
+        // Session was closed while we were awaiting SDK creation -- dispose and bail
+        if (!_sessions.ContainsKey(name))
+        {
+            try { await copilotSession.DisposeAsync(); } catch { }
+            return;
+        }
+
         Debug($"Session '{name}' created with ID: {copilotSession.SessionId}");
 
         // Save alias so saved sessions show the custom name
