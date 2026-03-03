@@ -1876,7 +1876,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
         OnStateChanged?.Invoke();
 
-        Console.WriteLine($"[DEBUG] Sending prompt to session '{sessionName}' (Model: {state.Info.Model}): {prompt.Substring(0, Math.Min(50, prompt.Length))}...");
+        Console.WriteLine($"[DEBUG] Sending prompt to session '{sessionName}' (Model: {state.Info.Model}, Length: {prompt.Length})");
         Console.WriteLine($"[MODEL] Session '{sessionName}' using model: {state.Info.Model}");
         
         try 

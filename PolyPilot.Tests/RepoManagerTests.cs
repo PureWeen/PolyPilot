@@ -37,6 +37,8 @@ public class RepoManagerTests
     [Theory]
     [InlineData("dotnet/maui", "https://github.com/dotnet/maui")]
     [InlineData("PureWeen/PolyPilot", "https://github.com/PureWeen/PolyPilot")]
+    [InlineData("mono/SkiaSharp.Extended", "https://github.com/mono/SkiaSharp.Extended")]
+    [InlineData("owner/repo.js", "https://github.com/owner/repo.js")]
     public void NormalizeRepoUrl_Shorthand_ExpandsToGitHub(string input, string expected)
     {
         Assert.Equal(expected, RepoManager.NormalizeRepoUrl(input));
@@ -51,8 +53,9 @@ public class RepoManagerTests
     }
 
     [Theory]
-    [InlineData("owner/repo.js")]  // has a dot — not treated as shorthand
     [InlineData("a/b/c")]          // 3 segments — not shorthand
+    [InlineData("gitlab.com/myrepo")]   // owner has dot → not shorthand (hostname-like)
+    [InlineData("192.168.1.1/admin")]   // owner has dot → not shorthand (IP address)
     public void NormalizeRepoUrl_NonShorthand_PassesThrough(string input)
     {
         Assert.Equal(input, RepoManager.NormalizeRepoUrl(input));
