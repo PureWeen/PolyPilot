@@ -636,18 +636,42 @@ public class WsBridgeServer : IDisposable
                         var imgResponse = new FetchImageResponsePayload { RequestId = imgReq.RequestId };
                         try
                         {
-                            if (!string.IsNullOrEmpty(imgReq.Path) && File.Exists(imgReq.Path))
+                            if (string.IsNullOrEmpty(imgReq.Path) ||
+                                !Path.IsPathRooted(imgReq.Path) ||
+                                imgReq.Path.Contains(".."))
                             {
-                                var bytes = await File.ReadAllBytesAsync(imgReq.Path);
-                                imgResponse.ImageData = Convert.ToBase64String(bytes);
-                                imgResponse.MimeType = ImageMimeType(imgReq.Path);
+                                imgResponse.Error = "Invalid path";
                             }
                             else
                             {
-                                imgResponse.Error = "File not found";
+                                // Restrict to ~/.polypilot/images/ directory
+                                var allowedDir = Path.GetFullPath(ShowImageTool.GetImagesDir());
+                                var fullPath = Path.GetFullPath(imgReq.Path);
+                                var ext = Path.GetExtension(fullPath).ToLowerInvariant();
+                                var allowedExts = new HashSet<string> { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff" };
+
+                                if (!fullPath.StartsWith(allowedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                                    && !fullPath.Equals(allowedDir, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    imgResponse.Error = "Path not allowed";
+                                }
+                                else if (!allowedExts.Contains(ext))
+                                {
+                                    imgResponse.Error = "Unsupported file type";
+                                }
+                                else if (!File.Exists(fullPath))
+                                {
+                                    imgResponse.Error = "File not found";
+                                }
+                                else
+                                {
+                                    var bytes = await File.ReadAllBytesAsync(fullPath);
+                                    imgResponse.ImageData = Convert.ToBase64String(bytes);
+                                    imgResponse.MimeType = ImageMimeType(fullPath);
+                                }
                             }
                         }
-                        catch (Exception ex) { imgResponse.Error = ex.Message; }
+                        catch { imgResponse.Error = "Access denied"; }
                         await SendToClientAsync(clientId, ws,
                             BridgeMessage.Create(BridgeMessageTypes.FetchImageResponse, imgResponse), ct);
                     }

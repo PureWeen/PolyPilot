@@ -159,7 +159,7 @@
     }
 
     private static readonly MarkdownPipeline MdPipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions().Build();
+        .UseAdvancedExtensions().DisableHtml().Build();
 
     private static readonly Dictionary<string, string> _imageCache = new();
     // LRU markdown cache: uses content string as key (no hash collisions), with eviction at 1000 entries

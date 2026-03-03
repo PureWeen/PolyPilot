@@ -88,7 +88,7 @@ public partial class QrScannerPage : ContentPage
         if (result == null) return;
 
         _scanned = true;
-        Console.WriteLine($"[QrScanner] Scanned: Format={result.Format}, Value='{result.Value}'");
+        Console.WriteLine($"[QrScanner] Scanned: Format={result.Format}, Length={result.Value?.Length ?? 0}");
 
         MainThread.BeginInvokeOnMainThread(async () =>
         {
