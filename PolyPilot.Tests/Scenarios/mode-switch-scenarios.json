@@ -8,7 +8,7 @@
     "scenarios": [
         {
             "id": "mode-switch-persistent-to-embedded-and-back",
-            "name": "Sessions survive Persistent → Embedded → Persistent round trip",
+            "name": "Sessions survive Persistent \u2192 Embedded \u2192 Persistent round trip",
             "steps": [
                 {
                     "action": "evaluate",
@@ -126,7 +126,7 @@
         },
         {
             "id": "mode-switch-rapid-no-session-loss",
-            "name": "Rapid Embedded↔Persistent switching preserves active-sessions.json",
+            "name": "Rapid Embedded\u2194Persistent switching preserves active-sessions.json",
             "steps": [
                 {
                     "action": "shell",
@@ -581,7 +581,7 @@
                 },
                 {
                     "action": "note",
-                    "text": "To fully test: kill the persistent server process while session is processing, then wait up to 2 minutes for the watchdog to detect inactivity and clear the stuck state (10 min if a tool is running). The session should show a system message: 'Session appears stuck — no response received.'"
+                    "text": "To fully test: kill the persistent server process while session is processing, then wait up to 2 minutes for the watchdog to detect inactivity and clear the stuck state (10 min if a tool is running). The session should show a system message: 'Session appears stuck \u2014 no response received.'"
                 },
                 {
                     "action": "wait",
@@ -649,7 +649,7 @@
                     "expect": {
                         "equals": "true"
                     },
-                    "note": "Sessions should be visible after relaunch — not silently lost"
+                    "note": "Sessions should be visible after relaunch \u2014 not silently lost"
                 },
                 {
                     "action": "evaluate",
@@ -754,7 +754,7 @@
                 {
                     "action": "evaluate",
                     "script": "Array.from(document.querySelectorAll('.session-card.processing, .session-item .processing-dot')).length",
-                    "note": "Count sessions showing processing state — stale sessions should not be here"
+                    "note": "Count sessions showing processing state \u2014 stale sessions should not be here"
                 },
                 {
                     "action": "note",
@@ -787,7 +787,7 @@
                     "action": "evaluate",
                     "script": "document.querySelector('.toggle-icon')?.textContent?.trim()",
                     "expect": {
-                        "equals": "▶"
+                        "equals": "\u25b6"
                     },
                     "note": "Section starts collapsed"
                 },
@@ -804,7 +804,7 @@
                     "action": "evaluate",
                     "script": "document.querySelector('.toggle-icon')?.textContent?.trim()",
                     "expect": {
-                        "equals": "▼"
+                        "equals": "\u25bc"
                     },
                     "note": "Section is now expanded"
                 },
@@ -869,7 +869,7 @@
                     "expect": {
                         "equals": true
                     },
-                    "note": "Token remains blurred — QR and token toggles are independent"
+                    "note": "Token remains blurred \u2014 QR and token toggles are independent"
                 }
             ]
         },
@@ -977,7 +977,7 @@
         },
         {
             "id": "session-menu-closes-on-click-outside",
-            "name": "Session contextual menu (⋯) closes when clicking outside, including main content area",
+            "name": "Session contextual menu (\u22ef) closes when clicking outside, including main content area",
             "steps": [
                 {
                     "action": "evaluate",
@@ -1112,6 +1112,20 @@
                         "equals": "true"
                     },
                     "note": "VS Code menu item is visible in the context menu"
+                }
+            ]
+        },
+        {
+            "id": "info-popover-not-clipped-by-main-pane",
+            "name": "Sidebar content has overflow:visible so info popover is not clipped",
+            "steps": [
+                {
+                    "action": "evaluate",
+                    "script": "getComputedStyle(document.querySelector('.sidebar-content')).overflow",
+                    "expect": {
+                        "contains": "visible"
+                    },
+                    "note": ".sidebar-content must have overflow:visible so the absolutely-positioned info popover can render outside sidebar bounds without being clipped"
                 }
             ]
         }
