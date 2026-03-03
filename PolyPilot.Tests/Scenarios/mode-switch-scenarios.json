@@ -1086,12 +1086,14 @@
                 },
                 {
                     "action": "evaluate",
+                    "script": "JSON.stringify({visible: getComputedStyle(document.querySelector('.info-panel')).opacity !== '0'})",
                     "expect": {
                         "contains": "\"visible\":true"
                     }
                 },
                 {
                     "action": "evaluate",
+                    "script": "getComputedStyle(document.querySelector('.sidebar-content')).overflow",
                     "expect": {
                         "contains": "visible"
                     },
