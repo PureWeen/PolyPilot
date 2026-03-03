@@ -1101,6 +1101,60 @@
     color: var(--accent-primary);
 }
 
+.info-popover { position: relative; display: flex; align-items: center; }
+.info-trigger {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    padding: 0.3rem;
+    border-radius: 6px;
+    color: var(--text-dim);
+    transition: background 0.15s, color 0.15s;
+}
+.info-trigger:hover { background: var(--hover-bg); color: var(--text-primary); }
+.info-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--control-border);
+    border-radius: 8px;
+    padding: 0.5rem 0;
+    min-width: 180px;
+    max-width: calc(100vw - 2rem);
+    max-height: 70vh;
+    overflow-y: auto;
+    z-index: 200;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-4px);
+    transition: opacity 0.15s 0.05s, transform 0.15s 0.05s;
+}
+.info-panel::before {
+    content: '';
+    position: absolute;
+    top: -12px;
+    left: 0;
+    right: 0;
+    height: 12px;
+}
+.info-popover:hover .info-panel {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.72rem;
+}
+.info-label { color: var(--text-muted); white-space: nowrap; }
+.info-value { color: var(--text-primary); }
+.info-divider { height: 1px; background: var(--control-border); margin: 0.25rem 0.75rem; }
+
 .rename-input {
     width: 100%;
     padding: 0.2rem 0.4rem;
