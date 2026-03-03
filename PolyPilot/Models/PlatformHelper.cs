@@ -1,3 +1,5 @@
+using System.Linq;
+
 namespace PolyPilot.Models;
 
 public static class PlatformHelper
@@ -60,9 +62,16 @@ public static class PlatformHelper
 
         // Normalize to forward slashes for URI path
         var uriPath = folderPath.Replace('\\', '/');
+        // Reject UNC paths (\\server\share → //server/share) — no meaningful remote URI
+        if (uriPath.StartsWith("//"))
+            return null;
         // Windows paths like C:/Users/... need a leading slash → /C:/Users/...
         if (uriPath.Length >= 2 && uriPath[1] == ':')
             uriPath = "/" + uriPath;
+
+        // URI-encode path segments (spaces, special chars) while preserving slashes.
+        // Unescape ':' — it's valid in URI path segments (RFC 3986) and needed for Windows drive letters.
+        uriPath = string.Join("/", uriPath.Split('/').Select(s => Uri.EscapeDataString(s).Replace("%3A", ":")));
 
         return $"vscode-remote://tunnel+{serverMachineName}{uriPath}";
     }

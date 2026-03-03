@@ -277,6 +277,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         oldCts?.Cancel();
         try { oldCts?.Dispose(); } catch { }
         HasReceivedSessionsList = false;
+        ServerMachineName = null;
         if (_ws?.State == WebSocketState.Open)
         {
             try { _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None).Wait(1000); }
@@ -657,8 +658,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                     ActiveSessionName = sessions.ActiveSession;
                     GitHubAvatarUrl = sessions.GitHubAvatarUrl;
                     GitHubLogin = sessions.GitHubLogin;
-                    if (sessions.ServerMachineName != null)
-                        ServerMachineName = sessions.ServerMachineName;
+                    ServerMachineName = sessions.ServerMachineName;
                     HasReceivedSessionsList = true;
                     Console.WriteLine($"[WsBridgeClient] Got {Sessions.Count} sessions, active={ActiveSessionName}");
                     OnStateChanged?.Invoke();

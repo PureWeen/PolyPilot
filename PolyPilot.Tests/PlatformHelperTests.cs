@@ -194,4 +194,25 @@ public class PlatformHelperTests
         var result = PlatformHelper.BuildVSCodeRemoteFolderUri(true, "my-laptop", "/tmp/work");
         Assert.Equal("vscode-remote://tunnel+my-laptop/tmp/work", result);
     }
+
+    [Fact]
+    public void BuildVSCodeRemoteFolderUri_UncPath_ReturnsNull()
+    {
+        var result = PlatformHelper.BuildVSCodeRemoteFolderUri(true, "DEV-SERVER", @"\\fileserver\share\project");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void BuildVSCodeRemoteFolderUri_PathWithSpaces_UriEncoded()
+    {
+        var result = PlatformHelper.BuildVSCodeRemoteFolderUri(true, "DEV-SERVER", "/home/user/my project");
+        Assert.Equal("vscode-remote://tunnel+DEV-SERVER/home/user/my%20project", result);
+    }
+
+    [Fact]
+    public void BuildVSCodeRemoteFolderUri_WindowsPathWithSpaces_UriEncoded()
+    {
+        var result = PlatformHelper.BuildVSCodeRemoteFolderUri(true, "DEV-SERVER", @"C:\Users\dev user\my project");
+        Assert.Equal("vscode-remote://tunnel+DEV-SERVER/C:/Users/dev%20user/my%20project", result);
+    }
 }
