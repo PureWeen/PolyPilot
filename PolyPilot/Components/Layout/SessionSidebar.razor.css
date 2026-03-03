@@ -4,7 +4,7 @@
     height: 100%;
     background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-secondary) 100%);
     color: var(--text-primary);
-    overflow: hidden;
+    overflow: visible;
 }
 
 .sidebar-header {

@@ -231,7 +231,7 @@ public partial class CopilotService : IAsyncDisposable
 
     private class SessionState
     {
-        public required CopilotSession Session { get; init; }
+        public required CopilotSession Session { get; set; }
         public required AgentSessionInfo Info { get; init; }
         public TaskCompletionSource<string>? ResponseCompletion { get; set; }
         public StringBuilder CurrentResponse { get; } = new();
@@ -1476,17 +1476,54 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         Debug($"Creating session with Model: '{sessionModel}' (Requested: '{model}', Default: '{DefaultModel}')");
 
-        var copilotSession = await _client.CreateSessionAsync(config, cancellationToken);
-
+        // Optimistic add: show the session in the UI immediately while the SDK creates it
         var info = new AgentSessionInfo
         {
             Name = name,
             Model = sessionModel,
             CreatedAt = DateTime.Now,
-            SessionId = copilotSession.SessionId,
             WorkingDirectory = sessionDir,
-            GitBranch = GetGitBranch(sessionDir)
+            GitBranch = GetGitBranch(sessionDir),
+            IsCreating = true
         };
+        // If a session with this name already exists, dispose it to avoid leaking the SDK session
+        if (_sessions.TryGetValue(name, out var existing) && existing.Session != null)
+        {
+            try { await existing.Session.DisposeAsync(); } catch { }
+        }
+
+        var state = new SessionState { Session = null!, Info = info };
+        var previousActiveSessionName = _activeSessionName;
+        _sessions[name] = state;
+        _activeSessionName = name;
+        if (!Organization.Sessions.Any(m => m.SessionName == name))
+            Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
+        OnStateChanged?.Invoke();
+
+        CopilotSession copilotSession;
+        try
+        {
+            copilotSession = await _client.CreateSessionAsync(config, cancellationToken);
+        }
+        catch
+        {
+            // SDK creation failed — remove the optimistic placeholder and restore prior state
+            _sessions.TryRemove(name, out _);
+            Organization.Sessions.RemoveAll(m => m.SessionName == name);
+            _activeSessionName = previousActiveSessionName;
+            OnStateChanged?.Invoke();
+            throw;
+        }
+
+        info.SessionId = copilotSession.SessionId;
+        info.IsCreating = false;
+
+        // Session was closed while we were awaiting SDK creation -- dispose and bail
+        if (!_sessions.ContainsKey(name))
+        {
+            try { await copilotSession.DisposeAsync(); } catch { }
+            return;
+        }
 
         Debug($"Session '{name}' created with ID: {copilotSession.SessionId}");
 
@@ -1494,21 +1531,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!string.IsNullOrEmpty(copilotSession.SessionId))
             SetSessionAlias(copilotSession.SessionId, name);
 
-        var state = new SessionState
-        {
-            Session = copilotSession,
-            Info = info
-        };
-
+        state.Session = copilotSession;
         copilotSession.On(evt => HandleSessionEvent(state, evt));
-
-        if (!_sessions.TryAdd(name, state))
-        {
-            try { await copilotSession.DisposeAsync(); } catch { }
-            throw new InvalidOperationException($"Failed to add session '{name}'.");
-        }
-
-        _activeSessionName ??= name;
 
         // Reset stale pin from a previous session with the same name
         var staleMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
@@ -1804,6 +1828,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
+
+        if (state.Info.IsCreating)
+            throw new InvalidOperationException("Session is still being created. Please wait.");
 
         if (state.Info.IsProcessing)
             throw new InvalidOperationException("Session is already processing a request.");

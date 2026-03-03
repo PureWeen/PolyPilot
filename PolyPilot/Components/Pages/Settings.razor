@@ -9,7 +9,6 @@
 @inject QrScannerService QrScanner
 @inject GitAutoUpdateService GitAutoUpdate
 @inject FiestaService FiestaService
-@inject UsageStatsService UsageStats
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject IServiceProvider ServiceProvider
@@ -28,13 +27,48 @@
                         <button class="search-clear" @onclick="ClearSearch">×</button>
                     }
                 </div>
+
             </div>
         </div>
     </div>
 
+    <div class="settings-body">
+        @if (string.IsNullOrWhiteSpace(searchQuery))
+        {
+        <nav class="settings-nav">
+            @if (!PlatformHelper.IsMobile || CopilotService.IsInitialized || PlatformHelper.AvailableModes.Length > 1)
+            {
+                <button class="settings-nav-item @(activeCategory == "connection" ? "active" : "")" @onclick='() => ScrollToCategory("connection")'>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+                    Connection
+                </button>
+            }
+            @if (settings.Mode != ConnectionMode.Remote && settings.Mode != ConnectionMode.Demo)
+            {
+                <button class="settings-nav-item @(activeCategory == "cli" ? "active" : "")" @onclick='() => ScrollToCategory("cli")'>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                    Copilot CLI
+                </button>
+            }
+            <button class="settings-nav-item @(activeCategory == "ui" ? "active" : "")" @onclick='() => ScrollToCategory("ui")'>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                UI
+            </button>
+            @if (GitAutoUpdate.IsAvailable)
+            {
+                <button class="settings-nav-item @(activeCategory == "developer" ? "active" : "")" @onclick='() => ScrollToCategory("developer")'>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    Developer
+                </button>
+            }
+        </nav>
+        }
+
+        <div class="settings-content" id="settings-scroll-container">
+
     @if (!PlatformHelper.IsMobile || CopilotService.IsInitialized || PlatformHelper.AvailableModes.Length > 1)
     {
-    <div class="settings-group @(GroupVisible("connection") ? "" : "search-hidden")">
+    <div id="settings-connection" class="settings-group @(GroupVisible("connection") ? "" : "search-hidden")">
         <h2 class="group-title">Connection</h2>
 
     @if (PlatformHelper.AvailableModes.Length > 1)
@@ -353,200 +387,44 @@
     </div>
     }
 
-    @if (settings.Mode != ConnectionMode.Remote && settings.Mode != ConnectionMode.Demo)
+    @{ var cliSettings = SettingsRegistry.ForCategory("Copilot CLI", settingsCtx).ToList(); }
+    @if (cliSettings.Any())
     {
-    <div class="settings-group @(GroupVisible("cli copilot") ? "" : "search-hidden")">
+    <div id="settings-cli" class="settings-group @(CategoryVisible("Copilot CLI") ? "" : "search-hidden")">
         <h2 class="group-title">Copilot CLI</h2>
-        <div class="settings-section @(SectionVisible("cli source built-in system version binary copilot") ? "" : "search-hidden")">
-            <div class="cli-cards">
-                <div class="cli-card @(settings.CliSource == CliSourceMode.BuiltIn ? "selected" : "") @(cliInfo.builtInPath == null && cliInfo.systemPath == null ? "disabled" : "")"
-                     @onclick="() => SetCliSource(CliSourceMode.BuiltIn)">
-                    <div class="cli-card-icon">📦</div>
-                    <div class="cli-card-label">Built-in</div>
-                    <div class="cli-card-ver">v@(cliInfo.builtInVersion ?? "—")</div>
-                </div>
-                <div class="cli-card @(settings.CliSource == CliSourceMode.System ? "selected" : "") @(cliInfo.systemPath == null && cliInfo.builtInPath == null ? "disabled" : "")"
-                     @onclick="() => SetCliSource(CliSourceMode.System)">
-                    <div class="cli-card-icon">💻</div>
-                    <div class="cli-card-label">System</div>
-                    <div class="cli-card-ver">v@(cliInfo.systemVersion ?? "—")</div>
-                </div>
-            </div>
+        <div class="settings-section">
+            @foreach (var desc in cliSettings)
+            {
+                @if (SettingMatchesSearch(desc))
+                {
+                    <PolyPilot.Components.Settings.SettingEditor Descriptor="desc" Context="settingsCtx" OnChanged="OnSettingChanged" />
+                }
+            }
             @if (cliSourceChanged)
             {
                 <div class="cli-restart-hint">⟳ Restart the app to apply the change</div>
-            }
-            @if (settings.CliSource == CliSourceMode.BuiltIn && cliInfo.builtInPath == null && cliInfo.systemPath != null)
-            {
-                <div class="cli-path-warn">⚠ No bundled CLI found — will use system CLI</div>
-            }
-            @if (settings.CliSource == CliSourceMode.System && cliInfo.systemPath != null)
-            {
-                <div class="cli-path-info" title="@cliInfo.systemPath">@ShortenPath(cliInfo.systemPath)</div>
-            }
-            @if (settings.CliSource == CliSourceMode.System && cliInfo.systemPath == null)
-            {
-                <div class="cli-path-warn">⚠ No system CLI found — will fall back to built-in</div>
             }
         </div>
     </div>
     }
 
-    <div class="settings-group @(GroupVisible("ui") ? "" : "search-hidden")">
+    @{ var uiSettings = SettingsRegistry.ForCategory("UI", settingsCtx).ToList(); }
+    <div id="settings-ui" class="settings-group @(CategoryVisible("UI") ? "" : "search-hidden")">
         <h2 class="group-title">UI</h2>
-
-        <div class="settings-section @(SectionVisible("theme appearance dark light solarized system") ? "" : "search-hidden")">
-            <h3>Theme</h3>
-            <div class="layout-option">
-                <label>Appearance:</label>
-                <div class="layout-cards">
-                    @foreach (var theme in Enum.GetValues<UiTheme>())
-                    {
-                        <div class="layout-card @(settings.Theme == theme ? "selected" : "")"
-                             @onclick="() => SetTheme(theme)">
-                            <div class="theme-preview @GetThemePreviewClass(theme)">
-                                <div class="tp-bar"></div>
-                                <div class="tp-content">
-                                    <div class="tp-line tp-line-1"></div>
-                                    <div class="tp-line tp-line-2"></div>
-                                </div>
-                            </div>
-                            <div class="layout-label">@GetThemeLabel(theme)</div>
-                        </div>
-                    }
-                </div>
-            </div>
-        </div>
-
-        <div class="settings-section @(SectionVisible("chat message layout style default reversed both left normal minimal") ? "" : "search-hidden")">
-            <h3>Chat</h3>
-            <div class="layout-option">
-                <label>Message layout:</label>
-                <div class="layout-cards">
-                    @foreach (var layout in Enum.GetValues<ChatLayout>())
-                    {
-                        <div class="layout-card @(settings.ChatLayout == layout ? "selected" : "")"
-                             @onclick="() => SetChatLayout(layout)">
-                            <div class="layout-preview">
-                                @switch (layout)
-                                {
-                                    case ChatLayout.Default:
-                                        <div class="lp-row lp-left"><span class="lp-bot"></span><span class="lp-bubble lp-ai"></span></div>
-                                        <div class="lp-row lp-right"><span class="lp-bubble lp-you"></span><span class="lp-user"></span></div>
-                                        break;
-                                    case ChatLayout.Reversed:
-                                        <div class="lp-row lp-right"><span class="lp-bubble lp-ai"></span><span class="lp-bot"></span></div>
-                                        <div class="lp-row lp-left"><span class="lp-user"></span><span class="lp-bubble lp-you"></span></div>
-                                        break;
-                                    case ChatLayout.BothLeft:
-                                        <div class="lp-row lp-left"><span class="lp-bot"></span><span class="lp-bubble lp-ai"></span></div>
-                                        <div class="lp-row lp-left"><span class="lp-user"></span><span class="lp-bubble lp-you"></span></div>
-                                        break;
-                                }
-                            </div>
-                            <div class="layout-label">@GetLayoutLabel(layout)</div>
-                        </div>
-                    }
-                </div>
-            </div>
-            <div class="layout-option">
-                <label>Message style:</label>
-                <div class="layout-cards">
-                    @foreach (var style in Enum.GetValues<ChatStyle>())
-                    {
-                        <div class="layout-card @(settings.ChatStyle == style ? "selected" : "")"
-                             @onclick="() => SetChatStyle(style)">
-                            <div class="layout-preview">
-                                @switch (style)
-                                {
-                                    case ChatStyle.Normal:
-                                        <div class="lp-row lp-left"><span class="lp-bot"></span><span class="lp-bubble lp-ai"></span></div>
-                                        <div class="lp-row lp-right"><span class="lp-bubble lp-you"></span><span class="lp-user"></span></div>
-                                        break;
-                                    case ChatStyle.Minimal:
-                                        <div class="lp-row lp-left lp-full"><span class="lp-bot lp-small"></span><span class="lp-line lp-ai"></span></div>
-                                        <div class="lp-row lp-left lp-full"><span class="lp-user lp-small"></span><span class="lp-line lp-you"></span></div>
-                                        break;
-                                }
-                            </div>
-                            <div class="layout-label">@GetStyleLabel(style)</div>
-                        </div>
-                    }
-                </div>
-            </div>
-        </div>
-
-        <div class="settings-section @(SectionVisible("font size text zoom") ? "" : "search-hidden")">
-            <h3>Font Size</h3>
-            <div class="font-size-control">
-                <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)">A‒</button>
-                <span class="font-size-value">@fontSize px</span>
-                <button class="font-size-btn" @onclick="IncreaseFontSize" disabled="@(fontSize >= 24)">A+</button>
-            </div>
-        </div>
-
-        <div class="settings-section @(SectionVisible("notifications alert sound badge") ? "" : "search-hidden")">
-            <h3>Notifications</h3>
-            <div class="notifications-toggle">
-                <label class="toggle-label">
-                    <input type="checkbox" checked="@settings.EnableSessionNotifications" @onchange="ToggleNotifications" />
-                    <span class="toggle-text">🔔 Notify when sessions complete</span>
-                </label>
-                <p class="toggle-hint">Get a system notification when an agent finishes responding</p>
-            </div>
-        </div>
-    </div>
-
-    <div class="settings-group @(GroupVisible("statistics usage stats") ? "" : "search-hidden")">
-        <h2 class="group-title">Statistics</h2>
-
-        <div class="settings-section @(SectionVisible("statistics usage stats sessions time code") ? "" : "search-hidden")">
-            <h3>Usage Statistics</h3>
-            <p class="section-desc">Track your app usage and Copilot activity.</p>
-            
-            @if (stats != null)
+        <div class="settings-section">
+            @foreach (var desc in uiSettings)
             {
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-value">@stats.TotalSessionsCreated</div>
-                        <div class="stat-label">Sessions Created</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value">@stats.TotalSessionsClosed</div>
-                        <div class="stat-label">Sessions Closed</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value">@FormatDuration(stats.TotalSessionTimeSeconds)</div>
-                        <div class="stat-label">Total Session Time</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value">@FormatDuration(stats.LongestSessionSeconds)</div>
-                        <div class="stat-label">Longest Session</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value">@stats.TotalLinesSuggested.ToString("N0")</div>
-                        <div class="stat-label">Lines of Code Suggested</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value">@stats.TotalMessagesReceived</div>
-                        <div class="stat-label">Messages Received</div>
-                    </div>
-                </div>
-                <div class="stats-footer">
-                    <span class="stats-date">First used: @stats.FirstUsedAt.ToLocalTime().ToString("MMM dd, yyyy")</span>
-                    <span class="stats-date">Last updated: @stats.LastUpdatedAt.ToLocalTime().ToString("MMM dd, yyyy HH:mm")</span>
-                </div>
-            }
-            else
-            {
-                <p>No statistics available yet.</p>
+                @if (SettingMatchesSearch(desc))
+                {
+                    <PolyPilot.Components.Settings.SettingEditor Descriptor="desc" Context="settingsCtx" OnChanged="OnSettingChanged" />
+                }
             }
         </div>
     </div>
 
     @if (GitAutoUpdate.IsAvailable)
     {
-    <div class="settings-group @(GroupVisible("developer") ? "" : "search-hidden")">
+    <div id="settings-developer" class="settings-group @(GroupVisible("developer") ? "" : "search-hidden")">
         <h2 class="group-title">Developer</h2>
 
         <div class="settings-section @(SectionVisible("auto update main git watch relaunch rebuild") ? "" : "search-hidden")">
@@ -572,12 +450,15 @@
     {
         <div class="status-toast @statusClass">@(statusClass == "success" ? "✓ " : statusClass == "error" ? "✗ " : "")@statusMessage</div>
     }
+        </div>
+    </div>
 </div>
 
 @code {
     private ConnectionSettings settings = new();
     private string? statusMessage;
     private string statusClass = "";
+    private string activeCategory = "connection";
     private bool serverAlive;
     private bool starting;
     private bool? devTunnelAvailable;
@@ -601,7 +482,7 @@
     private string fiestaLinkUrl = "";
     private string fiestaLinkToken = "";
     private string? fiestaLinkError;
-    private UsageStatistics? stats;
+    private SettingsContext settingsCtx = null!;
 
     [JSInvokable]
     public void JsUpdateSearch(string query)
@@ -610,10 +491,23 @@
         InvokeAsync(StateHasChanged);
     }
 
+    [JSInvokable]
+    public void JsSetActiveCategory(string category)
+    {
+        activeCategory = category;
+        InvokeAsync(StateHasChanged);
+    }
+
     private async Task ClearSearch()
     {
         searchQuery = "";
         await JS.InvokeVoidAsync("eval", "document.getElementById('settings-search').value = ''");
+    }
+
+    private async Task ScrollToCategory(string category)
+    {
+        activeCategory = category;
+        await JS.InvokeVoidAsync("eval", $"document.getElementById('settings-{category}')?.scrollIntoView({{behavior:'smooth',block:'start'}})");
     }
 
     private bool SectionVisible(string keywords)
@@ -634,10 +528,68 @@
         {
             "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect"),
             "ui" => SectionVisible("chat message layout default reversed both left theme font size text zoom"),
-            "statistics" => SectionVisible("statistics usage stats sessions time code"),
             "developer" => SectionVisible("auto update main git watch relaunch rebuild"),
             _ => true
         };
+    }
+
+    private bool CategoryVisible(string category)
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery)) return true;
+        return SettingsRegistry.ForCategory(category, settingsCtx).Any(d => SettingMatchesSearch(d));
+    }
+
+    private bool SettingMatchesSearch(SettingDescriptor desc)
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery)) return true;
+        var q = searchQuery.Trim().ToLowerInvariant();
+        if (desc.Label.ToLowerInvariant().Contains(q)) return true;
+        if (desc.Description?.ToLowerInvariant().Contains(q) == true) return true;
+        if (desc.Category.ToLowerInvariant().Contains(q)) return true;
+        if (desc.SearchKeywords?.ToLowerInvariant().Contains(q) == true) return true;
+        return false;
+    }
+
+    private void RebuildSettingsContext()
+    {
+        settingsCtx = new SettingsContext
+        {
+            Settings = settings,
+            FontSize = fontSize,
+            ServerAlive = serverAlive,
+            IsDesktop = PlatformHelper.IsDesktop,
+            InitialMode = _initialMode
+        };
+    }
+
+    private async Task OnSettingChanged(string settingId)
+    {
+        // Sync fontSize from context (Int setter modifies ctx.FontSize)
+        fontSize = settingsCtx.FontSize;
+        RebuildSettingsContext();
+
+        switch (settingId)
+        {
+            case "ui.colorScheme":
+            case "ui.themeStyle":
+                await ApplyTheme(settings.Theme);
+                break;
+            case "ui.fontSize":
+                await JS.InvokeVoidAsync("eval", $"document.documentElement.style.setProperty('--app-font-size', '{fontSize}px')");
+                CopilotService.SaveUiState("/settings", fontSize: fontSize);
+                break;
+            case "cli.source":
+                cliSourceChanged = settings.CliSource != _initialCliSource;
+                break;
+        }
+        SaveSettingsQuietly();
+        StateHasChanged();
+    }
+
+    private void SaveSettingsQuietly()
+    {
+        try { settings.Save(); }
+        catch { /* best-effort */ }
     }
 
     private void ShowStatus(string message, string cls, int dismissMs = 3000)
@@ -670,14 +622,13 @@
         var uiState = CopilotService.LoadUiState();
         if (uiState?.FontSize > 0) fontSize = uiState.FontSize;
 
+        RebuildSettingsContext();
+
         if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
             GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
 
         if (WsBridgeServer.IsRunning)
             GenerateDirectQrCode();
-        
-        // Load usage statistics
-        stats = UsageStats.GetStats();
     }
 
     protected override void OnAfterRender(bool firstRender)
@@ -707,6 +658,24 @@
                         if (window.__settingsRef) window.__settingsRef.invokeMethodAsync('JsUpdateSearch', val);
                     }, 150);
                 });
+            })()");
+
+        // IntersectionObserver to highlight active category on scroll
+        await JS.InvokeVoidAsync("eval", @"
+            (function() {
+                var container = document.getElementById('settings-scroll-container');
+                if (!container) return;
+                var ids = ['settings-connection','settings-cli','settings-ui','settings-developer'];
+                var observer = new IntersectionObserver(function(entries) {
+                    entries.forEach(function(e) {
+                        if (e.isIntersecting && window.__settingsRef) {
+                            var cat = e.target.id.replace('settings-','');
+                            window.__settingsRef.invokeMethodAsync('JsSetActiveCategory', cat);
+                        }
+                    });
+                }, { root: container, rootMargin: '-10% 0px -80% 0px', threshold: 0 });
+                ids.forEach(function(id) { var el = document.getElementById(id); if (el) observer.observe(el); });
+                container.__settingsObserver = observer;
             })()");
 
         // Run slow detection tasks in parallel (after first paint)
@@ -1107,6 +1076,7 @@
         var dataTheme = theme switch
         {
             UiTheme.System => "system",
+            UiTheme.SystemSolarized => "system-solarized",
             UiTheme.PolyPilotDark => "",        // default, no attribute needed
             UiTheme.PolyPilotLight => "polypilot-light",
             UiTheme.SolarizedDark => "solarized-dark",
@@ -1119,6 +1089,7 @@
     private string GetThemeLabel(UiTheme theme) => theme switch
     {
         UiTheme.System => "System",
+        UiTheme.SystemSolarized => "System (Solarized)",
         UiTheme.PolyPilotDark => "PolyPilot Dark",
         UiTheme.PolyPilotLight => "PolyPilot Light",
         UiTheme.SolarizedDark => "Solarized Dark",
@@ -1129,6 +1100,7 @@
     private string GetThemePreviewClass(UiTheme theme) => theme switch
     {
         UiTheme.System => "tp-system",
+        UiTheme.SystemSolarized => "tp-system",
         UiTheme.PolyPilotDark => "tp-pp-dark",
         UiTheme.PolyPilotLight => "tp-pp-light",
         UiTheme.SolarizedDark => "tp-sol-dark",
@@ -1261,17 +1233,5 @@
             directQrCodeDataUri = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
         }
         catch { }
-    }
-    
-    private string FormatDuration(long seconds)
-    {
-        seconds = Math.Max(0, seconds);
-        if (seconds < 60)
-            return $"{seconds}s";
-        if (seconds < 3600)
-            return $"{seconds / 60}m {seconds % 60}s";
-        if (seconds < 86400)
-            return $"{seconds / 3600}h {(seconds % 3600) / 60}m";
-        return $"{seconds / 86400}d {(seconds % 86400) / 3600}h";
     }
 }
