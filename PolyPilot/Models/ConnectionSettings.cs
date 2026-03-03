@@ -64,6 +64,12 @@ public class ConnectionSettings
     public bool EnableSessionNotifications { get; set; } = false;
 
     /// <summary>
+    /// User-configured AI providers (Anthropic, OpenAI, Ollama, etc.).
+    /// Copilot is always implicitly available and doesn't appear here.
+    /// </summary>
+    public List<ProviderConfig> Providers { get; set; } = new();
+
+    /// <summary>
     /// Normalizes a remote URL by ensuring it has an http(s):// scheme.
     /// Plain IPs/hostnames get http://, devtunnels/known TLS hosts get https://.
     /// Already-schemed URLs pass through unchanged. Returns null for null/empty input.

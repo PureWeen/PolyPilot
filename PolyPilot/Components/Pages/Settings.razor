@@ -50,6 +50,10 @@
                     Copilot CLI
                 </button>
             }
+            <button class="settings-nav-item @(activeCategory == "providers" ? "active" : "")" @onclick='() => ScrollToCategory("providers")'>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m-7-3.5 5.2-3m1.6-1 5.2-3M5 6.5l5.2 3m1.6 1 5.2 3"/></svg>
+                Providers
+            </button>
             <button class="settings-nav-item @(activeCategory == "ui" ? "active" : "")" @onclick='() => ScrollToCategory("ui")'>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
                 UI
@@ -387,6 +391,101 @@
     </div>
     }
 
+    @* ─── Providers Section ─── *@
+    <div id="settings-providers" class="settings-group @(activeCategory == "providers" || !string.IsNullOrEmpty(searchQuery) ? "" : "")">
+        <h2 class="group-title">Providers</h2>
+        <p class="settings-description">Configure additional AI providers. Copilot is always available by default.</p>
+
+        @if (settings.Providers.Count > 0)
+        {
+            @foreach (var provider in settings.Providers)
+            {
+                <div class="settings-section provider-card" style="margin-bottom: 12px; padding: 12px 16px; border: 1px solid var(--border-color, #333); border-radius: 8px; position: relative;">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                        <span style="font-size: 18px;">@GetProviderIcon(provider.Type)</span>
+                        <strong style="flex: 1;">@(string.IsNullOrEmpty(provider.Name) ? provider.Type.ToString() : provider.Name)</strong>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85em; cursor: pointer;">
+                            <input type="checkbox" checked="@provider.Enabled"
+                                   @onchange="e => { provider.Enabled = (bool)(e.Value ?? false); SaveSettingsQuietly(); }" />
+                            Enabled
+                        </label>
+                        <button class="settings-btn" style="color: var(--danger-color, #f44); padding: 4px 8px; font-size: 0.8em;"
+                                @onclick="() => RemoveProvider(provider.Id)">✕</button>
+                    </div>
+
+                    @if (provider.RequiresApiKey)
+                    {
+                        <div style="margin-bottom: 6px;">
+                            <label style="font-size: 0.8em; opacity: 0.7;">API Key</label>
+                            <div style="display: flex; gap: 6px;">
+                                <input type="@(showProviderApiKey == provider.Id ? "text" : "password")"
+                                       value="@provider.ApiKey" placeholder="sk-..."
+                                       style="flex: 1; background: var(--input-bg, #1a1a1a); color: inherit; border: 1px solid var(--border-color, #333); border-radius: 4px; padding: 6px 8px; font-family: monospace; font-size: 0.85em;"
+                                       @onchange="e => { provider.ApiKey = e.Value?.ToString(); SaveSettingsQuietly(); }" />
+                                <button class="settings-btn" style="padding: 4px 8px; font-size: 0.8em;"
+                                        @onclick="() => showProviderApiKey = (showProviderApiKey == provider.Id ? null : provider.Id)">
+                                    @(showProviderApiKey == provider.Id ? "🙈" : "👁")
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    @if (provider.RequiresEndpoint)
+                    {
+                        <div style="margin-bottom: 6px;">
+                            <label style="font-size: 0.8em; opacity: 0.7;">Endpoint</label>
+                            <input type="text" value="@provider.Endpoint" placeholder="@provider.DefaultEndpoint"
+                                   style="width: 100%; background: var(--input-bg, #1a1a1a); color: inherit; border: 1px solid var(--border-color, #333); border-radius: 4px; padding: 6px 8px; font-size: 0.85em;"
+                                   @onchange="e => { provider.Endpoint = e.Value?.ToString(); SaveSettingsQuietly(); }" />
+                        </div>
+                    }
+
+                    <div>
+                        <label style="font-size: 0.8em; opacity: 0.7;">Default Model</label>
+                        <input type="text" value="@provider.DefaultModel" placeholder="e.g., claude-sonnet-4"
+                               style="width: 100%; background: var(--input-bg, #1a1a1a); color: inherit; border: 1px solid var(--border-color, #333); border-radius: 4px; padding: 6px 8px; font-size: 0.85em;"
+                               @onchange="e => { provider.DefaultModel = e.Value?.ToString(); SaveSettingsQuietly(); }" />
+                    </div>
+                </div>
+            }
+        }
+
+        @if (isAddingProvider)
+        {
+            <div class="settings-section" style="padding: 12px 16px; border: 1px solid var(--accent-color, #0078d4); border-radius: 8px;">
+                <div style="margin-bottom: 10px;">
+                    <label style="font-size: 0.8em; opacity: 0.7;">Provider Type</label>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;">
+                        @foreach (var ptype in new[] { ProviderType.Anthropic, ProviderType.OpenAI, ProviderType.Ollama, ProviderType.OpenAICompatible })
+                        {
+                            <button class="mode-card @(newProviderType == ptype ? "selected" : "")"
+                                    style="padding: 8px 14px; min-width: 0; flex: 0;"
+                                    @onclick="() => newProviderType = ptype">
+                                @GetProviderIcon(ptype) @ptype
+                            </button>
+                        }
+                    </div>
+                </div>
+                <div style="margin-bottom: 8px;">
+                    <label style="font-size: 0.8em; opacity: 0.7;">Name</label>
+                    <input type="text" @bind="newProviderName" placeholder="@(newProviderType?.ToString() ?? "My Provider")"
+                           style="width: 100%; background: var(--input-bg, #1a1a1a); color: inherit; border: 1px solid var(--border-color, #333); border-radius: 4px; padding: 6px 8px; font-size: 0.85em;" />
+                </div>
+                <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                    <button class="settings-btn" @onclick="() => isAddingProvider = false">Cancel</button>
+                    <button class="settings-btn primary-btn" disabled="@(newProviderType == null)"
+                            @onclick="AddProvider">Add</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <button class="settings-btn" style="margin-top: 8px;" @onclick="StartAddingProvider">
+                + Add Provider
+            </button>
+        }
+    </div>
+
     @{ var cliSettings = SettingsRegistry.ForCategory("Copilot CLI", settingsCtx).ToList(); }
     @if (cliSettings.Any())
     {
@@ -468,6 +567,12 @@
     private bool showQrCode;
     private bool showDirectQrCode;
     private string? qrCodeDataUri;
+
+    // Provider management state
+    private bool isAddingProvider;
+    private ProviderType? newProviderType = ProviderType.Anthropic;
+    private string newProviderName = "";
+    private string? showProviderApiKey;
     private string? directQrCodeDataUri;
     private List<string> localIps = new();
     private CancellationTokenSource? _statusCts;
@@ -592,6 +697,47 @@
         catch { /* best-effort */ }
     }
 
+    private void StartAddingProvider()
+    {
+        isAddingProvider = true;
+        newProviderType = ProviderType.Anthropic;
+        newProviderName = "";
+    }
+
+    private void AddProvider()
+    {
+        if (newProviderType == null) return;
+        var config = new ProviderConfig
+        {
+            Name = string.IsNullOrWhiteSpace(newProviderName) ? newProviderType.ToString()! : newProviderName.Trim(),
+            Type = newProviderType.Value,
+            Enabled = true,
+            Endpoint = newProviderType.Value is ProviderType.Ollama or ProviderType.OpenAICompatible
+                ? new ProviderConfig { Type = newProviderType.Value }.DefaultEndpoint
+                : null
+        };
+        settings.Providers.Add(config);
+        SaveSettingsQuietly();
+        isAddingProvider = false;
+        newProviderName = "";
+    }
+
+    private void RemoveProvider(string id)
+    {
+        settings.Providers.RemoveAll(p => p.Id == id);
+        SaveSettingsQuietly();
+    }
+
+    private static string GetProviderIcon(ProviderType type) => type switch
+    {
+        ProviderType.Copilot => "🤖",
+        ProviderType.Anthropic => "⬡",
+        ProviderType.OpenAI => "◉",
+        ProviderType.Ollama => "🦙",
+        ProviderType.OpenAICompatible => "🔌",
+        _ => "🤖"
+    };
+
     private void ShowStatus(string message, string cls, int dismissMs = 3000)
     {
         _statusCts?.Cancel();
@@ -665,7 +811,7 @@
             (function() {
                 var container = document.getElementById('settings-scroll-container');
                 if (!container) return;
-                var ids = ['settings-connection','settings-cli','settings-ui','settings-developer'];
+                var ids = ['settings-connection','settings-providers','settings-cli','settings-ui','settings-developer'];
                 var observer = new IntersectionObserver(function(entries) {
                     entries.forEach(function(e) {
                         if (e.isIntersecting && window.__settingsRef) {

@@ -75,6 +75,14 @@ public class AgentSessionInfo
         }
     }
 
+    // Provider tracking — null ProviderId means Copilot (default)
+    public string? ProviderId { get; set; }
+    public ProviderType ProviderType { get; set; } = ProviderType.Copilot;
+    public ProviderCapabilities ProviderCapabilities { get; set; } =
+        ProviderCapabilities.Streaming | ProviderCapabilities.ToolExecution
+        | ProviderCapabilities.UsageTracking | ProviderCapabilities.ImageInput
+        | ProviderCapabilities.SessionResume | ProviderCapabilities.Reasoning;
+
     // Reflection cycle for iterative goal-driven refinement
     public ReflectionCycle? ReflectionCycle { get; set; }
 

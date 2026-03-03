@@ -93,6 +93,18 @@ else
                   class="ns-prompt" rows="2"></textarea>
 
         <div class="ns-footer">
+            @if (EnabledProviders.Count > 0)
+            {
+                <select class="ns-provider-select" value="@SelectedProviderId"
+                        @onchange="OnProviderChanged"
+                        style="background: var(--input-bg, #1a1a1a); color: inherit; border: 1px solid var(--border-color, #333); border-radius: 4px; padding: 4px 8px; font-size: 0.8em; max-width: 140px;">
+                    <option value="">🤖 Copilot</option>
+                    @foreach (var p in EnabledProviders)
+                    {
+                        <option value="@p.Id">@GetProviderIcon(p.Type) @p.Name</option>
+                    }
+                </select>
+            }
             <ModelSelector Value="@SelectedModel" ValueChanged="OnModelSelected" Models="AvailableModels" CssClass="ns-model" />
             <div class="ns-footer-actions">
                 <button class="ns-cancel" @onclick="Collapse">Cancel</button>
@@ -117,10 +129,16 @@ else
     [Parameter] public string SelectedModel { get; set; } = "claude-opus-4.6";
     [Parameter] public EventCallback<string> SelectedModelChanged { get; set; }
 
-    [Parameter] public EventCallback<(string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber)> OnCreate { get; set; }
+    [Parameter] public EventCallback<(string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber, string? ProviderId)> OnCreate { get; set; }
     [Parameter] public EventCallback OnBrowseDirectory { get; set; }
     [Parameter] public string SessionName { get; set; } = "";
     [Parameter] public EventCallback<string> SessionNameChanged { get; set; }
+
+    /// <summary>Enabled non-Copilot providers from settings.</summary>
+    [Parameter] public List<ProviderConfig> EnabledProviders { get; set; } = new();
+    /// <summary>Currently selected provider ID (null = Copilot).</summary>
+    [Parameter] public string? SelectedProviderId { get; set; }
+    [Parameter] public EventCallback<string?> SelectedProviderIdChanged { get; set; }
 
     private enum FormMode { Repo, Directory, Empty }
     private enum WtMode { Auto, Branch, PR, Existing }
@@ -245,6 +263,23 @@ else
         await SelectedModelChanged.InvokeAsync(model);
     }
 
+    private async Task OnProviderChanged(ChangeEventArgs e)
+    {
+        var id = e.Value?.ToString();
+        SelectedProviderId = string.IsNullOrEmpty(id) ? null : id;
+        await SelectedProviderIdChanged.InvokeAsync(SelectedProviderId);
+    }
+
+    private static string GetProviderIcon(ProviderType type) => type switch
+    {
+        ProviderType.Copilot => "🤖",
+        ProviderType.Anthropic => "⬡",
+        ProviderType.OpenAI => "◉",
+        ProviderType.Ollama => "🦙",
+        ProviderType.OpenAICompatible => "🔌",
+        _ => "🤖"
+    };
+
     private async Task HandleInputKeyUp(KeyboardEventArgs e)
     {
         if (!nameManuallyEdited) UpdateAutoName();
@@ -302,7 +337,7 @@ else
         }
 
         worktreeError = null;
-        await OnCreate.InvokeAsync((SessionName, SelectedModel, dir, wtId, prompt, repoId, branchName, prNumber));
+        await OnCreate.InvokeAsync((SessionName, SelectedModel, dir, wtId, prompt, repoId, branchName, prNumber, SelectedProviderId));
 
         // Reset form
         branchInput = ""; prInput = ""; sessionDirectory = ""; initialPrompt = "";

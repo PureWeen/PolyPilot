@@ -34,6 +34,7 @@ else if (IsFlyoutPanel)
             <CreateSessionForm @ref="createSessionFormRef" @bind-SessionName="newSessionName"
                                @bind-SelectedModel="selectedModel"
                                AvailableModels="availableModels.ToList()"
+                               EnabledProviders="enabledProviders"
                                IsCreating="isCreating"
                                CreateError="@createError"
                                OnCreate="HandleCreateSession"
@@ -96,6 +97,7 @@ else
             <CreateSessionForm @ref="createSessionFormRef" @bind-SessionName="newSessionName"
                                @bind-SelectedModel="selectedModel"
                                AvailableModels="availableModels.ToList()"
+                               EnabledProviders="enabledProviders"
                                IsCreating="isCreating"
                                CreateError="@createError"
                                OnCreate="HandleCreateSession"
@@ -748,6 +750,7 @@ else
     private bool isCreating = false;
     private string newSessionName = "";
     private string? createError = null;
+    private List<ProviderConfig> enabledProviders => ConnectionSettings.Load().Providers.Where(p => p.Enabled).ToList();
     private bool showPersistedSessions = false;
     private string? renamingSession = null;
     private string? renamingGroupId = null;
@@ -987,7 +990,7 @@ else
         }
     }
 
-    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber) args)
+    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber, string? ProviderId) args)
     {
         if (isCreating) return;
         isCreating = true;
@@ -1024,6 +1027,18 @@ else
                 if (!string.IsNullOrEmpty(args.InitialPrompt))
                 {
                     _ = CopilotService.SendPromptAsync(sessionInfo.Name, args.InitialPrompt);
+                }
+            }
+
+            // Set provider metadata if a non-Copilot provider was selected
+            if (!string.IsNullOrEmpty(args.ProviderId))
+            {
+                sessionInfo.ProviderId = args.ProviderId;
+                var providerConfig = ConnectionSettings.Load().Providers.FirstOrDefault(p => p.Id == args.ProviderId);
+                if (providerConfig != null)
+                {
+                    sessionInfo.ProviderType = providerConfig.Type;
+                    sessionInfo.ProviderCapabilities = providerConfig.Capabilities;
                 }
             }
 
