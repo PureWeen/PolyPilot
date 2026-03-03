@@ -1936,6 +1936,24 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
                     if (_client == null)
                         throw new InvalidOperationException("Client is not initialized");
+
+                    // If the underlying connection is broken, recreate the client first
+                    if (IsConnectionError(ex))
+                    {
+                        Debug("Connection error detected, recreating client before session reconnect...");
+                        try { await _client.DisposeAsync(); } catch { }
+                        var connSettings = ConnectionSettings.Load();
+                        if (CurrentMode == ConnectionMode.Persistent &&
+                            !_serverManager.CheckServerRunning("127.0.0.1", connSettings.Port))
+                        {
+                            Debug("Persistent server not running, restarting...");
+                            await _serverManager.StartServerAsync(connSettings.Port);
+                        }
+                        _client = CreateClient(connSettings);
+                        await _client.StartAsync(cancellationToken);
+                        Debug("Client recreated successfully");
+                    }
+
                     var reconnectModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
                     var reconnectConfig = new ResumeSessionConfig();
                     reconnectConfig.Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
