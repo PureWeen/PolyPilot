@@ -238,4 +238,107 @@ public class InputValidationTests
     }
 
     #endregion
+
+    #region Markdown URL Sanitization
+
+    [Theory]
+    [InlineData("[click](javascript:alert(1))")]
+    [InlineData("[click](javascript:void(document.location='http://evil.com'))")]
+    [InlineData("[click](JAVASCRIPT:alert(1))")]
+    [InlineData("[click](Javascript:alert(1))")]
+    public void RenderMarkdown_JavascriptLinkScheme_IsBlocked(string input)
+    {
+        var html = Render(input);
+        Assert.DoesNotContain("javascript:", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("x-blocked:", html);
+    }
+
+    [Theory]
+    [InlineData("![img](javascript:alert(1))")]
+    public void RenderMarkdown_JavascriptImageScheme_IsBlocked(string input)
+    {
+        var html = Render(input);
+        Assert.DoesNotContain("javascript:", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("x-blocked:", html);
+    }
+
+    [Theory]
+    [InlineData("[click](vbscript:MsgBox(1))")]
+    [InlineData("[click](VBSCRIPT:MsgBox(1))")]
+    public void RenderMarkdown_VbscriptLinkScheme_IsBlocked(string input)
+    {
+        var html = Render(input);
+        Assert.DoesNotContain("vbscript:", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("x-blocked:", html);
+    }
+
+    [Theory]
+    [InlineData("[click](data:text/html,<script>alert(1)</script>)")]
+    public void RenderMarkdown_DataLinkScheme_IsBlocked(string input)
+    {
+        var html = Render(input);
+        Assert.DoesNotContain("data:text/html", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("x-blocked:", html);
+    }
+
+    [Fact]
+    public void RenderMarkdown_SafeLinks_StillWork()
+    {
+        Assert.Contains("https://example.com", Render("[click](https://example.com)"));
+        Assert.Contains("http://example.com", Render("[click](http://example.com)"));
+        Assert.Contains("mailto:user@example.com", Render("[click](mailto:user@example.com)"));
+    }
+
+    [Fact]
+    public void SanitizeUrls_DirectCall_WorksCorrectly()
+    {
+        Assert.Equal(
+            @"<a href=""x-blocked:alert(1)"">",
+            MarkdownRenderer.SanitizeUrls(@"<a href=""javascript:alert(1)"">"));
+        Assert.Equal(
+            @"<img src=""x-blocked:alert(1)"" />",
+            MarkdownRenderer.SanitizeUrls(@"<img src=""javascript:alert(1)"" />"));
+        // Safe URLs are untouched
+        Assert.Equal(
+            @"<a href=""https://safe.com"">",
+            MarkdownRenderer.SanitizeUrls(@"<a href=""https://safe.com"">"));
+    }
+
+    #endregion
+
+    #region Additional Edge Cases
+
+    [Theory]
+    [InlineData(".PNG")]
+    [InlineData(".Jpg")]
+    [InlineData(".JPEG")]
+    public void ValidateImagePath_CaseInsensitiveExtension_IsAllowed(string ext)
+    {
+        var path = Path.Combine(ShowImageTool.GetImagesDir(), "test" + ext);
+        Assert.Null(WsBridgeServer.ValidateImagePath(path));
+    }
+
+    [Theory]
+    [InlineData("image.png.exe")]
+    [InlineData("image.jpg.txt")]
+    [InlineData("image.exe.png.sh")]
+    public void ValidateImagePath_DoubleExtension_ChecksLastExtension(string filename)
+    {
+        var path = Path.Combine(ShowImageTool.GetImagesDir(), filename);
+        var result = WsBridgeServer.ValidateImagePath(path);
+        var ext = Path.GetExtension(filename).ToLowerInvariant();
+        if (ext == ".png" || ext == ".jpg")
+            Assert.Null(result);
+        else
+            Assert.Equal("Unsupported file type", result);
+    }
+
+    [Fact]
+    public void ValidateImagePath_SpacesInFilename_IsAllowed()
+    {
+        var path = Path.Combine(ShowImageTool.GetImagesDir(), "my image file.png");
+        Assert.Null(WsBridgeServer.ValidateImagePath(path));
+    }
+
+    #endregion
 }
