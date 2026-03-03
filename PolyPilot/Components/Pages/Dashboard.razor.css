@@ -342,14 +342,23 @@
 .dashboard-header .sort-select option { background: var(--bg-tertiary); color: var(--text-primary); }
 
 .dashboard-header .new-group-input {
-    font-size: var(--type-caption1);
+    font-size: var(--type-body);
     color: var(--text-primary);
-    background: var(--control-border);
-    border: 1px solid var(--border-accent);
+    background: var(--control-bg);
+    border: 1px solid transparent;
     border-radius: 6px;
-    padding: 0.2rem 0.5rem;
-    width: 120px;
+    padding: 0.5rem 0.65rem;
+    width: 200px;
     outline: none;
+    transition: border-color 0.15s;
+}
+
+.dashboard-header .new-group-input:focus {
+    border-color: var(--accent-primary);
+}
+
+.dashboard-header .new-group-input::placeholder {
+    color: var(--text-dim);
 }
 
 /* Group dividers in dashboard */

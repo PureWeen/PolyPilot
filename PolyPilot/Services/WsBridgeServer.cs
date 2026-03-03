@@ -306,14 +306,14 @@ public class WsBridgeServer : IDisposable
             }
             await SendPersistedToClient(clientId, ws, ct);
 
-            // Send recent history for all active sessions (limited to reduce initial payload)
+            // Send history only for the active session on connect — sending all sessions'
+            // history blocks the command reader and causes the mobile UI to spin.
+            // Other sessions' history is fetched lazily via SwitchSession.
             if (_copilot != null)
             {
-                foreach (var session in _copilot.GetAllSessions())
-                {
-                    if (session.History.Count > 0)
-                        await SendSessionHistoryToClient(clientId, ws, session.Name, 10, ct);
-                }
+                var active = _copilot.GetActiveSession();
+                if (active != null && active.History.Count > 0)
+                    await SendSessionHistoryToClient(clientId, ws, active.Name, 10, ct);
             }
 
             // Read client commands (with fragmentation support)
@@ -596,6 +596,23 @@ public class WsBridgeServer : IDisposable
                     }
                     break;
 
+                case BridgeMessageTypes.PushOrganization:
+                    var pushOrg = msg.GetPayload<OrganizationState>();
+                    if (pushOrg != null && _copilot != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            await _copilot.InvokeOnUIAsync(() =>
+                            {
+                                _copilot.Organization = pushOrg;
+                                _copilot.SaveOrganization();
+                                _copilot.FlushSaveOrganization();
+                            });
+                            BroadcastOrganizationState();
+                        });
+                    }
+                    break;
+
                 case BridgeMessageTypes.MultiAgentSetRole:
                     var maRoleReq = msg.GetPayload<MultiAgentSetRolePayload>();
                     if (maRoleReq != null && _copilot != null)
@@ -661,7 +678,8 @@ public class WsBridgeServer : IDisposable
                                         BridgeMessage.Create(BridgeMessageTypes.RepoProgress,
                                             new RepoProgressPayload { RequestId = addReq.RequestId, Message = progress }), ct);
                                 }, ct);
-                                _copilot?.GetOrCreateRepoGroup(repo.Id, repo.Name);
+                                _copilot?.InvokeOnUI(() =>
+                                    _copilot?.GetOrCreateRepoGroup(repo.Id, repo.Name, explicitly: true));
                                 await SendToClientAsync(clientId, ws,
                                     BridgeMessage.Create(BridgeMessageTypes.RepoAdded,
                                         new RepoAddedPayload
@@ -711,7 +729,7 @@ public class WsBridgeServer : IDisposable
                                 if (wtReq.PrNumber.HasValue)
                                     wt = await _repoManager.CreateWorktreeFromPrAsync(wtReq.RepoId, wtReq.PrNumber.Value, ct);
                                 else
-                                    wt = await _repoManager.CreateWorktreeAsync(wtReq.RepoId, wtReq.BranchName ?? "main", null, ct);
+                                    wt = await _repoManager.CreateWorktreeAsync(wtReq.RepoId, wtReq.BranchName ?? "main", null, ct: ct);
                                 await SendToClientAsync(clientId, ws,
                                     BridgeMessage.Create(BridgeMessageTypes.WorktreeCreated,
                                         new WorktreeCreatedPayload
@@ -743,7 +761,7 @@ public class WsBridgeServer : IDisposable
                         {
                             try
                             {
-                                await _repoManager.RemoveWorktreeAsync(rmWtReq.WorktreeId);
+                                await _repoManager.RemoveWorktreeAsync(rmWtReq.WorktreeId, deleteBranch: rmWtReq.DeleteBranch);
                                 await SendToClientAsync(clientId, ws,
                                     BridgeMessage.Create(BridgeMessageTypes.WorktreeRemoved,
                                         new RemoveWorktreePayload { RequestId = rmWtReq.RequestId, WorktreeId = rmWtReq.WorktreeId }), ct);
@@ -756,6 +774,43 @@ public class WsBridgeServer : IDisposable
                                         new RepoErrorPayload { RequestId = rmWtReq.RequestId, Error = ex.Message }), ct);
                             }
                         });
+                    }
+                    break;
+
+                case BridgeMessageTypes.CreateSessionWithWorktree:
+                    var cswtReq = msg.GetPayload<CreateSessionWithWorktreePayload>();
+                    if (cswtReq != null && _copilot != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                Console.WriteLine($"[WsBridge] Client creating session+worktree for repo '{cswtReq.RepoId}'");
+                                // Run on UI thread — CreateSessionWithWorktreeAsync calls
+                                // ReconcileOrganization() which mutates Organization.Sessions
+                                await _copilot.InvokeOnUIAsync(async () =>
+                                {
+                                    await _copilot.CreateSessionWithWorktreeAsync(
+                                        repoId: cswtReq.RepoId,
+                                        branchName: cswtReq.BranchName,
+                                        prNumber: cswtReq.PrNumber,
+                                        worktreeId: cswtReq.WorktreeId,
+                                        sessionName: cswtReq.SessionName,
+                                        model: cswtReq.Model,
+                                        initialPrompt: cswtReq.InitialPrompt,
+                                        ct: ct);
+                                });
+                                BroadcastSessionsList();
+                                BroadcastOrganizationState();
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"[WsBridge] CreateSessionWithWorktree error: {ex.Message}");
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                        new ErrorPayload { SessionName = cswtReq.SessionName ?? "", Error = $"Create session+worktree failed: {ex.Message}" }), ct);
+                            }
+                        }, ct);
                     }
                     break;
 
@@ -832,20 +887,33 @@ public class WsBridgeServer : IDisposable
         var session = _copilot.GetSession(sessionName);
         if (session == null) return;
 
-        var allMessages = session.History;
-        var totalCount = allMessages.Count;
+        // Take a defensive snapshot — History is a plain List<ChatMessage> that may be
+        // modified concurrently by SDK event handlers on background threads.
+        // ToArray() uses Array.Copy internally so it won't throw InvalidOperationException,
+        // but can hit ArgumentOutOfRangeException if the list resizes during copy.
+        // On failure, skip sending entirely — never send an empty authoritative payload
+        // (that would make the client think the session has no history with no recovery path).
+        ChatMessage[] snapshot;
+        try { snapshot = session.History.ToArray(); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WsBridge] History snapshot failed for '{sessionName}': {ex.Message}");
+            return;
+        }
+
+        var totalCount = snapshot.Length;
         
         // Apply limit — take the most recent N messages
         List<ChatMessage> messagesToSend;
         bool hasMore;
         if (limit.HasValue && limit.Value < totalCount)
         {
-            messagesToSend = allMessages.Skip(totalCount - limit.Value).ToList();
+            messagesToSend = snapshot.Skip(totalCount - limit.Value).ToList();
             hasMore = true;
         }
         else
         {
-            messagesToSend = allMessages.ToList();
+            messagesToSend = snapshot.ToList();
             hasMore = false;
         }
 

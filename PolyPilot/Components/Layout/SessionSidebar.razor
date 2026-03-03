@@ -56,6 +56,29 @@ else
                     <a href="/settings" class="header-icon-btn @(currentPage == "/settings" ? "active" : "")" title="Settings" @onclick='() => { CopilotService.SaveUiState("/settings"); currentPage = "/settings"; }'><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
                     <a href="/tutorial" class="header-icon-btn @(currentPage == "/tutorial" ? "active" : "")" title="Tutorial" @onclick='() => { CopilotService.SaveUiState("/tutorial"); currentPage = "/tutorial"; }'><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></a>
                     <button class="header-icon-btn appchat-toggle" title="App Chat" @onclick="() => OnToggleAppChat.InvokeAsync()">✨</button>
+                    <div class="info-popover">
+                        <span class="info-trigger" title="Connection & shortcuts">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        </span>
+                        <div class="info-panel">
+                            <div class="info-row"><span class="info-label">Mode</span><span class="info-value">@CopilotService.CurrentMode</span></div>
+                            <div class="info-row"><span class="info-label">Status</span><span class="info-value">@(CopilotService.IsInitialized ? "Connected" : "Disconnected")</span></div>
+                            <div class="info-row"><span class="info-label">Build</span><span class="info-value" title="@BuildInfo.BuildTimestamp">@BuildInfo.ShortBuildId</span></div>
+                            @if (PlatformHelper.IsDesktop)
+                            {
+                                <div class="info-divider"></div>
+                                <div class="info-row"><span class="info-label">⌘,</span><span class="info-value">Settings</span></div>
+                                <div class="info-row"><span class="info-label">⌘1-9</span><span class="info-value">Switch session</span></div>
+                                <div class="info-row"><span class="info-label">⌘E</span><span class="info-value">Expand/collapse</span></div>
+                                <div class="info-row"><span class="info-label">Esc</span><span class="info-value">Collapse to grid</span></div>
+                                <div class="info-row"><span class="info-label">Tab</span><span class="info-value">Next session</span></div>
+                                <div class="info-row"><span class="info-label">⌘+/−/0</span><span class="info-value">Font size</span></div>
+                                <div class="info-row"><span class="info-label">Ctrl+C</span><span class="info-value">Interrupt</span></div>
+                                <div class="info-row"><span class="info-label">↑/↓</span><span class="info-value">History</span></div>
+                            }
+                        </div>
+                    </div>
+                    <button class="header-icon-btn" title="Statistics" @onclick="ToggleStatisticsPopup"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></button>
                 </div>
             </div>
             <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")" style="font-size:0.8rem">
@@ -109,7 +132,7 @@ else
                         {
                             <span class="bug-report-status @(footerStatus.StartsWith("✓") ? "success" : "error")">@footerStatus</span>
                         }
-                        <button class="bug-report-submit" @onclick="SubmitBugReport" disabled="@footerSubmitting">
+                        <button class="bug-report-submit" @onclick="SubmitBugReport" disabled="@footerSubmitting" title="Submit bug report as a GitHub issue">
                             @(footerSubmitting ? "Submitting…" : "Submit Issue")
                         </button>
                     </div>
@@ -139,7 +162,7 @@ else
                         {
                             <span class="bug-report-status @(footerStatus.StartsWith("✓") ? "success" : footerStatus.StartsWith("⏳") ? "" : "error")">@footerStatus</span>
                         }
-                        <button class="bug-report-submit" @onclick="LaunchFixIt" disabled="@footerSubmitting">
+                        <button class="bug-report-submit" @onclick="LaunchFixIt" disabled="@footerSubmitting" title="Launch a Copilot session to fix the bug or build the feature">
                             @(footerSubmitting ? "Launching…" : "Launch Copilot")
                         </button>
                     </div>
@@ -173,8 +196,10 @@ else
     [Parameter] public EventCallback OnToggleAppChat { get; set; }
     [Parameter] public int FontSize { get; set; } = 20;
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
+    [Parameter] public EventCallback OnToggleStatistics { get; set; }
 
     private Dictionary<string, (OrchestratorPhase Phase, string? Detail)> _groupPhases = new();
+    private Timer? _diskSizeTimer;
 
     private static string PhaseLabel(OrchestratorPhase phase, string? detail) => phase switch
     {
@@ -206,49 +231,58 @@ else
                 <option value="Alphabetical" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Alphabetical)">↕ A–Z</option>
                 <option value="Manual" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Manual)">↕ Manual</option>
             </select>
-            @if (isAddingGroup && !isAddingMultiAgentGroup && pendingMultiAgentWorktree == null)
+            @if (isAddingGroup && !isAddingMultiAgentGroup && pendingMultiAgentRepo == null)
             {
                 <input type="text" class="new-group-input" id="newGroupInput"
                        placeholder="Group name..."
                        @onblur="CommitNewGroup"
                        @onkeydown="HandleNewGroupKeyDown" />
             }
-            else if (isAddingMultiAgentGroup && pendingMultiAgentWorktree == null)
+            else if (isAddingMultiAgentGroup && pendingMultiAgentRepo == null)
             {
-                @* Step 1: Pick a worktree *@
+                @* Step 1: Pick a repository *@
                 <div class="worktree-picker" @onclick:stopPropagation="true">
                     <div class="worktree-picker-header">
-                        <span>Select worktree for team:</span>
+                        <span>Select repository for team:</span>
                         <button class="worktree-cancel-btn" @onclick="CancelMultiAgentCreation">✕</button>
                     </div>
-                    @foreach (var wt in RepoManager.Worktrees)
+                    @foreach (var repo in RepoManager.Repositories)
                     {
-                        var w = wt;
-                        var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == w.RepoId);
-                        <button class="worktree-item" @onclick="() => SelectWorktreeForGroup(w)" title="@w.Path">
-                            <span class="worktree-branch">@(repo?.Name ?? w.RepoId)/@w.Branch</span>
-                            <span class="worktree-path">@ShortenPath(w.Path)</span>
+                        var r = repo;
+                        <button class="worktree-item" @onclick="() => SelectRepoForGroup(r)" title="@r.Url">
+                            <span class="worktree-branch">@r.Name</span>
+                            <span class="worktree-path">@r.Url</span>
                         </button>
                     }
-                    @if (!RepoManager.Worktrees.Any())
+                    @if (!RepoManager.Repositories.Any())
                     {
-                        <div class="worktree-empty">No worktrees available. Add a repository first.</div>
+                        <div class="worktree-empty">No repositories available. Add a repository first.</div>
                     }
                 </div>
             }
-            else if (pendingMultiAgentWorktree != null)
+            else if (pendingMultiAgentRepo != null)
             {
                 @* Step 2: Pick a preset or enter a custom name *@
                 <div class="worktree-picker" @onclick:stopPropagation="true">
                     <div class="worktree-picker-header">
-                        <span>🌿 @pendingMultiAgentWorktree.Branch</span>
+                        <span>📦 @pendingMultiAgentRepo.Name</span>
                         <button class="worktree-cancel-btn" @onclick="CancelMultiAgentCreation">✕</button>
                     </div>
                     <input type="text" class="new-group-input" id="presetNameInput"
                            placeholder="Team name (optional — uses preset name)"
-                           style="margin: 4px 8px; font-size: 12px;" />
+                           style="margin: 4px 8px;" />
+                    <div style="margin: 6px 8px; padding: 6px 8px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--control-border);">
+                        <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">🌿 Worktree Isolation</div>
+                        <select class="sort-select" style="width: 100%; font-size: 12px; padding: 4px 6px;" @onchange="OnStrategyChanged">
+                            <option value="" selected="@(selectedStrategy == null)">📋 Preset default</option>
+                            <option value="FullyIsolated" selected="@(selectedStrategy == WorktreeStrategy.FullyIsolated)">🔒 Each agent gets own worktree</option>
+                            <option value="OrchestratorIsolated" selected="@(selectedStrategy == WorktreeStrategy.OrchestratorIsolated)">🔀 Manager isolated, workers share</option>
+                            <option value="Shared" selected="@(selectedStrategy == WorktreeStrategy.Shared)">📁 Everyone shares one worktree</option>
+                        </select>
+                    </div>
                     @{
-                        var allPresets = UserPresets.GetAll(CopilotService.BaseDir, pendingMultiAgentWorktree?.Path);
+                        var repoWorktree = RepoManager.Worktrees.FirstOrDefault(w => w.RepoId == pendingMultiAgentRepo?.Id);
+                        var allPresets = UserPresets.GetAll(CopilotService.BaseDir, repoWorktree?.Path);
                         var repoPresets = allPresets.Where(p => p.IsRepoLevel).ToArray();
                         var builtInPresets = allPresets.Where(p => !p.IsRepoLevel && !p.IsUserDefined).ToArray();
                         var userPresets = allPresets.Where(p => p.IsUserDefined).ToArray();
@@ -259,11 +293,14 @@ else
                         @foreach (var preset in repoPresets)
                         {
                             var p = preset;
-                            <button class="preset-item preset-repo" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
-                                <span class="preset-emoji">@p.Emoji</span>
-                                <span class="preset-name">@p.Name</span>
-                                <span class="preset-badge">🫡</span>
-                            </button>
+                            <div class="preset-item-row">
+                                <button class="preset-item preset-repo" @onclick="() => CreateFromPresetForRepo(p, pendingMultiAgentRepo)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                                    <span class="preset-emoji">@p.Emoji</span>
+                                    <span class="preset-name">@p.Name</span>
+                                    <span class="preset-badge">🫡</span>
+                                </button>
+                                <button class="preset-delete-btn" @onclick="() => DeleteRepoPreset(p, repoWorktree)" title="Delete repo preset">🗑️</button>
+                            </div>
                         }
                     }
                     @if (builtInPresets.Any())
@@ -275,7 +312,7 @@ else
                         @foreach (var preset in builtInPresets)
                         {
                             var p = preset;
-                            <button class="preset-item" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                            <button class="preset-item" @onclick="() => CreateFromPresetForRepo(p, pendingMultiAgentRepo)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
                                 <span class="preset-emoji">@p.Emoji</span>
                                 <span class="preset-name">@p.Name</span>
                             </button>
@@ -287,7 +324,7 @@ else
                         @foreach (var preset in userPresets)
                         {
                             var p = preset;
-                            <button class="preset-item" @onclick="() => CreateFromPresetWithWorktree(p, pendingMultiAgentWorktree)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
+                            <button class="preset-item" @onclick="() => CreateFromPresetForRepo(p, pendingMultiAgentRepo)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
                                 <span class="preset-emoji">@p.Emoji</span>
                                 <span class="preset-name">@p.Name</span>
                             </button>
@@ -375,6 +412,9 @@ else
                         var isRepoGroup = !string.IsNullOrEmpty(group.RepoId);
                         var repoForGroup = isRepoGroup ? RepoManager.Repositories.FirstOrDefault(r => r.Id == group.RepoId) : null;
                         var groupTitle = repoForGroup != null ? $"{repoForGroup.Url}\n{repoForGroup.BareClonePath}" : "";
+                        var repoDiskSize = repoForGroup != null ? RepoManager.GetRepoDiskSize(repoForGroup.Id) : null;
+                        if (repoDiskSize.HasValue)
+                            groupTitle += $"\nDisk: {RepoManager.FormatSize(repoDiskSize.Value)}";
                         <div class="group-header @(group.IsCollapsed ? "collapsed" : "") @(isRepoGroup ? "repo-group" : "")"
                              title="@groupTitle"
                              @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
@@ -402,13 +442,17 @@ else
                                        value="@group.Name"
                                        @onclick:stopPropagation="true"
                                        @onblur="() => CommitGroupRename(rgId)"
-                                       @onkeydown="(e) => HandleGroupRenameKeyDown(e, rgId)" />
+                                       @onkeyup="(e) => HandleGroupRenameKeyUp(e, rgId)" />
                             }
                             else
                             {
                                 <span class="group-name">@group.Name</span>
                             }
                             <span class="group-count">@groupSessions.Count</span>
+                            @if (repoDiskSize.HasValue)
+                            {
+                                <span class="group-disk-size">@RepoManager.FormatSize(repoDiskSize.Value)</span>
+                            }
                             @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
                             {
                                 <span class="group-busy-dot"></span>
@@ -443,6 +487,12 @@ else
                                                     <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; createSessionFormRef?.ExpandForRepo(rId); }">
                                                         ➕ New Session
                                                     </button>
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForRepo(rId); }">
+                                                        ⚡ Quick Branch + Session
+                                                    </button>
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartQuickBranch(rId); }">
+                                                        ⑂ Named Branch + Session
+                                                    </button>
                                                     <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartGroupRename(gId); }">
                                                         ✏️ Rename
                                                     </button>
@@ -459,9 +509,12 @@ else
                                                             </button>
                                                         }
                                                     }
-                                                    <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; confirmRemoveRepoId = rId; }">
-                                                        🗑 Remove Repo
-                                                    </button>
+                                                    @if (!group.IsMultiAgent)
+                                                    {
+                                                        <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; confirmRemoveRepoId = rId; }">
+                                                            🗑 Remove Repo
+                                                        </button>
+                                                    }
                                                 }
                                                 else
                                                 {
@@ -492,6 +545,39 @@ else
                             }
                         </div>
 
+                        @if (quickBranchRepoId == group.RepoId && isRepoGroup)
+                        {
+                            var qbRepoId = group.RepoId!;
+                            <div class="quick-branch-input-bar" @onclick:stopPropagation="true">
+                                <span class="quick-branch-icon">⑂</span>
+                                <input type="text" class="quick-branch-input" placeholder="branch name or #PR"
+                                       @bind="quickBranchInput" @bind:event="oninput"
+                                       @onkeyup="(e) => HandleQuickBranchKeyDown(e, qbRepoId)"
+                                       disabled="@quickBranchIsCreating" />
+                                @if (quickBranchIsCreating)
+                                {
+                                    <span class="quick-branch-spinner">⏳</span>
+                                }
+                                else
+                                {
+                                    <button class="quick-branch-go-btn" @onclick="() => CommitQuickBranch(qbRepoId)"
+                                            disabled="@string.IsNullOrWhiteSpace(quickBranchInput)">→</button>
+                                    <button class="quick-branch-cancel-btn" @onclick="() => { quickBranchRepoId = null; }">✕</button>
+                                }
+                                @if (!string.IsNullOrEmpty(quickBranchError))
+                                {
+                                    <div class="quick-branch-error">⚠ @quickBranchError</div>
+                                }
+                            </div>
+                        }
+                        @if (quickCreateErrorRepoId == group.RepoId && !string.IsNullOrEmpty(quickCreateError))
+                        {
+                            <div class="quick-branch-error" @onclick:stopPropagation="true">
+                                ⚠ @quickCreateError
+                                <button class="quick-branch-cancel-btn" @onclick="() => { quickCreateError = null; quickCreateErrorRepoId = null; }">✕</button>
+                            </div>
+                        }
+
                         @if (group.IsMultiAgent && !group.IsCollapsed)
                         {
                             var maGroupId = group.Id;
@@ -515,7 +601,7 @@ else
                                 @if (group.OrchestratorMode != MultiAgentMode.Orchestrator && group.OrchestratorMode != MultiAgentMode.OrchestratorReflect)
                                 {
                                 <div class="sidebar-ma-input-bar">
-                                    <textarea id="sidebar-ma-input-@maGroupId" class="sidebar-ma-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)" rows="1" @onclick:stopPropagation="true"></textarea>
+                                    <textarea id="sidebar-ma-input-@maGroupId" class="sidebar-ma-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)" autocorrect="off" rows="1" @onclick:stopPropagation="true"></textarea>
                                     <button class="sidebar-ma-send-btn" @onclick="() => SendToSidebarMultiAgentGroup(maGroupId)" @onclick:stopPropagation="true">📡</button>
                                 </div>
                                 }
@@ -582,7 +668,7 @@ else
                                              UsageInfo="@(usageBySession.TryGetValue(session.Name, out var usg) ? usg : null)"
                                              OnSelect="() => SelectSession(sName)"
                                              OnClose="() => CloseSession(sName)"
-                                             OnCloseAndDeleteWorktree="() => CloseSessionAndDeleteWorktree(sName)"
+                                             OnCloseWithOptions="(opts) => CloseSessionWithOptions(sName, opts.DeleteWorktree, opts.DeleteBranch)"
                                              OnPin="(pinned) => { CopilotService.PinSession(sName, pinned); }"
                                              OnMove="(groupId) => CopilotService.MoveSession(sName, groupId)"
                                              OnStartRename="() => StartRename(sName)"
@@ -687,9 +773,22 @@ else
     private string? confirmRepoName = null;
     private string? confirmRemoveRepoId = null;
 
+    // Quick-create inline branch input
+    private string? quickBranchRepoId = null;
+    private string quickBranchInput = "";
+    private bool quickBranchIsCreating = false;
+    private string? quickBranchError = null;
+    private string? quickCreateError = null;
+    private string? quickCreateErrorRepoId = null;
+
     private async Task ToggleFlyout()
     {
         await OnToggleFlyout.InvokeAsync();
+    }
+
+    private async Task ToggleStatisticsPopup()
+    {
+        await OnToggleStatistics.InvokeAsync();
     }
 
     private static readonly string[] _fallbackModels = new[]
@@ -804,6 +903,11 @@ else
                     }
                 });
             ");
+
+            // Initial disk size scan + periodic refresh
+            _ = RepoManager.RefreshDiskSizesAsync();
+            _diskSizeTimer = new Timer(_ => _ = RepoManager.RefreshDiskSizesAsync(),
+                null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
         }
     }
 
@@ -885,43 +989,49 @@ else
         }
     }
 
-    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt) args)
+    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber) args)
     {
         if (isCreating) return;
         isCreating = true;
         createError = null;
         try
         {
-            var sessionInfo = await CopilotService.CreateSessionAsync(args.Name, args.Model, args.Directory);
-            CopilotService.SwitchSession(sessionInfo.Name);
-            newSessionName = "";
+            AgentSessionInfo sessionInfo;
 
-            // If created from a worktree, place session in the repo group
-            if (!string.IsNullOrEmpty(args.WorktreeId))
+            if (!string.IsNullOrEmpty(args.RepoId) || !string.IsNullOrEmpty(args.WorktreeId))
             {
-                var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == args.WorktreeId);
-                if (wt != null)
+                // Repo-based: atomic worktree+session creation.
+                // When only WorktreeId is set, derive repoId from the worktree.
+                var repoId = args.RepoId;
+                if (string.IsNullOrEmpty(repoId) && !string.IsNullOrEmpty(args.WorktreeId))
                 {
-                    RepoManager.LinkSessionToWorktree(wt.Id, sessionInfo.Name);
-                    var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
-                    if (repo != null)
-                    {
-                        var group = CopilotService.GetOrCreateRepoGroup(repo.Id, repo.Name);
-                        CopilotService.MoveSession(sessionInfo.Name, group.Id);
-                        var meta = CopilotService.GetSessionMeta(sessionInfo.Name);
-                        if (meta != null) meta.WorktreeId = wt.Id;
-                    }
+                    var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == args.WorktreeId);
+                    repoId = wt?.RepoId ?? "";
+                }
+                sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
+                    repoId: repoId!,
+                    branchName: args.BranchName,
+                    prNumber: args.PrNumber,
+                    worktreeId: args.WorktreeId,
+                    sessionName: args.Name,
+                    model: args.Model,
+                    initialPrompt: args.InitialPrompt);
+            }
+            else
+            {
+                sessionInfo = await CopilotService.CreateSessionAsync(args.Name, args.Model, args.Directory);
+                CopilotService.SwitchSession(sessionInfo.Name);
+
+                // Send initial prompt after session is ready
+                if (!string.IsNullOrEmpty(args.InitialPrompt))
+                {
+                    _ = CopilotService.SendPromptAsync(sessionInfo.Name, args.InitialPrompt);
                 }
             }
 
+            newSessionName = "";
             CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
             await OnSessionSelected.InvokeAsync();
-
-            // Send initial prompt after session is ready
-            if (!string.IsNullOrEmpty(args.InitialPrompt))
-            {
-                _ = CopilotService.SendPromptAsync(sessionInfo.Name, args.InitialPrompt);
-            }
         }
         catch (Exception ex)
         {
@@ -931,6 +1041,92 @@ else
         finally
         {
             isCreating = false;
+        }
+    }
+
+    private async Task QuickCreateSessionForRepo(string repoId)
+    {
+        if (isCreating) return;
+        isCreating = true;
+        createError = null;
+        quickCreateError = null;
+        quickCreateErrorRepoId = null;
+        try
+        {
+            var sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
+                repoId: repoId,
+                model: selectedModel);
+            CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
+            await OnSessionSelected.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            createError = ex.Message;
+            quickCreateError = ex.Message;
+            quickCreateErrorRepoId = repoId;
+            Console.WriteLine($"Error quick-creating session: {ex}");
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private void StartQuickBranch(string repoId)
+    {
+        quickBranchRepoId = repoId;
+        quickBranchInput = "";
+        quickBranchError = null;
+    }
+
+    private async Task HandleQuickBranchKeyDown(KeyboardEventArgs e, string repoId)
+    {
+        if (e.Key == "Enter") await CommitQuickBranch(repoId);
+        else if (e.Key == "Escape") quickBranchRepoId = null;
+    }
+
+    private async Task CommitQuickBranch(string repoId)
+    {
+        var input = quickBranchInput?.Trim();
+        if (string.IsNullOrEmpty(input) || quickBranchIsCreating) return;
+
+        quickBranchIsCreating = true;
+        quickBranchError = null;
+        StateHasChanged();
+        try
+        {
+            int? prNumber = null;
+            string? branchName = null;
+
+            if (input.StartsWith("#") && int.TryParse(input[1..], out var pr) && pr > 0)
+                prNumber = pr;
+            else if (input.StartsWith("#"))
+            {
+                quickBranchError = "Invalid PR number. Use #123 format.";
+                return;
+            }
+            else
+                branchName = System.Text.RegularExpressions.Regex.Replace(input, @"[^a-zA-Z0-9/_.-]", "-").Trim('-');
+
+            await CopilotService.CreateSessionWithWorktreeAsync(
+                repoId: repoId,
+                branchName: branchName,
+                prNumber: prNumber,
+                model: selectedModel);
+
+            quickBranchRepoId = null;
+            quickBranchInput = "";
+            CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
+            await OnSessionSelected.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            quickBranchError = ex.Message;
+            Console.WriteLine($"Error creating branch+session: {ex}");
+        }
+        finally
+        {
+            quickBranchIsCreating = false;
         }
     }
 
@@ -1063,7 +1259,7 @@ else
         }
     }
 
-    private async Task HandleGroupRenameKeyDown(KeyboardEventArgs e, string groupId)
+    private async Task HandleGroupRenameKeyUp(KeyboardEventArgs e, string groupId)
     {
         if (e.Key == "Enter") await CommitGroupRename(groupId);
         else if (e.Key == "Escape") renamingGroupId = null;
@@ -1101,23 +1297,40 @@ else
 
     private async Task CloseSession(string name)
     {
-        await CopilotService.CloseSessionAsync(name);
+        try { await CopilotService.CloseSessionAsync(name); }
+        catch (Exception ex) { Console.WriteLine($"[SessionSidebar] CloseSession error for '{name}': {ex.Message}"); }
     }
 
     private async Task CloseSessionAndDeleteWorktree(string name)
     {
-        // Find the worktree associated with this session before closing
-        var meta = CopilotService.GetSessionMeta(name);
-        var worktreeId = meta?.WorktreeId;
+        await CloseSessionWithOptions(name, deleteWorktree: true, deleteBranch: true);
+    }
 
-        // Close the session first
-        await CopilotService.CloseSessionAsync(name);
-
-        // Delete the worktree if no OTHER sessions or groups still reference it
-        // (exclude the just-closed session name since its metadata may linger due to debounced save)
-        if (!string.IsNullOrEmpty(worktreeId) && !IsWorktreeInUse(worktreeId, excludeSession: name))
+    private async Task CloseSessionWithOptions(string name, bool deleteWorktree, bool deleteBranch)
+    {
+        try
         {
-            await DeleteWorktreeAsync(worktreeId);
+            var meta = CopilotService.GetSessionMeta(name);
+            var worktreeId = meta?.WorktreeId;
+
+            await CopilotService.CloseSessionAsync(name);
+
+            if (!string.IsNullOrEmpty(worktreeId))
+            {
+                if (deleteWorktree && !IsWorktreeInUse(worktreeId, excludeSession: name))
+                {
+                    await DeleteWorktreeAsync(worktreeId, deleteBranch);
+                }
+                else if (deleteBranch && !deleteWorktree)
+                {
+                    // UI prevents this state (checkbox disabled), but guard just in case.
+                    // Can't delete a branch that's checked out in a kept worktree — skip.
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionSidebar] CloseSessionWithOptions error for '{name}': {ex.Message}");
         }
     }
 
@@ -1136,14 +1349,14 @@ else
         }
     }
 
-    private async Task DeleteWorktreeAsync(string worktreeId)
+    private async Task DeleteWorktreeAsync(string worktreeId, bool deleteBranch = true)
     {
         try
         {
             if (CopilotService.IsRemoteMode)
-                await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId);
+                await CopilotService.RemoveWorktreeViaBridgeAsync(worktreeId, deleteBranch);
             else
-                await RepoManager.RemoveWorktreeAsync(worktreeId);
+                await RepoManager.RemoveWorktreeAsync(worktreeId, deleteBranch: deleteBranch);
         }
         catch (Exception ex)
         {
@@ -1204,46 +1417,69 @@ else
     {
         isAddingGroup = false;
         isAddingMultiAgentGroup = true;
-        pendingMultiAgentWorktree = null;
+        pendingMultiAgentRepo = null;
     }
 
     private void CancelMultiAgentCreation()
     {
         isAddingMultiAgentGroup = false;
-        pendingMultiAgentWorktree = null;
+        pendingMultiAgentRepo = null;
     }
 
-    private async Task SelectWorktreeForGroup(WorktreeInfo wt)
+    private void SelectRepoForGroup(RepositoryInfo repo)
     {
-        // Worktree selected — advance to step 2 (presets + custom name)
-        pendingMultiAgentWorktree = wt;
+        // Repo selected — advance to step 2 (presets + custom name)
+        pendingMultiAgentRepo = repo;
         isAddingMultiAgentGroup = false;
         isAddingGroup = false;
         StateHasChanged();
     }
 
-    private WorktreeInfo? pendingMultiAgentWorktree;
+    private RepositoryInfo? pendingMultiAgentRepo;
+    private WorktreeStrategy? selectedStrategy = null;
 
-    private async Task CreateFromPresetWithWorktree(GroupPreset preset, WorktreeInfo wt)
+    private void OnStrategyChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (string.IsNullOrEmpty(val))
+            selectedStrategy = null;
+        else if (Enum.TryParse<WorktreeStrategy>(val, out var s))
+            selectedStrategy = s;
+    }
+
+    private async Task CreateFromPresetForRepo(GroupPreset preset, RepositoryInfo repo)
     {
         // Read optional custom name from the input
         var customName = await JS.InvokeAsync<string>("getElementValue", "presetNameInput");
         var nameOverride = string.IsNullOrWhiteSpace(customName) ? null : customName.Trim();
 
-        pendingMultiAgentWorktree = null;
+        // Find an existing worktree for fallback working directory (Shared strategy)
+        var fallbackWt = RepoManager.Worktrees.FirstOrDefault(w => w.RepoId == repo.Id);
+
+        var strategyOverride = selectedStrategy;
+        pendingMultiAgentRepo = null;
+        selectedStrategy = null; // reset for next time
         StateHasChanged();
         try
         {
             await CopilotService.CreateGroupFromPresetAsync(preset,
-                workingDirectory: wt.Path,
-                worktreeId: wt.Id,
-                repoId: wt.RepoId,
-                nameOverride: nameOverride);
+                workingDirectory: fallbackWt?.Path,
+                worktreeId: null,
+                repoId: repo.Id,
+                nameOverride: nameOverride,
+                strategyOverride: strategyOverride);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Failed to create from preset: {ex.Message}");
         }
+    }
+
+    private void DeleteRepoPreset(GroupPreset preset, WorktreeInfo? worktree)
+    {
+        if (worktree?.Path == null) return;
+        if (UserPresets.DeleteRepoPreset(worktree.Path, preset.Name))
+            StateHasChanged();
     }
 
     private static string ShortenPath(string path)
@@ -1299,7 +1535,8 @@ else
     private int GetGroupMaxIterations(string groupId)
     {
         if (_groupMaxIterations.TryGetValue(groupId, out var val)) return val;
-        return 5;
+        var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        return group?.MaxReflectIterations ?? 5;
     }
 
     private void SetGroupMaxIterations(string groupId, ChangeEventArgs e)
@@ -1341,18 +1578,17 @@ else
     private async Task CommitNewGroup()
     {
         var name = await JS.InvokeAsync<string>("getElementValue", "newGroupInput");
-        var wt = pendingMultiAgentWorktree;
+        var repo = pendingMultiAgentRepo;
         isAddingGroup = false;
         isAddingMultiAgentGroup = false;
-        pendingMultiAgentWorktree = null;
+        pendingMultiAgentRepo = null;
         if (!string.IsNullOrWhiteSpace(name))
         {
-            if (wt != null)
+            if (repo != null)
             {
-                // Multi-agent group with worktree
+                // Multi-agent group with repo
                 CopilotService.CreateMultiAgentGroup(name.Trim(),
-                    worktreeId: wt.Id,
-                    repoId: wt.RepoId);
+                    repoId: repo.Id);
             }
             else
             {
@@ -1364,7 +1600,7 @@ else
     private async Task HandleNewGroupKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await CommitNewGroup();
-        else if (e.Key == "Escape") { isAddingGroup = false; isAddingMultiAgentGroup = false; pendingMultiAgentWorktree = null; }
+        else if (e.Key == "Escape") { isAddingGroup = false; isAddingMultiAgentGroup = false; pendingMultiAgentRepo = null; }
     }
 
     private void ToggleSessionMenu(string sessionName)
@@ -1476,6 +1712,8 @@ else
     }
 
     // --- Bug Report / Fix It ---
+    internal const int AutoClosePanelDelayMs = 5000;
+    private CancellationTokenSource? _autoCloseCts;
     private bool showBugReport;
     private bool showFixIt;
     private string bugDescription = "";
@@ -1733,6 +1971,29 @@ else
 
             footerStatus = "✓ Copilot launched in new terminal";
             bugDescription = "";
+
+            // Auto-close the dialog after briefly showing the success message
+            _autoCloseCts?.Cancel();
+            _autoCloseCts?.Dispose();
+            _autoCloseCts = new CancellationTokenSource();
+            var cts = _autoCloseCts;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(AutoClosePanelDelayMs, cts.Token);
+                    await InvokeAsync(() =>
+                    {
+                        if (footerStatus == "✓ Copilot launched in new terminal")
+                        {
+                            CloseFooterPanel();
+                        }
+                    });
+                }
+                catch (OperationCanceledException) { }
+                catch (ObjectDisposedException) { }
+            });
+            return;
         }
         catch (Exception ex)
         {
@@ -1897,6 +2158,9 @@ Important conventions:
 
     public void Dispose()
     {
+        _autoCloseCts?.Cancel();
+        _autoCloseCts?.Dispose();
+        _diskSizeTimer?.Dispose();
         CopilotService.OnStateChanged -= RefreshSessions;
         CopilotService.OnSessionComplete -= HandleSessionComplete;
         CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;

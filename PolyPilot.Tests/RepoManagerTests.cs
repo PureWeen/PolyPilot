@@ -1,7 +1,9 @@
+using PolyPilot.Models;
 using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
+[Collection("BaseDir")]
 public class RepoManagerTests
 {
     [Theory]
@@ -55,4 +57,313 @@ public class RepoManagerTests
     {
         Assert.Equal(input, RepoManager.NormalizeRepoUrl(input));
     }
+
+    #region Save Guard Tests (Review Finding #9)
+
+    private static readonly System.Reflection.BindingFlags NonPublic =
+        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+
+    private static void SetField(object obj, string name, object value)
+    {
+        var field = obj.GetType().GetField(name, NonPublic)!;
+        field.SetValue(obj, value);
+    }
+
+    private static T GetField<T>(object obj, string name)
+    {
+        var field = obj.GetType().GetField(name, NonPublic)!;
+        return (T)field.GetValue(obj)!;
+    }
+
+    private static void InvokeSave(RepoManager rm)
+    {
+        var method = typeof(RepoManager).GetMethod("Save", NonPublic)!;
+        method.Invoke(rm, null);
+    }
+
+    [Fact]
+    public void Save_AfterFailedLoad_DoesNotOverwriteWithEmptyState()
+    {
+        var rm = new RepoManager();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var stateFile = Path.Combine(tempDir, "repos.json");
+
+        try
+        {
+            // Write valid state to file
+            var validJson = """{"Repositories":[{"Id":"test-1","Name":"TestRepo","Url":"https://example.com","BareClonePath":"","AddedAt":"2026-01-01T00:00:00Z"}],"Worktrees":[]}""";
+            File.WriteAllText(stateFile, validJson);
+
+            // Simulate failed load: _loaded=true, _loadedSuccessfully=false, empty state
+            SetField(rm, "_loaded", true);
+            SetField(rm, "_loadedSuccessfully", false);
+            SetField(rm, "_state", new RepositoryState());
+
+            // Redirect RepoManager to our temp dir (safe — uses the lock-protected setter)
+            RepoManager.SetBaseDirForTesting(tempDir);
+            try
+            {
+                // Save should be blocked — empty state after failed load
+                InvokeSave(rm);
+
+                // Original file should still have our repo
+                var content = File.ReadAllText(stateFile);
+                Assert.Contains("test-1", content);
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void Save_AfterSuccessfulLoad_PersistsEmptyState()
+    {
+        var rm = new RepoManager();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            // Simulate successful load then all repos removed
+            SetField(rm, "_loaded", true);
+            SetField(rm, "_loadedSuccessfully", true);
+            SetField(rm, "_state", new RepositoryState());
+
+            // Redirect RepoManager to our temp dir (safe — uses the lock-protected setter)
+            RepoManager.SetBaseDirForTesting(tempDir);
+            try
+            {
+                // Save should proceed — load was successful, intentional empty state
+                InvokeSave(rm);
+
+                var stateFile = Path.Combine(tempDir, "repos.json");
+                var content = File.ReadAllText(stateFile);
+                Assert.Contains("Repositories", content);
+                Assert.DoesNotContain("test-1", content);
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void Repositories_ReturnsCopy_ThreadSafe()
+    {
+        var rm = new RepoManager();
+        // Inject state with some repos
+        SetField(rm, "_loaded", true);
+        SetField(rm, "_loadedSuccessfully", true);
+        var state = new RepositoryState
+        {
+            Repositories = new() { new() { Id = "r1", Name = "R1" }, new() { Id = "r2", Name = "R2" } }
+        };
+        SetField(rm, "_state", state);
+
+        // Get a snapshot
+        var repos = rm.Repositories;
+        Assert.Equal(2, repos.Count);
+
+        // Mutate the underlying state
+        state.Repositories.RemoveAll(r => r.Id == "r1");
+
+        // Snapshot should be unaffected (it's a copy)
+        Assert.Equal(2, repos.Count);
+    }
+
+    #endregion
+
+    #region Self-Healing Tests
+
+    [Fact]
+    public void HealMissingRepos_DiscoversUntracked_BareClones()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-heal-{Guid.NewGuid():N}");
+        var reposDir = Path.Combine(tempDir, "repos");
+        Directory.CreateDirectory(reposDir);
+
+        try
+        {
+            // Create a fake bare clone directory with a git config
+            var bareDir = Path.Combine(reposDir, "Owner-Repo.git");
+            Directory.CreateDirectory(bareDir);
+            File.WriteAllText(Path.Combine(bareDir, "config"),
+                "[remote \"origin\"]\n\turl = https://github.com/Owner/Repo\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n");
+
+            var rm = new RepoManager();
+            SetField(rm, "_loaded", true);
+            SetField(rm, "_loadedSuccessfully", true);
+            SetField(rm, "_state", new RepositoryState());
+
+            RepoManager.SetBaseDirForTesting(tempDir);
+            try
+            {
+                var healed = rm.HealMissingRepos();
+
+                Assert.Equal(1, healed);
+                var repos = rm.Repositories;
+                Assert.Single(repos);
+                Assert.Equal("Owner-Repo", repos[0].Id);
+                Assert.Equal("Repo", repos[0].Name);
+                Assert.Equal("https://github.com/Owner/Repo", repos[0].Url);
+                Assert.Equal(bareDir, repos[0].BareClonePath);
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void HealMissingRepos_SkipsAlreadyTrackedRepos()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-heal-{Guid.NewGuid():N}");
+        var reposDir = Path.Combine(tempDir, "repos");
+        Directory.CreateDirectory(reposDir);
+
+        try
+        {
+            // Create a bare clone that IS tracked
+            var bareDir = Path.Combine(reposDir, "Owner-Repo.git");
+            Directory.CreateDirectory(bareDir);
+            File.WriteAllText(Path.Combine(bareDir, "config"),
+                "[remote \"origin\"]\n\turl = https://github.com/Owner/Repo\n");
+
+            var state = new RepositoryState();
+            state.Repositories.Add(new RepositoryInfo
+            {
+                Id = "Owner-Repo",
+                Name = "Repo",
+                Url = "https://github.com/Owner/Repo",
+                BareClonePath = bareDir
+            });
+
+            var rm = new RepoManager();
+            SetField(rm, "_loaded", true);
+            SetField(rm, "_loadedSuccessfully", true);
+            SetField(rm, "_state", state);
+
+            RepoManager.SetBaseDirForTesting(tempDir);
+            try
+            {
+                var healed = rm.HealMissingRepos();
+                Assert.Equal(0, healed);
+                Assert.Single(rm.Repositories);
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void HealMissingRepos_MultipleUntracked_AllDiscovered()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-heal-{Guid.NewGuid():N}");
+        var reposDir = Path.Combine(tempDir, "repos");
+        Directory.CreateDirectory(reposDir);
+
+        try
+        {
+            // Create 3 bare clones
+            foreach (var name in new[] { "dotnet-maui.git", "PureWeen-PolyPilot.git", "github-sdk.git" })
+            {
+                var dir = Path.Combine(reposDir, name);
+                Directory.CreateDirectory(dir);
+                File.WriteAllText(Path.Combine(dir, "config"),
+                    $"[remote \"origin\"]\n\turl = https://github.com/test/{name.Replace(".git", "")}\n");
+            }
+
+            // Only one is tracked
+            var state = new RepositoryState();
+            state.Repositories.Add(new RepositoryInfo { Id = "dotnet-maui", Name = "maui", Url = "https://github.com/dotnet/maui" });
+
+            var rm = new RepoManager();
+            SetField(rm, "_loaded", true);
+            SetField(rm, "_loadedSuccessfully", true);
+            SetField(rm, "_state", state);
+
+            RepoManager.SetBaseDirForTesting(tempDir);
+            try
+            {
+                var healed = rm.HealMissingRepos();
+                Assert.Equal(2, healed); // PureWeen-PolyPilot and github-sdk
+                Assert.Equal(3, rm.Repositories.Count);
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void Load_WithCorruptedState_HealsFromDisk()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-heal-{Guid.NewGuid():N}");
+        var reposDir = Path.Combine(tempDir, "repos");
+        Directory.CreateDirectory(reposDir);
+
+        try
+        {
+            // Create a bare clone on disk
+            var bareDir = Path.Combine(reposDir, "Owner-Repo.git");
+            Directory.CreateDirectory(bareDir);
+            File.WriteAllText(Path.Combine(bareDir, "config"),
+                "[remote \"origin\"]\n\turl = https://github.com/Owner/Repo\n");
+
+            // Write corrupted repos.json (test data — like the actual bug)
+            var stateFile = Path.Combine(tempDir, "repos.json");
+            File.WriteAllText(stateFile, """{"Repositories":[{"Id":"repo-1","Name":"MyRepo","Url":"https://github.com/test/repo","BareClonePath":"","AddedAt":"2026-02-27T01:23:18Z"}],"Worktrees":[]}""");
+
+            RepoManager.SetBaseDirForTesting(tempDir);
+            try
+            {
+                var rm = new RepoManager();
+                rm.Load();
+
+                var repos = rm.Repositories;
+                // Should have both the corrupted entry AND the healed one
+                Assert.Equal(2, repos.Count);
+                Assert.Contains(repos, r => r.Id == "repo-1"); // original corrupted entry
+                Assert.Contains(repos, r => r.Id == "Owner-Repo"); // healed from disk
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    #endregion
 }

@@ -12,7 +12,7 @@
     {
         @foreach (var msg in Messages.ToList())
         {
-            <ChatMessageItem @key="msg" Message="msg" Compact="Compact" UserAvatarUrl="@UserAvatarUrl" />
+            <ChatMessageItem @key="msg" Message="msg" Compact="Compact" UserAvatarUrl="@UserAvatarUrl" RepoUrl="@RepoUrl" />
         }
 
         @* Current turn tool activity feed — skip activities already in history *@
@@ -72,7 +72,7 @@
                     {
                         <span class="chat-msg-role">AI</span>
                     }
-                    <div class="chat-msg-text markdown-body">@((MarkupString)RenderMarkdown(StreamingContent))</div>
+                    <div class="chat-msg-text markdown-body">@((MarkupString)RenderMarkdown(StreamingContent, RepoUrl))</div>
                 </div>
             </div>
         }
@@ -113,6 +113,7 @@
     [Parameter] public DateTime? ProcessingStartedAt { get; set; }
     [Parameter] public int ToolCallCount { get; set; }
     [Parameter] public int ProcessingPhase { get; set; }
+    [Parameter] public string? RepoUrl { get; set; }
 
     private string GetProcessingStatus()
     {
@@ -170,10 +171,11 @@
         @"(?<!\(|""|\w)((?:/[\w\-. ]+)+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|tiff))(?!\)|""|\w)",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    internal static string RenderMarkdown(string content)
+    internal static string RenderMarkdown(string content, string? repoUrl = null)
     {
         if (string.IsNullOrEmpty(content)) return "";
-        if (_markdownCache.TryGetValue(content, out var cached)) return cached;
+        var cacheKey = repoUrl != null ? $"{repoUrl}\0{content}" : content;
+        if (_markdownCache.TryGetValue(cacheKey, out var cached)) return cached;
         try
         {
             var html = Markdig.Markdown.ToHtml(content, MdPipeline);
@@ -185,6 +187,7 @@
                     return $"<img src=\"{dataUri}\" alt=\"{System.IO.Path.GetFileName(path)}\" />";
                 return match.Value;
             });
+            html = PolyPilot.Services.GitHubReferenceLinker.LinkifyReferences(html, repoUrl);
             // LRU eviction: remove oldest when at capacity
             if (_markdownCache.Count >= MarkdownCacheMaxSize)
             {
@@ -195,8 +198,8 @@
                     _markdownCacheLru.RemoveFirst();
                 }
             }
-            _markdownCache[content] = html;
-            _markdownCacheLru.AddLast(content);
+            _markdownCache[cacheKey] = html;
+            _markdownCacheLru.AddLast(cacheKey);
             return html;
         }
         catch { return System.Net.WebUtility.HtmlEncode(content).Replace("\n", "<br/>"); }

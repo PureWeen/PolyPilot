@@ -42,7 +42,14 @@
                     <button class="dismiss-btn" @onclick="DismissFallbackNotice">Dismiss</button>
                 </div>
             }
-            @if (PlatformHelper.IsMobile && !CopilotService.IsInitialized)
+            @if (PlatformHelper.IsMobile && !CopilotService.IsInitialized && !_initializationComplete)
+            {
+                <div class="restoring-indicator">
+                    <div class="restoring-spinner"></div>
+                    <span>Connecting…</span>
+                </div>
+            }
+            else if (PlatformHelper.IsMobile && !CopilotService.IsInitialized)
             {
                 <div class="mobile-connect-card">
                     <button class="scan-qr-btn" @onclick="DashboardScanQr">
@@ -102,7 +109,7 @@
                        placeholder="@GetInputPlaceholder(expandedGroup.OrchestratorMode)"
                        @onkeydown="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") await SendToExpandedMultiAgentGroup(expandedGroupId); })"
                        @onclick:stopPropagation="true" />
-                <button class="ma-send-btn" @onclick="() => SendToExpandedMultiAgentGroup(expandedGroupId)" @onclick:stopPropagation="true">
+                <button class="ma-send-btn" @onclick="() => SendToExpandedMultiAgentGroup(expandedGroupId)" @onclick:stopPropagation="true" title="Send message to all sessions in this group">
                     📡 Send All
                 </button>
                 }
@@ -132,6 +139,7 @@
                                      AvailableModels="availableModels"
                                      PendingImages="@(pendingImagesBySession.TryGetValue(session.Name, out var pi2) ? pi2 : null)"
                                      UserAvatarUrl="@CopilotService.GitHubAvatarUrl"
+                                     RepoUrl="@CopilotService.GetRepoUrlForSession(session.Name)"
                                      Layout="@CopilotService.ChatLayout"
                                      Style="@CopilotService.ChatStyle"
                                      FontSize="fontSize"
@@ -274,7 +282,7 @@
                     {
                     <div class="multi-agent-input-bar" @onclick:stopPropagation="true">
                         <textarea id="ma-input-@group.Id" class="ma-broadcast-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)"
-                                  rows="1"></textarea>
+                                  autocorrect="off" rows="1"></textarea>
                         <button class="ma-send-btn" @onclick="() => SendToMultiAgentGroup(group.Id)" title="Send to all sessions">
                             📡 Send All
                         </button>
@@ -301,6 +309,7 @@
                                  Error="@(errorBySession.TryGetValue(session.Name, out var errG) ? errG : null)"
                                  PendingImages="@(pendingImagesBySession.TryGetValue(session.Name, out var pi) ? pi : new())"
                                  UserAvatarUrl="@CopilotService.GitHubAvatarUrl"
+                                 RepoUrl="@CopilotService.GetRepoUrlForSession(session.Name)"
                                  Layout="@CopilotService.ChatLayout"
                                  Style="@CopilotService.ChatStyle"
                                  IsRenaming="@(cardRenamingSession == session.Name)"
@@ -344,12 +353,13 @@
     private Dictionary<string, string> inputModeBySession = new();
     private Dictionary<string, List<PendingImage>> pendingImagesBySession = new();
     private Dictionary<string, string> shellCwdBySession = new();
-    private Dictionary<string, List<string>> commandHistoryBySession = new();
-    private Dictionary<string, int> historyIndexBySession = new();
+    private Dictionary<string, CommandHistory> commandHistoryBySession = new();
     private int fontSize = 20;
     private string? expandedSession;
     private string mobileRemoteUrl = "";
     private string mobileRemoteToken = "";
+    private string mobileLanUrl = "";
+    private string mobileLanToken = "";
     private bool mobileConnecting;
     private string? mobileConnectError;
     private bool _needsScrollToBottom;
@@ -407,6 +417,8 @@
             var cs = ConnectionSettings.Load();
             mobileRemoteUrl = cs.RemoteUrl ?? "";
             mobileRemoteToken = cs.RemoteToken ?? "";
+            mobileLanUrl = cs.LanUrl ?? "";
+            mobileLanToken = cs.LanToken ?? "";
         }
     }
 
@@ -564,12 +576,16 @@
 
         try
         {
-            // Try JSON format first: { "url": "...", "token": "..." }
+            // Try JSON format first: { "url": "...", "token": "...", "lanUrl": "...", "lanToken": "..." }
             var doc = System.Text.Json.JsonDocument.Parse(result);
             if (doc.RootElement.TryGetProperty("url", out var urlProp))
                 mobileRemoteUrl = urlProp.GetString() ?? "";
             if (doc.RootElement.TryGetProperty("token", out var tokenProp))
                 mobileRemoteToken = tokenProp.GetString() ?? "";
+            if (doc.RootElement.TryGetProperty("lanUrl", out var lanUrlProp))
+                mobileLanUrl = lanUrlProp.GetString() ?? "";
+            if (doc.RootElement.TryGetProperty("lanToken", out var lanTokenProp))
+                mobileLanToken = lanTokenProp.GetString() ?? "";
         }
         catch
         {
@@ -593,7 +609,7 @@
 
     private async Task DashboardConnect()
     {
-        if (string.IsNullOrWhiteSpace(mobileRemoteUrl)) return;
+        if (string.IsNullOrWhiteSpace(mobileRemoteUrl) && string.IsNullOrWhiteSpace(mobileLanUrl)) return;
         mobileConnecting = true;
         mobileConnectError = null;
         StateHasChanged();
@@ -602,8 +618,10 @@
         {
             var connSettings = ConnectionSettings.Load();
             connSettings.Mode = ConnectionMode.Remote;
-            connSettings.RemoteUrl = mobileRemoteUrl;
+            connSettings.RemoteUrl = ConnectionSettings.NormalizeRemoteUrl(mobileRemoteUrl) ?? mobileRemoteUrl;
             connSettings.RemoteToken = mobileRemoteToken;
+            connSettings.LanUrl = mobileLanUrl;
+            connSettings.LanToken = mobileLanToken;
             connSettings.Save();
             await CopilotService.ReconnectAsync(connSettings);
         }
@@ -642,12 +660,18 @@
                             var ta = e.target;
                             var atStart = ta.selectionStart === 0 && ta.selectionEnd === 0;
                             var atEnd = ta.selectionStart === ta.value.length;
-                            if ((e.key === 'ArrowUp' && atStart) || (e.key === 'ArrowDown' && atEnd)) {
-                                var card = ta.closest('[data-session]');
-                                var sessionName = card ? card.dataset.session : '';
+                            var card = ta.closest('[data-session]');
+                            var sessionName = card ? card.dataset.session : '';
+                            var histNavActive = sessionName && window.__histNavActive && window.__histNavActive[sessionName];
+                            if ((e.key === 'ArrowUp' && atStart) || (e.key === 'ArrowDown' && (atEnd || histNavActive))) {
                                 if (sessionName && window.__dashRef) {
                                     e.preventDefault();
-                                    window.__dashRef.invokeMethodAsync('JsNavigateHistory', sessionName, e.key === 'ArrowUp');
+                                    window.__dashRef.invokeMethodAsync('JsNavigateHistory', sessionName, e.key === 'ArrowUp').then(function(isNav) {
+                                        if (!window.__histNavActive) window.__histNavActive = {};
+                                        window.__histNavActive[sessionName] = isNav;
+                                    }).catch(function() {
+                                        if (window.__histNavActive) window.__histNavActive[sessionName] = false;
+                                    });
                                 }
                             }
                         }
@@ -707,6 +731,15 @@
                                     window.__dashRef.invokeMethodAsync('JsInterruptSession');
                                 }
                             }
+                        }
+                    });
+                    // Reset histNavActive when user edits text, so ArrowDown doesn't
+                    // overwrite their changes with a history entry.
+                    document.addEventListener('input', function(e) {
+                        if (e.target.matches && e.target.matches('.card-input input, .card-input textarea, .input-row textarea')) {
+                            var card = e.target.closest('[data-session]');
+                            var sn = card ? card.dataset.session : '';
+                            if (sn && window.__histNavActive) window.__histNavActive[sn] = false;
                         }
                     });
                 }
@@ -879,7 +912,7 @@
         try
         {
             var active = CopilotService.ActiveSessionName;
-            bool sessionSwitched = active != null && active != _lastActiveSession && _lastActiveSession != null;
+            bool sessionSwitched = active != _lastActiveSession;
             
             // Throttle non-switch state changes to max 2/sec, but always allow completed sessions through
             if (!_refreshThrottle.ShouldRefresh(sessionSwitched, completedSessions.Count > 0))
@@ -913,7 +946,7 @@
                 expandedSession = sessions[0].Name;
                 CopilotService.SwitchSession(sessions[0].Name);
             }
-            if (sessionSwitched && sessions.Any(s => s.Name == active))
+            if (sessionSwitched && active != null && sessions.Any(s => s.Name == active))
             {
                 _lastActiveSession = active;
                 expandedSession = active;
@@ -930,6 +963,14 @@
                 _needsScrollToBottom = true;
                 _ = InvokeAsync(() => JS.InvokeVoidAsync("switchKeepAliveSlot", $"slot-{active.Replace(" ", "-")}", active));
             }
+            else if (sessionSwitched && active == null)
+            {
+                // Active session was closed — clear all session-specific UI state so stale
+                // values don't linger until the next session is created.
+                _lastActiveSession = null;
+                expandedSession = null;
+                _focusedInputId = null;
+            }
             
             if (_lastActiveSession == null && active != null)
             {
@@ -940,7 +981,7 @@
                 if (!s.IsProcessing && streamingBySession.ContainsKey(s.Name))
                     streamingBySession.Remove(s.Name);
             }
-            if (sessionSwitched)
+            if (sessionSwitched && active != null)
             {
                 // _sessionSwitching stays true until SafeRefreshAsync reads it — 
                 // this skips the expensive JS draft capture round-trip during switches
@@ -1146,14 +1187,7 @@
         {
             if (!commandHistoryBySession.ContainsKey(sessionName))
                 commandHistoryBySession[sessionName] = new();
-            var history = commandHistoryBySession[sessionName];
-            // Avoid consecutive duplicates
-            if (history.Count == 0 || history[^1] != finalPrompt)
-            {
-                history.Add(finalPrompt);
-                if (history.Count > 50) history.RemoveAt(0);
-            }
-            historyIndexBySession[sessionName] = history.Count; // past the end = "no selection"
+            commandHistoryBySession[sessionName].Add(finalPrompt);
         }
 
         // Handle ! shell commands
@@ -1203,6 +1237,7 @@
         var session = sessions.FirstOrDefault(s => s.Name == sessionName);
         if (session?.IsProcessing == true)
         {
+            CopilotService.LogDispatchRoute(sessionName, true, "QUEUED", null, null, null, false);
             List<string>? queueImagePaths = null;
             if (hasImages)
             {
@@ -1244,19 +1279,25 @@
             var group = sessionMeta?.GroupId != null
                 ? CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == sessionMeta.GroupId)
                 : null;
+            var orchSession = group != null ? CopilotService.GetOrchestratorSession(group.Id) : null;
             var isOrchestrator = group is { IsMultiAgent: true }
                 && (group.OrchestratorMode == MultiAgentMode.Orchestrator || group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
-                && CopilotService.GetOrchestratorSession(group.Id) == sessionName;
+                && orchSession == sessionName;
+
+            // Diagnostic: log every send attempt so we can trace routing failures
+            CopilotService.LogDispatchRoute(sessionName, sessionMeta != null, group?.Name, group?.IsMultiAgent, group?.OrchestratorMode, orchSession, isOrchestrator);
 
             if (isOrchestrator && (imagePaths == null || imagePaths.Count == 0))
             {
+                AutoStartReflectionIfNeeded(group!.Id, finalPrompt);
                 _ = CopilotService.SendToMultiAgentGroupAsync(group!.Id, finalPrompt).ContinueWith(t =>
                 {
                     if (t.IsFaulted)
                     {
+                        var msg = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown";
                         InvokeAsync(() =>
                         {
-                            Console.WriteLine($"Error sending to multi-agent group: {t.Exception?.InnerException?.Message}");
+                            Console.WriteLine($"[DISPATCH] Error sending to multi-agent group: {msg}");
                         });
                     }
                 });
@@ -1334,11 +1375,12 @@
         try
         {
             var cwd = GetShellCwd(sessionName);
+            var (shellExe, shellArgs) = PlatformHelper.GetShellCommand(command);
             using var process = new System.Diagnostics.Process();
             process.StartInfo = new System.Diagnostics.ProcessStartInfo
             {
-                FileName = "/bin/bash",
-                Arguments = $"-c \"{command.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"",
+                FileName = shellExe,
+                Arguments = shellArgs,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -2392,7 +2434,8 @@
     private int GetMaxIterations(string groupId)
     {
         if (_groupMaxIterations.TryGetValue(groupId, out var val)) return val;
-        return 5;
+        var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        return group?.MaxReflectIterations ?? 5;
     }
 
     private void SetMaxIterations(string groupId, ChangeEventArgs e)
@@ -2662,24 +2705,19 @@
     }
 
     [JSInvokable]
-    public async Task JsNavigateHistory(string sessionName, bool up)
+    public async Task<bool> JsNavigateHistory(string sessionName, bool up)
     {
-        if (!commandHistoryBySession.TryGetValue(sessionName, out var history) || history.Count == 0)
-            return;
+        if (!commandHistoryBySession.TryGetValue(sessionName, out var hist))
+            return false;
 
-        if (!historyIndexBySession.ContainsKey(sessionName))
-            historyIndexBySession[sessionName] = history.Count;
+        var result = hist.Navigate(up);
+        if (result == null) return false;
 
-        var idx = historyIndexBySession[sessionName];
-        if (up)
-            idx = Math.Max(0, idx - 1);
-        else
-            idx = Math.Min(history.Count, idx + 1);
-
-        historyIndexBySession[sessionName] = idx;
+        var (text, cursorAtStart) = result.Value;
         var inputId = $"input-{sessionName.Replace(" ", "-")}";
-        var text = idx < history.Count ? history[idx] : "";
-        await JS.InvokeVoidAsync("eval", $"(function(){{ var el = document.getElementById('{inputId}'); if(el){{ el.value = {System.Text.Json.JsonSerializer.Serialize(text)}; el.setSelectionRange(el.value.length, el.value.length); }} }})()");
+        var cursorExpr = cursorAtStart ? "0" : "el.value.length";
+        await JS.InvokeVoidAsync("eval", $"(function(){{ var el = document.getElementById('{inputId}'); if(el){{ el.value = {System.Text.Json.JsonSerializer.Serialize(text)}; var p = {cursorExpr}; el.setSelectionRange(p, p); }} }})()");
+        return hist.IsNavigating;
     }
 
     [JSInvokable]
@@ -2832,6 +2870,12 @@
         if (delta == 0) ResetFontSize();
         else if (delta > 0) IncreaseFontSize();
         else DecreaseFontSize();
+    }
+
+    [JSInvokable]
+    public void JsOpenUrlInBackground(string url)
+    {
+        LinkHelper.OpenInBackground(url);
     }
 
     [JSInvokable]

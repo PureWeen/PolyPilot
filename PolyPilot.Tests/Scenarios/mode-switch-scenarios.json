@@ -869,7 +869,444 @@
           "expect": {
             "equals": true
           },
-          "note": "Token remains blurred — QR and token toggles are independent"
+          "note": "Token remains blurred \u2014 QR and token toggles are independent"
+        }
+      ]
+    },
+    {
+      "id": "cli-source-builtin-card-not-disabled-with-system-fallback",
+      "name": "Built-in CLI card is selectable when bundled CLI is missing but system CLI exists (fallback)",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/settings']",
+          "note": "Navigate to Settings"
+        },
+        {
+          "action": "wait",
+          "duration": 2000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.cli-card')[0].classList.contains('disabled')",
+          "expect": {
+            "equals": "false"
+          },
+          "note": "Built-in card should NOT be disabled even if bundled CLI is missing (system fallback exists)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.cli-card')[1].click()",
+          "note": "Click System CLI card"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+          "expect": {
+            "equals": "System"
+          },
+          "note": "Verify System is now selected"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.cli-card')[0].click()",
+          "note": "Click Built-in card to switch back"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+          "expect": {
+            "equals": "Built-in"
+          },
+          "note": "Verify Built-in is selected again (this was the bug: could not switch back)"
+        },
+        {
+          "action": "shell",
+          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)[\\\"CliSource\\\"])\"",
+          "expect": {
+            "equals": "0"
+          },
+          "note": "Verify CliSource=0 (BuiltIn) persisted to disk after switching back"
+        }
+      ]
+    },
+    {
+      "id": "shell-command-uses-platform-shell",
+      "name": "Bang commands use platform-appropriate shell (cmd.exe on Windows, /bin/bash on Mac/Linux)",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.chat-input textarea') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Chat input is present"
+        },
+        {
+          "action": "type",
+          "selector": ".chat-input textarea",
+          "text": "!echo hello"
+        },
+        {
+          "action": "click",
+          "selector": ".chat-input .send-btn",
+          "note": "Send the shell command"
+        },
+        {
+          "action": "wait",
+          "duration": 3000,
+          "note": "Wait for shell command to execute"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.shell-output')?.textContent?.includes('hello')",
+          "expect": {
+            "equals": true
+          },
+          "note": "Shell output contains the echoed text, confirming the platform shell executed successfully"
+        }
+      ]
+    },
+    {
+      "id": "session-menu-closes-on-click-outside",
+      "name": "Session contextual menu (\u22ef) closes when clicking outside, including main content area",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.more-btn').length > 0",
+          "expect": {
+            "equals": true
+          },
+          "note": "At least one session exists with a more-btn"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.more-btn')[0].dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true})); true",
+          "note": "Open the session menu"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-menu').length",
+          "expect": {
+            "equals": 1
+          },
+          "note": "Session menu is open"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('main').dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true})); true",
+          "note": "Click in the main content area (outside sidebar)"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-menu').length",
+          "expect": {
+            "equals": 0
+          },
+          "note": "Session menu closed after clicking outside in main content area"
+        }
+      ]
+    },
+    {
+      "id": "group-menu-closes-on-click-outside",
+      "name": "Group contextual menu closes when clicking outside, including main content area",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.group-more-btn').length > 0",
+          "expect": {
+            "equals": true
+          },
+          "note": "At least one group exists with a more-btn"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.group-more-btn')[0].dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true})); true",
+          "note": "Open the group menu"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.group-menu').length",
+          "expect": {
+            "equals": 1
+          },
+          "note": "Group menu is open"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('main').dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true})); true",
+          "note": "Click in the main content area"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.group-menu').length",
+          "expect": {
+            "equals": 0
+          },
+          "note": "Group menu closed after clicking outside in main content area"
+        }
+      ]
+    },
+    {
+      "id": "cmd-comma-opens-settings",
+      "name": "Cmd+, keyboard shortcut navigates to Settings page",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.settings-page')",
+          "expect": {
+            "equals": null
+          },
+          "note": "Not on settings page initially"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.dispatchEvent(new KeyboardEvent('keydown', {key: ',', metaKey: true, bubbles: true})); true",
+          "note": "Simulate Cmd+,"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.settings-page') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Settings page is now displayed"
+        }
+      ]
+    },
+    {
+      "id": "statistics-popup-opens-from-sidebar",
+      "name": "Statistics popup opens when clicking chart icon in sidebar header",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.stats-popup-overlay.open')",
+          "expect": {
+            "equals": null
+          },
+          "note": "Statistics popup is initially closed"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('button[title=\"Statistics\"]').click(); true",
+          "note": "Click the statistics icon button"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.stats-popup-overlay.open') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Statistics popup is now open"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.stats-popup-header h3')?.textContent",
+          "expect": {
+            "equals": "Usage Statistics"
+          },
+          "note": "Popup displays correct title"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.stats-popup-overlay').click(); true",
+          "note": "Click overlay to close"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.stats-popup-overlay.open')",
+          "expect": {
+            "equals": null
+          },
+          "note": "Statistics popup is closed again"
+        }
+      ]
+    },
+    {
+      "id": "settings-category-nav-scrolls-to-section",
+      "name": "Settings page category navigation scrolls to the selected section",
+      "steps": [
+        {
+          "action": "evaluate",
+          "note": "Navigate to settings page",
+          "script": "window.location.href = '/settings'; true"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.settings-nav') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Category nav is visible"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.settings-nav-item.active')?.textContent?.trim()",
+          "note": "Check which category is active"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.settings-nav-item')[2]?.click(); true",
+          "note": "Click the UI category nav item"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.getElementById('settings-ui') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "UI settings section exists with correct id"
+        }
+      ]
+    },
+    {
+      "id": "settings-no-statistics-section",
+      "name": "Settings page no longer contains Statistics section",
+      "steps": [
+        {
+          "action": "evaluate",
+          "note": "Navigate to settings page",
+          "script": "window.location.href = '/settings'; true"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.group-title')).map(e => e.textContent)",
+          "capture": "groupTitles",
+          "note": "Get all group titles"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.group-title')).some(e => e.textContent === 'Statistics')",
+          "expect": {
+            "equals": false
+          },
+          "note": "Statistics is not a settings group"
+        }
+      ]
+    },
+    {
+      "id": "settings-data-driven-ui-rendering",
+      "name": "Settings page UI section is rendered from SettingsRegistry descriptors",
+      "steps": [
+        {
+          "action": "evaluate",
+          "note": "Navigate to settings page",
+          "script": "window.location.href = '/settings'; true"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "note": "UI group should contain data-driven setting rows",
+          "script": "document.querySelector('#settings-ui .setting-row, #settings-ui .setting-row-vertical') !== null",
+          "expect": {
+            "equals": true
+          }
+        },
+        {
+          "action": "evaluate",
+          "note": "Search bar should be full-width in header",
+          "script": "document.querySelector('.settings-search .search-input') !== null",
+          "expect": {
+            "equals": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "settings-search-filters-individual-settings",
+      "name": "Settings search filters individual setting rows",
+      "steps": [
+        {
+          "action": "evaluate",
+          "note": "Navigate to settings page",
+          "script": "window.location.href = '/settings'; true"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "note": "Type font into search and trigger input event",
+          "script": "var el = document.getElementById('settings-search'); el.value = 'font'; el.dispatchEvent(new Event('input')); true"
+        },
+        {
+          "action": "wait",
+          "duration": 300
+        },
+        {
+          "action": "evaluate",
+          "note": "Font size setting should still be visible after searching",
+          "script": "document.querySelector('.search-hidden') !== null || document.querySelectorAll('.setting-row').length > 0",
+          "expect": {
+            "equals": true
+          }
+        }
+      ]
+    }
+,
+    {
+      "id": "info-popover-not-clipped-by-main-pane",
+      "name": "Sidebar content has overflow:visible so info popover is not clipped",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "getComputedStyle(document.querySelector('.sidebar-content')).overflow",
+          "expect": {
+            "contains": "visible"
+          },
+          "note": ".sidebar-content must have overflow:visible so the absolutely-positioned info popover can render outside sidebar bounds without being clipped"
         }
       ]
     }

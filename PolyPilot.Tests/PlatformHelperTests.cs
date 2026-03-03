@@ -83,4 +83,64 @@ public class PlatformHelperTests
     {
         Assert.Equal("''\"'\"''\"'\"''", PlatformHelper.ShellEscape("''"));
     }
+
+    // --- GetShellCommand tests ---
+
+    [Fact]
+    public void GetShellCommand_ReturnsValidTuple()
+    {
+        var (fileName, arguments) = PlatformHelper.GetShellCommand("echo hello");
+        Assert.False(string.IsNullOrEmpty(fileName));
+        Assert.False(string.IsNullOrEmpty(arguments));
+    }
+
+    [Fact]
+    public void GetShellCommand_OnWindows_UsesCmdExe()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var (fileName, arguments) = PlatformHelper.GetShellCommand("echo hello");
+        Assert.Equal("cmd.exe", fileName);
+        Assert.Equal("/c \"echo hello\"", arguments);
+    }
+
+    [Fact]
+    public void GetShellCommand_OnWindows_DoesNotUseBash()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var (fileName, _) = PlatformHelper.GetShellCommand("code .");
+        Assert.DoesNotContain("bash", fileName, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("/bin/", fileName);
+    }
+
+    [Fact]
+    public void GetShellCommand_OnNonWindows_UsesBash()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var (fileName, arguments) = PlatformHelper.GetShellCommand("echo hello");
+        Assert.Equal("/bin/bash", fileName);
+        Assert.StartsWith("-c ", arguments);
+    }
+
+    [Fact]
+    public void GetShellCommand_OnNonWindows_EscapesBackslashes()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var (_, arguments) = PlatformHelper.GetShellCommand("echo \\n");
+        Assert.Contains("\\\\n", arguments);
+    }
+
+    [Fact]
+    public void GetShellCommand_OnNonWindows_EscapesQuotes()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var (_, arguments) = PlatformHelper.GetShellCommand("echo \"hi\"");
+        Assert.Contains("\\\"hi\\\"", arguments);
+    }
+
+    [Fact]
+    public void GetShellCommand_CommandPreserved()
+    {
+        var (_, arguments) = PlatformHelper.GetShellCommand("code .");
+        Assert.Contains("code .", arguments);
+    }
 }

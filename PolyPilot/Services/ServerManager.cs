@@ -29,7 +29,7 @@ public class ServerManager : IServerManager
     /// <summary>
     /// Check if a copilot server is listening on the given port
     /// </summary>
-    public bool CheckServerRunning(string host = "localhost", int? port = null)
+    public bool CheckServerRunning(string host = "127.0.0.1", int? port = null)
     {
         port ??= ServerPort;
         try
@@ -52,7 +52,7 @@ public class ServerManager : IServerManager
     {
         ServerPort = port;
 
-        if (CheckServerRunning("localhost", port))
+        if (CheckServerRunning("127.0.0.1", port))
         {
             Console.WriteLine($"[ServerManager] Server already running on port {port}");
             OnStatusChanged?.Invoke();
@@ -108,7 +108,7 @@ public class ServerManager : IServerManager
             for (int i = 0; i < 15; i++)
             {
                 await Task.Delay(1000);
-                if (CheckServerRunning("localhost", port))
+                if (CheckServerRunning("127.0.0.1", port))
                 {
                     Console.WriteLine($"[ServerManager] Server is ready on port {port}");
                     OnStatusChanged?.Invoke();
@@ -159,7 +159,7 @@ public class ServerManager : IServerManager
         if (info == null) return false;
 
         ServerPort = info.Value.Port;
-        if (CheckServerRunning("localhost", info.Value.Port))
+        if (CheckServerRunning("127.0.0.1", info.Value.Port))
         {
             Console.WriteLine($"[ServerManager] Found existing server PID {info.Value.Pid} on port {info.Value.Port}");
             return true;

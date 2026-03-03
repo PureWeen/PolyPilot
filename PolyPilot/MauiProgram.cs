@@ -8,6 +8,8 @@ using MauiDevFlow.Blazor;
 #if MACCATALYST || IOS
 using Microsoft.Maui.Essentials.AI;
 #endif
+using CommunityToolkit.Maui;
+using CommunityToolkit.Maui.Media;
 #if MACCATALYST
 using Microsoft.Maui.LifecycleEvents;
 using UIKit;
@@ -56,6 +58,7 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
+			.UseMauiCommunityToolkit()
 			.UseBarcodeReader()
 			.ConfigureFonts(fonts =>
 			{
@@ -110,6 +113,7 @@ public static class MauiProgram
 	builder.Services.AddSingleton<TutorialService>();
 	builder.Services.AddSingleton<UsageStatsService>();
 	builder.Services.AddSingleton<INotificationManagerService, NotificationManagerService>();
+	builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
 
 	// Register local AI services (AppChat powered by on-device SLM)
 	RegisterLocalAI(builder);

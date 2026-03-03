@@ -137,13 +137,25 @@ public partial class CopilotService
         if (string.IsNullOrEmpty(content)) return;
 
         var normalizedReasoningId = ResolveReasoningId(state.Info, reasoningId);
-        var reasoningMsg = FindReasoningMessage(state.Info, normalizedReasoningId);
+
+        // Check pending map first (covers the race window before InvokeOnUI fires)
+        var reasoningMsg = state.PendingReasoningMessages.GetValueOrDefault(normalizedReasoningId)
+            ?? FindReasoningMessage(state.Info, normalizedReasoningId);
         var isNew = false;
         if (reasoningMsg == null)
         {
             reasoningMsg = ChatMessage.ReasoningMessage(normalizedReasoningId);
-            state.Info.History.Add(reasoningMsg);
-            state.Info.MessageCount = state.Info.History.Count;
+            // Register in pending map BEFORE posting to UI thread — this prevents
+            // rapid consecutive deltas from creating duplicates
+            state.PendingReasoningMessages[normalizedReasoningId] = reasoningMsg;
+            // Must add to History on UI thread to avoid concurrent List<T> mutation
+            InvokeOnUI(() =>
+            {
+                state.Info.History.Add(reasoningMsg);
+                state.Info.MessageCount = state.Info.History.Count;
+                // Remove from pending — now findable via History search
+                state.PendingReasoningMessages.TryRemove(normalizedReasoningId, out _);
+            });
             isNew = true;
         }
 
@@ -197,7 +209,13 @@ public partial class CopilotService
     private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
         Volatile.Write(ref state.HasReceivedEventsSinceResume, true);
-        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+        // Don't reset the watchdog timer for pure metrics/info events (SessionUsageInfoEvent,
+        // AssistantUsageEvent). These are informational only and don't indicate actual turn
+        // progress. If the SDK enters a state where it sends repeated usage info events
+        // without ever completing the turn (e.g., FailedDelegation), the watchdog must still
+        // fire based on lack of real progress events.
+        if (evt is not SessionUsageInfoEvent and not AssistantUsageEvent)
+            Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         var sessionName = state.Info.Name;
         var isCurrentState = _sessions.TryGetValue(sessionName, out var current) && ReferenceEquals(current, state);
 
@@ -298,23 +316,26 @@ public partial class CopilotService
                         break;
                     }
 
-                    // Flush any accumulated assistant text before adding tool message
-                    FlushCurrentResponse(state);
-                    
+                    // Flush any accumulated assistant text before adding tool message,
+                    // then add the tool message — all on the UI thread to avoid
+                    // concurrent writes to List<ChatMessage> (History).
                     if (startToolName == ShowImageTool.ToolName)
                     {
-                        // show_image: add a placeholder that will be converted to Image on complete
                         var imgPlaceholder = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
-                        state.Info.History.Add(imgPlaceholder);
-                        Invoke(() => OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput));
+                        Invoke(() =>
+                        {
+                            FlushCurrentResponse(state);
+                            state.Info.History.Add(imgPlaceholder);
+                            OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
+                        });
                     }
                     else
                     {
                         var toolMsg = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
-                        state.Info.History.Add(toolMsg);
-                        
                         Invoke(() =>
                         {
+                            FlushCurrentResponse(state);
+                            state.Info.History.Add(toolMsg);
                             OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
                             OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
                         });
@@ -407,6 +428,11 @@ public partial class CopilotService
                 }
                 Invoke(() =>
                 {
+                    // Flush any accumulated assistant text to history/DB at end of each sub-turn.
+                    // Without this, content in CurrentResponse is lost if the app restarts between
+                    // turn_end and session.idle (which triggers CompleteResponse).
+                    // Must run on UI thread to avoid racing with History list reads.
+                    FlushCurrentResponse(state);
                     OnTurnEnd?.Invoke(sessionName);
                     OnActivity?.Invoke(sessionName, "");
                 });
@@ -538,9 +564,11 @@ public partial class CopilotService
                 InvokeOnUI(() =>
                 {
                     OnError?.Invoke(sessionName, errMsg);
-                    state.ResponseCompletion?.TrySetException(new Exception(errMsg));
-                    // Flush any accumulated partial response before clearing processing state
+                    // Flush any accumulated partial response before clearing the accumulator
                     FlushCurrentResponse(state);
+                    state.FlushedResponse.Clear();
+                    state.PendingReasoningMessages.Clear();
+                    state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                     Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
@@ -651,6 +679,18 @@ public partial class CopilotService
         var text = state.CurrentResponse.ToString();
         if (string.IsNullOrWhiteSpace(text)) return;
         
+        // Dedup guard: if this exact text was already flushed (e.g., SDK replayed events
+        // after resume and content was re-appended to CurrentResponse), don't duplicate.
+        var lastAssistant = state.Info.History.LastOrDefault(m => 
+            m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
+        if (lastAssistant?.Content == text)
+        {
+            Debug($"[DEDUP] FlushCurrentResponse skipped duplicate content ({text.Length} chars) for session '{state.Info.Name}'");
+            state.CurrentResponse.Clear();
+            state.HasReceivedDeltasThisTurn = false;
+            return;
+        }
+        
         var msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
         state.Info.History.Add(msg);
         state.Info.MessageCount = state.Info.History.Count;
@@ -660,6 +700,13 @@ public partial class CopilotService
         
         // Track code suggestions from accumulated response segment
         _usageStats?.TrackCodeSuggestion(text);
+        
+        // Accumulate flushed text so CompleteResponse can include it in the TCS result.
+        // Without this, orchestrator dispatch gets "" because TurnEnd flush clears
+        // CurrentResponse before SessionIdle fires CompleteResponse.
+        if (state.FlushedResponse.Length > 0)
+            state.FlushedResponse.Append("\n\n");
+        state.FlushedResponse.Append(text);
         
         state.CurrentResponse.Clear();
         state.HasReceivedDeltasThisTurn = false;
@@ -706,7 +753,7 @@ public partial class CopilotService
         }
         
         Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse executing " +
-              $"(responseLen={state.CurrentResponse.Length}, thread={Environment.CurrentManagedThreadId})");
+              $"(responseLen={state.CurrentResponse.Length}, flushedLen={state.FlushedResponse.Length}, thread={Environment.CurrentManagedThreadId})");
         
         CancelProcessingWatchdog(state);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
@@ -729,12 +776,23 @@ public partial class CopilotService
             // Track code suggestions from final response segment
             _usageStats?.TrackCodeSuggestion(response);
         }
+        // Build full turn response for TCS: include text flushed mid-turn (e.g., on TurnEnd)
+        // plus any remaining text in CurrentResponse. Without this, orchestrator dispatch
+        // gets "" because FlushCurrentResponse on TurnEnd clears CurrentResponse before
+        // SessionIdle fires CompleteResponse.
+        var fullResponse = state.FlushedResponse.Length > 0
+            ? (string.IsNullOrEmpty(response)
+                ? state.FlushedResponse.ToString()
+                : state.FlushedResponse + "\n\n" + response)
+            : response;
         // Track one message per completed turn regardless of trailing text
         _usageStats?.TrackMessage();
         // Clear IsProcessing BEFORE completing the TCS — if the continuation runs
         // synchronously (e.g., in orchestrator reflection loops), the next SendPromptAsync
         // call must see IsProcessing=false or it throws "already processing".
         state.CurrentResponse.Clear();
+        state.FlushedResponse.Clear();
+        state.PendingReasoningMessages.Clear();
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false; // After first successful completion, use normal watchdog timeouts
         Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
@@ -742,12 +800,12 @@ public partial class CopilotService
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0;
         state.Info.LastUpdatedAt = DateTime.Now;
-        state.ResponseCompletion?.TrySetResult(response);
+        state.ResponseCompletion?.TrySetResult(fullResponse);
         
         // Fire completion notification BEFORE OnStateChanged — this ensures
         // HandleComplete populates completedSessions before RefreshState checks the
         // throttle (completedSessions.Count > 0 bypasses throttle).
-        var summary = response.Length > 100 ? response[..100] + "..." : response;
+        var summary = fullResponse.Length > 0 ? (fullResponse.Length > 100 ? fullResponse[..100] + "..." : fullResponse) : "";
         OnSessionComplete?.Invoke(state.Info.Name, summary);
         OnStateChanged?.Invoke();
 
@@ -824,6 +882,10 @@ public partial class CopilotService
             var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
                               ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt);
 
+            // Check if the dequeued message is for an orchestrator session — if so,
+            // route through the multi-agent dispatch pipeline instead of direct send.
+            var orchGroupId = GetOrchestratorGroupId(state.Info.Name);
+
             // Use Task.Run to dispatch on a clean stack frame, avoiding reentrancy
             // issues where CompleteResponse hasn't fully unwound yet.
             _ = Task.Run(async () =>
@@ -839,7 +901,15 @@ public partial class CopilotService
                         {
                             try
                             {
-                                await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
+                                if (orchGroupId != null && nextImagePaths is null or { Count: 0 })
+                                {
+                                    Debug($"[DISPATCH] Queue drain routing to multi-agent pipeline: session='{state.Info.Name}', group='{orchGroupId}'");
+                                    await SendToMultiAgentGroupAsync(orchGroupId, nextPrompt);
+                                }
+                                else
+                                {
+                                    await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
+                                }
                                 tcs.TrySetResult();
                             }
                             catch (Exception ex)
@@ -851,7 +921,15 @@ public partial class CopilotService
                     }
                     else
                     {
-                        await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
+                        if (orchGroupId != null && nextImagePaths is null or { Count: 0 })
+                        {
+                            Debug($"[DISPATCH] Queue drain routing to multi-agent pipeline: session='{state.Info.Name}', group='{orchGroupId}'");
+                            await SendToMultiAgentGroupAsync(orchGroupId, nextPrompt);
+                        }
+                        else
+                        {
+                            await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -1191,6 +1269,14 @@ public partial class CopilotService
     /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
     /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
     internal const int WatchdogToolExecutionTimeoutSeconds = 600;
+    /// <summary>If a resumed session receives zero SDK events for this many seconds, it was likely already
+    /// finished when the app restarted. Short enough that users don't have to click Stop, long enough
+    /// for the SDK to start streaming if the turn is genuinely still active.</summary>
+    internal const int WatchdogResumeQuiescenceTimeoutSeconds = 30;
+    /// <summary>Absolute maximum processing time in seconds. Even if events keep arriving,
+    /// no single turn should run longer than this. This is a safety net for scenarios where
+    /// non-progress events (like repeated SessionUsageInfoEvent) keep arriving without a terminal event.</summary>
+    internal const int WatchdogMaxProcessingTimeSeconds = 3600; // 60 minutes
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
@@ -1205,6 +1291,10 @@ public partial class CopilotService
     private void StartProcessingWatchdog(SessionState state, string sessionName)
     {
         CancelProcessingWatchdog(state);
+        // Always seed from DateTime.UtcNow. Do NOT pass events.jsonl file time here —
+        // that would make elapsed = (file age) + check interval, causing the 30s quiescence
+        // timeout to fire on the first watchdog check for any file > ~15s old.
+        // This is the exact regression pattern from PR #148 (short timeout killing active sessions).
         Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         state.ProcessingWatchdog = new CancellationTokenSource();
         var ct = state.ProcessingWatchdog.Token;
@@ -1249,15 +1339,43 @@ public partial class CopilotService
                 //    loop has its own 10-minute CancelAfter timeout per worker. Cached at
                 //    send time on UI thread to avoid cross-thread List<T> access.
                 var isMultiAgentSession = Volatile.Read(ref state.IsMultiAgentSession);
-                var useToolTimeout = hasActiveTool || state.Info.IsResumed || Volatile.Read(ref state.HasUsedToolsThisTurn) || isMultiAgentSession;
-                var effectiveTimeout = useToolTimeout
-                    ? WatchdogToolExecutionTimeoutSeconds
-                    : WatchdogInactivityTimeoutSeconds;
+                var hasReceivedEvents = Volatile.Read(ref state.HasReceivedEventsSinceResume);
+                var hasUsedTools = Volatile.Read(ref state.HasUsedToolsThisTurn);
 
-                if (elapsed >= effectiveTimeout)
+                // Resumed session that has received ZERO events since restart — the turn likely
+                // completed before the app restarted. Use a short 30s quiescence timeout so the
+                // user doesn't have to click Stop. If events start flowing, HasReceivedEventsSinceResume
+                // goes true and we fall through to the normal timeout tiers.
+                var useResumeQuiescence = state.Info.IsResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
+
+                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgentSession;
+                var effectiveTimeout = useResumeQuiescence
+                    ? WatchdogResumeQuiescenceTimeoutSeconds
+                    : useToolTimeout
+                        ? WatchdogToolExecutionTimeoutSeconds
+                        : WatchdogInactivityTimeoutSeconds;
+
+                // Safety net: check absolute max processing time regardless of event activity.
+                // This catches scenarios where non-progress events (e.g., repeated SessionUsageInfoEvent
+                // with FailedDelegation) keep arriving without any terminal event.
+                // Snapshot once to avoid TOCTOU: if CompleteResponse clears ProcessingStartedAt
+                // between .HasValue and .Value, the second read would throw InvalidOperationException.
+                var startedAt = state.Info.ProcessingStartedAt;
+                var totalProcessingSeconds = startedAt.HasValue
+                    ? (DateTime.UtcNow - startedAt.Value).TotalSeconds
+                    : 0;
+                var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds;
+
+                if (elapsed >= effectiveTimeout || exceededMaxTime)
                 {
-                    var timeoutMinutes = effectiveTimeout / 60;
-                    Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
+                    var timeoutDisplay = exceededMaxTime
+                        ? $"{WatchdogMaxProcessingTimeSeconds / 60} minute(s) total processing time"
+                        : effectiveTimeout >= 60
+                            ? $"{effectiveTimeout / 60} minute(s)"
+                            : $"{effectiveTimeout} seconds";
+                    Debug(exceededMaxTime
+                        ? $"Session '{sessionName}' watchdog: total processing time {totalProcessingSeconds:F0}s exceeded max {WatchdogMaxProcessingTimeSeconds}s, clearing stuck processing state"
+                        : $"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
                           $"(timeout={effectiveTimeout}s, hasActiveTool={hasActiveTool}, isResumed={state.Info.IsResumed}, hasUsedTools={state.HasUsedToolsThisTurn}, multiAgent={isMultiAgentSession}), clearing stuck processing state");
                     // Capture generation before posting — same guard pattern as CompleteResponse.
                     // Prevents a stale watchdog callback from killing a new turn if the user
@@ -1281,6 +1399,7 @@ public partial class CopilotService
                         state.Info.IsResumed = false;
                         // Flush any accumulated partial response before clearing processing state
                         FlushCurrentResponse(state);
+                        Debug($"[WATCHDOG] '{sessionName}' IsProcessing=false — watchdog timeout after {totalProcessingSeconds:F0}s total, elapsed={elapsed:F0}s, exceededMaxTime={exceededMaxTime}");
                         state.Info.IsProcessing = false;
                         Interlocked.Exchange(ref state.SendingFlag, 0);
                         state.Info.ProcessingStartedAt = null;
@@ -1288,8 +1407,11 @@ public partial class CopilotService
                         state.Info.ProcessingPhase = 0;
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
-                        state.ResponseCompletion?.TrySetResult("");
-                        OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutMinutes} minute(s).");
+                        var watchdogResponse = state.FlushedResponse.ToString();
+                        state.FlushedResponse.Clear();
+                        state.PendingReasoningMessages.Clear();
+                        state.ResponseCompletion?.TrySetResult(watchdogResponse);
+                        OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutDisplay}.");
                         OnStateChanged?.Invoke();
                     });
                     break;

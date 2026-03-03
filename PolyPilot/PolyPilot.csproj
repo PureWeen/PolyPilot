@@ -68,101 +68,56 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.25" />
-        <PackageReference Include="Markdig" Version="0.45.0" />
+        <PackageReference Include="CommunityToolkit.Maui" Version="14.0.1" />
+        <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.26" />
+        <PackageReference Include="Markdig" Version="1.0.0" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.3" />
         <PackageReference Include="Microsoft.Extensions.AI" Version="10.3.0" />
         <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.260212.1" />
-        <PackageReference Include="Microsoft.Maui.Essentials.AI" Version="10.0.50-ci.main.26117.2" />
-        <PackageReference Include="sqlite-net-pcl" Version="*" />
-        <PackageReference Include="SQLitePCLRaw.bundle_green" Version="*" />
+        <PackageReference Include="Microsoft.Maui.Essentials.AI" Version="10.0.50-ci.main.26153.3" />
+        <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
+        <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
         <PackageReference Include="QRCoder" Version="*" />
         <PackageReference Include="ZXing.Net.Maui.Controls" Version="*" />
-        <PackageReference Include="Redth.MauiDevFlow.Agent" Version="0.8.1" />
-        <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.8.1" />
+        <PackageReference Include="Redth.MauiDevFlow.Agent" Version="0.11.0" />
+        <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.11.0" />
     </ItemGroup>
 
     <!-- Prevent linker from trimming SDK event types needed for pattern matching -->
     <ItemGroup>
         <TrimmerRootAssembly Include="GitHub.Copilot.SDK" RootMode="All" />
+        <TrimmerRootAssembly Include="CommunityToolkit.Maui" />
+        <TrimmerRootAssembly Include="CommunityToolkit.Maui.Core" />
     </ItemGroup>
 
-    <!-- The SDK only maps standard RIDs (osx-arm64, etc.) to download the copilot CLI.
-         Mac Catalyst uses maccatalyst-arm64 which the SDK doesn't recognize, so the
-         download is silently skipped. Map it to the darwin-arm64 npm package. -->
-    <Target Name="_FixCopilotRidForMacCatalyst" BeforeTargets="_DownloadCopilotCli">
-        <PropertyGroup Condition="'$(_CopilotPlatform)' == '' And $(_CopilotRid.StartsWith('maccatalyst-arm64'))">
-            <_CopilotPlatform>darwin-arm64</_CopilotPlatform>
-            <_CopilotBinary>copilot</_CopilotBinary>
-            <_CopilotOriginalRid>$(_CopilotRid)</_CopilotOriginalRid>
-            <_CopilotRid>osx-arm64</_CopilotRid>
-        </PropertyGroup>
-        <PropertyGroup Condition="'$(_CopilotPlatform)' == '' And '$(_CopilotRid)' == 'maccatalyst-x64'">
-            <_CopilotPlatform>darwin-x64</_CopilotPlatform>
-            <_CopilotBinary>copilot</_CopilotBinary>
-            <_CopilotOriginalRid>$(_CopilotRid)</_CopilotOriginalRid>
-            <_CopilotRid>osx-x64</_CopilotRid>
-        </PropertyGroup>
-    </Target>
-
-    <!-- The SDK at runtime uses RuntimeInformation.RuntimeIdentifier (maccatalyst-arm64)
-         to locate the binary, so also copy it to that path. -->
-    <Target Name="_CopyCopilotCliForMacCatalyst" AfterTargets="_CopyCopilotCliToOutput"
-            Condition="'$(_CopilotOriginalRid)' != ''">
-        <PropertyGroup>
-            <_CopilotMacCatalystOutputDir>$(OutDir)runtimes/$(_CopilotOriginalRid)/native</_CopilotMacCatalystOutputDir>
-            <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
-        </PropertyGroup>
-        <MakeDir Directories="$(_CopilotMacCatalystOutputDir)" />
-        <Copy SourceFiles="$(_CopilotCacheDir)/$(_CopilotBinary)"
-              DestinationFolder="$(_CopilotMacCatalystOutputDir)"
-              SkipUnchangedFiles="true" />
-    </Target>
-
-    <!-- The SDK registers the intermediate copilot binary as ContentWithTargetPath.
-         On Mac Catalyst this surfaces as a publish metadata warning; we already copy
-         the binary explicitly via custom targets above. -->
-    <Target Name="_ExcludeCopilotCliIntermediateFromMacCatalystPublish"
-            AfterTargets="_RegisterCopilotCliForCopy"
-            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' And '$(_CopilotPlatform)' != ''">
+    <!-- The SDK registers the copilot CLI as ContentWithTargetPath but doesn't set
+         PublishFolderType, so MAUI skips it when building the .app bundle.
+         Re-register with PublishFolderType=Assembly so it lands in MonoBundle
+         (where ResolveBundledCliPath finds it). -->
+    <Target Name="_FixCopilotCliBundling" AfterTargets="_RegisterCopilotCliForCopy" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' And '$(_CopilotPlatform)' != ''">
         <PropertyGroup>
             <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
         </PropertyGroup>
         <ItemGroup>
             <ContentWithTargetPath Remove="$(_CopilotCacheDir)/$(_CopilotBinary)" />
             <ContentWithTargetPath Remove="$(_CopilotCacheDir)\$(_CopilotBinary)" />
+            <ContentWithTargetPath Include="$(_CopilotCacheDir)/$(_CopilotBinary)" TargetPath="copilot" CopyToOutputDirectory="PreserveNewest" PublishFolderType="Assembly" />
         </ItemGroup>
     </Target>
 
-    <Target Name="_ExcludeCopilotCliFromResolvedPublishForMacCatalyst"
-            BeforeTargets="_ComputePublishLocation"
-            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' And '$(_CopilotPlatform)' != ''">
-        <PropertyGroup>
-            <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
-        </PropertyGroup>
-        <ItemGroup>
-            <ResolvedFileToPublish Remove="$(_CopilotCacheDir)/$(_CopilotBinary)" />
-            <ResolvedFileToPublish Remove="$(_CopilotCacheDir)\$(_CopilotBinary)" />
-        </ItemGroup>
+    <!-- Inject privacy keys into Mac Catalyst Info.plist (MAUI build strips NS*UsageDescription keys) -->
+    <Target Name="InjectMacCatalystPrivacyKeys" AfterTargets="Build" Condition="$(TargetFramework.Contains('maccatalyst'))">
+        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSMicrophoneUsageDescription 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot; 2>/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSMicrophoneUsageDescription string 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot;" />
+        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSSpeechRecognitionUsageDescription 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot; 2>/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSSpeechRecognitionUsageDescription string 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot;" />
     </Target>
 
-    <!-- Ensure the copilot CLI binary is included in the Mac Catalyst .app bundle.
-         MAUI flattens everything into MonoBundle, so runtimes/ paths don't work.
-         Copy the binary directly into the .app bundle's MonoBundle. -->
-    <Target Name="_IncludeCopilotCliInBundle" AfterTargets="Build"
-            Condition="'$(_CopilotOriginalRid)' != ''">
-        <PropertyGroup>
-            <_CopilotCacheDir>$(IntermediateOutputPath)copilot-cli/$(CopilotCliVersion)/$(_CopilotPlatform)</_CopilotCacheDir>
-            <_AppBundleMonoBundle>$(OutDir)PolyPilot.app/Contents/MonoBundle</_AppBundleMonoBundle>
-        </PropertyGroup>
-        <Copy SourceFiles="$(_CopilotCacheDir)/$(_CopilotBinary)"
-              DestinationFolder="$(_AppBundleMonoBundle)"
-              SkipUnchangedFiles="true"
-              Condition="Exists('$(_AppBundleMonoBundle)')" />
-        <Message Importance="high" Text="Copied copilot CLI binary to app bundle MonoBundle"
-                 Condition="Exists('$(_AppBundleMonoBundle)')" />
+    <!-- Inject privacy keys into iOS Info.plist (MAUI build strips NS*UsageDescription keys here too) -->
+    <Target Name="InjectIOSPrivacyKeys" AfterTargets="Build" Condition="$(TargetFramework.Contains('ios'))">
+        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSMicrophoneUsageDescription 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot; 2>/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSMicrophoneUsageDescription string 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot;" />
+        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSSpeechRecognitionUsageDescription 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot; 2>/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSSpeechRecognitionUsageDescription string 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot;" />
+        <Exec Command="codesign --force --sign &quot;Apple Development: Jakub Florkowski (8MT3Q77PP8)&quot; --entitlements &quot;$(MSBuildProjectDirectory)/obj/Debug/$(TargetFramework)/ios-arm64/Entitlements.xcent&quot; &quot;$(OutputPath)$(AssemblyName).app&quot;" />
     </Target>
 
 </Project>

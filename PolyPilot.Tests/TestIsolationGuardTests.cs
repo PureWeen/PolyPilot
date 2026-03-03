@@ -16,6 +16,7 @@ namespace PolyPilot.Tests;
 /// settings. This has caused production data loss (squad groups destroyed)
 /// multiple times before the guard was added.
 /// </summary>
+[Collection("BaseDir")]
 public class TestIsolationGuardTests
 {
     [Fact]
@@ -37,6 +38,38 @@ public class TestIsolationGuardTests
         var tempRoot = Path.GetTempPath();
         Assert.StartsWith(tempRoot, CopilotService.BaseDir);
         Assert.Contains("polypilot-tests-", CopilotService.BaseDir);
+    }
+
+    [Fact]
+    public void RepoManager_StateFile_IsNotRealPolypilotDir()
+    {
+        // Access the static StateFile via reflection to verify it doesn't point to real path
+        var stateFileField = typeof(RepoManager).GetField("_stateFile",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        // Force resolution by accessing Repositories (which calls EnsureLoaded -> Load -> StateFile)
+        var rm = new RepoManager();
+        _ = rm.Repositories;
+
+        var stateFile = (string?)stateFileField.GetValue(null);
+        var realReposJson = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".polypilot", "repos.json");
+
+        Assert.NotNull(stateFile);
+        Assert.NotEqual(realReposJson, stateFile);
+        Assert.DoesNotContain(Path.Combine(".polypilot", "repos.json"), stateFile);
+    }
+
+    [Fact]
+    public void RepoManager_BaseDir_MatchesTestSetupDir()
+    {
+        // Verify RepoManager resolves to the same test directory as CopilotService
+        var baseDirOverride = typeof(RepoManager).GetField("_baseDirOverride",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var overrideValue = (string?)baseDirOverride.GetValue(null);
+
+        Assert.NotNull(overrideValue);
+        Assert.Equal(TestSetup.TestBaseDir, overrideValue);
     }
 
     [Fact]

@@ -51,6 +51,9 @@ public class ChatMessage
     public string? ImageDataUri { get; set; }
     public string? Caption { get; set; }
 
+    // When set, Content is a wrapped/orchestration prompt and this holds the user's original text
+    public string? OriginalContent { get; set; }
+
     // Model that generated this message
     public string? Model { get; set; }
 

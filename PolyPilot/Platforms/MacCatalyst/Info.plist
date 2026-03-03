@@ -38,5 +38,9 @@
     <string>PolyPilot</string>
     <key>CFBundleName</key>
     <string>PolyPilot</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>PolyPilot uses speech recognition to convert your voice into text messages.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>PolyPilot needs microphone access for speech-to-text input.</string>
 </dict>
 </plist>

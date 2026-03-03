@@ -26,11 +26,12 @@ public enum ChatStyle
 
 public enum UiTheme
 {
-    System,          // Follow OS light/dark preference
+    System,          // Follow OS light/dark preference (PolyPilot palette)
     PolyPilotDark,   // Default dark theme
     PolyPilotLight,  // Light variant
     SolarizedDark,   // Solarized dark
-    SolarizedLight   // Solarized light
+    SolarizedLight,  // Solarized light
+    SystemSolarized  // Follow OS light/dark preference (Solarized palette)
 }
 
 public enum CliSourceMode
@@ -47,6 +48,8 @@ public class ConnectionSettings
     public bool AutoStartServer { get; set; } = false;
     public string? RemoteUrl { get; set; }
     public string? RemoteToken { get; set; }
+    public string? LanUrl { get; set; }
+    public string? LanToken { get; set; }
     public string? TunnelId { get; set; }
     public bool AutoStartTunnel { get; set; } = false;
     public string? ServerPassword { get; set; }
@@ -59,6 +62,35 @@ public class ConnectionSettings
     public List<string> DisabledMcpServers { get; set; } = new();
     public List<string> DisabledPlugins { get; set; } = new();
     public bool EnableSessionNotifications { get; set; } = false;
+
+    /// <summary>
+    /// Normalizes a remote URL by ensuring it has an http(s):// scheme.
+    /// Plain IPs/hostnames get http://, devtunnels/known TLS hosts get https://.
+    /// Already-schemed URLs pass through unchanged. Returns null for null/empty input.
+    /// </summary>
+    public static string? NormalizeRemoteUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return url;
+
+        var trimmed = url.Trim().TrimEnd('/');
+
+        // Already has any scheme — return as-is (prevents double-scheme like http://ftp://host)
+        if (trimmed.Contains("://"))
+            return trimmed;
+
+        // Heuristic: known tunnel/proxy hosts always use TLS — match exact suffixes to avoid
+        // false-positives from hostnames that merely contain ".ngrok" or ".cloudflare"
+        if (trimmed.EndsWith(".devtunnels.ms", StringComparison.OrdinalIgnoreCase)
+            || trimmed.EndsWith(".ngrok.io", StringComparison.OrdinalIgnoreCase)
+            || trimmed.EndsWith(".ngrok-free.app", StringComparison.OrdinalIgnoreCase)
+            || trimmed.EndsWith(".ngrok.app", StringComparison.OrdinalIgnoreCase)
+            || trimmed.EndsWith(".trycloudflare.com", StringComparison.OrdinalIgnoreCase))
+            return "https://" + trimmed;
+
+        // Everything else (bare IP, localhost, LAN hostname) → http
+        return "http://" + trimmed;
+    }
 
     [JsonIgnore]
     public string CliUrl => Mode == ConnectionMode.Remote && !string.IsNullOrEmpty(RemoteUrl)
@@ -111,6 +143,10 @@ public class ConnectionSettings
         // Ensure loaded mode is valid for this platform
         if (!PlatformHelper.AvailableModes.Contains(settings.Mode))
             settings.Mode = PlatformHelper.DefaultMode;
+
+        // Ensure CliSource is a valid enum value (guards against corrupt settings)
+        if (!Enum.IsDefined(settings.CliSource))
+            settings.CliSource = CliSourceMode.BuiltIn;
 
         return settings;
     }

@@ -5,7 +5,25 @@ using PolyPilot.Models;
 
 namespace PolyPilot.Services;
 
-public enum OrchestratorPhase { Planning, Dispatching, WaitingForWorkers, Synthesizing, Complete }
+public enum OrchestratorPhase { Planning, Dispatching, WaitingForWorkers, Synthesizing, Complete, Resuming }
+
+/// <summary>
+/// Persisted state for an in-progress orchestration dispatch.
+/// Saved to disk before workers are dispatched so the orchestration can be
+/// resumed after an app relaunch.
+/// </summary>
+internal class PendingOrchestration
+{
+    public string GroupId { get; set; } = "";
+    public string OrchestratorName { get; set; } = "";
+    public List<string> WorkerNames { get; set; } = new();
+    public string OriginalPrompt { get; set; } = "";
+    public DateTime StartedAt { get; set; }
+    /// <summary>True if this is an OrchestratorReflect dispatch (has reflection loop).</summary>
+    public bool IsReflect { get; set; }
+    /// <summary>Current reflection iteration (only meaningful for reflect mode).</summary>
+    public int ReflectIteration { get; set; }
+}
 
 public partial class CopilotService
 {
@@ -86,6 +104,7 @@ public partial class CopilotService
             {
                 var json = File.ReadAllText(OrganizationFile);
                 Organization = JsonSerializer.Deserialize<OrganizationState>(json) ?? new OrganizationState();
+                Organization.DeletedRepoGroupRepoIds ??= new();
                 Debug($"LoadOrganization: loaded {Organization.Groups.Count} groups, {Organization.Sessions.Count} sessions");
             }
             else
@@ -113,20 +132,29 @@ public partial class CopilotService
         // NOTE: Do NOT call ReconcileOrganization() here — _sessions is empty at load time,
         // so reconciliation would prune all session metadata. Reconcile is called explicitly
         // after RestorePreviousSessionsAsync populates _sessions (line 403 and 533).
+
+        // Self-healing: if any group has orchestrator/worker sessions but IsMultiAgent is false,
+        // restore IsMultiAgent. This protects against stale debounce writes or serialization issues.
+        foreach (var group in Organization.Groups)
+        {
+            if (!group.IsMultiAgent && Organization.Sessions.Any(m => m.GroupId == group.Id && m.Role == MultiAgentRole.Orchestrator))
+            {
+                Debug($"LoadOrganization: healing group '{group.Name}' (Id={group.Id}) — has orchestrator session but IsMultiAgent=false");
+                group.IsMultiAgent = true;
+            }
+        }
     }
 
     public void SaveOrganization()
     {
         InvalidateOrganizedSessionsCache();
-        // Snapshot JSON on caller's thread to avoid concurrent mutation during serialization
-        string json;
-        try { json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true }); }
-        catch { return; }
+        // Debounce: restart the timer. The callback marshals to the UI thread for
+        // serialization since Organization contains non-thread-safe List<T> collections.
         _saveOrgDebounce?.Dispose();
-        _saveOrgDebounce = new Timer(_ => WriteOrgFile(json), null, 2000, Timeout.Infinite);
+        _saveOrgDebounce = new Timer(_ => InvokeOnUI(() => SaveOrganizationCore()), null, 2000, Timeout.Infinite);
     }
 
-    private void FlushSaveOrganization()
+    internal void FlushSaveOrganization()
     {
         _saveOrgDebounce?.Dispose();
         _saveOrgDebounce = null;
@@ -236,7 +264,8 @@ public partial class CopilotService
                         if (repo != null)
                         {
                             var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
-                            meta.GroupId = repoGroup.Id;
+                            if (repoGroup != null)
+                                meta.GroupId = repoGroup.Id;
                         }
                         changed = true;
                     }
@@ -256,8 +285,11 @@ public partial class CopilotService
                     if (repo != null)
                     {
                         var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
-                        meta.GroupId = repoGroup.Id;
-                        changed = true;
+                        if (repoGroup != null)
+                        {
+                            meta.GroupId = repoGroup.Id;
+                            changed = true;
+                        }
                     }
                 }
             }
@@ -275,13 +307,13 @@ public partial class CopilotService
             }
         }
 
-        // Ensure every tracked repo has a sidebar group (even if no sessions exist yet)
+        // Ensure every tracked repo has a sidebar group (unless user deleted it)
         foreach (var repo in _repoManager.Repositories)
         {
             if (!Organization.Groups.Any(g => g.RepoId == repo.Id && !g.IsMultiAgent))
             {
-                GetOrCreateRepoGroup(repo.Id, repo.Name);
-                changed = true;
+                if (GetOrCreateRepoGroup(repo.Id, repo.Name) != null)
+                    changed = true;
             }
         }
 
@@ -398,6 +430,15 @@ public partial class CopilotService
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         var isMultiAgent = group?.IsMultiAgent ?? false;
 
+        // Collect all worktree IDs for cleanup before removing metadata
+        var worktreeIds = new HashSet<string>();
+        if (group?.WorktreeId != null) worktreeIds.Add(group.WorktreeId);
+        // CreatedWorktreeIds is the authoritative list (covers cases where session creation failed)
+        if (group?.CreatedWorktreeIds != null)
+            foreach (var id in group.CreatedWorktreeIds) worktreeIds.Add(id);
+        foreach (var m in Organization.Sessions.Where(m => m.GroupId == groupId))
+            if (m.WorktreeId != null) worktreeIds.Add(m.WorktreeId);
+
         if (isMultiAgent)
         {
             // Multi-agent sessions are meaningless without their group — close them
@@ -423,11 +464,27 @@ public partial class CopilotService
             // before the fire-and-forget CloseSessionAsync completes
             SaveActiveSessionsToDisk();
             FlushSaveActiveSessionsToDisk();
-            // Fire-and-forget: close sessions asynchronously
+            // Fire-and-forget: close sessions then remove worktrees
+            // Snapshot worktree IDs — removal must be sequential (not parallel)
+            // because RepoManager._state.Worktrees is a plain List<T>.
+            var wtIdsSnapshot = worktreeIds.ToList();
+            var isRemote = IsRemoteMode;
             _ = Task.Run(async () =>
             {
                 foreach (var name in sessionNames)
-                    await CloseSessionAsync(name);
+                    try { await CloseSessionCoreAsync(name, notifyUi: false); } catch (Exception ex) { Debug($"DeleteGroup: failed to close '{name}': {ex.Message}"); }
+                // Clean up worktrees sequentially after all sessions are closed
+                foreach (var wtId in wtIdsSnapshot)
+                {
+                    try
+                    {
+                        if (isRemote)
+                            await _bridgeClient.RemoveWorktreeAsync(wtId, deleteBranch: true);
+                        else
+                            await _repoManager.RemoveWorktreeAsync(wtId, deleteBranch: true);
+                    }
+                    catch (Exception ex) { Debug($"DeleteGroup: failed to remove worktree '{wtId}': {ex.Message}"); }
+                }
             });
         }
         else
@@ -436,8 +493,18 @@ public partial class CopilotService
             foreach (var meta in Organization.Sessions.Where(m => m.GroupId == groupId))
             {
                 meta.GroupId = SessionGroup.DefaultId;
+                // Clear worktree link for repo groups so ReconcileOrganization
+                // won't reassign these sessions back to a recreated repo group
+                if (group?.RepoId != null)
+                    meta.WorktreeId = null;
             }
         }
+
+        // Track deleted repo groups so ReconcileOrganization won't resurrect them.
+        // Only tombstone for regular repo groups — multi-agent groups share the same RepoId key
+        // but are tracked separately, so deleting a squad must not suppress the regular sidebar group.
+        if (group?.RepoId != null && !isMultiAgent)
+            Organization.DeletedRepoGroupRepoIds.Add(group.RepoId);
 
         Organization.Groups.RemoveAll(g => g.Id == groupId);
         SaveOrganization();
@@ -543,6 +610,37 @@ public partial class CopilotService
         Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
 
     /// <summary>
+    /// Resolves the GitHub repo URL for a session (via WorktreeId or group RepoId).
+    /// Returns null if the session has no associated repo.
+    /// </summary>
+    public string? GetRepoUrlForSession(string sessionName)
+    {
+        var meta = GetSessionMeta(sessionName);
+        if (meta == null) return null;
+
+        // Try via WorktreeId first
+        if (meta.WorktreeId != null)
+        {
+            var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
+            if (wt != null)
+            {
+                var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
+                if (repo != null) return repo.Url;
+            }
+        }
+
+        // Fall back to group's RepoId
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+        if (group?.RepoId != null)
+        {
+            var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == group.RepoId);
+            if (repo != null) return repo.Url;
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Check whether a session belongs to a multi-agent group.
     /// Used by the watchdog to apply the longer timeout for orchestrated workers.
     /// </summary>
@@ -556,13 +654,26 @@ public partial class CopilotService
 
     /// <summary>
     /// Get or create a SessionGroup that auto-tracks a repository.
+    /// When <paramref name="explicitly"/> is false (called from ReconcileOrganization),
+    /// returns null for repos whose groups were previously deleted by the user.
+    /// When true (called from explicit repo-add operations), clears the deleted flag.
     /// </summary>
-    public SessionGroup GetOrCreateRepoGroup(string repoId, string repoName)
+    public SessionGroup? GetOrCreateRepoGroup(string repoId, string repoName, bool explicitly = false)
     {
         // Skip multi-agent groups — they have a RepoId for worktree context but are
         // not the "repo group" that regular sessions should auto-join.
-        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent);
+        // Also skip groups that have orchestrator/worker sessions (defensive: protects against
+        // IsMultiAgent being lost due to stale writes or serialization issues).
+        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent
+            && !Organization.Sessions.Any(m => m.GroupId == g.Id && m.Role == MultiAgentRole.Orchestrator));
         if (existing != null) return existing;
+
+        // Don't recreate groups the user explicitly deleted (unless re-adding)
+        if (!explicitly && Organization.DeletedRepoGroupRepoIds.Contains(repoId))
+            return null;
+
+        // Clear the deleted flag when explicitly re-adding
+        Organization.DeletedRepoGroupRepoIds.Remove(repoId);
 
         var group = new SessionGroup
         {
@@ -700,34 +811,65 @@ public partial class CopilotService
             ?.SessionName;
     }
 
+    /// <summary>Log routing decision for dispatch debugging (goes to event-diagnostics.log).</summary>
+    public void LogDispatchRoute(string sessionName, bool hasMeta, string? groupName, bool? isMulti, MultiAgentMode? mode, string? orchSession, bool isOrch)
+    {
+        Debug($"[DISPATCH-ROUTE] session='{sessionName}' hasMeta={hasMeta} group='{groupName}' isMulti={isMulti} mode={mode} orchSession='{orchSession}' isOrch={isOrch}");
+    }
+
+    /// <summary>
+    /// Returns the group ID if the given session is an orchestrator in an active multi-agent group.
+    /// Used by the message queue drain to route dequeued messages through the dispatch pipeline.
+    /// </summary>
+    public string? GetOrchestratorGroupId(string sessionName)
+    {
+        var meta = GetSessionMeta(sessionName);
+        if (meta?.GroupId == null) return null;
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+        if (group is not { IsMultiAgent: true }) return null;
+        if (group.OrchestratorMode != MultiAgentMode.Orchestrator && group.OrchestratorMode != MultiAgentMode.OrchestratorReflect) return null;
+        var orchSession = GetOrchestratorSession(group.Id);
+        return orchSession == sessionName ? group.Id : null;
+    }
+
     /// <summary>
     /// Send a prompt to all sessions in a multi-agent group based on its orchestration mode.
     /// </summary>
     public async Task SendToMultiAgentGroupAsync(string groupId, string prompt, CancellationToken cancellationToken = default)
     {
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
-        if (group == null) return;
+        if (group == null) { Debug($"[DISPATCH] SendToMultiAgentGroupAsync: group '{groupId}' not found or not multi-agent"); return; }
 
         var members = GetMultiAgentGroupMembers(groupId);
-        if (members.Count == 0) return;
+        if (members.Count == 0) { Debug($"[DISPATCH] SendToMultiAgentGroupAsync: no members for group '{group.Name}'"); return; }
 
-        switch (group.OrchestratorMode)
+        Debug($"[DISPATCH] SendToMultiAgentGroupAsync: group='{group.Name}', mode={group.OrchestratorMode}, members={members.Count}");
+
+        try
         {
-            case MultiAgentMode.Broadcast:
-                await SendBroadcastAsync(group, members, prompt, cancellationToken);
-                break;
+            switch (group.OrchestratorMode)
+            {
+                case MultiAgentMode.Broadcast:
+                    await SendBroadcastAsync(group, members, prompt, cancellationToken);
+                    break;
 
-            case MultiAgentMode.Sequential:
-                await SendSequentialAsync(group, members, prompt, cancellationToken);
-                break;
+                case MultiAgentMode.Sequential:
+                    await SendSequentialAsync(group, members, prompt, cancellationToken);
+                    break;
 
-            case MultiAgentMode.Orchestrator:
-                await SendViaOrchestratorAsync(groupId, members, prompt, cancellationToken);
-                break;
+                case MultiAgentMode.Orchestrator:
+                    await SendViaOrchestratorAsync(groupId, members, prompt, cancellationToken);
+                    break;
 
-            case MultiAgentMode.OrchestratorReflect:
-                await SendViaOrchestratorReflectAsync(groupId, members, prompt, cancellationToken);
-                break;
+                case MultiAgentMode.OrchestratorReflect:
+                    await SendViaOrchestratorReflectAsync(groupId, members, prompt, cancellationToken);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"[DISPATCH] SendToMultiAgentGroupAsync FAILED: {ex.GetType().Name}: {ex.Message}");
+            throw;
         }
     }
 
@@ -765,7 +907,7 @@ public partial class CopilotService
 
             try
             {
-                await SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken);
+                await SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken, originalPrompt: prompt);
             }
             catch (Exception ex)
             {
@@ -796,7 +938,7 @@ public partial class CopilotService
 
             try
             {
-                await SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken);
+                await SendPromptAsync(name, prefixedPrompt, cancellationToken: cancellationToken, originalPrompt: prompt);
             }
             catch (Exception ex)
             {
@@ -823,7 +965,7 @@ public partial class CopilotService
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Planning, null));
 
         var planningPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group?.OrchestratorPrompt, group?.RoutingContext);
-        var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken);
+        var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken, originalPrompt: prompt);
 
         // Phase 2: Parse task assignments from orchestrator response
         var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
@@ -847,22 +989,39 @@ public partial class CopilotService
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Dispatching,
             $"Sending tasks to {assignments.Count} worker(s)"));
 
-        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, null));
+        // Persist dispatch state BEFORE dispatching — if the app is relaunched while
+        // workers are processing, we can resume and collect their results.
+        SavePendingOrchestration(new PendingOrchestration
+        {
+            GroupId = groupId,
+            OrchestratorName = orchestratorName,
+            WorkerNames = assignments.Select(a => a.WorkerName).ToList(),
+            OriginalPrompt = prompt,
+            StartedAt = DateTime.UtcNow
+        });
 
-        var workerTasks = assignments.Select(a =>
-            ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
-        var results = await Task.WhenAll(workerTasks);
+        try
+        {
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, null));
 
-        // Phase 4: Synthesize — send worker results back to orchestrator
-        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
+            var workerTasks = assignments.Select(a =>
+                ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
+            var results = await Task.WhenAll(workerTasks);
 
-        var synthesisPrompt = BuildSynthesisPrompt(prompt, results.ToList());
-        await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken);
+            // Phase 4: Synthesize — send worker results back to orchestrator
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
 
-        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
+            var synthesisPrompt = BuildSynthesisPrompt(prompt, results.ToList());
+            await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken, originalPrompt: prompt);
+        }
+        finally
+        {
+            ClearPendingOrchestration();
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
+        }
     }
 
-    private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions, string? routingContext = null)
+    private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions, string? routingContext = null, bool dispatcherOnly = false)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available:");
@@ -870,10 +1029,14 @@ public partial class CopilotService
         {
             var meta = GetSessionMeta(w);
             var model = GetEffectiveModel(w);
+            var wtInfo = meta?.WorktreeId != null
+                ? _repoManager.Worktrees.FirstOrDefault(wt => wt.Id == meta.WorktreeId) : null;
+            var desc = $"  - '{w}' (model: {model})";
             if (!string.IsNullOrEmpty(meta?.SystemPrompt))
-                sb.AppendLine($"  - '{w}' (model: {model}) — {meta.SystemPrompt}");
-            else
-                sb.AppendLine($"  - '{w}' (model: {model})");
+                desc += $" — {meta.SystemPrompt}";
+            if (wtInfo != null)
+                desc += $" [isolated worktree: {wtInfo.Path}, branch: {wtInfo.Branch}]";
+            sb.AppendLine(desc);
         }
         sb.AppendLine();
         sb.AppendLine("Route tasks to workers based on their specialization. If a worker has a described role, assign tasks that match their expertise.");
@@ -894,14 +1057,24 @@ public partial class CopilotService
         }
         sb.AppendLine();
         sb.AppendLine("## Your Task");
-        sb.AppendLine("Analyze the request and assign specific tasks to your workers. Use this exact format for each assignment:");
+        if (dispatcherOnly)
+        {
+            sb.AppendLine("You are a DISPATCHER ONLY. You do NOT have tools. You CANNOT write code, read files, or run commands yourself.");
+            sb.AppendLine("Your ONLY job is to write @worker/@end blocks that assign work to your workers.");
+        }
+        else
+        {
+            sb.AppendLine("Break the request into tasks and assign them to workers. You may also do some coordination work yourself (e.g., verifying results, running commands).");
+        }
+        sb.AppendLine("Use this exact format for each assignment:");
         sb.AppendLine();
         sb.AppendLine("@worker:worker-name");
         sb.AppendLine("Detailed task description for this worker.");
         sb.AppendLine("@end");
         sb.AppendLine();
-        sb.AppendLine("You may include your analysis and reasoning as normal text. Only the @worker/@end blocks will be dispatched.");
-        sb.AppendLine("If you can handle the request entirely yourself, just respond normally without any @worker blocks.");
+        sb.AppendLine("You may include brief analysis before the @worker blocks, but you MUST produce at least one @worker block.");
+        if (dispatcherOnly)
+            sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
         return sb.ToString();
     }
 
@@ -954,12 +1127,21 @@ public partial class CopilotService
             ? $"## Team Context (shared knowledge)\n{group.SharedContext}\n\n"
             : "";
 
-        var workerPrompt = $"{identity}\n\nYour response will be collected and synthesized with other workers' responses.\n\n{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
+        // Inject worktree awareness if the worker has an isolated worktree
+        var wtInfo = meta?.WorktreeId != null
+            ? _repoManager.Worktrees.FirstOrDefault(wt => wt.Id == meta.WorktreeId) : null;
+        var worktreeNote = wtInfo != null && group?.WorktreeStrategy != WorktreeStrategy.Shared
+            ? $"\n\n## Your Worktree\nYou have an isolated git worktree at `{wtInfo.Path}` (branch: {wtInfo.Branch}). " +
+              "You can safely run any git operations without affecting other workers. " +
+              "To check out a PR: `git fetch origin pull/<N>/head:pr-<N> && git checkout pr-<N>`\n"
+            : "";
+
+        var workerPrompt = $"{identity}{worktreeNote}\n\nYour response will be collected and synthesized with other workers' responses.\n\n{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
 
         try
         {
             Debug($"[DISPATCH] Worker '{workerName}' starting (prompt len={workerPrompt.Length})");
-            var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken);
+            var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
             Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response.Length}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
             return new WorkerResult(workerName, response, true, null, sw.Elapsed);
         }
@@ -970,14 +1152,14 @@ public partial class CopilotService
         }
     }
 
-    private async Task<string> SendPromptAndWaitAsync(string sessionName, string prompt, CancellationToken cancellationToken)
+    private async Task<string> SendPromptAndWaitAsync(string sessionName, string prompt, CancellationToken cancellationToken, string? originalPrompt = null)
     {
         // Use SendPromptAsync directly — it already awaits ResponseCompletion internally.
         // Do NOT capture state and await its TCS separately: reconnection replaces the state
         // object, orphaning the old TCS and causing a 10-minute hang.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromMinutes(10));
-        return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token);
+        return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token, originalPrompt: originalPrompt);
     }
 
     private string BuildSynthesisPrompt(string originalPrompt, List<WorkerResult> results)
@@ -989,7 +1171,12 @@ public partial class CopilotService
         {
             sb.AppendLine($"### {result.WorkerName} ({(result.Success ? "✅ completed" : "❌ failed")}, {result.Duration.TotalSeconds:F1}s)");
             if (result.Success)
-                sb.AppendLine(result.Response);
+            {
+                // Strip completion sentinel from worker responses to prevent the orchestrator
+                // from echoing it and causing false loop termination in the reflect cycle.
+                var sanitized = result.Response?.Replace("[[GROUP_REFLECT_COMPLETE]]", "[WORKER_APPROVED]", StringComparison.OrdinalIgnoreCase) ?? "";
+                sb.AppendLine(sanitized);
+            }
             else
                 sb.AppendLine($"*Error: {result.Error}*");
             sb.AppendLine();
@@ -1010,6 +1197,215 @@ public partial class CopilotService
             InvokeOnUI(() => OnStateChanged?.Invoke());
         }
     }
+
+    #region Orchestration Persistence (relaunch resilience)
+
+    private static string? _pendingOrchestrationFile;
+    private static string PendingOrchestrationFile { get { lock (_pathLock) return _pendingOrchestrationFile ??= Path.Combine(PolyPilotBaseDir, "pending-orchestration.json"); } }
+
+    internal void SavePendingOrchestration(PendingOrchestration pending)
+    {
+        try
+        {
+            Directory.CreateDirectory(PolyPilotBaseDir);
+            var json = JsonSerializer.Serialize(pending, new JsonSerializerOptions { WriteIndented = true });
+            var tmp = PendingOrchestrationFile + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, PendingOrchestrationFile, overwrite: true);
+            Debug($"[DISPATCH] Saved pending orchestration: group={pending.GroupId}, workers={string.Join(",", pending.WorkerNames)}");
+        }
+        catch (Exception ex)
+        {
+            Debug($"[DISPATCH] Failed to save pending orchestration: {ex.Message}");
+        }
+    }
+
+    private static PendingOrchestration? LoadPendingOrchestration()
+    {
+        try
+        {
+            if (!File.Exists(PendingOrchestrationFile)) return null;
+            var json = File.ReadAllText(PendingOrchestrationFile);
+            return JsonSerializer.Deserialize<PendingOrchestration>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void ClearPendingOrchestration()
+    {
+        try
+        {
+            if (File.Exists(PendingOrchestrationFile))
+                File.Delete(PendingOrchestrationFile);
+        }
+        catch { }
+    }
+
+    // Test helpers
+    internal static PendingOrchestration? LoadPendingOrchestrationForTest() => LoadPendingOrchestration();
+    internal static void ClearPendingOrchestrationForTest() => ClearPendingOrchestration();
+
+    /// <summary>
+    /// After session restore, check for a pending orchestration dispatch that was interrupted
+    /// by an app relaunch. If found, monitor workers and auto-synthesize when all complete.
+    /// </summary>
+    internal async Task ResumeOrchestrationIfPendingAsync(CancellationToken ct = default)
+    {
+        var pending = LoadPendingOrchestration();
+        if (pending == null) return;
+
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == pending.GroupId && g.IsMultiAgent);
+        if (group == null)
+        {
+            Debug($"[DISPATCH] Pending orchestration group '{pending.GroupId}' no longer exists — clearing");
+            ClearPendingOrchestration();
+            return;
+        }
+
+        // Verify orchestrator session exists
+        if (!_sessions.ContainsKey(pending.OrchestratorName))
+        {
+            Debug($"[DISPATCH] Pending orchestration orchestrator '{pending.OrchestratorName}' not found — clearing");
+            ClearPendingOrchestration();
+            return;
+        }
+
+        Debug($"[DISPATCH] Resuming pending orchestration for group '{group.Name}' " +
+              $"(orchestrator={pending.OrchestratorName}, workers={string.Join(",", pending.WorkerNames)})");
+
+        AddOrchestratorSystemMessage(pending.OrchestratorName,
+            $"🔄 App restarted — resuming orchestration. Waiting for {pending.WorkerNames.Count} worker(s) to complete...");
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Resuming,
+            $"Waiting for {pending.WorkerNames.Count} worker(s)"));
+
+        // Monitor workers in background — poll until all are idle
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await MonitorAndSynthesizeAsync(pending, ct);
+            }
+            catch (Exception ex)
+            {
+                Debug($"[DISPATCH] Resume orchestration failed: {ex.Message}");
+                AddOrchestratorSystemMessage(pending.OrchestratorName,
+                    $"⚠️ Failed to resume orchestration: {ex.Message}");
+                ClearPendingOrchestration();
+                InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+            }
+        });
+    }
+
+    private async Task MonitorAndSynthesizeAsync(PendingOrchestration pending, CancellationToken ct)
+    {
+        var timeout = TimeSpan.FromMinutes(15);
+        var started = DateTime.UtcNow;
+
+        // Poll every 5 seconds until all workers are idle
+        while (!ct.IsCancellationRequested && (DateTime.UtcNow - started) < timeout)
+        {
+            var allIdle = true;
+            foreach (var workerName in pending.WorkerNames)
+            {
+                if (_sessions.TryGetValue(workerName, out var state) && state.Info.IsProcessing)
+                {
+                    allIdle = false;
+                    break;
+                }
+            }
+
+            if (allIdle)
+            {
+                Debug($"[DISPATCH] All workers idle — collecting results for synthesis");
+                break;
+            }
+
+            await Task.Delay(5000, ct);
+        }
+
+        if (ct.IsCancellationRequested)
+        {
+            ClearPendingOrchestration();
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+            return;
+        }
+
+        if ((DateTime.UtcNow - started) >= timeout)
+        {
+            AddOrchestratorSystemMessage(pending.OrchestratorName,
+                "⚠️ Orchestration resume timed out after 15 minutes — some workers may not have completed.");
+        }
+
+        // Collect worker results from their chat history (last assistant message AFTER the dispatch)
+        var dispatchTimeLocal = pending.StartedAt.Kind == DateTimeKind.Utc
+            ? pending.StartedAt.ToLocalTime()
+            : pending.StartedAt;
+        var results = new List<WorkerResult>();
+        foreach (var workerName in pending.WorkerNames)
+        {
+            var session = GetSession(workerName);
+            if (session == null)
+            {
+                results.Add(new WorkerResult(workerName, null, false, "Session not found after restart", TimeSpan.Zero));
+                continue;
+            }
+
+            // Find the last assistant message AFTER the dispatch started — avoids picking up
+            // stale pre-dispatch history from prior conversations or reflection iterations
+            var lastAssistant = session.History.LastOrDefault(m => m.Role == "assistant" && m.Timestamp >= dispatchTimeLocal);
+            if (lastAssistant != null && !string.IsNullOrWhiteSpace(lastAssistant.Content))
+            {
+                results.Add(new WorkerResult(workerName, lastAssistant.Content, true, null,
+                    TimeSpan.FromSeconds((DateTime.UtcNow - pending.StartedAt).TotalSeconds)));
+            }
+            else if (session.IsProcessing)
+            {
+                results.Add(new WorkerResult(workerName, null, false, "Still processing (timed out)", TimeSpan.Zero));
+            }
+            else
+            {
+                results.Add(new WorkerResult(workerName, null, false, "No response found after restart", TimeSpan.Zero));
+            }
+        }
+
+        var successCount = results.Count(r => r.Success);
+        Debug($"[DISPATCH] Collected {successCount}/{results.Count} worker results for synthesis");
+
+        if (successCount == 0)
+        {
+            AddOrchestratorSystemMessage(pending.OrchestratorName,
+                "⚠️ No worker responses available after restart — orchestration aborted.");
+            ClearPendingOrchestration();
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+            return;
+        }
+
+        // Phase: Synthesize
+        AddOrchestratorSystemMessage(pending.OrchestratorName,
+            $"✅ Collected {successCount}/{results.Count} worker response(s) — sending synthesis to orchestrator...");
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Synthesizing, "Resumed"));
+
+        try
+        {
+            var synthesisPrompt = BuildSynthesisPrompt(pending.OriginalPrompt, results);
+            await SendPromptAsync(pending.OrchestratorName, synthesisPrompt, cancellationToken: ct, originalPrompt: pending.OriginalPrompt);
+            Debug($"[DISPATCH] Resume synthesis sent to '{pending.OrchestratorName}'");
+        }
+        catch (Exception ex)
+        {
+            Debug($"[DISPATCH] Resume synthesis failed: {ex.Message}");
+            AddOrchestratorSystemMessage(pending.OrchestratorName,
+                $"⚠️ Failed to send synthesis: {ex.Message}");
+        }
+
+        ClearPendingOrchestration();
+        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+    }
+
+    #endregion
 
     /// <summary>
     /// Get the progress of a multi-agent group (how many sessions have completed their current turn).
@@ -1074,15 +1470,109 @@ public partial class CopilotService
     /// <summary>
     /// Create a multi-agent group from a preset template, creating sessions with assigned models.
     /// </summary>
-    public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, string? worktreeId = null, string? repoId = null, string? nameOverride = null, CancellationToken ct = default)
+    public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, string? worktreeId = null, string? repoId = null, string? nameOverride = null, WorktreeStrategy? strategyOverride = null, CancellationToken ct = default)
     {
         var teamName = nameOverride ?? preset.Name;
+        var strategy = strategyOverride ?? preset.DefaultWorktreeStrategy ?? WorktreeStrategy.Shared;
         var group = CreateMultiAgentGroup(teamName, preset.Mode, worktreeId: worktreeId, repoId: repoId);
         if (group == null) return null;
+        group.WorktreeStrategy = strategy;
+
+        // Sanitize team name for use in git branch names (no spaces or special chars)
+        var branchPrefix = System.Text.RegularExpressions.Regex.Replace(teamName, @"[^a-zA-Z0-9_-]", "-").Trim('-');
+        if (string.IsNullOrEmpty(branchPrefix)) branchPrefix = "team";
 
         // Store Squad context (routing, decisions) on the group for use during orchestration
         group.SharedContext = preset.SharedContext;
         group.RoutingContext = preset.RoutingContext;
+        if (preset.MaxReflectIterations.HasValue)
+            group.MaxReflectIterations = preset.MaxReflectIterations;
+
+        // Determine orchestrator working directory based on strategy
+        var orchWorkDir = workingDirectory;
+        var orchWtId = worktreeId;
+
+        // Pre-fetch once to avoid parallel git lock contention (local mode only; server handles fetch in remote)
+        if (repoId != null && strategy != WorktreeStrategy.Shared && !IsRemoteMode)
+        {
+            try { await _repoManager.FetchAsync(repoId, ct); }
+            catch (Exception ex) { Debug($"Pre-fetch failed (continuing): {ex.Message}"); }
+        }
+
+        // For Shared strategy with a repo but no worktree, create a single shared worktree
+        if (repoId != null && strategy == WorktreeStrategy.Shared && string.IsNullOrEmpty(worktreeId) && string.IsNullOrEmpty(workingDirectory))
+        {
+            try
+            {
+                if (!IsRemoteMode) await _repoManager.FetchAsync(repoId, ct);
+                var sharedWt = await CreateWorktreeLocalOrRemoteAsync(repoId, $"{branchPrefix}-shared-{Guid.NewGuid().ToString()[..4]}", ct);
+                orchWorkDir = sharedWt.Path;
+                orchWtId = sharedWt.Id;
+                group.WorktreeId = orchWtId;
+                group.CreatedWorktreeIds.Add(orchWtId);
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to create shared worktree (sessions will use temp dirs): {ex.Message}");
+            }
+        }
+
+        if (repoId != null && strategy != WorktreeStrategy.Shared && string.IsNullOrEmpty(worktreeId))
+        {
+            try
+            {
+                var orchWt = await CreateWorktreeLocalOrRemoteAsync(repoId, $"{branchPrefix}-orchestrator-{Guid.NewGuid().ToString()[..4]}", ct);
+                orchWorkDir = orchWt.Path;
+                orchWtId = orchWt.Id;
+                group.WorktreeId = orchWtId;
+                group.CreatedWorktreeIds.Add(orchWtId);
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to create orchestrator worktree (falling back to shared): {ex.Message}");
+            }
+        }
+
+        // Pre-create worker worktrees sequentially (git worktree add uses locks on bare repos)
+        string?[] workerWorkDirs = new string?[preset.WorkerModels.Length];
+        string?[] workerWtIds = new string?[preset.WorkerModels.Length];
+        if (repoId != null && strategy == WorktreeStrategy.FullyIsolated)
+        {
+            for (int i = 0; i < preset.WorkerModels.Length; i++)
+            {
+                try
+                {
+                    var wt = await CreateWorktreeLocalOrRemoteAsync(repoId, $"{branchPrefix}-worker-{i + 1}-{Guid.NewGuid().ToString()[..4]}", ct);
+                    workerWorkDirs[i] = wt.Path;
+                    workerWtIds[i] = wt.Id;
+                    group.CreatedWorktreeIds.Add(wt.Id);
+                }
+                catch (Exception ex)
+                {
+                    Debug($"Failed to create worker-{i + 1} worktree (falling back to shared): {ex.Message}");
+                }
+            }
+        }
+        else if (repoId != null && strategy == WorktreeStrategy.OrchestratorIsolated)
+        {
+            try
+            {
+                var sharedWorkerWt = await CreateWorktreeLocalOrRemoteAsync(repoId, $"{branchPrefix}-workers-{Guid.NewGuid().ToString()[..4]}", ct);
+                group.CreatedWorktreeIds.Add(sharedWorkerWt.Id);
+                for (int i = 0; i < preset.WorkerModels.Length; i++)
+                {
+                    workerWorkDirs[i] = sharedWorkerWt.Path;
+                    workerWtIds[i] = sharedWorkerWt.Id;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to create shared worker worktree (falling back to shared): {ex.Message}");
+            }
+        }
+
+        var createdWtCount = workerWtIds.Count(id => id != null) + (orchWtId != worktreeId ? 1 : 0);
+        Debug($"[WorktreeStrategy] Strategy={strategy}, orchDir={orchWorkDir ?? "(null)"}, orchWtId={orchWtId ?? "(none)"}, workerWts created={workerWtIds.Count(id => id != null)}/{preset.WorkerModels.Length}");
 
         // Create orchestrator session (with uniqueness check matching CreateMultiAgentGroupAsync)
         var orchName = $"{teamName}-orchestrator";
@@ -1092,7 +1582,7 @@ public partial class CopilotService
         }
         try
         {
-            await CreateSessionAsync(orchName, preset.OrchestratorModel, workingDirectory, ct);
+            await CreateSessionAsync(orchName, preset.OrchestratorModel, orchWorkDir, ct);
         }
         catch (Exception ex)
         {
@@ -1105,10 +1595,13 @@ public partial class CopilotService
         // Pin orchestrator so it sorts to the top of the group
         var orchMeta = GetSessionMeta(orchName);
         if (orchMeta != null) orchMeta.IsPinned = true;
-        if (worktreeId != null && orchMeta != null)
-            orchMeta.WorktreeId = worktreeId;
+        if (orchWtId != null && orchMeta != null)
+            orchMeta.WorktreeId = orchWtId;
+        if (orchWtId != null && _sessions.TryGetValue(orchName, out var orchState))
+            orchState.Info.WorktreeId = orchWtId;
 
         // Create worker sessions
+        Debug($"[WorktreeStrategy] Creating {preset.WorkerModels.Length} workers with strategy={strategy}, repoId={repoId}");
         for (int i = 0; i < preset.WorkerModels.Length; i++)
         {
             var workerName = $"{teamName}-worker-{i + 1}";
@@ -1117,9 +1610,11 @@ public partial class CopilotService
                   workerName = $"{teamName}-worker-{i + 1}-{suffix++}";
             }
             var workerModel = preset.WorkerModels[i];
+            var workerWorkDir = workerWorkDirs[i] ?? orchWorkDir ?? workingDirectory;
+            Debug($"[WorktreeStrategy] Worker '{workerName}': wtId={workerWtIds[i] ?? "(none)"}, dir={workerWorkDir ?? "(null)"}");
             try
             {
-                await CreateSessionAsync(workerName, workerModel, workingDirectory, ct);
+                await CreateSessionAsync(workerName, workerModel, workerWorkDir, ct);
             }
             catch (Exception ex)
             {
@@ -1133,9 +1628,12 @@ public partial class CopilotService
             var meta = GetSessionMeta(workerName);
             if (meta != null)
             {
-                if (worktreeId != null) meta.WorktreeId = worktreeId;
+                meta.WorktreeId = workerWtIds[i] ?? worktreeId;
                 if (systemPrompt != null) meta.SystemPrompt = systemPrompt;
             }
+            var effectiveWtId = workerWtIds[i] ?? worktreeId;
+            if (effectiveWtId != null && _sessions.TryGetValue(workerName, out var workerState))
+                workerState.Info.WorktreeId = effectiveWtId;
         }
 
         SaveOrganization();
@@ -1148,6 +1646,16 @@ public partial class CopilotService
         // because they're not in active-sessions.json yet (still waiting on 2s debounce).
         FlushSaveActiveSessionsToDisk();
         OnStateChanged?.Invoke();
+
+        // In remote mode, push the organization to the server so it knows about the
+        // multi-agent group structure. Without this, the server puts all sessions in the
+        // default group and overwrites the mobile's local organization on the next broadcast.
+        if (IsRemoteMode)
+        {
+            try { await _bridgeClient.PushOrganizationAsync(Organization, ct); }
+            catch (Exception ex) { Debug($"Failed to push organization to server: {ex.Message}"); }
+        }
+
         return group;
     }
 
@@ -1199,6 +1707,15 @@ public partial class CopilotService
     {
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
         if (group == null) return;
+
+        // Don't overwrite an active reflection — the user must stop it first.
+        // This runs on the UI thread (called from Dashboard.razor event handlers),
+        // so no lock is needed — all Organization mutations are UI-thread-only.
+        if (group.ReflectionState is { IsActive: true, IsCancelled: false })
+        {
+            Debug($"StartGroupReflection: skipping — group '{group.Name}' already has active reflection (iteration {group.ReflectionState.CurrentIteration})");
+            return;
+        }
 
         group.ReflectionState = ReflectionCycle.Create(goal, maxIterations);
         group.OrchestratorMode = MultiAgentMode.OrchestratorReflect;
@@ -1254,7 +1771,13 @@ public partial class CopilotService
         }
 
         var workerNames = members.Where(m => m != orchestratorName).ToList();
+        // Tracks workers that have successfully completed at least once across all iterations.
+        // Access is sequential (single async flow, no concurrent modification).
+        var dispatchedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var attemptedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        try
+        {
         while (reflectState.IsActive && !reflectState.IsPaused
                && reflectState.CurrentIteration < reflectState.MaxIterations)
         {
@@ -1272,16 +1795,15 @@ public partial class CopilotService
             string planPrompt;
             if (reflectState.CurrentIteration == 1)
             {
-                planPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext);
+                planPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext, dispatcherOnly: true);
             }
             else
             {
-                planPrompt = BuildReplanPrompt(reflectState.LastEvaluation ?? "Continue iterating.", workerNames, prompt);
+                planPrompt = BuildReplanPrompt(reflectState.LastEvaluation ?? "Continue iterating.", workerNames, prompt, group.RoutingContext);
             }
 
-            var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct);
+            var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct, originalPrompt: prompt);
             var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
-            // Deduplicate: merge multiple tasks for the same worker into one prompt
             var assignments = rawAssignments
                 .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
                 .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
@@ -1314,15 +1836,38 @@ public partial class CopilotService
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Dispatching,
                 $"Sending tasks to {assignments.Count} worker(s) — {iterDetail}"));
 
+            // Persist dispatch state for relaunch resilience
+            SavePendingOrchestration(new PendingOrchestration
+            {
+                GroupId = groupId,
+                OrchestratorName = orchestratorName,
+                WorkerNames = assignments.Select(a => a.WorkerName).ToList(),
+                OriginalPrompt = prompt,
+                StartedAt = DateTime.UtcNow,
+                IsReflect = true,
+                ReflectIteration = reflectState.CurrentIteration
+            });
+
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, iterDetail));
 
             var workerTasks = assignments.Select(a => ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, ct));
             var results = await Task.WhenAll(workerTasks);
 
+            // Track both attempted and successful workers across all iterations
+            foreach (var a in assignments)
+                attemptedWorkers.Add(a.WorkerName);
+            foreach (var r in results.Where(r => r.Success))
+                dispatchedWorkers.Add(r.WorkerName);
+
             // Phase 4: Synthesize + Evaluate
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, iterDetail));
 
-            var synthEvalPrompt = BuildSynthesisWithEvalPrompt(prompt, results.ToList(), reflectState);
+            var synthEvalPrompt = BuildSynthesisWithEvalPrompt(prompt, results.ToList(), reflectState,
+                group.RoutingContext, dispatchedWorkers, workerNames);
+
+            // Check worker participation once for both evaluator and self-eval paths
+            var allWorkersDispatched = workerNames.All(w => dispatchedWorkers.Contains(w));
+
 
             // Use dedicated evaluator session if configured, otherwise orchestrator self-evaluates
             string evaluatorName = reflectState.EvaluatorSessionName ?? orchestratorName;
@@ -1331,19 +1876,20 @@ public partial class CopilotService
             {
                 // Send results to orchestrator for synthesis
                 var synthOnlyPrompt = BuildSynthesisOnlyPrompt(prompt, results.ToList());
-                synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthOnlyPrompt, ct);
+                synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthOnlyPrompt, ct, originalPrompt: prompt);
 
                 // Send to evaluator for independent scoring
                 var evalOnlyPrompt = BuildEvaluatorPrompt(prompt, synthesisResponse, reflectState);
-                var evalResponse = await SendPromptAndWaitAsync(evaluatorName, evalOnlyPrompt, ct);
+                var evalResponse = await SendPromptAndWaitAsync(evaluatorName, evalOnlyPrompt, ct, originalPrompt: prompt);
 
                 // Parse score from evaluator
                 var (score, rationale) = ParseEvaluationScore(evalResponse);
                 var evaluatorModel = GetEffectiveModel(evaluatorName);
                 var trend = reflectState.RecordEvaluation(reflectState.CurrentIteration, score, rationale, evaluatorModel);
 
-                // Check if evaluator says complete
-                if (evalResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) || score >= 0.9)
+                // Check if evaluator says complete — but only if all workers have participated successfully
+                if ((evalResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) || score >= 0.9)
+                    && allWorkersDispatched)
                 {
                     reflectState.GoalMet = true;
                     reflectState.IsActive = false;
@@ -1351,16 +1897,33 @@ public partial class CopilotService
                     break;
                 }
 
-                reflectState.LastEvaluation = rationale;
+                if (!allWorkersDispatched)
+                {
+                    var missing = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
+                    var failedButAttempted = missing.Where(w => attemptedWorkers.Contains(w)).ToList();
+                    var neverDispatched = missing.Where(w => !attemptedWorkers.Contains(w)).ToList();
+                    var detail = neverDispatched.Count > 0
+                        ? $"Not yet dispatched: {string.Join(", ", neverDispatched)}."
+                        : $"Dispatched but failed: {string.Join(", ", failedButAttempted)}. Retry or address errors.";
+                    Debug($"Reflection: overriding completion — {detail}");
+                    reflectState.LastEvaluation = $"{detail} Dispatch to the remaining workers before completing.";
+                    AddOrchestratorSystemMessage(orchestratorName, $"🔄 Overriding completion — {detail}");
+                }
+                else
+                {
+                    reflectState.LastEvaluation = rationale;
+                }
+
                 if (trend == Models.QualityTrend.Degrading)
                     reflectState.PendingAdjustments.Add("📉 Quality degrading — consider changing worker models or refining the goal.");
             }
             else
             {
-                synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthEvalPrompt, ct);
+                synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthEvalPrompt, ct, originalPrompt: prompt);
 
-                // Check completion sentinel
-                if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase))
+                // Check completion sentinel — but only if all workers have participated successfully
+                if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase)
+                    && allWorkersDispatched)
                 {
                     reflectState.GoalMet = true;
                     reflectState.IsActive = false;
@@ -1368,13 +1931,32 @@ public partial class CopilotService
                     break;
                 }
 
-                // Extract evaluation for next iteration
-                reflectState.LastEvaluation = ExtractIterationEvaluation(synthesisResponse);
+                if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase)
+                    && !allWorkersDispatched)
+                {
+                    // Override premature completion — not all workers have participated
+                    var missing = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
+                    var failedButAttempted = missing.Where(w => attemptedWorkers.Contains(w)).ToList();
+                    var neverDispatched = missing.Where(w => !attemptedWorkers.Contains(w)).ToList();
+                    var detail = neverDispatched.Count > 0
+                        ? $"Not yet dispatched: {string.Join(", ", neverDispatched)}."
+                        : $"Dispatched but failed: {string.Join(", ", failedButAttempted)}. Retry or address errors.";
+                    Debug($"Reflection: overriding [[GROUP_REFLECT_COMPLETE]] — {detail}");
+                    reflectState.LastEvaluation = $"{detail} Dispatch to the remaining workers before completing.";
+                    AddOrchestratorSystemMessage(orchestratorName, $"🔄 Overriding completion — {detail}");
+                    reflectState.RecordEvaluation(reflectState.CurrentIteration, 0.3,
+                        reflectState.LastEvaluation, GetEffectiveModel(orchestratorName));
+                }
+                else
+                {
+                    // Extract evaluation for next iteration
+                    reflectState.LastEvaluation = ExtractIterationEvaluation(synthesisResponse);
 
-                // Record a self-eval score (estimated from sentinel presence)
-                var selfScore = synthesisResponse.Contains("[[NEEDS_ITERATION]]", StringComparison.OrdinalIgnoreCase) ? 0.4 : 0.7;
-                reflectState.RecordEvaluation(reflectState.CurrentIteration, selfScore,
-                    reflectState.LastEvaluation ?? "", GetEffectiveModel(orchestratorName));
+                    // Record a self-eval score (estimated from sentinel presence)
+                    var selfScore = synthesisResponse.Contains("[[NEEDS_ITERATION]]", StringComparison.OrdinalIgnoreCase) ? 0.4 : 0.7;
+                    reflectState.RecordEvaluation(reflectState.CurrentIteration, selfScore,
+                        reflectState.LastEvaluation ?? "", GetEffectiveModel(orchestratorName));
+                }
             }
 
             // Auto-adjustment: analyze worker results and suggest/apply changes
@@ -1438,22 +2020,47 @@ public partial class CopilotService
             reflectState.IsCancelled = true;
             AddOrchestratorSystemMessage(orchestratorName, $"⏱️ {reflectState.BuildCompletionSummary()}");
         }
-
-        reflectState.IsActive = false;
-        reflectState.CompletedAt = DateTime.Now;
-        SaveOrganization();
-        InvokeOnUI(() =>
+        }
+        finally
         {
-            OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, reflectState.BuildCompletionSummary());
-            OnStateChanged?.Invoke();
-        });
+            // Always clear IsActive — even on OperationCanceledException.
+            // Without this, a cancelled reflection permanently blocks future reflections.
+            reflectState.IsActive = false;
+            reflectState.CompletedAt = DateTime.Now;
+            ClearPendingOrchestration();
+            SaveOrganization();
+            InvokeOnUI(() =>
+            {
+                OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, reflectState.BuildCompletionSummary());
+                OnStateChanged?.Invoke();
+            });
+        }
     }
 
-    private string BuildSynthesisWithEvalPrompt(string originalPrompt, List<WorkerResult> results, ReflectionCycle state)
+    private string BuildSynthesisWithEvalPrompt(string originalPrompt, List<WorkerResult> results, ReflectionCycle state,
+        string? routingContext = null, HashSet<string>? dispatchedWorkers = null, List<string>? allWorkers = null)
     {
         var sb = new System.Text.StringBuilder();
         sb.Append(BuildSynthesisPrompt(originalPrompt, results));
         sb.AppendLine();
+        if (!string.IsNullOrEmpty(routingContext))
+        {
+            sb.AppendLine("## Work Routing (from team definition)");
+            sb.AppendLine(routingContext);
+            sb.AppendLine();
+        }
+        // Show which workers have/haven't participated
+        if (dispatchedWorkers != null && allWorkers != null)
+        {
+            var missing = allWorkers.Where(w => !dispatchedWorkers.Contains(w)).ToList();
+            if (missing.Count > 0)
+            {
+                sb.AppendLine("### ⚠️ Worker Participation");
+                sb.AppendLine($"The following workers have NOT yet been dispatched: **{string.Join(", ", missing)}**");
+                sb.AppendLine("You MUST include `[[NEEDS_ITERATION]]` and dispatch to them before marking complete.");
+                sb.AppendLine();
+            }
+        }
         sb.AppendLine($"## Evaluation Check (Iteration {state.CurrentIteration}/{state.MaxIterations})");
         sb.AppendLine($"**Goal:** {state.Goal}");
         sb.AppendLine();
@@ -1485,20 +2092,31 @@ public partial class CopilotService
         return sb.ToString();
     }
 
-    private string BuildReplanPrompt(string lastEvaluation, List<string> workerNames, string originalPrompt)
+    private string BuildReplanPrompt(string lastEvaluation, List<string> workerNames, string originalPrompt,
+        string? routingContext = null)
     {
         var sb = new System.Text.StringBuilder();
+        sb.AppendLine("You are a DISPATCHER ONLY. You do NOT have tools. You CANNOT write code, read files, or run commands yourself.");
+        sb.AppendLine("Your ONLY job is to write @worker/@end blocks that assign work to your workers.");
+        sb.AppendLine();
         sb.AppendLine("## Previous Iteration Evaluation");
         sb.AppendLine(lastEvaluation);
         sb.AppendLine();
         sb.AppendLine("## Original Request (context)");
         sb.AppendLine(originalPrompt);
         sb.AppendLine();
+        if (!string.IsNullOrEmpty(routingContext))
+        {
+            sb.AppendLine("## Work Routing (from team definition)");
+            sb.AppendLine(routingContext);
+            sb.AppendLine();
+        }
         sb.AppendLine($"Available workers ({workerNames.Count}):");
         foreach (var w in workerNames)
             sb.AppendLine($"  - '{w}' (model: {GetEffectiveModel(w)})");
         sb.AppendLine();
         sb.AppendLine("Assign refined tasks using `@worker:name` / `@end` blocks to address the gaps identified above.");
+        sb.AppendLine("You MUST produce at least one @worker block. NEVER attempt to do the work yourself.");
         return sb.ToString();
     }
 
@@ -1688,6 +2306,23 @@ public partial class CopilotService
 
         return Models.UserPresets.SaveGroupAsPreset(PolyPilotBaseDir, name, description, emoji,
             group, members!, GetEffectiveModel, worktreeRoot);
+    }
+
+    /// <summary>
+    /// Creates a worktree via the bridge (remote mode) or locally, returning a uniform (Id, Path) result.
+    /// </summary>
+    private async Task<(string Id, string Path)> CreateWorktreeLocalOrRemoteAsync(string repoId, string branchName, CancellationToken ct)
+    {
+        if (IsRemoteMode)
+        {
+            var result = await _bridgeClient.CreateWorktreeAsync(repoId, branchName, null, ct);
+            return (result.WorktreeId, result.Path);
+        }
+        else
+        {
+            var wt = await _repoManager.CreateWorktreeAsync(repoId, branchName, skipFetch: true, ct: ct);
+            return (wt.Id, wt.Path);
+        }
     }
 
     #endregion

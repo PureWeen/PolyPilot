@@ -25,7 +25,18 @@
                 {
                     <span class="chat-msg-role">You</span>
                 }
-                <div class="chat-msg-text">@((MarkupString)ChatMessageList.FormatUserMessage(Message.Content))</div>
+                @if (!string.IsNullOrEmpty(Message.OriginalContent))
+                {
+                    <div class="chat-msg-text">@((MarkupString)ChatMessageList.FormatUserMessage(Message.OriginalContent))</div>
+                    <details class="orchestration-prompt-details">
+                        <summary>Full orchestration prompt</summary>
+                        <div class="orchestration-prompt-content">@((MarkupString)ChatMessageList.FormatUserMessage(Message.Content))</div>
+                    </details>
+                }
+                else
+                {
+                    <div class="chat-msg-text">@((MarkupString)ChatMessageList.FormatUserMessage(Message.Content))</div>
+                }
                 @if (!Compact)
                 {
                     <div class="chat-msg-time">@Message.Timestamp.ToShortTimeString()</div>
@@ -45,7 +56,7 @@
                 {
                     <span class="chat-msg-role">AI</span>
                 }
-                <div class="chat-msg-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content))</div>
+                <div class="chat-msg-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content, RepoUrl))</div>
                 @if (!Compact && !IsStreaming)
                 {
                     <div class="chat-msg-time">@Message.Timestamp.ToShortTimeString()@(!string.IsNullOrEmpty(Message.Model) ? $" · {Message.Model}" : "")</div>
@@ -177,8 +188,8 @@
         break;
 
     case ChatMessageType.System:
-        <div class="chat-msg system">
-            <div class="system-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content))</div>
+        <div class="chat-msg system @(Message.Content.Contains("\n-") ? "system-multiline" : "")">
+            <div class="system-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content, RepoUrl))</div>
         </div>
         break;
 
@@ -250,6 +261,7 @@
     [Parameter] public bool Compact { get; set; }
     [Parameter] public bool IsStreaming { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
+    [Parameter] public string? RepoUrl { get; set; }
 
     private static string? GetImageSource(ChatMessage msg) =>
         msg.ImageDataUri ?? (!string.IsNullOrEmpty(msg.ImagePath) ? ChatMessageList.FileToDataUri(msg.ImagePath) : null);

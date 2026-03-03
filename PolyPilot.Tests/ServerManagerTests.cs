@@ -28,7 +28,7 @@ public class ServerManagerTests
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
 
         var manager = new ServerManager();
-        var result = manager.CheckServerRunning("localhost", port);
+        var result = manager.CheckServerRunning("127.0.0.1", port);
 
         Assert.True(result);
         listener.Stop();

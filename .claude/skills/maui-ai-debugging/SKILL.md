@@ -3,12 +3,12 @@ name: maui-ai-debugging
 description: >
   End-to-end workflow for building, deploying, inspecting, and debugging .NET MAUI and MAUI Blazor Hybrid apps
   as an AI agent. Use when: (1) Building or running a MAUI app on iOS simulator, Android emulator, Mac Catalyst,
-  or Linux/GTK, (2) Inspecting or interacting with a running app's UI (visual tree, tapping, filling text,
-  screenshots, property queries), (3) Debugging Blazor WebView content via CDP, (4) Managing simulators or
-  emulators, (5) Setting up MauiDevFlow in a MAUI project, (6) Completing a build-deploy-inspect-fix feedback
-  loop, (7) Handling permission dialogs and system alerts, (8) Managing multiple simultaneous apps via the
-  broker daemon. Covers: maui-devflow CLI, androidsdk.tool, appledev.tools, adb, xcrun simctl, xdotool,
-  and dotnet build/run for all MAUI target platforms including Linux/GTK.
+  macOS (AppKit), or Linux/GTK, (2) Inspecting or interacting with a running app's UI (visual tree, tapping,
+  filling text, screenshots, property queries), (3) Debugging Blazor WebView content via CDP, (4) Managing
+  simulators or emulators, (5) Setting up MauiDevFlow in a MAUI project, (6) Completing a build-deploy-inspect-fix
+  feedback loop, (7) Handling permission dialogs and system alerts, (8) Managing multiple simultaneous apps via
+  the broker daemon. Covers: maui-devflow CLI, androidsdk.tool, appledev.tools, adb, xcrun simctl, xdotool,
+  and dotnet build/run for all MAUI target platforms including macOS (AppKit) and Linux/GTK.
 ---
 
 # MAUI AI Debugging
@@ -24,8 +24,9 @@ dotnet tool install --global androidsdk.tool    # Android only
 dotnet tool install --global appledev.tools     # iOS/Mac only
 ```
 
-Keep the skill up to date: `maui-devflow update-skill`. For full update and version checking
-procedures, see [references/setup.md](references/setup.md#checking-for-updates).
+Keep the skill up to date: `maui-devflow update-skill`. Check installed version vs remote
+with `maui-devflow skill-version`. For full update procedures, see
+[references/setup.md](references/setup.md#checking-for-updates).
 
 ## Integrating MauiDevFlow into a MAUI App
 
@@ -34,29 +35,50 @@ For complete setup instructions, see [references/setup.md](references/setup.md).
 **Quick summary:**
 1. Add NuGet packages (`Redth.MauiDevFlow.Agent`, and `Redth.MauiDevFlow.Blazor` for Blazor Hybrid)
    - For **Linux/GTK apps** (detected via `grep -i 'GirCore\|Maui\.Gtk' *.csproj`), use `Agent.Gtk` and `Blazor.Gtk` instead
+   - For **macOS (AppKit) apps** (detected via `grep -i 'Platform\.Maui\.MacOS' *.csproj`), the standard `Agent` and `Blazor` packages include macOS support
 2. Register in `MauiProgram.cs` inside `#if DEBUG`
 3. For Blazor Hybrid: chobitsu.js is auto-injected (no manual script tag needed)
 4. For Mac Catalyst: ensure `network.server` entitlement
 5. For Android: run `adb reverse` for broker + agent ports
 6. For Linux: no special network setup needed (direct localhost)
+7. For macOS (AppKit): separate app head project, uses `open App.app` to launch. See [references/macos.md](references/macos.md)
 
 ## Core Workflow
 
 ### 1. Ensure a Device/Simulator/Emulator is Running
 
+**⚠️ Multi-project conflict avoidance:** When multiple projects may run simultaneously
+(common with AI agents), each project should use its own dedicated simulator/emulator to
+prevent apps from replacing each other. Check what's already in use first:
+
+```bash
+maui-devflow list                                             # see all registered agents
+```
+
+If another iOS or Android agent is already registered, **create a new simulator/emulator**
+for your project instead of reusing the one that's already booted.
+
 **iOS Simulator:**
 ```bash
 xcrun simctl list devices booted                              # check booted sims
-xcrun simctl boot <UDID>                                      # boot if needed
+
+# Create a project-dedicated simulator to avoid conflicts
+xcrun simctl create "MyApp-iPhone17Pro" "iPhone 17 Pro" "iOS 26.2"
+xcrun simctl boot <UDID>                                      # boot the new sim
 ```
 
 **Android Emulator:**
 ```bash
 android avd list                                              # list AVDs
-android avd start --name <avd-name>                           # start emulator
+
+# Create a project-dedicated emulator to avoid conflicts
+android avd create --name "MyApp-Pixel8" \
+  --sdk "system-images;android-35;google_apis;arm64-v8a" --device pixel_8
+android avd start --name "MyApp-Pixel8"
 ```
 
-**Mac Catalyst / Linux/GTK:** No device setup needed — runs as desktop app.
+**Mac Catalyst / macOS (AppKit) / Linux/GTK:** No device setup needed — runs as desktop app.
+Multiple desktop apps can run simultaneously without conflicts.
 
 ### 2. Detect the TFM
 
@@ -69,73 +91,74 @@ grep -i 'TargetFrameworks' *.csproj Directory.Build.props 2>/dev/null
 
 Use the detected version (e.g. `net9.0`) in all build commands. The examples use `$TFM`.
 
-### 3. Build and Deploy
+### 3. Build, Deploy, and Connect
 
-**CRITICAL:** `dotnet build -t:Run` **blocks until the app exits**. You MUST launch it
-asynchronously and then poll for the app to be ready. Do NOT wait for the process to finish —
-it never will (until the app is closed).
+Follow these steps for every launch and rebuild.
 
-**Correct launch pattern:**
-1. **Kill the old app first** — if a previous instance is running, stop it before rebuilding.
-   Otherwise the old app's agent will still be registered with the broker, and polling
-   `maui-devflow MAUI status` will succeed against the stale instance instead of the new build.
-   - Stop the previous async shell (if you still have it), or kill the app process directly
-   - Verify with `maui-devflow list` that the old agent is gone before launching
-2. Start `dotnet build -t:Run` in an **async/background shell** (e.g., `mode: "async"`)
-3. Read output from the async shell periodically to watch for build completion / app launch
-4. Poll `maui-devflow MAUI status` (or `maui-devflow list`) until the agent connects
-5. If the agent doesn't appear after ~60-90 seconds, check the async shell output for build errors
+**Step 1: Kill any previous instance** (skip on first launch).
+A stale app's agent stays registered with the broker, causing `maui-devflow wait` to return
+the old port instantly instead of waiting for the new build.
 
 ```bash
-# iOS Simulator (run in async shell)
+# Stop the async shell from the previous launch, then confirm:
+maui-devflow list                 # should show no agents (or only unrelated ones)
+```
+
+**Step 2: Launch in an async shell.**
+
+```bash
+# iOS Simulator
 dotnet build -f $TFM-ios -t:Run -p:_DeviceName=:v2:udid=<UDID>
 
-# Android Emulator (run in async shell)
+# Android Emulator
 dotnet build -f $TFM-android -t:Run
 
-# Mac Catalyst (run in async shell)
+# Mac Catalyst
 dotnet build -f $TFM-maccatalyst -t:Run
 
-# Linux/GTK (run in async shell)
+# macOS AppKit — build exits after compiling; launch separately
+dotnet build -f $TFM-macos <path-to-macos-project>
+open path/to/bin/Debug/$TFM-macos/osx-arm64/AppName.app
+
+# Linux/GTK
 dotnet run --project <path-to-gtk-project>
 ```
 
-Build + Run can take 30-120+ seconds. Use `initial_wait: 120` or higher for async monitoring.
+**⚠️ Process lifecycle rules:**
+- `dotnet build -t:Run` (iOS, Android, Mac Catalyst) and `dotnet run` (Linux/GTK) **block
+  for the lifetime of the app**. Killing or stopping the shell **kills the app**. Use
+  `mode: "async"` with `initial_wait: 120` and do NOT stop the shell until you are done.
+- **macOS (AppKit)** is the exception: `dotnet build` exits after compiling, and `open`
+  launches the app independently — the app survives shell termination.
 
-**Device/simulator compatibility:** The TFM compile target does NOT mean you need a matching
-emulator/simulator version. Apps run on any device at or above `SupportedOSPlatformVersion`.
-Use whatever emulator/simulator is available.
-
-For Android emulators, set up port forwarding after deploy:
-```bash
-adb reverse tcp:19223 tcp:19223  # Broker (required — lets agent register with host broker)
-adb forward tcp:<port> tcp:<port> # Agent (required — lets CLI reach agent in emulator)
-```
-
-### 4. Verify Connectivity
-
-After launching the app asynchronously, poll for the agent to connect:
+**Step 3: Wait for the agent** — never use `sleep`.
 
 ```bash
-maui-devflow list                 # Show all registered agents (via broker)
-maui-devflow MAUI status          # Agent connection + CDP readiness
-maui-devflow cdp status           # CDP-specific connection check
+maui-devflow wait                                # blocks until agent registers (default 120s)
+maui-devflow wait --project path/to/App.csproj   # filter to specific project
 ```
 
-Poll `maui-devflow MAUI status` every few seconds until it succeeds. If it hasn't connected
-after ~60-90 seconds, read the async shell output to check for build/launch errors.
+`maui-devflow wait` prints the assigned port as soon as the agent connects. Exit code 1
+means timeout — check async shell output for build errors.
 
-The `list` command shows all agents registered with the broker, including their platform,
-TFM, and assigned port. Use this to find the port for `--agent-port` when multiple apps run.
+**Android only** — set up port forwarding after the agent connects:
+```bash
+adb reverse tcp:19223 tcp:19223   # Broker (lets agent in emulator reach host broker)
+adb forward tcp:<port> tcp:<port> # Agent (lets CLI reach agent in emulator)
+```
 
-### 5. Inspect and Interact
+**To rebuild:** repeat from Step 1. See [references/troubleshooting.md](references/troubleshooting.md)
+if the build fails.
+
+### 4. Inspect and Interact
 
 **Typical inspection flow:**
 1. `maui-devflow MAUI tree` — see the full visual tree with element IDs, types, text, bounds
-2. `maui-devflow MAUI query --automationId "MyButton"` — find specific elements
-3. `maui-devflow MAUI element <id>` — get full details (type, bounds, visibility, children)
-4. `maui-devflow MAUI property <id> Text` — read any property by name
-5. `maui-devflow MAUI screenshot --output screen.png` — visual verification
+2. `maui-devflow MAUI tree --window 1` — filter to a specific window (0-based index)
+3. `maui-devflow MAUI query --automationId "MyButton"` — find specific elements
+4. `maui-devflow MAUI element <id>` — get full details (type, bounds, visibility, children)
+5. `maui-devflow MAUI property <id> Text` — read any property by name
+6. `maui-devflow MAUI screenshot --output screen.png` — visual verification
 
 **Property inspection** is more reliable than screenshots for verifying exact runtime values:
 ```bash
@@ -169,7 +192,7 @@ maui-devflow cdp Runtime evaluate "document.querySelector('h1').style.color = 't
 maui-devflow cdp Runtime evaluate "document.documentElement.style.setProperty('--bg-color', '#1a1a2e')"
 ```
 
-### 6. Reading Application Logs
+### 5. Reading Application Logs
 
 MauiDevFlow automatically captures all `ILogger` output and WebView `console.*` calls
 to rotating log files, retrievable remotely:
@@ -184,18 +207,32 @@ maui-devflow MAUI logs --source native   # only native ILogger logs
 **Debugging workflow:** Reproduce the issue → `maui-devflow MAUI logs --limit 20` → check for
 errors. Add temporary `ILogger` calls for more detail, rebuild, reproduce, and fetch logs again.
 
-### 7. Rebuild
+### 6. Screen Recording
 
-**Always kill the running app before rebuilding.** If the old instance is still running, its
-agent stays registered with the broker — polling `maui-devflow MAUI status` will succeed against
-the stale app instead of waiting for the new build.
+Capture video of the app while performing interactions. Recording is host-side (not in-app)
+using platform-native tools.
 
-1. Stop the previous async shell or kill the app process
-2. Verify with `maui-devflow list` that the old agent is gone
-3. Run `dotnet build -f $TFM-<platform> -t:Run ...` in an async shell
-4. Poll `maui-devflow MAUI status` until connected → inspect
+```bash
+# Start recording (default 30s timeout)
+maui-devflow MAUI recording start --output demo.mp4
 
-If the build fails, see [references/troubleshooting.md](references/troubleshooting.md).
+# Interact with the app
+maui-devflow MAUI tap <buttonId>
+maui-devflow MAUI navigate "//blazor"
+maui-devflow MAUI fill <entryId> "Hello World"
+
+# Stop and save
+maui-devflow MAUI recording stop
+```
+
+**Platform tools used automatically:**
+- **Android:** `adb screenrecord` (max 180s, capped with warning)
+- **iOS Simulator:** `xcrun simctl io recordVideo`
+- **Mac Catalyst / macOS (AppKit):** `screencapture -v` (targets app window when possible)
+- **Windows/Linux:** `ffmpeg` (must be on PATH)
+
+**Options:** `--timeout <seconds>` (default 30), `--output <path>` (default `recording_<timestamp>.mp4`).
+Only one recording at a time — stop before starting a new one.
 
 ## Command Reference
 
@@ -208,18 +245,24 @@ or `maui-devflow --agent-port 10224 MAUI status` — both are valid.
 
 | Command | Description |
 |---------|-------------|
-| `MAUI status` | Agent connection status, platform, app name |
-| `MAUI tree [--depth N]` | Visual tree (IDs, types, text, bounds). Depth 0=unlimited |
+| `MAUI status [--window W]` | Agent connection status, platform, app name, window count |
+| `MAUI tree [--depth N] [--window W]` | Visual tree (IDs, types, text, bounds). Depth 0=unlimited. Window is 0-based index; omit for all windows |
 | `MAUI query --type T --automationId A --text T` | Find elements (any/all filters) |
 | `MAUI tap <elementId>` | Tap an element |
 | `MAUI fill <elementId> <text>` | Fill text into Entry/Editor |
 | `MAUI clear <elementId>` | Clear text from element |
-| `MAUI screenshot [--output path.png]` | PNG screenshot |
+| `MAUI screenshot [--output path.png] [--window W]` | PNG screenshot. Window is 0-based index; default first window |
 | `MAUI property <elementId> <prop>` | Read property (Text, IsVisible, FontSize, etc.) |
 | `MAUI set-property <elementId> <prop> <value>` | Set property (live editing — colors, text, sizes, etc.) |
 | `MAUI element <elementId>` | Full element JSON (type, bounds, children, etc.) |
 | `MAUI navigate <route>` | Shell navigation (e.g. `//native`, `//blazor`) |
+| `MAUI scroll [--element id] [--dx N] [--dy N] [--window W]` | Scroll by delta or scroll element into view |
+| `MAUI focus <elementId>` | Set focus to element |
+| `MAUI resize <width> <height> [--window W]` | Resize app window. Window is 0-based index; default first window |
 | `MAUI logs [--limit N] [--skip N] [--source S]` | Fetch application logs (newest first). Source: native, webview, or omit for all |
+| `MAUI recording start [--output path] [--timeout 30]` | Start screen recording. Default timeout 30s. Uses platform-native tools (adb screenrecord, xcrun simctl, screencapture, ffmpeg) |
+| `MAUI recording stop` | Stop active recording and save the video file |
+| `MAUI recording status` | Check if a recording is currently in progress |
 
 Element IDs come from `MAUI tree` or `MAUI query`. AutomationId-based elements use their
 AutomationId directly. Others use generated hex IDs. When multiple elements share the same
@@ -255,23 +298,22 @@ The CLI auto-starts the broker on first use — no manual setup needed.
 | Command | Description |
 |---------|-------------|
 | `list` | Show all registered agents (ID, app, platform, TFM, port, uptime) |
+| `wait [--timeout 120] [--project path] [--wait-platform P] [--json]` | Wait for an agent to connect. Outputs the port (or JSON with `--json`). Useful after `dotnet build -t:Run` to block until the app is ready |
 | `broker status` | Broker daemon status and connected agent count |
 | `broker start` | Start broker daemon (auto-started by CLI — rarely needed manually) |
 | `broker stop` | Stop broker daemon |
 | `broker log` | Show broker log file |
 
-**How port discovery works:** When you run any `MAUI` or `cdp` command, the CLI:
-1. Auto-starts the broker if not running
-2. Queries the broker for agents matching the current project (`.csproj` in cwd)
-3. If one agent matches → uses its port automatically
-4. If multiple match → prints a disambiguation table to stderr
-5. Falls back to `.mauidevflow` config file → default 9223
+### maui-devflow batch (Multi-Command Execution)
 
-**Multiple apps simultaneously:** The broker assigns unique ports from range 10223–10899.
-Use `maui-devflow list` to see all agents, then target a specific one:
+Execute multiple commands in one invocation via stdin. Returns JSONL responses. Use for
+multi-step interactions to avoid repeated port resolution.
+
 ```bash
-maui-devflow MAUI status --agent-port 10224    # target specific agent
+echo "MAUI fill textUsername user; MAUI fill textPassword pwd123; MAUI tap buttonLogin" | maui-devflow batch
 ```
+
+For full options, JSONL format, and streaming details, see [references/batch.md](references/batch.md).
 
 ## Platform Details
 
@@ -279,38 +321,35 @@ For detailed platform-specific setup, simulator/emulator management, and trouble
 
 - **Setup & Installation**: See [references/setup.md](references/setup.md)
 - **iOS / Mac Catalyst**: See [references/ios-and-mac.md](references/ios-and-mac.md)
+- **macOS (AppKit)**: See [references/macos.md](references/macos.md)
 - **Android**: See [references/android.md](references/android.md)
 - **Linux / GTK**: See [references/linux.md](references/linux.md)
 - **Troubleshooting**: See [references/troubleshooting.md](references/troubleshooting.md)
 
-## Multi-Project / Custom Ports
+## ⚠️ Non-Disruptive Operation
 
-**With the broker (recommended):** The broker automatically assigns ports to agents from
-range 10223–10899. No manual port configuration needed — just build and run your apps.
-Use `maui-devflow list` to see assigned ports. The CLI auto-discovers the right agent
-when run from the project directory.
+**CRITICAL:** Never run commands that steal focus, move windows, simulate mouse/keyboard input,
+or otherwise disrupt the user's desktop. The user is likely working on the same computer.
 
-**Legacy `.mauidevflow` config (fallback):** If the broker isn't available:
-```json
-{ "port": 9225 }
-```
+**Never use:**
+- `osascript` to focus/activate windows, click UI elements, or send keystrokes
+- `screencapture` interactively (the MauiDevFlow screenshot command captures in-process instead)
+- `xdotool` focus/activate/key commands that affect the active window
+- Any command that moves the mouse cursor or simulates input at the OS level
+- `open -a` to bring apps to the foreground (use `open` only to launch, not to focus)
 
-**Port priority:** Explicit `--agent-port` > Broker discovery > `.mauidevflow` config > Default 9223.
+**Instead:** All inspection and interaction goes through `maui-devflow` CLI commands, which
+communicate with the in-app agent over HTTP — no foreground focus required. If you need
+something that would require OS-level control (e.g., dismissing a system dialog outside the
+app), **ask the user** to do it manually rather than attempting automation that would hijack
+their input.
 
 ## Tips
 
-- **Always use `maui-devflow MAUI screenshot` or `maui-devflow cdp Page captureScreenshot`** for
-  screenshots. These capture the app's UI in-process from the rendering layer — the app does NOT
-  need to be in the foreground or focused. Never use `osascript` to bring windows to the front
-  for screenshots; it's unnecessary and unreliable.
-- **Avoid `osascript` unless absolutely necessary.** The `maui-devflow` CLI provides commands for
-  nearly everything: screenshots, tapping, text input, navigation, and property inspection. Only
-  use `osascript` for OS-level operations that `maui-devflow` cannot do (e.g., toggling dark mode,
-  dismissing macOS crash-recovery dialogs).
+- **Use `maui-devflow batch`** for multi-step interactions — resolves port once, adds delays,
+  returns structured JSONL. See [references/batch.md](references/batch.md).
+- **Always use `maui-devflow MAUI screenshot`** — captures in-process, app does NOT need
+  foreground focus.
 - Use `AutomationId` on important MAUI controls for stable element references.
-- The visual tree only reflects what's currently rendered. Off-screen items in CollectionView
-  may not appear until scrolled into view.
 - For Blazor Hybrid, `cdp snapshot` is the most AI-friendly way to read page state.
-- Build times: Mac Catalyst ~5-10s, iOS ~30-60s, Android ~30-90s, Linux/GTK ~5-10s.
-- After Android deploy, always run `adb reverse tcp:19223` for broker + `adb forward` for agent.
-- Both MAUI native and CDP commands share a single port — no separate WebSocket endpoint.
+- Port discovery, multi-project setup, and custom ports: see [references/setup.md](references/setup.md#3b-port-configuration).

@@ -1,5 +1,4 @@
 using System.Text;
-using System.Web;
 
 namespace PolyPilot.Models;
 
@@ -45,7 +44,7 @@ public static class DiffParser
 
         for (int i = 0; i < lines.Length; i++)
         {
-            var line = lines[i];
+            var line = lines[i].TrimEnd('\r');
 
             if (line.StartsWith("diff --git"))
             {

@@ -174,6 +174,16 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     /// </summary>
     public string? RoutingContext { get; init; }
 
+    /// <summary>
+    /// Default worktree allocation strategy for this preset. Null = Shared.
+    /// </summary>
+    public WorktreeStrategy? DefaultWorktreeStrategy { get; init; }
+
+    /// <summary>
+    /// Maximum reflection iterations for OrchestratorReflect mode. Null = use default (5).
+    /// </summary>
+    public int? MaxReflectIterations { get; init; }
+
     private const string WorkerReviewPrompt = """
         You are a PR reviewer. When assigned a PR, follow this process:
 
@@ -202,7 +212,28 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         - Include file path and line numbers
         - Note CI status: ✅ passing, ❌ failing (PR-specific), ⚠️ failing (pre-existing)
         - Note if prior review comments were addressed or still outstanding
+        - Assess test coverage: Are there new code paths that lack tests? Suggest specific test cases or scenarios that should be added.
         - End with recommended action: ✅ Approve, ⚠️ Request changes (with specific ask), or 🔴 Do not merge
+
+        ## 5. Fix Process (when told to fix a PR)
+        1. `gh pr checkout <number>` then `git fetch origin main && git rebase origin/main`
+        2. View the file, find the issue, use the edit tool to make minimal changes
+        3. Discover and run the repo's test suite (look for test projects, Makefiles, CI scripts, package.json scripts, etc.)
+        4. Commit with Co-authored-by trailer, push with `--force-with-lease`
+        5. After pushing, do a full re-review (repeat the 5-model dispatch above)
+
+        ## 6. Re-Review Process (when previous findings exist)
+        Include previous findings in each sub-agent prompt and ask them to report:
+        ```
+        ## Previous Findings Status
+        - Finding 1: FIXED / STILL PRESENT / N/A
+        ```
+
+        ## Rules
+        - If workers share a worktree, NEVER checkout a branch during review-only tasks — use `gh pr diff` instead
+        - If each worker has its own isolated worktree, you may freely checkout branches for both review and fix tasks
+        - Always include the FULL diff — never truncate
+        - Use the edit tool for file changes, not sed
         """;
 
     public static readonly GroupPreset[] BuiltIn = new[]
@@ -216,50 +247,102 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
             {
                 WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt,
             },
-            SharedContext = "## Review Standards\n\n- Only flag real issues: bugs, security holes, logic errors, data loss risks, race conditions\n- NEVER comment on style, formatting, naming conventions, or documentation\n- Every finding must include: file path, line number (or range), what's wrong, and why it matters\n- If a PR looks clean, say so — don't invent problems to justify your existence\n- An issue must be flagged by at least 2 of the 5 sub-agent models to be included in the final report (consensus filter)",
-            RoutingContext = "When given a list of PRs to review, assign ONE PR to EACH worker. Distribute PRs round-robin across the available workers. If there are more PRs than workers, assign multiple PRs per worker.\n\nFor each PR assignment, just tell the worker: \"Review PR #<number>\"\n\nThe workers handle everything else — fetching the diff, dispatching multi-model sub-agents, and synthesizing results. Do NOT micromanage the review process.\n\nAfter all workers complete, produce a brief summary table:\n\n| PR | Verdict | Key Issues |\n|----|---------|------------|\n| #194 | ✅ Ready to merge | None |\n| #193 | ⚠️ Needs changes | Race condition in auth handler |\n\nVerdicts: ✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge"
+            SharedContext = """
+                ## Review Standards
+
+                - Only flag real issues: bugs, security holes, logic errors, data loss risks, race conditions
+                - NEVER comment on style, formatting, naming conventions, or documentation
+                - Every finding must include: file path, line number (or range), what's wrong, and why it matters
+                - If a PR looks clean, say so — don't invent problems to justify your existence
+                - An issue must be flagged by at least 2 of the 5 sub-agent models to be included in the final report (consensus filter)
+
+                ## Fix Standards
+
+                - When fixing a PR: checkout, git rebase origin/main, apply minimal fixes, run tests, commit with Co-authored-by trailer, push
+                - After pushing fixes, always do a full re-review (5-model dispatch again)
+                - Include previous findings in re-review prompts so sub-agents can verify fix status
+                - Use --force-with-lease (never --force) when pushing rebased branches
+                - Never git add -A blindly — use git add <specific-files> and check git status first
+
+                ## Operational Lessons
+
+                - Workers reliably complete review-only tasks (fetch diff + dispatch sub-agents)
+                - Workers sometimes fail multi-step fix tasks silently — always verify push landed with git fetch
+                - If a worker's fix task didn't produce a commit after 5+ minutes, re-dispatch with more explicit instructions
+                - Opus workers are more reliable for complex fix+review tasks than Sonnet workers
+                - Always include the FULL diff in sub-agent prompts (truncated diffs cause incorrect findings)
+                """,
+            RoutingContext = """
+                ## Core Rule
+
+                NEVER do the work yourself. Always delegate to a worker. Your role is to assign tasks, track state, synthesize results, and execute merges. The only actions you perform directly are: running `gh pr merge`, verifying pushes with `git fetch`, and producing summary tables. If the user explicitly asks you to handle something yourself, you may — but default to delegation.
+
+                ## Task Assignment
+
+                When given PRs to review, assign ONE PR to EACH worker. Distribute round-robin. If more PRs than workers, assign multiple per worker.
+
+                For review-only tasks:
+                - If workers share a worktree: "Review PR #<number>. Do NOT checkout the branch — use gh pr diff only."
+                - If workers have isolated worktrees: "Review PR #<number>." (they can checkout freely)
+                For fix tasks, tell the worker: "Fix PR #<number>. Checkout, rebase on origin/main, apply fixes, test, push, then re-review."
+
+                Workers handle the multi-model dispatch internally. However, for fix tasks, you MUST give explicit step-by-step instructions.
+
+                ## Orchestrator Responsibilities
+
+                1. Track state: Which PRs each worker reviewed, findings, fix status, merge readiness
+                2. Merge: gh pr merge <N> --squash
+                3. Verify pushes: After a worker claims to have pushed, always run git fetch origin <branch> and check git log to confirm
+                4. Re-dispatch on failure: Workers sometimes fail silently on multi-step tasks. Check for new commits after fix tasks.
+                5. Re-review pattern: When re-reviewing, include previous findings in the prompt so sub-agents can verify what's fixed vs still present
+                6. Worktree safety: If workers share a worktree, only ONE can checkout/push at a time. If workers have isolated worktrees, they can work in parallel.
+
+                ## Summary Table Format
+
+                After workers complete, produce:
+
+                | PR | Verdict | Key Issues |
+                |----|---------|------------|
+                | #N | ✅ Ready to merge | None |
+
+                Verdicts: ✅ Ready to merge, ⚠️ Needs changes, 🔴 Do not merge
+                """,
+            DefaultWorktreeStrategy = WorktreeStrategy.FullyIsolated
         },
 
         new GroupPreset(
-            "Code Review Team", "Opus orchestrates, specialized reviewers execute",
-            "🔍", MultiAgentMode.Orchestrator,
-            "claude-opus-4.6", new[] { "gpt-5.1-codex", "claude-sonnet-4.5" })
+            "Implement & Challenge", "Implementer builds, challenger reviews — loop until solid",
+            "⚔️", MultiAgentMode.OrchestratorReflect,
+            "claude-opus-4.6", new[] { "claude-sonnet-4.6", "claude-opus-4.6" })
         {
             WorkerSystemPrompts = new[]
             {
-                "You are a code correctness reviewer. Focus on logic errors, edge cases, off-by-one bugs, null safety, and incorrect assumptions. Flag anything that could cause runtime failures or data corruption.",
-                "You are a security and architecture reviewer. Focus on vulnerabilities (injection, auth flaws, data exposure), architectural anti-patterns, and maintainability issues. Suggest concrete fixes."
-            }
-        },
+                """You are the Implementer. Your job is to write correct, clean, production-ready code that satisfies the requirements. You MUST make actual code changes using the edit/create tools — never just describe what to do. After making changes, run the build and tests to verify your work. When you receive feedback from the Challenger, address every point — fix bugs, handle edge cases, and improve the implementation. Commit your changes with descriptive messages after each iteration. If you disagree with feedback, explain why with evidence.""",
+                """You are the Challenger. Your job is to find real problems in the Implementer's work. First, run `git diff` in your worktree to see exactly what changed. Then review the actual diffs for: bugs, missed edge cases, race conditions, incorrect assumptions, security issues, logic errors, and missing tests. Be specific — cite exact file paths, line numbers, and explain the failure scenario. Do NOT nitpick style or formatting. Run the build and tests yourself to verify correctness. If the implementation is solid and tests pass, say so clearly and emit [[GROUP_REFLECT_COMPLETE]].""",
+            },
+            RoutingContext = """
+                ## Implement & Challenge Loop
 
-        new GroupPreset(
-            "Multi-Perspective Analysis", "Different models analyze the same problem",
-            "🔬", MultiAgentMode.Broadcast,
-            "claude-opus-4.6", new[] { "gpt-5", "gemini-3-pro", "claude-sonnet-4.5" }),
+                You orchestrate a two-agent loop between two workers. Your ONLY role is to relay messages between them using @worker: blocks.
 
-        new GroupPreset(
-            "Quick Reflection Cycle", "Fast workers + smart evaluator for iterative refinement",
-            "🔄", MultiAgentMode.OrchestratorReflect,
-            "claude-opus-4.6", new[] { "gpt-4.1", "gpt-4.1", "gpt-5.1-codex-mini" })
-        {
-            WorkerSystemPrompts = new[]
-            {
-                "You are an implementation specialist. Write clean, correct code. Focus on getting the logic right and handling edge cases.",
-                "You are a testing and validation specialist. Review solutions for correctness, write test cases, and identify gaps in coverage.",
-                "You are a documentation and UX specialist. Ensure code is well-documented, APIs are intuitive, and error messages are helpful."
-            }
-        },
+                ### Worker Names
+                - **worker-1** = Implementer (writes code)
+                - **worker-2** = Challenger (reviews code)
+                Use their full session names in @worker: directives (e.g., @worker:Implement & Challenge-worker-1).
 
-        new GroupPreset(
-            "Deep Research", "Strong reasoning models collaborate on complex problems",
-            "🧠", MultiAgentMode.Orchestrator,
-            "claude-opus-4.6", new[] { "gpt-5.1", "gemini-3-pro" })
-        {
-            WorkerSystemPrompts = new[]
-            {
-                "You are a deep reasoning analyst. Break down complex problems methodically. Provide thorough analysis with evidence and citations where possible.",
-                "You are a creative problem solver. Explore unconventional approaches, challenge assumptions, and propose alternative solutions that others might miss."
-            }
+                ### Dispatch Pattern
+                1. **First dispatch**: Forward the user request to worker-1 via @worker: block.
+                2. **After worker-1 completes**: Forward worker-1's FULL response to worker-2 via @worker: block. Ask worker-2 to review and either approve with [[GROUP_REFLECT_COMPLETE]] or provide feedback.
+                3. **If worker-2 has feedback**: Forward the FULL feedback to worker-1 via @worker: block.
+                4. **Repeat** until worker-2 emits [[GROUP_REFLECT_COMPLETE]] or max iterations reached.
+
+                ### Rules
+                - Always alternate: worker-1 → worker-2 → worker-1 → worker-2
+                - Include the FULL output in every @worker: block (don't summarize)
+                - You are a message relay — NEVER do work yourself, ONLY write @worker: blocks
+                - Each response you give MUST contain exactly one @worker: block
+                """,
+            MaxReflectIterations = 10,
         },
     };
 }
@@ -295,18 +378,45 @@ public static class UserPresets
         catch { /* best-effort persistence */ }
     }
 
-    /// <summary>Get all presets: built-in + user-defined + repo-level (Squad). Repo overrides by name.</summary>
+    /// <summary>Get all presets: built-in + user-defined + repo-level (Squad). Built-ins are never overridden.</summary>
     public static GroupPreset[] GetAll(string baseDir, string? repoWorkingDirectory = null)
     {
+        var builtInNames = new HashSet<string>(GroupPreset.BuiltIn.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
         var merged = new Dictionary<string, GroupPreset>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in GroupPreset.BuiltIn) merged[p.Name] = p;
-        foreach (var p in Load(baseDir)) merged[p.Name] = p;
+        foreach (var p in Load(baseDir))
+            if (!builtInNames.Contains(p.Name)) merged[p.Name] = p;
         if (repoWorkingDirectory != null)
         {
             foreach (var p in SquadDiscovery.Discover(repoWorkingDirectory))
-                merged[p.Name] = p;
+                if (!builtInNames.Contains(p.Name)) merged[p.Name] = p;
         }
         return merged.Values.ToArray();
+    }
+
+    /// <summary>Delete a repo-level preset by removing its .squad/ directory.</summary>
+    public static bool DeleteRepoPreset(string repoWorkingDirectory, string presetName)
+    {
+        var presets = SquadDiscovery.Discover(repoWorkingDirectory);
+        var match = presets.FirstOrDefault(p => string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
+        if (match?.SourcePath == null) return false;
+
+        // Validate the path is within the repo directory (prevent traversal)
+        var fullRepoPath = Path.GetFullPath(repoWorkingDirectory);
+        var fullSourcePath = Path.GetFullPath(match.SourcePath);
+        if (!fullSourcePath.StartsWith(fullRepoPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var dirName = Path.GetFileName(match.SourcePath);
+        if (dirName != ".squad" && dirName != ".ai-team")
+            return false;
+        try
+        {
+            if (Directory.Exists(match.SourcePath))
+                Directory.Delete(match.SourcePath, recursive: true);
+            return true;
+        }
+        catch { return false; }
     }
 
     /// <summary>Save the current multi-agent group as a reusable preset.</summary>

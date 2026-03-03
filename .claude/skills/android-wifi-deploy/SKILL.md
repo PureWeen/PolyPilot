@@ -118,8 +118,9 @@ adb devices   # Should show: 127.0.0.1:39838  device
 # Full APK build (required for WiFi — Fast Deployment doesn't work reliably over wireless)
 dotnet build -f net10.0-android -p:EmbedAssembliesIntoApk=true
 
-# Install directly (adb install works through proxy)
-adb -s 127.0.0.1:39838 install -r bin/Debug/net10.0-android/com.microsoft.PolyPilot-Signed.apk
+# Install via push + pm install (reliable for large APKs over WiFi)
+adb -s 127.0.0.1:39838 push bin/Debug/net10.0-android/com.microsoft.PolyPilot-Signed.apk /data/local/tmp/polypilot.apk
+adb -s 127.0.0.1:39838 shell pm install -r /data/local/tmp/polypilot.apk
 
 # Launch
 adb -s 127.0.0.1:39838 shell am start -n com.microsoft.PolyPilot/crc64ef8e1bf56c865459.MainActivity
@@ -128,6 +129,11 @@ adb -s 127.0.0.1:39838 shell am start -n com.microsoft.PolyPilot/crc64ef8e1bf56c
 adb -s 127.0.0.1:39838 reverse tcp:9223 tcp:9223
 ```
 
+> ⚠️ **Do NOT use `adb install -r` over WiFi** for this ~98MB APK. The WiFi ADB connection
+> consistently drops mid-transfer. `adb push` is more resilient to flaky connections (it
+> streams data without the install handshake overhead), and `pm install` runs locally on device
+> with no network transfer.
+
 ## Critical Invariants
 
 | ❌ Never | ✅ Instead | Why |
@@ -135,9 +141,10 @@ adb -s 127.0.0.1:39838 reverse tcp:9223 tcp:9223
 | `adb kill-server` | `adb disconnect` | kill-server wipes TLS pairing keys AND kills the proxy's ADB connection. Requires re-pairing the phone. |
 | Assume proxy is running | Check `ps aux \| grep adb_proxy` first | Proxy dies silently when ADB server restarts or phone disconnects. |
 | Assume port is the same | Run `dns-sd -L` to check | Phone's wireless debug port changes on WiFi reconnect, sleep wake, or toggle. |
-| `adb push` + `pm install` | `adb install -r` | `adb install` handles the transfer and install in one command. |
+| `adb install -r` over WiFi | `adb push` + `pm install -r` | WiFi ADB drops during large (~98MB) transfers. Push is more resilient; pm install runs locally on device. |
+| Edit port numbers in the proxy script | Always pass port via command-line args | Hardcoded ports go stale. The proxy script accepts `<local-port> <phone-ip> <phone-port>` args — always use them with a freshly discovered port. |
 | Build without `EmbedAssembliesIntoApk` | Always pass `-p:EmbedAssembliesIntoApk=true` | Fast Deployment stores assemblies separately in `.__override__/`. The APK file stays stale (21MB vs 97MB). WiFi deploy via `adb install` only installs the APK — it won't update `.__override__/`. |
-| Use `dotnet build -t:Install` over WiFi | Use `adb install -r` with full APK | `-t:Install` uses Fast Deployment which requires USB or a reliable multi-stream ADB connection. |
+| Use `dotnet build -t:Install` over WiFi | Use `adb push` + `pm install` with full APK | `-t:Install` uses Fast Deployment which requires USB or a reliable multi-stream ADB connection. |
 
 ## Fast Deployment Explained
 

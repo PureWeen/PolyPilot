@@ -8,5 +8,8 @@
         <!-- Network access -->
         <key>com.apple.security.network.client</key>
         <true/>
+        <!-- Microphone access for speech-to-text -->
+        <key>com.apple.security.device.audio-input</key>
+        <true/>
     </dict>
 </plist>

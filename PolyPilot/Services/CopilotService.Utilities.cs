@@ -138,6 +138,48 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// During session restore, determines whether the events.jsonl file shows recent server activity
+    /// and whether the last event was a tool event. Used to pre-seed watchdog flags so that
+    /// the 30s quiescence timeout is bypassed for sessions that were genuinely active before restart.
+    /// </summary>
+    internal (bool isRecentlyActive, bool hadToolActivity) GetEventsFileRestoreHints(string sessionId) =>
+        GetEventsFileRestoreHints(sessionId, SessionStatePath);
+
+    /// <summary>
+    /// Testable overload that accepts a custom base path.
+    /// </summary>
+    internal (bool isRecentlyActive, bool hadToolActivity) GetEventsFileRestoreHints(string sessionId, string basePath)
+    {
+        var eventsFile = Path.Combine(basePath, sessionId, "events.jsonl");
+        if (!File.Exists(eventsFile)) return (false, false);
+
+        var isRecentlyActive = false;
+        try
+        {
+            var lastWrite = File.GetLastWriteTimeUtc(eventsFile);
+            var fileAge = (DateTime.UtcNow - lastWrite).TotalSeconds;
+            isRecentlyActive = fileAge < WatchdogToolExecutionTimeoutSeconds;
+
+            if (!isRecentlyActive) return (false, false);
+
+            string? lastLine = null;
+            foreach (var line in File.ReadLines(eventsFile))
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                    lastLine = line;
+            }
+            if (lastLine == null) return (isRecentlyActive, false);
+
+            using var doc = JsonDocument.Parse(lastLine);
+            var type = doc.RootElement.GetProperty("type").GetString();
+            var hadToolActivity = type is "tool.execution_start" or "tool.execution_progress";
+
+            return (isRecentlyActive, hadToolActivity);
+        }
+        catch { return (isRecentlyActive, false); }
+    }
+
+    /// <summary>
     /// Get the last tool name and assistant message from events.jsonl for status display
     /// </summary>
     private (string? lastTool, string? lastContent) GetLastSessionActivity(string sessionId)
@@ -176,6 +218,72 @@ public partial class CopilotService
         }
         catch { return (null, null); }
     }
+
+    /// <summary>
+    /// Get a compact event log summary from events.jsonl for display in the Log popup.
+    /// Returns a list of (timestamp, eventType, detail) tuples.
+    /// </summary>
+    public List<(string Timestamp, string EventType, string Detail)> GetSessionEventLogSummary(string? sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId)) return new();
+        var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        return ParseEventLogFile(eventsFile);
+    }
+
+    /// <summary>
+    /// Testable overload that reads event log from a specific file path.
+    /// </summary>
+    internal static List<(string Timestamp, string EventType, string Detail)> ParseEventLogFile(string eventsFilePath)
+    {
+        var result = new List<(string, string, string)>();
+        try
+        {
+            if (!File.Exists(eventsFilePath)) return result;
+            foreach (var line in File.ReadLines(eventsFilePath))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+                    var type = root.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+                    var ts = root.TryGetProperty("timestamp", out var tsEl) ? tsEl.GetString() ?? "" : "";
+                    var tsDisplay = DateTime.TryParse(ts, out var dt) ? dt.ToString("HH:mm:ss") : ts;
+                    var detail = GetEventDetail(type, root);
+                    result.Add((tsDisplay, type, detail));
+                }
+                catch { /* skip malformed lines */ }
+            }
+            if (result.Count > 500)
+                result = result.GetRange(result.Count - 500, 500);
+        }
+        catch { /* file read error */ }
+        return result;
+    }
+
+    internal static string GetEventDetail(string type, JsonElement root)
+    {
+        if (!root.TryGetProperty("data", out var data)) return "";
+        try
+        {
+            return type switch
+            {
+                "user.message" => Truncate(data.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "", 80),
+                "assistant.message" => Truncate(data.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "", 80),
+                "assistant.message_delta" => "",
+                "tool.execution_start" => data.TryGetProperty("toolName", out var tn) ? tn.GetString() ?? "" : "",
+                "tool.execution_complete" => data.TryGetProperty("toolName", out var tn) ? tn.GetString() ?? "" : "",
+                "session.start" => data.TryGetProperty("context", out var ctx) && ctx.TryGetProperty("cwd", out var cwd) ? cwd.GetString() ?? "" : "",
+                "assistant.intent" => Truncate(data.TryGetProperty("intent", out var i) ? i.GetString() ?? "" : "", 80),
+                "session.error" => Truncate(data.TryGetProperty("message", out var m) ? m.GetString() ?? "" : "", 80),
+                _ => ""
+            };
+        }
+        catch { return ""; }
+    }
+
+    private static string Truncate(string s, int max) =>
+        s.Length <= max ? s : s[..max] + "…";
 
     /// <summary>
     /// Load conversation history from events.jsonl

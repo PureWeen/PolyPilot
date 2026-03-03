@@ -3,6 +3,7 @@
 @using System.Diagnostics
 @inject CopilotService CopilotService
 @inject RepoManager RepoManager
+@inject IJSRuntime JS
 
 @{
     var isPinned = Meta?.IsPinned ?? false;
@@ -42,7 +43,7 @@
                        value="@Session.Name"
                        @onclick:stopPropagation="true"
                        @onblur="() => OnCommitRename.InvokeAsync()"
-                       @onkeydown="HandleRenameKeyDown" />
+                       @onkeyup="HandleRenameKeyUp" />
             }
             else
             {
@@ -197,15 +198,9 @@
                     </button>
                     <div class="menu-separator"></div>
                 }
-                <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnClose.InvokeAsync(); }">
-                    ✕ Close Session
+                <button class="menu-item destructive" @onclick="ShowCloseConfirm">
+                    🗑 Close Session…
                 </button>
-                @if (!string.IsNullOrEmpty(Meta?.WorktreeId))
-                {
-                    <button class="menu-item destructive" @onclick="() => { OnCloseMenu.InvokeAsync(); OnCloseAndDeleteWorktree.InvokeAsync(); }">
-                        🗑 Close &amp; Delete Worktree
-                    </button>
-                }
             </div>
         }
     </div>
@@ -224,7 +219,7 @@
 
     [Parameter] public EventCallback OnSelect { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
-    [Parameter] public EventCallback OnCloseAndDeleteWorktree { get; set; }
+    [Parameter] public EventCallback<(bool DeleteWorktree, bool DeleteBranch)> OnCloseWithOptions { get; set; }
     [Parameter] public EventCallback<bool> OnPin { get; set; }
     [Parameter] public EventCallback<string> OnMove { get; set; }
     [Parameter] public EventCallback OnStartRename { get; set; }
@@ -234,7 +229,43 @@
     [Parameter] public EventCallback OnReportBug { get; set; }
     [Parameter] public EventCallback OnFixWithCopilot { get; set; }
 
-    private async Task HandleRenameKeyDown(KeyboardEventArgs e)
+    /// <summary>
+    /// Show close confirmation via a JS-created dialog (outside Blazor's DOM tree).
+    /// This avoids render batch corruption — portaling Blazor-managed elements to
+    /// document.body breaks Blazor's DOM index tracking on component removal.
+    /// </summary>
+    private async Task ShowCloseConfirm()
+    {
+        await OnCloseMenu.InvokeAsync();
+        try
+        {
+            bool hasWorktree = !string.IsNullOrEmpty(Meta?.WorktreeId);
+            string branchName = "";
+            if (hasWorktree)
+            {
+                var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == Meta!.WorktreeId);
+                branchName = wt?.Branch ?? "";
+            }
+
+            var result = await JS.InvokeAsync<CloseDialogResult>(
+                "showCloseSessionDialog", Session.Name, hasWorktree, branchName);
+
+            if (!result.Confirmed) return;
+
+            if (hasWorktree && (result.DeleteWorktree || result.DeleteBranch))
+                await OnCloseWithOptions.InvokeAsync((result.DeleteWorktree, result.DeleteBranch));
+            else
+                await OnClose.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionListItem] ShowCloseConfirm error: {ex.Message}");
+        }
+    }
+
+    private record CloseDialogResult(bool Confirmed, bool DeleteWorktree, bool DeleteBranch);
+
+    private async Task HandleRenameKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await OnCommitRename.InvokeAsync();
         else if (e.Key == "Escape") await OnCloseMenu.InvokeAsync();
