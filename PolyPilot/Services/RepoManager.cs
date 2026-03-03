@@ -296,7 +296,7 @@ public class RepoManager
             return input;
         // GitHub shorthand: owner/repo (no colons, exactly one slash)
         var parts = input.Split('/');
-        if (parts.Length == 2 && !input.Contains(':')
+        if (parts.Length == 2 && !parts[0].Contains('.') && !input.Contains(':')
             && !string.IsNullOrWhiteSpace(parts[0]) && !string.IsNullOrWhiteSpace(parts[1]))
             return $"https://github.com/{input}";
         return input;
