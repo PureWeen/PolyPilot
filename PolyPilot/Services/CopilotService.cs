@@ -1486,7 +1486,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             GitBranch = GetGitBranch(sessionDir),
             IsCreating = true
         };
+        // If a session with this name already exists, dispose it to avoid leaking the SDK session
+        if (_sessions.TryGetValue(name, out var existing) && existing.Session != null)
+        {
+            try { await existing.Session.DisposeAsync(); } catch { }
+        }
+
         var state = new SessionState { Session = null!, Info = info };
+        var previousActiveSessionName = _activeSessionName;
         _sessions[name] = state;
         _activeSessionName = name;
         if (!Organization.Sessions.Any(m => m.SessionName == name))
@@ -1500,9 +1507,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
         catch
         {
-            // SDK creation failed — remove the optimistic placeholder
+            // SDK creation failed — remove the optimistic placeholder and restore prior state
             _sessions.TryRemove(name, out _);
             Organization.Sessions.RemoveAll(m => m.SessionName == name);
+            _activeSessionName = previousActiveSessionName;
             OnStateChanged?.Invoke();
             throw;
         }
