@@ -82,4 +82,10 @@ public class AgentSessionInfo
     /// Hidden sessions are not shown in the sidebar (e.g., evaluator sessions).
     /// </summary>
     public bool IsHidden { get; set; }
+
+    /// <summary>
+    /// True while the SDK session is being created. The session appears in the UI
+    /// immediately (optimistic add) but cannot accept prompts until creation completes.
+    /// </summary>
+    public bool IsCreating { get; set; }
 }

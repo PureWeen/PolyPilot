@@ -258,6 +258,104 @@
     }
 }
 
+/* System theme (Solarized): follow OS preference with Solarized palette */
+[data-theme="system-solarized"] {
+    --bg-primary: #002b36;
+    --bg-secondary: #073642;
+    --bg-tertiary: #0a4050;
+    --bg-input: rgba(255,255,255,0.05);
+    --text-primary: #839496;
+    --text-secondary: #657b83;
+    --text-muted: #586e75;
+    --text-bright: #93a1a1;
+    --border-subtle: rgba(147,161,161,0.1);
+    --border-default: rgba(147,161,161,0.15);
+    --accent-primary: #268bd2;
+    --accent-rgb: 38,139,210;
+    --accent-link: #268bd2;
+    --accent-success: #859900;
+    --accent-warning: #b58900;
+    --accent-error: #dc322f;
+    --accent-purple: #6c71c4;
+    --chat-user-bg: rgba(38, 139, 210, 0.15);
+    --chat-user-border: rgba(38, 139, 210, 0.25);
+    --chat-user-text: #268bd2;
+    --chat-assistant-bg: rgba(133, 153, 0, 0.1);
+    --chat-assistant-border: rgba(133, 153, 0, 0.2);
+    --chat-assistant-text: #859900;
+    --hover-bg: rgba(147,161,161,0.08);
+    --control-bg: rgba(147,161,161,0.1);
+    --control-border: rgba(147,161,161,0.2);
+    --border-accent: rgba(38,139,210,0.3);
+    --text-on-surface: #93a1a1;
+    --text-dim: #586e75;
+    --toast-bg: linear-gradient(135deg, #073642, #002b36);
+    --safe-area-bg: #073642;
+    --diff-add-bg: rgba(133,153,0,0.15);
+    --diff-add-text: #b5ce5a;
+    --diff-del-bg: rgba(220,50,47,0.15);
+    --diff-del-text: #f5a0a0;
+    --diff-ln-add: rgba(133,153,0,0.7);
+    --diff-ln-del: rgba(220,50,47,0.7);
+    --diff-badge-new-bg: rgba(133,153,0,0.2);
+    --diff-badge-new-text: #859900;
+    --diff-badge-del-bg: rgba(220,50,47,0.2);
+    --diff-badge-del-text: #dc322f;
+    --diff-badge-mod-bg: rgba(181,137,0,0.2);
+    --diff-badge-mod-text: #b58900;
+    --diff-stat-add: #859900;
+    --diff-stat-del: #dc322f;
+}
+@media (prefers-color-scheme: light) {
+    [data-theme="system-solarized"] {
+        --bg-primary: #fdf6e3;
+        --bg-secondary: #eee8d5;
+        --bg-tertiary: #e0dbc7;
+        --bg-input: rgba(0,0,0,0.04);
+        --text-primary: #657b83;
+        --text-secondary: #839496;
+        --text-muted: #93a1a1;
+        --text-bright: #586e75;
+        --border-subtle: rgba(88,110,117,0.1);
+        --border-default: rgba(88,110,117,0.15);
+        --accent-primary: #268bd2;
+        --accent-rgb: 38,139,210;
+        --accent-link: #268bd2;
+        --accent-success: #859900;
+        --accent-warning: #b58900;
+        --accent-error: #dc322f;
+        --accent-purple: #6c71c4;
+        --chat-user-bg: rgba(38, 139, 210, 0.1);
+        --chat-user-border: rgba(38, 139, 210, 0.2);
+        --chat-user-text: #268bd2;
+        --chat-assistant-bg: rgba(133, 153, 0, 0.08);
+        --chat-assistant-border: rgba(133, 153, 0, 0.15);
+        --chat-assistant-text: #859900;
+        --hover-bg: rgba(0,0,0,0.05);
+        --control-bg: rgba(0,0,0,0.05);
+        --control-border: rgba(88,110,117,0.2);
+        --border-accent: rgba(38,139,210,0.3);
+        --text-on-surface: #586e75;
+        --text-dim: #93a1a1;
+        --toast-bg: linear-gradient(135deg, #eee8d5, #fdf6e3);
+        --safe-area-bg: #eee8d5;
+        --diff-add-bg: rgba(133,153,0,0.12);
+        --diff-add-text: #4a5700;
+        --diff-del-bg: rgba(220,50,47,0.12);
+        --diff-del-text: #8b1a18;
+        --diff-ln-add: #5a6b00;
+        --diff-ln-del: #b5201e;
+        --diff-badge-new-bg: rgba(133,153,0,0.15);
+        --diff-badge-new-text: #4a5700;
+        --diff-badge-del-bg: rgba(220,50,47,0.15);
+        --diff-badge-del-text: #b5201e;
+        --diff-badge-mod-bg: rgba(181,137,0,0.15);
+        --diff-badge-mod-text: #7a5b00;
+        --diff-stat-add: #4a5700;
+        --diff-stat-del: #b5201e;
+    }
+}
+
 /* Mobile: scale down for phone screens */
 @media (max-width: 640px) {
     :root {
@@ -361,6 +459,27 @@ h1:focus {
 
 .validation-message {
     color: #e50000;
+}
+
+/* Pre-Blazor loading state — shown before the framework initializes */
+#app > .app-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    background: #0f0f23;
+}
+
+.app-loading-logo {
+    width: 80px;
+    height: auto;
+    opacity: 0.5;
+    animation: pulse-fade 2s ease-in-out infinite;
+}
+
+@keyframes pulse-fade {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.7; }
 }
 
 #blazor-error-ui {
