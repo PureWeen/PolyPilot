@@ -1150,7 +1150,7 @@ public class WsBridgeServer : IDisposable
         if (!pathToCheck.StartsWith(allowedDir + sep, StringComparison.OrdinalIgnoreCase))
             return "Path not allowed";
 
-        var ext = Path.GetExtension(fullPath).ToLowerInvariant();
+        var ext = Path.GetExtension(pathToCheck).ToLowerInvariant();
         var allowedExts = new HashSet<string> { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff" };
         if (!allowedExts.Contains(ext))
             return "Unsupported file type";
