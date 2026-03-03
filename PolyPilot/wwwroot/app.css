@@ -207,6 +207,55 @@
     --diff-stat-del: #b5201e;
 }
 
+/* International Women's Day — purple/violet theme (March 8) */
+[data-theme="iwd"] {
+    --bg-primary: #1a0a2e;
+    --bg-secondary: #231040;
+    --bg-tertiary: #2d1854;
+    --bg-input: rgba(167,139,250,0.08);
+    --text-primary: #c4b5fd;
+    --text-secondary: #a78bfa;
+    --text-muted: #7c5cfc;
+    --text-bright: #e2d9fe;
+    --border-subtle: rgba(167,139,250,0.12);
+    --border-default: rgba(167,139,250,0.18);
+    --accent-primary: #a855f7;
+    --accent-rgb: 168,85,247;
+    --accent-link: #c084fc;
+    --accent-success: #d946ef;
+    --accent-warning: #fbbf24;
+    --accent-error: #f43f5e;
+    --accent-purple: #c084fc;
+    --hover-bg: rgba(167,139,250,0.1);
+    --control-bg: rgba(167,139,250,0.12);
+    --control-border: rgba(167,139,250,0.25);
+    --border-accent: rgba(168,85,247,0.35);
+    --text-on-surface: rgba(226,217,254,0.8);
+    --text-dim: rgba(167,139,250,0.5);
+    --chat-user-bg: rgba(168, 85, 247, 0.18);
+    --chat-user-border: rgba(168, 85, 247, 0.3);
+    --chat-user-text: #c084fc;
+    --chat-assistant-bg: rgba(217, 70, 239, 0.12);
+    --chat-assistant-border: rgba(217, 70, 239, 0.25);
+    --chat-assistant-text: #e879f9;
+    --toast-bg: linear-gradient(135deg, #2d1854, #1a0a2e);
+    --safe-area-bg: #231040;
+    --diff-add-bg: rgba(217,70,239,0.15);
+    --diff-add-text: #f0abfc;
+    --diff-del-bg: rgba(244,63,94,0.15);
+    --diff-del-text: #fda4af;
+    --diff-ln-add: rgba(217,70,239,0.7);
+    --diff-ln-del: rgba(244,63,94,0.7);
+    --diff-badge-new-bg: rgba(217,70,239,0.2);
+    --diff-badge-new-text: #d946ef;
+    --diff-badge-del-bg: rgba(244,63,94,0.2);
+    --diff-badge-del-text: #f43f5e;
+    --diff-badge-mod-bg: rgba(168,85,247,0.2);
+    --diff-badge-mod-text: #a855f7;
+    --diff-stat-add: #d946ef;
+    --diff-stat-del: #f43f5e;
+}
+
 /* System theme: follow OS preference */
 @media (prefers-color-scheme: light) {
     [data-theme="system"] {
