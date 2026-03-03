@@ -1435,6 +1435,7 @@
                     "- `/diff [args]` — Show git diff\n" +
                     "- `/status` — Show git status\n" +
                     "- `/prompt` — List saved prompts (`/prompt use|save|delete`)\n" +
+                    "- `/usage` — Show token usage and quota for this session\n" +
                     "- `/mcp` — List MCP servers (enable/disable with `/mcp enable|disable <name>`)\n" +
                     "- `/plugin` — List installed plugins (enable/disable with `/plugin enable|disable <name>`)\n" +
                     "- `/reflect <goal>` — Start a reflection cycle (`/reflect help` for details)\n" +
@@ -1566,6 +1567,42 @@
             case "prompts":
                 await HandlePromptCommand(sessionName, session, arg);
                 return;
+
+            case "usage":
+                var usageLines = new System.Text.StringBuilder();
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                usageLines.AppendLine("**Session Usage**");
+                usageLines.AppendLine($"- **Input tokens:** {session.TotalInputTokens.ToString("N0", ic)}");
+                usageLines.AppendLine($"- **Output tokens:** {session.TotalOutputTokens.ToString("N0", ic)}");
+                if (session.ContextCurrentTokens.HasValue || session.ContextTokenLimit.HasValue)
+                {
+                    var ctx = session.ContextCurrentTokens?.ToString("N0", ic) ?? "—";
+                    var lim = session.ContextTokenLimit?.ToString("N0", ic) ?? "—";
+                    usageLines.AppendLine($"- **Context window:** {ctx} / {lim}");
+                }
+                if (usageBySession.TryGetValue(sessionName, out var usageInfo))
+                {
+                    if (!string.IsNullOrEmpty(usageInfo.Model))
+                        usageLines.AppendLine($"- **Model:** {usageInfo.Model}");
+                    if (usageInfo.PremiumQuota is { } quota)
+                    {
+                        usageLines.AppendLine();
+                        usageLines.AppendLine("**Premium Quota**");
+                        if (quota.IsUnlimited)
+                        {
+                            usageLines.AppendLine("- Unlimited entitlement");
+                        }
+                        else
+                        {
+                            usageLines.AppendLine($"- **Used:** {quota.UsedRequests.ToString("N0", ic)} / {quota.EntitlementRequests.ToString("N0", ic)}");
+                            usageLines.AppendLine($"- **Remaining:** {quota.RemainingPercentage}%");
+                        }
+                        if (!string.IsNullOrEmpty(quota.ResetDate))
+                            usageLines.AppendLine($"- **Resets:** {quota.ResetDate}");
+                    }
+                }
+                session.History.Add(ChatMessage.SystemMessage(usageLines.ToString().TrimEnd()));
+                break;
 
             default:
                 // Unknown command — pass through to the SDK as a regular prompt

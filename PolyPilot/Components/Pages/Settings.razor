@@ -1066,25 +1066,27 @@
 
     private async Task SetTheme(UiTheme theme)
     {
-        settings.Theme = theme;
-        settings.Save();
-        CopilotService.Theme = theme;
-        await ApplyTheme(theme);
-        ShowStatus("Theme updated", "success");
+        try
+        {
+            settings.Theme = theme;
+            settings.Save();
+            CopilotService.Theme = theme;
+            // If user manually changes away from holiday theme, dismiss it for this session
+            if (HolidayThemeHelper.GetActiveHolidayTheme() is { } holiday && theme != holiday)
+                CopilotService.HolidayThemeDismissed = true;
+            await ApplyTheme(theme);
+            ShowStatus("Theme updated", "success");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error applying theme: {ex.Message}");
+            ShowStatus("Theme update failed", "error");
+        }
     }
 
     private async Task ApplyTheme(UiTheme theme)
     {
-        var dataTheme = theme switch
-        {
-            UiTheme.System => "system",
-            UiTheme.SystemSolarized => "system-solarized",
-            UiTheme.PolyPilotDark => "",        // default, no attribute needed
-            UiTheme.PolyPilotLight => "polypilot-light",
-            UiTheme.SolarizedDark => "solarized-dark",
-            UiTheme.SolarizedLight => "solarized-light",
-            _ => ""
-        };
+        var dataTheme = HolidayThemeHelper.GetDataThemeString(theme);
         await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
     }
 
@@ -1096,6 +1098,7 @@
         UiTheme.PolyPilotLight => "PolyPilot Light",
         UiTheme.SolarizedDark => "Solarized Dark",
         UiTheme.SolarizedLight => "Solarized Light",
+        UiTheme.InternationalWomensDay => "International Women's Day 💜",
         _ => ""
     };
 
@@ -1107,6 +1110,7 @@
         UiTheme.PolyPilotLight => "tp-pp-light",
         UiTheme.SolarizedDark => "tp-sol-dark",
         UiTheme.SolarizedLight => "tp-sol-light",
+        UiTheme.InternationalWomensDay => "tp-pp-dark",
         _ => ""
     };
 

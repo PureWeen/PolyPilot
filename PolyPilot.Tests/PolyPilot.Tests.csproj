@@ -77,6 +77,7 @@
     <Compile Include="../PolyPilot/BuildInfo.cs" Link="Shared/BuildInfo.cs" />
     <Compile Include="../PolyPilot/Models/SettingDescriptor.cs" Link="Shared/SettingDescriptor.cs" />
     <Compile Include="../PolyPilot/Services/SettingsRegistry.cs" Link="Shared/SettingsRegistry.cs" />
+    <Compile Include="../PolyPilot/Services/HolidayThemeHelper.cs" Link="Shared/HolidayThemeHelper.cs" />
     <Compile Include="../PolyPilot/Services/MarkdownRenderer.cs" Link="Shared/MarkdownRenderer.cs" />
   </ItemGroup>
 

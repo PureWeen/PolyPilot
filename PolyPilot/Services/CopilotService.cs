@@ -208,6 +208,9 @@ public partial class CopilotService : IAsyncDisposable
     public ChatStyle ChatStyle { get; set; } = ChatStyle.Normal;
     public UiTheme Theme { get; set; } = UiTheme.System;
 
+    /// <summary>In-memory flag: user dismissed the holiday theme for this app session.</summary>
+    public bool HolidayThemeDismissed { get; set; }
+
     // Session organization (groups, pinning, sorting)
     public OrganizationState Organization { get; internal set; } = new();
 
