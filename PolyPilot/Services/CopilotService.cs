@@ -1522,7 +1522,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!_sessions.ContainsKey(name))
         {
             try { await copilotSession.DisposeAsync(); } catch { }
-            return;
+            return info;
         }
 
         Debug($"Session '{name}' created with ID: {copilotSession.SessionId}");

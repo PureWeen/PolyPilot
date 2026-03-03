@@ -800,3 +800,105 @@ h1:focus {
 .js-close-dialog-btn:hover {
     filter: brightness(1.1);
 }
+
+/* Skills / Agents / Prompts / Log bottom popups */
+.skills-popup-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    background: rgba(0,0,0,0.3);
+}
+
+.skills-popup {
+    position: fixed;
+    z-index: 9999;
+    background: var(--bg-secondary);
+    border: 1px solid var(--control-border);
+    border-radius: 10px;
+    padding: 6px 0;
+    min-width: 240px;
+    max-width: 360px;
+    max-height: 50vh;
+    overflow-y: auto;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.3);
+}
+
+.skills-popup--wide {
+    min-width: 320px;
+    max-width: 460px;
+}
+
+.skills-popup-header {
+    padding: 8px 14px;
+    font-size: 13px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-subtle);
+    font-weight: 600;
+}
+
+.skills-popup-row {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.skills-popup-row--clickable {
+    cursor: pointer;
+}
+
+.skills-popup-row--clickable:hover {
+    background: var(--hover-bg);
+}
+
+.skills-popup-row-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 15px;
+}
+
+.skills-popup-row-name {
+    color: var(--text-bright);
+    font-weight: 600;
+}
+
+.skills-popup-row-source {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-input);
+    padding: 2px 8px;
+    border-radius: 3px;
+    white-space: nowrap;
+    margin-left: 8px;
+}
+
+.skills-popup-row-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 3px;
+    line-height: 1.4;
+}
+
+.skills-popup-log-row {
+    padding: 3px 14px;
+    font-size: 12px;
+    font-family: monospace;
+    border-bottom: 1px solid var(--border-subtle);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.skills-popup-log-ts {
+    color: var(--text-muted);
+}
+
+.skills-popup-log-detail {
+    color: var(--text-secondary);
+    margin-left: 6px;
+}
+
+.skills-popup-empty {
+    padding: 14px;
+    color: var(--text-muted);
+    text-align: center;
+}
