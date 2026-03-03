@@ -66,6 +66,7 @@ else
                             @if (PlatformHelper.IsDesktop)
                             {
                                 <div class="info-divider"></div>
+                                <div class="info-row"><span class="info-label">⌘,</span><span class="info-value">Settings</span></div>
                                 <div class="info-row"><span class="info-label">⌘1-9</span><span class="info-value">Switch session</span></div>
                                 <div class="info-row"><span class="info-label">⌘E</span><span class="info-value">Expand/collapse</span></div>
                                 <div class="info-row"><span class="info-label">Esc</span><span class="info-value">Collapse to grid</span></div>
@@ -76,6 +77,7 @@ else
                             }
                         </div>
                     </div>
+                    <button class="header-icon-btn" title="Statistics" @onclick="ToggleStatisticsPopup"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></button>
                 </div>
             </div>
             <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")" style="font-size:0.8rem">
@@ -192,6 +194,7 @@ else
     [Parameter] public EventCallback OnSessionSelected { get; set; }
     [Parameter] public int FontSize { get; set; } = 20;
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
+    [Parameter] public EventCallback OnToggleStatistics { get; set; }
 
     private Dictionary<string, (OrchestratorPhase Phase, string? Detail)> _groupPhases = new();
     private Timer? _diskSizeTimer;
@@ -779,6 +782,11 @@ else
     private async Task ToggleFlyout()
     {
         await OnToggleFlyout.InvokeAsync();
+    }
+
+    private async Task ToggleStatisticsPopup()
+    {
+        await OnToggleStatistics.InvokeAsync();
     }
 
     private static readonly string[] _fallbackModels = new[]

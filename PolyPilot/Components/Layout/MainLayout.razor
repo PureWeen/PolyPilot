@@ -1,15 +1,16 @@
 @inherits LayoutComponentBase
 @using PolyPilot.Services
 @using PolyPilot.Models
+@implements IDisposable
 
 <div class="page @(flyoutOpen ? "flyout-open" : "")">
     <div class="sidebar desktop-only">
-        <SessionSidebar />
+        <SessionSidebar OnToggleStatistics="ToggleStatistics" />
         <div class="sidebar-resize-handle" @onmousedown="StartResize"></div>
     </div>
 
     <div class="mobile-top-bar mobile-only">
-        <SessionSidebar IsMobileTopBar="true" OnToggleFlyout="ToggleFlyout" FontSize="fontSize" OnFontSizeChange="HandleFontSizeChange" />
+        <SessionSidebar IsMobileTopBar="true" OnToggleFlyout="ToggleFlyout" FontSize="fontSize" OnFontSizeChange="HandleFontSizeChange" OnToggleStatistics="ToggleStatistics" />
     </div>
 
     <main>
@@ -20,20 +21,31 @@
 
     <div class="flyout-backdrop mobile-only @(flyoutOpen ? "open" : "")" @onclick="CloseFlyout"></div>
     <div class="flyout-panel mobile-only @(flyoutOpen ? "open" : "")">
-        <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" />
+        <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" OnToggleStatistics="ToggleStatistics" />
     </div>
 
     <PolyPilot.Components.Tutorial.TutorialOverlay />
+    <PolyPilot.Components.Layout.StatisticsPopup Visible="showStatistics" OnClose="CloseStatistics" />
 </div>
 
 @code {
     private bool flyoutOpen;
+    private bool showStatistics;
     private int fontSize = 20;
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private CopilotService CopilotService { get; set; } = default!;
     [Inject] private NavigationManager NavManager { get; set; } = default!;
     [Inject] private TutorialService TutorialService { get; set; } = default!;
+
+    private DotNetObjectReference<MainLayout>? _navRef;
+
+    [JSInvokable]
+    public void NavigateToSettings()
+    {
+        CopilotService.SaveUiState("/settings");
+        NavManager.NavigateTo("/settings");
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -42,12 +54,18 @@
             var dataTheme = CopilotService.Theme switch
             {
                 UiTheme.System => "system",
+                UiTheme.SystemSolarized => "system-solarized",
                 UiTheme.PolyPilotLight => "polypilot-light",
                 UiTheme.SolarizedDark => "solarized-dark",
                 UiTheme.SolarizedLight => "solarized-light",
                 _ => ""
             };
             await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
+
+            // Register nav ref for global keyboard shortcuts (Cmd+,)
+            _navRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("eval", "window.__setNavRef = function(ref) { window._navRef = ref; };");
+            await JS.InvokeVoidAsync("__setNavRef", _navRef);
 
             // Load saved font size and navigate to last page
             var uiState = CopilotService.LoadUiState();
@@ -120,5 +138,20 @@
     private void CloseFlyout()
     {
         flyoutOpen = false;
+    }
+
+    private void ToggleStatistics()
+    {
+        showStatistics = !showStatistics;
+    }
+
+    private void CloseStatistics()
+    {
+        showStatistics = false;
+    }
+
+    public void Dispose()
+    {
+        _navRef?.Dispose();
     }
 }

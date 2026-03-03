@@ -3,16 +3,79 @@
     color: var(--text-primary);
     background: var(--bg-primary);
     height: 100%;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
     max-width: 100%;
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+}
+
+.settings-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    gap: 0;
+}
+
+.settings-nav {
+    width: 160px;
+    min-width: 160px;
+    padding: 0.5rem 0;
+    border-right: 1px solid var(--control-border);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+}
+
+.settings-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.75rem;
+    border: none;
+    background: none;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    cursor: pointer;
+    border-radius: 6px;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+    margin: 0 0.25rem;
+}
+
+.settings-nav-item:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+.settings-nav-item.active {
+    background: var(--hover-bg);
+    color: var(--accent-primary, #7c5cfc);
+    font-weight: 500;
+}
+
+.settings-content {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 0 0 0 1rem;
+}
+
+@media (max-width: 600px) {
+    .settings-nav { display: none; }
+    .settings-content { padding: 0; }
 }
 
 .settings-search {
     position: relative;
     display: flex;
     align-items: center;
+    flex: 1;
+    min-width: 0;
 }
 
 .search-icon {
@@ -23,20 +86,19 @@
 }
 
 .search-input {
-    padding: 0.35rem 1.6rem 0.35rem 1.8rem;
+    padding: 0.45rem 1.6rem 0.45rem 2rem;
     border: 1px solid var(--control-border);
     border-radius: 6px;
     background: var(--bg-input);
     color: var(--text-primary);
     font-size: var(--type-callout);
-    width: 160px;
+    width: 100%;
     outline: none;
-    transition: border-color 0.2s, width 0.2s;
+    transition: border-color 0.2s;
 }
 
 .search-input:focus {
     border-color: var(--accent-primary);
-    width: 220px;
 }
 
 .search-input::placeholder {
