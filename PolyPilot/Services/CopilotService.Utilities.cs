@@ -295,7 +295,10 @@ public partial class CopilotService
         var msg = ex.Message;
         if (ex is System.IO.IOException or System.Net.Sockets.SocketException or ObjectDisposedException
             || ex.InnerException is System.IO.IOException or System.Net.Sockets.SocketException
-            || msg.Contains("Connection", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("connection refused", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("connection reset", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("connection was closed", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("connection lost", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("transport", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("JSON-RPC", StringComparison.OrdinalIgnoreCase))
             return true;
