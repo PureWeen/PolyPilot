@@ -107,13 +107,31 @@ public class InputValidationTests
         var linkPath = Path.Combine(imagesDir, "evil-link.png");
         try
         {
-            // Create a symlink pointing outside the images directory
             File.CreateSymbolicLink(linkPath, "/etc/passwd");
             Assert.Equal("Path not allowed", WsBridgeServer.ValidateImagePath(linkPath));
         }
         finally
         {
             if (File.Exists(linkPath)) File.Delete(linkPath);
+        }
+    }
+
+    [Fact]
+    public void ValidateImagePath_DirectorySymlinkBypass_ReturnsNotAllowed()
+    {
+        var imagesDir = ShowImageTool.GetImagesDir();
+        Directory.CreateDirectory(imagesDir);
+        var symlinkDir = Path.Combine(imagesDir, "evil-subdir");
+        try
+        {
+            // Create a directory symlink inside images/ pointing to /etc/
+            Directory.CreateSymbolicLink(symlinkDir, "/etc");
+            var attackPath = Path.Combine(symlinkDir, "passwd");
+            Assert.Equal("Path not allowed", WsBridgeServer.ValidateImagePath(attackPath));
+        }
+        finally
+        {
+            if (Directory.Exists(symlinkDir)) Directory.Delete(symlinkDir);
         }
     }
 

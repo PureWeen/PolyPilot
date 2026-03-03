@@ -1123,13 +1123,29 @@ public class WsBridgeServer : IDisposable
         var allowedDir = Path.GetFullPath(ShowImageTool.GetImagesDir());
         var fullPath = Path.GetFullPath(path);
 
-        // Resolve symlinks so a link inside images/ pointing outside is caught
+        // Resolve file symlinks
         var fi = new FileInfo(fullPath);
         if (fi.LinkTarget != null)
         {
-            var resolved = fi.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? fullPath;
-            if (!resolved.StartsWith(allowedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            var resolved = fi.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+            if (resolved == null || !resolved.StartsWith(allowedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 return "Path not allowed";
+        }
+
+        // Check that no parent directory between the file and allowedDir is a symlink escaping the boundary
+        var checkDir = Path.GetDirectoryName(fullPath);
+        while (checkDir != null &&
+               checkDir.Length > allowedDir.Length &&
+               checkDir.StartsWith(allowedDir, StringComparison.OrdinalIgnoreCase))
+        {
+            var di = new DirectoryInfo(checkDir);
+            if (di.Exists && di.LinkTarget != null)
+            {
+                var resolvedDir = di.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+                if (resolvedDir == null || !resolvedDir.StartsWith(allowedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    return "Path not allowed";
+            }
+            checkDir = Path.GetDirectoryName(checkDir);
         }
 
         if (!fullPath.StartsWith(allowedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
