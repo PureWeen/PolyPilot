@@ -119,7 +119,7 @@ public class SlashCommandAutocompleteTests
         var commands = GetAutocompleteCommands();
         var expected = new[] { "/help", "/clear", "/compact", "/new", "/sessions",
                                "/rename", "/version", "/diff", "/status", "/mcp",
-                               "/plugin", "/reflect" };
+                               "/plugin", "/reflect", "/usage" };
 
         foreach (var cmd in expected)
         {
@@ -132,7 +132,7 @@ public class SlashCommandAutocompleteTests
     {
         var html = File.ReadAllText(IndexHtmlPath);
         // Commands without required args should have hasArgs: false
-        var noArgs = new[] { "/help", "/clear", "/compact", "/sessions", "/version" };
+        var noArgs = new[] { "/help", "/clear", "/compact", "/sessions", "/version", "/usage" };
         foreach (var cmd in noArgs)
         {
             var pattern = $"cmd: '{cmd}',";
