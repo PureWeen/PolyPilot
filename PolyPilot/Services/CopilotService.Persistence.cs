@@ -228,11 +228,7 @@ public partial class CopilotService
                             }
 
                             // If the connection broke, recreate the client
-                            if (ex is System.IO.IOException or System.Net.Sockets.SocketException
-                                or ObjectDisposedException
-                                || ex.InnerException is System.IO.IOException or System.Net.Sockets.SocketException
-                                || ex.Message.Contains("Connection", StringComparison.OrdinalIgnoreCase)
-                                || ex.Message.Contains("transport", StringComparison.OrdinalIgnoreCase))
+                            if (IsConnectionError(ex))
                             {
                                 Debug("Connection lost during restore, recreating client...");
                                 try

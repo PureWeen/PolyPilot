@@ -286,6 +286,27 @@ public partial class CopilotService
         s.Length <= max ? s : s[..max] + "…";
 
     /// <summary>
+    /// Returns true if the exception indicates a broken connection
+    /// (JSON-RPC lost, socket closed, transport error, etc.).
+    /// Used by CreateSessionAsync retry logic and session restore.
+    /// </summary>
+    internal static bool IsConnectionError(Exception ex)
+    {
+        if (ex is System.IO.IOException or System.Net.Sockets.SocketException or ObjectDisposedException)
+            return true;
+        if (ex.InnerException is System.IO.IOException or System.Net.Sockets.SocketException)
+            return true;
+        var msg = ex.Message;
+        if (msg.Contains("Connection", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (msg.Contains("transport", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (msg.Contains("JSON-RPC", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
+    }
+
+    /// <summary>
     /// Load conversation history from events.jsonl
     /// </summary>
     private List<ChatMessage> LoadHistoryFromDisk(string sessionId)

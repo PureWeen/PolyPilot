@@ -1476,7 +1476,54 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         Debug($"Creating session with Model: '{sessionModel}' (Requested: '{model}', Default: '{DefaultModel}')");
 
-        var copilotSession = await _client.CreateSessionAsync(config, cancellationToken);
+        CopilotSession copilotSession;
+        try
+        {
+            copilotSession = await _client.CreateSessionAsync(config, cancellationToken);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) when (IsConnectionError(ex))
+        {
+            Debug($"CreateSessionAsync connection error, attempting recovery: {ex.Message}");
+
+            // In persistent mode, restart the server if it's not running
+            if (CurrentMode == ConnectionMode.Persistent)
+            {
+                if (!_serverManager.CheckServerRunning("127.0.0.1", settings.Port))
+                {
+                    Debug("Persistent server not running, restarting...");
+                    var started = await _serverManager.StartServerAsync(settings.Port);
+                    if (!started)
+                    {
+                        Debug("Failed to restart persistent server");
+                        throw;
+                    }
+                }
+            }
+
+            // Recreate the client connection
+            try
+            {
+                if (_client != null)
+                {
+                    try { await _client.DisposeAsync(); } catch { }
+                }
+                _client = CreateClient(settings);
+                await _client.StartAsync(cancellationToken);
+                Debug("Connection recovered, retrying session creation...");
+            }
+            catch (Exception clientEx)
+            {
+                Debug($"Failed to recreate client during recovery: {clientEx.Message}");
+                try { if (_client != null) await _client.DisposeAsync(); } catch { }
+                _client = null;
+                IsInitialized = false;
+                throw;
+            }
+
+            // Retry once with the new client
+            copilotSession = await _client.CreateSessionAsync(config, cancellationToken);
+        }
 
         var info = new AgentSessionInfo
         {
