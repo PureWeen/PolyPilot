@@ -1576,8 +1576,17 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 copilotSession = await _client.CreateSessionAsync(config, cancellationToken);
             }
+            catch (OperationCanceledException)
+            {
+                _sessions.TryRemove(name, out _);
+                Organization.Sessions.RemoveAll(m => m.SessionName == name);
+                _activeSessionName = previousActiveSessionName;
+                OnStateChanged?.Invoke();
+                throw;
+            }
             catch
             {
+                try { if (_client != null) await _client.DisposeAsync(); } catch { }
                 _client = null;
                 IsInitialized = false;
                 _sessions.TryRemove(name, out _);
