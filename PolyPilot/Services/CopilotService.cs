@@ -1855,7 +1855,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // The .NET SDK has no public mechanism to set session agent mode (autopilot/plan/interactive).
             // Agent mode is controlled by session-level configuration (system message, available tools)
             // set at session creation time via SessionConfig. The agentMode parameter is preserved
-            // in the pipeline for logging and future use when the SDK exposes this capability.
+            // in the pipeline for queue dispatch, bridge forwarding, and future SDK support.
             
             // Attach images via SDK if available
             if (imagePaths != null && imagePaths.Count > 0)
