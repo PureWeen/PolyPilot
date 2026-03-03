@@ -163,8 +163,6 @@ public static class MauiProgram
 			return appleClient
 				.AsBuilder()
 				.UseLogging(loggerFactory)
-				// Workaround for https://github.com/dotnet/extensions/issues/7204
-				.Use(cc => new NonFunctionInvokingChatClient(cc, loggerFactory, sp))
 				.ConfigureOptions(o =>
 				{
 					o.MaxOutputTokens = 350;

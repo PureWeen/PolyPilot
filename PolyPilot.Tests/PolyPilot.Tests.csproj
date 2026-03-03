@@ -78,7 +78,6 @@
     <Compile Include="../PolyPilot/BuildInfo.cs" Link="Shared/BuildInfo.cs" />
     <Compile Include="../PolyPilot/Services/AI/DirectLocalChatService.cs" Link="Shared/DirectLocalChatService.cs" />
     <Compile Include="../PolyPilot/Services/AI/AppChatTools.cs" Link="Shared/AppChatTools.cs" />
-    <Compile Include="../PolyPilot/Services/AI/NonFunctionInvokingChatClient.cs" Link="Shared/NonFunctionInvokingChatClient.cs" />
     <Compile Include="../PolyPilot/Models/SettingDescriptor.cs" Link="Shared/SettingDescriptor.cs" />
     <Compile Include="../PolyPilot/Services/SettingsRegistry.cs" Link="Shared/SettingsRegistry.cs" />
   </ItemGroup>
