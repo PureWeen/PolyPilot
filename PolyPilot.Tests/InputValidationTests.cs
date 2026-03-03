@@ -10,27 +10,24 @@ namespace PolyPilot.Tests;
 /// </summary>
 public class InputValidationTests
 {
-    #region FetchImage Path Validation
+    #region FetchImage Path Validation (calls production ValidateImagePath)
 
     [Fact]
-    public void FetchImage_AllowedDir_MatchesShowImageTool()
+    public void ValidateImagePath_NullPath_ReturnsError()
     {
-        // FetchImage should only serve files from the ShowImageTool images directory
-        var imagesDir = ShowImageTool.GetImagesDir();
-        Assert.False(string.IsNullOrEmpty(imagesDir));
-        Assert.True(Path.IsPathRooted(imagesDir));
+        Assert.Equal("Invalid path", WsBridgeServer.ValidateImagePath(null));
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("relative/path/image.png")]
-    public void FetchImage_RejectsNonRootedPaths(string? path)
+    [Fact]
+    public void ValidateImagePath_EmptyPath_ReturnsError()
     {
-        // Non-rooted paths should be rejected
-        Assert.True(
-            string.IsNullOrEmpty(path) || !Path.IsPathRooted(path),
-            "Test data should be null, empty, or non-rooted");
+        Assert.Equal("Invalid path", WsBridgeServer.ValidateImagePath(""));
+    }
+
+    [Fact]
+    public void ValidateImagePath_RelativePath_ReturnsError()
+    {
+        Assert.Equal("Invalid path", WsBridgeServer.ValidateImagePath("relative/path/image.png"));
     }
 
     [Theory]
@@ -38,23 +35,20 @@ public class InputValidationTests
     [InlineData("/etc/passwd")]
     [InlineData("/home/user/.ssh/id_rsa")]
     [InlineData("/tmp/secret.txt")]
-    public void FetchImage_RejectsPathsOutsideImagesDir(string path)
+    public void ValidateImagePath_OutsideImagesDir_ReturnsNotAllowed(string path)
     {
-        var allowedDir = Path.GetFullPath(ShowImageTool.GetImagesDir());
-        var fullPath = Path.GetFullPath(path);
-        Assert.False(
-            fullPath.StartsWith(allowedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase),
-            $"Path '{path}' should not be within the allowed images directory");
+        Assert.Equal("Path not allowed", WsBridgeServer.ValidateImagePath(path));
     }
 
     [Theory]
     [InlineData("/../../../etc/passwd")]
-    [InlineData("/images/../../../etc/shadow")]
-    public void FetchImage_RejectsPathTraversal(string suffix)
+    [InlineData("/../../etc/shadow")]
+    [InlineData("/../secret.txt")]
+    public void ValidateImagePath_TraversalAttempt_ReturnsNotAllowed(string suffix)
     {
-        var imagesDir = ShowImageTool.GetImagesDir();
-        var crafted = imagesDir + suffix;
-        Assert.Contains("..", crafted);
+        var crafted = ShowImageTool.GetImagesDir() + suffix;
+        // GetFullPath canonicalizes away the ".." — result lands outside images dir
+        Assert.Equal("Path not allowed", WsBridgeServer.ValidateImagePath(crafted));
     }
 
     [Theory]
@@ -64,11 +58,17 @@ public class InputValidationTests
     [InlineData(".exe")]
     [InlineData(".sh")]
     [InlineData(".py")]
-    [InlineData("")]
-    public void FetchImage_RejectsNonImageExtensions(string ext)
+    public void ValidateImagePath_NonImageExtension_ReturnsUnsupported(string ext)
     {
-        var allowedExts = new HashSet<string> { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff" };
-        Assert.DoesNotContain(ext, allowedExts);
+        var path = Path.Combine(ShowImageTool.GetImagesDir(), "file" + ext);
+        Assert.Equal("Unsupported file type", WsBridgeServer.ValidateImagePath(path));
+    }
+
+    [Fact]
+    public void ValidateImagePath_NoExtension_ReturnsUnsupported()
+    {
+        var path = Path.Combine(ShowImageTool.GetImagesDir(), "noext");
+        Assert.Equal("Unsupported file type", WsBridgeServer.ValidateImagePath(path));
     }
 
     [Theory]
@@ -80,25 +80,24 @@ public class InputValidationTests
     [InlineData(".bmp")]
     [InlineData(".svg")]
     [InlineData(".tiff")]
-    public void FetchImage_AllowsImageExtensions(string ext)
+    public void ValidateImagePath_ValidImageInImagesDir_ReturnsNull(string ext)
     {
-        var allowedExts = new HashSet<string> { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff" };
-        Assert.Contains(ext, allowedExts);
+        var path = Path.Combine(ShowImageTool.GetImagesDir(), "test" + ext);
+        Assert.Null(WsBridgeServer.ValidateImagePath(path));
     }
 
     [Fact]
-    public void FetchImage_ValidPathInImagesDir_Accepted()
+    public void ValidateImagePath_ImagesDirItself_ReturnsNotAllowed()
     {
-        var imagesDir = Path.GetFullPath(ShowImageTool.GetImagesDir());
-        var validPath = Path.Combine(imagesDir, "test-image.png");
-        var fullPath = Path.GetFullPath(validPath);
-        var ext = Path.GetExtension(fullPath).ToLowerInvariant();
-        var allowedExts = new HashSet<string> { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff" };
+        // Requesting the directory itself should not be allowed
+        Assert.Equal("Path not allowed", WsBridgeServer.ValidateImagePath(ShowImageTool.GetImagesDir()));
+    }
 
-        Assert.True(Path.IsPathRooted(validPath));
-        Assert.DoesNotContain("..", validPath);
-        Assert.True(fullPath.StartsWith(imagesDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(ext, allowedExts);
+    [Fact]
+    public void ValidateImagePath_SubdirectoryImage_IsAllowed()
+    {
+        var path = Path.Combine(ShowImageTool.GetImagesDir(), "subdir", "test.png");
+        Assert.Null(WsBridgeServer.ValidateImagePath(path));
     }
 
     #endregion

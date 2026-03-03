@@ -636,41 +636,27 @@ public class WsBridgeServer : IDisposable
                         var imgResponse = new FetchImageResponsePayload { RequestId = imgReq.RequestId };
                         try
                         {
-                            if (string.IsNullOrEmpty(imgReq.Path) ||
-                                !Path.IsPathRooted(imgReq.Path) ||
-                                imgReq.Path.Contains(".."))
+                            var validationError = ValidateImagePath(imgReq.Path);
+                            if (validationError != null)
                             {
-                                imgResponse.Error = "Invalid path";
+                                imgResponse.Error = validationError;
                             }
                             else
                             {
-                                // Restrict to ~/.polypilot/images/ directory
-                                var allowedDir = Path.GetFullPath(ShowImageTool.GetImagesDir());
-                                var fullPath = Path.GetFullPath(imgReq.Path);
-                                var ext = Path.GetExtension(fullPath).ToLowerInvariant();
-                                var allowedExts = new HashSet<string> { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff" };
-
-                                if (!fullPath.StartsWith(allowedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                                    && !fullPath.Equals(allowedDir, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    imgResponse.Error = "Path not allowed";
-                                }
-                                else if (!allowedExts.Contains(ext))
-                                {
-                                    imgResponse.Error = "Unsupported file type";
-                                }
-                                else if (!File.Exists(fullPath))
+                                var fullPath = Path.GetFullPath(imgReq.Path!);
+                                if (!File.Exists(fullPath))
                                 {
                                     imgResponse.Error = "File not found";
                                 }
                                 else
                                 {
-                                    var bytes = await File.ReadAllBytesAsync(fullPath);
+                                    var bytes = await File.ReadAllBytesAsync(fullPath, ct);
                                     imgResponse.ImageData = Convert.ToBase64String(bytes);
                                     imgResponse.MimeType = ImageMimeType(fullPath);
                                 }
                             }
                         }
+                        catch (OperationCanceledException) { throw; }
                         catch { imgResponse.Error = "Access denied"; }
                         await SendToClientAsync(clientId, ws,
                             BridgeMessage.Create(BridgeMessageTypes.FetchImageResponse, imgResponse), ct);
@@ -1124,6 +1110,28 @@ public class WsBridgeServer : IDisposable
         if (string.IsNullOrEmpty(text)) return "";
         text = text.Replace("\n", " ").Replace("\r", "").Trim();
         return text.Length <= maxLength ? text : text[..(maxLength - 3)] + "...";
+    }
+
+    /// <summary>
+    /// Validates that an image path is safe to read. Returns an error string if invalid, null if OK.
+    /// </summary>
+    internal static string? ValidateImagePath(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || !Path.IsPathRooted(path))
+            return "Invalid path";
+
+        var allowedDir = Path.GetFullPath(ShowImageTool.GetImagesDir());
+        var fullPath = Path.GetFullPath(path);
+
+        if (!fullPath.StartsWith(allowedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return "Path not allowed";
+
+        var ext = Path.GetExtension(fullPath).ToLowerInvariant();
+        var allowedExts = new HashSet<string> { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff" };
+        if (!allowedExts.Contains(ext))
+            return "Unsupported file type";
+
+        return null;
     }
 
     private static string ImageMimeType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
