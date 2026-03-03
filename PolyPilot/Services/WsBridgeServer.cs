@@ -1123,6 +1123,15 @@ public class WsBridgeServer : IDisposable
         var allowedDir = Path.GetFullPath(ShowImageTool.GetImagesDir());
         var fullPath = Path.GetFullPath(path);
 
+        // Resolve symlinks so a link inside images/ pointing outside is caught
+        var fi = new FileInfo(fullPath);
+        if (fi.Exists && fi.LinkTarget != null)
+        {
+            var resolved = fi.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? fullPath;
+            if (!resolved.StartsWith(allowedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                return "Path not allowed";
+        }
+
         if (!fullPath.StartsWith(allowedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             return "Path not allowed";
 
@@ -1142,6 +1151,7 @@ public class WsBridgeServer : IDisposable
         ".webp" => "image/webp",
         ".bmp" => "image/bmp",
         ".svg" => "image/svg+xml",
+        ".tiff" => "image/tiff",
         _ => "image/png"
     };
 }

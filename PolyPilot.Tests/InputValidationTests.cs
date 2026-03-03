@@ -100,6 +100,24 @@ public class InputValidationTests
         Assert.Null(WsBridgeServer.ValidateImagePath(path));
     }
 
+    [Fact]
+    public void ValidateImagePath_SymlinkOutsideImagesDir_ReturnsNotAllowed()
+    {
+        var imagesDir = ShowImageTool.GetImagesDir();
+        Directory.CreateDirectory(imagesDir);
+        var linkPath = Path.Combine(imagesDir, "evil-link.png");
+        try
+        {
+            // Create a symlink pointing outside the images directory
+            File.CreateSymbolicLink(linkPath, "/etc/passwd");
+            Assert.Equal("Path not allowed", WsBridgeServer.ValidateImagePath(linkPath));
+        }
+        finally
+        {
+            if (File.Exists(linkPath)) File.Delete(linkPath);
+        }
+    }
+
     #endregion
 
     #region Markdown HTML Handling
