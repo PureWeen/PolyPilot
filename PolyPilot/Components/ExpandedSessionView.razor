@@ -687,14 +687,14 @@
         {
             var desc = string.IsNullOrWhiteSpace(a.Description) ? "" :
                 $"<div class=\"skills-popup-row-desc\">{EscapeHtml(TruncateDesc(a.Description))}</div>";
-            return $"<div class=\"skills-popup-row\">" +
+            return $"<div class=\"agent-row skills-popup-row skills-popup-row--clickable\" data-agent=\"{EscapeHtml(a.Name)}\">" +
                 $"<div class=\"skills-popup-row-title\">" +
                 $"<span class=\"skills-popup-row-name\">{EscapeHtml(a.Name)}</span>" +
                 $"<span class=\"skills-popup-row-source\">{EscapeHtml(a.Source)}</span></div>" +
                 desc + "</div>";
         }));
         var jsHtml = EscapeForJs(rows);
-        var headerHtml = EscapeForJs("<div class=\"skills-popup-header\">Available Agents</div>");
+        var headerHtml = EscapeForJs("<div class=\"skills-popup-header\">Available Agents (click to use)</div>");
         await JS.InvokeVoidAsync("eval", $@"
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
@@ -712,7 +712,19 @@
                 popup.style.bottom = bottom+'px';
                 popup.style.left = left+'px';
                 popup.innerHTML = '{headerHtml}{jsHtml}';
-                popup.onclick = function(e){{ e.stopPropagation(); }};
+                popup.onclick = function(e){{
+                    var row = e.target.closest('.agent-row');
+                    if(row){{
+                        var name = row.getAttribute('data-agent');
+                        ov.remove();
+                        var inputEl = document.querySelector('[data-session=' + JSON.stringify('{EscapeForJs(Session.Name)}') + '] textarea');
+                        if(inputEl){{
+                            inputEl.value = '@' + name + ' ';
+                            inputEl.dispatchEvent(new Event('input', {{bubbles: true}}));
+                            inputEl.focus();
+                        }}
+                    }}
+                }};
                 ov.appendChild(popup);
                 document.body.appendChild(ov);
             }})()
@@ -756,10 +768,10 @@
                     if(row){{
                         var name = row.getAttribute('data-prompt');
                         ov.remove();
-                        var inputEl = document.querySelector('[data-session=""{EscapeForJs(Session.Name)}""] textarea');
+                        var inputEl = document.querySelector('[data-session=' + JSON.stringify('{EscapeForJs(Session.Name)}') + '] textarea');
                         if(inputEl){{
                             inputEl.value = '/prompt use ' + name;
-                            inputEl.dispatchEvent(new Event('input'));
+                            inputEl.dispatchEvent(new Event('input', {{bubbles: true}}));
                         }}
                     }}
                 }};

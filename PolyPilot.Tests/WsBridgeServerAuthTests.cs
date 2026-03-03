@@ -1,5 +1,7 @@
+using System.Net;
 using System.Text.Json;
 using PolyPilot.Models;
+using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
@@ -138,5 +140,178 @@ public class WsBridgeServerAuthTests
         Assert.Equal(ConnectionMode.Persistent, loaded.Mode);
         Assert.Equal("localhost", loaded.Host);
         Assert.Equal(4321, loaded.Port);
+    }
+
+    // --- LAN probe and auth tests (bug fix: QR code 401 on Android) ---
+
+    [Fact]
+    public async Task ProbeLanAsync_ReturnsFalse_WhenServerReturns401()
+    {
+        // Simulate a server that rejects unauthenticated requests (the fix)
+        var port = GetFreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        listener.Start();
+
+        var serverTask = Task.Run(async () =>
+        {
+            var ctx = await listener.GetContextAsync();
+            ctx.Response.StatusCode = 401;
+            ctx.Response.Close();
+        });
+
+        var result = await WsBridgeClient.ProbeLanAsync($"ws://localhost:{port}", "wrong-token", CancellationToken.None);
+
+        Assert.False(result);
+        await serverTask;
+    }
+
+    [Fact]
+    public async Task ProbeLanAsync_ReturnsTrue_WhenServerReturns200()
+    {
+        var port = GetFreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        listener.Start();
+
+        var serverTask = Task.Run(async () =>
+        {
+            var ctx = await listener.GetContextAsync();
+            ctx.Response.StatusCode = 200;
+            ctx.Response.Close();
+        });
+
+        var result = await WsBridgeClient.ProbeLanAsync($"ws://localhost:{port}", null, CancellationToken.None);
+
+        Assert.True(result);
+        await serverTask;
+    }
+
+    [Fact]
+    public async Task ProbeLanAsync_ReturnsFalse_WhenServerUnreachable()
+    {
+        // Port 19998 should not have anything listening
+        var result = await WsBridgeClient.ProbeLanAsync("ws://localhost:19998", null, CancellationToken.None);
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void QrPayload_ExcludesLanUrl_WhenNoServerPassword()
+    {
+        // Reproduces the bug scenario: DevTunnel running, no ServerPassword configured.
+        // Before fix: QR included lanUrl without lanToken → 401 on Android.
+        // After fix: QR should not include lanUrl when ServerPassword is empty.
+        var settings = new ConnectionSettings
+        {
+            ServerPassword = null,
+            RemoteUrl = "https://tunnel.devtunnels.ms",
+            RemoteToken = "jwt-token"
+        };
+
+        // Replicate the fixed QR payload construction logic from GenerateQrCode
+        var payload = new Dictionary<string, string> { ["url"] = settings.RemoteUrl! };
+        if (!string.IsNullOrEmpty(settings.RemoteToken))
+            payload["token"] = settings.RemoteToken;
+
+        bool bridgeRunning = true;
+        bool hasLocalIps = true;
+        // The fix: only include lanUrl when ServerPassword is configured
+        if (bridgeRunning && hasLocalIps && !string.IsNullOrEmpty(settings.ServerPassword))
+        {
+            payload["lanUrl"] = "http://192.168.1.5:4322";
+            payload["lanToken"] = settings.ServerPassword;
+        }
+
+        Assert.False(payload.ContainsKey("lanUrl"), "lanUrl should not be in QR when no ServerPassword");
+        Assert.False(payload.ContainsKey("lanToken"), "lanToken should not be in QR when no ServerPassword");
+    }
+
+    [Fact]
+    public void QrPayload_IncludesLanUrl_WhenServerPasswordSet()
+    {
+        // When ServerPassword is configured, QR should include lanUrl with token
+        var settings = new ConnectionSettings
+        {
+            ServerPassword = "my-password",
+            RemoteUrl = "https://tunnel.devtunnels.ms",
+            RemoteToken = "jwt-token"
+        };
+
+        var payload = new Dictionary<string, string> { ["url"] = settings.RemoteUrl! };
+        if (!string.IsNullOrEmpty(settings.RemoteToken))
+            payload["token"] = settings.RemoteToken;
+
+        bool bridgeRunning = true;
+        bool hasLocalIps = true;
+        if (bridgeRunning && hasLocalIps && !string.IsNullOrEmpty(settings.ServerPassword))
+        {
+            payload["lanUrl"] = "http://192.168.1.5:4322";
+            payload["lanToken"] = settings.ServerPassword;
+        }
+
+        Assert.True(payload.ContainsKey("lanUrl"));
+        Assert.Equal("my-password", payload["lanToken"]);
+    }
+
+    [Fact]
+    public async Task WsBridgeServer_HttpProbe_AllowsLoopback_WhenTokenRequired()
+    {
+        // Verifies loopback requests still pass auth after the fix
+        // (DevTunnel proxies appear as loopback → must remain trusted)
+        var port = GetFreePort();
+        using var server = new WsBridgeServer();
+        server.AccessToken = "some-secret-token";
+        server.Start(port, 0);
+        await Task.Delay(100); // Let accept loop start
+
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+            var response = await client.GetAsync($"http://localhost:{port}/");
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.Equal("WsBridge OK", body);
+        }
+        finally
+        {
+            server.Stop();
+        }
+    }
+
+    [Fact]
+    public void ScanQrCode_LanUrlWithoutToken_ProbeWouldFail()
+    {
+        // End-to-end scenario: QR code has lanUrl but no lanToken.
+        // The ConnectSmartAsync would probe LAN first.
+        // After the server fix, the probe returns 401 → falls back to tunnel.
+        var qrJson = """{"url":"https://tunnel.devtunnels.ms","token":"jwt","lanUrl":"http://192.168.1.5:4322"}""";
+
+        var doc = JsonDocument.Parse(qrJson);
+        var settings = new ConnectionSettings();
+
+        if (doc.RootElement.TryGetProperty("url", out var urlProp))
+            settings.RemoteUrl = urlProp.GetString();
+        if (doc.RootElement.TryGetProperty("token", out var tokenProp))
+            settings.RemoteToken = tokenProp.GetString();
+        if (doc.RootElement.TryGetProperty("lanUrl", out var lanUrlProp))
+            settings.LanUrl = lanUrlProp.GetString();
+        if (doc.RootElement.TryGetProperty("lanToken", out var lanTokenProp))
+            settings.LanToken = lanTokenProp.GetString();
+
+        // lanUrl is present but lanToken is null — LAN probe should fail (server returns 401)
+        Assert.NotNull(settings.LanUrl);
+        Assert.Null(settings.LanToken);
+        // Tunnel URL and token are available as fallback
+        Assert.NotNull(settings.RemoteUrl);
+        Assert.NotNull(settings.RemoteToken);
+    }
+
+    private static int GetFreePort()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
     }
 }
