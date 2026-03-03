@@ -1024,6 +1024,79 @@
       ]
     },
     {
+      "id": "custom-agent-popup-click-to-use",
+      "name": "Custom agents popup is clickable and inserts @agent-name into textarea",
+      "steps": [
+        {
+          "action": "note",
+          "text": "Prerequisite: working directory must contain .github/agents/my-agent.md"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('[data-trigger=\"agents\"]')?.textContent",
+          "expect": {
+            "contains": "agents"
+          }
+        },
+        {
+          "action": "click",
+          "selector": "[data-trigger=\"agents\"]"
+        },
+        {
+          "action": "wait",
+          "ms": 300
+        },
+        {
+          "action": "evaluate",
+          "script": "document.getElementById('skills-popup-overlay') !== null",
+          "expect": {
+            "equals": true
+          }
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('#skills-popup-overlay')?.textContent?.includes('click to use')",
+          "expect": {
+            "equals": true
+          },
+          "note": "Header should say 'Available Agents (click to use)'"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.agent-row') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Agent rows should have class 'agent-row' and be clickable"
+        },
+        {
+          "action": "evaluate",
+          "script": "(function(){ var row = document.querySelector('.agent-row'); var name = row?.getAttribute('data-agent'); row?.click(); return name; })()",
+          "capture": "clickedAgentName"
+        },
+        {
+          "action": "wait",
+          "ms": 200
+        },
+        {
+          "action": "evaluate",
+          "script": "document.getElementById('skills-popup-overlay') === null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Popup should close after clicking an agent"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.chat-input textarea')?.value",
+          "expect": {
+            "matchesPattern": "^@.+ $"
+          },
+          "note": "Textarea should contain '@agent-name ' ready for the user to type their message"
+        }
+      ]
+    },
+    {
       "id": "group-menu-closes-on-click-outside",
       "name": "Group contextual menu closes when clicking outside, including main content area",
       "steps": [

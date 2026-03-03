@@ -728,13 +728,15 @@
             if (!string.IsNullOrEmpty(token))
                 payload["token"] = token;
 
-            // Include LAN URL if direct sharing is also running
-            if (WsBridgeServer.IsRunning && localIps.Count > 0)
+            // Include LAN URL only if a server password is configured (required for LAN auth).
+            // Without a password, non-loopback LAN connections can't authenticate and would get 401.
+            // Note: GenerateQrCode is only called when DevTunnel is running, so AccessToken is always
+            // set here — open-mode (no AccessToken AND no ServerPassword) is not reachable from this path.
+            if (WsBridgeServer.IsRunning && localIps.Count > 0 && !string.IsNullOrEmpty(settings.ServerPassword))
             {
                 var lanHost = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp ?? localIps.First();
                 payload["lanUrl"] = $"http://{lanHost}:{DevTunnelService.BridgePort}";
-                if (!string.IsNullOrEmpty(settings.ServerPassword))
-                    payload["lanToken"] = settings.ServerPassword;
+                payload["lanToken"] = settings.ServerPassword;
             }
 
             var json = System.Text.Json.JsonSerializer.Serialize(payload);
