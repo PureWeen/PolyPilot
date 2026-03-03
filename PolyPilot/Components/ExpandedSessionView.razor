@@ -855,7 +855,7 @@
                                 delBtn.onclick = function(e){{
                                     e.stopPropagation();
                                     if(confirm('Delete prompt \""' + p.name + '\""?')) {{
-                                        window.__ppRef.invokeMethodAsync('DeletePromptFromPopup', p.name).then(function(){{ ov.remove(); }}).catch(function(e){{ alert('Delete failed: ' + (e.message || e)); }});
+                                        if(!window.__ppRef){{ov.remove();return;}} window.__ppRef.invokeMethodAsync('DeletePromptFromPopup', p.name).then(function(){{ ov.remove(); }}).catch(function(e){{ alert('Delete failed: ' + (e.message || e)); }});
                                     }}
                                 }};
                                 actions.appendChild(delBtn);
@@ -919,7 +919,7 @@
                         var n = nameInput.value.trim();
                         var c = contentArea.value.trim();
                         if(!n || !c) return;
-                        window.__ppRef.invokeMethodAsync('SavePromptFromPopup', n, c, descInput.value.trim()).then(function(){{ ov.remove(); }}).catch(function(e){{ alert('Save failed: ' + (e.message || e)); }});
+                        if(!window.__ppRef){{ov.remove();return;}} window.__ppRef.invokeMethodAsync('SavePromptFromPopup', n, c, descInput.value.trim()).then(function(){{ ov.remove(); }}).catch(function(e){{ alert('Save failed: ' + (e.message || e)); }});
                     }};
                     btns.appendChild(saveBtn);
                     form.appendChild(btns);
