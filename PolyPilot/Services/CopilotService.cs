@@ -1956,12 +1956,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ProcessingStartedAt = DateTime.UtcNow;
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0; // Sending
-        Interlocked.Increment(ref state.ProcessingGeneration);
         // Capture the generation we just incremented to. The catch block uses this to
         // verify we still own the lock before releasing it — prevents a steer abort
         // (which clears SendingFlag=0 and starts a new turn with a higher generation)
         // from having its lock clobbered when the old turn's TaskCanceledException surfaces.
-        myGeneration = Interlocked.Read(ref state.ProcessingGeneration);
+        // Use the return value of Increment directly — a separate Read would be non-atomic.
+        myGeneration = Interlocked.Increment(ref state.ProcessingGeneration);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName); // Cache for watchdog (UI thread safe)
@@ -2284,7 +2284,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             return;
         }
 
-        bool toolsActiveOrUsed = Volatile.Read(ref state.ActiveToolCallCount) > 0 || state.HasUsedToolsThisTurn;
+        bool toolsActiveOrUsed = Volatile.Read(ref state.ActiveToolCallCount) > 0 || Volatile.Read(ref state.HasUsedToolsThisTurn);
 
         // Soft steer is only available for real SDK sessions (not demo/remote which lack CopilotSession).
         if (state.Info.IsProcessing && toolsActiveOrUsed && !IsDemoMode && !IsRemoteMode && state.Session != null)
@@ -2293,6 +2293,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // The current tool call(s) finish cleanly; the steering message is prepended to
             // the next LLM call within this turn, preserving full tool context.
             Debug($"[STEER] '{sessionName}' soft steer (tools active/used), len={steeringMessage.Length}");
+
+            // Add user message to history so the steering input is visible in the UI and
+            // persisted — the same as the hard steer path does via SendPromptAsync.
+            var displayPrompt = steeringMessage;
+            if (imagePaths != null && imagePaths.Count > 0)
+                displayPrompt += "\n" + string.Join("\n", imagePaths);
+            var userMsg = new ChatMessage("user", displayPrompt, DateTime.Now);
+            state.Info.History.Add(userMsg);
+            state.Info.MessageCount = state.Info.History.Count;
+            state.Info.LastReadMessageCount = state.Info.History.Count;
+            if (!string.IsNullOrEmpty(state.Info.SessionId))
+                _ = _chatDb.AddMessageAsync(state.Info.SessionId, userMsg);
+            OnStateChanged?.Invoke();
+
             var softSteerOptions = new MessageOptions { Prompt = steeringMessage, Mode = "immediate" };
             if (imagePaths != null && imagePaths.Count > 0)
                 TryAttachImages(softSteerOptions, imagePaths);

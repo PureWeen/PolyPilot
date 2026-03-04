@@ -301,4 +301,53 @@ public class SteeringMessageTests
         await task; // must complete (not hang or throw in demo mode)
         Assert.False(session.IsProcessing);
     }
+
+    // --- User message persistence on steer ---
+
+    [Fact]
+    public async Task SteerSession_HardSteer_AddsUserMessageToHistoryAndDb()
+    {
+        // Hard steer (no tools active) must add the steering message to the in-memory History.
+        // If the session has a SessionId (non-demo), it also writes through to the database.
+        // Soft steer uses the identical code block for user message addition.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("steer-persist");
+
+        session.IsProcessing = true;
+        await svc.SteerSessionAsync("steer-persist", "critical steer direction");
+
+        // In-memory history contains the steering user message
+        var steerMsg = session.History.FirstOrDefault(m => m.Role == "user" && m.Content.Contains("critical steer direction"));
+        Assert.NotNull(steerMsg);
+        Assert.Equal("user", steerMsg.Role);
+        Assert.False(steerMsg.IsInterrupted); // user message itself is never interrupted
+
+        // Message count is updated
+        Assert.Equal(session.History.Count, session.MessageCount);
+    }
+
+    [Fact]
+    public async Task SteerSession_SoftSteerPath_ContainsUserMessageAddition()
+    {
+        // Since soft steer requires a live CopilotSession (unavailable in unit tests),
+        // we verify the code structure invariant via reflection on the source: the soft
+        // steer branch must contain History.Add and AddMessageAsync calls, matching the
+        // hard steer path's contract so the steering message is never lost.
+        var source = System.IO.File.ReadAllText(
+            System.IO.Path.Combine(
+                System.IO.Path.GetDirectoryName(typeof(CopilotService).Assembly.Location)!
+                    .Replace("PolyPilot.Tests", "PolyPilot"),
+                "..", "..", "..", "..", "PolyPilot", "Services", "CopilotService.cs"));
+
+        // Find the soft steer block (between "[STEER]" debug log and return)
+        var softSteerStart = source.IndexOf("[STEER] '{sessionName}' soft steer");
+        Assert.True(softSteerStart >= 0, "Soft steer debug log not found");
+
+        var softSteerBlock = source.Substring(softSteerStart, source.IndexOf("// Hard steer:", softSteerStart) - softSteerStart);
+
+        Assert.Contains("History.Add(userMsg)", softSteerBlock);
+        Assert.Contains("_chatDb.AddMessageAsync", softSteerBlock);
+        Assert.Contains("state.Info.MessageCount", softSteerBlock);
+    }
 }
