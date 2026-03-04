@@ -299,19 +299,28 @@ public class SessionMetricsExtractorTests
             {
               "kind": "assistant_usage",
               "session_id": "test-sess",
-              "model": "claude-sonnet-4.5",
-              "input_tokens": 100,
-              "output_tokens": 50,
-              "cache_read_tokens": 10,
-              "cache_creation_tokens": 0,
-              "duration_ms": 500,
-              "initiator": "user"
+              "properties": {
+                "model": "claude-sonnet-4.5",
+                "initiator": "user",
+                "api_call_id": "call-abc"
+              },
+              "metrics": {
+                "input_tokens": 429,
+                "output_tokens": 87,
+                "cache_read_tokens": 10,
+                "cache_creation_tokens": 0,
+                "duration": 500
+              }
             }
             """);
         try
         {
             var metrics = SessionMetricsExtractor.Extract(dir, logPath);
             Assert.Equal(1, metrics.Meta.LlmCallsFound);
+            Assert.Equal("claude-sonnet-4.5", metrics.LlmCalls[0].Model);
+            Assert.Equal(429, metrics.LlmCalls[0].InputTokens);
+            Assert.Equal(87, metrics.LlmCalls[0].OutputTokens);
+            Assert.Equal(10, metrics.LlmCalls[0].CacheReadTokens);
         }
         finally
         {

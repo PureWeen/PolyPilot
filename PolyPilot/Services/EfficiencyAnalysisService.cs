@@ -69,6 +69,8 @@ public class EfficiencyAnalysisService
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[EfficiencyAnalysis] SendPromptAsync failed: {ex.Message}");
+            try { await _copilotService.CloseSessionAsync(finalName); } catch { }
+            throw;
         }
 
         return finalName;
