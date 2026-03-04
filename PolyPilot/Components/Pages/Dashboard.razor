@@ -1571,7 +1571,13 @@
             case "usage":
                 var usageLines = new System.Text.StringBuilder();
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
+                // CLI-style summary (matches copilot CLI /usage output)
+                var sessionTime = (DateTime.Now - session.CreatedAt).TotalSeconds;
                 usageLines.AppendLine("**Session Usage**");
+                usageLines.AppendLine($"- **Total usage est:** {session.PremiumRequestsUsed} Premium requests");
+                usageLines.AppendLine($"- **API time spent:** {FormatDurationSeconds(session.TotalApiTimeSeconds)}");
+                usageLines.AppendLine($"- **Total session time:** {FormatDurationSeconds(sessionTime)}");
+                // Detailed token breakdown
                 usageLines.AppendLine($"- **Input tokens:** {session.TotalInputTokens.ToString("N0", ic)}");
                 usageLines.AppendLine($"- **Output tokens:** {session.TotalOutputTokens.ToString("N0", ic)}");
                 if (session.ContextCurrentTokens.HasValue || session.ContextTokenLimit.HasValue)
@@ -2946,6 +2952,14 @@
 
     private static string FormatTokenCount(int count) =>
         count >= 1000 ? $"{count / 1000}k" : count.ToString();
+
+    private static string FormatDurationSeconds(double totalSeconds)
+    {
+        if (totalSeconds < 60) return $"{(int)totalSeconds}s";
+        var minutes = (int)(totalSeconds / 60);
+        var seconds = (int)(totalSeconds % 60);
+        return seconds > 0 ? $"{minutes}m {seconds}s" : $"{minutes}m";
+    }
 
     private static string Truncate(string s, int max) =>
         s.Length <= max ? s : s[..max] + "…";

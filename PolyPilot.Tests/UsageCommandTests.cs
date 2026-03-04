@@ -67,6 +67,39 @@ public class UsageCommandTests
     }
 
     [Fact]
+    public void AgentSessionInfo_PremiumRequestsUsed_DefaultsToZero()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-4.1" };
+        Assert.Equal(0, session.PremiumRequestsUsed);
+    }
+
+    [Fact]
+    public void AgentSessionInfo_TotalApiTimeSeconds_DefaultsToZero()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-4.1" };
+        Assert.Equal(0.0, session.TotalApiTimeSeconds);
+    }
+
+    [Fact]
+    public void AgentSessionInfo_PremiumRequestsUsed_Accumulates()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-4.1" };
+        session.PremiumRequestsUsed++;
+        session.PremiumRequestsUsed++;
+        session.PremiumRequestsUsed++;
+        Assert.Equal(3, session.PremiumRequestsUsed);
+    }
+
+    [Fact]
+    public void AgentSessionInfo_TotalApiTimeSeconds_Accumulates()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-4.1" };
+        session.TotalApiTimeSeconds += 5.5;
+        session.TotalApiTimeSeconds += 3.2;
+        Assert.Equal(8.7, session.TotalApiTimeSeconds, 1);
+    }
+
+    [Fact]
     public void UsageCommand_FormatsBasicTokens()
     {
         // Simulate the formatting logic from /usage command
@@ -81,6 +114,9 @@ public class UsageCommandTests
         var text = FormatUsageOutput(session, null);
 
         Assert.Contains("**Session Usage**", text);
+        Assert.Contains("**Total usage est:** 0 Premium requests", text);
+        Assert.Contains("**API time spent:** 0s", text);
+        Assert.Contains("**Total session time:**", text);
         Assert.Contains("**Input tokens:** 1,234", text);
         Assert.Contains("**Output tokens:** 567", text);
         Assert.DoesNotContain("Context window", text);
@@ -149,7 +185,7 @@ public class UsageCommandTests
     }
 
     [Fact]
-    public void UsageCommand_NoUsageInfo_ShowsTokensOnly()
+    public void UsageCommand_NoUsageInfo_ShowsCliStyleFields()
     {
         var session = new AgentSessionInfo
         {
@@ -161,10 +197,87 @@ public class UsageCommandTests
 
         var text = FormatUsageOutput(session, null);
 
+        Assert.Contains("**Total usage est:** 0 Premium requests", text);
+        Assert.Contains("**API time spent:** 0s", text);
+        Assert.Contains("**Total session time:**", text);
         Assert.Contains("**Input tokens:** 0", text);
         Assert.Contains("**Output tokens:** 0", text);
         Assert.DoesNotContain("Model", text);
         Assert.DoesNotContain("Quota", text);
+    }
+
+    [Fact]
+    public void UsageCommand_ShowsPremiumRequests()
+    {
+        var session = new AgentSessionInfo
+        {
+            Name = "test",
+            Model = "gpt-4.1",
+            TotalInputTokens = 500,
+            TotalOutputTokens = 200,
+            PremiumRequestsUsed = 5,
+        };
+
+        var text = FormatUsageOutput(session, null);
+
+        Assert.Contains("**Total usage est:** 5 Premium requests", text);
+    }
+
+    [Fact]
+    public void UsageCommand_ShowsApiTime()
+    {
+        var session = new AgentSessionInfo
+        {
+            Name = "test",
+            Model = "gpt-4.1",
+            TotalInputTokens = 0,
+            TotalOutputTokens = 0,
+            TotalApiTimeSeconds = 45.0,
+        };
+
+        var text = FormatUsageOutput(session, null);
+
+        Assert.Contains("**API time spent:** 45s", text);
+    }
+
+    [Fact]
+    public void UsageCommand_ShowsApiTimeMinutes()
+    {
+        var session = new AgentSessionInfo
+        {
+            Name = "test",
+            Model = "gpt-4.1",
+            TotalInputTokens = 0,
+            TotalOutputTokens = 0,
+            TotalApiTimeSeconds = 125.0,
+        };
+
+        var text = FormatUsageOutput(session, null);
+
+        Assert.Contains("**API time spent:** 2m 5s", text);
+    }
+
+    [Fact]
+    public void FormatDurationSeconds_UnderMinute()
+    {
+        Assert.Equal("0s", FormatDuration(0));
+        Assert.Equal("5s", FormatDuration(5.3));
+        Assert.Equal("59s", FormatDuration(59.9));
+    }
+
+    [Fact]
+    public void FormatDurationSeconds_MinutesAndSeconds()
+    {
+        Assert.Equal("1m", FormatDuration(60));
+        Assert.Equal("1m 30s", FormatDuration(90));
+        Assert.Equal("2m 5s", FormatDuration(125));
+    }
+
+    [Fact]
+    public void FormatDurationSeconds_LargeDuration()
+    {
+        Assert.Equal("60m", FormatDuration(3600));
+        Assert.Equal("61m 1s", FormatDuration(3661));
     }
 
     /// <summary>
@@ -175,7 +288,11 @@ public class UsageCommandTests
     {
         var usageLines = new System.Text.StringBuilder();
         var ic = System.Globalization.CultureInfo.InvariantCulture;
+        var sessionTime = (DateTime.Now - session.CreatedAt).TotalSeconds;
         usageLines.AppendLine("**Session Usage**");
+        usageLines.AppendLine($"- **Total usage est:** {session.PremiumRequestsUsed} Premium requests");
+        usageLines.AppendLine($"- **API time spent:** {FormatDuration(session.TotalApiTimeSeconds)}");
+        usageLines.AppendLine($"- **Total session time:** {FormatDuration(sessionTime)}");
         usageLines.AppendLine($"- **Input tokens:** {session.TotalInputTokens.ToString("N0", ic)}");
         usageLines.AppendLine($"- **Output tokens:** {session.TotalOutputTokens.ToString("N0", ic)}");
         if (session.ContextCurrentTokens.HasValue || session.ContextTokenLimit.HasValue)
@@ -206,5 +323,13 @@ public class UsageCommandTests
             }
         }
         return usageLines.ToString().TrimEnd();
+    }
+
+    private static string FormatDuration(double totalSeconds)
+    {
+        if (totalSeconds < 60) return $"{(int)totalSeconds}s";
+        var minutes = (int)(totalSeconds / 60);
+        var seconds = (int)(totalSeconds % 60);
+        return seconds > 0 ? $"{minutes}m {seconds}s" : $"{minutes}m";
     }
 }

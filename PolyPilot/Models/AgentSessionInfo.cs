@@ -52,6 +52,18 @@ public class AgentSessionInfo
     public int? ContextTokenLimit { get; set; }
 
     /// <summary>
+    /// Estimated number of premium requests used this session.
+    /// Incremented on each AssistantTurnEndEvent (one per model invocation).
+    /// </summary>
+    public int PremiumRequestsUsed { get; set; }
+
+    /// <summary>
+    /// Total wall-clock seconds spent waiting for model responses (API time).
+    /// Accumulated from ProcessingStartedAt on each turn completion.
+    /// </summary>
+    public double TotalApiTimeSeconds { get; set; }
+
+    /// <summary>
     /// History.Count at the time the user last viewed this session.
     /// Messages added after this count are "unread".
     /// </summary>

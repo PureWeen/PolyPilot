@@ -421,6 +421,7 @@ public partial class CopilotService
                 break;
 
             case AssistantTurnEndEvent:
+                state.Info.PremiumRequestsUsed++;
                 try { CompleteReasoningMessages(state, sessionName); }
                 catch (Exception ex)
                 {
@@ -793,6 +794,9 @@ public partial class CopilotService
         state.CurrentResponse.Clear();
         state.FlushedResponse.Clear();
         state.PendingReasoningMessages.Clear();
+        // Accumulate API time before clearing ProcessingStartedAt
+        if (state.Info.ProcessingStartedAt is { } started)
+            state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false; // After first successful completion, use normal watchdog timeouts
         Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
