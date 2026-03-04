@@ -3,6 +3,7 @@
 @using static PolyPilot.Components.Pages.Dashboard
 @using CommunityToolkit.Maui.Media
 @using System.Globalization
+@implements IAsyncDisposable
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
 @inject ISpeechToText SpeechToText
@@ -265,10 +266,10 @@
                 <span class="status-sep">·</span>
                 <span class="skills-trigger" data-trigger="agents" @onclick="ShowAgentsPopup" title="View available agents">@availableAgents.Count agents</span>
             }
-            @if (availablePrompts?.Count > 0)
+            @if (availablePrompts != null)
             {
                 <span class="status-sep">·</span>
-                <span class="skills-trigger" data-trigger="prompts" @onclick="ShowPromptsPopup" title="View saved prompts">@availablePrompts.Count prompts</span>
+                <span class="skills-trigger" data-trigger="prompts" @onclick="ShowPromptsPopup" title="Manage saved prompts">@(availablePrompts.Count == 1 ? "1 prompt" : $"{availablePrompts.Count} prompts")</span>
             }
             <span class="status-sep">·</span>
             <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
@@ -537,6 +538,41 @@
     private List<AgentInfo>? availableAgents;
     private List<SavedPrompt>? availablePrompts;
     private string? _lastSkillSessionName;
+    private DotNetObjectReference<ExpandedSessionView>? _promptDotNetRef;
+
+    [JSInvokable]
+    public async Task SavePromptFromPopup(string name, string content, string description)
+    {
+        try
+        {
+            PromptLibraryService.SavePrompt(name, content, string.IsNullOrWhiteSpace(description) ? null : description);
+            var workDir = Session.WorkingDirectory;
+            availablePrompts = await Task.Run(() => PromptLibraryService.DiscoverPrompts(workDir));
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Prompts] Save failed: {ex.Message}");
+            throw;
+        }
+    }
+
+    [JSInvokable]
+    public async Task DeletePromptFromPopup(string name)
+    {
+        try
+        {
+            PromptLibraryService.DeletePrompt(name);
+            var workDir = Session.WorkingDirectory;
+            availablePrompts = await Task.Run(() => PromptLibraryService.DiscoverPrompts(workDir));
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Prompts] Delete failed: {ex.Message}");
+            throw;
+        }
+    }
 
     protected override void OnParametersSet()
     {
@@ -647,15 +683,15 @@
         var rows = string.Join("", availableSkills.Select(s =>
         {
             var desc = string.IsNullOrWhiteSpace(s.Description) ? "" :
-                $"<div class=\"skills-popup-row-desc\">{EscapeHtml(TruncateDesc(s.Description))}</div>";
-            return $"<div class=\"skills-popup-row\">" +
-                $"<div class=\"skills-popup-row-title\">" +
-                $"<span class=\"skills-popup-row-name\">{EscapeHtml(s.Name)}</span>" +
-                $"<span class=\"skills-popup-row-source\">{EscapeHtml(s.Source)}</span></div>" +
+                $"<div style=\"font-size:13px;color:#a6adc8;margin-top:3px;line-height:1.4\">{EscapeHtml(TruncateDesc(s.Description))}</div>";
+            return $"<div style=\"padding:8px 14px;border-bottom:1px solid #313244\">" +
+                $"<div style=\"display:flex;justify-content:space-between;align-items:center;font-size:15px\">" +
+                $"<span style=\"color:#cdd6f4;font-weight:600\">{EscapeHtml(s.Name)}</span>" +
+                $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(s.Source)}</span></div>" +
                 desc + "</div>";
         }));
         var jsHtml = EscapeForJs(rows);
-        var headerHtml = EscapeForJs("<div class=\"skills-popup-header\">Available Skills</div>");
+        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Skills</div>");
         await JS.InvokeVoidAsync("eval", $@"
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
@@ -664,14 +700,12 @@
                 var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
                 var ov = document.createElement('div');
                 ov.id = 'skills-popup-overlay';
-                ov.className = 'skills-popup-overlay';
+                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
                 ov.onclick = function(){{ ov.remove(); }};
                 var popup = document.createElement('div');
-                popup.className = 'skills-popup';
                 var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
                 var bottom = window.innerHeight - rect.top + 8;
-                popup.style.bottom = bottom+'px';
-                popup.style.left = left+'px';
+                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
                 popup.innerHTML = '{headerHtml}{jsHtml}';
                 popup.onclick = function(e){{ e.stopPropagation(); }};
                 ov.appendChild(popup);
@@ -686,15 +720,15 @@
         var rows = string.Join("", availableAgents.Select(a =>
         {
             var desc = string.IsNullOrWhiteSpace(a.Description) ? "" :
-                $"<div class=\"skills-popup-row-desc\">{EscapeHtml(TruncateDesc(a.Description))}</div>";
-            return $"<div class=\"agent-row skills-popup-row skills-popup-row--clickable\" data-agent=\"{EscapeHtml(a.Name)}\">" +
-                $"<div class=\"skills-popup-row-title\">" +
-                $"<span class=\"skills-popup-row-name\">{EscapeHtml(a.Name)}</span>" +
-                $"<span class=\"skills-popup-row-source\">{EscapeHtml(a.Source)}</span></div>" +
+                $"<div style=\"font-size:13px;color:#a6adc8;margin-top:3px;line-height:1.4\">{EscapeHtml(TruncateDesc(a.Description))}</div>";
+            return $"<div class=\"agent-row\" data-agent=\"{EscapeHtml(a.Name)}\" style=\"padding:8px 14px;border-bottom:1px solid #313244;cursor:pointer\" onmouseover=\"this.style.background='rgba(255,255,255,0.05)'\" onmouseout=\"this.style.background='transparent'\">" +
+                $"<div style=\"display:flex;justify-content:space-between;align-items:center;font-size:15px\">" +
+                $"<span style=\"color:#cdd6f4;font-weight:600\">{EscapeHtml(a.Name)}</span>" +
+                $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(a.Source)}</span></div>" +
                 desc + "</div>";
         }));
         var jsHtml = EscapeForJs(rows);
-        var headerHtml = EscapeForJs("<div class=\"skills-popup-header\">Available Agents (click to use)</div>");
+        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Agents (click to use)</div>");
         await JS.InvokeVoidAsync("eval", $@"
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
@@ -703,14 +737,12 @@
                 var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
                 var ov = document.createElement('div');
                 ov.id = 'skills-popup-overlay';
-                ov.className = 'skills-popup-overlay';
+                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
                 ov.onclick = function(){{ ov.remove(); }};
                 var popup = document.createElement('div');
-                popup.className = 'skills-popup';
                 var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
                 var bottom = window.innerHeight - rect.top + 8;
-                popup.style.bottom = bottom+'px';
-                popup.style.left = left+'px';
+                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
                 popup.innerHTML = '{headerHtml}{jsHtml}';
                 popup.onclick = function(e){{
                     var row = e.target.closest('.agent-row');
@@ -733,48 +765,169 @@
 
     private async Task ShowPromptsPopup()
     {
-        if (availablePrompts == null || availablePrompts.Count == 0) return;
-        var rows = string.Join("", availablePrompts.Select(p =>
-        {
-            var desc = string.IsNullOrWhiteSpace(p.Description) ? "" :
-                $"<div class=\"skills-popup-row-desc\">{EscapeHtml(TruncateDesc(p.Description))}</div>";
-            return $"<div class=\"prompt-row skills-popup-row skills-popup-row--clickable\" data-prompt=\"{EscapeHtml(p.Name)}\">" +
-                $"<div class=\"skills-popup-row-title\">" +
-                $"<span class=\"skills-popup-row-name\">{EscapeHtml(p.Name)}</span>" +
-                $"<span class=\"skills-popup-row-source\">{EscapeHtml(p.SourceLabel)}</span></div>" +
-                desc + "</div>";
-        }));
-        var jsHtml = EscapeForJs(rows);
-        var headerHtml = EscapeForJs("<div class=\"skills-popup-header\">Available Prompts (click to use)</div>");
+        _promptDotNetRef ??= DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("eval", "window.__ppSetRef = window.__ppSetRef || function(r) { window.__ppRef = r; };");
+        await JS.InvokeVoidAsync("__ppSetRef", _promptDotNetRef);
+
+        var promptJson = System.Text.Json.JsonSerializer.Serialize(
+            (availablePrompts ?? new List<SavedPrompt>()).Select(p => new {
+                name = p.Name,
+                description = p.Description ?? "",
+                content = p.Content ?? "",
+                sourceLabel = p.SourceLabel,
+                isUser = p.Source == PromptSource.User
+            })
+        );
+        var sessionName = EscapeForJs(Session.Name);
+
+        await JS.InvokeVoidAsync("eval", $"window.__ppData = {promptJson};");
         await JS.InvokeVoidAsync("eval", $@"
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
                 if(old) old.remove();
+                var prompts = window.__ppData || [];
                 var trigger = document.querySelector('[data-trigger=""prompts""]');
                 var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
                 var ov = document.createElement('div');
                 ov.id = 'skills-popup-overlay';
-                ov.className = 'skills-popup-overlay';
+                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
                 ov.onclick = function(){{ ov.remove(); }};
                 var popup = document.createElement('div');
-                popup.className = 'skills-popup';
-                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
+                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 408));
                 var bottom = window.innerHeight - rect.top + 8;
-                popup.style.bottom = bottom+'px';
-                popup.style.left = left+'px';
-                popup.innerHTML = '{headerHtml}{jsHtml}';
-                popup.onclick = function(e){{
-                    var row = e.target.closest('.prompt-row');
-                    if(row){{
-                        var name = row.getAttribute('data-prompt');
-                        ov.remove();
-                        var inputEl = document.querySelector('[data-session=' + JSON.stringify('{EscapeForJs(Session.Name)}') + '] textarea');
-                        if(inputEl){{
-                            inputEl.value = '/prompt use ' + name;
-                            inputEl.dispatchEvent(new Event('input', {{bubbles: true}}));
-                        }}
+                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:0;min-width:280px;max-width:400px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
+                popup.onclick = function(e){{ e.stopPropagation(); }};
+
+                function renderList() {{
+                    popup.innerHTML = '';
+                    var h = document.createElement('div');
+                    h.style.cssText = 'padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600;display:flex;justify-content:space-between;align-items:center';
+                    var ht = document.createElement('span');
+                    ht.textContent = 'Prompts (click to use)';
+                    h.appendChild(ht);
+                    var newBtn = document.createElement('button');
+                    newBtn.textContent = '+ New';
+                    newBtn.style.cssText = 'background:#313244;border:none;color:#cdd6f4;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:12px';
+                    newBtn.onmouseover = function(){{ this.style.background='#45475a'; }};
+                    newBtn.onmouseout = function(){{ this.style.background='#313244'; }};
+                    newBtn.onclick = function(e){{ e.stopPropagation(); renderForm('','','','new'); }};
+                    h.appendChild(newBtn);
+                    popup.appendChild(h);
+
+                    if(prompts.length === 0) {{
+                        var empty = document.createElement('div');
+                        empty.style.cssText = 'padding:16px 14px;color:#6c7086;font-size:13px;text-align:center';
+                        empty.textContent = 'No prompts yet. Click + New to create one.';
+                        popup.appendChild(empty);
+                    }} else {{
+                        prompts.forEach(function(p) {{
+                            var row = document.createElement('div');
+                            row.style.cssText = 'padding:8px 14px;border-bottom:1px solid #313244;cursor:pointer';
+                            row.onmouseover = function(){{ this.style.background='rgba(255,255,255,0.05)'; }};
+                            row.onmouseout = function(){{ this.style.background='transparent'; }};
+                            var top = document.createElement('div');
+                            top.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:15px';
+                            var nameSpan = document.createElement('span');
+                            nameSpan.style.cssText = 'color:#cdd6f4;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
+                            nameSpan.textContent = p.name;
+                            top.appendChild(nameSpan);
+                            var actions = document.createElement('span');
+                            actions.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px;flex-shrink:0';
+                            var srcLabel = document.createElement('span');
+                            srcLabel.style.cssText = 'font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap';
+                            srcLabel.textContent = p.sourceLabel;
+                            actions.appendChild(srcLabel);
+                            if(p.isUser) {{
+                                var editBtn = document.createElement('button');
+                                editBtn.textContent = '\u270F\uFE0F';
+                                editBtn.title = 'Edit prompt';
+                                editBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.7';
+                                editBtn.onmouseover = function(){{ this.style.opacity='1'; }};
+                                editBtn.onmouseout = function(){{ this.style.opacity='0.7'; }};
+                                editBtn.onclick = function(e){{ e.stopPropagation(); renderForm(p.name, p.description, p.content, 'edit'); }};
+                                actions.appendChild(editBtn);
+                                var delBtn = document.createElement('button');
+                                delBtn.textContent = '\uD83D\uDDD1\uFE0F';
+                                delBtn.title = 'Delete prompt';
+                                delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.7';
+                                delBtn.onmouseover = function(){{ this.style.opacity='1'; }};
+                                delBtn.onmouseout = function(){{ this.style.opacity='0.7'; }};
+                                delBtn.onclick = function(e){{
+                                    e.stopPropagation();
+                                    if(confirm('Delete prompt \""' + p.name + '\""?')) {{
+                                        if(!window.__ppRef){{ov.remove();return;}} window.__ppRef.invokeMethodAsync('DeletePromptFromPopup', p.name).then(function(){{ ov.remove(); }}).catch(function(e){{ alert('Delete failed: ' + (e.message || e)); }});
+                                    }}
+                                }};
+                                actions.appendChild(delBtn);
+                            }}
+                            top.appendChild(actions);
+                            row.appendChild(top);
+                            if(p.description) {{
+                                var desc = document.createElement('div');
+                                desc.style.cssText = 'font-size:13px;color:#a6adc8;margin-top:3px;line-height:1.4';
+                                desc.textContent = p.description.length > 120 ? p.description.substring(0,117) + '\u2026' : p.description;
+                                row.appendChild(desc);
+                            }}
+                            row.onclick = function(e) {{
+                                if(e.target.tagName === 'BUTTON') return;
+                                ov.remove();
+                                var inputEl = document.querySelector('[data-session=""{sessionName}""] textarea');
+                                if(inputEl){{
+                                    inputEl.value = '/prompt use ' + p.name;
+                                    inputEl.dispatchEvent(new Event('input'));
+                                }}
+                            }};
+                            popup.appendChild(row);
+                        }});
                     }}
-                }};
+                }}
+
+                function renderForm(name, desc, content, mode) {{
+                    popup.innerHTML = '';
+                    var h = document.createElement('div');
+                    h.style.cssText = 'padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600';
+                    h.textContent = mode === 'edit' ? 'Edit Prompt' : 'New Prompt';
+                    popup.appendChild(h);
+                    var form = document.createElement('div');
+                    form.style.cssText = 'padding:10px 14px';
+                    var mkLabel = function(text) {{ var l = document.createElement('div'); l.style.cssText = 'font-size:12px;color:#6c7086;margin-bottom:4px;margin-top:8px'; l.textContent = text; return l; }};
+                    var mkInput = function(val, ph) {{ var i = document.createElement('input'); i.style.cssText = 'width:100%;background:#313244;border:1px solid #45475a;border-radius:4px;padding:6px 8px;color:#cdd6f4;font-size:14px;box-sizing:border-box'; i.value = val||''; i.placeholder = ph; return i; }};
+                    form.appendChild(mkLabel('Name'));
+                    var nameInput = mkInput(name, 'Prompt name');
+                    if(mode === 'edit') {{ nameInput.readOnly = true; nameInput.style.opacity = '0.6'; }}
+                    form.appendChild(nameInput);
+                    form.appendChild(mkLabel('Description (optional)'));
+                    var descInput = mkInput(desc, 'Brief description');
+                    form.appendChild(descInput);
+                    form.appendChild(mkLabel('Content'));
+                    var contentArea = document.createElement('textarea');
+                    contentArea.style.cssText = 'width:100%;background:#313244;border:1px solid #45475a;border-radius:4px;padding:6px 8px;color:#cdd6f4;font-size:14px;min-height:100px;resize:vertical;box-sizing:border-box;font-family:inherit';
+                    contentArea.value = content||'';
+                    contentArea.placeholder = 'Prompt content...';
+                    form.appendChild(contentArea);
+                    var btns = document.createElement('div');
+                    btns.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:12px;padding-bottom:4px';
+                    var cancelBtn = document.createElement('button');
+                    cancelBtn.textContent = 'Cancel';
+                    cancelBtn.style.cssText = 'background:#313244;border:none;color:#cdd6f4;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px';
+                    cancelBtn.onclick = function(){{ renderList(); }};
+                    btns.appendChild(cancelBtn);
+                    var saveBtn = document.createElement('button');
+                    saveBtn.textContent = 'Save';
+                    saveBtn.style.cssText = 'background:#89b4fa;border:none;color:#1e1e2e;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600';
+                    saveBtn.onclick = function(){{
+                        var n = nameInput.value.trim();
+                        var c = contentArea.value.trim();
+                        if(!n || !c) return;
+                        if(!window.__ppRef){{ov.remove();return;}} window.__ppRef.invokeMethodAsync('SavePromptFromPopup', n, c, descInput.value.trim()).then(function(){{ ov.remove(); }}).catch(function(e){{ alert('Save failed: ' + (e.message || e)); }});
+                    }};
+                    btns.appendChild(saveBtn);
+                    form.appendChild(btns);
+                    popup.appendChild(form);
+                    if(mode !== 'edit') nameInput.focus(); else contentArea.focus();
+                }}
+
+                renderList();
                 ov.appendChild(popup);
                 document.body.appendChild(ov);
             }})()
@@ -792,7 +945,7 @@
         if (entries.Count == 0)
         {
             filtered = entries;
-            rowsHtml = "<div class=\"skills-popup-empty\">No event log available</div>";
+            rowsHtml = "<div style=\"padding:14px;color:#6c7086;text-align:center\">No event log available</div>";
         }
         else
         {
@@ -802,17 +955,17 @@
             {
                 var typeColor = e.EventType switch
                 {
-                    "user.message" => "var(--accent-primary)",
-                    "assistant.message" => "var(--accent-success)",
-                    "tool.execution_start" or "tool.execution_complete" => "var(--accent-warning)",
-                    "session.error" => "var(--accent-error)",
-                    _ => "var(--text-muted)"
+                    "user.message" => "#89b4fa",
+                    "assistant.message" => "#a6e3a1",
+                    "tool.execution_start" or "tool.execution_complete" => "#f9e2af",
+                    "session.error" => "#f38ba8",
+                    _ => "#6c7086"
                 };
                 var shortType = e.EventType.Replace("assistant.", "ai.").Replace("tool.execution_", "tool.");
                 var detail = string.IsNullOrEmpty(e.Detail) ? "" :
-                    $"<span class=\"skills-popup-log-detail\">{EscapeHtml(e.Detail)}</span>";
-                return $"<div class=\"skills-popup-log-row\">" +
-                    $"<span class=\"skills-popup-log-ts\">{EscapeHtml(e.Timestamp)}</span> " +
+                    $"<span style=\"color:#a6adc8;margin-left:6px\">{EscapeHtml(e.Detail)}</span>";
+                return $"<div style=\"padding:3px 14px;font-size:12px;font-family:monospace;border-bottom:1px solid #1e1e2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis\">" +
+                    $"<span style=\"color:#6c7086\">{EscapeHtml(e.Timestamp)}</span> " +
                     $"<span style=\"color:{typeColor}\">{EscapeHtml(shortType)}</span>" +
                     detail + "</div>";
             }));
@@ -820,7 +973,7 @@
         }
         var jsRows = EscapeForJs(rowsHtml);
         var sessionTrigger = EscapeForJs("log-" + (Session.SessionId ?? ""));
-        var headerHtml = EscapeForJs($"<div class=\"skills-popup-header\" style=\"display:flex;justify-content:space-between\"><span>Session Event Log</span><span>{filtered.Count} events</span></div>");
+        var headerHtml = EscapeForJs($"<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600;display:flex;justify-content:space-between\"><span>Session Event Log</span><span>{filtered.Count} events</span></div>");
         await JS.InvokeVoidAsync("eval", $@"
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
@@ -829,14 +982,12 @@
                 var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
                 var ov = document.createElement('div');
                 ov.id = 'skills-popup-overlay';
-                ov.className = 'skills-popup-overlay';
+                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
                 ov.onclick = function(){{ ov.remove(); }};
                 var popup = document.createElement('div');
-                popup.className = 'skills-popup skills-popup--wide';
                 var left = Math.max(8, Math.min(rect.left, window.innerWidth - 468));
                 var bottom = window.innerHeight - rect.top + 8;
-                popup.style.bottom = bottom+'px';
-                popup.style.left = left+'px';
+                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:320px;max-width:460px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
                 popup.innerHTML = '{headerHtml}{jsRows}';
                 popup.onclick = function(e){{ e.stopPropagation(); }};
                 ov.appendChild(popup);
@@ -860,5 +1011,12 @@
         desc = desc.Trim();
         if (desc.Length <= 120) return desc;
         return desc[..117] + "…";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("eval", "window.__ppRef = null;"); } catch { }
+        _promptDotNetRef?.Dispose();
+        _promptDotNetRef = null;
     }
 }

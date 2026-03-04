@@ -418,6 +418,49 @@ public class PromptLibraryTests : IDisposable
         Assert.Equal("version 2", found!.Content);
     }
 
+    [Fact]
+    public void SavePrompt_EditUpdatesDescription()
+    {
+        var promptDir = Path.Combine(_testDir, "edit-desc");
+        Directory.CreateDirectory(promptDir);
+        PromptLibraryService.SetUserPromptsDirForTesting(promptDir);
+
+        PromptLibraryService.SavePrompt("my prompt", "content", "old description");
+        PromptLibraryService.SavePrompt("my prompt", "new content", "new description");
+
+        var found = PromptLibraryService.GetPrompt("my prompt");
+        Assert.NotNull(found);
+        Assert.Equal("new content", found!.Content);
+        Assert.Equal("new description", found.Description);
+    }
+
+    [Fact]
+    public void DeletePrompt_ThenRecreate()
+    {
+        var promptDir = Path.Combine(_testDir, "delete-recreate");
+        Directory.CreateDirectory(promptDir);
+        PromptLibraryService.SetUserPromptsDirForTesting(promptDir);
+
+        PromptLibraryService.SavePrompt("ephemeral", "first version");
+        Assert.True(PromptLibraryService.DeletePrompt("ephemeral"));
+        Assert.Null(PromptLibraryService.GetPrompt("ephemeral"));
+
+        PromptLibraryService.SavePrompt("ephemeral", "second version");
+        var found = PromptLibraryService.GetPrompt("ephemeral");
+        Assert.NotNull(found);
+        Assert.Equal("second version", found!.Content);
+    }
+
+    [Fact]
+    public void DeletePrompt_NonExistent_ReturnsFalse()
+    {
+        var promptDir = Path.Combine(_testDir, "delete-none");
+        Directory.CreateDirectory(promptDir);
+        PromptLibraryService.SetUserPromptsDirForTesting(promptDir);
+
+        Assert.False(PromptLibraryService.DeletePrompt("does-not-exist"));
+    }
+
     public void Dispose()
     {
         try { Directory.Delete(_testDir, true); } catch { }
