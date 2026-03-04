@@ -176,7 +176,7 @@ public partial class CopilotService
         if (entry.CreatedAt.HasValue) state.Info.CreatedAt = entry.CreatedAt.Value;
 
         // Backfill from events.jsonl when persisted values are zero (pre-feature data)
-        if (entry.PremiumRequestsUsed == 0 || !entry.CreatedAt.HasValue)
+        if (entry.PremiumRequestsUsed == 0 || entry.TotalApiTimeSeconds == 0 || !entry.CreatedAt.HasValue)
         {
             try { BackfillUsageFromEvents(state.Info, entry.SessionId); }
             catch (Exception ex) { Debug($"BackfillUsageFromEvents failed for '{entry.DisplayName}': {ex.Message}"); }
@@ -184,8 +184,8 @@ public partial class CopilotService
     }
 
     /// <summary>
-    /// Scan events.jsonl to backfill premium request count and session start time
-    /// for sessions that were persisted before usage tracking was added.
+    /// Scan events.jsonl to backfill premium request count, session start time,
+    /// and API time for sessions persisted before usage tracking was added.
     /// </summary>
     private static void BackfillUsageFromEvents(AgentSessionInfo info, string sessionId)
     {
@@ -194,36 +194,68 @@ public partial class CopilotService
 
         int turnEndCount = 0;
         DateTime? firstTimestamp = null;
+        double apiTimeSeconds = 0;
+        DateTime? lastUserMessage = null;
+        DateTime? lastTurnEnd = null;
 
         foreach (var line in File.ReadLines(eventsFile))
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
             // Fast string check before parsing JSON
-            if (firstTimestamp == null || line.Contains("assistant.turn_end"))
+            if (firstTimestamp == null || line.Contains("user.message") ||
+                line.Contains("assistant.turn_end") || line.Contains("session.idle"))
             {
                 try
                 {
                     using var doc = JsonDocument.Parse(line);
                     var root = doc.RootElement;
 
-                    if (firstTimestamp == null && root.TryGetProperty("timestamp", out var tsEl))
+                    DateTime? eventTime = null;
+                    if (root.TryGetProperty("timestamp", out var tsEl) &&
+                        DateTime.TryParse(tsEl.GetString(), out var ts))
                     {
-                        if (DateTime.TryParse(tsEl.GetString(), out var ts))
-                            firstTimestamp = ts;
+                        eventTime = ts;
+                        if (firstTimestamp == null) firstTimestamp = ts;
                     }
 
-                    if (root.TryGetProperty("type", out var typeEl) &&
-                        typeEl.GetString() == "assistant.turn_end")
+                    if (!root.TryGetProperty("type", out var typeEl)) continue;
+                    var type = typeEl.GetString();
+
+                    switch (type)
                     {
-                        turnEndCount++;
+                        case "user.message":
+                            // Close previous turn's API time if we hit a new user message
+                            if (lastUserMessage.HasValue && lastTurnEnd.HasValue)
+                                apiTimeSeconds += (lastTurnEnd.Value - lastUserMessage.Value).TotalSeconds;
+                            lastUserMessage = eventTime;
+                            lastTurnEnd = null;
+                            break;
+
+                        case "assistant.turn_end":
+                            turnEndCount++;
+                            lastTurnEnd = eventTime;
+                            break;
+
+                        case "session.idle":
+                            // Prefer session.idle as the end marker when available
+                            if (eventTime.HasValue)
+                                lastTurnEnd = eventTime;
+                            break;
                     }
                 }
                 catch { /* skip malformed lines */ }
             }
         }
 
+        // Close the last turn
+        if (lastUserMessage.HasValue && lastTurnEnd.HasValue)
+            apiTimeSeconds += (lastTurnEnd.Value - lastUserMessage.Value).TotalSeconds;
+
         if (info.PremiumRequestsUsed == 0 && turnEndCount > 0)
             info.PremiumRequestsUsed = turnEndCount;
+
+        if (info.TotalApiTimeSeconds == 0 && apiTimeSeconds > 0)
+            info.TotalApiTimeSeconds = apiTimeSeconds;
 
         if (firstTimestamp.HasValue && info.CreatedAt == default)
             info.CreatedAt = firstTimestamp.Value;
