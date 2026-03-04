@@ -161,19 +161,26 @@ public partial class CopilotService
 
     /// <summary>
     /// Restore persisted usage stats onto the in-memory session after resume.
+    /// Uses Math.Max for accumulative fields to avoid overwriting values the SDK
+    /// may have already set via event replay during ResumeSessionAsync.
     /// If usage fields are missing (e.g., from before the feature was added),
     /// backfill from events.jsonl on disk.
     /// </summary>
     private void RestoreUsageStats(ActiveSessionEntry entry)
     {
         if (!_sessions.TryGetValue(entry.DisplayName, out var state)) return;
-        state.Info.TotalInputTokens = entry.TotalInputTokens;
-        state.Info.TotalOutputTokens = entry.TotalOutputTokens;
-        if (entry.ContextCurrentTokens.HasValue) state.Info.ContextCurrentTokens = entry.ContextCurrentTokens;
-        if (entry.ContextTokenLimit.HasValue) state.Info.ContextTokenLimit = entry.ContextTokenLimit;
-        state.Info.PremiumRequestsUsed = entry.PremiumRequestsUsed;
-        state.Info.TotalApiTimeSeconds = entry.TotalApiTimeSeconds;
-        if (entry.CreatedAt.HasValue) state.Info.CreatedAt = entry.CreatedAt.Value;
+        // Use Max to preserve values from SDK event replay (which may have already
+        // incremented these via SessionUsageInfoEvent/AssistantUsageEvent)
+        state.Info.TotalInputTokens = Math.Max(state.Info.TotalInputTokens, entry.TotalInputTokens);
+        state.Info.TotalOutputTokens = Math.Max(state.Info.TotalOutputTokens, entry.TotalOutputTokens);
+        if (entry.ContextCurrentTokens.HasValue)
+            state.Info.ContextCurrentTokens = entry.ContextCurrentTokens;
+        if (entry.ContextTokenLimit.HasValue)
+            state.Info.ContextTokenLimit = entry.ContextTokenLimit;
+        state.Info.PremiumRequestsUsed = Math.Max(state.Info.PremiumRequestsUsed, entry.PremiumRequestsUsed);
+        state.Info.TotalApiTimeSeconds = Math.Max(state.Info.TotalApiTimeSeconds, entry.TotalApiTimeSeconds);
+        if (entry.CreatedAt.HasValue)
+            state.Info.CreatedAt = entry.CreatedAt.Value;
 
         // Backfill from events.jsonl when persisted values are zero (pre-feature data)
         if (entry.PremiumRequestsUsed == 0 || entry.TotalApiTimeSeconds == 0 || !entry.CreatedAt.HasValue)
