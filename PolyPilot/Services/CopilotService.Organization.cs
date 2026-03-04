@@ -985,9 +985,7 @@ public partial class CopilotService
         {
             // Send a nudge prompt to force delegation before giving up
             Debug($"[DISPATCH] No assignments parsed (length={planResponse.Length}). Sending delegation nudge. Workers: {string.Join(", ", workerNames)}");
-            var nudgePrompt = $"You MUST delegate work to your workers using @worker:worker-name / @end blocks. "
-                + $"You have {workerNames.Count} workers available: {string.Join(", ", workerNames)}. "
-                + "Do NOT do the work yourself. Output @worker blocks now.";
+            var nudgePrompt = BuildDelegationNudgePrompt(workerNames);
             var nudgeResponse = await SendPromptAndWaitAsync(orchestratorName, nudgePrompt, cancellationToken, originalPrompt: prompt);
             rawAssignments = ParseTaskAssignments(nudgeResponse, workerNames);
             Debug($"[DISPATCH] '{orchestratorName}' nudge parsed: {rawAssignments.Count} raw assignments. Response length={nudgeResponse.Length}");
@@ -1099,6 +1097,28 @@ public partial class CopilotService
     }
 
     internal record TaskAssignment(string WorkerName, string Task);
+
+    /// <summary>
+    /// Builds a delegation nudge prompt with explicit format example.
+    /// The multiline format is required because ParseTaskAssignments' regex
+    /// needs a newline after @worker:name to capture the task body.
+    /// </summary>
+    internal static string BuildDelegationNudgePrompt(List<string> workerNames)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Your previous response did not contain any @worker delegation blocks. You MUST delegate work to your workers.");
+        sb.AppendLine();
+        sb.AppendLine($"Available workers ({workerNames.Count}): {string.Join(", ", workerNames)}");
+        sb.AppendLine();
+        sb.AppendLine("Use this EXACT format (task must be on its own line AFTER the @worker line):");
+        sb.AppendLine();
+        sb.AppendLine($"@worker:{workerNames.FirstOrDefault() ?? "worker-name"}");
+        sb.AppendLine("Describe the task here on a separate line.");
+        sb.AppendLine("@end");
+        sb.AppendLine();
+        sb.AppendLine("Do NOT do the work yourself. Output @worker blocks now.");
+        return sb.ToString();
+    }
 
     internal static List<TaskAssignment> ParseTaskAssignments(string orchestratorResponse, List<string> availableWorkers)
     {
@@ -1856,9 +1876,7 @@ public partial class CopilotService
                     Debug($"[DISPATCH] Reflect iteration 1: no assignments, sending delegation nudge");
                     AddOrchestratorSystemMessage(orchestratorName,
                         "⚠️ No @worker assignments parsed from orchestrator response. Retrying...");
-                    var nudgePrompt = $"You MUST delegate work to your workers using @worker:worker-name / @end blocks. "
-                        + $"You have {workerNames.Count} workers available: {string.Join(", ", workerNames)}. "
-                        + "Do NOT do the work yourself. Output @worker blocks now.";
+                    var nudgePrompt = BuildDelegationNudgePrompt(workerNames);
                     var nudgeResponse = await SendPromptAndWaitAsync(orchestratorName, nudgePrompt, ct, originalPrompt: prompt);
                     var nudgeAssignments = ParseTaskAssignments(nudgeResponse, workerNames);
                     Debug($"[DISPATCH] '{orchestratorName}' nudge parsed: {nudgeAssignments.Count} raw assignments. Response length={nudgeResponse.Length}");
@@ -1868,6 +1886,7 @@ public partial class CopilotService
                             .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
                             .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
                             .ToList();
+                        // Fall through to dispatch below
                     }
                     else
                     {
@@ -1881,11 +1900,18 @@ public partial class CopilotService
                         continue;
                     }
                 }
-                // Later iterations: orchestrator decided no more work needed
-                reflectState.GoalMet = true;
-                AddOrchestratorSystemMessage(orchestratorName, $"✅ Orchestrator completed without delegation (iteration {reflectState.CurrentIteration}).");
-                break;
+                else
+                {
+                    // Later iterations: orchestrator decided no more work needed
+                    reflectState.GoalMet = true;
+                    AddOrchestratorSystemMessage(orchestratorName, $"✅ Orchestrator completed without delegation (iteration {reflectState.CurrentIteration}).");
+                    break;
+                }
             }
+
+            // Safety re-check: assignments may still be empty if nudge path was taken but produced nothing parseable
+            if (assignments.Count == 0)
+                continue;
 
             // Phase 2-3: Dispatch + Collect
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Dispatching,
