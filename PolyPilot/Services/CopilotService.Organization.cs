@@ -1933,10 +1933,15 @@ public partial class CopilotService
                 }
                 else
                 {
-                    // Later iterations: orchestrator decided no more work needed
-                    reflectState.GoalMet = true;
-                    AddOrchestratorSystemMessage(orchestratorName, $"✅ Orchestrator completed without delegation (iteration {reflectState.CurrentIteration}).");
-                    break;
+                    // Later iterations: orchestrator decided no more work needed —
+                    // but only declare GoalMet if no queued prompts produced @worker blocks
+                    if (queuedAssignments.Count == 0)
+                    {
+                        reflectState.GoalMet = true;
+                        AddOrchestratorSystemMessage(orchestratorName, $"✅ Orchestrator completed without delegation (iteration {reflectState.CurrentIteration}).");
+                        break;
+                    }
+                    // Fall through to merge and dispatch queued work
                 }
             }
 
