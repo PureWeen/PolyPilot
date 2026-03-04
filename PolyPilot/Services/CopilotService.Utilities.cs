@@ -300,8 +300,7 @@ public partial class CopilotService
             || msg.Contains("connection lost", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("transport connection", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("transport is closed", StringComparison.OrdinalIgnoreCase)
-            || msg.Contains("JSON-RPC connection", StringComparison.OrdinalIgnoreCase)
-            || msg.Contains("JSON-RPC error", StringComparison.OrdinalIgnoreCase))
+            || msg.Contains("JSON-RPC connection", StringComparison.OrdinalIgnoreCase))
             return true;
         // Walk the full exception chain, including all AggregateException inner exceptions
         if (ex is AggregateException agg)

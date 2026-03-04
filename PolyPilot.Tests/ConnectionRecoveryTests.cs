@@ -17,7 +17,7 @@ public class ConnectionRecoveryTests
     [InlineData("Connection refused")]
     [InlineData("Connection was closed")]
     [InlineData("The transport is closed")]
-    [InlineData("json-rpc error occurred")]
+    [InlineData("JSON-RPC connection was lost")]
     public void IsConnectionError_DetectsKnownConnectionMessages(string message)
     {
         var ex = new Exception(message);

@@ -1559,6 +1559,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             }
             catch (OperationCanceledException)
             {
+                try { if (_client != null) await _client.DisposeAsync(); } catch { }
+                _client = null;
+                IsInitialized = false;
                 _sessions.TryRemove(name, out _);
                 Organization.Sessions.RemoveAll(m => m.SessionName == name);
                 _activeSessionName = previousActiveSessionName;
@@ -2044,7 +2047,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                             await _client.StartAsync(cancellationToken);
                             Debug("Client recreated successfully");
                         }
-                        catch (OperationCanceledException) { throw; }
+                        catch (OperationCanceledException)
+                        {
+                            try { if (_client != null) await _client.DisposeAsync(); } catch { }
+                            _client = null;
+                            IsInitialized = false;
+                            throw;
+                        }
                         catch (Exception clientEx)
                         {
                             Debug($"Failed to recreate client: {clientEx.Message}");
