@@ -1434,7 +1434,7 @@
                     "- `/version` — Show version info\n" +
                     "- `/diff [args]` — Show git diff\n" +
                     "- `/status` — Show git status\n" +
-                    "- `/prompt` — List saved prompts (`/prompt use|save|delete`)\n" +
+                    "- `/prompt` — List saved prompts (`/prompt use|save|edit|show|delete`)\n" +
                     "- `/usage` — Show token usage and quota for this session\n" +
                     "- `/mcp` — List MCP servers (enable/disable with `/mcp enable|disable <name>`)\n" +
                     "- `/plugin` — List installed plugins (enable/disable with `/plugin enable|disable <name>`)\n" +
@@ -1928,6 +1928,75 @@
                 session.History.Add(ChatMessage.SystemMessage($"✅ Prompt **{saved.Name}** saved."));
                 break;
 
+            case "edit":
+                if (string.IsNullOrEmpty(target))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt edit <name> <new content>`\nOr: `/prompt edit <name>` (shows current content)"));
+                    break;
+                }
+                // Greedy name match: discover prompts once, then try longest prefix first so
+                // multi-word names take priority over shorter ones (single filesystem scan).
+                SavedPrompt? existingPrompt = null;
+                string? editContent = null;
+                {
+                    var allPrompts = PromptLibraryService.DiscoverPrompts(session.WorkingDirectory);
+                    var editWords = target.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = editWords.Length; i >= 1; i--)
+                    {
+                        var candidateName = string.Join(' ', editWords[..i]);
+                        var candidate = allPrompts.FirstOrDefault(p =>
+                            string.Equals(p.Name, candidateName, StringComparison.OrdinalIgnoreCase));
+                        if (candidate != null)
+                        {
+                            existingPrompt = candidate;
+                            editContent = i < editWords.Length ? string.Join(' ', editWords[i..]) : null;
+                            break;
+                        }
+                    }
+                }
+                if (existingPrompt == null)
+                {
+                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{target}** not found. Use `/prompt save <name> <content>` to create it."));
+                    break;
+                }
+                if (existingPrompt.Source != PromptSource.User)
+                {
+                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{existingPrompt.Name}** is a project prompt and cannot be edited. Only user prompts (`~/.polypilot/prompts/`) can be edited."));
+                    break;
+                }
+                if (editContent != null)
+                {
+                    var edited = PromptLibraryService.SavePrompt(existingPrompt.Name, editContent, existingPrompt.Description);
+                    session.History.Add(ChatMessage.SystemMessage($"✅ Prompt **{edited.Name}** updated."));
+                }
+                else
+                {
+                    // Show current content for the user to copy/modify
+                    var desc = string.IsNullOrEmpty(existingPrompt.Description) ? "" : $"\n> {existingPrompt.Description}\n";
+                    session.History.Add(ChatMessage.SystemMessage(
+                        $"**Prompt: {existingPrompt.Name}** ({existingPrompt.SourceLabel}){desc}\n```\n{existingPrompt.Content}\n```\n\n" +
+                        $"Edit with: `/prompt edit {existingPrompt.Name} <new content>`"));
+                }
+                break;
+
+            case "show":
+            case "view":
+                if (string.IsNullOrEmpty(target))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt show <name>`"));
+                    break;
+                }
+                var showPrompt = PromptLibraryService.GetPrompt(target, session.WorkingDirectory);
+                if (showPrompt == null)
+                {
+                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{target}** not found."));
+                    break;
+                }
+                var showDesc = string.IsNullOrEmpty(showPrompt.Description) ? "" : $"\n> {showPrompt.Description}\n";
+                session.History.Add(ChatMessage.SystemMessage(
+                    $"**Prompt: {showPrompt.Name}** ({showPrompt.SourceLabel}){showDesc}\n```\n{showPrompt.Content}\n```"));
+                break;
+
             case "delete":
             case "remove":
                 if (string.IsNullOrEmpty(target))
@@ -1965,7 +2034,7 @@
                     }));
                     session.History.Add(ChatMessage.SystemMessage(
                         $"**{prompts.Count} prompt{(prompts.Count != 1 ? "s" : "")} available:**\n{listing}\n\n" +
-                        "Use: `/prompt use <name>` · Save: `/prompt save <name> <content>` · Delete: `/prompt delete <name>`"));
+                        "Use: `/prompt use <name>` · Edit: `/prompt edit <name>` · Show: `/prompt show <name>` · Delete: `/prompt delete <name>`"));
                 }
                 break;
         }
