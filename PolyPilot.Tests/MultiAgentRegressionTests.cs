@@ -1558,8 +1558,11 @@ public class MultiAgentRegressionTests
         // If ReflectionState.IsActive is false (loop completed), retry should re-activate it.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
 
-        var retrySection = source.Substring(source.IndexOf("public async Task RetryOrchestrationAsync"));
+        var startIdx = source.IndexOf("public async Task RetryOrchestrationAsync");
+        Assert.True(startIdx >= 0, "RetryOrchestrationAsync method not found in source");
+        var retrySection = source.Substring(startIdx);
         var sectionEnd = retrySection.IndexOf("/// <summary>");
+        if (sectionEnd < 0) sectionEnd = Math.Min(retrySection.Length, 3000);
         var block = retrySection.Substring(0, sectionEnd);
 
         // Must reset IsActive
@@ -1577,8 +1580,11 @@ public class MultiAgentRegressionTests
         // RetryOrchestrationAsync should use a fallback resume instruction.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
 
-        var retrySection = source.Substring(source.IndexOf("public async Task RetryOrchestrationAsync"));
+        var startIdx = source.IndexOf("public async Task RetryOrchestrationAsync");
+        Assert.True(startIdx >= 0, "RetryOrchestrationAsync method not found in source");
+        var retrySection = source.Substring(startIdx);
         var sectionEnd = retrySection.IndexOf("/// <summary>");
+        if (sectionEnd < 0) sectionEnd = Math.Min(retrySection.Length, 3000);
         var block = retrySection.Substring(0, sectionEnd);
 
         // Must have a fallback prompt
