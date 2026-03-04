@@ -186,7 +186,7 @@
                 }
                 @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(Session.SessionId))
                 {
-                    <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnAnalyze.InvokeAsync(); }">
+                    <button class="menu-item" @onclick="async () => { await OnCloseMenu.InvokeAsync(); await OnAnalyze.InvokeAsync(); }">
                         📊 Analyze Efficiency
                     </button>
                 }

@@ -370,7 +370,6 @@ public static partial class SessionMetricsExtractor
             {
                 i++;
                 var jsonLines = new List<string>();
-                var braceCount = 0;
                 var started = false;
 
                 while (i < lines.Length)
@@ -382,8 +381,13 @@ public static partial class SessionMetricsExtractor
                     if (started)
                     {
                         jsonLines.Add(stripped);
-                        braceCount += stripped.Count(c => c == '{') - stripped.Count(c => c == '}');
-                        if (braceCount <= 0) break;
+                        var accumulated = string.Join("\n", jsonLines);
+                        try
+                        {
+                            JsonDocument.Parse(accumulated).Dispose();
+                            break; // valid complete JSON block
+                        }
+                        catch (JsonException) { /* not yet complete, keep accumulating */ }
                     }
                     else
                         break;

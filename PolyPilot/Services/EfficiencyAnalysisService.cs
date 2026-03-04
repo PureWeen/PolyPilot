@@ -33,18 +33,21 @@ public class EfficiencyAnalysisService
         var sessionDir = SessionMetricsExtractor.FindSessionDir(sessionId)
             ?? throw new InvalidOperationException($"Session directory not found for '{sessionId}'");
 
-        var metrics = SessionMetricsExtractor.Extract(sessionDir);
-
-        // Write metrics JSON to the target session's files/ directory
-        var filesDir = Path.Combine(sessionDir, "files");
-        Directory.CreateDirectory(filesDir);
-        var metricsPath = Path.Combine(filesDir, "efficiency-metrics.json");
-        var metricsJson = JsonSerializer.Serialize(metrics, new JsonSerializerOptions
+        // Extract metrics in-process and write to disk (offloaded to avoid blocking the UI thread)
+        var (metrics, metricsPath) = await Task.Run(() =>
         {
-            WriteIndented = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            var m = SessionMetricsExtractor.Extract(sessionDir);
+            var filesDir = Path.Combine(sessionDir, "files");
+            Directory.CreateDirectory(filesDir);
+            var path = Path.Combine(filesDir, "efficiency-metrics.json");
+            var json = JsonSerializer.Serialize(m, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            });
+            File.WriteAllText(path, json);
+            return (m, path);
         });
-        File.WriteAllText(metricsPath, metricsJson);
 
         // Build unique analysis session name
         var analysisName = $"📊 {sessionName}";
