@@ -1610,4 +1610,36 @@ public class MultiAgentRegressionTests
     }
 
     #endregion
+
+    #region Reflect Loop Concurrency Guard
+
+    /// <summary>
+    /// Regression: Two concurrent SendViaOrchestratorReflectAsync calls raced over
+    /// shared ReflectionCycle state, causing worker results to be silently lost.
+    /// The _reflectLoopLocks semaphore prevents concurrent entry.
+    /// </summary>
+    [Fact]
+    public void ReflectLoopLock_PreventsConcurrentEntry()
+    {
+        // Simulate the per-group semaphore logic used in SendViaOrchestratorReflectAsync
+        var locks = new System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>();
+        var groupId = "test-group";
+
+        var sem = locks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+
+        // First caller acquires the lock
+        Assert.True(sem.Wait(0), "First caller should acquire the lock");
+
+        // Second caller cannot acquire (loop already running)
+        Assert.False(sem.Wait(0), "Second caller should NOT acquire while first holds the lock");
+
+        // First caller releases
+        sem.Release();
+
+        // Now a new caller can acquire
+        Assert.True(sem.Wait(0), "After release, a new caller should acquire the lock");
+        sem.Release();
+    }
+
+    #endregion
 }

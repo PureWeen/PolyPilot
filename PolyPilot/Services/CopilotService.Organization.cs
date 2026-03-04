@@ -32,6 +32,12 @@ public partial class CopilotService
     // Per-session semaphores to prevent concurrent model switches during rapid dispatch
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _modelSwitchLocks = new();
 
+    // Per-group semaphore to prevent concurrent reflect loop invocations.
+    // Without this, a second user message while the loop is awaiting workers
+    // starts a competing loop that races over shared ReflectionCycle state,
+    // causing worker results to be silently lost.
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _reflectLoopLocks = new();
+
     #region Session Organization (groups, pinning, sorting)
 
     public async Task<string> CreateMultiAgentGroupAsync(string groupName, string orchestratorModel, string workerModel, int workerCount, MultiAgentMode mode, string? systemPrompt = null)
@@ -1784,6 +1790,23 @@ public partial class CopilotService
             return;
         }
 
+        // Prevent concurrent reflect loop invocations for the same group.
+        // A second user message while workers are running would start a competing
+        // loop that races over shared reflectState, causing worker results to be lost.
+        var loopLock = _reflectLoopLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+        if (!loopLock.Wait(0))
+        {
+            // Loop already running — send message directly to the orchestrator so it
+            // appears in the conversation context for the next iteration.
+            Debug($"[DISPATCH] Reflect loop already running for group '{group.Name}' — sending to orchestrator directly");
+            AddOrchestratorSystemMessage(orchestratorName,
+                $"📨 New user message received while reflection is in progress: {prompt}");
+            return;
+        }
+
+        try
+        {
+
         var workerNames = members.Where(m => m != orchestratorName).ToList();
         // Tracks workers that have successfully completed at least once across all iterations.
         // Access is sequential (single async flow, no concurrent modification).
@@ -2066,6 +2089,12 @@ public partial class CopilotService
                 OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, reflectState.BuildCompletionSummary());
                 OnStateChanged?.Invoke();
             });
+        }
+
+        } // end loopLock guard
+        finally
+        {
+            loopLock.Release();
         }
     }
 
