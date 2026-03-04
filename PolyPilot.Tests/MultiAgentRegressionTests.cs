@@ -1519,7 +1519,9 @@ public class MultiAgentRegressionTests
         // and re-dispatch them instead of reporting "no response found".
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
 
-        var monitorSection = source.Substring(source.IndexOf("private async Task MonitorAndSynthesizeAsync"));
+        var startIdx = source.IndexOf("private async Task MonitorAndSynthesizeAsync");
+        Assert.True(startIdx >= 0, "MonitorAndSynthesizeAsync method not found in source");
+        var monitorSection = source.Substring(startIdx);
         var sectionEnd = monitorSection.IndexOf("#endregion");
         if (sectionEnd < 0) sectionEnd = Math.Min(monitorSection.Length, 5000);
         var block = monitorSection.Substring(0, sectionEnd);
