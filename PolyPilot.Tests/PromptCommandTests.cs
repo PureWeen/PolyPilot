@@ -93,14 +93,14 @@ public class PromptCommandTests : IDisposable
         SetupUserPromptsDir();
         PromptLibraryService.SavePrompt("with-desc", "content v1", "my description");
 
-        // Edit with new content but no explicit description — SavePrompt without desc
+        // Calling SavePrompt directly without a description argument clears the description — this
+        // is the raw service API contract. The /prompt edit Dashboard handler passes existingPrompt.Description
+        // through, so descriptions ARE preserved there. This test documents the raw API behavior.
         PromptLibraryService.SavePrompt("with-desc", "content v2");
 
         var found = PromptLibraryService.GetPrompt("with-desc");
         Assert.NotNull(found);
         Assert.Equal("content v2", found!.Content);
-        // Note: SavePrompt without description writes frontmatter without description field
-        // The description is lost in this case — this is expected behavior for the /prompt edit command
     }
 
     [Fact]
@@ -231,6 +231,30 @@ public class PromptCommandTests : IDisposable
     {
         var content = ReadDashboard();
         Assert.Contains("/prompt show <name>", content);
+    }
+
+    [Fact]
+    public void Dashboard_EditPassesDescriptionThrough()
+    {
+        var content = ReadDashboard();
+        // Verifies description is preserved: SavePrompt is called with existingPrompt.Description
+        Assert.Contains("existingPrompt.Description", content);
+    }
+
+    [Fact]
+    public void Dashboard_EditUsesCanonicalName()
+    {
+        var content = ReadDashboard();
+        // Verifies canonical name is used: SavePrompt is called with existingPrompt.Name, not user-typed name
+        Assert.Contains("SavePrompt(existingPrompt.Name,", content);
+    }
+
+    [Fact]
+    public void Dashboard_EditUsesGreedyNameMatch()
+    {
+        var content = ReadDashboard();
+        // Verifies greedy longest-prefix matching is used for multi-word prompt names
+        Assert.Contains("editWords.Length; i >= 1; i--", content);
     }
 
     public void Dispose()

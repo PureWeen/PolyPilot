@@ -1928,23 +1928,36 @@
                     session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt edit <name> <new content>`\nOr: `/prompt edit <name>` (shows current content)"));
                     break;
                 }
-                var editParts = target.Split(' ', 2, StringSplitOptions.TrimEntries);
-                var editName = editParts[0];
-                var existingPrompt = PromptLibraryService.GetPrompt(editName, session.WorkingDirectory);
+                // Greedy name match: try longest prefix first so multi-word names take priority over shorter ones
+                SavedPrompt? existingPrompt = null;
+                string? editContent = null;
+                {
+                    var editWords = target.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = editWords.Length; i >= 1; i--)
+                    {
+                        var candidateName = string.Join(' ', editWords[..i]);
+                        var candidate = PromptLibraryService.GetPrompt(candidateName, session.WorkingDirectory);
+                        if (candidate != null)
+                        {
+                            existingPrompt = candidate;
+                            editContent = i < editWords.Length ? string.Join(' ', editWords[i..]) : null;
+                            break;
+                        }
+                    }
+                }
                 if (existingPrompt == null)
                 {
-                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{editName}** not found. Use `/prompt save {editName} <content>` to create it."));
+                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{target}** not found. Use `/prompt save <name> <content>` to create it."));
                     break;
                 }
                 if (existingPrompt.Source != PromptSource.User)
                 {
-                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{editName}** is a project prompt and cannot be edited. Only user prompts (`~/.polypilot/prompts/`) can be edited."));
+                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{existingPrompt.Name}** is a project prompt and cannot be edited. Only user prompts (`~/.polypilot/prompts/`) can be edited."));
                     break;
                 }
-                if (editParts.Length > 1)
+                if (editContent != null)
                 {
-                    var editContent = editParts[1];
-                    var edited = PromptLibraryService.SavePrompt(editName, editContent);
+                    var edited = PromptLibraryService.SavePrompt(existingPrompt.Name, editContent, existingPrompt.Description);
                     session.History.Add(ChatMessage.SystemMessage($"✅ Prompt **{edited.Name}** updated."));
                 }
                 else
@@ -1953,7 +1966,7 @@
                     var desc = string.IsNullOrEmpty(existingPrompt.Description) ? "" : $"\n> {existingPrompt.Description}\n";
                     session.History.Add(ChatMessage.SystemMessage(
                         $"**Prompt: {existingPrompt.Name}** ({existingPrompt.SourceLabel}){desc}\n```\n{existingPrompt.Content}\n```\n\n" +
-                        $"Edit with: `/prompt edit {editName} <new content>`"));
+                        $"Edit with: `/prompt edit {existingPrompt.Name} <new content>`"));
                 }
                 break;
 
