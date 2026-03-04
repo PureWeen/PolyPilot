@@ -142,6 +142,7 @@ public class ConnectionSettingsTests
         Assert.Null(settings.ServerPassword);
         Assert.False(settings.DirectSharingEnabled);
         Assert.Equal(CliSourceMode.BuiltIn, settings.CliSource);
+        Assert.Null(settings.RepositoryStorageRoot);
     }
 
     [Fact]
@@ -154,7 +155,8 @@ public class ConnectionSettingsTests
             Port = 4321,
             ServerPassword = "mypass",
             DirectSharingEnabled = true,
-            CliSource = CliSourceMode.System
+            CliSource = CliSourceMode.System,
+            RepositoryStorageRoot = "D:\\DevDrive\\PolyPilot"
         };
 
         var json = JsonSerializer.Serialize(original);
@@ -164,6 +166,7 @@ public class ConnectionSettingsTests
         Assert.Equal("mypass", loaded!.ServerPassword);
         Assert.True(loaded.DirectSharingEnabled);
         Assert.Equal(CliSourceMode.System, loaded.CliSource);
+        Assert.Equal("D:\\DevDrive\\PolyPilot", loaded.RepositoryStorageRoot);
     }
 
     [Fact]
@@ -178,6 +181,19 @@ public class ConnectionSettingsTests
         Assert.Null(loaded.ServerPassword);
         Assert.False(loaded.DirectSharingEnabled);
         Assert.Equal(CliSourceMode.BuiltIn, loaded.CliSource);
+        Assert.Null(loaded.RepositoryStorageRoot);
+    }
+
+    [Fact]
+    public void NormalizeRepositoryStorageRoot_Whitespace_ReturnsNull()
+    {
+        Assert.Null(ConnectionSettings.NormalizeRepositoryStorageRoot("   "));
+    }
+
+    [Fact]
+    public void NormalizeRepositoryStorageRoot_TrimmedPath_ReturnsTrimmed()
+    {
+        Assert.Equal("C:\\Dev", ConnectionSettings.NormalizeRepositoryStorageRoot("  C:\\Dev  "));
     }
 
     [Fact]

@@ -6,16 +6,15 @@ namespace PolyPilot.Services;
 
 /// <summary>
 /// Manages bare git clones and worktrees for repository-centric sessions.
-/// Repos live at ~/.polypilot/repos/<id>.git, worktrees at ~/.polypilot/worktrees/<id>/.
+/// Clone and worktree roots are configurable via ConnectionSettings.RepositoryStorageRoot.
+/// Metadata state remains in ~/.polypilot/repos.json.
 /// </summary>
 public class RepoManager
 {
-    private static string? _reposDir;
-    private static string ReposDir => _reposDir ??= GetReposDir();
-    private static string? _worktreesDir;
-    private static string WorktreesDir => _worktreesDir ??= GetWorktreesDir();
     private static string? _stateFile;
     private static string StateFile => _stateFile ??= GetStateFile();
+    private string ReposDir => Path.Combine(GetStorageRootDir(), "repos");
+    private string WorktreesDir => Path.Combine(GetStorageRootDir(), "worktrees");
 
     private RepositoryState _state = new();
     private bool _loaded;
@@ -44,9 +43,20 @@ public class RepoManager
         }
     }
 
-    private static string GetReposDir() => Path.Combine(GetBaseDir(), "repos");
-    private static string GetWorktreesDir() => Path.Combine(GetBaseDir(), "worktrees");
     private static string GetStateFile() => Path.Combine(GetBaseDir(), "repos.json");
+
+    private static string GetStorageRootDir()
+    {
+        try
+        {
+            var settings = ConnectionSettings.Load();
+            var configuredRoot = ConnectionSettings.NormalizeRepositoryStorageRoot(settings.RepositoryStorageRoot);
+            if (!string.IsNullOrEmpty(configuredRoot) && Path.IsPathRooted(configuredRoot))
+                return configuredRoot;
+        }
+        catch { }
+        return GetBaseDir();
+    }
 
     public void Load()
     {
@@ -58,6 +68,19 @@ public class RepoManager
                 var json = File.ReadAllText(StateFile);
                 _state = JsonSerializer.Deserialize<RepositoryState>(json) ?? new RepositoryState();
             }
+            var repoPathsById = _state.Repositories
+                .Where(r => !string.IsNullOrWhiteSpace(r.BareClonePath))
+                .ToDictionary(r => r.Id, r => r.BareClonePath, StringComparer.OrdinalIgnoreCase);
+            var changed = false;
+            foreach (var wt in _state.Worktrees.Where(w => string.IsNullOrWhiteSpace(w.BareClonePath)))
+            {
+                if (repoPathsById.TryGetValue(wt.RepoId, out var bareClonePath))
+                {
+                    wt.BareClonePath = bareClonePath;
+                    changed = true;
+                }
+            }
+            if (changed) Save();
         }
         catch (Exception ex)
         {
@@ -113,6 +136,71 @@ public class RepoManager
         return input;
     }
 
+    public string GetEffectiveStorageRoot() => GetStorageRootDir();
+
+    private string GetDesiredBareClonePath(string repoId) => Path.Combine(ReposDir, $"{repoId}.git");
+
+    private static bool PathsEqual(string left, string right)
+    {
+        var normalizedLeft = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedRight = Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void BackfillWorktreeClonePaths(RepositoryInfo repo)
+    {
+        if (string.IsNullOrWhiteSpace(repo.BareClonePath))
+            return;
+        foreach (var wt in _state.Worktrees.Where(w => w.RepoId == repo.Id && string.IsNullOrWhiteSpace(w.BareClonePath)))
+            wt.BareClonePath = repo.BareClonePath;
+    }
+
+    private async Task EnsureRepoCloneInCurrentRootAsync(RepositoryInfo repo, Action<string>? onProgress, CancellationToken ct)
+    {
+        var targetBarePath = GetDesiredBareClonePath(repo.Id);
+        if (PathsEqual(repo.BareClonePath, targetBarePath) && Directory.Exists(targetBarePath))
+            return;
+
+        BackfillWorktreeClonePaths(repo);
+        Directory.CreateDirectory(ReposDir);
+
+        if (Directory.Exists(targetBarePath))
+        {
+            onProgress?.Invoke($"Fetching {repo.Id}…");
+            try { await RunGitAsync(targetBarePath, ct, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"); } catch { }
+            await RunGitWithProgressAsync(targetBarePath, onProgress, ct, "fetch", "--progress", "origin");
+        }
+        else
+        {
+            onProgress?.Invoke($"Cloning {repo.Url}…");
+            await RunGitWithProgressAsync(null, onProgress, ct, "clone", "--bare", "--progress", repo.Url, targetBarePath);
+            await RunGitAsync(targetBarePath, ct, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+            onProgress?.Invoke($"Fetching refs…");
+            await RunGitWithProgressAsync(targetBarePath, onProgress, ct, "fetch", "--progress", "origin");
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            try { await RunGitAsync(targetBarePath, ct, "config", "core.longpaths", "true"); } catch { }
+        }
+
+        repo.BareClonePath = targetBarePath;
+        Save();
+        OnStateChanged?.Invoke();
+    }
+
+    public async Task RecloneAllRepositoriesToCurrentRootAsync(Action<string>? onProgress = null, CancellationToken ct = default)
+    {
+        EnsureLoaded();
+        var total = _state.Repositories.Count;
+        for (var index = 0; index < total; index++)
+        {
+            var repo = _state.Repositories[index];
+            onProgress?.Invoke($"[{index + 1}/{total}] {repo.Name}");
+            await EnsureRepoCloneInCurrentRootAsync(repo, onProgress, ct);
+        }
+    }
+
     /// <summary>
     /// Clone a repository as bare. Returns the RepositoryInfo.
     /// If already tracked, returns existing entry.
@@ -128,20 +216,12 @@ public class RepoManager
         var existing = _state.Repositories.FirstOrDefault(r => r.Id == id);
         if (existing != null)
         {
-            onProgress?.Invoke($"Fetching {id}…");
-            try { await RunGitAsync(existing.BareClonePath, ct, "config", "remote.origin.fetch",
-                "+refs/heads/*:refs/remotes/origin/*"); } catch { }
-            await RunGitWithProgressAsync(existing.BareClonePath, onProgress, ct, "fetch", "--progress", "origin");
-            // Ensure long paths are enabled for existing repos on Windows
-            if (OperatingSystem.IsWindows())
-            {
-                try { await RunGitAsync(existing.BareClonePath, ct, "config", "core.longpaths", "true"); } catch { }
-            }
+            await EnsureRepoCloneInCurrentRootAsync(existing, onProgress, ct);
             return existing;
         }
 
         Directory.CreateDirectory(ReposDir);
-        var barePath = Path.Combine(ReposDir, $"{id}.git");
+        var barePath = GetDesiredBareClonePath(id);
 
         if (Directory.Exists(barePath))
         {
@@ -205,6 +285,7 @@ public class RepoManager
         EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
+        await EnsureRepoCloneInCurrentRootAsync(repo, null, ct);
 
         // Fetch latest from origin (prune to clean up deleted remote branches)
         await RunGitAsync(repo.BareClonePath, ct, "fetch", "--prune", "origin");
@@ -225,6 +306,7 @@ public class RepoManager
             RepoId = repoId,
             Branch = branchName,
             Path = worktreePath,
+            BareClonePath = repo.BareClonePath,
             CreatedAt = DateTime.UtcNow
         };
         _state.Worktrees.Add(wt);
@@ -242,6 +324,7 @@ public class RepoManager
         EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
+        await EnsureRepoCloneInCurrentRootAsync(repo, null, ct);
 
         // Fetch the PR ref
         await RunGitAsync(repo.BareClonePath, ct, "fetch", "origin", $"pull/{prNumber}/head:pr-{prNumber}");
@@ -259,6 +342,7 @@ public class RepoManager
             RepoId = repoId,
             Branch = branchName,
             Path = worktreePath,
+            BareClonePath = repo.BareClonePath,
             PrNumber = prNumber,
             CreatedAt = DateTime.UtcNow
         };
@@ -277,20 +361,29 @@ public class RepoManager
         var wt = _state.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
         if (wt == null) return;
 
-        var repo = _state.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
-        if (repo != null)
+        var bareClonePath = wt.BareClonePath;
+        if (string.IsNullOrWhiteSpace(bareClonePath))
+        {
+            var repo = _state.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
+            bareClonePath = repo?.BareClonePath;
+        }
+        if (!string.IsNullOrWhiteSpace(bareClonePath))
         {
             try
             {
-                await RunGitAsync(repo.BareClonePath, ct, "worktree", "remove", wt.Path, "--force");
+                await RunGitAsync(bareClonePath, ct, "worktree", "remove", wt.Path, "--force");
             }
             catch
             {
                 // Force cleanup if git worktree remove fails
                 if (Directory.Exists(wt.Path))
                     Directory.Delete(wt.Path, recursive: true);
-                await RunGitAsync(repo.BareClonePath, ct, "worktree", "prune");
+                await RunGitAsync(bareClonePath, ct, "worktree", "prune");
             }
+        }
+        else if (Directory.Exists(wt.Path))
+        {
+            Directory.Delete(wt.Path, recursive: true);
         }
 
         _state.Worktrees.RemoveAll(w => w.Id == worktreeId);
@@ -366,6 +459,7 @@ public class RepoManager
         EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
+        await EnsureRepoCloneInCurrentRootAsync(repo, null, ct);
         await RunGitAsync(repo.BareClonePath, ct, "fetch", "--prune", "origin");
     }
 
@@ -377,6 +471,7 @@ public class RepoManager
         EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
+        await EnsureRepoCloneInCurrentRootAsync(repo, null, ct);
         var output = await RunGitAsync(repo.BareClonePath, ct, "branch", "--list");
         return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(b => b.TrimStart('*').Trim())

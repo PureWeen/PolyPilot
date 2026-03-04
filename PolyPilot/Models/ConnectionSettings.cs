@@ -56,6 +56,7 @@ public class ConnectionSettings
     public UiTheme Theme { get; set; } = UiTheme.System;
     public bool AutoUpdateFromMain { get; set; } = false;
     public CliSourceMode CliSource { get; set; } = CliSourceMode.BuiltIn;
+    public string? RepositoryStorageRoot { get; set; }
     public List<string> DisabledMcpServers { get; set; } = new();
     public List<string> DisabledPlugins { get; set; } = new();
     public bool EnableSessionNotifications { get; set; } = false;
@@ -111,8 +112,16 @@ public class ConnectionSettings
         // Ensure loaded mode is valid for this platform
         if (!PlatformHelper.AvailableModes.Contains(settings.Mode))
             settings.Mode = PlatformHelper.DefaultMode;
+        settings.RepositoryStorageRoot = NormalizeRepositoryStorageRoot(settings.RepositoryStorageRoot);
 
         return settings;
+    }
+
+    public static string? NormalizeRepositoryStorageRoot(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+        return path.Trim();
     }
 
     private static ConnectionSettings DefaultSettings()
