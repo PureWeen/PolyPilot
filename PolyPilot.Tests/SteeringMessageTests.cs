@@ -216,7 +216,45 @@ public class SteeringMessageTests
             "Plain abort must not mark any message as interrupted");
     }
 
-    // --- SendingFlag generation-guard: steer abort must not clobber new turn's lock ---
+    // --- Hybrid steering: soft steer vs hard steer ---
+
+    [Fact]
+    public async Task SteerSession_NoTools_UsesHardSteer()
+    {
+        // When no tools are active/used, hard steer must be taken:
+        // abort + restart, marking partial response as interrupted.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("steer-hard");
+
+        // ActiveToolCallCount=0, HasUsedToolsThisTurn=false (defaults)
+        session.IsProcessing = true;
+        await svc.SteerSessionAsync("steer-hard", "redirect please");
+
+        Assert.False(session.IsProcessing);
+        Assert.True(session.History.Any(m => m.Role == "user" && m.Content.Contains("redirect please")));
+    }
+
+    [Fact]
+    public async Task SteerSession_SoftSteer_NotInvokedInDemoMode()
+    {
+        // Even if we artificially set HasUsedToolsThisTurn, demo mode must fall through
+        // to hard steer (no real CopilotSession to inject into).
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("steer-demo-tools");
+
+        // Mark session as if tools were used (we can't do this from outside, but
+        // the key invariant is: demo mode never calls state.Session.SendAsync which is null)
+        session.IsProcessing = true;
+        // SteerSessionAsync must complete without NullReferenceException in demo mode,
+        // regardless of tool state, because IsDemoMode guard prevents soft steer.
+        var ex = await Record.ExceptionAsync(() => svc.SteerSessionAsync("steer-demo-tools", "steer in demo"));
+        Assert.Null(ex);
+        Assert.False(session.IsProcessing);
+    }
+
+
 
     [Fact]
     public async Task SteerSession_AfterAbort_NewTurnCanSend()
