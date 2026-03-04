@@ -326,7 +326,10 @@ Do task B.
     [Fact]
     public void NudgeSuccess_ProducesParsableAssignments_NotGoalMet()
     {
-        // Simulate: initial plan returns no @worker blocks
+        // This test validates that nudge output PARSES correctly — it proves ParseTaskAssignments
+        // returns dispatchable assignments from a nudge response. The actual control flow fix
+        // (else-block restructuring at line ~1897) is verified by code review + the GoalMet/break
+        // being inside the else clause, not the nudge-success path.
         var workers = new List<string> { "impl-worker-1", "review-worker-1" };
         var initialResponse = "I'll handle this by implementing the feature directly...";
         var initialAssignments = CopilotService.ParseTaskAssignments(initialResponse, workers);
@@ -340,5 +343,31 @@ Do task B.
         Assert.Equal(2, nudgeAssignments.Count);
         Assert.Contains(nudgeAssignments, a => a.WorkerName == "impl-worker-1");
         Assert.Contains(nudgeAssignments, a => a.WorkerName == "review-worker-1");
+    }
+
+    [Fact]
+    public void QueuedPrompts_DrainedInOrder()
+    {
+        // Validates the ConcurrentQueue<string> mechanics used by the reflect loop
+        // to queue and drain user prompts that arrive during lock contention.
+        var queues = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentQueue<string>>();
+        var groupId = "test-group";
+
+        // Queue two prompts (simulates two messages arriving while loop is busy)
+        var queue = queues.GetOrAdd(groupId, _ => new System.Collections.Concurrent.ConcurrentQueue<string>());
+        queue.Enqueue("First user message");
+        queue.Enqueue("Second user message");
+
+        // Drain all — should come out in FIFO order
+        var drained = new List<string>();
+        while (queue.TryDequeue(out var prompt))
+            drained.Add(prompt);
+
+        Assert.Equal(2, drained.Count);
+        Assert.Equal("First user message", drained[0]);
+        Assert.Equal("Second user message", drained[1]);
+
+        // Queue should be empty now
+        Assert.False(queue.TryDequeue(out _));
     }
 }

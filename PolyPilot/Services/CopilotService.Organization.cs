@@ -38,6 +38,11 @@ public partial class CopilotService
     // causing worker results to be silently lost.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _reflectLoopLocks = new();
 
+    // Queued user prompts received while a reflect loop is running.
+    // Drained at the start of each loop iteration and sent to the orchestrator
+    // so the model sees them in its conversation context.
+    private readonly ConcurrentDictionary<string, ConcurrentQueue<string>> _reflectQueuedPrompts = new();
+
     #region Session Organization (groups, pinning, sorting)
 
     public async Task<string> CreateMultiAgentGroupAsync(string groupName, string orchestratorModel, string workerModel, int workerCount, MultiAgentMode mode, string? systemPrompt = null)
@@ -1816,11 +1821,13 @@ public partial class CopilotService
         var loopLock = _reflectLoopLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
         if (!loopLock.Wait(0))
         {
-            // Loop already running — send message directly to the orchestrator so it
-            // appears in the conversation context for the next iteration.
-            Debug($"[DISPATCH] Reflect loop already running for group '{group.Name}' — sending to orchestrator directly");
+            // Loop already running — queue the prompt so it gets sent to the orchestrator's
+            // SDK session at the start of the next iteration (not just local UI history).
+            Debug($"[DISPATCH] Reflect loop already running for group '{group.Name}' — queuing prompt for next iteration");
+            var queue = _reflectQueuedPrompts.GetOrAdd(groupId, _ => new ConcurrentQueue<string>());
+            queue.Enqueue(prompt);
             AddOrchestratorSystemMessage(orchestratorName,
-                $"📨 New user message received while reflection is in progress: {prompt}");
+                $"📨 New user message queued (will be sent to orchestrator at next iteration): {prompt}");
             return;
         }
 
@@ -1845,6 +1852,19 @@ public partial class CopilotService
             {
             Debug($"Reflection loop: starting iteration {reflectState.CurrentIteration}/{reflectState.MaxIterations} " +
                   $"(IsActive={reflectState.IsActive}, IsPaused={reflectState.IsPaused})");
+
+            // Drain any user prompts queued while the loop was busy (e.g., waiting for workers).
+            // These are sent to the orchestrator's SDK session so the model sees them.
+            if (_reflectQueuedPrompts.TryGetValue(groupId, out var promptQueue))
+            {
+                while (promptQueue.TryDequeue(out var queuedPrompt))
+                {
+                    Debug($"[DISPATCH] Draining queued prompt for '{orchestratorName}' (len={queuedPrompt.Length})");
+                    await SendPromptAndWaitAsync(orchestratorName,
+                        $"[User sent a new message while you were working]\n\n{queuedPrompt}", ct, originalPrompt: prompt);
+                }
+            }
+
             // Phase 1: Plan (first iteration) or Re-plan (subsequent)
             var iterDetail = $"Iteration {reflectState.CurrentIteration}/{reflectState.MaxIterations}";
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Planning, iterDetail));
