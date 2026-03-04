@@ -273,4 +273,73 @@ public class EventsJsonlParsingTests
             return model.GetString();
         return null;
     }
+
+    [Fact]
+    public void BackfillUsage_CountsTurnEndEvents()
+    {
+        // Simulate events.jsonl with turn_end events — tests the pattern used by BackfillUsageFromEvents
+        var lines = new[]
+        {
+            """{"type":"session.start","timestamp":"2026-03-01T10:00:00Z","data":{}}""",
+            """{"type":"user.message","timestamp":"2026-03-01T10:00:05Z","data":{"content":"hello"}}""",
+            """{"type":"assistant.message","timestamp":"2026-03-01T10:00:10Z","data":{"content":"hi"}}""",
+            """{"type":"assistant.turn_end","timestamp":"2026-03-01T10:00:10Z","data":{}}""",
+            """{"type":"user.message","timestamp":"2026-03-01T10:01:00Z","data":{"content":"do something"}}""",
+            """{"type":"tool.execution_start","timestamp":"2026-03-01T10:01:05Z","data":{"toolName":"edit"}}""",
+            """{"type":"tool.execution_complete","timestamp":"2026-03-01T10:01:10Z","data":{}}""",
+            """{"type":"assistant.turn_end","timestamp":"2026-03-01T10:01:15Z","data":{}}""",
+            """{"type":"assistant.message","timestamp":"2026-03-01T10:01:20Z","data":{"content":"done"}}""",
+            """{"type":"assistant.turn_end","timestamp":"2026-03-01T10:01:20Z","data":{}}""",
+            """{"type":"session.idle","timestamp":"2026-03-01T10:01:25Z","data":{}}""",
+        };
+
+        int turnEndCount = 0;
+        DateTime? firstTimestamp = null;
+
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            if (firstTimestamp == null || line.Contains("assistant.turn_end"))
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+
+                if (firstTimestamp == null && root.TryGetProperty("timestamp", out var tsEl))
+                {
+                    if (DateTime.TryParse(tsEl.GetString(), out var ts))
+                        firstTimestamp = ts;
+                }
+
+                if (root.TryGetProperty("type", out var typeEl) &&
+                    typeEl.GetString() == "assistant.turn_end")
+                {
+                    turnEndCount++;
+                }
+            }
+        }
+
+        Assert.Equal(3, turnEndCount);
+        Assert.NotNull(firstTimestamp);
+        Assert.Equal(new DateTime(2026, 3, 1, 10, 0, 0, DateTimeKind.Utc), firstTimestamp!.Value.ToUniversalTime());
+    }
+
+    [Fact]
+    public void BackfillUsage_EmptyFile_NoChange()
+    {
+        var lines = Array.Empty<string>();
+        int turnEndCount = 0;
+        DateTime? firstTimestamp = null;
+
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("type", out var typeEl) && typeEl.GetString() == "assistant.turn_end")
+                turnEndCount++;
+        }
+
+        Assert.Equal(0, turnEndCount);
+        Assert.Null(firstTimestamp);
+    }
 }

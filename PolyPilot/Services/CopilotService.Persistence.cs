@@ -161,6 +161,8 @@ public partial class CopilotService
 
     /// <summary>
     /// Restore persisted usage stats onto the in-memory session after resume.
+    /// If usage fields are missing (e.g., from before the feature was added),
+    /// backfill from events.jsonl on disk.
     /// </summary>
     private void RestoreUsageStats(ActiveSessionEntry entry)
     {
@@ -172,6 +174,59 @@ public partial class CopilotService
         state.Info.PremiumRequestsUsed = entry.PremiumRequestsUsed;
         state.Info.TotalApiTimeSeconds = entry.TotalApiTimeSeconds;
         if (entry.CreatedAt.HasValue) state.Info.CreatedAt = entry.CreatedAt.Value;
+
+        // Backfill from events.jsonl when persisted values are zero (pre-feature data)
+        if (entry.PremiumRequestsUsed == 0 || !entry.CreatedAt.HasValue)
+        {
+            try { BackfillUsageFromEvents(state.Info, entry.SessionId); }
+            catch (Exception ex) { Debug($"BackfillUsageFromEvents failed for '{entry.DisplayName}': {ex.Message}"); }
+        }
+    }
+
+    /// <summary>
+    /// Scan events.jsonl to backfill premium request count and session start time
+    /// for sessions that were persisted before usage tracking was added.
+    /// </summary>
+    private static void BackfillUsageFromEvents(AgentSessionInfo info, string sessionId)
+    {
+        var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        if (!File.Exists(eventsFile)) return;
+
+        int turnEndCount = 0;
+        DateTime? firstTimestamp = null;
+
+        foreach (var line in File.ReadLines(eventsFile))
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            // Fast string check before parsing JSON
+            if (firstTimestamp == null || line.Contains("assistant.turn_end"))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+
+                    if (firstTimestamp == null && root.TryGetProperty("timestamp", out var tsEl))
+                    {
+                        if (DateTime.TryParse(tsEl.GetString(), out var ts))
+                            firstTimestamp = ts;
+                    }
+
+                    if (root.TryGetProperty("type", out var typeEl) &&
+                        typeEl.GetString() == "assistant.turn_end")
+                    {
+                        turnEndCount++;
+                    }
+                }
+                catch { /* skip malformed lines */ }
+            }
+        }
+
+        if (info.PremiumRequestsUsed == 0 && turnEndCount > 0)
+            info.PremiumRequestsUsed = turnEndCount;
+
+        if (firstTimestamp.HasValue && info.CreatedAt == default)
+            info.CreatedAt = firstTimestamp.Value;
     }
 
     /// <summary>
