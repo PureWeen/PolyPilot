@@ -47,6 +47,14 @@ Every code path that sets `IsProcessing = false` MUST also:
 ### Dedup Guard on Resume
 `FlushCurrentResponse` includes a dedup check: if the last non-tool assistant message in History has identical content, it skips the add and just clears `CurrentResponse`. This prevents duplicates when SDK replays events after session resume.
 
+### ChatDatabase Resilience (PR #276)
+`ChatDatabase` methods catch ALL exceptions (`catch (Exception ex)`) — not just specific types.
+All 15 `_ = _chatDb.AddMessageAsync(...)` callers in CopilotService are fire-and-forget.
+If the catch filter is too narrow, uncaught exceptions become **unobserved task exceptions**
+that crash the app. The DB is a write-through cache; `events.jsonl` is the source of truth
+and replays on session resume via `BulkInsertAsync`. DB write failures are self-healing.
+**NEVER narrow the ChatDatabase catch filters** — use `catch (Exception ex)` always.
+
 ## 8 Invariants
 
 ### INV-1: Complete state cleanup
@@ -96,5 +104,5 @@ causing stale renders.
 
 ## Regression History
 
-7 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164.
+8 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164 → #276.
 See `references/regression-history.md` for the full timeline with root causes.

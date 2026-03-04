@@ -38,6 +38,15 @@
 - Fixed: Guard on `!hasActiveTool && !HasUsedToolsThisTurn`, InvokeOnUI
 - Bridge OnTurnEnd (8th path) identified as missing full cleanup
 
+## PR #276 — ChatDatabase Exception Filter
+- All 9 ChatDatabase methods used narrow catch: `when (ex is SQLiteException or IOException or UnauthorizedAccessException)`
+- SQLite async internals can throw `AggregateException`, `InvalidOperationException`, `ObjectDisposedException`
+- All callers use fire-and-forget (`_ = _chatDb.AddMessageAsync(...)`) — uncaught exceptions became unobserved task exceptions
+- Crash seen in 'FailedDelegation' session (3918 messages): `SQLiteAsyncConnection.WriteAsync` → `AggregateException` escaped filter
+- **Fix**: Broadened all catch filters to `catch (Exception ex)`. Methods already return safe defaults and evict bad connections.
+- **Key insight**: ChatDatabase is NOT on any IsProcessing cleanup path. It's a write-through cache; events.jsonl is the source of truth. DB failures self-heal on restart.
+- **26 resilience tests** now cover: invalid paths, corrupt files, runtime corruption, file deletion, directory replacement, fire-and-forget unobserved exception pattern.
+
 ## Known Remaining Issues
 - `HasUsedToolsThisTurn` resets use plain assignment (not Volatile.Write)
 - InvokeOnUI dispatch for IsResumed adds 15s delay (one watchdog cycle)
