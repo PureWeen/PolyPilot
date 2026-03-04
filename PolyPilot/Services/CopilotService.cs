@@ -2719,6 +2719,14 @@ public class ActiveSessionEntry
     public string Model { get; set; } = "";
     public string? WorkingDirectory { get; set; }
     public string? LastPrompt { get; set; }
+    // Usage stats persisted across reconnects
+    public int TotalInputTokens { get; set; }
+    public int TotalOutputTokens { get; set; }
+    public int? ContextCurrentTokens { get; set; }
+    public int? ContextTokenLimit { get; set; }
+    public int PremiumRequestsUsed { get; set; }
+    public double TotalApiTimeSeconds { get; set; }
+    public DateTime? CreatedAt { get; set; }
 }
 
 public class PersistedSessionInfo

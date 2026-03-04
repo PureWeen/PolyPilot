@@ -27,7 +27,14 @@ public partial class CopilotService
                     WorkingDirectory = s.Info.WorkingDirectory,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
-                        : null
+                        : null,
+                    TotalInputTokens = s.Info.TotalInputTokens,
+                    TotalOutputTokens = s.Info.TotalOutputTokens,
+                    ContextCurrentTokens = s.Info.ContextCurrentTokens,
+                    ContextTokenLimit = s.Info.ContextTokenLimit,
+                    PremiumRequestsUsed = s.Info.PremiumRequestsUsed,
+                    TotalApiTimeSeconds = s.Info.TotalApiTimeSeconds,
+                    CreatedAt = s.Info.CreatedAt,
                 })
                 .ToList();
         }
@@ -63,7 +70,14 @@ public partial class CopilotService
                     WorkingDirectory = s.Info.WorkingDirectory,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
-                        : null
+                        : null,
+                    TotalInputTokens = s.Info.TotalInputTokens,
+                    TotalOutputTokens = s.Info.TotalOutputTokens,
+                    ContextCurrentTokens = s.Info.ContextCurrentTokens,
+                    ContextTokenLimit = s.Info.ContextTokenLimit,
+                    PremiumRequestsUsed = s.Info.PremiumRequestsUsed,
+                    TotalApiTimeSeconds = s.Info.TotalApiTimeSeconds,
+                    CreatedAt = s.Info.CreatedAt,
                 })
                 .ToList();
             WriteActiveSessionsFile(entries);
@@ -146,6 +160,21 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Restore persisted usage stats onto the in-memory session after resume.
+    /// </summary>
+    private void RestoreUsageStats(ActiveSessionEntry entry)
+    {
+        if (!_sessions.TryGetValue(entry.DisplayName, out var state)) return;
+        state.Info.TotalInputTokens = entry.TotalInputTokens;
+        state.Info.TotalOutputTokens = entry.TotalOutputTokens;
+        if (entry.ContextCurrentTokens.HasValue) state.Info.ContextCurrentTokens = entry.ContextCurrentTokens;
+        if (entry.ContextTokenLimit.HasValue) state.Info.ContextTokenLimit = entry.ContextTokenLimit;
+        state.Info.PremiumRequestsUsed = entry.PremiumRequestsUsed;
+        state.Info.TotalApiTimeSeconds = entry.TotalApiTimeSeconds;
+        if (entry.CreatedAt.HasValue) state.Info.CreatedAt = entry.CreatedAt.Value;
+    }
+
+    /// <summary>
     /// Load and resume all previously active sessions
     /// </summary>
     public async Task RestorePreviousSessionsAsync(CancellationToken cancellationToken = default)
@@ -203,6 +232,7 @@ public partial class CopilotService
                             }
 
                             await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken, entry.LastPrompt);
+                            RestoreUsageStats(entry);
                             Debug($"Restored session: {entry.DisplayName}");
                         }
                         catch (Exception ex)

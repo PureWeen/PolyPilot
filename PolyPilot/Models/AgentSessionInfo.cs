@@ -4,7 +4,7 @@ public class AgentSessionInfo
 {
     public required string Name { get; set; }
     public required string Model { get; set; }
-    public DateTime CreatedAt { get; init; }
+    public DateTime CreatedAt { get; set; }
     public int MessageCount { get; set; }
     public bool IsProcessing { get; set; }
     public List<ChatMessage> History { get; } = new();
