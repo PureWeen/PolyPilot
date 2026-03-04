@@ -9,6 +9,7 @@
 @inject QrScannerService QrScanner
 @inject GitAutoUpdateService GitAutoUpdate
 @inject FiestaService FiestaService
+@inject RepoManager RepoManager
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject IServiceProvider ServiceProvider
@@ -395,6 +396,40 @@
         </div>
     }
 
+    @if (PlatformHelper.IsDesktop)
+    {
+        <div class="settings-section @(SectionVisible("repository repo clone worktree storage root directory dev drive") ? "" : "search-hidden")">
+            <h3>Repository Storage</h3>
+            <p class="mode-hint">Root folder used for managed bare clones and worktrees.</p>
+            <div class="url-input">
+                <label>Storage Root:</label>
+                <input type="text" @bind="settings.RepositoryStorageRoot" placeholder="@RepoManager.GetEffectiveStorageRoot()" class="form-input wide" />
+            </div>
+            <div class="server-buttons">
+                <button class="start-btn" @onclick="BrowseRepositoryStorageRoot">Browse…</button>
+                <button class="stop-btn" @onclick="UseDefaultRepositoryStorageRoot">Use Default</button>
+            </div>
+            @if (RepositoryStorageRootChanged)
+            {
+                <div class="mode-changed-hint">
+                    <span>Existing sessions/worktrees stay where they are. New worktrees use the new root after save.</span>
+                </div>
+                @if (RepoManager.Repositories.Count > 0)
+                {
+                    <div class="mode-changed-hint">
+                        <button class="reconnect-inline-btn" @onclick="RecloneAllRegisteredRepos" disabled="@recloneBusy">
+                            @(recloneBusy ? "Re-cloning..." : "Re-clone all registered repos in new root")
+                        </button>
+                        @if (!string.IsNullOrWhiteSpace(recloneProgress))
+                        {
+                            <span>@recloneProgress</span>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    }
+
     <div class="settings-section">
         <div class="save-row">
             <button class="save-btn" @onclick="SaveAndApply">
@@ -556,6 +591,8 @@
     private bool showToken;
     private bool showQrCode;
     private bool showDirectQrCode;
+    private bool recloneBusy;
+    private string? recloneProgress;
     private string? qrCodeDataUri;
     private string? directQrCodeDataUri;
     private List<string> localIps = new();
@@ -566,6 +603,7 @@
     private CliSourceMode _initialCliSource;
     private ConnectionMode _initialMode;
     private bool cliSourceChanged;
+    private string _initialRepositoryStorageRoot = "";
     private int fontSize = 20;
     private string fiestaLinkName = "";
     private string fiestaLinkUrl = "";
@@ -616,7 +654,7 @@
         // Also check all section keywords within the group
         return groupKeyword switch
         {
-            "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect"),
+            "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect repository repo clone worktree storage root directory"),
             "ui" => SectionVisible("chat message layout default reversed both left theme font size text zoom"),
             "developer" => SectionVisible("auto update main git watch relaunch rebuild"),
             "plugins" => SectionVisible("plugins provider extension dll assembly trust enable disable"),
@@ -712,8 +750,10 @@
     protected override void OnInitialized()
     {
         settings = ConnectionSettings.Load();
+        settings.RepositoryStorageRoot = ConnectionSettings.NormalizeRepositoryStorageRoot(settings.RepositoryStorageRoot);
         _initialCliSource = settings.CliSource;
         _initialMode = settings.Mode;
+        _initialRepositoryStorageRoot = NormalizePathForCompare(settings.RepositoryStorageRoot);
         DevTunnelService.OnStateChanged += OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
         FiestaService.OnStateChanged += OnFiestaStateChanged;
@@ -909,6 +949,67 @@
         settings.CliSource = source;
         cliSourceChanged = source != _initialCliSource;
         settings.Save();
+    }
+
+    private static string NormalizePathForCompare(string? path)
+    {
+        var normalized = ConnectionSettings.NormalizeRepositoryStorageRoot(path);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return "";
+        return normalized.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private bool RepositoryStorageRootChanged =>
+        !string.Equals(NormalizePathForCompare(settings.RepositoryStorageRoot), _initialRepositoryStorageRoot, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsStorageRootValid(string? path) =>
+        string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path.Trim());
+
+    private async Task BrowseRepositoryStorageRoot()
+    {
+        var dir = await FolderPickerService.PickFolderAsync();
+        if (!string.IsNullOrWhiteSpace(dir))
+            settings.RepositoryStorageRoot = dir;
+    }
+
+    private void UseDefaultRepositoryStorageRoot()
+    {
+        settings.RepositoryStorageRoot = null;
+    }
+
+    private async Task RecloneAllRegisteredRepos()
+    {
+        settings.RepositoryStorageRoot = ConnectionSettings.NormalizeRepositoryStorageRoot(settings.RepositoryStorageRoot);
+        if (!IsStorageRootValid(settings.RepositoryStorageRoot))
+        {
+            ShowStatus("Repository storage root must be an absolute path", "error", 5000);
+            return;
+        }
+
+        settings.Save();
+        recloneBusy = true;
+        recloneProgress = null;
+        StateHasChanged();
+
+        try
+        {
+            await RepoManager.RecloneAllRepositoriesToCurrentRootAsync(progress =>
+            {
+                recloneProgress = progress;
+                _ = InvokeAsync(StateHasChanged);
+            });
+            _initialRepositoryStorageRoot = NormalizePathForCompare(settings.RepositoryStorageRoot);
+            ShowStatus("Repositories re-cloned to new root", "success", 3500);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Re-clone failed: {Models.ErrorMessageHelper.Humanize(ex)}", "error", 8000);
+        }
+        finally
+        {
+            recloneBusy = false;
+            StateHasChanged();
+        }
     }
 
     private static string ShortenPath(string path)
@@ -1233,6 +1334,13 @@
 
     private async Task SaveAndApply()
     {
+        settings.RepositoryStorageRoot = ConnectionSettings.NormalizeRepositoryStorageRoot(settings.RepositoryStorageRoot);
+        if (!IsStorageRootValid(settings.RepositoryStorageRoot))
+        {
+            ShowStatus("Repository storage root must be an absolute path", "error", 5000);
+            return;
+        }
+
         if (settings.Mode == ConnectionMode.Persistent && !serverAlive)
         {
             ShowStatus("Start the persistent server first", "error", 5000);
@@ -1257,6 +1365,7 @@
             await CopilotService.ReconnectAsync(settings);
             _initialMode = settings.Mode;
             _initialCliSource = settings.CliSource;
+            _initialRepositoryStorageRoot = NormalizePathForCompare(settings.RepositoryStorageRoot);
             cliSourceChanged = false;
             ShowStatus("Connected!", "success");
             Nav.NavigateTo("/");

@@ -82,6 +82,7 @@ public class ConnectionSettings
     public bool AutoUpdateFromMain { get; set; } = false;
     public CliSourceMode CliSource { get; set; } = CliSourceMode.BuiltIn;
     public VsCodeVariant Editor { get; set; } = VsCodeVariant.Stable;
+    public string? RepositoryStorageRoot { get; set; }
     public List<string> DisabledMcpServers { get; set; } = new();
     public List<string> DisabledPlugins { get; set; } = new();
     public PluginSettings Plugins { get; set; } = new();
@@ -169,6 +170,7 @@ public class ConnectionSettings
         // Ensure loaded mode is valid for this platform
         if (!PlatformHelper.AvailableModes.Contains(settings.Mode))
             settings.Mode = PlatformHelper.DefaultMode;
+        settings.RepositoryStorageRoot = NormalizeRepositoryStorageRoot(settings.RepositoryStorageRoot);
 
         NormalizeEnumFields(settings);
 
@@ -177,6 +179,13 @@ public class ConnectionSettings
             settings.Theme = UiTheme.System;
 
         return settings;
+    }
+
+    public static string? NormalizeRepositoryStorageRoot(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+        return path.Trim();
     }
 
     /// <summary>Normalize invalid enum values to safe defaults. Testable separately from Load().</summary>

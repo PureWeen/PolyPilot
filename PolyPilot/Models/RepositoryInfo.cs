@@ -24,6 +24,8 @@ public class WorktreeInfo
     public string RepoId { get; set; } = "";
     public string Branch { get; set; } = "";
     public string Path { get; set; } = "";
+    /// <summary>Path to the bare clone backing this worktree.</summary>
+    public string? BareClonePath { get; set; }
     /// <summary>Session name using this worktree as CWD, if any.</summary>
     public string? SessionName { get; set; }
     /// <summary>GitHub PR number if this worktree was created from a PR.</summary>
