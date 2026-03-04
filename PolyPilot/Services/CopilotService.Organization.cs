@@ -1866,7 +1866,7 @@ public partial class CopilotService
                 {
                     Debug($"[DISPATCH] Draining queued prompt for '{orchestratorName}' (len={queuedPrompt.Length})");
                     var queuedResponse = await SendPromptAndWaitAsync(orchestratorName,
-                        $"[User sent a new message while you were working]\n\n{queuedPrompt}", ct, originalPrompt: prompt);
+                        $"[User sent a new message while you were working]\n\n{queuedPrompt}", ct, originalPrompt: queuedPrompt);
                     var parsed = ParseTaskAssignments(queuedResponse, workerNames);
                     if (parsed.Count > 0)
                     {
@@ -2172,7 +2172,7 @@ public partial class CopilotService
                     {
                         Debug($"[DISPATCH] Sending leftover queued prompt on loop exit (len={leftover.Length})");
                         await SendPromptAndWaitAsync(orchestratorName,
-                            $"[User sent a message — the reflection loop has completed]\n\n{leftover}", ct, originalPrompt: prompt);
+                            $"[User sent a message — the reflection loop has completed]\n\n{leftover}", ct, originalPrompt: leftover);
                     }
                     catch (Exception ex)
                     {
