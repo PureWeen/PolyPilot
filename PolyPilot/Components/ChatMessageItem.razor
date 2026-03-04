@@ -169,7 +169,7 @@
                         }
                     }
                 }
-                else if (!Message.IsCollapsed && !string.IsNullOrEmpty(Message.ToolInput))
+                else if (!Message.IsCollapsed && Message.ToolName == "bash" && !string.IsNullOrEmpty(Message.ToolInput))
                 {
                     <div class="action-full-input">
                         <pre>@ChatMessageList.FormatToolInputExpanded(Message.ToolName ?? "", Message.ToolInput)</pre>

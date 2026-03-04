@@ -19,6 +19,11 @@ public class ToolCallExpandTests
     private static bool CanExpand(ChatMessage msg)
         => HasOutput(msg) || !string.IsNullOrEmpty(msg.ToolInput);
 
+    // Mirrors the else-if rendering condition: show full input only for bash
+    // (non-bash tools already show input in the always-visible action-input section)
+    private static bool ShowsFullInputWhenNoOutput(ChatMessage msg)
+        => !msg.IsCollapsed && msg.ToolName == "bash" && !string.IsNullOrEmpty(msg.ToolInput);
+
     // Mirrors ChatMessageList.IsUnusableResult
     private static bool IsUnusableResult(string? content)
     {
@@ -139,5 +144,34 @@ public class ToolCallExpandTests
         msg.Content = "Intent logged";
         Assert.False(HasOutput(msg));
         Assert.True(CanExpand(msg));
+    }
+
+    [Fact]
+    public void RunningNonBashTool_DoesNotShowDuplicateFullInput()
+    {
+        // Non-bash tools already show input in the always-visible action-input section,
+        // so the else-if full-input block must NOT render for them (prevents duplication).
+        var msg = ChatMessage.ToolCallMessage("edit", "call-5", "{\"path\":\"/src/file.cs\"}");
+        msg.IsCollapsed = false;
+        Assert.True(CanExpand(msg)); // header is expandable
+        Assert.False(ShowsFullInputWhenNoOutput(msg)); // but full-input block skipped for non-bash
+    }
+
+    [Fact]
+    public void RunningBashTool_ShowsFullInputWhenExpanded()
+    {
+        var msg = ChatMessage.ToolCallMessage("bash", "call-6", "{\"command\":\"dotnet build\"}");
+        msg.IsCollapsed = false;
+        Assert.True(CanExpand(msg));
+        Assert.True(ShowsFullInputWhenNoOutput(msg)); // bash shows full input when expanded
+    }
+
+    [Fact]
+    public void RunningBashTool_CollapsedDoesNotShowFullInput()
+    {
+        var msg = ChatMessage.ToolCallMessage("bash", "call-7", "{\"command\":\"dotnet build\"}");
+        Assert.True(msg.IsCollapsed);
+        Assert.True(CanExpand(msg));
+        Assert.False(ShowsFullInputWhenNoOutput(msg)); // collapsed = no full input
     }
 }
