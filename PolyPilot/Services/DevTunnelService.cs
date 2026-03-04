@@ -234,7 +234,12 @@ public partial class DevTunnelService : IDisposable
 
             if (!success)
             {
+                var lastError = _errorMessage;
                 Stop();
+                // Stop() clears _errorMessage via SetState(NotStarted).
+                // Restore the error so the user sees what went wrong.
+                if (!string.IsNullOrEmpty(lastError))
+                    SetError(lastError);
                 return false;
             }
 
@@ -263,6 +268,7 @@ public partial class DevTunnelService : IDisposable
         }
         catch (Exception ex)
         {
+            Stop();
             SetError($"Host error: {ex.Message}");
             return false;
         }
