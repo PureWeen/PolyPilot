@@ -1404,7 +1404,7 @@ public partial class CopilotService
 
             // Find the last assistant message AFTER the dispatch started — avoids picking up
             // stale pre-dispatch history from prior conversations or reflection iterations
-            var lastAssistant = session.History.LastOrDefault(m => m.Role == "assistant" && m.Timestamp >= dispatchTimeLocal);
+            var lastAssistant = session.History.ToArray().LastOrDefault(m => m.Role == "assistant" && m.Timestamp >= dispatchTimeLocal);
             if (lastAssistant != null && !string.IsNullOrWhiteSpace(lastAssistant.Content))
             {
                 results.Add(new WorkerResult(workerName, lastAssistant.Content, true, null,
@@ -1435,26 +1435,46 @@ public partial class CopilotService
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Dispatching,
                 $"Re-dispatching {unstartedWorkers.Count} worker(s)"));
 
-            // Build a generic task from the original prompt for re-dispatched workers
-            var redispatchTasks = unstartedWorkers.Select(w =>
-                ExecuteWorkerAsync(w, $"Complete the following task:\n\n{pending.OriginalPrompt}", pending.OriginalPrompt, ct));
+            // Build a generic task from the original prompt for re-dispatched workers.
+            // Materialize as an array so we can inspect individual task results even on partial failure.
+            var redispatchTaskArray = unstartedWorkers
+                .Select(w => ExecuteWorkerAsync(w, $"Complete the following task:\n\n{pending.OriginalPrompt}", pending.OriginalPrompt, ct))
+                .ToArray();
 
             try
             {
-                var redispatchResults = await Task.WhenAll(redispatchTasks);
-                // Replace the "no response" placeholders with actual results
-                for (int i = 0; i < unstartedWorkers.Count; i++)
-                {
-                    var idx = results.FindIndex(r => r.WorkerName == unstartedWorkers[i]);
-                    if (idx >= 0)
-                        results[idx] = redispatchResults[i];
-                }
+                await Task.WhenAll(redispatchTaskArray);
             }
-            catch (Exception ex)
+            catch (OperationCanceledException)
             {
-                Debug($"[DISPATCH] Re-dispatch failed: {ex.Message}");
-                AddOrchestratorSystemMessage(pending.OrchestratorName,
-                    $"⚠️ Re-dispatch of unstarted workers failed: {ex.Message}");
+                // Propagate cancellation; don't continue to synthesis with stale results
+                throw;
+            }
+            catch
+            {
+                // Partial failure: individual task errors are handled per-task below.
+                // Do NOT abort — preserve results from workers that succeeded.
+            }
+
+            // Replace placeholders with actual results — preserves successes even on partial failure
+            for (int i = 0; i < unstartedWorkers.Count; i++)
+            {
+                var t = redispatchTaskArray[i];
+                var idx = results.FindIndex(r => r.WorkerName == unstartedWorkers[i]);
+                if (idx < 0) continue;
+
+                if (t.IsCompletedSuccessfully)
+                {
+                    results[idx] = t.Result;
+                }
+                else
+                {
+                    var errorMsg = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "Task failed";
+                    Debug($"[DISPATCH] Re-dispatch failed for '{unstartedWorkers[i]}': {errorMsg}");
+                    AddOrchestratorSystemMessage(pending.OrchestratorName,
+                        $"⚠️ Re-dispatch of '{unstartedWorkers[i]}' failed: {errorMsg}");
+                    results[idx] = new WorkerResult(unstartedWorkers[i], null, false, errorMsg, TimeSpan.Zero);
+                }
             }
         }
 
@@ -1524,7 +1544,7 @@ public partial class CopilotService
             if (orchestratorName != null)
             {
                 var session = GetSession(orchestratorName);
-                var lastUserMsg = session?.History.LastOrDefault(m => m.Role == "user");
+                var lastUserMsg = session?.History.ToArray().LastOrDefault(m => m.Role == "user");
                 effectivePrompt = lastUserMsg?.Content;
             }
         }
