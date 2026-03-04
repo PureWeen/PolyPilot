@@ -518,6 +518,9 @@ public partial class CopilotService
             Organization.DeletedRepoGroupRepoIds.Add(group.RepoId);
 
         Organization.Groups.RemoveAll(g => g.Id == groupId);
+        // Clean up per-group caches to prevent memory leaks
+        _reflectLoopLocks.TryRemove(groupId, out _);
+        _reflectQueuedPrompts.TryRemove(groupId, out _);
         SaveOrganization();
         FlushSaveOrganization();
         OnStateChanged?.Invoke();
@@ -1855,13 +1858,21 @@ public partial class CopilotService
 
             // Drain any user prompts queued while the loop was busy (e.g., waiting for workers).
             // These are sent to the orchestrator's SDK session so the model sees them.
+            // If the model responds with @worker blocks, merge them into this iteration's assignments.
+            var queuedAssignments = new List<TaskAssignment>();
             if (_reflectQueuedPrompts.TryGetValue(groupId, out var promptQueue))
             {
                 while (promptQueue.TryDequeue(out var queuedPrompt))
                 {
                     Debug($"[DISPATCH] Draining queued prompt for '{orchestratorName}' (len={queuedPrompt.Length})");
-                    await SendPromptAndWaitAsync(orchestratorName,
+                    var queuedResponse = await SendPromptAndWaitAsync(orchestratorName,
                         $"[User sent a new message while you were working]\n\n{queuedPrompt}", ct, originalPrompt: prompt);
+                    var parsed = ParseTaskAssignments(queuedResponse, workerNames);
+                    if (parsed.Count > 0)
+                    {
+                        Debug($"[DISPATCH] Queued prompt response contained {parsed.Count} @worker assignments");
+                        queuedAssignments.AddRange(parsed);
+                    }
                 }
             }
 
@@ -1929,7 +1940,23 @@ public partial class CopilotService
                 }
             }
 
-            // Safety re-check: assignments may still be empty if nudge path was taken but produced nothing parseable
+            // Merge any @worker assignments from queued prompt responses
+            if (queuedAssignments.Count > 0)
+            {
+                var extra = queuedAssignments
+                    .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
+                    .ToList();
+                foreach (var a in extra)
+                {
+                    var existing = assignments.FirstOrDefault(x => string.Equals(x.WorkerName, a.WorkerName, StringComparison.OrdinalIgnoreCase));
+                    if (existing != null)
+                        assignments[assignments.IndexOf(existing)] = new TaskAssignment(existing.WorkerName, existing.Task + "\n\n---\n\n" + a.Task);
+                    else
+                        assignments.Add(a);
+                }
+            }
+
             if (assignments.Count == 0)
                 continue;
 
@@ -2129,6 +2156,9 @@ public partial class CopilotService
             reflectState.IsActive = false;
             reflectState.CompletedAt = DateTime.Now;
             ClearPendingOrchestration();
+            // Drain stale queued prompts so they don't leak into the next reflect loop invocation
+            if (_reflectQueuedPrompts.TryGetValue(groupId, out var staleQueue))
+                while (staleQueue.TryDequeue(out _)) { }
             SaveOrganization();
             InvokeOnUI(() =>
             {
