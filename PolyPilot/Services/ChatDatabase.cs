@@ -110,7 +110,7 @@ public class ChatDatabase : IChatDatabase
         _dbPath = path;
         var old = _db;
         _db = null;
-        try { _ = old?.CloseAsync(); } catch { }
+        ObserveClose(old);
     }
 
     /// <summary>
@@ -120,7 +120,7 @@ public class ChatDatabase : IChatDatabase
     {
         var old = _db;
         _db = null;
-        try { _ = old?.CloseAsync(); } catch { }
+        ObserveClose(old);
     }
 
     private async Task<SQLiteAsyncConnection> GetConnectionAsync()
@@ -360,10 +360,27 @@ public class ChatDatabase : IChatDatabase
         if (failedConn != null)
         {
             if (Interlocked.CompareExchange(ref _db!, null!, failedConn) == failedConn)
-                try { _ = failedConn.CloseAsync(); } catch { }
+                ObserveClose(failedConn);
         }
         // When failedConn is null, GetConnectionAsync already cleaned up the failed
         // connection before throwing — _db was never set, so there is nothing to evict.
         System.Diagnostics.Debug.WriteLine($"[ChatDatabase] {method} failed: {ex.Message}");
+    }
+
+    /// <summary>
+    /// Fire-and-forget close that observes faults so they don't become
+    /// unobserved task exceptions. Same class of bug this PR fixes.
+    /// </summary>
+    private static void ObserveClose(SQLiteAsyncConnection? conn)
+    {
+        if (conn == null) return;
+        try
+        {
+            conn.CloseAsync().ContinueWith(
+                static t => System.Diagnostics.Debug.WriteLine(
+                    $"[ChatDatabase] CloseAsync failed: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
+        }
+        catch { /* sync throw from CloseAsync itself */ }
     }
 }
