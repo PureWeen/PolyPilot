@@ -20,10 +20,10 @@ public class ToolCallExpandTests
     private static bool CanExpand(ChatMessage msg)
         => HasOutput(msg) || (msg.ToolName == "bash" && !string.IsNullOrEmpty(msg.ToolInput));
 
-    // Mirrors the else-if rendering condition: show full input only for bash
+    // Mirrors the else-if rendering condition: show full input only for bash when there is no output
     // (non-bash tools already show input in the always-visible action-input section)
     private static bool ShowsFullInputWhenNoOutput(ChatMessage msg)
-        => !msg.IsCollapsed && msg.ToolName == "bash" && !string.IsNullOrEmpty(msg.ToolInput);
+        => !HasOutput(msg) && !msg.IsCollapsed && msg.ToolName == "bash" && !string.IsNullOrEmpty(msg.ToolInput);
 
     // Mirrors ChatMessageList.IsUnusableResult
     private static bool IsUnusableResult(string? content)
@@ -189,5 +189,18 @@ public class ToolCallExpandTests
         msg.Content = "src/file.cs:10: // TODO fix this";
         Assert.True(HasOutput(msg));
         Assert.True(CanExpand(msg));
+    }
+
+    [Fact]
+    public void CompletedBashWithOutput_ShowsFullInputWhenNoOutput_ReturnsFalse()
+    {
+        // A completed bash command with usable output takes the if (_hasOutput) branch in
+        // ChatMessageItem.razor, NOT the else-if. ShowsFullInputWhenNoOutput must return false.
+        var msg = ChatMessage.ToolCallMessage("bash", "call-1", "{\"command\":\"ls\"}");
+        msg.IsComplete = true;
+        msg.Content = "file1.txt";
+        msg.IsCollapsed = false;
+        Assert.True(HasOutput(msg));
+        Assert.False(ShowsFullInputWhenNoOutput(msg));
     }
 }
