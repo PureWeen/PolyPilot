@@ -173,7 +173,7 @@ public class ChatDatabase : IChatDatabase
                 "SELECT COUNT(*) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
             return count > 0;
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("HasMessagesAsync", ex, db);
             return false;
@@ -192,7 +192,7 @@ public class ChatDatabase : IChatDatabase
             return await db.ExecuteScalarAsync<int>(
                 "SELECT COUNT(*) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("GetMessageCountAsync", ex, db);
             return 0;
@@ -222,7 +222,7 @@ public class ChatDatabase : IChatDatabase
 
             return entities.Select(e => e.ToChatMessage()).ToList();
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("GetMessagesAsync", ex, db);
             return new List<ChatMessage>();
@@ -245,7 +245,7 @@ public class ChatDatabase : IChatDatabase
 
             return entities.Select(e => e.ToChatMessage()).ToList();
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("GetAllMessagesAsync", ex, db);
             return new List<ChatMessage>();
@@ -268,7 +268,7 @@ public class ChatDatabase : IChatDatabase
             await db.InsertAsync(entity);
             return entity.Id;
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("AddMessageAsync", ex, db);
             return -1;
@@ -288,7 +288,7 @@ public class ChatDatabase : IChatDatabase
                 "UPDATE ChatMessageEntity SET Content = ?, IsComplete = 1, IsSuccess = ? WHERE SessionId = ? AND ToolCallId = ?",
                 content, isSuccess, sessionId, toolCallId);
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("UpdateToolCompleteAsync", ex, db);
         }
@@ -307,7 +307,7 @@ public class ChatDatabase : IChatDatabase
                 "UPDATE ChatMessageEntity SET Content = ?, IsComplete = ? WHERE SessionId = ? AND ReasoningId = ?",
                 content, isComplete, sessionId, reasoningId);
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("UpdateReasoningContentAsync", ex, db);
         }
@@ -330,7 +330,7 @@ public class ChatDatabase : IChatDatabase
                 tran.InsertAll(entities);
             });
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("BulkInsertAsync", ex, db);
         }
@@ -347,7 +347,7 @@ public class ChatDatabase : IChatDatabase
             db = await GetConnectionAsync();
             await db.ExecuteAsync("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("ClearSessionAsync", ex, db);
         }
