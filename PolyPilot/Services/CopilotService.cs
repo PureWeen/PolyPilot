@@ -2310,7 +2310,27 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var softSteerOptions = new MessageOptions { Prompt = steeringMessage, Mode = "immediate" };
             if (imagePaths != null && imagePaths.Count > 0)
                 TryAttachImages(softSteerOptions, imagePaths);
-            await state.Session.SendAsync(softSteerOptions);
+            try
+            {
+                await state.Session.SendAsync(softSteerOptions);
+            }
+            catch (Exception ex)
+            {
+                OnError?.Invoke(sessionName, $"Soft steer failed: {Models.ErrorMessageHelper.Humanize(ex)}");
+                CancelProcessingWatchdog(state);
+                FlushCurrentResponse(state);
+                Debug($"[STEER-ERROR] '{sessionName}' soft steer SendAsync failed, clearing IsProcessing (error={ex.Message})");
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                state.HasUsedToolsThisTurn = false;
+                state.Info.IsResumed = false;
+                state.Info.IsProcessing = false;
+                if (state.Info.ProcessingStartedAt is { } steerStarted)
+                    state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - steerStarted).TotalSeconds;
+                state.Info.ProcessingStartedAt = null;
+                state.Info.ToolCallCount = 0;
+                state.Info.ProcessingPhase = 0;
+                OnStateChanged?.Invoke();
+            }
             return;
         }
 
