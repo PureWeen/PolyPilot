@@ -2107,12 +2107,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // Start fresh watchdog for the new connection
                     StartProcessingWatchdog(state, sessionName);
                     
-                    Debug($"Session '{sessionName}' reconnected, retrying prompt...");
+                    Debug($"[RECONNECT] '{sessionName}' retrying prompt (len={prompt.Length})...");
                     var retryOptions = new MessageOptions
                     {
                         Prompt = prompt
                     };
                     await state.Session.SendAsync(retryOptions, cancellationToken);
+                    Debug($"[RECONNECT] '{sessionName}' SendAsync completed after reconnect — awaiting events");
                 }
                 catch (Exception retryEx)
                 {
