@@ -977,11 +977,25 @@ public partial class CopilotService
             .ToList();
         if (assignments.Count == 0)
         {
-            // Orchestrator handled it without delegation — add a system note
-            Debug($"[DISPATCH] No assignments parsed from response (length={planResponse.Length}). Workers: {string.Join(", ", workerNames)}");
-            AddOrchestratorSystemMessage(orchestratorName, "ℹ️ Orchestrator handled the request directly (no tasks delegated to workers).");
-            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
-            return;
+            // Send a nudge prompt to force delegation before giving up
+            Debug($"[DISPATCH] No assignments parsed (length={planResponse.Length}). Sending delegation nudge. Workers: {string.Join(", ", workerNames)}");
+            var nudgePrompt = $"You MUST delegate work to your workers using @worker:worker-name / @end blocks. "
+                + $"You have {workerNames.Count} workers available: {string.Join(", ", workerNames)}. "
+                + "Do NOT do the work yourself. Output @worker blocks now.";
+            var nudgeResponse = await SendPromptAndWaitAsync(orchestratorName, nudgePrompt, cancellationToken, originalPrompt: prompt);
+            rawAssignments = ParseTaskAssignments(nudgeResponse, workerNames);
+            Debug($"[DISPATCH] '{orchestratorName}' nudge parsed: {rawAssignments.Count} raw assignments. Response length={nudgeResponse.Length}");
+            assignments = rawAssignments
+                .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
+                .ToList();
+            if (assignments.Count == 0)
+            {
+                Debug($"[DISPATCH] Nudge also produced no assignments. Workers: {string.Join(", ", workerNames)}");
+                AddOrchestratorSystemMessage(orchestratorName, "ℹ️ Orchestrator handled the request directly (no tasks delegated to workers).");
+                InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
+                return;
+            }
         }
 
         // Phase 3: Dispatch tasks to workers in parallel
@@ -1804,6 +1818,7 @@ public partial class CopilotService
 
             var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct, originalPrompt: prompt);
             var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
+            Debug($"[DISPATCH] '{orchestratorName}' reflect plan parsed: {rawAssignments.Count} raw assignments from {workerNames.Count} workers. Iteration={reflectState.CurrentIteration}, Response length={planResponse.Length}");
             var assignments = rawAssignments
                 .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
                 .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
@@ -1814,17 +1829,34 @@ public partial class CopilotService
                 if (reflectState.CurrentIteration == 1)
                 {
                     // First iteration with no assignments = orchestrator failed to delegate.
-                    // Treat as error, not goal met, so we can retry.
+                    // Send a stronger nudge prompt instead of repeating the same planning prompt.
+                    Debug($"[DISPATCH] Reflect iteration 1: no assignments, sending delegation nudge");
                     AddOrchestratorSystemMessage(orchestratorName,
                         "⚠️ No @worker assignments parsed from orchestrator response. Retrying...");
-                    reflectState.ConsecutiveErrors++;
-                    if (reflectState.ConsecutiveErrors >= 3)
+                    var nudgePrompt = $"You MUST delegate work to your workers using @worker:worker-name / @end blocks. "
+                        + $"You have {workerNames.Count} workers available: {string.Join(", ", workerNames)}. "
+                        + "Do NOT do the work yourself. Output @worker blocks now.";
+                    var nudgeResponse = await SendPromptAndWaitAsync(orchestratorName, nudgePrompt, ct, originalPrompt: prompt);
+                    var nudgeAssignments = ParseTaskAssignments(nudgeResponse, workerNames);
+                    Debug($"[DISPATCH] '{orchestratorName}' nudge parsed: {nudgeAssignments.Count} raw assignments. Response length={nudgeResponse.Length}");
+                    if (nudgeAssignments.Count > 0)
                     {
-                        reflectState.IsStalled = true;
-                        reflectState.IsCancelled = true;
-                        break;
+                        assignments = nudgeAssignments
+                            .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
+                            .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
+                            .ToList();
                     }
-                    continue;
+                    else
+                    {
+                        reflectState.ConsecutiveErrors++;
+                        if (reflectState.ConsecutiveErrors >= 3)
+                        {
+                            reflectState.IsStalled = true;
+                            reflectState.IsCancelled = true;
+                            break;
+                        }
+                        continue;
+                    }
                 }
                 // Later iterations: orchestrator decided no more work needed
                 reflectState.GoalMet = true;

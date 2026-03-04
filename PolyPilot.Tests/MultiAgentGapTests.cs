@@ -244,4 +244,41 @@ Do task B.
         Assert.Contains("Max iterations", summary);
         Assert.Contains("2/2", summary);
     }
+
+    [Fact]
+    public void ParseTaskAssignments_ToolUseResponse_NoWorkerBlocks_ReturnsEmpty()
+    {
+        // Simulates an orchestrator that used tools instead of delegating
+        var response = "I'll analyze the safe area issue.\n\nLooking at the CSS files, I can see the padding is set incorrectly.\n\nHere's my fix:\n```css\nbody { padding: env(safe-area-inset-top) }\n```";
+        var result = CopilotService.ParseTaskAssignments(response, new List<string> { "team-worker-1", "team-worker-2" });
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_BacktickedWorkerName_Resolves()
+    {
+        var response = "@worker:`team-worker-1`\nDo the task.\n@end";
+        var result = CopilotService.ParseTaskAssignments(response, new List<string> { "team-worker-1" });
+        Assert.Single(result);
+        Assert.Equal("team-worker-1", result[0].WorkerName);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_SameLineTask_SkipsEmptyTask()
+    {
+        // When the task is on the same line as @worker:, the regex captures it as part of the name
+        // and the task body is empty — should be skipped
+        var response = "@worker:team-worker-1 Do this task right now.\n@end";
+        var result = CopilotService.ParseTaskAssignments(response, new List<string> { "team-worker-1" });
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_CaseInsensitiveWorker_Resolves()
+    {
+        var response = "@Worker:Team-Worker-1\nDo the task.\n@End";
+        var result = CopilotService.ParseTaskAssignments(response, new List<string> { "team-worker-1" });
+        Assert.Single(result);
+        Assert.Equal("team-worker-1", result[0].WorkerName);
+    }
 }
