@@ -1392,6 +1392,7 @@ public partial class CopilotService
             ? pending.StartedAt.ToLocalTime()
             : pending.StartedAt;
         var results = new List<WorkerResult>();
+        var unstartedWorkers = new List<string>();
         foreach (var workerName in pending.WorkerNames)
         {
             var session = GetSession(workerName);
@@ -1415,7 +1416,45 @@ public partial class CopilotService
             }
             else
             {
+                // Worker is idle with no response after dispatch — likely never started
+                // (e.g., TaskCanceledException killed the dispatch before the worker ran).
+                // Track these so we can re-dispatch them.
+                unstartedWorkers.Add(workerName);
                 results.Add(new WorkerResult(workerName, null, false, "No response found after restart", TimeSpan.Zero));
+            }
+        }
+
+        // Re-dispatch workers that never started (idle + no response since dispatch time).
+        // This handles the case where TaskCanceledException killed SendToMultiAgentGroupAsync
+        // before workers were dispatched, or the app restarted mid-dispatch.
+        if (unstartedWorkers.Count > 0 && !ct.IsCancellationRequested)
+        {
+            Debug($"[DISPATCH] Re-dispatching {unstartedWorkers.Count} unstarted worker(s): {string.Join(", ", unstartedWorkers)}");
+            AddOrchestratorSystemMessage(pending.OrchestratorName,
+                $"🔄 Re-dispatching {unstartedWorkers.Count} worker(s) that never started: {string.Join(", ", unstartedWorkers)}");
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Dispatching,
+                $"Re-dispatching {unstartedWorkers.Count} worker(s)"));
+
+            // Build a generic task from the original prompt for re-dispatched workers
+            var redispatchTasks = unstartedWorkers.Select(w =>
+                ExecuteWorkerAsync(w, $"Complete the following task:\n\n{pending.OriginalPrompt}", pending.OriginalPrompt, ct));
+
+            try
+            {
+                var redispatchResults = await Task.WhenAll(redispatchTasks);
+                // Replace the "no response" placeholders with actual results
+                for (int i = 0; i < unstartedWorkers.Count; i++)
+                {
+                    var idx = results.FindIndex(r => r.WorkerName == unstartedWorkers[i]);
+                    if (idx >= 0)
+                        results[idx] = redispatchResults[i];
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug($"[DISPATCH] Re-dispatch failed: {ex.Message}");
+                AddOrchestratorSystemMessage(pending.OrchestratorName,
+                    $"⚠️ Re-dispatch of unstarted workers failed: {ex.Message}");
             }
         }
 
@@ -1454,6 +1493,64 @@ public partial class CopilotService
     }
 
     #endregion
+
+    /// <summary>
+    /// Manually re-trigger orchestration for a multi-agent group.
+    /// Use when a previous dispatch was interrupted (app restart, TaskCanceledException)
+    /// and workers were never dispatched. Re-sends the provided prompt (or a resume
+    /// instruction) through the normal dispatch path.
+    /// </summary>
+    public async Task RetryOrchestrationAsync(string groupId, string? prompt = null, CancellationToken ct = default)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId && g.IsMultiAgent);
+        if (group == null)
+        {
+            Debug($"[DISPATCH] RetryOrchestration: group '{groupId}' not found");
+            return;
+        }
+
+        var members = GetMultiAgentGroupMembers(groupId);
+        if (members.Count == 0)
+        {
+            Debug($"[DISPATCH] RetryOrchestration: no members for group '{group.Name}'");
+            return;
+        }
+
+        // Use provided prompt, or construct a resume instruction from the orchestrator's last user message
+        var effectivePrompt = prompt;
+        if (string.IsNullOrEmpty(effectivePrompt))
+        {
+            var orchestratorName = GetOrchestratorSession(groupId);
+            if (orchestratorName != null)
+            {
+                var session = GetSession(orchestratorName);
+                var lastUserMsg = session?.History.LastOrDefault(m => m.Role == "user");
+                effectivePrompt = lastUserMsg?.Content;
+            }
+        }
+
+        if (string.IsNullOrEmpty(effectivePrompt))
+        {
+            effectivePrompt = "Continue with any pending work from the previous orchestration round.";
+        }
+
+        Debug($"[DISPATCH] RetryOrchestration: group='{group.Name}', mode={group.OrchestratorMode}, prompt len={effectivePrompt.Length}");
+
+        // Reset reflect state if needed so the loop can re-enter
+        if (group.OrchestratorMode == MultiAgentMode.OrchestratorReflect && group.ReflectionState != null)
+        {
+            if (!group.ReflectionState.IsActive)
+            {
+                group.ReflectionState.IsActive = true;
+                group.ReflectionState.CurrentIteration = 0;
+                group.ReflectionState.GoalMet = false;
+                group.ReflectionState.ConsecutiveErrors = 0;
+                group.ReflectionState.CompletedAt = null;
+            }
+        }
+
+        await SendToMultiAgentGroupAsync(groupId, effectivePrompt, ct);
+    }
 
     /// <summary>
     /// Get the progress of a multi-agent group (how many sessions have completed their current turn).
