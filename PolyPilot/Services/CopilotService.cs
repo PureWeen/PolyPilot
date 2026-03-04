@@ -1262,7 +1262,7 @@ public partial class CopilotService : IAsyncDisposable
         {
             Name = displayName,
             Model = resumeModel,
-            CreatedAt = DateTime.Now,
+            CreatedAt = DateTime.UtcNow,
             SessionId = sessionId,
             IsResumed = isStillProcessing,
             WorkingDirectory = resumeWorkingDirectory
@@ -1488,7 +1488,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             Name = name,
             Model = sessionModel,
-            CreatedAt = DateTime.Now,
+            CreatedAt = DateTime.UtcNow,
             WorkingDirectory = sessionDir,
             GitBranch = GetGitBranch(sessionDir),
             IsCreating = true
@@ -2125,6 +2125,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     state.HasUsedToolsThisTurn = false;
                     state.Info.IsResumed = false;
                     state.Info.IsProcessing = false;
+                    if (state.Info.ProcessingStartedAt is { } rcStarted)
+                        state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - rcStarted).TotalSeconds;
                     state.Info.ProcessingStartedAt = null;
                     state.Info.ToolCallCount = 0;
                     state.Info.ProcessingPhase = 0;
@@ -2142,6 +2144,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 state.HasUsedToolsThisTurn = false;
                 state.Info.IsResumed = false;
                 state.Info.IsProcessing = false;
+                if (state.Info.ProcessingStartedAt is { } saStarted)
+                    state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - saStarted).TotalSeconds;
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ToolCallCount = 0;
                 state.Info.ProcessingPhase = 0;
@@ -2221,6 +2225,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Debug($"[ABORT] '{sessionName}' user abort, clearing IsProcessing");
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false;
+        if (state.Info.ProcessingStartedAt is { } abortStarted)
+            state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - abortStarted).TotalSeconds;
         state.Info.ProcessingStartedAt = null;
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0;

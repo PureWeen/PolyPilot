@@ -1572,7 +1572,7 @@
                 var usageLines = new System.Text.StringBuilder();
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 // CLI-style summary (matches copilot CLI /usage output)
-                var sessionTime = (DateTime.Now - session.CreatedAt).TotalSeconds;
+                var sessionTime = (DateTime.UtcNow - session.CreatedAt.ToUniversalTime()).TotalSeconds;
                 usageLines.AppendLine("**Session Usage**");
                 usageLines.AppendLine($"- **Total usage est:** {session.PremiumRequestsUsed} Premium requests");
                 usageLines.AppendLine($"- **API time spent:** {FormatDurationSeconds(session.TotalApiTimeSeconds)}");

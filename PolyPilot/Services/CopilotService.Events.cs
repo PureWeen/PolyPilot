@@ -421,7 +421,6 @@ public partial class CopilotService
                 break;
 
             case AssistantTurnEndEvent:
-                state.Info.PremiumRequestsUsed++;
                 try { CompleteReasoningMessages(state, sessionName); }
                 catch (Exception ex)
                 {
@@ -573,6 +572,8 @@ public partial class CopilotService
                     Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
+                    if (state.Info.ProcessingStartedAt is { } errStarted)
+                        state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - errStarted).TotalSeconds;
                     state.Info.ProcessingStartedAt = null;
                     state.Info.ToolCallCount = 0;
                     state.Info.ProcessingPhase = 0;
@@ -796,7 +797,10 @@ public partial class CopilotService
         state.PendingReasoningMessages.Clear();
         // Accumulate API time before clearing ProcessingStartedAt
         if (state.Info.ProcessingStartedAt is { } started)
+        {
             state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
+            state.Info.PremiumRequestsUsed++;
+        }
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false; // After first successful completion, use normal watchdog timeouts
         Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
@@ -1406,6 +1410,8 @@ public partial class CopilotService
                         Debug($"[WATCHDOG] '{sessionName}' IsProcessing=false — watchdog timeout after {totalProcessingSeconds:F0}s total, elapsed={elapsed:F0}s, exceededMaxTime={exceededMaxTime}");
                         state.Info.IsProcessing = false;
                         Interlocked.Exchange(ref state.SendingFlag, 0);
+                        if (state.Info.ProcessingStartedAt is { } wdStarted)
+                            state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - wdStarted).TotalSeconds;
                         state.Info.ProcessingStartedAt = null;
                         state.Info.ToolCallCount = 0;
                         state.Info.ProcessingPhase = 0;

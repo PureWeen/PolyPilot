@@ -288,7 +288,7 @@ public class UsageCommandTests
     {
         var usageLines = new System.Text.StringBuilder();
         var ic = System.Globalization.CultureInfo.InvariantCulture;
-        var sessionTime = (DateTime.Now - session.CreatedAt).TotalSeconds;
+        var sessionTime = (DateTime.UtcNow - session.CreatedAt.ToUniversalTime()).TotalSeconds;
         usageLines.AppendLine("**Session Usage**");
         usageLines.AppendLine($"- **Total usage est:** {session.PremiumRequestsUsed} Premium requests");
         usageLines.AppendLine($"- **API time spent:** {FormatDuration(session.TotalApiTimeSeconds)}");

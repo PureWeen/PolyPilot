@@ -182,8 +182,8 @@ public partial class CopilotService
         if (entry.CreatedAt.HasValue)
             state.Info.CreatedAt = entry.CreatedAt.Value;
 
-        // Backfill from events.jsonl when persisted values are zero (pre-feature data)
-        if (entry.PremiumRequestsUsed == 0 || entry.TotalApiTimeSeconds == 0 || !entry.CreatedAt.HasValue)
+        // Backfill from events.jsonl only when ALL tracked fields are zero (indicating "never tracked")
+        if (entry.PremiumRequestsUsed == 0 && entry.TotalApiTimeSeconds == 0 && !entry.CreatedAt.HasValue)
         {
             try { BackfillUsageFromEvents(state.Info, entry.SessionId); }
             catch (Exception ex) { Debug($"BackfillUsageFromEvents failed for '{entry.DisplayName}': {ex.Message}"); }
@@ -219,7 +219,9 @@ public partial class CopilotService
 
                     DateTime? eventTime = null;
                     if (root.TryGetProperty("timestamp", out var tsEl) &&
-                        DateTime.TryParse(tsEl.GetString(), out var ts))
+                        DateTime.TryParse(tsEl.GetString(), null,
+                            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+                            out var ts))
                     {
                         eventTime = ts;
                         if (firstTimestamp == null) firstTimestamp = ts;
