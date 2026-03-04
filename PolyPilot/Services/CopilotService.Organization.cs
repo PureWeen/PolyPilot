@@ -2161,9 +2161,25 @@ public partial class CopilotService
             reflectState.IsActive = false;
             reflectState.CompletedAt = DateTime.Now;
             ClearPendingOrchestration();
-            // Drain stale queued prompts so they don't leak into the next reflect loop invocation
-            if (_reflectQueuedPrompts.TryGetValue(groupId, out var staleQueue))
-                while (staleQueue.TryDequeue(out _)) { }
+            // Send any remaining queued prompts to the orchestrator before releasing the lock.
+            // These were acknowledged to the user ("📨 queued") but the loop is exiting —
+            // sending them ensures the model sees them rather than silently discarding.
+            if (_reflectQueuedPrompts.TryGetValue(groupId, out var remainingQueue))
+            {
+                while (remainingQueue.TryDequeue(out var leftover))
+                {
+                    try
+                    {
+                        Debug($"[DISPATCH] Sending leftover queued prompt on loop exit (len={leftover.Length})");
+                        await SendPromptAndWaitAsync(orchestratorName,
+                            $"[User sent a message — the reflection loop has completed]\n\n{leftover}", ct, originalPrompt: prompt);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug($"[DISPATCH] Failed to send leftover queued prompt: {ex.Message}");
+                    }
+                }
+            }
             SaveOrganization();
             InvokeOnUI(() =>
             {
