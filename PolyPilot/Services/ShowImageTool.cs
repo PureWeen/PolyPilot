@@ -18,6 +18,9 @@ public static class ShowImageTool
     private static string ImagesDir => _imagesDir ??= Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot", "images");
 
+    /// <summary>Returns the images directory path. Used by FetchImage validation.</summary>
+    public static string GetImagesDir() => ImagesDir;
+
     /// <summary>Creates the show_image AIFunction to register on SessionConfig.Tools.</summary>
     public static AIFunction CreateFunction()
     {

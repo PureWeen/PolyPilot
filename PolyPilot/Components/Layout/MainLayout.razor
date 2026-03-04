@@ -32,6 +32,9 @@
     private bool flyoutOpen;
     private bool showStatistics;
     private int fontSize = 20;
+    private Timer? _holidayTimer;
+    private bool _lastHolidayCheck;
+    private bool _disposed;
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private CopilotService CopilotService { get; set; } = default!;
@@ -51,16 +54,21 @@
     {
         if (firstRender)
         {
-            var dataTheme = CopilotService.Theme switch
+            // Apply holiday theme if active (before user theme, so it takes precedence)
+            var effectiveTheme = CopilotService.Theme;
+            var holidayTheme = HolidayThemeHelper.GetActiveHolidayTheme();
+            _lastHolidayCheck = holidayTheme.HasValue;
+            if (holidayTheme.HasValue && !CopilotService.HolidayThemeDismissed)
             {
-                UiTheme.System => "system",
-                UiTheme.SystemSolarized => "system-solarized",
-                UiTheme.PolyPilotLight => "polypilot-light",
-                UiTheme.SolarizedDark => "solarized-dark",
-                UiTheme.SolarizedLight => "solarized-light",
-                _ => ""
-            };
+                effectiveTheme = holidayTheme.Value;
+                CopilotService.Theme = effectiveTheme;
+            }
+
+            var dataTheme = HolidayThemeHelper.GetDataThemeString(effectiveTheme);
             await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
+
+            // Start timer to detect date transitions (e.g., midnight crossing into/out of March 8)
+            _holidayTimer = new Timer(OnHolidayTimerTick, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
 
             // Register nav ref for global keyboard shortcuts (Cmd+,)
             _navRef = DotNetObjectReference.Create(this);
@@ -89,6 +97,58 @@
                 
                 StateHasChanged();
             }
+        }
+    }
+
+    private void OnHolidayTimerTick(object? state)
+    {
+        if (_disposed) return;
+
+        var holidayTheme = HolidayThemeHelper.GetActiveHolidayTheme();
+        var isHoliday = holidayTheme.HasValue;
+
+        if (isHoliday && !_lastHolidayCheck && !CopilotService.HolidayThemeDismissed)
+        {
+            _ = InvokeAsync(async () =>
+            {
+                if (_disposed) return;
+                try
+                {
+                    // Just crossed into a holiday — activate theme
+                    _lastHolidayCheck = true;
+                    CopilotService.HolidayThemeDismissed = false;
+                    CopilotService.Theme = holidayTheme!.Value;
+                    var dt = HolidayThemeHelper.GetDataThemeString(holidayTheme!.Value);
+                    await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dt}')");
+                    StateHasChanged();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error activating holiday theme: {ex.Message}");
+                }
+            });
+        }
+        else if (!isHoliday && _lastHolidayCheck)
+        {
+            _ = InvokeAsync(async () =>
+            {
+                if (_disposed) return;
+                try
+                {
+                    // Holiday ended — revert to user's saved theme
+                    _lastHolidayCheck = false;
+                    CopilotService.HolidayThemeDismissed = false;
+                    var saved = ConnectionSettings.Load();
+                    CopilotService.Theme = saved.Theme;
+                    var dt = HolidayThemeHelper.GetDataThemeString(saved.Theme);
+                    await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dt}')");
+                    StateHasChanged();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error reverting holiday theme: {ex.Message}");
+                }
+            });
         }
     }
 
@@ -152,6 +212,8 @@
 
     public void Dispose()
     {
+        _disposed = true;
+        _holidayTimer?.Dispose();
         _navRef?.Dispose();
     }
 }

@@ -31,7 +31,8 @@ public enum UiTheme
     PolyPilotLight,  // Light variant
     SolarizedDark,   // Solarized dark
     SolarizedLight,  // Solarized light
-    SystemSolarized  // Follow OS light/dark preference (Solarized palette)
+    SystemSolarized, // Follow OS light/dark preference (Solarized palette)
+    InternationalWomensDay  // Purple/violet theme for March 8
 }
 
 public enum CliSourceMode
@@ -147,6 +148,10 @@ public class ConnectionSettings
         // Ensure CliSource is a valid enum value (guards against corrupt settings)
         if (!Enum.IsDefined(settings.CliSource))
             settings.CliSource = CliSourceMode.BuiltIn;
+
+        // InternationalWomensDay is ephemeral — never persist it; revert to System on load
+        if (settings.Theme == UiTheme.InternationalWomensDay)
+            settings.Theme = UiTheme.System;
 
         return settings;
     }

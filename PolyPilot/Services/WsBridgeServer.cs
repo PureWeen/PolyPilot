@@ -636,18 +636,27 @@ public class WsBridgeServer : IDisposable
                         var imgResponse = new FetchImageResponsePayload { RequestId = imgReq.RequestId };
                         try
                         {
-                            if (!string.IsNullOrEmpty(imgReq.Path) && File.Exists(imgReq.Path))
+                            var validationError = ValidateImagePath(imgReq.Path, out var resolvedPath);
+                            if (validationError != null)
                             {
-                                var bytes = await File.ReadAllBytesAsync(imgReq.Path);
-                                imgResponse.ImageData = Convert.ToBase64String(bytes);
-                                imgResponse.MimeType = ImageMimeType(imgReq.Path);
+                                imgResponse.Error = validationError;
                             }
                             else
                             {
-                                imgResponse.Error = "File not found";
+                                if (!File.Exists(resolvedPath))
+                                {
+                                    imgResponse.Error = "File not found";
+                                }
+                                else
+                                {
+                                    var bytes = await File.ReadAllBytesAsync(resolvedPath, ct);
+                                    imgResponse.ImageData = Convert.ToBase64String(bytes);
+                                    imgResponse.MimeType = ImageMimeType(resolvedPath);
+                                }
                             }
                         }
-                        catch (Exception ex) { imgResponse.Error = ex.Message; }
+                        catch (OperationCanceledException) { throw; }
+                        catch { imgResponse.Error = "Access denied"; }
                         await SendToClientAsync(clientId, ws,
                             BridgeMessage.Create(BridgeMessageTypes.FetchImageResponse, imgResponse), ct);
                     }
@@ -1102,6 +1111,81 @@ public class WsBridgeServer : IDisposable
         return text.Length <= maxLength ? text : text[..(maxLength - 3)] + "...";
     }
 
+    /// <summary>
+    /// Validates that an image path is safe to read. Returns an error string if invalid, null if OK.
+    /// </summary>
+    internal static string? ValidateImagePath(string? path, out string resolvedPath)
+    {
+        resolvedPath = string.Empty;
+
+        if (string.IsNullOrEmpty(path) || !Path.IsPathRooted(path))
+            return "Invalid path";
+
+        var allowedDir = Path.GetFullPath(ShowImageTool.GetImagesDir());
+        var fullPath = Path.GetFullPath(path);
+        var sep = Path.DirectorySeparatorChar;
+
+        // Resolve file symlinks and validate resolved target is within boundary
+        var fi = new FileInfo(fullPath);
+        string pathToCheck = fullPath;
+        if (fi.LinkTarget != null)
+        {
+            var resolved = fi.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+            if (resolved == null)
+                return "Path not allowed";
+            if (!resolved.StartsWith(allowedDir + sep, StringComparison.OrdinalIgnoreCase))
+                return "Path not allowed";
+            // Also walk the resolved target's parent dirs for symlinks
+            var resolvedDirCheck = WalkParentDirs(Path.GetDirectoryName(resolved), allowedDir, sep);
+            if (resolvedDirCheck != null)
+                return resolvedDirCheck;
+            pathToCheck = resolved;
+        }
+
+        // Walk the original path's parent dirs for directory symlinks
+        var origDirCheck = WalkParentDirs(Path.GetDirectoryName(fullPath), allowedDir, sep);
+        if (origDirCheck != null)
+            return origDirCheck;
+
+        if (!pathToCheck.StartsWith(allowedDir + sep, StringComparison.OrdinalIgnoreCase))
+            return "Path not allowed";
+
+        var ext = Path.GetExtension(pathToCheck).ToLowerInvariant();
+        var allowedExts = new HashSet<string> { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff" };
+        if (!allowedExts.Contains(ext))
+            return "Unsupported file type";
+
+        resolvedPath = pathToCheck;
+        return null;
+    }
+
+    /// <summary>Convenience overload for callers that don't need the resolved path.</summary>
+    internal static string? ValidateImagePath(string? path)
+        => ValidateImagePath(path, out _);
+
+    /// <summary>
+    /// Walks parent directories from the given dir up to allowedDir, checking each for
+    /// symlinks that escape the allowed boundary.
+    /// </summary>
+    private static string? WalkParentDirs(string? startDir, string allowedDir, char sep)
+    {
+        var checkDir = startDir;
+        while (checkDir != null &&
+               checkDir.Length > allowedDir.Length &&
+               checkDir.StartsWith(allowedDir, StringComparison.OrdinalIgnoreCase))
+        {
+            var di = new DirectoryInfo(checkDir);
+            if (di.LinkTarget != null)
+            {
+                var resolvedDir = di.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+                if (resolvedDir == null || !resolvedDir.StartsWith(allowedDir + sep, StringComparison.OrdinalIgnoreCase))
+                    return "Path not allowed";
+            }
+            checkDir = Path.GetDirectoryName(checkDir);
+        }
+        return null;
+    }
+
     private static string ImageMimeType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
         ".png" => "image/png",
@@ -1110,6 +1194,7 @@ public class WsBridgeServer : IDisposable
         ".webp" => "image/webp",
         ".bmp" => "image/bmp",
         ".svg" => "image/svg+xml",
+        ".tiff" => "image/tiff",
         _ => "image/png"
     };
 }

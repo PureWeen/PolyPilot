@@ -209,6 +209,9 @@ public partial class CopilotService : IAsyncDisposable
     public ChatStyle ChatStyle { get; set; } = ChatStyle.Normal;
     public UiTheme Theme { get; set; } = UiTheme.System;
 
+    /// <summary>In-memory flag: user dismissed the holiday theme for this app session.</summary>
+    public bool HolidayThemeDismissed { get; set; }
+
     // Session organization (groups, pinning, sorting)
     public OrganizationState Organization { get; internal set; } = new();
 
@@ -1967,7 +1970,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
         OnStateChanged?.Invoke();
 
-        Console.WriteLine($"[DEBUG] Sending prompt to session '{sessionName}' (Model: {state.Info.Model}): {prompt.Substring(0, Math.Min(50, prompt.Length))}...");
+        Console.WriteLine($"[DEBUG] Sending prompt to session '{sessionName}' (Model: {state.Info.Model}, Length: {prompt.Length})");
         Console.WriteLine($"[MODEL] Session '{sessionName}' using model: {state.Info.Model}");
         
         try 
@@ -1977,9 +1980,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Prompt = prompt
             };
 
-            // Set SDK agent mode if specified (autopilot, plan, etc.)
-            if (!string.IsNullOrEmpty(agentMode))
-                messageOptions.Mode = agentMode;
+            // NOTE: MessageOptions.Mode is reserved for routing ("immediate" = steer-without-abort,
+            // null = default enqueue). Do NOT set Mode to an agent mode string here.
+            // The .NET SDK has no public mechanism to set session agent mode (autopilot/plan/interactive).
+            // Agent mode is controlled by session-level configuration (system message, available tools)
+            // set at session creation time via SessionConfig. The agentMode parameter is preserved
+            // in the pipeline for queue dispatch, bridge forwarding, and future SDK support.
             
             // Attach images via SDK if available
             if (imagePaths != null && imagePaths.Count > 0)
@@ -2092,8 +2098,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     {
                         Prompt = prompt
                     };
-                    if (!string.IsNullOrEmpty(agentMode))
-                        retryOptions.Mode = agentMode;
                     await state.Session.SendAsync(retryOptions, cancellationToken);
                 }
                 catch (Exception retryEx)
