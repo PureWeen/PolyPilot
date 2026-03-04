@@ -7,6 +7,7 @@ namespace PolyPilot.Tests;
 /// Tests for /prompt edit and /prompt show subcommands.
 /// Verifies the service-level behavior that backs these commands.
 /// </summary>
+[Collection("PromptLibrary")]
 public class PromptCommandTests : IDisposable
 {
     private readonly string _testDir;

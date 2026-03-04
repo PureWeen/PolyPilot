@@ -3,6 +3,7 @@ using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
+[Collection("PromptLibrary")]
 public class PromptLibraryTests : IDisposable
 {
     private readonly string _testDir;

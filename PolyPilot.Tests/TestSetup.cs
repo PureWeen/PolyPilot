@@ -26,5 +26,6 @@ internal static class TestSetup
         Directory.CreateDirectory(TestBaseDir);
         CopilotService.SetBaseDirForTesting(TestBaseDir);
         RepoManager.SetBaseDirForTesting(TestBaseDir);
+        PromptLibraryService.SetUserPromptsDirForTesting(Path.Combine(TestBaseDir, "prompts"));
     }
 }
