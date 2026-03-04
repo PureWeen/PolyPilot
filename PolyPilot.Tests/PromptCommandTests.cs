@@ -253,7 +253,8 @@ public class PromptCommandTests : IDisposable
     public void Dashboard_EditUsesGreedyNameMatch()
     {
         var content = ReadDashboard();
-        // Verifies greedy longest-prefix matching is used for multi-word prompt names
+        // Verifies greedy longest-prefix matching is used (single DiscoverPrompts call, loop from longest to shortest)
+        Assert.Contains("DiscoverPrompts(session.WorkingDirectory)", content);
         Assert.Contains("editWords.Length; i >= 1; i--", content);
     }
 

@@ -1928,15 +1928,18 @@
                     session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt edit <name> <new content>`\nOr: `/prompt edit <name>` (shows current content)"));
                     break;
                 }
-                // Greedy name match: try longest prefix first so multi-word names take priority over shorter ones
+                // Greedy name match: discover prompts once, then try longest prefix first so
+                // multi-word names take priority over shorter ones (single filesystem scan).
                 SavedPrompt? existingPrompt = null;
                 string? editContent = null;
                 {
+                    var allPrompts = PromptLibraryService.DiscoverPrompts(session.WorkingDirectory);
                     var editWords = target.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     for (var i = editWords.Length; i >= 1; i--)
                     {
                         var candidateName = string.Join(' ', editWords[..i]);
-                        var candidate = PromptLibraryService.GetPrompt(candidateName, session.WorkingDirectory);
+                        var candidate = allPrompts.FirstOrDefault(p =>
+                            string.Equals(p.Name, candidateName, StringComparison.OrdinalIgnoreCase));
                         if (candidate != null)
                         {
                             existingPrompt = candidate;
