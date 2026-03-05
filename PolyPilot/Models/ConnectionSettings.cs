@@ -41,6 +41,12 @@ public enum CliSourceMode
     System     // Use the CLI installed on the system (PATH, homebrew, npm)
 }
 
+public enum VsCodeVariant
+{
+    Stable,    // Use 'code' command
+    Insiders   // Use 'code-insiders' command
+}
+
 public class ConnectionSettings
 {
     public ConnectionMode Mode { get; set; } = PlatformHelper.DefaultMode;
@@ -60,6 +66,7 @@ public class ConnectionSettings
     public UiTheme Theme { get; set; } = UiTheme.System;
     public bool AutoUpdateFromMain { get; set; } = false;
     public CliSourceMode CliSource { get; set; } = CliSourceMode.BuiltIn;
+    public VsCodeVariant VsCodeVariant { get; set; } = VsCodeVariant.Stable;
     public List<string> DisabledMcpServers { get; set; } = new();
     public List<string> DisabledPlugins { get; set; } = new();
     public bool EnableSessionNotifications { get; set; } = false;
@@ -148,6 +155,10 @@ public class ConnectionSettings
         // Ensure CliSource is a valid enum value (guards against corrupt settings)
         if (!Enum.IsDefined(settings.CliSource))
             settings.CliSource = CliSourceMode.BuiltIn;
+
+        // Ensure VsCodeVariant is a valid enum value
+        if (!Enum.IsDefined(settings.VsCodeVariant))
+            settings.VsCodeVariant = VsCodeVariant.Stable;
 
         // InternationalWomensDay is ephemeral — never persist it; revert to System on load
         if (settings.Theme == UiTheme.InternationalWomensDay)

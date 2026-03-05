@@ -391,6 +391,54 @@ public class ConnectionSettingsTests
         Assert.Equal("http://http://example.com", result);
     }
 
+    [Fact]
+    public void VsCodeVariant_DefaultIsStable()
+    {
+        var settings = new ConnectionSettings();
+        Assert.Equal(VsCodeVariant.Stable, settings.VsCodeVariant);
+    }
+
+    [Fact]
+    public void VsCodeVariant_Enum_HasExpectedValues()
+    {
+        Assert.Equal(0, (int)VsCodeVariant.Stable);
+        Assert.Equal(1, (int)VsCodeVariant.Insiders);
+    }
+
+    [Fact]
+    public void VsCodeVariant_RoundTrip()
+    {
+        var original = new ConnectionSettings { VsCodeVariant = VsCodeVariant.Insiders };
+        var json = JsonSerializer.Serialize(original);
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(VsCodeVariant.Insiders, loaded!.VsCodeVariant);
+    }
+
+    [Fact]
+    public void VsCodeVariant_BackwardCompatibility_MissingField()
+    {
+        var json = """{"Mode":0,"Host":"localhost","Port":4321}""";
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(VsCodeVariant.Stable, loaded!.VsCodeVariant);
+    }
+
+    [Fact]
+    public void VsCodeVariant_InvalidValue_NormalizesToStable()
+    {
+        var json = """{"Mode":1,"Host":"localhost","Port":4321,"VsCodeVariant":99}""";
+        var settings = JsonSerializer.Deserialize<ConnectionSettings>(json)!;
+
+        // Apply the same validation that Load() applies
+        if (!Enum.IsDefined(settings.VsCodeVariant))
+            settings.VsCodeVariant = VsCodeVariant.Stable;
+
+        Assert.Equal(VsCodeVariant.Stable, settings.VsCodeVariant);
+    }
+
     private void Dispose()
     {
         try { Directory.Delete(_testDir, true); } catch { }

@@ -209,6 +209,7 @@ public partial class CopilotService : IAsyncDisposable
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
     public ChatStyle ChatStyle { get; set; } = ChatStyle.Normal;
     public UiTheme Theme { get; set; } = UiTheme.System;
+    public VsCodeVariant VsCodeVariant { get; set; } = VsCodeVariant.Stable;
 
     /// <summary>In-memory flag: user dismissed the holiday theme for this app session.</summary>
     public bool HolidayThemeDismissed { get; set; }
@@ -413,6 +414,7 @@ public partial class CopilotService : IAsyncDisposable
         ChatLayout = settings.ChatLayout;
         ChatStyle = settings.ChatStyle;
         Theme = settings.Theme;
+        VsCodeVariant = settings.VsCodeVariant;
 
         // On mobile with Remote mode and no URL configured, skip initialization
         if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl) && string.IsNullOrWhiteSpace(settings.LanUrl))

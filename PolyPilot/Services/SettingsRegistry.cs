@@ -308,6 +308,30 @@ public static class SettingsRegistry
             }
         });
 
+        list.Add(new SettingDescriptor
+        {
+            Id = "ui.editor",
+            Label = "Editor",
+            Description = "Which VS Code variant to launch from session menus.",
+            Category = "UI",
+            Section = "Editor",
+            Type = SettingType.CardEnum,
+            Order = 70,
+            SearchKeywords = "editor vscode vs code insiders",
+            Options = new[]
+            {
+                new SettingOption("Stable", "VS Code"),
+                new SettingOption("Insiders", "VS Code Insiders"),
+            },
+            GetValue = ctx => ctx.Settings.VsCodeVariant.ToString(),
+            SetValue = (ctx, v) =>
+            {
+                if (v is string s && Enum.TryParse<VsCodeVariant>(s, out var variant))
+                    ctx.Settings.VsCodeVariant = variant;
+            },
+            IsVisible = ctx => ctx.IsDesktop
+        });
+
         // ── Developer ───────────────────────────────────────────────
 
         list.Add(new SettingDescriptor
