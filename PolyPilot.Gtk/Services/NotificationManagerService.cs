@@ -14,26 +14,28 @@ public class NotificationManagerService : INotificationManagerService
         remove { }
     }
 
-    public Task InitializeAsync()
+    public async Task InitializeAsync()
     {
         try
         {
-            using var proc = Process.Start(new ProcessStartInfo
+            _hasNotifySend = await Task.Run(() =>
             {
-                FileName = "which",
-                Arguments = "notify-send",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
+                using var proc = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "which",
+                    Arguments = "notify-send",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+                proc?.WaitForExit(3000);
+                return proc?.ExitCode == 0;
             });
-            proc?.WaitForExit(3000);
-            _hasNotifySend = proc?.ExitCode == 0;
         }
         catch
         {
             _hasNotifySend = false;
         }
-        return Task.CompletedTask;
     }
 
     public Task SendNotificationAsync(string title, string body, string? sessionId = null)

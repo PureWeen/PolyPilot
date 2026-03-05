@@ -66,6 +66,7 @@
 
             var dataTheme = HolidayThemeHelper.GetDataThemeString(effectiveTheme);
             await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
+            await JS.InvokeVoidAsync("eval", $"document.body.setAttribute('data-platform', '{PlatformHelper.PlatformName}')");
 
             // Start timer to detect date transitions (e.g., midnight crossing into/out of March 8)
             _holidayTimer = new Timer(OnHolidayTimerTick, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));

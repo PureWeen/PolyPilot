@@ -21,6 +21,19 @@ public static class PlatformHelper
         false;
 #endif
 
+    public static string PlatformName =>
+#if MACCATALYST
+        "maccatalyst";
+#elif WINDOWS
+        "windows";
+#elif IOS
+        "ios";
+#elif ANDROID
+        "android";
+#else
+        OperatingSystem.IsLinux() ? "linux" : "unknown";
+#endif
+
     public static ConnectionMode[] AvailableModes => IsDesktop
         ? [ConnectionMode.Embedded, ConnectionMode.Persistent, ConnectionMode.Remote]
 #if DEBUG
