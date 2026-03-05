@@ -377,7 +377,6 @@ public partial class CopilotService
                 else if (!hasError)
                 {
                     state.Info.PermissionDenialCount = 0;
-                    _permissionRecoveryAttempts.TryRemove(sessionName, out _);
                 }
 
                 // Skip filtered tools
@@ -814,6 +813,8 @@ public partial class CopilotService
             : response;
         // Track one message per completed turn regardless of trailing text
         _usageStats?.TrackMessage();
+        // Reset permission recovery attempts on successful turn completion
+        _permissionRecoveryAttempts.TryRemove(state.Info.Name, out _);
         // Clear IsProcessing BEFORE completing the TCS — if the continuation runs
         // synchronously (e.g., in orchestrator reflection loops), the next SendPromptAsync
         // call must see IsProcessing=false or it throws "already processing".
@@ -1514,6 +1515,10 @@ public partial class CopilotService
             // Cancel old watchdog BEFORE creating new state
             CancelProcessingWatchdog(state);
 
+            // Bug B fix: Cancel the old ResponseCompletion TCS so the original
+            // SendPromptAsync awaiter doesn't hang forever.
+            state.ResponseCompletion?.TrySetCanceled();
+
             // Create new state preserving Info
             var newState = new SessionState
             {
@@ -1521,54 +1526,64 @@ public partial class CopilotService
                 Info = state.Info
             };
             newState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            // Carry forward ProcessingGeneration so stale callbacks on the
-            // orphaned old state can't pass generation checks on the new state.
             Interlocked.Exchange(ref newState.ProcessingGeneration,
                 Interlocked.Read(ref state.ProcessingGeneration));
             newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn;
             newState.IsMultiAgentSession = state.IsMultiAgentSession;
-            // Transfer ActiveToolCallCount and SendingFlag to prevent negative counts
-            // and concurrent send races after replacement.
+            // Transfer ActiveToolCallCount to prevent negative counts from in-flight completions.
+            // Don't transfer SendingFlag — we need it at 0 for the resend below.
             Interlocked.Exchange(ref newState.ActiveToolCallCount,
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0));
-            Interlocked.Exchange(ref newState.SendingFlag,
-                Interlocked.Exchange(ref state.SendingFlag, 0));
+            Interlocked.Exchange(ref state.SendingFlag, 0);
 
             // Replace in sessions dictionary BEFORE registering event handler
             // so HandleSessionEvent's isCurrentState check passes for the new state.
             _sessions[sessionName] = newState;
             newSession.On(evt => HandleSessionEvent(newState, evt));
 
-            // Reset the permission denial count
-            state.Info.PermissionDenialCount = 0;
-
-            // Start watchdog for the new state
-            StartProcessingWatchdog(newState, sessionName);
-
-            Debug($"[PERMISSION-RECOVER] Session '{sessionName}' reconnected successfully");
-
-            // Find the last user prompt to resend so the agent continues its work
+            // Bug A fix: Clear IsProcessing + all 9 companion fields so SendPromptAsync
+            // doesn't throw "already processing". Must run on UI thread (INV-2).
             var lastUserMsg = state.Info.History.LastOrDefault(m => m.Role == "user");
             var lastPrompt = lastUserMsg?.OriginalContent ?? lastUserMsg?.Content;
 
+            // Use a TaskCompletionSource to wait for the UI-thread cleanup to complete
+            // before attempting the resend.
+            var cleanupDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             InvokeOnUI(() =>
             {
+                state.Info.PermissionDenialCount = 0;
+                state.CurrentResponse.Clear();
+                state.FlushedResponse.Clear();
+                state.PendingReasoningMessages.Clear();
+                if (state.Info.ProcessingStartedAt is { } started)
+                    state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
+                state.Info.IsProcessing = false;
+                state.Info.IsResumed = false;
+                state.Info.ProcessingStartedAt = null;
+                state.Info.ToolCallCount = 0;
+                state.Info.ProcessingPhase = 0;
+                Debug($"[PERMISSION-RECOVER] '{sessionName}' cleared processing state");
                 state.Info.History.Add(ChatMessage.SystemMessage("✅ Session reconnected. Resuming work..."));
                 OnActivity?.Invoke(sessionName, "✅ Session reconnected");
                 OnStateChanged?.Invoke();
+                cleanupDone.TrySetResult();
             });
 
-            // Resend the last prompt so the agent picks up where it left off
+            // Wait for UI-thread cleanup before resending
+            await cleanupDone.Task.ConfigureAwait(false);
+
+            // Resend the last prompt so the agent picks up where it left off.
+            // IsProcessing is now false and SendingFlag is 0, so SendPromptAsync will succeed.
             if (!string.IsNullOrEmpty(lastPrompt))
             {
-                Debug($"[PERMISSION-RECOVER] Resending last prompt for '{sessionName}'");
+                Debug($"[PERMISSION-RECOVER-RESEND] '{sessionName}' resending last prompt");
                 try
                 {
                     await SendPromptAsync(sessionName, lastPrompt, skipHistoryMessage: true);
                 }
                 catch (Exception sendEx)
                 {
-                    Debug($"[PERMISSION-RECOVER] Failed to resend prompt for '{sessionName}': {sendEx.Message}");
+                    Debug($"[PERMISSION-RECOVER-RESEND] Failed for '{sessionName}': {sendEx.Message}");
                 }
             }
         }
@@ -1581,6 +1596,18 @@ public partial class CopilotService
                     "⚠️ Auto-recovery failed. Use the Reconnect button in Settings → Save & Reconnect to restore permissions."));
                 OnStateChanged?.Invoke();
             });
+        }
+    }
+
+    /// <summary>
+    /// Public entry point for per-session permission recovery.
+    /// Looks up the session by name and attempts to reconnect it with a fresh permission callback.
+    /// </summary>
+    public async Task RecoverSessionAsync(string sessionName)
+    {
+        if (_sessions.TryGetValue(sessionName, out var state))
+        {
+            await TryRecoverPermissionAsync(state, sessionName);
         }
     }
 }

@@ -20,7 +20,13 @@ public class AgentSessionInfo
     public bool IsResumed { get; set; }
     
     // Timestamp of last state change (message received, turn end, etc.)
-    public DateTime LastUpdatedAt { get; set; } = DateTime.Now;
+    // Uses Interlocked ticks pattern for thread safety (updated from background SDK event threads).
+    private long _lastUpdatedAtTicks = DateTime.Now.Ticks;
+    public DateTime LastUpdatedAt
+    {
+        get => new DateTime(Interlocked.Read(ref _lastUpdatedAtTicks));
+        set => Interlocked.Exchange(ref _lastUpdatedAtTicks, value.Ticks);
+    }
     
     // Processing progress tracking
     // Backing field uses Interlocked to prevent torn reads between the UI thread (writer)

@@ -2,6 +2,7 @@
 @page "/dashboard"
 @using PolyPilot.Services
 @using PolyPilot.Models
+@using System.Collections.Concurrent
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
 @inject NavigationManager Nav
@@ -827,7 +828,7 @@
     private volatile bool _renderDirty;
     private Timer? _renderTimer;
     private Timer? _heartbeatTimer;
-    private readonly Dictionary<string, (int MessageCount, bool IsProcessing, int ToolCallCount, int ProcessingPhase, DateTime LastUpdatedAt)> _lastRenderedSnapshot = new();
+    private readonly ConcurrentDictionary<string, (int MessageCount, bool IsProcessing, int ToolCallCount, int ProcessingPhase, DateTime LastUpdatedAt)> _lastRenderedSnapshot = new();
     private long _switchCooldownUntil; // TickCount64 value: suppress renders until this time
     private readonly RenderThrottle _refreshThrottle = new(500);
     private long _lastDraftCaptureTickMs; // TickCount64 of last JS draft-capture eval
@@ -2260,8 +2261,12 @@
 
     private async Task HandleReconnect()
     {
-        var connSettings = ConnectionSettings.Load();
-        await CopilotService.ReconnectAsync(connSettings);
+        // Per-session recovery: only reconnects the affected session, not all sessions.
+        var sessionName = CopilotService.ActiveSessionName;
+        if (!string.IsNullOrEmpty(sessionName))
+        {
+            await CopilotService.RecoverSessionAsync(sessionName);
+        }
     }
 
     private IReadOnlyList<FiestaLinkedWorker> GetFiestaWorkersForSession(string sessionName)
