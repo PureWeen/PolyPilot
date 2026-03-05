@@ -18,12 +18,10 @@ These rules apply to every worker on every PR fix task. Deviating from them caus
    ```
    These must agree. If they don't, something is wrong — stop and investigate.
 
-5. **Use `./push-to-pr.sh <N>`** for all PR pushes. It derives the correct remote from `gh pr view` metadata and refuses to push if the target doesn't match.
-
 ## Review Workflow
 
-6. When reviewing only (no fix), use `gh pr diff <N>` — never check out the branch.
+5. When reviewing only (no fix), use `gh pr diff <N>` — never check out the branch.
 
-7. Consensus filter: include a finding in the final report only if flagged by 2+ of the 5 sub-agent models.
+6. Consensus filter: include a finding in the final report only if flagged by 2+ of the 5 sub-agent models.
 
-8. Do not comment on style, naming, or formatting. Flag only: bugs, data loss, race conditions, security issues, logic errors.
+7. Do not comment on style, naming, or formatting. Flag only: bugs, data loss, race conditions, security issues, logic errors.

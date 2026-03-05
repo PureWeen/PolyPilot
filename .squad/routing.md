@@ -24,10 +24,7 @@ If there are conflicts, resolve them, then `git add <files> && git merge --conti
 - Make minimal, surgical changes
 
 ### 4. Run tests
-```bash
-cd PolyPilot.Tests && dotnet test
-```
-Verify only pre-existing failures fail (e.g., `PopupThemeTests`).
+Discover and run the repo's test suite. Look for test projects, Makefiles, CI scripts, or package.json test scripts. Run them and verify only pre-existing failures remain.
 
 ### 5. Commit
 ```bash
@@ -39,17 +36,15 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 
 ### 6. Push to the correct remote
 ```bash
-./push-to-pr.sh <number>
+git push
 ```
-This script derives the correct remote from `gh pr view` and pushes without `--force`.
+`gh pr checkout` sets branch tracking correctly, so bare `git push` lands on the right remote.
 
-**Or manually:**
+If `git push` fails, verify the remote first:
 ```bash
-# Determine the correct remote
-OWNER=$(gh pr view <N> --json headRepositoryOwner --jq '.headRepositoryOwner.login')
-BRANCH=$(gh pr view <N> --json headRefName --jq '.headRefName')
-git push $OWNER HEAD:$BRANCH
+gh pr view <N> --json headRepositoryOwner,headRefName
 ```
+Then push explicitly: `git push <owner-remote> HEAD:<branch>`
 
 ### 7. Verify the push landed
 ```bash
@@ -79,9 +74,4 @@ Synthesize with 2+ model consensus filter.
 
 ## Why `gh pr checkout` + merge beats manual fetch + rebase
 
-| Approach | Tracking set? | Force push needed? | Risk |
-|----------|--------------|-------------------|------|
-| `gh pr checkout <N>` + `git merge` | ✅ Yes (correct remote) | ❌ No | Low |
-| `git fetch pull/<N>/head:...` + `git rebase` | ❌ No (NONE) | ✅ Yes | Pushes to wrong remote |
-
-`gh pr checkout` reads the PR metadata and configures the branch to track the fork remote when applicable. Bare `git fetch pull/<N>/head:...` creates a detached local branch with no upstream — when you then `git push`, git picks `origin` as the default, silently pushing to PureWeen/PolyPilot instead of the author's fork.
+`gh pr checkout` reads PR metadata and configures the branch to track the correct remote (fork or origin). Bare `git fetch pull/<N>/head:...` creates a local branch with no upstream — `git push` then defaults to `origin`, silently pushing to the base repository instead of the author's fork.

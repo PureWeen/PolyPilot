@@ -1,6 +1,6 @@
 # PR Review Squad
 
-Workers that review and fix pull requests on PureWeen/PolyPilot.
+Workers that review and fix pull requests using multi-model consensus review.
 
 | Member | Role | Expertise |
 |--------|------|-----------|
