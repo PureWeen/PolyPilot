@@ -61,6 +61,17 @@ Skips work when the active session set is unchanged (hash of session names).
 If you add new session types or visibility rules, ensure the hash accounts
 for them or reconciliation may be incorrectly skipped.
 
+### PERF-6: ReconcileOrganization() during IsRestoring window
+`ReconcileOrganization` is skipped during `IsRestoring=true` to prevent pruning
+sessions not yet loaded. But code that needs metadata during restore (e.g.,
+`CompleteResponse` queue drain, `GetOrchestratorGroupId`, `IsSessionInMultiAgentGroup`)
+must call `ReconcileOrganization(allowPruning: false)` to trigger an additive-only
+update. This mode adds missing `SessionMeta` entries but never deletes anything.
+
+**Impact:** Without this, multi-agent dispatch is silently bypassed after relaunch,
+and the watchdog uses the wrong timeout tier (120s instead of 600s), killing workers.
+See PR #284 and processing-state-safety INV-9.
+
 ## Caching Architecture
 
 ### Markdown Cache (`ChatMessageList.razor`)

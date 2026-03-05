@@ -7,7 +7,10 @@ description: >
   CompleteResponse, AbortSessionAsync, or the processing watchdog, (3) Adding new
   SDK event handlers, (4) Debugging stuck sessions showing "Thinking..." forever,
   (5) Modifying IsResumed, HasUsedToolsThisTurn, or ActiveToolCallCount,
-  (6) Adding diagnostic log tags. Covers: 8 invariants from 7 PRs of fix cycles,
+  (6) Adding diagnostic log tags, (7) Modifying session restore paths
+  (RestoreSingleSessionAsync) that must initialize watchdog-dependent state,
+  (8) Modifying ReconcileOrganization or any code that reads Organization.Sessions
+  during the IsRestoring window. Covers: 9 invariants from 8 PRs of fix cycles,
   the 8 code paths that clear IsProcessing, and common regression patterns.
 ---
 
@@ -55,7 +58,7 @@ that crash the app. The DB is a write-through cache; `events.jsonl` is the sourc
 and replays on session resume via `BulkInsertAsync`. DB write failures are self-healing.
 **NEVER narrow the ChatDatabase catch filters** — use `catch (Exception ex)` always.
 
-## 8 Invariants
+## 9 Invariants
 
 ### INV-1: Complete state cleanup
 Every IsProcessing=false path clears ALL fields. See checklist above.
@@ -89,7 +92,20 @@ Clearing guarded on `!hasActiveTool && !HasUsedToolsThisTurn`.
 `HandleComplete` is already on UI thread. `InvokeAsync` defers execution
 causing stale renders.
 
-## Top 4 Recurring Mistakes
+### INV-9: Session restore must initialize all watchdog-dependent state
+The restore path (`RestoreSingleSessionAsync`) is separate from `SendPromptAsync`.
+Any field that affects watchdog timeout selection or dispatch routing must be
+initialized in BOTH paths:
+- `IsMultiAgentSession` — set via `IsSessionInMultiAgentGroup()` before `StartProcessingWatchdog`
+- `HasReceivedEventsSinceResume` / `HasUsedToolsThisTurn` — set via `GetEventsFileRestoreHints()`
+- `IsResumed` — set on the `AgentSessionInfo` when `isStillProcessing` is true
+
+When `ReconcileOrganization` hasn't run yet (during `IsRestoring` window),
+`Organization.Sessions` metadata may be stale. Any code that reads metadata
+during this window must call `ReconcileOrganization(allowPruning: false)` first.
+This additive mode safely adds missing entries without pruning loading sessions.
+
+## Top 5 Recurring Mistakes
 
 1. **Incomplete cleanup** — modifying one IsProcessing path without
    updating ALL fields that must be cleared simultaneously.
@@ -101,8 +117,15 @@ causing stale renders.
    must be called at every point where accumulated text could be lost
    (turn_end, tool_start, abort, error, watchdog). The turn_end call
    was missing until PR #224, causing response loss on app restart.
+5. **Missing state initialization on session restore** — `IsMultiAgentSession`,
+   `IsResumed`, and other flags must be set on restored sessions BEFORE
+   `StartProcessingWatchdog` is called. The restore path in
+   `RestoreSingleSessionAsync` is separate from `SendPromptAsync` and must
+   independently initialize all state the watchdog depends on. PR #284 fixed
+   `IsMultiAgentSession` not being set during restore, causing the watchdog
+   to use 120s instead of 600s for multi-agent workers.
 
 ## Regression History
 
-8 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164 → #276.
+9 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164 → #276 → #284.
 See `references/regression-history.md` for the full timeline with root causes.

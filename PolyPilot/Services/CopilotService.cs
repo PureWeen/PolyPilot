@@ -1321,6 +1321,13 @@ public partial class CopilotService : IAsyncDisposable
             Info = info
         };
 
+        // Cache multi-agent membership for the watchdog timeout tier.
+        // Must be set BEFORE StartProcessingWatchdog — otherwise the watchdog uses the
+        // 120s inactivity timeout instead of the 600s tool timeout, killing workers prematurely.
+        // IsSessionInMultiAgentGroup reads Organization.Sessions which was loaded from disk
+        // by LoadOrganization() before RestorePreviousSessionsAsync runs.
+        state.IsMultiAgentSession = IsSessionInMultiAgentGroup(displayName);
+
         // Wire up event handler BEFORE starting watchdog/timeout so events
         // arriving immediately after SDK resume are not missed.
         copilotSession.On(evt => HandleSessionEvent(state, evt));
