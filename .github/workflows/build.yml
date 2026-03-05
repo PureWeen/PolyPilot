@@ -528,7 +528,7 @@ jobs:
           sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev flatpak flatpak-builder
 
       - name: Install MAUI workload
-        run: dotnet workload install maui
+        run: dotnet workload install maui-android
 
       - name: Install Flatpak runtimes
         run: |
