@@ -48,8 +48,10 @@ public class AgentSessionInfo
     /// <summary>
     /// Tracks consecutive permission denials from the SDK (e.g., "Permission denied and
     /// could not request permission from user"). Reset on each new prompt or turn completion.
+    /// Uses Interlocked for thread safety (events arrive on background threads).
     /// </summary>
-    public int PermissionDenialCount { get; set; }
+    public int _permissionDenialCount;
+    public int PermissionDenialCount { get => Volatile.Read(ref _permissionDenialCount); set => Volatile.Write(ref _permissionDenialCount, value); }
 
     /// <summary>
     /// True when consecutive permission denials suggest the permission callback binding is lost.

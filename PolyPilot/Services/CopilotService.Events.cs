@@ -366,8 +366,8 @@ public partial class CopilotService
                 // Track consecutive permission denials
                 if (isPermissionDenial)
                 {
-                    state.Info.PermissionDenialCount++;
-                    if (state.Info.PermissionDenialCount == 3)
+                    var denialCount = Interlocked.Increment(ref state.Info._permissionDenialCount);
+                    if (denialCount == 3)
                     {
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Permission errors detected. Attempting to reconnect session..."));
@@ -1525,10 +1525,17 @@ public partial class CopilotService
                 Interlocked.Read(ref state.ProcessingGeneration));
             newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn;
             newState.IsMultiAgentSession = state.IsMultiAgentSession;
-            newSession.On(evt => HandleSessionEvent(newState, evt));
+            // Transfer ActiveToolCallCount and SendingFlag to prevent negative counts
+            // and concurrent send races after replacement.
+            Interlocked.Exchange(ref newState.ActiveToolCallCount,
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0));
+            Interlocked.Exchange(ref newState.SendingFlag,
+                Interlocked.Exchange(ref state.SendingFlag, 0));
 
-            // Replace in sessions dictionary
+            // Replace in sessions dictionary BEFORE registering event handler
+            // so HandleSessionEvent's isCurrentState check passes for the new state.
             _sessions[sessionName] = newState;
+            newSession.On(evt => HandleSessionEvent(newState, evt));
 
             // Reset the permission denial count
             state.Info.PermissionDenialCount = 0;
