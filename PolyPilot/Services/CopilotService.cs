@@ -2331,6 +2331,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ToolCallCount = 0;
                 state.Info.ProcessingPhase = 0;
+                // Clear queued messages so stale entries don't auto-send on the next successful turn
+                state.Info.MessageQueue.Clear();
+                _queuedImagePaths.TryRemove(sessionName, out _);
+                _queuedAgentModes.TryRemove(sessionName, out _);
+                state.FlushedResponse.Clear();
+                state.PendingReasoningMessages.Clear();
                 OnStateChanged?.Invoke();
             }
             return;
