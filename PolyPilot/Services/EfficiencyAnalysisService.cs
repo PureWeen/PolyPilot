@@ -37,9 +37,9 @@ public class EfficiencyAnalysisService
         var (metrics, metricsPath) = await Task.Run(() =>
         {
             var m = SessionMetricsExtractor.Extract(sessionDir);
-            var filesDir = Path.Combine(sessionDir, "files");
-            Directory.CreateDirectory(filesDir);
-            var path = Path.Combine(filesDir, "efficiency-metrics.json");
+            var tempDir = Path.Combine(Path.GetTempPath(), "polypilot-efficiency-metrics");
+            Directory.CreateDirectory(tempDir);
+            var path = Path.Combine(tempDir, $"metrics-{sessionId}-{Guid.NewGuid():N}.json");
             var json = JsonSerializer.Serialize(m, new JsonSerializerOptions
             {
                 WriteIndented = true,
@@ -51,17 +51,39 @@ public class EfficiencyAnalysisService
 
         // Build unique analysis session name
         var analysisName = $"📊 {sessionName}";
-        var existing = _copilotService.GetAllSessions().Select(s => s.Name).ToHashSet();
         var finalName = analysisName;
-        var counter = 2;
-        while (existing.Contains(finalName))
-            finalName = $"{analysisName} ({counter++})";
-
-        // Create session with target's working directory
         var workDir = targetSession.WorkingDirectory
             ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-        await _copilotService.CreateSessionAsync(finalName, null, workDir);
+        var counter = 1;
+        // Optimization: skip known existing names
+        var existing = _copilotService.GetAllSessions().Select(s => s.Name).ToHashSet();
+        if (existing.Contains(finalName))
+        {
+            counter = 2;
+            finalName = $"{analysisName} ({counter})";
+            while (existing.Contains(finalName))
+            {
+                counter++;
+                finalName = $"{analysisName} ({counter})";
+            }
+        }
+
+        // Create session with retry for TOCTOU safety
+        while (true)
+        {
+            try
+            {
+                await _copilotService.CreateSessionAsync(finalName, null, workDir);
+                break;
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("already exists"))
+            {
+                counter++;
+                finalName = $"{analysisName} ({counter})";
+                if (counter > 100) throw; // Prevent infinite loop
+            }
+        }
 
         // Send prompt referencing the metrics file
         var prompt = BuildPrompt(sessionName, sessionDir, metricsPath);

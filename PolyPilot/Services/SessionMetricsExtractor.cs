@@ -399,10 +399,33 @@ public static partial class SessionMetricsExtractor
             if (jsonSb.Length > 0) jsonSb.Append('\n');
             jsonSb.Append(stripped);
 
+            var inString = false;
+            var isEscaped = false;
             foreach (var ch in stripped)
             {
-                if (ch == '{') braceDepth++;
-                else if (ch == '}') braceDepth--;
+                if (isEscaped)
+                {
+                    isEscaped = false;
+                    continue;
+                }
+
+                if (ch == '\\')
+                {
+                    isEscaped = true;
+                    continue;
+                }
+
+                if (ch == '"')
+                {
+                    inString = !inString;
+                    continue;
+                }
+
+                if (!inString)
+                {
+                    if (ch == '{') braceDepth++;
+                    else if (ch == '}') braceDepth--;
+                }
             }
 
             if (braceDepth <= 0 && jsonStarted)
