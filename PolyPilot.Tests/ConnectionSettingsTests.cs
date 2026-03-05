@@ -392,10 +392,10 @@ public class ConnectionSettingsTests
     }
 
     [Fact]
-    public void VsCodeVariant_DefaultIsStable()
+    public void Editor_DefaultIsStable()
     {
         var settings = new ConnectionSettings();
-        Assert.Equal(VsCodeVariant.Stable, settings.VsCodeVariant);
+        Assert.Equal(VsCodeVariant.Stable, settings.Editor);
     }
 
     [Fact]
@@ -406,36 +406,36 @@ public class ConnectionSettingsTests
     }
 
     [Fact]
-    public void VsCodeVariant_RoundTrip()
+    public void Editor_RoundTrip()
     {
-        var original = new ConnectionSettings { VsCodeVariant = VsCodeVariant.Insiders };
+        var original = new ConnectionSettings { Editor = VsCodeVariant.Insiders };
         var json = JsonSerializer.Serialize(original);
         var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
 
         Assert.NotNull(loaded);
-        Assert.Equal(VsCodeVariant.Insiders, loaded!.VsCodeVariant);
+        Assert.Equal(VsCodeVariant.Insiders, loaded!.Editor);
     }
 
     [Fact]
-    public void VsCodeVariant_BackwardCompatibility_MissingField()
+    public void Editor_BackwardCompatibility_MissingField()
     {
         var json = """{"Mode":0,"Host":"localhost","Port":4321}""";
         var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
 
         Assert.NotNull(loaded);
-        Assert.Equal(VsCodeVariant.Stable, loaded!.VsCodeVariant);
+        Assert.Equal(VsCodeVariant.Stable, loaded!.Editor);
     }
 
     [Fact]
-    public void VsCodeVariant_InvalidValue_NormalizesToStable()
+    public void Editor_InvalidValue_NormalizesToStable()
     {
-        var json = """{"Mode":1,"Host":"localhost","Port":4321,"VsCodeVariant":99}""";
+        var json = """{"Mode":1,"Host":"localhost","Port":4321,"Editor":99}""";
         var settings = JsonSerializer.Deserialize<ConnectionSettings>(json)!;
 
         // Call the real validation that Load() uses
         ConnectionSettings.NormalizeEnumFields(settings);
 
-        Assert.Equal(VsCodeVariant.Stable, settings.VsCodeVariant);
+        Assert.Equal(VsCodeVariant.Stable, settings.Editor);
     }
 
     [Fact]
@@ -444,13 +444,27 @@ public class ConnectionSettingsTests
         var settings = new ConnectionSettings
         {
             CliSource = CliSourceMode.System,
-            VsCodeVariant = VsCodeVariant.Insiders
+            Editor = VsCodeVariant.Insiders
         };
 
         ConnectionSettings.NormalizeEnumFields(settings);
 
         Assert.Equal(CliSourceMode.System, settings.CliSource);
-        Assert.Equal(VsCodeVariant.Insiders, settings.VsCodeVariant);
+        Assert.Equal(VsCodeVariant.Insiders, settings.Editor);
+    }
+
+    [Fact]
+    public void VsCodeVariant_Command_ReturnsCorrectBinary()
+    {
+        Assert.Equal("code", VsCodeVariant.Stable.Command());
+        Assert.Equal("code-insiders", VsCodeVariant.Insiders.Command());
+    }
+
+    [Fact]
+    public void VsCodeVariant_DisplayName_ReturnsCorrectLabel()
+    {
+        Assert.Equal("VS Code", VsCodeVariant.Stable.DisplayName());
+        Assert.Equal("VS Code Insiders", VsCodeVariant.Insiders.DisplayName());
     }
 
     private void Dispose()

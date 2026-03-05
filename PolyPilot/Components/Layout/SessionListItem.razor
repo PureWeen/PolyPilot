@@ -203,7 +203,7 @@
                 @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(sessionDir))
                 {
                     <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInVSCode(); }">
-                        ⌨ @(CopilotService.VsCodeVariant == VsCodeVariant.Insiders ? "VS Code Insiders" : "VS Code")
+                        ⌨ @CopilotService.Editor.DisplayName()
                     </button>
                     <div class="menu-separator"></div>
                 }
@@ -390,7 +390,7 @@
         if (string.IsNullOrEmpty(dir)) return;
         try
         {
-            var cmd = CopilotService.VsCodeVariant == VsCodeVariant.Insiders ? "code-insiders" : "code";
+            var cmd = CopilotService.Editor.Command();
             // In remote mode, use --folder-uri with vscode-remote:// to open via Remote - Tunnels
             var remoteFolderUri = PlatformHelper.BuildVSCodeRemoteFolderUri(
                 CopilotService.IsRemoteMode, CopilotService.ServerMachineName, dir);

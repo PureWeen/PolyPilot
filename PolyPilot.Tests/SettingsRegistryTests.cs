@@ -263,7 +263,7 @@ public class SettingsRegistryTests
         var ctx = CreateContext(settings);
         var desc = SettingsRegistry.All.First(s => s.Id == "ui.editor");
         desc.SetValue!(ctx, "Insiders");
-        Assert.Equal(VsCodeVariant.Insiders, settings.VsCodeVariant);
+        Assert.Equal(VsCodeVariant.Insiders, settings.Editor);
     }
 
     [Fact]
@@ -273,7 +273,7 @@ public class SettingsRegistryTests
         var ctx = CreateContext(settings);
         var desc = SettingsRegistry.All.First(s => s.Id == "ui.editor");
         desc.SetValue!(ctx, "garbage");
-        Assert.Equal(VsCodeVariant.Stable, settings.VsCodeVariant);
+        Assert.Equal(VsCodeVariant.Stable, settings.Editor);
     }
 
     [Fact]

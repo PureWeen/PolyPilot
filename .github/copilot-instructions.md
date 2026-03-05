@@ -118,7 +118,7 @@ When switching between Embedded and Persistent modes (via Settings → Save & Re
 - Processing status indicator shows elapsed time and tool round count, synced via bridge.
 
 **Editor preference:**
-- `VsCodeVariant` setting (`Stable`/`Insiders`) in `ConnectionSettings` controls which VS Code binary (`code`/`code-insiders`) is launched from session context menus.
+- `Editor` setting (`VsCodeVariant.Stable`/`Insiders`) in `ConnectionSettings` controls which VS Code binary (`code`/`code-insiders`) is launched from session context menus.
 - Configurable in Settings → UI → Editor (desktop only). Persists in `settings.json`.
 
 ## Critical Conventions

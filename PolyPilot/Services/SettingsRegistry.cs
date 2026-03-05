@@ -323,11 +323,11 @@ public static class SettingsRegistry
                 new SettingOption("Stable", "VS Code"),
                 new SettingOption("Insiders", "VS Code Insiders"),
             },
-            GetValue = ctx => ctx.Settings.VsCodeVariant.ToString(),
+            GetValue = ctx => ctx.Settings.Editor.ToString(),
             SetValue = (ctx, v) =>
             {
                 if (v is string s && Enum.TryParse<VsCodeVariant>(s, out var variant))
-                    ctx.Settings.VsCodeVariant = variant;
+                    ctx.Settings.Editor = variant;
             },
             IsVisible = ctx => ctx.IsDesktop
         });

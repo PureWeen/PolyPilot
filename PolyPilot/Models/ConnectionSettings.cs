@@ -47,6 +47,21 @@ public enum VsCodeVariant
     Insiders   // Use 'code-insiders' command
 }
 
+public static class VsCodeVariantExtensions
+{
+    public static string Command(this VsCodeVariant v) => v switch
+    {
+        VsCodeVariant.Insiders => "code-insiders",
+        _ => "code"
+    };
+
+    public static string DisplayName(this VsCodeVariant v) => v switch
+    {
+        VsCodeVariant.Insiders => "VS Code Insiders",
+        _ => "VS Code"
+    };
+}
+
 public class ConnectionSettings
 {
     public ConnectionMode Mode { get; set; } = PlatformHelper.DefaultMode;
@@ -66,7 +81,7 @@ public class ConnectionSettings
     public UiTheme Theme { get; set; } = UiTheme.System;
     public bool AutoUpdateFromMain { get; set; } = false;
     public CliSourceMode CliSource { get; set; } = CliSourceMode.BuiltIn;
-    public VsCodeVariant VsCodeVariant { get; set; } = VsCodeVariant.Stable;
+    public VsCodeVariant Editor { get; set; } = VsCodeVariant.Stable;
     public List<string> DisabledMcpServers { get; set; } = new();
     public List<string> DisabledPlugins { get; set; } = new();
     public bool EnableSessionNotifications { get; set; } = false;
@@ -166,8 +181,8 @@ public class ConnectionSettings
     {
         if (!Enum.IsDefined(settings.CliSource))
             settings.CliSource = CliSourceMode.BuiltIn;
-        if (!Enum.IsDefined(settings.VsCodeVariant))
-            settings.VsCodeVariant = VsCodeVariant.Stable;
+        if (!Enum.IsDefined(settings.Editor))
+            settings.Editor = VsCodeVariant.Stable;
     }
 
     private static ConnectionSettings DefaultSettings()

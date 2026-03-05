@@ -582,7 +582,7 @@
                 cliSourceChanged = settings.CliSource != _initialCliSource;
                 break;
             case "ui.editor":
-                CopilotService.VsCodeVariant = settings.VsCodeVariant;
+                CopilotService.Editor = settings.Editor;
                 CopilotService.NotifyStateChanged();
                 break;
         }
