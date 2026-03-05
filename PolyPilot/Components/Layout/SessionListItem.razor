@@ -44,6 +44,7 @@
                 <input type="text" class="rename-input" id="renameInput"
                        value="@Session.Name"
                        @onclick:stopPropagation="true"
+                       @oncontextmenu:stopPropagation="true"
                        @onblur="() => OnCommitRename.InvokeAsync()"
                        @onkeyup="HandleRenameKeyUp" />
             }
