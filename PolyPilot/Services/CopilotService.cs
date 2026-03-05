@@ -2323,6 +2323,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 state.Info.IsResumed = false;
+                Interlocked.Exchange(ref state.SendingFlag, 0);
+                state.ResponseCompletion?.TrySetCanceled();
                 state.Info.IsProcessing = false;
                 if (state.Info.ProcessingStartedAt is { } steerStarted)
                     state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - steerStarted).TotalSeconds;
