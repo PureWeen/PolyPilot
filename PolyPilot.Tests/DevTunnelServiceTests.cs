@@ -381,18 +381,15 @@ public class DevTunnelServiceTests
         var copilot = CreateTestCopilotService();
         var service = new DevTunnelService(bridge, copilot, new RepoManager());
 
-        // HostAsync will fail because devtunnel CLI is unlikely to be installed
-        // in CI / test environments, OR the bridge port is unavailable.
+        // HostAsync will fail because devtunnel CLI is not installed in CI/test environments.
         var result = await service.HostAsync(4321);
 
-        // The key assertion: if it failed, state must be Error (not NotStarted)
+        // The failure must be deterministic: state must be Error (not NotStarted)
         // and ErrorMessage must be non-null so the UI can display feedback.
-        if (!result)
-        {
-            Assert.Equal(TunnelState.Error, service.State);
-            Assert.NotNull(service.ErrorMessage);
-            Assert.NotEmpty(service.ErrorMessage);
-        }
+        Assert.False(result, "HostAsync should fail when devtunnel CLI is not installed");
+        Assert.Equal(TunnelState.Error, service.State);
+        Assert.NotNull(service.ErrorMessage);
+        Assert.NotEmpty(service.ErrorMessage);
 
         // Cleanup
         service.Stop();

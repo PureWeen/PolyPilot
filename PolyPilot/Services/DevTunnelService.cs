@@ -237,9 +237,8 @@ public partial class DevTunnelService : IDisposable
                 var lastError = _errorMessage;
                 Stop();
                 // Stop() clears _errorMessage via SetState(NotStarted).
-                // Restore the error so the user sees what went wrong.
-                if (!string.IsNullOrEmpty(lastError))
-                    SetError(lastError);
+                // Restore the error (or a generic fallback) so the user sees what went wrong.
+                SetError(lastError ?? "DevTunnel failed to start");
                 return false;
             }
 
