@@ -1331,6 +1331,7 @@
                 s.History.Add(ChatMessage.ErrorMessage($"Failed to send: {ex.Message}"));
                 s.MessageCount = s.History.Count;
             }
+            _ = SafeRefreshAsync();
         }
     }
 
