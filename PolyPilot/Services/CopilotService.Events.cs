@@ -370,8 +370,12 @@ public partial class CopilotService
                     var denialCount = state.Info.RecordToolResult(isPermissionDenial);
                     if (isPermissionDenial && denialCount == 3)
                     {
-                        state.Info.History.Add(ChatMessage.SystemMessage(
-                            "⚠️ Permission errors detected. Attempting to reconnect session..."));
+                        Invoke(() =>
+                        {
+                            state.Info.History.Add(ChatMessage.SystemMessage(
+                                "⚠️ Permission errors detected. Attempting to reconnect session..."));
+                            OnStateChanged?.Invoke();
+                        });
                         _ = Task.Run(async () => await TryRecoverPermissionAsync(state, sessionName));
                     }
                 }
@@ -1532,6 +1536,8 @@ public partial class CopilotService
             Interlocked.Exchange(ref newState.ActiveToolCallCount,
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0));
             Interlocked.Exchange(ref state.SendingFlag, 0);
+            // Clear stale tool flag so watchdog uses normal timeout if resend is skipped
+            newState.HasUsedToolsThisTurn = false;
 
             // Replace in sessions dictionary BEFORE registering event handler
             // so HandleSessionEvent's isCurrentState check passes for the new state.
@@ -1549,6 +1555,8 @@ public partial class CopilotService
             InvokeOnUI(() =>
             {
                 state.Info.ClearPermissionDenials();
+                // INV-1: Flush partial response to History before discarding buffers
+                FlushCurrentResponse(state);
                 state.CurrentResponse.Clear();
                 state.FlushedResponse.Clear();
                 state.PendingReasoningMessages.Clear();
@@ -1571,17 +1579,22 @@ public partial class CopilotService
 
             // Resend the last prompt so the agent picks up where it left off.
             // IsProcessing is now false and SendingFlag is 0, so SendPromptAsync will succeed.
+            // INV-2: SendPromptAsync mutates IsProcessing — must run on UI thread.
             if (!string.IsNullOrEmpty(lastPrompt))
             {
                 Debug($"[PERMISSION-RECOVER-RESEND] '{sessionName}' resending last prompt");
-                try
+                var resendDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                InvokeOnUI(() =>
                 {
-                    await SendPromptAsync(sessionName, lastPrompt, skipHistoryMessage: true);
-                }
-                catch (Exception sendEx)
-                {
-                    Debug($"[PERMISSION-RECOVER-RESEND] Failed for '{sessionName}': {sendEx.Message}");
-                }
+                    _ = SendPromptAsync(sessionName, lastPrompt, skipHistoryMessage: true)
+                        .ContinueWith(t =>
+                        {
+                            if (t.IsFaulted)
+                                Debug($"[PERMISSION-RECOVER-RESEND] Failed for '{sessionName}': {t.Exception?.InnerException?.Message}");
+                            resendDone.TrySetResult();
+                        });
+                });
+                await resendDone.Task.ConfigureAwait(false);
             }
         }
         catch (Exception ex)
