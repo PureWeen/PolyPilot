@@ -892,6 +892,11 @@ public partial class CopilotService
 
             // Check if the dequeued message is for an orchestrator session — if so,
             // route through the multi-agent dispatch pipeline instead of direct send.
+            
+            // If we are restoring, the global ReconcileOrganization() hasn't run yet.
+            // We must force an additive-only update so this session's metadata exists.
+            if (IsRestoring) ReconcileOrganization(allowPruning: false);
+            
             var orchGroupId = GetOrchestratorGroupId(state.Info.Name);
 
             // Use Task.Run to dispatch on a clean stack frame, avoiding reentrancy
