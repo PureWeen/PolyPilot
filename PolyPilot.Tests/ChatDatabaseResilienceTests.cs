@@ -448,4 +448,49 @@ public class ChatDatabaseResilienceTests : IDisposable
         var result = await db.HasMessagesAsync("s1");
         Assert.False(result);
     }
+
+    // -----------------------------------------------------------------------
+    // Round-trip test for new ChatMessageEntity fields (ToolInput, ImagePath,
+    // ImageDataUri, Caption) — added as part of the "new session opens empty"
+    // fix to ensure the DB schema migration works correctly.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task RoundTrip_ToolCallMessage_PreservesToolInput()
+    {
+        var dbPath = Path.Combine(_tempDir, "roundtrip-tool.db");
+        ChatDatabase.SetDbPathForTesting(dbPath);
+        var db = new ChatDatabase();
+
+        var msg = ChatMessage.ToolCallMessage("bash", "call-1", "{\"command\":\"ls -la\"}");
+        msg.IsComplete = true;
+        msg.IsSuccess = true;
+        msg.Content = "drwxr-xr-x ...";
+
+        await db.AddMessageAsync("s1", msg);
+        var messages = await db.GetAllMessagesAsync("s1");
+
+        Assert.Single(messages);
+        Assert.Equal("{\"command\":\"ls -la\"}", messages[0].ToolInput);
+        Assert.Equal("bash", messages[0].ToolName);
+        Assert.Equal("call-1", messages[0].ToolCallId);
+    }
+
+    [Fact]
+    public async Task RoundTrip_ImageMessage_PreservesAllImageFields()
+    {
+        var dbPath = Path.Combine(_tempDir, "roundtrip-image.db");
+        ChatDatabase.SetDbPathForTesting(dbPath);
+        var db = new ChatDatabase();
+
+        var msg = ChatMessage.ImageMessage("/path/img.png", "data:image/png;base64,abc", "A screenshot", "tc-1");
+
+        await db.AddMessageAsync("s1", msg);
+        var messages = await db.GetAllMessagesAsync("s1");
+
+        Assert.Single(messages);
+        Assert.Equal("/path/img.png", messages[0].ImagePath);
+        Assert.Equal("data:image/png;base64,abc", messages[0].ImageDataUri);
+        Assert.Equal("A screenshot", messages[0].Caption);
+    }
 }

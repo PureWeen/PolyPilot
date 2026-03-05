@@ -1233,6 +1233,19 @@
         }
 
         var session = sessions.FirstOrDefault(s => s.Name == sessionName);
+        if (session?.IsCreating == true)
+        {
+            CopilotService.LogDispatchRoute(sessionName, true, "QUEUED_CREATING", null, null, null, false);
+            List<string>? queueImagePaths = null;
+            if (hasImages)
+            {
+                queueImagePaths = pendingSendImages!.Select(i => i.TempPath).ToList();
+                pendingImagesBySession.Remove(sessionName);
+            }
+            CopilotService.EnqueueMessage(sessionName, finalPrompt, queueImagePaths, agentMode);
+            return;
+        }
+
         if (session?.IsProcessing == true)
         {
             CopilotService.LogDispatchRoute(sessionName, true, "STEER", null, null, null, false);
@@ -1310,9 +1323,17 @@
             {
                 if (t.IsFaulted)
                 {
+                    var errorMsg = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown error";
                     InvokeAsync(() =>
                     {
-                        Console.WriteLine($"Error sending to {sessionName}: {t.Exception?.InnerException?.Message}");
+                        Console.WriteLine($"Error sending to {sessionName}: {errorMsg}");
+                        var s = sessions.FirstOrDefault(s => s.Name == sessionName);
+                        if (s != null)
+                        {
+                            s.History.Add(ChatMessage.ErrorMessage($"Failed to send: {errorMsg}"));
+                            s.MessageCount = s.History.Count;
+                        }
+                        _ = SafeRefreshAsync();
                     });
                 }
             });
@@ -1321,6 +1342,13 @@
         catch (Exception ex)
         {
             Console.WriteLine($"Error sending to {sessionName}: {ex.Message}");
+            var s = sessions.FirstOrDefault(s => s.Name == sessionName);
+            if (s != null)
+            {
+                s.History.Add(ChatMessage.ErrorMessage($"Failed to send: {ex.Message}"));
+                s.MessageCount = s.History.Count;
+            }
+            _ = SafeRefreshAsync();
         }
     }
 

@@ -1427,6 +1427,48 @@
           "note": ".sidebar-content must have overflow:visible so the absolutely-positioned info popover can render outside sidebar bounds without being clipped"
         }
       ]
+    },
+    {
+      "id": "right-click-opens-session-menu",
+      "name": "Right-click on session item opens the ⋯ menu",
+      "description": "Right-clicking (contextual click) on a session in the left pane should open the same ⋯ menu that the ellipsis button opens, and suppress the browser default context menu.",
+      "category": "ui-interaction",
+      "unitTestCoverage": [
+        "RightClickContextMenuTests.SessionListItem_HasContextMenuHandler",
+        "RightClickContextMenuTests.SessionListItem_PreventsDefaultContextMenu",
+        "RightClickContextMenuTests.SessionListItem_HasOpenContextMenuMethod"
+      ],
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.session-item') !== null",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "At least one session item exists in the sidebar"
+        },
+        {
+          "action": "evaluate",
+          "script": "var item = document.querySelector('.session-item'); var evt = new MouseEvent('contextmenu', {bubbles: true, cancelable: true}); var prevented = !item.dispatchEvent(evt); prevented",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "contextmenu event is preventDefault'd on session items"
+        },
+        {
+          "action": "wait",
+          "ms": 200,
+          "note": "Allow Blazor async event handler and re-render to complete before checking DOM"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.session-menu') !== null",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "The session menu is visible after right-click"
+        }
+      ]
     }
   ]
 }
