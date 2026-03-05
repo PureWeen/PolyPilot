@@ -52,15 +52,51 @@ public class AgentSessionInfo
     public int ProcessingPhase { get; set; }
 
     /// <summary>
-    /// Tracks consecutive permission denials from the SDK (e.g., "Permission denied and
-    /// could not request permission from user"). Reset on each new prompt or turn completion.
-    /// Uses Interlocked for thread safety (events arrive on background threads).
+    /// Sliding window of recent tool results (true = permission denial, false = OK).
+    /// Triggers recovery when 3+ of the last 5 results are denials, which handles
+    /// cases where an occasional OK tool call resets what would otherwise be a denial streak.
+    /// Thread-safe via lock on the queue itself.
     /// </summary>
-    public int _permissionDenialCount;
+    private readonly Queue<bool> _recentToolResults = new(5);
+    public int _permissionDenialCount; // kept for Interlocked threshold detection
+    
+    /// <summary>
+    /// Count of denials in the sliding window. Read-only for UI binding.
+    /// </summary>
     public int PermissionDenialCount { get => Volatile.Read(ref _permissionDenialCount); set => Volatile.Write(ref _permissionDenialCount, value); }
 
     /// <summary>
-    /// True when consecutive permission denials suggest the permission callback binding is lost.
+    /// Records a tool result into the sliding window. Returns the denial count in the window.
+    /// </summary>
+    public int RecordToolResult(bool isPermissionDenial)
+    {
+        lock (_recentToolResults)
+        {
+            _recentToolResults.Enqueue(isPermissionDenial);
+            while (_recentToolResults.Count > 5)
+                _recentToolResults.Dequeue();
+            var denials = 0;
+            foreach (var r in _recentToolResults)
+                if (r) denials++;
+            Volatile.Write(ref _permissionDenialCount, denials);
+            return denials;
+        }
+    }
+
+    /// <summary>
+    /// Clears the sliding window (on new prompt, turn completion, or recovery).
+    /// </summary>
+    public void ClearPermissionDenials()
+    {
+        lock (_recentToolResults)
+        {
+            _recentToolResults.Clear();
+            Volatile.Write(ref _permissionDenialCount, 0);
+        }
+    }
+
+    /// <summary>
+    /// True when permission denials suggest the permission callback binding is lost.
     /// </summary>
     public bool HasPermissionIssue => PermissionDenialCount >= 3;
     

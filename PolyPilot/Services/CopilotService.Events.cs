@@ -363,20 +363,17 @@ public partial class CopilotService
                 var isPermissionDenial = (resultStr?.Contains("Permission denied", StringComparison.OrdinalIgnoreCase) == true)
                     || (errorStr?.Contains("Permission denied", StringComparison.OrdinalIgnoreCase) == true);
 
-                // Track consecutive permission denials
-                if (isPermissionDenial)
+                // Track permission denials via sliding window (3 of last 5 tool results)
+                // This handles cases where an occasional OK tool resets a strict consecutive counter
+                if (isPermissionDenial || !hasError)
                 {
-                    var denialCount = Interlocked.Increment(ref state.Info._permissionDenialCount);
-                    if (denialCount == 3)
+                    var denialCount = state.Info.RecordToolResult(isPermissionDenial);
+                    if (isPermissionDenial && denialCount == 3)
                     {
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Permission errors detected. Attempting to reconnect session..."));
                         _ = Task.Run(async () => await TryRecoverPermissionAsync(state, sessionName));
                     }
-                }
-                else if (!hasError)
-                {
-                    state.Info.PermissionDenialCount = 0;
                 }
 
                 // Skip filtered tools
@@ -833,7 +830,7 @@ public partial class CopilotService
         state.Info.ProcessingStartedAt = null;
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0;
-        state.Info.PermissionDenialCount = 0;
+        state.Info.ClearPermissionDenials();
         state.Info.LastUpdatedAt = DateTime.Now;
         state.ResponseCompletion?.TrySetResult(fullResponse);
         
@@ -1551,7 +1548,7 @@ public partial class CopilotService
             var cleanupDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             InvokeOnUI(() =>
             {
-                state.Info.PermissionDenialCount = 0;
+                state.Info.ClearPermissionDenials();
                 state.CurrentResponse.Clear();
                 state.FlushedResponse.Clear();
                 state.PendingReasoningMessages.Clear();
