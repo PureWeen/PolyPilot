@@ -113,6 +113,7 @@
     [Parameter] public DateTime? ProcessingStartedAt { get; set; }
     [Parameter] public int ToolCallCount { get; set; }
     [Parameter] public int ProcessingPhase { get; set; }
+    [Parameter] public DateTime? LastActivityAt { get; set; }
     [Parameter] public string? RepoUrl { get; set; }
 
     private string GetProcessingStatus()
@@ -123,7 +124,7 @@
         if (ProcessingPhase == 1)
             return "Server connected…";
         if (ProcessingPhase == 2 && ToolCallCount == 0)
-            return "Thinking…";
+            return AppendLastActivity("Thinking…");
 
         var parts = new List<string> { "Working" };
         if (ProcessingStartedAt.HasValue)
@@ -136,7 +137,21 @@
         }
         if (ToolCallCount > 0)
             parts.Add($"{ToolCallCount} tool call{(ToolCallCount != 1 ? "s" : "")}");
-        return string.Join(" · ", parts) + "…";
+        return AppendLastActivity(string.Join(" · ", parts) + "…");
+    }
+
+    private string AppendLastActivity(string status)
+    {
+        if (!LastActivityAt.HasValue) return status;
+        var sinceActivity = DateTime.Now - LastActivityAt.Value;
+        if (sinceActivity.TotalSeconds >= 30)
+        {
+            var ago = sinceActivity.TotalMinutes >= 1
+                ? $"{(int)sinceActivity.TotalMinutes}m ago"
+                : $"{(int)sinceActivity.TotalSeconds}s ago";
+            return $"{status} (last activity {ago})";
+        }
+        return status;
     }
 
     private string GetLayoutClass() => Layout switch

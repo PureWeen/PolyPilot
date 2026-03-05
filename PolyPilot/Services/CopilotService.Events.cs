@@ -215,7 +215,10 @@ public partial class CopilotService
         // without ever completing the turn (e.g., FailedDelegation), the watchdog must still
         // fire based on lack of real progress events.
         if (evt is not SessionUsageInfoEvent and not AssistantUsageEvent)
+        {
             Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+            state.Info.LastUpdatedAt = DateTime.Now;
+        }
         var sessionName = state.Info.Name;
         var isCurrentState = _sessions.TryGetValue(sessionName, out var current) && ReferenceEquals(current, state);
 
