@@ -152,19 +152,22 @@ public class ConnectionSettings
         if (!PlatformHelper.AvailableModes.Contains(settings.Mode))
             settings.Mode = PlatformHelper.DefaultMode;
 
-        // Ensure CliSource is a valid enum value (guards against corrupt settings)
-        if (!Enum.IsDefined(settings.CliSource))
-            settings.CliSource = CliSourceMode.BuiltIn;
-
-        // Ensure VsCodeVariant is a valid enum value
-        if (!Enum.IsDefined(settings.VsCodeVariant))
-            settings.VsCodeVariant = VsCodeVariant.Stable;
+        NormalizeEnumFields(settings);
 
         // InternationalWomensDay is ephemeral — never persist it; revert to System on load
         if (settings.Theme == UiTheme.InternationalWomensDay)
             settings.Theme = UiTheme.System;
 
         return settings;
+    }
+
+    /// <summary>Normalize invalid enum values to safe defaults. Testable separately from Load().</summary>
+    internal static void NormalizeEnumFields(ConnectionSettings settings)
+    {
+        if (!Enum.IsDefined(settings.CliSource))
+            settings.CliSource = CliSourceMode.BuiltIn;
+        if (!Enum.IsDefined(settings.VsCodeVariant))
+            settings.VsCodeVariant = VsCodeVariant.Stable;
     }
 
     private static ConnectionSettings DefaultSettings()

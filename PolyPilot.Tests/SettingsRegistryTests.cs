@@ -267,6 +267,16 @@ public class SettingsRegistryTests
     }
 
     [Fact]
+    public void Editor_SetValue_GarbageValue_KeepsDefault()
+    {
+        var settings = new ConnectionSettings();
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.editor");
+        desc.SetValue!(ctx, "garbage");
+        Assert.Equal(VsCodeVariant.Stable, settings.VsCodeVariant);
+    }
+
+    [Fact]
     public void Editor_VisibleOnDesktopOnly()
     {
         var ctx = CreateContext();

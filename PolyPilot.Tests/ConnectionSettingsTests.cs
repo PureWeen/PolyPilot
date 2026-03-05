@@ -432,11 +432,25 @@ public class ConnectionSettingsTests
         var json = """{"Mode":1,"Host":"localhost","Port":4321,"VsCodeVariant":99}""";
         var settings = JsonSerializer.Deserialize<ConnectionSettings>(json)!;
 
-        // Apply the same validation that Load() applies
-        if (!Enum.IsDefined(settings.VsCodeVariant))
-            settings.VsCodeVariant = VsCodeVariant.Stable;
+        // Call the real validation that Load() uses
+        ConnectionSettings.NormalizeEnumFields(settings);
 
         Assert.Equal(VsCodeVariant.Stable, settings.VsCodeVariant);
+    }
+
+    [Fact]
+    public void NormalizeEnumFields_ValidValues_Unchanged()
+    {
+        var settings = new ConnectionSettings
+        {
+            CliSource = CliSourceMode.System,
+            VsCodeVariant = VsCodeVariant.Insiders
+        };
+
+        ConnectionSettings.NormalizeEnumFields(settings);
+
+        Assert.Equal(CliSourceMode.System, settings.CliSource);
+        Assert.Equal(VsCodeVariant.Insiders, settings.VsCodeVariant);
     }
 
     private void Dispose()
