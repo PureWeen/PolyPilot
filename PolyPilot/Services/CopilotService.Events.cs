@@ -377,6 +377,7 @@ public partial class CopilotService
                 else if (!hasError)
                 {
                     state.Info.PermissionDenialCount = 0;
+                    _permissionRecoveryAttempts.TryRemove(sessionName, out _);
                 }
 
                 // Skip filtered tools
@@ -1466,11 +1467,28 @@ public partial class CopilotService
     /// Attempts to recover a session whose permission callback binding was lost.
     /// Disposes the broken session and resumes it with a fresh AutoApprovePermissions callback.
     /// </summary>
+    // Guard against infinite recovery loops (permission denied → recover → resend → denied again)
+    private readonly ConcurrentDictionary<string, int> _permissionRecoveryAttempts = new();
+
     private async Task TryRecoverPermissionAsync(SessionState state, string sessionName)
     {
         try
         {
             if (_client == null || state.Info.SessionId == null) return;
+
+            // Limit recovery attempts per session to prevent infinite loops
+            var attempts = _permissionRecoveryAttempts.AddOrUpdate(sessionName, 1, (_, v) => v + 1);
+            if (attempts > 2)
+            {
+                Debug($"[PERMISSION-RECOVER] Max recovery attempts reached for '{sessionName}'");
+                InvokeOnUI(() =>
+                {
+                    state.Info.History.Add(ChatMessage.SystemMessage(
+                        "⚠️ Multiple recovery attempts failed. Use Settings → Save & Reconnect to fully restart the service."));
+                    OnStateChanged?.Invoke();
+                });
+                return;
+            }
 
             Debug($"[PERMISSION-RECOVER] Attempting session reconnect for '{sessionName}'");
 
@@ -1520,12 +1538,30 @@ public partial class CopilotService
 
             Debug($"[PERMISSION-RECOVER] Session '{sessionName}' reconnected successfully");
 
+            // Find the last user prompt to resend so the agent continues its work
+            var lastUserMsg = state.Info.History.LastOrDefault(m => m.Role == "user");
+            var lastPrompt = lastUserMsg?.OriginalContent ?? lastUserMsg?.Content;
+
             InvokeOnUI(() =>
             {
-                state.Info.History.Add(ChatMessage.SystemMessage("✅ Session reconnected. Permission callback re-established."));
+                state.Info.History.Add(ChatMessage.SystemMessage("✅ Session reconnected. Resuming work..."));
                 OnActivity?.Invoke(sessionName, "✅ Session reconnected");
                 OnStateChanged?.Invoke();
             });
+
+            // Resend the last prompt so the agent picks up where it left off
+            if (!string.IsNullOrEmpty(lastPrompt))
+            {
+                Debug($"[PERMISSION-RECOVER] Resending last prompt for '{sessionName}'");
+                try
+                {
+                    await SendPromptAsync(sessionName, lastPrompt, skipHistoryMessage: true);
+                }
+                catch (Exception sendEx)
+                {
+                    Debug($"[PERMISSION-RECOVER] Failed to resend prompt for '{sessionName}': {sendEx.Message}");
+                }
+            }
         }
         catch (Exception ex)
         {
