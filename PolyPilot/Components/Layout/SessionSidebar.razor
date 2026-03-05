@@ -1778,7 +1778,8 @@ else
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[SessionSidebar] Analyze efficiency error: {ex.Message}");
+            footerStatus = $"✗ Efficiency analysis failed: {ex.Message}";
+            StateHasChanged();
         }
     }
 

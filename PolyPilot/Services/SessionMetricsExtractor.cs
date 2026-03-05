@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -49,7 +50,7 @@ public static partial class SessionMetricsExtractor
     private static readonly string[] BuildFailureKeywords =
     [
         "build failed", "error(s)", "compilation error",
-        "failed!", "error cs", "error ts", "error:", "exited with exit code 1",
+        "failed!", "error cs", "error ts", "exited with exit code 1",
         "exited with exit code 2",
     ];
 
@@ -358,55 +359,64 @@ public static partial class SessionMetricsExtractor
     {
         var calls = new List<LlmCallInfo>();
 
-        string content;
-        try { content = File.ReadAllText(logPath); }
+        IEnumerable<string> lines;
+        try { lines = File.ReadLines(logPath); }
         catch { return calls; }
 
-        var lines = content.Split('\n');
-        var i = 0;
-        while (i < lines.Length)
+        // Stream line-by-line to avoid loading the full (potentially 100MB+) file into memory.
+        var pendingTelemetry = false;
+        var jsonSb = new StringBuilder();
+        var braceDepth = 0;
+        var jsonStarted = false;
+
+        foreach (var rawLine in lines)
         {
-            if (lines[i].Contains("[Telemetry] cli.telemetry:"))
+            if (!pendingTelemetry)
             {
-                i++;
-                var jsonLines = new List<string>();
-                var started = false;
-
-                while (i < lines.Length)
+                if (rawLine.Contains("[Telemetry] cli.telemetry:"))
                 {
-                    var stripped = TimestampPrefixRegex().Replace(lines[i], "");
-                    if (!started && stripped.TrimStart().StartsWith('{'))
-                        started = true;
-
-                    if (started)
-                    {
-                        jsonLines.Add(stripped);
-                        var accumulated = string.Join("\n", jsonLines);
-                        try
-                        {
-                            JsonDocument.Parse(accumulated).Dispose();
-                            break; // valid complete JSON block
-                        }
-                        catch (JsonException) { /* not yet complete, keep accumulating */ }
-                    }
-                    else
-                        break;
-
-                    i++;
+                    pendingTelemetry = true;
+                    jsonSb.Clear();
+                    braceDepth = 0;
+                    jsonStarted = false;
                 }
+                continue;
+            }
 
-                if (jsonLines.Count > 0)
+            var stripped = TimestampPrefixRegex().Replace(rawLine, "");
+            if (!jsonStarted)
+            {
+                if (!stripped.TrimStart().StartsWith('{'))
                 {
-                    try
-                    {
-                        using var doc = JsonDocument.Parse(string.Join("\n", jsonLines));
-                        var root = doc.RootElement;
-                        if (GetString(root, "kind") == "assistant_usage")
-                        {
-                            var blockSession = GetString(root, "session_id") ?? "";
-                            if (!string.IsNullOrEmpty(sessionId) && blockSession != sessionId)
-                            { i++; continue; }
+                    // No JSON block following telemetry marker — reset
+                    pendingTelemetry = false;
+                    continue;
+                }
+                jsonStarted = true;
+            }
 
+            // Append line and track brace depth to detect JSON block completion
+            if (jsonSb.Length > 0) jsonSb.Append('\n');
+            jsonSb.Append(stripped);
+
+            foreach (var ch in stripped)
+            {
+                if (ch == '{') braceDepth++;
+                else if (ch == '}') braceDepth--;
+            }
+
+            if (braceDepth <= 0 && jsonStarted)
+            {
+                // Likely a complete JSON object — try to parse
+                try
+                {
+                    using var doc = JsonDocument.Parse(jsonSb.ToString());
+                    var root = doc.RootElement;
+                    if (GetString(root, "kind") == "assistant_usage")
+                    {
+                        var blockSession = GetString(root, "session_id") ?? "";
+                        if (string.IsNullOrEmpty(sessionId) || blockSession == sessionId)
+                        {
                             var props = root.TryGetProperty("properties", out var p) ? p : default;
                             var metrics = root.TryGetProperty("metrics", out var m) ? m : default;
 
@@ -423,10 +433,14 @@ public static partial class SessionMetricsExtractor
                             });
                         }
                     }
-                    catch (JsonException) { /* skip malformed */ }
                 }
+                catch (JsonException) { /* malformed block, skip */ }
+
+                pendingTelemetry = false;
+                jsonSb.Clear();
+                braceDepth = 0;
+                jsonStarted = false;
             }
-            i++;
         }
 
         return calls;
