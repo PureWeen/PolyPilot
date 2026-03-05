@@ -232,7 +232,10 @@ public partial class CopilotService
         var currentHash = activeNames.Count;
         unchecked { foreach (var name in activeNames) currentHash += name.GetHashCode() * 31; }
         if (currentHash == _lastReconcileSessionHash && currentHash != 0) return;
-        _lastReconcileSessionHash = currentHash;
+        // Only update the hash when doing a full reconciliation (with pruning).
+        // Additive-only calls (allowPruning=false) during restore must not poison the cache,
+        // or the post-restore full reconciliation will be skipped via hash match. (PR #284 review)
+        if (allowPruning) _lastReconcileSessionHash = currentHash;
         bool changed = false;
 
         // Build lookup of multi-agent group IDs so we can protect their sessions
