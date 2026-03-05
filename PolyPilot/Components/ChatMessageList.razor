@@ -77,6 +77,15 @@
             </div>
         }
 
+        @* Permission warning banner *@
+        @if (HasPermissionIssue)
+        {
+            <div class="permission-warning">
+                <span>⚠️ Tools are failing with permission errors.</span>
+                <button class="reconnect-btn" @onclick="OnReconnectRequested">Reconnect</button>
+            </div>
+        }
+
         @* Activity indicator *@
         @if (IsProcessing && string.IsNullOrEmpty(StreamingContent) && string.IsNullOrEmpty(CurrentToolName) && !ToolActivities.Any())
         {
@@ -115,6 +124,8 @@
     [Parameter] public int ProcessingPhase { get; set; }
     [Parameter] public DateTime? LastActivityAt { get; set; }
     [Parameter] public string? RepoUrl { get; set; }
+    [Parameter] public bool HasPermissionIssue { get; set; }
+    [Parameter] public EventCallback OnReconnectRequested { get; set; }
 
     private string GetProcessingStatus()
     {

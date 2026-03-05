@@ -79,6 +79,10 @@
                 {
                     <span class="model-override" title="Model override: @Meta.PreferredModel">⚡</span>
                 }
+                @if (Session.HasPermissionIssue)
+                {
+                    <span class="permission-warn-icon" title="Permission errors — reconnect needed">⚠️</span>
+                }
                 @if (Session.IsProcessing)
                 {
                     <span class="processing"> • @GetShortProcessingStatus()</span>

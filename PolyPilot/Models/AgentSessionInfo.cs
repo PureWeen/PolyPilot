@@ -44,6 +44,17 @@ public class AgentSessionInfo
     /// 2=Thinking (TurnStart), 3=Working (tools running)
     /// </summary>
     public int ProcessingPhase { get; set; }
+
+    /// <summary>
+    /// Tracks consecutive permission denials from the SDK (e.g., "Permission denied and
+    /// could not request permission from user"). Reset on each new prompt or turn completion.
+    /// </summary>
+    public int PermissionDenialCount { get; set; }
+
+    /// <summary>
+    /// True when consecutive permission denials suggest the permission callback binding is lost.
+    /// </summary>
+    public bool HasPermissionIssue => PermissionDenialCount >= 3;
     
     // Accumulated token usage across all turns
     public int TotalInputTokens { get; set; }

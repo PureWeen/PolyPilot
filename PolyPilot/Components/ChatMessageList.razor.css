@@ -976,3 +976,32 @@
         max-width: 100%;
     }
 }
+
+/* Permission warning banner */
+.permission-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin: 8px 0;
+    background: rgba(255, 170, 0, 0.15);
+    border: 1px solid rgba(255, 170, 0, 0.3);
+    border-radius: 8px;
+    color: #ffaa00;
+    font-size: 0.85rem;
+}
+
+.reconnect-btn {
+    padding: 4px 12px;
+    background: rgba(255, 170, 0, 0.2);
+    border: 1px solid rgba(255, 170, 0, 0.4);
+    border-radius: 4px;
+    color: #ffaa00;
+    cursor: pointer;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.reconnect-btn:hover {
+    background: rgba(255, 170, 0, 0.3);
+}

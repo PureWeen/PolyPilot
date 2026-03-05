@@ -359,6 +359,24 @@ public partial class CopilotService
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
                 var resultStr = FormatToolResult(toolDone.Data!.Result);
                 var hasError = toolDone.Data.Error != null;
+                var errorStr = toolDone.Data.Error?.ToString();
+                var isPermissionDenial = (resultStr?.Contains("Permission denied", StringComparison.OrdinalIgnoreCase) == true)
+                    || (errorStr?.Contains("Permission denied", StringComparison.OrdinalIgnoreCase) == true);
+
+                // Track consecutive permission denials
+                if (isPermissionDenial)
+                {
+                    state.Info.PermissionDenialCount++;
+                    if (state.Info.PermissionDenialCount == 3)
+                    {
+                        state.Info.History.Add(ChatMessage.SystemMessage(
+                            "⚠️ Multiple tools are failing with permission errors. The copilot service may need to be reconnected. Use the Reconnect button or go to Settings → Save & Reconnect."));
+                    }
+                }
+                else if (!hasError)
+                {
+                    state.Info.PermissionDenialCount = 0;
+                }
 
                 // Skip filtered tools
                 if (completeToolName != null && FilteredTools.Contains(completeToolName))
@@ -392,6 +410,8 @@ public partial class CopilotService
 
                 Invoke(() =>
                 {
+                    if (isPermissionDenial)
+                        OnStateChanged?.Invoke();
                     OnToolCompleted?.Invoke(sessionName, completeCallId, resultStr, !hasError);
                     OnActivity?.Invoke(sessionName, hasError ? "❌ Tool failed" : "✅ Tool completed");
                 });
@@ -810,6 +830,7 @@ public partial class CopilotService
         state.Info.ProcessingStartedAt = null;
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0;
+        state.Info.PermissionDenialCount = 0;
         state.Info.LastUpdatedAt = DateTime.Now;
         state.ResponseCompletion?.TrySetResult(fullResponse);
         

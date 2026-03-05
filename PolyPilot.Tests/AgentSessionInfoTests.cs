@@ -184,4 +184,32 @@ public class AgentSessionInfoTests
         session.IsCreating = false;
         Assert.False(session.IsCreating);
     }
+
+    [Fact]
+    public void PermissionDenialCount_DefaultsToZero()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        Assert.Equal(0, info.PermissionDenialCount);
+        Assert.False(info.HasPermissionIssue);
+    }
+
+    [Fact]
+    public void HasPermissionIssue_TrueWhenCountReachesThreshold()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        info.PermissionDenialCount = 2;
+        Assert.False(info.HasPermissionIssue);
+        info.PermissionDenialCount = 3;
+        Assert.True(info.HasPermissionIssue);
+    }
+
+    [Fact]
+    public void HasPermissionIssue_FalseAfterReset()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        info.PermissionDenialCount = 5;
+        Assert.True(info.HasPermissionIssue);
+        info.PermissionDenialCount = 0;
+        Assert.False(info.HasPermissionIssue);
+    }
 }

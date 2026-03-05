@@ -161,7 +161,8 @@
                                      OnLoadFullHistory="LoadFullRemoteHistory"
                                      OnStartFiesta="StartFiestaForSession"
                                      OnStopFiesta="StopFiestaForSession"
-                                     OnStopReflection="() => StopReflectionForSession(session.Name)" />
+                                     OnStopReflection="() => StopReflectionForSession(session.Name)"
+                                     OnReconnectRequested="HandleReconnect" />
             </KeepAliveSession>
         }
     }
@@ -2255,6 +2256,12 @@
     private async Task StopSession(string sessionName)
     {
         await CopilotService.AbortSessionAsync(sessionName);
+    }
+
+    private async Task HandleReconnect()
+    {
+        var connSettings = ConnectionSettings.Load();
+        await CopilotService.ReconnectAsync(connSettings);
     }
 
     private IReadOnlyList<FiestaLinkedWorker> GetFiestaWorkersForSession(string sessionName)
