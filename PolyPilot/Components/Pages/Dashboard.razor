@@ -849,8 +849,11 @@
         if (_disposed || !_initializationComplete) return;
         try
         {
+            // Snapshot the list to avoid racing with UI-thread mutations
+            var snapshot = sessions;
+            if (snapshot == null || snapshot.Count == 0) return;
             bool needsRender = false;
-            foreach (var session in sessions)
+            foreach (var session in snapshot)
             {
                 var key = session.Name;
                 var current = (session.MessageCount, session.IsProcessing, session.ToolCallCount, session.ProcessingPhase, session.LastUpdatedAt);
