@@ -1654,6 +1654,43 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Track session creation using display name as stable key
         // (SessionId may not be populated yet at creation time)
         _usageStats?.TrackSessionStart(name);
+
+        // Drain any messages queued while IsCreating was true.
+        // The user may have typed and sent a message before SDK creation finished.
+        if (state.Info.MessageQueue.Count > 0)
+        {
+            var nextPrompt = state.Info.MessageQueue[0];
+            state.Info.MessageQueue.RemoveAt(0);
+            List<string>? nextImagePaths = null;
+            lock (_imageQueueLock)
+            {
+                if (_queuedImagePaths.TryGetValue(name, out var imageQueue) && imageQueue.Count > 0)
+                {
+                    nextImagePaths = imageQueue[0];
+                    imageQueue.RemoveAt(0);
+                    if (imageQueue.Count == 0)
+                        _queuedImagePaths.TryRemove(name, out _);
+                }
+            }
+            string? nextAgentMode = null;
+            lock (_imageQueueLock)
+            {
+                if (_queuedAgentModes.TryGetValue(name, out var modeQueue) && modeQueue.Count > 0)
+                {
+                    nextAgentMode = modeQueue[0];
+                    modeQueue.RemoveAt(0);
+                    if (modeQueue.Count == 0)
+                        _queuedAgentModes.TryRemove(name, out _);
+                }
+            }
+            Debug($"[CREATE] Draining queued message for newly created session '{name}'");
+            _ = SendPromptAsync(name, nextPrompt, imagePaths: nextImagePaths, agentMode: nextAgentMode)
+                .ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                        Debug($"[CREATE] Failed to send queued message for '{name}': {t.Exception?.InnerException?.Message}");
+                }, TaskContinuationOptions.OnlyOnFaulted);
+        }
         
         return info;
     }

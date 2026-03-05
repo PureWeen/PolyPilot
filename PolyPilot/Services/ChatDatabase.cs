@@ -37,6 +37,13 @@ public class ChatMessageEntity
     // Original user-typed prompt before orchestration wrapper was prepended
     public string? OriginalContent { get; set; }
 
+    // Tool input (arguments passed to the tool)
+    public string? ToolInput { get; set; }
+
+    // Image fields (for ChatMessageType.Image)
+    public string? ImagePath { get; set; }
+    public string? Caption { get; set; }
+
     public ChatMessage ToChatMessage()
     {
         var type = Enum.TryParse<ChatMessageType>(MessageType, out var mt) ? mt : ChatMessageType.User;
@@ -46,12 +53,16 @@ public class ChatMessageEntity
         {
             ToolName = ToolName,
             ToolCallId = ToolCallId,
+            ToolInput = ToolInput,
             IsComplete = IsComplete,
             IsSuccess = IsSuccess,
             IsCollapsed = type is ChatMessageType.ToolCall or ChatMessageType.Reasoning,
             ReasoningId = ReasoningId,
             Model = Model,
-            OriginalContent = OriginalContent
+            OriginalContent = OriginalContent,
+            ImagePath = ImagePath,
+            ImageDataUri = ImageDataUri,
+            Caption = Caption
         };
         return msg;
     }
@@ -66,12 +77,16 @@ public class ChatMessageEntity
             Content = msg.Content,
             ToolName = msg.ToolName,
             ToolCallId = msg.ToolCallId,
+            ToolInput = msg.ToolInput,
             IsComplete = msg.IsComplete,
             IsSuccess = msg.IsSuccess,
             ReasoningId = msg.ReasoningId,
             Timestamp = msg.Timestamp,
             Model = msg.Model,
-            OriginalContent = msg.OriginalContent
+            OriginalContent = msg.OriginalContent,
+            ImagePath = msg.ImagePath,
+            ImageDataUri = msg.ImageDataUri,
+            Caption = msg.Caption
         };
     }
 }

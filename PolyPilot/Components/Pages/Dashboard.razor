@@ -1233,9 +1233,9 @@
         }
 
         var session = sessions.FirstOrDefault(s => s.Name == sessionName);
-        if (session?.IsProcessing == true)
+        if (session?.IsProcessing == true || session?.IsCreating == true)
         {
-            CopilotService.LogDispatchRoute(sessionName, true, "QUEUED", null, null, null, false);
+            CopilotService.LogDispatchRoute(sessionName, true, session.IsCreating ? "QUEUED_CREATING" : "QUEUED", null, null, null, false);
             List<string>? queueImagePaths = null;
             if (hasImages)
             {
@@ -1306,9 +1306,17 @@
             {
                 if (t.IsFaulted)
                 {
+                    var errorMsg = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown error";
                     InvokeAsync(() =>
                     {
-                        Console.WriteLine($"Error sending to {sessionName}: {t.Exception?.InnerException?.Message}");
+                        Console.WriteLine($"Error sending to {sessionName}: {errorMsg}");
+                        var s = sessions.FirstOrDefault(s => s.Name == sessionName);
+                        if (s != null)
+                        {
+                            s.History.Add(ChatMessage.ErrorMessage($"Failed to send: {errorMsg}"));
+                            s.MessageCount = s.History.Count;
+                        }
+                        _ = SafeRefreshAsync();
                     });
                 }
             });
@@ -1317,6 +1325,12 @@
         catch (Exception ex)
         {
             Console.WriteLine($"Error sending to {sessionName}: {ex.Message}");
+            var s = sessions.FirstOrDefault(s => s.Name == sessionName);
+            if (s != null)
+            {
+                s.History.Add(ChatMessage.ErrorMessage($"Failed to send: {ex.Message}"));
+                s.MessageCount = s.History.Count;
+            }
         }
     }
 
