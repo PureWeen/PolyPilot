@@ -1394,16 +1394,18 @@ public partial class CopilotService
                         ? WatchdogToolExecutionTimeoutSeconds
                         : WatchdogInactivityTimeoutSeconds;
 
-                // Safety net: check absolute max processing time regardless of event activity.
-                // This catches scenarios where non-progress events (e.g., repeated SessionUsageInfoEvent
-                // with FailedDelegation) keep arriving without any terminal event.
-                // Snapshot once to avoid TOCTOU: if CompleteResponse clears ProcessingStartedAt
-                // between .HasValue and .Value, the second read would throw InvalidOperationException.
+                // Safety net: check absolute max processing time, but only if events have also
+                // gone stale. If events are still flowing (elapsed < effectiveTimeout), the session
+                // is actively working — don't kill it just because the turn is long-running.
+                // This prevents premature kills on CI/agent sessions that legitimately work for hours.
+                // The cap still catches "zombie" sessions where non-progress events (e.g., repeated
+                // SessionUsageInfoEvent with FailedDelegation) keep the inactivity timer happy.
                 var startedAt = state.Info.ProcessingStartedAt;
                 var totalProcessingSeconds = startedAt.HasValue
                     ? (DateTime.UtcNow - startedAt.Value).TotalSeconds
                     : 0;
-                var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds;
+                var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds
+                    && elapsed >= effectiveTimeout;
 
                 if (elapsed >= effectiveTimeout || exceededMaxTime)
                 {
