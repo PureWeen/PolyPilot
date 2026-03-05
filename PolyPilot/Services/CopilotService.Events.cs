@@ -370,7 +370,8 @@ public partial class CopilotService
                     if (state.Info.PermissionDenialCount == 3)
                     {
                         state.Info.History.Add(ChatMessage.SystemMessage(
-                            "⚠️ Multiple tools are failing with permission errors. The copilot service may need to be reconnected. Use the Reconnect button or go to Settings → Save & Reconnect."));
+                            "⚠️ Permission errors detected. Attempting to reconnect session..."));
+                        _ = Task.Run(async () => await TryRecoverPermissionAsync(state, sessionName));
                     }
                 }
                 else if (!hasError)
@@ -1459,5 +1460,82 @@ public partial class CopilotService
         }
         catch (OperationCanceledException) { /* Normal cancellation when response completes */ }
         catch (Exception ex) { Debug($"Watchdog error for '{sessionName}': {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Attempts to recover a session whose permission callback binding was lost.
+    /// Disposes the broken session and resumes it with a fresh AutoApprovePermissions callback.
+    /// </summary>
+    private async Task TryRecoverPermissionAsync(SessionState state, string sessionName)
+    {
+        try
+        {
+            if (_client == null || state.Info.SessionId == null) return;
+
+            Debug($"[PERMISSION-RECOVER] Attempting session reconnect for '{sessionName}'");
+
+            // Dispose the old session
+            try { await state.Session.DisposeAsync(); } catch { }
+
+            // Resume with fresh permission callback
+            var resumeModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
+            var resumeConfig = new ResumeSessionConfig
+            {
+                Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
+                OnPermissionRequest = AutoApprovePermissions
+            };
+            if (!string.IsNullOrEmpty(resumeModel))
+                resumeConfig.Model = resumeModel;
+            if (!string.IsNullOrEmpty(state.Info.WorkingDirectory))
+                resumeConfig.WorkingDirectory = state.Info.WorkingDirectory;
+
+            var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, resumeConfig);
+
+            // Cancel old watchdog BEFORE creating new state
+            CancelProcessingWatchdog(state);
+
+            // Create new state preserving Info
+            var newState = new SessionState
+            {
+                Session = newSession,
+                Info = state.Info
+            };
+            newState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            // Carry forward ProcessingGeneration so stale callbacks on the
+            // orphaned old state can't pass generation checks on the new state.
+            Interlocked.Exchange(ref newState.ProcessingGeneration,
+                Interlocked.Read(ref state.ProcessingGeneration));
+            newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn;
+            newState.IsMultiAgentSession = state.IsMultiAgentSession;
+            newSession.On(evt => HandleSessionEvent(newState, evt));
+
+            // Replace in sessions dictionary
+            _sessions[sessionName] = newState;
+
+            // Reset the permission denial count
+            state.Info.PermissionDenialCount = 0;
+
+            // Start watchdog for the new state
+            StartProcessingWatchdog(newState, sessionName);
+
+            Debug($"[PERMISSION-RECOVER] Session '{sessionName}' reconnected successfully");
+
+            InvokeOnUI(() =>
+            {
+                state.Info.History.Add(ChatMessage.SystemMessage("✅ Session reconnected. Permission callback re-established."));
+                OnActivity?.Invoke(sessionName, "✅ Session reconnected");
+                OnStateChanged?.Invoke();
+            });
+        }
+        catch (Exception ex)
+        {
+            Debug($"[PERMISSION-RECOVER] Failed for '{sessionName}': {ex.Message}");
+            InvokeOnUI(() =>
+            {
+                state.Info.History.Add(ChatMessage.SystemMessage(
+                    "⚠️ Auto-recovery failed. Use the Reconnect button in Settings → Save & Reconnect to restore permissions."));
+                OnStateChanged?.Invoke();
+            });
+        }
     }
 }
