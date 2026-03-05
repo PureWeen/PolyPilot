@@ -523,7 +523,11 @@ public partial class CopilotService
         if (group?.RepoId != null && !isMultiAgent)
             Organization.DeletedRepoGroupRepoIds.Add(group.RepoId);
 
-        Organization.Groups.RemoveAll(g => g.Id == groupId);
+        // Atomically replace the list reference rather than mutating in-place.
+        // List.RemoveAll nulls out trailing elements before decrementing _size, creating a
+        // transient window where concurrent readers (e.g. test polling, render thread) can
+        // observe a null entry and throw NullReferenceException.
+        Organization.Groups = Organization.Groups.Where(g => g.Id != groupId).ToList();
         // Clean up per-group caches to prevent memory leaks
         _reflectLoopLocks.TryRemove(groupId, out _);
         _reflectQueuedPrompts.TryRemove(groupId, out _);
