@@ -344,7 +344,9 @@ public class SteeringMessageTests
         var softSteerStart = source.IndexOf("[STEER] '{sessionName}' soft steer");
         Assert.True(softSteerStart >= 0, "Soft steer debug log not found");
 
-        var softSteerBlock = source.Substring(softSteerStart, source.IndexOf("// Hard steer:", softSteerStart) - softSteerStart);
+        var hardSteerIdx = source.IndexOf("// Hard steer:", softSteerStart);
+        Assert.True(hardSteerIdx >= 0, "'// Hard steer:' anchor comment not found in CopilotService.cs");
+        var softSteerBlock = source.Substring(softSteerStart, hardSteerIdx - softSteerStart);
 
         Assert.Contains("History.Add(userMsg)", softSteerBlock);
         Assert.Contains("_chatDb.AddMessageAsync", softSteerBlock);
@@ -366,7 +368,9 @@ public class SteeringMessageTests
         var softSteerStart = source.IndexOf("[STEER] '{sessionName}' soft steer");
         Assert.True(softSteerStart >= 0, "Soft steer debug log not found");
 
-        var softSteerBlock = source.Substring(softSteerStart, source.IndexOf("// Hard steer:", softSteerStart) - softSteerStart);
+        var hardSteerIdx = source.IndexOf("// Hard steer:", softSteerStart);
+        Assert.True(hardSteerIdx >= 0, "'// Hard steer:' anchor comment not found in CopilotService.cs");
+        var softSteerBlock = source.Substring(softSteerStart, hardSteerIdx - softSteerStart);
 
         // Must catch connection errors separately and fall through to hard steer
         Assert.Contains("IsConnectionError(ex)", softSteerBlock);

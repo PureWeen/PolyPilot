@@ -2355,8 +2355,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             state.Info.History.Add(userMsg);
             state.Info.MessageCount = state.Info.History.Count;
             state.Info.LastReadMessageCount = state.Info.History.Count;
-            if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, userMsg);
+            // NOTE: chatDb write is deferred to after SendAsync succeeds so a connection error
+            // fallback doesn't leave an orphaned DB entry (which hard steer would then duplicate).
             OnStateChanged?.Invoke();
 
             var softSteerOptions = new MessageOptions { Prompt = steeringMessage, Mode = "immediate" };
@@ -2367,18 +2367,25 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 await state.Session.SendAsync(softSteerOptions);
                 softSteerSucceeded = true;
+                // Write to DB only after successful send to avoid orphaned entries on connection errors.
+                if (!string.IsNullOrEmpty(state.Info.SessionId))
+                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, userMsg);
             }
             catch (Exception ex) when (IsConnectionError(ex))
             {
                 // Connection lost (e.g., ObjectDisposedException on the JsonRpc transport).
-                // Remove the user message we already added — the hard steer path below will
-                // re-add it via SendPromptAsync which has full reconnection logic.
+                // Remove the user message we already added to History — the hard steer path below
+                // will re-add it via SendPromptAsync which has full reconnection logic.
+                // No chatDb cleanup needed since the write was deferred above.
                 Debug($"[STEER-FALLBACK] '{sessionName}' soft steer hit connection error, falling through to hard steer (error={ex.Message})");
-                if (state.Info.History.Count > 0 && state.Info.History[^1] == userMsg)
+                InvokeOnUI(() =>
                 {
-                    state.Info.History.RemoveAt(state.Info.History.Count - 1);
-                    state.Info.MessageCount = state.Info.History.Count;
-                }
+                    if (state.Info.History.Count > 0 && state.Info.History[^1] == userMsg)
+                    {
+                        state.Info.History.RemoveAt(state.Info.History.Count - 1);
+                        state.Info.MessageCount = state.Info.History.Count;
+                    }
+                });
                 // Fall through to hard steer below — do NOT return.
             }
             catch (Exception ex)
