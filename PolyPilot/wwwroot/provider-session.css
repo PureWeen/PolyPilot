@@ -90,6 +90,22 @@
     filter: brightness(1.15);
 }
 
+.provider-leader-chat-btn {
+    all: unset;
+    padding: 0.2rem 0.3rem;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: var(--type-caption1);
+    line-height: 1;
+    flex-shrink: 0;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+}
+
+.provider-leader-chat-btn:hover {
+    opacity: 1;
+}
+
 /* Plugin settings card */
 .plugin-card {
     background: var(--bg-secondary, #1a1a2e);
