@@ -122,20 +122,6 @@ public class MyProvider : ISessionProvider
         new() { Id = "agent-2", Name = "Agent Two", Role = "writer", Icon = "✍️" }
     };
 
-    // ── Interaction Modes ──
-    public IReadOnlyList<ProviderMode> GetModes() => new List<ProviderMode>
-    {
-        new() { Id = "leader", Label = "Leader", Icon = "🔮", Description = "Send to leader" },
-        new() { Id = "broadcast", Label = "Broadcast", Icon = "📡", Description = "Send to all" }
-    };
-
-    public Task<string> SendToModeAsync(string modeId, string message, CancellationToken ct = default)
-    {
-        // Route based on the selected mode in the sidebar dropdown.
-        // The "leader" mode typically delegates to SendMessageAsync.
-        return SendMessageAsync(message, ct);
-    }
-
     // ── Actions ──
     public IReadOnlyList<ProviderAction> GetActions() => new List<ProviderAction>
     {
@@ -183,11 +169,10 @@ PolyPilot creates sessions using this naming convention:
 
 ### Event flow
 
-When a user sends a message, the flow depends on where they type:
+When a user sends a message, the flow depends on which session is selected:
 
-1. **Sidebar mode input bar** → `SendToProviderGroupAsync` → `provider.SendToModeAsync(selectedMode, message)`
-2. **Main chat input (leader selected)** → `SendPromptAsync` → `SendToProviderAsync` → `provider.SendMessageAsync(message)`
-3. **Main chat input (member selected)** → `SendPromptAsync` → `SendToProviderAsync` → `provider.SendToMemberAsync(memberId, message)`
+1. **Main chat input (leader selected)** → `SendPromptAsync` → `SendToProviderAsync` → `provider.SendMessageAsync(message)`
+2. **Main chat input (member selected)** → `SendPromptAsync` → `SendToProviderAsync` → `provider.SendToMemberAsync(memberId, message)`
 
 Your provider fires events to stream responses back:
 
@@ -203,13 +188,9 @@ For member sessions, use the member-scoped events:
 OnMemberTurnStart(memberId) → OnMemberContentReceived(memberId, content) → OnMemberTurnEnd(memberId)
 ```
 
-### Interaction modes
-
-Modes appear as a dropdown in the sidebar above the message input. They let users choose how to interact with the provider group (e.g., "Talk to Leader", "Broadcast to All", "Analyze"). The selected mode is passed to `SendToModeAsync`.
-
 ### Actions
 
-Actions appear as buttons below the mode dropdown. They execute quick commands (like "Ping" or "Status") and post the result as a message in the leader's chat history.
+Actions appear as buttons in the group header. They execute quick commands (like "Ping" or "Status") and post the result as a message in the leader's chat history.
 
 ### Dynamic members
 

@@ -656,39 +656,6 @@ else
                         }
                     }
 
-                    @if (groupProvider != null && !group.IsCollapsed)
-                    {
-                        var pgGroupId = group.Id;
-                        var providerModes = groupProvider.GetModes();
-                        var selectedMode = CopilotService.GetProviderGroupMode(pgGroupId);
-                        <div class="sidebar-ma-controls" @onclick:stopPropagation="true"
-                             style="border-left: 2px solid @groupProvider.AccentColor; margin-left: 4px;">
-                            @if (providerModes.Count > 1)
-                            {
-                                <select class="sidebar-ma-mode-select" @onchange="(e) => OnProviderModeChanged(pgGroupId, e)">
-                                    @foreach (var mode in providerModes)
-                                    {
-                                        <option value="@mode.Id" selected="@(mode.Id == selectedMode)">@mode.Icon @mode.Label</option>
-                                    }
-                                </select>
-                            }
-                            else if (providerModes.Count == 1)
-                            {
-                                <span class="sidebar-ma-mode-label" style="color: var(--text-dim); font-size: var(--type-caption1); padding: 2px 4px;">
-                                    @providerModes[0].Icon @providerModes[0].Label
-                                </span>
-                            }
-                            <div class="sidebar-ma-input-bar">
-                                <textarea id="sidebar-provider-input-@pgGroupId" class="sidebar-ma-input"
-                                          placeholder="@GetProviderInputPlaceholder(groupProvider, selectedMode)"
-                                          autocorrect="off" rows="1" @onclick:stopPropagation="true"></textarea>
-                                <button class="sidebar-ma-send-btn" style="background: @groupProvider.AccentColor;"
-                                        @onclick="() => SendToProviderGroup(pgGroupId)"
-                                        @onclick:stopPropagation="true">@groupProvider.Icon</button>
-                            </div>
-                        </div>
-                    }
-
                     @if (!group.IsCollapsed || !showGroupHeaders)
                     {
                         @if (groupProvider != null)
@@ -2243,49 +2210,6 @@ Important conventions:
         {
             Console.WriteLine($"[SessionSidebar] Provider action '{actionId}' failed: {ex.Message}");
         }
-    }
-
-    private void OnProviderModeChanged(string groupId, ChangeEventArgs e)
-    {
-        var modeId = e.Value?.ToString() ?? "leader";
-        CopilotService.SetProviderGroupMode(groupId, modeId);
-    }
-
-    private async Task SendToProviderGroup(string groupId)
-    {
-        var inputId = $"sidebar-provider-input-{groupId}";
-        var text = await JS.InvokeAsync<string>("getElementValue", inputId);
-        if (string.IsNullOrWhiteSpace(text)) return;
-
-        await JS.InvokeVoidAsync("clearElementValue", inputId);
-
-        // Select the leader session to show the conversation
-        var provider = CopilotService.GetProviderForGroup(groupId);
-        if (provider != null)
-        {
-            var leaderName = $"__{provider.ProviderId}__";
-            await SelectSession(leaderName);
-        }
-
-        try
-        {
-            _ = CopilotService.SendToProviderGroupAsync(groupId, text.Trim()).ContinueWith(t =>
-            {
-                if (t.IsFaulted)
-                    Console.WriteLine($"[SessionSidebar] Provider group send failed: {t.Exception?.InnerException?.Message}");
-            });
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[SessionSidebar] Provider group send error: {ex.Message}");
-        }
-    }
-
-    private string GetProviderInputPlaceholder(PolyPilot.Provider.ISessionProvider provider, string modeId)
-    {
-        var modes = provider.GetModes();
-        var mode = modes.FirstOrDefault(m => m.Id == modeId) ?? modes.FirstOrDefault();
-        return mode != null ? $"Message {mode.Label}…" : $"Message {provider.DisplayName}…";
     }
 
     public void Dispose()

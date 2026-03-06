@@ -9,7 +9,6 @@ public partial class CopilotService
     // ── Provider State ──────────────────────────────────────
     private readonly Dictionary<string, ISessionProvider> _providers = new();
     private readonly Dictionary<string, string> _sessionToProviderId = new();
-    private readonly Dictionary<string, string> _providerSelectedMode = new(); // groupId → modeId
 
     /// <summary>
     /// Resolves all ISessionProvider instances from DI, registers them into the session model,
@@ -444,41 +443,6 @@ public partial class CopilotService
             return null;
         var providerId = groupId["__provider_".Length..^"__".Length];
         return _providers.TryGetValue(providerId, out var p) ? p : null;
-    }
-
-    /// <summary>Gets the currently selected mode for a provider group.</summary>
-    public string GetProviderGroupMode(string groupId)
-    {
-        return _providerSelectedMode.TryGetValue(groupId, out var mode) ? mode : "leader";
-    }
-
-    /// <summary>Sets the selected mode for a provider group.</summary>
-    public void SetProviderGroupMode(string groupId, string modeId)
-    {
-        _providerSelectedMode[groupId] = modeId;
-        OnStateChanged?.Invoke();
-    }
-
-    /// <summary>
-    /// Sends a message through a provider group using its currently selected mode.
-    /// </summary>
-    public async Task SendToProviderGroupAsync(string groupId, string message, CancellationToken ct = default)
-    {
-        var provider = GetProviderForGroup(groupId);
-        if (provider == null) return;
-
-        var modeId = GetProviderGroupMode(groupId);
-        var leaderName = $"__{provider.ProviderId}__";
-
-        // Add user message to leader's local history
-        if (_sessions.TryGetValue(leaderName, out var state))
-        {
-            state.Info.History.Add(ChatMessage.UserMessage(message));
-            state.Info.MessageCount = state.Info.History.Count;
-            OnStateChanged?.Invoke();
-        }
-
-        await provider.SendToModeAsync(modeId, message, ct);
     }
 
     /// <summary>Shuts down all registered providers.</summary>

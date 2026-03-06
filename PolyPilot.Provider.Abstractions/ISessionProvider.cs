@@ -43,21 +43,6 @@ public interface ISessionProvider
     Task<string?> ExecuteActionAsync(string actionId, CancellationToken ct = default)
         => Task.FromResult<string?>(null);
 
-    // ── Interaction Modes (optional) ────────────────────────
-    /// <summary>
-    /// Returns the interaction modes this provider supports.
-    /// These appear in the group dropdown, replacing the built-in multi-agent modes.
-    /// Default returns the leader as the only mode.
-    /// </summary>
-    IReadOnlyList<ProviderMode> GetModes() => [new ProviderMode { Id = "leader", Label = LeaderDisplayName, Icon = LeaderIcon }];
-
-    /// <summary>
-    /// Sends a message using the specified mode. The modeId corresponds to a ProviderMode.Id.
-    /// Default routes to SendMessageAsync (leader).
-    /// </summary>
-    Task<string> SendToModeAsync(string modeId, string message, CancellationToken ct = default)
-        => SendMessageAsync(message, ct);
-
     // ── Streaming Events (leader session) ───────────────────
     event Action<string>? OnContentReceived;
     event Action<string, string>? OnReasoningReceived;
