@@ -2378,7 +2378,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 // will re-add it via SendPromptAsync which has full reconnection logic.
                 // No chatDb cleanup needed since the write was deferred above.
                 Debug($"[STEER-FALLBACK] '{sessionName}' soft steer hit connection error, falling through to hard steer (error={ex.Message})");
-                InvokeOnUI(() =>
+                await InvokeOnUIAsync(() =>
                 {
                     if (state.Info.History.Count > 0 && state.Info.History[^1] == userMsg)
                     {
