@@ -5,12 +5,12 @@
 
 <div class="page @(flyoutOpen ? "flyout-open" : "")">
     <div class="sidebar desktop-only">
-        <SessionSidebar OnToggleStatistics="ToggleStatistics" />
+        <SessionSidebar OnToggleAppChat="ToggleAppChat" OnToggleStatistics="ToggleStatistics" />
         <div class="sidebar-resize-handle" @onmousedown="StartResize"></div>
     </div>
 
     <div class="mobile-top-bar mobile-only">
-        <SessionSidebar IsMobileTopBar="true" OnToggleFlyout="ToggleFlyout" FontSize="fontSize" OnFontSizeChange="HandleFontSizeChange" OnToggleStatistics="ToggleStatistics" />
+        <SessionSidebar IsMobileTopBar="true" OnToggleFlyout="ToggleFlyout" OnToggleAppChat="ToggleAppChat" FontSize="fontSize" OnFontSizeChange="HandleFontSizeChange" OnToggleStatistics="ToggleStatistics" />
     </div>
 
     <main>
@@ -21,15 +21,18 @@
 
     <div class="flyout-backdrop mobile-only @(flyoutOpen ? "open" : "")" @onclick="CloseFlyout"></div>
     <div class="flyout-panel mobile-only @(flyoutOpen ? "open" : "")">
-        <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" OnToggleStatistics="ToggleStatistics" />
+        <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" OnToggleAppChat="ToggleAppChat" OnToggleStatistics="ToggleStatistics" />
     </div>
 
     <PolyPilot.Components.Tutorial.TutorialOverlay />
     <PolyPilot.Components.Layout.StatisticsPopup Visible="showStatistics" OnClose="CloseStatistics" />
+
+    <AppChatPopover IsVisible="@appChatOpen" />
 </div>
 
 @code {
     private bool flyoutOpen;
+    private bool appChatOpen;
     private bool showStatistics;
     private int fontSize = 20;
     private Timer? _holidayTimer;
@@ -199,6 +202,11 @@
     private void CloseFlyout()
     {
         flyoutOpen = false;
+    }
+
+    private void ToggleAppChat()
+    {
+        appChatOpen = !appChatOpen;
     }
 
     private void ToggleStatistics()

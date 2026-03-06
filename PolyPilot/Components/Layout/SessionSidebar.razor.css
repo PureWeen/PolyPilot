@@ -1104,6 +1104,13 @@
     color: var(--accent-primary);
 }
 
+.appchat-toggle {
+    font-size: 12px;
+    border: none;
+    background: none;
+    cursor: pointer;
+}
+
 .info-popover { position: relative; display: flex; align-items: center; }
 .info-trigger {
     cursor: pointer;

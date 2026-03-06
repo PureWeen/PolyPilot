@@ -1,8 +1,13 @@
 using PolyPilot.Services;
+using PolyPilot.Services.AI;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using ZXing.Net.Maui.Controls;
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
+#if MACCATALYST || IOS
+using Microsoft.Maui.Essentials.AI;
+#endif
 using CommunityToolkit.Maui;
 using CommunityToolkit.Maui.Media;
 #if MACCATALYST
@@ -111,6 +116,9 @@ public static class MauiProgram
 	builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
 	builder.Services.AddSingleton<EfficiencyAnalysisService>();
 
+	// Register local AI services (AppChat powered by on-device SLM)
+	RegisterLocalAI(builder);
+
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
 		builder.Logging.AddDebug();
@@ -132,5 +140,40 @@ public static class MauiProgram
 			Console.WriteLine($"[CRASH] {source}: {ex.Message}");
 		}
 		catch { /* Don't throw in exception handler */ }
+	}
+
+	/// <summary>
+	/// Register the local AI IChatClient pipeline and DirectLocalChatService.
+	/// On Apple platforms, uses AppleIntelligenceChatClient + NLEmbeddingGenerator.
+	/// On other platforms, AppChat is unavailable (no SLM provider yet).
+	/// </summary>
+	private static void RegisterLocalAI(MauiAppBuilder builder)
+	{
+#if MACCATALYST || IOS
+		// Apple Intelligence provides on-device IChatClient + IEmbeddingGenerator
+		#pragma warning disable MAUIAI0001 // Apple Intelligence is experimental
+		builder.Services.AddSingleton<AppleIntelligenceChatClient>();
+
+		#pragma warning disable MEAI001 // EmbeddingToolReductionStrategy is experimental
+		builder.Services.AddKeyedSingleton<IChatClient>("local", (sp, _) =>
+		{
+			var appleClient = sp.GetRequiredService<AppleIntelligenceChatClient>();
+			#pragma warning restore MAUIAI0001
+			var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+
+			return appleClient
+				.AsBuilder()
+				.UseLogging(loggerFactory)
+				.ConfigureOptions(o =>
+				{
+					o.MaxOutputTokens = 350;
+					o.AllowMultipleToolCalls = false;
+				})
+				.Build();
+		});
+		#pragma warning restore MEAI001
+
+		builder.Services.AddSingleton<DirectLocalChatService>();
+#endif
 	}
 }

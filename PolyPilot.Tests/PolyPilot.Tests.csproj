@@ -13,6 +13,8 @@
     <PackageReference Include="Markdig" Version="1.0.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.3.0" />
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.260212.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
     <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
@@ -76,6 +78,8 @@
     <Compile Include="../PolyPilot/Services/TutorialService.cs" Link="Shared/TutorialService.cs" />
     <Compile Include="../PolyPilot/Services/SessionMetricsExtractor.cs" Link="Shared/SessionMetricsExtractor.cs" />
     <Compile Include="../PolyPilot/BuildInfo.cs" Link="Shared/BuildInfo.cs" />
+    <Compile Include="../PolyPilot/Services/AI/DirectLocalChatService.cs" Link="Shared/DirectLocalChatService.cs" />
+    <Compile Include="../PolyPilot/Services/AI/AppChatTools.cs" Link="Shared/AppChatTools.cs" />
     <Compile Include="../PolyPilot/Models/SettingDescriptor.cs" Link="Shared/SettingDescriptor.cs" />
     <Compile Include="../PolyPilot/Services/SettingsRegistry.cs" Link="Shared/SettingsRegistry.cs" />
     <Compile Include="../PolyPilot/Services/HolidayThemeHelper.cs" Link="Shared/HolidayThemeHelper.cs" />

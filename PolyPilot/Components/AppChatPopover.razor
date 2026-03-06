@@ -1,0 +1,164 @@
+@using PolyPilot.Models
+@using PolyPilot.Services
+@using PolyPilot.Services.AI
+@inject DirectLocalChatService LocalChat
+@inject IJSRuntime JS
+
+@if (IsVisible)
+{
+    <div class="appchat-popover">
+        <div class="appchat-header">
+            <span class="appchat-title">✨ App Chat</span>
+            <div class="appchat-header-actions">
+                @if (messages.Count > 0)
+                {
+                    <button class="appchat-clear-btn" title="Clear chat" @onclick="ClearChat">🗑</button>
+                }
+            </div>
+        </div>
+
+        <div class="appchat-body">
+            <ChatMessageList Messages="@messages"
+                             StreamingContent="@streamingContent"
+                             CurrentToolName="@currentToolName"
+                             ToolActivities="@toolActivities"
+                             IsProcessing="@isProcessing"
+                             Compact="true"
+                             Layout="ChatLayout.BothLeft"
+                             Style="ChatStyle.Minimal" />
+        </div>
+
+        <div class="appchat-input-area">
+            <input id="appchat-input"
+                   type="text"
+                   placeholder="Ask about your sessions..."
+                   disabled="@isProcessing"
+                   @onkeydown="HandleKeyDown" />
+            <button class="appchat-send-btn"
+                    disabled="@isProcessing"
+                    @onclick="SendMessage">
+                @(isProcessing ? "⏳" : "➤")
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+
+    private List<ChatMessage> messages = new();
+    private List<ToolActivity> toolActivities = new();
+    private string streamingContent = "";
+    private string currentToolName = "";
+    private bool isProcessing;
+    private string sessionName = "appchat-" + Guid.NewGuid().ToString("N")[..8];
+    private CancellationTokenSource? _cts;
+
+    private void ClearChat()
+    {
+        _cts?.Cancel();
+        messages.Clear();
+        toolActivities.Clear();
+        streamingContent = "";
+        currentToolName = "";
+        isProcessing = false;
+        LocalChat.RemoveSession(sessionName);
+        sessionName = "appchat-" + Guid.NewGuid().ToString("N")[..8];
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !isProcessing)
+            await SendMessage();
+    }
+
+    private async Task SendMessage()
+    {
+        var prompt = await JS.InvokeAsync<string>("eval", "document.getElementById('appchat-input')?.value || ''");
+        if (string.IsNullOrWhiteSpace(prompt)) return;
+
+        await JS.InvokeVoidAsync("eval", "document.getElementById('appchat-input').value = ''");
+
+        messages.Add(ChatMessage.UserMessage(prompt));
+        isProcessing = true;
+        streamingContent = "";
+        StateHasChanged();
+
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+
+        await LocalChat.SendPromptStreamingAsync(
+            sessionName,
+            prompt,
+            onDelta: delta =>
+            {
+                // Clear tool state when text starts streaming
+                if (currentToolName != "")
+                {
+                    currentToolName = "";
+                }
+                streamingContent += delta;
+                InvokeAsync(StateHasChanged);
+            },
+            onComplete: full =>
+            {
+                messages.Add(ChatMessage.AssistantMessage(full));
+                streamingContent = "";
+                currentToolName = "";
+                toolActivities.Clear();
+                isProcessing = false;
+                InvokeAsync(StateHasChanged);
+            },
+            onError: error =>
+            {
+                messages.Add(ChatMessage.ErrorMessage(error));
+                streamingContent = "";
+                currentToolName = "";
+                toolActivities.Clear();
+                isProcessing = false;
+                InvokeAsync(StateHasChanged);
+            },
+            onToolStart: (name, callId, argsJson) =>
+            {
+                currentToolName = name;
+                messages.Add(ChatMessage.ToolCallMessage(name, callId, argsJson));
+                toolActivities.Add(new ToolActivity
+                {
+                    Name = name,
+                    CallId = callId,
+                    Input = argsJson,
+                    StartedAt = DateTime.Now
+                });
+                InvokeAsync(StateHasChanged);
+            },
+            onToolEnd: (callId, result) =>
+            {
+                var activity = toolActivities.FirstOrDefault(a => a.CallId == callId);
+                if (activity != null)
+                {
+                    activity.IsComplete = true;
+                    activity.IsSuccess = true;
+                    activity.CompletedAt = DateTime.Now;
+                    activity.Result = result;
+                }
+                var toolMsg = messages.LastOrDefault(m => m.ToolCallId == callId);
+                if (toolMsg != null)
+                {
+                    toolMsg.IsComplete = true;
+                    toolMsg.IsSuccess = true;
+                    toolMsg.Content = result ?? "";
+                    toolMsg.IsCollapsed = true;
+                }
+                currentToolName = "";
+                InvokeAsync(StateHasChanged);
+            },
+            cancellationToken: _cts.Token);
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        LocalChat.RemoveSession(sessionName);
+    }
+}
