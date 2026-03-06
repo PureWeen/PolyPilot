@@ -2362,9 +2362,24 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var softSteerOptions = new MessageOptions { Prompt = steeringMessage, Mode = "immediate" };
             if (imagePaths != null && imagePaths.Count > 0)
                 TryAttachImages(softSteerOptions, imagePaths);
+            bool softSteerSucceeded = false;
             try
             {
                 await state.Session.SendAsync(softSteerOptions);
+                softSteerSucceeded = true;
+            }
+            catch (Exception ex) when (IsConnectionError(ex))
+            {
+                // Connection lost (e.g., ObjectDisposedException on the JsonRpc transport).
+                // Remove the user message we already added — the hard steer path below will
+                // re-add it via SendPromptAsync which has full reconnection logic.
+                Debug($"[STEER-FALLBACK] '{sessionName}' soft steer hit connection error, falling through to hard steer (error={ex.Message})");
+                if (state.Info.History.Count > 0 && state.Info.History[^1] == userMsg)
+                {
+                    state.Info.History.RemoveAt(state.Info.History.Count - 1);
+                    state.Info.MessageCount = state.Info.History.Count;
+                }
+                // Fall through to hard steer below — do NOT return.
             }
             catch (Exception ex)
             {
@@ -2390,8 +2405,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 state.FlushedResponse.Clear();
                 state.PendingReasoningMessages.Clear();
                 OnStateChanged?.Invoke();
+                return;
             }
-            return;
+            if (softSteerSucceeded)
+                return;
+            // Connection error was caught above — fall through to hard steer.
         }
 
         // Hard steer: abort current streaming turn immediately, mark partial response as
