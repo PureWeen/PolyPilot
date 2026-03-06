@@ -45,6 +45,51 @@
     50% { opacity: 0.3; }
 }
 
+/* Provider leader input bar (sidebar) */
+.provider-leader-input-bar {
+    display: flex;
+    gap: 0.25rem;
+    align-items: flex-end;
+    padding: 4px 8px;
+}
+
+.provider-leader-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid var(--control-border);
+    border-radius: 5px;
+    background: var(--control-bg);
+    color: var(--text-primary);
+    font-size: var(--type-caption1);
+    font-family: inherit;
+    resize: none;
+    box-sizing: border-box;
+}
+
+.provider-leader-input::placeholder {
+    color: var(--text-dim);
+}
+
+.provider-leader-input:focus {
+    outline: none;
+}
+
+.provider-leader-send-btn {
+    all: unset;
+    padding: 0.25rem 0.4rem;
+    border-radius: 5px;
+    color: #fff;
+    cursor: pointer;
+    font-size: var(--type-caption1);
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.provider-leader-send-btn:hover {
+    filter: brightness(1.15);
+}
+
 /* Plugin settings card */
 .plugin-card {
     background: var(--bg-secondary, #1a1a2e);

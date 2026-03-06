@@ -677,9 +677,36 @@ else
                                     }
                                 </div>
                             }
+                            var capturedProviderId = groupProvider.ProviderId;
+                            var leaderSessionName = $"__{capturedProviderId}__";
+                            var leaderSession = CopilotService.GetSession(leaderSessionName);
+                            var leaderProcessing = leaderSession?.IsProcessing == true;
+                            var leaderPlaceholder = leaderProcessing ? "Thinking…" : $"Message {groupProvider.LeaderDisplayName}…";
+                            <div class="provider-leader-input-bar" @onclick:stopPropagation="true">
+                                <input type="text" id="provider-input-@capturedProviderId"
+                                       class="provider-leader-input"
+                                       autocomplete="off"
+                                       placeholder="@leaderPlaceholder"
+                                       disabled="@leaderProcessing"
+                                       @onkeyup="(e) => HandleProviderInputKeyUp(e, capturedProviderId)"
+                                       @onclick:stopPropagation="true"
+                                       style="@(leaderProcessing ? $"border-color: {groupProvider.AccentColor};" : "")" />
+                                <button class="provider-leader-send-btn"
+                                        style="background: @groupProvider.AccentColor;"
+                                        @onclick="() => SendToProviderLeader(capturedProviderId)"
+                                        @onclick:stopPropagation="true"
+                                        title="Send to @groupProvider.LeaderDisplayName">
+                                    @groupProvider.Icon
+                                </button>
+                            </div>
                         }
                         @foreach (var session in groupSessions)
                         {
+                            // Skip leader session — it's represented by the input bar above
+                            if (groupProvider != null && session.Name == $"__{groupProvider.ProviderId}__")
+                            {
+                                continue;
+                            }
                             sessionIndex++;
                             var idx = sessionIndex;
                             var meta = CopilotService.GetSessionMeta(session.Name);
@@ -2199,6 +2226,35 @@ Important conventions:
 
     private static string EscapeForShell(string s) =>
         s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("`", "\\`").Replace("$", "\\$");
+
+    private async Task HandleProviderInputKeyUp(KeyboardEventArgs e, string providerId)
+    {
+        if (e.Key == "Enter")
+            await SendToProviderLeader(providerId);
+    }
+
+    private async Task SendToProviderLeader(string providerId)
+    {
+        var inputId = $"provider-input-{providerId}";
+        var text = await JS.InvokeAsync<string>("getElementValue", inputId);
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        await JS.InvokeVoidAsync("clearElementValue", inputId);
+        var leaderName = $"__{providerId}__";
+
+        try
+        {
+            _ = CopilotService.SendPromptAsync(leaderName, text.Trim()).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                    Console.WriteLine($"[SessionSidebar] Provider send failed: {t.Exception?.InnerException?.Message}");
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionSidebar] Provider send error: {ex.Message}");
+        }
+    }
 
     private async Task ExecuteProviderAction(PolyPilot.Provider.ISessionProvider provider, string actionId)
     {
