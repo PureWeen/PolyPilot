@@ -340,14 +340,44 @@ public class SteeringMessageTests
                     .Replace("PolyPilot.Tests", "PolyPilot"),
                 "..", "..", "..", "..", "PolyPilot", "Services", "CopilotService.cs"));
 
-        // Find the soft steer block (between "[STEER]" debug log and return)
+        // Find the soft steer block (between "[STEER]" debug log and hard steer comment)
         var softSteerStart = source.IndexOf("[STEER] '{sessionName}' soft steer");
         Assert.True(softSteerStart >= 0, "Soft steer debug log not found");
 
-        var softSteerBlock = source.Substring(softSteerStart, source.IndexOf("// Hard steer:", softSteerStart) - softSteerStart);
+        var hardSteerIdx = source.IndexOf("// Hard steer:", softSteerStart);
+        Assert.True(hardSteerIdx >= 0, "'// Hard steer:' anchor comment not found in CopilotService.cs");
+        var softSteerBlock = source.Substring(softSteerStart, hardSteerIdx - softSteerStart);
 
         Assert.Contains("History.Add(userMsg)", softSteerBlock);
         Assert.Contains("_chatDb.AddMessageAsync", softSteerBlock);
         Assert.Contains("state.Info.MessageCount", softSteerBlock);
+    }
+
+    [Fact]
+    public async Task SteerSession_SoftSteerPath_ContainsConnectionErrorFallback()
+    {
+        // Verify the code structure: the soft steer catch block must detect connection
+        // errors (IsConnectionError) and fall through to the hard steer path instead of
+        // just failing — this is the fix for the ObjectDisposedException/JsonRpc bug.
+        var source = System.IO.File.ReadAllText(
+            System.IO.Path.Combine(
+                System.IO.Path.GetDirectoryName(typeof(CopilotService).Assembly.Location)!
+                    .Replace("PolyPilot.Tests", "PolyPilot"),
+                "..", "..", "..", "..", "PolyPilot", "Services", "CopilotService.cs"));
+
+        var softSteerStart = source.IndexOf("[STEER] '{sessionName}' soft steer");
+        Assert.True(softSteerStart >= 0, "Soft steer debug log not found");
+
+        var hardSteerIdx = source.IndexOf("// Hard steer:", softSteerStart);
+        Assert.True(hardSteerIdx >= 0, "'// Hard steer:' anchor comment not found in CopilotService.cs");
+        var softSteerBlock = source.Substring(softSteerStart, hardSteerIdx - softSteerStart);
+
+        // Must catch connection errors separately and fall through to hard steer
+        Assert.Contains("IsConnectionError(ex)", softSteerBlock);
+        Assert.Contains("STEER-FALLBACK", softSteerBlock);
+        // Must remove the duplicate user message before falling through
+        Assert.Contains("History.RemoveAt", softSteerBlock);
+        // Must NOT return on connection error — should fall through
+        Assert.Contains("softSteerSucceeded", softSteerBlock);
     }
 }
