@@ -461,7 +461,7 @@
         <div class="settings-section @(SectionVisible("plugins provider extension dll assembly") ? "" : "search-hidden")">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                 <h3 style="margin:0;">Installed Plugins</h3>
-                <button class="btn btn-outline" @onclick="ScanPlugins" style="font-size:0.85em; padding:4px 10px;">🔍 Scan</button>
+                <button class="plugin-scan-btn" @onclick="ScanPlugins">🔍 Scan</button>
             </div>
 
             @if (discoveredPlugins.Count == 0)
@@ -498,11 +498,11 @@
                         <div class="plugin-actions" style="margin-top:6px;">
                             @if (enabled != null && !hashChanged)
                             {
-                                <button class="btn btn-outline" style="font-size:0.8em; padding:2px 8px;" @onclick="() => DisablePlugin(plugin)">Disable</button>
+                                <button class="plugin-btn plugin-btn-danger" @onclick="() => DisablePlugin(plugin)">Disable</button>
                             }
                             else
                             {
-                                <button class="btn btn-outline" style="font-size:0.8em; padding:2px 8px;" @onclick="() => EnablePlugin(plugin)">Enable</button>
+                                <button class="plugin-btn" @onclick="() => EnablePlugin(plugin)">Enable</button>
                             }
                         </div>
                     </div>
