@@ -2838,16 +2838,25 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     public int SessionCount => _sessions.Count;
 
-    public async ValueTask DisposeAsync()
+    /// <summary>
+    /// Synchronously flush all pending debounced writes (sessions, organization, UI state)
+    /// to disk. Safe to call from lifecycle events that don't support async (e.g., Window.Destroying).
+    /// </summary>
+    public void FlushPendingSaves()
     {
-        StopConnectivityMonitoring();
-
-        // Flush any pending debounced writes immediately
         FlushSaveActiveSessionsToDisk();
         FlushSaveOrganization();
         _saveUiStateDebounce?.Dispose();
         _saveUiStateDebounce = null;
         FlushUiState();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        StopConnectivityMonitoring();
+
+        // Flush any pending debounced writes immediately
+        FlushPendingSaves();
         
         foreach (var state in _sessions.Values)
         {
