@@ -676,6 +676,23 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Check whether a session is a worker in a multi-agent group.
+    /// Used by notification filtering to suppress noisy worker notifications.
+    /// Best-effort read — returns false on any error (safe to call from background threads).
+    /// </summary>
+    internal bool IsWorkerInMultiAgentGroup(string sessionName)
+    {
+        try
+        {
+            var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+            if (meta == null) return false;
+            var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+            return group?.IsMultiAgent == true && meta.Role == MultiAgentRole.Worker;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
     /// Get or create a SessionGroup that auto-tracks a repository.
     /// When <paramref name="explicitly"/> is false (called from ReconcileOrganization),
     /// returns null for repos whose groups were previously deleted by the user.

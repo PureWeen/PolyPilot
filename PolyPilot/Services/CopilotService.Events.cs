@@ -490,6 +490,7 @@ public partial class CopilotService
                     {
                         var currentSettings = ConnectionSettings.Load();
                         if (!currentSettings.EnableSessionNotifications) return;
+                        if (currentSettings.MuteWorkerNotifications && IsWorkerInMultiAgentGroup(sessionName)) return;
                         var notifService = _serviceProvider?.GetService<INotificationManagerService>();
                         if (notifService == null || !notifService.HasPermission) return;
                         var lastMsg = state.Info.History.LastOrDefault(m => m.Role == "assistant");
