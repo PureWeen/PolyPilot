@@ -658,6 +658,16 @@
                         if (window.__settingsRef) window.__settingsRef.invokeMethodAsync('JsUpdateSearch', val);
                     }, 150);
                 });
+
+                var content = document.querySelector('article.content');
+                if (content) {
+                    content.classList.add('settings-content-active');
+                    content.scrollTop = 0;
+                    requestAnimationFrame(function() { content.scrollTop = 0; });
+                }
+
+                var page = document.querySelector('.settings-page');
+                if (page) page.scrollTop = 0;
             })()");
 
         // IntersectionObserver to highlight active category on scroll
@@ -703,6 +713,7 @@
         DevTunnelService.OnStateChanged -= OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged -= OnAutoUpdateStateChanged;
         FiestaService.OnStateChanged -= OnFiestaStateChanged;
+        _ = JS.InvokeVoidAsync("eval", "document.querySelector('article.content')?.classList.remove('settings-content-active');");
         _ = JS.InvokeVoidAsync("eval", "window.__settingsRef = null;");
         _selfRef?.Dispose();
     }
@@ -728,13 +739,15 @@
             if (!string.IsNullOrEmpty(token))
                 payload["token"] = token;
 
-            // Include LAN URL if direct sharing is also running
-            if (WsBridgeServer.IsRunning && localIps.Count > 0)
+            // Include LAN URL only if a server password is configured (required for LAN auth).
+            // Without a password, non-loopback LAN connections can't authenticate and would get 401.
+            // Note: GenerateQrCode is only called when DevTunnel is running, so AccessToken is always
+            // set here — open-mode (no AccessToken AND no ServerPassword) is not reachable from this path.
+            if (WsBridgeServer.IsRunning && localIps.Count > 0 && !string.IsNullOrEmpty(settings.ServerPassword))
             {
                 var lanHost = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp ?? localIps.First();
                 payload["lanUrl"] = $"http://{lanHost}:{DevTunnelService.BridgePort}";
-                if (!string.IsNullOrEmpty(settings.ServerPassword))
-                    payload["lanToken"] = settings.ServerPassword;
+                payload["lanToken"] = settings.ServerPassword;
             }
 
             var json = System.Text.Json.JsonSerializer.Serialize(payload);
@@ -1064,25 +1077,27 @@
 
     private async Task SetTheme(UiTheme theme)
     {
-        settings.Theme = theme;
-        settings.Save();
-        CopilotService.Theme = theme;
-        await ApplyTheme(theme);
-        ShowStatus("Theme updated", "success");
+        try
+        {
+            settings.Theme = theme;
+            settings.Save();
+            CopilotService.Theme = theme;
+            // If user manually changes away from holiday theme, dismiss it for this session
+            if (HolidayThemeHelper.GetActiveHolidayTheme() is { } holiday && theme != holiday)
+                CopilotService.HolidayThemeDismissed = true;
+            await ApplyTheme(theme);
+            ShowStatus("Theme updated", "success");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error applying theme: {ex.Message}");
+            ShowStatus("Theme update failed", "error");
+        }
     }
 
     private async Task ApplyTheme(UiTheme theme)
     {
-        var dataTheme = theme switch
-        {
-            UiTheme.System => "system",
-            UiTheme.SystemSolarized => "system-solarized",
-            UiTheme.PolyPilotDark => "",        // default, no attribute needed
-            UiTheme.PolyPilotLight => "polypilot-light",
-            UiTheme.SolarizedDark => "solarized-dark",
-            UiTheme.SolarizedLight => "solarized-light",
-            _ => ""
-        };
+        var dataTheme = HolidayThemeHelper.GetDataThemeString(theme);
         await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
     }
 
@@ -1094,6 +1109,7 @@
         UiTheme.PolyPilotLight => "PolyPilot Light",
         UiTheme.SolarizedDark => "Solarized Dark",
         UiTheme.SolarizedLight => "Solarized Light",
+        UiTheme.InternationalWomensDay => "International Women's Day 💜",
         _ => ""
     };
 
@@ -1105,6 +1121,7 @@
         UiTheme.PolyPilotLight => "tp-pp-light",
         UiTheme.SolarizedDark => "tp-sol-dark",
         UiTheme.SolarizedLight => "tp-sol-light",
+        UiTheme.InternationalWomensDay => "tp-pp-dark",
         _ => ""
     };
 

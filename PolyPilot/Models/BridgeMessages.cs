@@ -132,6 +132,8 @@ public class SessionsListPayload
     public string? ActiveSession { get; set; }
     public string? GitHubAvatarUrl { get; set; }
     public string? GitHubLogin { get; set; }
+    /// <summary>Server's machine name, used by remote clients to open VS Code via Remote - Tunnels.</summary>
+    public string? ServerMachineName { get; set; }
 }
 
 public class SessionSummary

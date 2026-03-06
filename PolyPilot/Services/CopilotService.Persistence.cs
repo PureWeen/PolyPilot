@@ -27,7 +27,14 @@ public partial class CopilotService
                     WorkingDirectory = s.Info.WorkingDirectory,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
-                        : null
+                        : null,
+                    TotalInputTokens = s.Info.TotalInputTokens,
+                    TotalOutputTokens = s.Info.TotalOutputTokens,
+                    ContextCurrentTokens = s.Info.ContextCurrentTokens,
+                    ContextTokenLimit = s.Info.ContextTokenLimit,
+                    PremiumRequestsUsed = s.Info.PremiumRequestsUsed,
+                    TotalApiTimeSeconds = s.Info.TotalApiTimeSeconds,
+                    CreatedAt = s.Info.CreatedAt,
                 })
                 .ToList();
         }
@@ -63,7 +70,14 @@ public partial class CopilotService
                     WorkingDirectory = s.Info.WorkingDirectory,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
-                        : null
+                        : null,
+                    TotalInputTokens = s.Info.TotalInputTokens,
+                    TotalOutputTokens = s.Info.TotalOutputTokens,
+                    ContextCurrentTokens = s.Info.ContextCurrentTokens,
+                    ContextTokenLimit = s.Info.ContextTokenLimit,
+                    PremiumRequestsUsed = s.Info.PremiumRequestsUsed,
+                    TotalApiTimeSeconds = s.Info.TotalApiTimeSeconds,
+                    CreatedAt = s.Info.CreatedAt,
                 })
                 .ToList();
             WriteActiveSessionsFile(entries);
@@ -146,6 +160,117 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Restore persisted usage stats onto the in-memory session after resume.
+    /// Uses Math.Max for accumulative fields to avoid overwriting values the SDK
+    /// may have already set via event replay during ResumeSessionAsync.
+    /// If usage fields are missing (e.g., from before the feature was added),
+    /// backfill from events.jsonl on disk.
+    /// </summary>
+    private void RestoreUsageStats(ActiveSessionEntry entry)
+    {
+        if (!_sessions.TryGetValue(entry.DisplayName, out var state)) return;
+        // Use Max to preserve values from SDK event replay (which may have already
+        // incremented these via SessionUsageInfoEvent/AssistantUsageEvent)
+        state.Info.TotalInputTokens = Math.Max(state.Info.TotalInputTokens, entry.TotalInputTokens);
+        state.Info.TotalOutputTokens = Math.Max(state.Info.TotalOutputTokens, entry.TotalOutputTokens);
+        if (entry.ContextCurrentTokens.HasValue)
+            state.Info.ContextCurrentTokens = entry.ContextCurrentTokens;
+        if (entry.ContextTokenLimit.HasValue)
+            state.Info.ContextTokenLimit = entry.ContextTokenLimit;
+        state.Info.PremiumRequestsUsed = Math.Max(state.Info.PremiumRequestsUsed, entry.PremiumRequestsUsed);
+        state.Info.TotalApiTimeSeconds = Math.Max(state.Info.TotalApiTimeSeconds, entry.TotalApiTimeSeconds);
+        if (entry.CreatedAt.HasValue)
+            state.Info.CreatedAt = entry.CreatedAt.Value;
+
+        // Backfill from events.jsonl only when ALL tracked fields are zero (indicating "never tracked")
+        if (entry.PremiumRequestsUsed == 0 && entry.TotalApiTimeSeconds == 0 && !entry.CreatedAt.HasValue)
+        {
+            try { BackfillUsageFromEvents(state.Info, entry.SessionId); }
+            catch (Exception ex) { Debug($"BackfillUsageFromEvents failed for '{entry.DisplayName}': {ex.Message}"); }
+        }
+    }
+
+    /// <summary>
+    /// Scan events.jsonl to backfill premium request count, session start time,
+    /// and API time for sessions persisted before usage tracking was added.
+    /// </summary>
+    private static void BackfillUsageFromEvents(AgentSessionInfo info, string sessionId)
+    {
+        var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        if (!File.Exists(eventsFile)) return;
+
+        int turnEndCount = 0;
+        DateTime? firstTimestamp = null;
+        double apiTimeSeconds = 0;
+        DateTime? lastUserMessage = null;
+        DateTime? lastTurnEnd = null;
+
+        foreach (var line in File.ReadLines(eventsFile))
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            // Fast string check before parsing JSON
+            if (firstTimestamp == null || line.Contains("user.message") ||
+                line.Contains("assistant.turn_end") || line.Contains("session.idle"))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+
+                    DateTime? eventTime = null;
+                    if (root.TryGetProperty("timestamp", out var tsEl) &&
+                        DateTime.TryParse(tsEl.GetString(), null,
+                            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+                            out var ts))
+                    {
+                        eventTime = ts;
+                        if (firstTimestamp == null) firstTimestamp = ts;
+                    }
+
+                    if (!root.TryGetProperty("type", out var typeEl)) continue;
+                    var type = typeEl.GetString();
+
+                    switch (type)
+                    {
+                        case "user.message":
+                            // Close previous turn's API time if we hit a new user message
+                            if (lastUserMessage.HasValue && lastTurnEnd.HasValue)
+                                apiTimeSeconds += (lastTurnEnd.Value - lastUserMessage.Value).TotalSeconds;
+                            lastUserMessage = eventTime;
+                            lastTurnEnd = null;
+                            break;
+
+                        case "assistant.turn_end":
+                            turnEndCount++;
+                            lastTurnEnd = eventTime;
+                            break;
+
+                        case "session.idle":
+                            // Prefer session.idle as the end marker when available
+                            if (eventTime.HasValue)
+                                lastTurnEnd = eventTime;
+                            break;
+                    }
+                }
+                catch { /* skip malformed lines */ }
+            }
+        }
+
+        // Close the last turn
+        if (lastUserMessage.HasValue && lastTurnEnd.HasValue)
+            apiTimeSeconds += (lastTurnEnd.Value - lastUserMessage.Value).TotalSeconds;
+
+        if (info.PremiumRequestsUsed == 0 && turnEndCount > 0)
+            info.PremiumRequestsUsed = turnEndCount;
+
+        if (info.TotalApiTimeSeconds == 0 && apiTimeSeconds > 0)
+            info.TotalApiTimeSeconds = apiTimeSeconds;
+
+        if (firstTimestamp.HasValue && info.CreatedAt == default)
+            info.CreatedAt = firstTimestamp.Value;
+    }
+
+    /// <summary>
     /// Load and resume all previously active sessions
     /// </summary>
     public async Task RestorePreviousSessionsAsync(CancellationToken cancellationToken = default)
@@ -203,6 +328,7 @@ public partial class CopilotService
                             }
 
                             await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken, entry.LastPrompt);
+                            RestoreUsageStats(entry);
                             Debug($"Restored session: {entry.DisplayName}");
                         }
                         catch (Exception ex)
@@ -228,11 +354,7 @@ public partial class CopilotService
                             }
 
                             // If the connection broke, recreate the client
-                            if (ex is System.IO.IOException or System.Net.Sockets.SocketException
-                                or ObjectDisposedException
-                                || ex.InnerException is System.IO.IOException or System.Net.Sockets.SocketException
-                                || ex.Message.Contains("Connection", StringComparison.OrdinalIgnoreCase)
-                                || ex.Message.Contains("transport", StringComparison.OrdinalIgnoreCase))
+                            if (IsConnectionError(ex))
                             {
                                 Debug("Connection lost during restore, recreating client...");
                                 try

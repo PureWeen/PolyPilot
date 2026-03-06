@@ -159,6 +159,8 @@ if the build fails.
 4. `maui-devflow MAUI element <id>` — get full details (type, bounds, visibility, children)
 5. `maui-devflow MAUI property <id> Text` — read any property by name
 6. `maui-devflow MAUI screenshot --output screen.png` — visual verification
+7. `maui-devflow MAUI screenshot --id <elementId> --output el.png` — element-only screenshot
+8. `maui-devflow MAUI screenshot --selector "Button" --output btn.png` — screenshot by CSS selector
 
 **Property inspection** is more reliable than screenshots for verifying exact runtime values:
 ```bash
@@ -251,7 +253,7 @@ or `maui-devflow --agent-port 10224 MAUI status` — both are valid.
 | `MAUI tap <elementId>` | Tap an element |
 | `MAUI fill <elementId> <text>` | Fill text into Entry/Editor |
 | `MAUI clear <elementId>` | Clear text from element |
-| `MAUI screenshot [--output path.png] [--window W]` | PNG screenshot. Window is 0-based index; default first window |
+| `MAUI screenshot [--output path.png] [--window W] [--id ID] [--selector SEL]` | PNG screenshot. Capture full window or a specific element by ID/selector. Window is 0-based index; default first window |
 | `MAUI property <elementId> <prop>` | Read property (Text, IsVisible, FontSize, etc.) |
 | `MAUI set-property <elementId> <prop> <value>` | Set property (live editing — colors, text, sizes, etc.) |
 | `MAUI element <elementId>` | Full element JSON (type, bounds, children, etc.) |

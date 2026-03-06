@@ -88,19 +88,36 @@ public partial class QrScannerPage : ContentPage
         if (result == null) return;
 
         _scanned = true;
-        Console.WriteLine($"[QrScanner] Scanned: Format={result.Format}, Value='{result.Value}'");
+        Console.WriteLine($"[QrScanner] Scanned: Format={result.Format}, Length={result.Value?.Length ?? 0}");
 
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            // Flash viewfinder green on success
-            viewfinder.Stroke = Color.FromArgb("#48bb78");
-            statusLabel.Text = "✓ QR Code detected";
-            statusBorder.IsVisible = true;
-            await Task.Delay(300);
+            try
+            {
+                barcodeReader.IsDetecting = false;
 
-            _service.SetResult(result.Value);
-            await Navigation.PopModalAsync();
+                // Flash viewfinder green on success
+                viewfinder.Stroke = Color.FromArgb("#48bb78");
+                statusLabel.Text = "✓ QR Code detected";
+                statusBorder.IsVisible = true;
+                await Task.Delay(500);
+
+                _service.SetResult(result.Value);
+                await Navigation.PopModalAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[QrScanner] Error dismissing scanner: {ex}");
+                _service.SetResult(result.Value);
+                try { await Navigation.PopModalAsync(false); } catch { }
+            }
         });
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        barcodeReader.IsDetecting = false;
     }
 
     private void OnTorchClicked(object? sender, EventArgs e)

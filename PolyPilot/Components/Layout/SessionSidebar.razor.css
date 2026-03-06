@@ -1090,6 +1090,9 @@
     padding: 0.3rem;
     border-radius: 6px;
     color: var(--text-dim);
+    background: none;
+    border: none;
+    cursor: pointer;
     text-decoration: none;
     transition: all 0.15s;
 }

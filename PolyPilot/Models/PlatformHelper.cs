@@ -1,3 +1,5 @@
+using System.Linq;
+
 namespace PolyPilot.Models;
 
 public static class PlatformHelper
@@ -5,8 +7,11 @@ public static class PlatformHelper
     public static bool IsDesktop =>
 #if MACCATALYST || WINDOWS
         true;
-#else
+#elif IOS || ANDROID
         false;
+#else
+        // Linux GTK and other non-mobile platforms are desktop
+        !OperatingSystem.IsIOS() && !OperatingSystem.IsAndroid();
 #endif
 
     public static bool IsMobile =>
@@ -14,6 +19,19 @@ public static class PlatformHelper
         true;
 #else
         false;
+#endif
+
+    public static string PlatformName =>
+#if MACCATALYST
+        "maccatalyst";
+#elif WINDOWS
+        "windows";
+#elif IOS
+        "ios";
+#elif ANDROID
+        "android";
+#else
+        OperatingSystem.IsLinux() ? "linux" : "unknown";
 #endif
 
     public static ConnectionMode[] AvailableModes => IsDesktop
@@ -47,5 +65,30 @@ public static class PlatformHelper
 
         var escaped = command.Replace("\\", "\\\\").Replace("\"", "\\\"");
         return ("/bin/bash", $"-c \"{escaped}\"");
+    }
+
+    /// <summary>
+    /// Builds a <c>vscode-remote://</c> folder URI for opening a remote folder in VS Code
+    /// via the Remote - Tunnels extension. Returns null when not in remote mode or machine name unknown.
+    /// </summary>
+    public static string? BuildVSCodeRemoteFolderUri(bool isRemoteMode, string? serverMachineName, string? folderPath)
+    {
+        if (!isRemoteMode || string.IsNullOrEmpty(serverMachineName) || string.IsNullOrEmpty(folderPath))
+            return null;
+
+        // Normalize to forward slashes for URI path
+        var uriPath = folderPath.Replace('\\', '/');
+        // Reject UNC paths (\\server\share → //server/share) — no meaningful remote URI
+        if (uriPath.StartsWith("//"))
+            return null;
+        // Windows paths like C:/Users/... need a leading slash → /C:/Users/...
+        if (uriPath.Length >= 2 && uriPath[1] == ':')
+            uriPath = "/" + uriPath;
+
+        // URI-encode path segments (spaces, special chars) while preserving slashes.
+        // Unescape ':' — it's valid in URI path segments (RFC 3986) and needed for Windows drive letters.
+        uriPath = string.Join("/", uriPath.Split('/').Select(s => Uri.EscapeDataString(s).Replace("%3A", ":")));
+
+        return $"vscode-remote://tunnel+{serverMachineName}{uriPath}";
     }
 }

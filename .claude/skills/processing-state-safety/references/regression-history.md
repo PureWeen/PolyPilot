@@ -38,6 +38,35 @@
 - Fixed: Guard on `!hasActiveTool && !HasUsedToolsThisTurn`, InvokeOnUI
 - Bridge OnTurnEnd (8th path) identified as missing full cleanup
 
+## PR #276 — ChatDatabase Exception Filter
+- All 9 ChatDatabase methods used narrow catch: `when (ex is SQLiteException or IOException or UnauthorizedAccessException)`
+- SQLite async internals can throw `AggregateException`, `InvalidOperationException`, `ObjectDisposedException`
+- All callers use fire-and-forget (`_ = _chatDb.AddMessageAsync(...)`) — uncaught exceptions became unobserved task exceptions
+- Crash seen in 'FailedDelegation' session (3918 messages): `SQLiteAsyncConnection.WriteAsync` → `AggregateException` escaped filter
+- **Fix**: Broadened all catch filters to `catch (Exception ex)`. Methods already return safe defaults and evict bad connections.
+- **Key insight**: ChatDatabase is NOT on any IsProcessing cleanup path. It's a write-through cache; events.jsonl is the source of truth. DB failures self-heal on restart.
+- **26 resilience tests** now cover: invalid paths, corrupt files, runtime corruption, file deletion, directory replacement, fire-and-forget unobserved exception pattern.
+
 ## Known Remaining Issues
 - `HasUsedToolsThisTurn` resets use plain assignment (not Volatile.Write)
 - InvokeOnUI dispatch for IsResumed adds 15s delay (one watchdog cycle)
+
+## PR #284 — Multi-Agent Dispatch Bypass + Premature Watchdog on Restore
+- **Root cause**: `ReconcileOrganization` was fully skipped during `IsRestoring=true`
+  to prevent pruning sessions not yet loaded. But `CompleteResponse` runs during
+  restore (when a restored turn completes), and it needs metadata to:
+  1. Route through multi-agent dispatch (`GetOrchestratorGroupId`)
+  2. Apply correct watchdog timeout (`IsSessionInMultiAgentGroup`)
+- **Symptom 1**: Orchestrator generated `@worker` dispatch commands but they were
+  silently ignored — dispatch pipeline bypassed because `GetOrchestratorGroupId`
+  returned `null` (no metadata entry for the restored session)
+- **Symptom 2**: Sessions killed as "stuck" after ~2 minutes — `IsMultiAgentSession`
+  was never set on restored sessions, so watchdog used 120s instead of 600s
+- **Fix 1**: `ReconcileOrganization(allowPruning: false)` — new additive mode that
+  adds missing metadata without deleting anything. Called in `CompleteResponse`
+  during the `IsRestoring` window.
+- **Fix 2**: Set `state.IsMultiAgentSession` in `RestoreSingleSessionAsync` before
+  `StartProcessingWatchdog` (reads from organization.json loaded at startup).
+- **Pattern**: This is a variant of mistake #5 ("Missing state initialization on
+  session restore") — the restore path must independently initialize ALL state that
+  `SendPromptAsync` initializes, because events/watchdog/dispatch all depend on it.

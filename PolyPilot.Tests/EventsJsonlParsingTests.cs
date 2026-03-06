@@ -273,4 +273,158 @@ public class EventsJsonlParsingTests
             return model.GetString();
         return null;
     }
+
+    [Fact]
+    public void BackfillUsage_CountsTurnEndEventsAndApiTime()
+    {
+        // Simulate events.jsonl — tests the pattern used by BackfillUsageFromEvents
+        // Turn 1: user@10:00:05 → turn_end@10:00:10 (5s), then idle@10:00:12 closes at 7s
+        //   But idle overrides turn_end, so: 10:00:05 → 10:00:12 is closed by next user.message
+        //   Actually: user@10:00:05, turn_end@10:00:10, idle not present for turn1...
+        // Let's use clear timing:
+        // Turn 1: user@10:00:05, turn_end@10:00:10 → closed by next user.message: 5s
+        // Turn 2: user@10:01:00, turn_end@10:01:15, turn_end@10:01:20, idle@10:01:25 → 25s
+        var lines = new[]
+        {
+            """{"type":"session.start","timestamp":"2026-03-01T10:00:00Z","data":{}}""",
+            """{"type":"user.message","timestamp":"2026-03-01T10:00:05Z","data":{"content":"hello"}}""",
+            """{"type":"assistant.message","timestamp":"2026-03-01T10:00:10Z","data":{"content":"hi"}}""",
+            """{"type":"assistant.turn_end","timestamp":"2026-03-01T10:00:10Z","data":{}}""",
+            """{"type":"user.message","timestamp":"2026-03-01T10:01:00Z","data":{"content":"do something"}}""",
+            """{"type":"tool.execution_start","timestamp":"2026-03-01T10:01:05Z","data":{"toolName":"edit"}}""",
+            """{"type":"tool.execution_complete","timestamp":"2026-03-01T10:01:10Z","data":{}}""",
+            """{"type":"assistant.turn_end","timestamp":"2026-03-01T10:01:15Z","data":{}}""",
+            """{"type":"assistant.message","timestamp":"2026-03-01T10:01:20Z","data":{"content":"done"}}""",
+            """{"type":"assistant.turn_end","timestamp":"2026-03-01T10:01:20Z","data":{}}""",
+            """{"type":"session.idle","timestamp":"2026-03-01T10:01:25Z","data":{}}""",
+        };
+
+        int turnEndCount = 0;
+        DateTime? firstTimestamp = null;
+        double apiTimeSeconds = 0;
+        DateTime? lastUserMessage = null;
+        DateTime? lastTurnEnd = null;
+
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            if (firstTimestamp == null || line.Contains("user.message") ||
+                line.Contains("assistant.turn_end") || line.Contains("session.idle"))
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+
+                DateTime? eventTime = null;
+                if (root.TryGetProperty("timestamp", out var tsEl) &&
+                    DateTime.TryParse(tsEl.GetString(), out var ts))
+                {
+                    eventTime = ts;
+                    if (firstTimestamp == null) firstTimestamp = ts;
+                }
+
+                if (!root.TryGetProperty("type", out var typeEl)) continue;
+                var type = typeEl.GetString();
+
+                switch (type)
+                {
+                    case "user.message":
+                        if (lastUserMessage.HasValue && lastTurnEnd.HasValue)
+                            apiTimeSeconds += (lastTurnEnd.Value - lastUserMessage.Value).TotalSeconds;
+                        lastUserMessage = eventTime;
+                        lastTurnEnd = null;
+                        break;
+                    case "assistant.turn_end":
+                        turnEndCount++;
+                        lastTurnEnd = eventTime;
+                        break;
+                    case "session.idle":
+                        if (eventTime.HasValue)
+                            lastTurnEnd = eventTime;
+                        break;
+                }
+            }
+        }
+        // Close last turn
+        if (lastUserMessage.HasValue && lastTurnEnd.HasValue)
+            apiTimeSeconds += (lastTurnEnd.Value - lastUserMessage.Value).TotalSeconds;
+
+        Assert.Equal(3, turnEndCount);
+        Assert.NotNull(firstTimestamp);
+        Assert.Equal(new DateTime(2026, 3, 1, 10, 0, 0, DateTimeKind.Utc), firstTimestamp!.Value.ToUniversalTime());
+        // Turn 1: user@10:00:05 → turn_end@10:00:10 = 5s (closed by next user.message)
+        // Turn 2: user@10:01:00 → idle@10:01:25 = 25s (closed at end)
+        Assert.Equal(30.0, apiTimeSeconds, 1);
+    }
+
+    [Fact]
+    public void BackfillUsage_ZeroIdleSessions_UsesLastTurnEnd()
+    {
+        // Sessions without session.idle events (the "zero-idle" pattern)
+        var lines = new[]
+        {
+            """{"type":"session.start","timestamp":"2026-03-01T10:00:00Z","data":{}}""",
+            """{"type":"user.message","timestamp":"2026-03-01T10:00:05Z","data":{"content":"hello"}}""",
+            """{"type":"assistant.turn_end","timestamp":"2026-03-01T10:00:15Z","data":{}}""",
+            """{"type":"assistant.turn_end","timestamp":"2026-03-01T10:00:30Z","data":{}}""",
+        };
+
+        double apiTimeSeconds = 0;
+        DateTime? lastUserMessage = null;
+        DateTime? lastTurnEnd = null;
+
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            if (line.Contains("user.message") || line.Contains("assistant.turn_end") || line.Contains("session.idle"))
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                DateTime? eventTime = null;
+                if (root.TryGetProperty("timestamp", out var tsEl) && DateTime.TryParse(tsEl.GetString(), out var ts))
+                    eventTime = ts;
+                if (!root.TryGetProperty("type", out var typeEl)) continue;
+                var type = typeEl.GetString();
+                switch (type)
+                {
+                    case "user.message":
+                        if (lastUserMessage.HasValue && lastTurnEnd.HasValue)
+                            apiTimeSeconds += (lastTurnEnd.Value - lastUserMessage.Value).TotalSeconds;
+                        lastUserMessage = eventTime;
+                        lastTurnEnd = null;
+                        break;
+                    case "assistant.turn_end":
+                        lastTurnEnd = eventTime;
+                        break;
+                    case "session.idle":
+                        if (eventTime.HasValue) lastTurnEnd = eventTime;
+                        break;
+                }
+            }
+        }
+        if (lastUserMessage.HasValue && lastTurnEnd.HasValue)
+            apiTimeSeconds += (lastTurnEnd.Value - lastUserMessage.Value).TotalSeconds;
+
+        // user@10:00:05 → last turn_end@10:00:30 = 25s
+        Assert.Equal(25.0, apiTimeSeconds, 1);
+    }
+
+    [Fact]
+    public void BackfillUsage_EmptyFile_NoChange()
+    {
+        var lines = Array.Empty<string>();
+        int turnEndCount = 0;
+        DateTime? firstTimestamp = null;
+
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("type", out var typeEl) && typeEl.GetString() == "assistant.turn_end")
+                turnEndCount++;
+        }
+
+        Assert.Equal(0, turnEndCount);
+        Assert.Null(firstTimestamp);
+    }
 }

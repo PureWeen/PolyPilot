@@ -1,0 +1,90 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>PolyPilot</AssemblyName>
+    <RootNamespace>PolyPilot</RootNamespace>
+    <UseMaui>true</UseMaui>
+    <MauiVersion>10.0.41</MauiVersion>
+    <SingleProject>true</SingleProject>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCssItems>false</EnableDefaultCssItems>
+    <Nullable>enable</Nullable>
+    <MauiXamlInflator>SourceGen</MauiXamlInflator>
+    <ApplicationTitle>PolyPilot</ApplicationTitle>
+    <ApplicationId>com.microsoft.PolyPilot</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <MauiIcon Include="../PolyPilot/Resources/AppIcon/appicon.png" Link="Resources/AppIcon/appicon.png" Color="#0f0f23" />
+    <MauiSplashScreen Include="../PolyPilot/Resources/Splash/splash.png" Link="Resources/Splash/splash.png" Color="#0d1526" BaseSize="128,128" />
+    <MauiImage Include="../PolyPilot/Resources/Images/*" Link="Resources/Images/%(Filename)%(Extension)" />
+    <MauiImage Update="../PolyPilot/Resources/Images/dotnet_bot.svg" BaseSize="168,208" />
+    <MauiFont Include="../PolyPilot/Resources/Fonts/*" Link="Resources/Fonts/%(Filename)%(Extension)" />
+    <MauiAsset Include="../PolyPilot/Resources/Raw/**" Link="Resources/Raw/%(RecursiveDir)%(Filename)%(Extension)" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../PolyPilot/**/*.cs"
+             Exclude="../PolyPilot/bin/**;../PolyPilot/obj/**;../PolyPilot/Platforms/**;../PolyPilot/MauiProgram.cs;../PolyPilot/Services/QrScannerService.cs;../PolyPilot/QrScannerPage.xaml.cs"
+             Link="%(RecursiveDir)%(Filename)%(Extension)" />
+    <MauiXaml Include="../PolyPilot/**/*.xaml"
+              Exclude="../PolyPilot/bin/**;../PolyPilot/obj/**;../PolyPilot/Platforms/**;../PolyPilot/QrScannerPage.xaml"
+              Link="%(RecursiveDir)%(Filename)%(Extension)" />
+    <RazorComponent Include="../PolyPilot/**/*.razor"
+                    Exclude="../PolyPilot/bin/**;../PolyPilot/obj/**"
+                    Link="%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="../PolyPilot/**/*.razor.css"
+          Exclude="../PolyPilot/bin/**;../PolyPilot/obj/**"
+          Link="%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Include="../PolyPilot/wwwroot/**"
+             Exclude="../PolyPilot/bin/**;../PolyPilot/obj/**"
+             Link="wwwroot/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Maui" Version="14.0.1" />
+    <PackageReference Include="Platform.Maui.Linux.Gtk4" Version="0.5.1" />
+    <PackageReference Include="Platform.Maui.Linux.Gtk4.Essentials" Version="0.5.1" />
+    <PackageReference Include="Platform.Maui.Linux.Gtk4.BlazorWebView" Version="0.5.1" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.26" />
+    <PackageReference Include="Markdig" Version="1.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebView" Version="10.0.3" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.3" />
+    <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
+    <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
+    <PackageReference Include="QRCoder" Version="*" />
+    <PackageReference Include="Redth.MauiDevFlow.Agent.Gtk" Version="0.12.1" />
+    <PackageReference Include="Redth.MauiDevFlow.Blazor.Gtk" Version="0.12.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <TrimmerRootAssembly Include="GitHub.Copilot.SDK" RootMode="All" />
+    <TrimmerRootAssembly Include="CommunityToolkit.Maui" />
+    <TrimmerRootAssembly Include="CommunityToolkit.Maui.Core" />
+  </ItemGroup>
+
+  <Target Name="_CopyBlazorWebViewFrameworkAssets" AfterTargets="Build">
+    <PropertyGroup>
+      <_ScopedCssSource>$(IntermediateOutputPath)scopedcss/bundle/$(AssemblyName).styles.css</_ScopedCssSource>
+      <_ScopedCssOutput>$(OutDir)wwwroot/$(AssemblyName).styles.css</_ScopedCssOutput>
+    </PropertyGroup>
+    <ItemGroup>
+      <_BlazorWebViewFrameworkAsset Include="$(PkgMicrosoft_AspNetCore_Components_WebView)/staticwebassets/blazor.webview.js" />
+      <_BlazorWebViewFrameworkAsset Include="$(PkgMicrosoft_AspNetCore_Components_WebView)/staticwebassets/blazor.modules.json" />
+    </ItemGroup>
+    <MakeDir Directories="$(OutDir)wwwroot;$(OutDir)wwwroot/_framework" />
+    <Copy SourceFiles="@(_BlazorWebViewFrameworkAsset)"
+          DestinationFiles="@(_BlazorWebViewFrameworkAsset->'$(OutDir)wwwroot/_framework/%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Exec Command="sed -E 's/\[b-[a-z0-9]+\]//g' &quot;$(_ScopedCssSource)&quot; &gt; &quot;$(_ScopedCssOutput)&quot;"
+          Condition="Exists('$(_ScopedCssSource)')" />
+  </Target>
+
+</Project>

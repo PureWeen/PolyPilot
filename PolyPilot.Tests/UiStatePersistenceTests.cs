@@ -97,6 +97,13 @@ public class UiStatePersistenceTests
         Assert.Equal("", entry.DisplayName);
         Assert.Equal("", entry.Model);
         Assert.Null(entry.WorkingDirectory);
+        Assert.Equal(0, entry.TotalInputTokens);
+        Assert.Equal(0, entry.TotalOutputTokens);
+        Assert.Null(entry.ContextCurrentTokens);
+        Assert.Null(entry.ContextTokenLimit);
+        Assert.Equal(0, entry.PremiumRequestsUsed);
+        Assert.Equal(0.0, entry.TotalApiTimeSeconds);
+        Assert.Null(entry.CreatedAt);
     }
 
     [Fact]
@@ -155,7 +162,14 @@ public class UiStatePersistenceTests
             SessionId = sessionInfo.SessionId!,
             DisplayName = sessionInfo.Name,
             Model = sessionInfo.Model,
-            WorkingDirectory = sessionInfo.WorkingDirectory
+            WorkingDirectory = sessionInfo.WorkingDirectory,
+            TotalInputTokens = sessionInfo.TotalInputTokens,
+            TotalOutputTokens = sessionInfo.TotalOutputTokens,
+            ContextCurrentTokens = sessionInfo.ContextCurrentTokens,
+            ContextTokenLimit = sessionInfo.ContextTokenLimit,
+            PremiumRequestsUsed = sessionInfo.PremiumRequestsUsed,
+            TotalApiTimeSeconds = sessionInfo.TotalApiTimeSeconds,
+            CreatedAt = sessionInfo.CreatedAt,
         };
 
         // Round-trip through JSON (simulates app restart)
@@ -168,5 +182,53 @@ public class UiStatePersistenceTests
         Assert.Equal("MauiWorktree", restoredEntry.DisplayName);
         Assert.Equal("claude-opus-4.5", restoredEntry.Model);
         Assert.Equal("/Users/test/.polypilot/worktrees/dotnet-maui-8f45001d", restoredEntry.WorkingDirectory);
+    }
+
+    [Fact]
+    public void ActiveSessionEntry_UsageStats_RoundTrip()
+    {
+        var created = new DateTime(2026, 3, 1, 10, 30, 0, DateTimeKind.Utc);
+        var entry = new ActiveSessionEntry
+        {
+            SessionId = "usage-test",
+            DisplayName = "Usage Session",
+            Model = "gpt-4.1",
+            TotalInputTokens = 1500,
+            TotalOutputTokens = 800,
+            ContextCurrentTokens = 4500,
+            ContextTokenLimit = 128000,
+            PremiumRequestsUsed = 7,
+            TotalApiTimeSeconds = 45.3,
+            CreatedAt = created,
+        };
+
+        var json = JsonSerializer.Serialize(new[] { entry });
+        var restored = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json)!;
+        var r = restored[0];
+
+        Assert.Equal(1500, r.TotalInputTokens);
+        Assert.Equal(800, r.TotalOutputTokens);
+        Assert.Equal(4500, r.ContextCurrentTokens);
+        Assert.Equal(128000, r.ContextTokenLimit);
+        Assert.Equal(7, r.PremiumRequestsUsed);
+        Assert.Equal(45.3, r.TotalApiTimeSeconds, 1);
+        Assert.Equal(created, r.CreatedAt);
+    }
+
+    [Fact]
+    public void ActiveSessionEntry_UsageStats_BackwardCompatible()
+    {
+        // Entries saved before the usage fields were added should deserialize with defaults
+        var legacyJson = """[{"SessionId":"old-1","DisplayName":"Old","Model":"gpt-4.1"}]""";
+        var restored = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(legacyJson)!;
+        var r = restored[0];
+
+        Assert.Equal(0, r.TotalInputTokens);
+        Assert.Equal(0, r.TotalOutputTokens);
+        Assert.Null(r.ContextCurrentTokens);
+        Assert.Null(r.ContextTokenLimit);
+        Assert.Equal(0, r.PremiumRequestsUsed);
+        Assert.Equal(0.0, r.TotalApiTimeSeconds);
+        Assert.Null(r.CreatedAt);
     }
 }

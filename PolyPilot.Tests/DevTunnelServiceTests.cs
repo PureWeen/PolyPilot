@@ -351,6 +351,102 @@ public class DevTunnelServiceTests
         Assert.Equal(2, stateChangedCount);
     }
 
+    // ===== Error preservation after failed HostAsync =====
+
+    [Fact]
+    public void Stop_ClearsErrorMessage_ByDesign()
+    {
+        // Verify that Stop() alone clears error — this is the root cause behavior
+        var bridge = new WsBridgeServer();
+        var copilot = CreateTestCopilotService();
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
+
+        // Simulate an error state via reflection
+        InvokeSetError(service, "Something failed");
+        Assert.Equal(TunnelState.Error, service.State);
+        Assert.Equal("Something failed", service.ErrorMessage);
+
+        // Stop() should clear the error (this is the pre-fix behavior)
+        service.Stop();
+        Assert.Equal(TunnelState.NotStarted, service.State);
+        Assert.Null(service.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task HostAsync_WhenTunnelFails_PreservesErrorMessage()
+    {
+        // When devtunnel CLI is not installed, HostAsync should end in Error state
+        // (not NotStarted) so the user sees what went wrong.
+        var bridge = new WsBridgeServer();
+        var copilot = CreateTestCopilotService();
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
+
+        // HostAsync will fail because devtunnel CLI is not installed in CI/test environments.
+        var result = await service.HostAsync(4321);
+
+        // The failure must be deterministic: state must be Error (not NotStarted)
+        // and ErrorMessage must be non-null so the UI can display feedback.
+        Assert.False(result, "HostAsync should fail when devtunnel CLI is not installed");
+        Assert.Equal(TunnelState.Error, service.State);
+        Assert.NotNull(service.ErrorMessage);
+        Assert.NotEmpty(service.ErrorMessage);
+
+        // Cleanup
+        service.Stop();
+    }
+
+    [Fact]
+    public void ErrorPreservation_SaveAndRestore_AcrossStop()
+    {
+        // Simulates the fix pattern: save error, Stop(), restore error
+        var bridge = new WsBridgeServer();
+        var copilot = CreateTestCopilotService();
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
+
+        // Set an error
+        InvokeSetError(service, "Tunnel process exited: auth failed");
+        Assert.Equal(TunnelState.Error, service.State);
+
+        // Save, stop, restore — the pattern used in the fix
+        var savedError = service.ErrorMessage;
+        service.Stop();
+        Assert.Null(service.ErrorMessage); // Stop clears it
+
+        // After restoring, error should be visible
+        if (!string.IsNullOrEmpty(savedError))
+            InvokeSetError(service, savedError);
+
+        Assert.Equal(TunnelState.Error, service.State);
+        Assert.Equal("Tunnel process exited: auth failed", service.ErrorMessage);
+    }
+
+    [Fact]
+    public void SetError_SetsStateToError_AndPreservesMessage()
+    {
+        var bridge = new WsBridgeServer();
+        var copilot = CreateTestCopilotService();
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
+
+        InvokeSetError(service, "test error message");
+
+        Assert.Equal(TunnelState.Error, service.State);
+        Assert.Equal("test error message", service.ErrorMessage);
+    }
+
+    [Fact]
+    public void SetError_FiresOnStateChanged()
+    {
+        var bridge = new WsBridgeServer();
+        var copilot = CreateTestCopilotService();
+        var service = new DevTunnelService(bridge, copilot, new RepoManager());
+
+        int changeCount = 0;
+        service.OnStateChanged += () => changeCount++;
+
+        InvokeSetError(service, "error!");
+        Assert.Equal(1, changeCount);
+    }
+
     // ===== Dispose =====
 
     [Fact]
@@ -757,6 +853,14 @@ public class DevTunnelServiceTests
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         field!.SetValue(service, state);
+    }
+
+    private static void InvokeSetError(DevTunnelService service, string message)
+    {
+        var method = typeof(DevTunnelService).GetMethod("SetError",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method!.Invoke(service, [message]);
     }
 
     /// <summary>

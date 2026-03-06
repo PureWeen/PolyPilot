@@ -16,6 +16,7 @@ public interface IWsBridgeClient
     List<PersistedSessionSummary> PersistedSessions { get; }
     string? GitHubAvatarUrl { get; }
     string? GitHubLogin { get; }
+    string? ServerMachineName { get; }
 
     // Events
     event Action? OnStateChanged;

@@ -37,6 +37,13 @@ public class ChatMessageEntity
     // Original user-typed prompt before orchestration wrapper was prepended
     public string? OriginalContent { get; set; }
 
+    // Tool input (arguments passed to the tool)
+    public string? ToolInput { get; set; }
+
+    // Image fields (for ChatMessageType.Image)
+    public string? ImagePath { get; set; }
+    public string? Caption { get; set; }
+
     public ChatMessage ToChatMessage()
     {
         var type = Enum.TryParse<ChatMessageType>(MessageType, out var mt) ? mt : ChatMessageType.User;
@@ -46,12 +53,16 @@ public class ChatMessageEntity
         {
             ToolName = ToolName,
             ToolCallId = ToolCallId,
+            ToolInput = ToolInput,
             IsComplete = IsComplete,
             IsSuccess = IsSuccess,
             IsCollapsed = type is ChatMessageType.ToolCall or ChatMessageType.Reasoning,
             ReasoningId = ReasoningId,
             Model = Model,
-            OriginalContent = OriginalContent
+            OriginalContent = OriginalContent,
+            ImagePath = ImagePath,
+            ImageDataUri = ImageDataUri,
+            Caption = Caption
         };
         return msg;
     }
@@ -66,12 +77,16 @@ public class ChatMessageEntity
             Content = msg.Content,
             ToolName = msg.ToolName,
             ToolCallId = msg.ToolCallId,
+            ToolInput = msg.ToolInput,
             IsComplete = msg.IsComplete,
             IsSuccess = msg.IsSuccess,
             ReasoningId = msg.ReasoningId,
             Timestamp = msg.Timestamp,
             Model = msg.Model,
-            OriginalContent = msg.OriginalContent
+            OriginalContent = msg.OriginalContent,
+            ImagePath = msg.ImagePath,
+            ImageDataUri = msg.ImageDataUri,
+            Caption = msg.Caption
         };
     }
 }
@@ -110,7 +125,7 @@ public class ChatDatabase : IChatDatabase
         _dbPath = path;
         var old = _db;
         _db = null;
-        try { _ = old?.CloseAsync(); } catch { }
+        ObserveClose(old);
     }
 
     /// <summary>
@@ -120,7 +135,7 @@ public class ChatDatabase : IChatDatabase
     {
         var old = _db;
         _db = null;
-        try { _ = old?.CloseAsync(); } catch { }
+        ObserveClose(old);
     }
 
     private async Task<SQLiteAsyncConnection> GetConnectionAsync()
@@ -173,7 +188,7 @@ public class ChatDatabase : IChatDatabase
                 "SELECT COUNT(*) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
             return count > 0;
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("HasMessagesAsync", ex, db);
             return false;
@@ -192,7 +207,7 @@ public class ChatDatabase : IChatDatabase
             return await db.ExecuteScalarAsync<int>(
                 "SELECT COUNT(*) FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("GetMessageCountAsync", ex, db);
             return 0;
@@ -222,7 +237,7 @@ public class ChatDatabase : IChatDatabase
 
             return entities.Select(e => e.ToChatMessage()).ToList();
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("GetMessagesAsync", ex, db);
             return new List<ChatMessage>();
@@ -245,7 +260,7 @@ public class ChatDatabase : IChatDatabase
 
             return entities.Select(e => e.ToChatMessage()).ToList();
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("GetAllMessagesAsync", ex, db);
             return new List<ChatMessage>();
@@ -268,7 +283,7 @@ public class ChatDatabase : IChatDatabase
             await db.InsertAsync(entity);
             return entity.Id;
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("AddMessageAsync", ex, db);
             return -1;
@@ -288,7 +303,7 @@ public class ChatDatabase : IChatDatabase
                 "UPDATE ChatMessageEntity SET Content = ?, IsComplete = 1, IsSuccess = ? WHERE SessionId = ? AND ToolCallId = ?",
                 content, isSuccess, sessionId, toolCallId);
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("UpdateToolCompleteAsync", ex, db);
         }
@@ -307,7 +322,7 @@ public class ChatDatabase : IChatDatabase
                 "UPDATE ChatMessageEntity SET Content = ?, IsComplete = ? WHERE SessionId = ? AND ReasoningId = ?",
                 content, isComplete, sessionId, reasoningId);
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("UpdateReasoningContentAsync", ex, db);
         }
@@ -330,7 +345,7 @@ public class ChatDatabase : IChatDatabase
                 tran.InsertAll(entities);
             });
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("BulkInsertAsync", ex, db);
         }
@@ -347,7 +362,7 @@ public class ChatDatabase : IChatDatabase
             db = await GetConnectionAsync();
             await db.ExecuteAsync("DELETE FROM ChatMessageEntity WHERE SessionId = ?", sessionId);
         }
-        catch (Exception ex) when (ex is SQLiteException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
             LogError("ClearSessionAsync", ex, db);
         }
@@ -360,10 +375,27 @@ public class ChatDatabase : IChatDatabase
         if (failedConn != null)
         {
             if (Interlocked.CompareExchange(ref _db!, null!, failedConn) == failedConn)
-                try { _ = failedConn.CloseAsync(); } catch { }
+                ObserveClose(failedConn);
         }
         // When failedConn is null, GetConnectionAsync already cleaned up the failed
         // connection before throwing — _db was never set, so there is nothing to evict.
         System.Diagnostics.Debug.WriteLine($"[ChatDatabase] {method} failed: {ex.Message}");
+    }
+
+    /// <summary>
+    /// Fire-and-forget close that observes faults so they don't become
+    /// unobserved task exceptions. Same class of bug this PR fixes.
+    /// </summary>
+    private static void ObserveClose(SQLiteAsyncConnection? conn)
+    {
+        if (conn == null) return;
+        try
+        {
+            conn.CloseAsync().ContinueWith(
+                static t => System.Diagnostics.Debug.WriteLine(
+                    $"[ChatDatabase] CloseAsync failed: {t.Exception?.GetBaseException().Message}"),
+                TaskContinuationOptions.OnlyOnFaulted);
+        }
+        catch { /* sync throw from CloseAsync itself */ }
     }
 }

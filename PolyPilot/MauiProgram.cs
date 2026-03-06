@@ -114,6 +114,7 @@ public static class MauiProgram
 	builder.Services.AddSingleton<UsageStatsService>();
 	builder.Services.AddSingleton<INotificationManagerService, NotificationManagerService>();
 	builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
+	builder.Services.AddSingleton<EfficiencyAnalysisService>();
 
 	// Register local AI services (AppChat powered by on-device SLM)
 	RegisterLocalAI(builder);

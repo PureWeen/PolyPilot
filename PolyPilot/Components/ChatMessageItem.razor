@@ -113,15 +113,17 @@
         else
         {
             var _hasOutput = Message.IsComplete && !string.IsNullOrEmpty(Message.Content) && !ChatMessageList.IsUnusableResult(Message.Content);
+            var _hasExpandableInput = Message.ToolName == "bash" && !string.IsNullOrEmpty(Message.ToolInput);
+            var _canExpand = _hasOutput || _hasExpandableInput;
             @* Unified command box: header + input always visible, output collapsible *@
             <div class="action-box @(ChatMessageList.GetActionLabel(Message.ToolName ?? "").CssClass) @(Message.IsComplete ? (Message.IsSuccess ? "done" : "failed") : "running")">
-                <div class="action-header @(_hasOutput ? "expandable" : "")"
-                     @onclick="() => { if (_hasOutput) Message.IsCollapsed = !Message.IsCollapsed; }"
+                <div class="action-header @(_canExpand ? "expandable" : "")"
+                     @onclick="() => { if (_canExpand) Message.IsCollapsed = !Message.IsCollapsed; }"
                      @onclick:stopPropagation="true">
                     <span class="action-dot"></span>
                     <span class="action-label">@(ChatMessageList.GetActionLabel(Message.ToolName ?? "").Label)</span>
                     <span class="action-desc @(ChatMessageList.IsPathTool(Message.ToolName ?? "") ? "truncate-head" : "")">@ChatMessageList.FormatActionDescriptionCompact(Message.ToolName ?? "", Message.ToolInput, Message.Content, Message.IsComplete)</span>
-                    @if (_hasOutput)
+                    @if (_canExpand)
                     {
                         <span class="action-chevron">@(Message.IsCollapsed ? "▶" : "▼")</span>
                     }
@@ -167,6 +169,12 @@
                             </div>
                         }
                     }
+                }
+                else if (!Message.IsCollapsed && Message.ToolName == "bash" && !string.IsNullOrEmpty(Message.ToolInput))
+                {
+                    <div class="action-full-input">
+                        <pre>@ChatMessageList.FormatToolInputExpanded(Message.ToolName ?? "", Message.ToolInput)</pre>
+                    </div>
                 }
             </div>
         }

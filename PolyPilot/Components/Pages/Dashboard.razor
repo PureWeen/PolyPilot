@@ -1235,9 +1235,9 @@
         }
 
         var session = sessions.FirstOrDefault(s => s.Name == sessionName);
-        if (session?.IsProcessing == true)
+        if (session?.IsCreating == true)
         {
-            CopilotService.LogDispatchRoute(sessionName, true, "QUEUED", null, null, null, false);
+            CopilotService.LogDispatchRoute(sessionName, true, "QUEUED_CREATING", null, null, null, false);
             List<string>? queueImagePaths = null;
             if (hasImages)
             {
@@ -1245,6 +1245,23 @@
                 pendingImagesBySession.Remove(sessionName);
             }
             CopilotService.EnqueueMessage(sessionName, finalPrompt, queueImagePaths, agentMode);
+            return;
+        }
+
+        if (session?.IsProcessing == true)
+        {
+            CopilotService.LogDispatchRoute(sessionName, true, "STEER", null, null, null, false);
+            List<string>? steerImagePaths = null;
+            if (hasImages)
+            {
+                steerImagePaths = pendingSendImages!.Select(i => i.TempPath).ToList();
+                pendingImagesBySession.Remove(sessionName);
+            }
+            _ = CopilotService.SteerSessionAsync(sessionName, finalPrompt, steerImagePaths, agentMode).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                    InvokeAsync(() => Console.WriteLine($"Error steering {sessionName}: {t.Exception?.InnerException?.Message}"));
+            });
             return;
         }
 
@@ -1308,9 +1325,17 @@
             {
                 if (t.IsFaulted)
                 {
+                    var errorMsg = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown error";
                     InvokeAsync(() =>
                     {
-                        Console.WriteLine($"Error sending to {sessionName}: {t.Exception?.InnerException?.Message}");
+                        Console.WriteLine($"Error sending to {sessionName}: {errorMsg}");
+                        var s = sessions.FirstOrDefault(s => s.Name == sessionName);
+                        if (s != null)
+                        {
+                            s.History.Add(ChatMessage.ErrorMessage($"Failed to send: {errorMsg}"));
+                            s.MessageCount = s.History.Count;
+                        }
+                        _ = SafeRefreshAsync();
                     });
                 }
             });
@@ -1319,6 +1344,13 @@
         catch (Exception ex)
         {
             Console.WriteLine($"Error sending to {sessionName}: {ex.Message}");
+            var s = sessions.FirstOrDefault(s => s.Name == sessionName);
+            if (s != null)
+            {
+                s.History.Add(ChatMessage.ErrorMessage($"Failed to send: {ex.Message}"));
+                s.MessageCount = s.History.Count;
+            }
+            _ = SafeRefreshAsync();
         }
     }
 
@@ -1436,7 +1468,8 @@
                     "- `/version` — Show version info\n" +
                     "- `/diff [args]` — Show git diff\n" +
                     "- `/status` — Show git status\n" +
-                    "- `/prompt` — List saved prompts (`/prompt use|save|delete`)\n" +
+                    "- `/prompt` — List saved prompts (`/prompt use|save|edit|show|delete`)\n" +
+                    "- `/usage` — Show token usage and quota for this session\n" +
                     "- `/mcp` — List MCP servers (enable/disable with `/mcp enable|disable <name>`)\n" +
                     "- `/plugin` — List installed plugins (enable/disable with `/plugin enable|disable <name>`)\n" +
                     "- `/reflect <goal>` — Start a reflection cycle (`/reflect help` for details)\n" +
@@ -1568,6 +1601,48 @@
             case "prompts":
                 await HandlePromptCommand(sessionName, session, arg);
                 return;
+
+            case "usage":
+                var usageLines = new System.Text.StringBuilder();
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                // CLI-style summary (matches copilot CLI /usage output)
+                var sessionTime = (DateTime.UtcNow - session.CreatedAt.ToUniversalTime()).TotalSeconds;
+                usageLines.AppendLine("**Session Usage**");
+                usageLines.AppendLine($"- **Total usage est:** {session.PremiumRequestsUsed} Premium requests");
+                usageLines.AppendLine($"- **API time spent:** {FormatDurationSeconds(session.TotalApiTimeSeconds)}");
+                usageLines.AppendLine($"- **Total session time:** {FormatDurationSeconds(sessionTime)}");
+                // Detailed token breakdown
+                usageLines.AppendLine($"- **Input tokens:** {session.TotalInputTokens.ToString("N0", ic)}");
+                usageLines.AppendLine($"- **Output tokens:** {session.TotalOutputTokens.ToString("N0", ic)}");
+                if (session.ContextCurrentTokens.HasValue || session.ContextTokenLimit.HasValue)
+                {
+                    var ctx = session.ContextCurrentTokens?.ToString("N0", ic) ?? "—";
+                    var lim = session.ContextTokenLimit?.ToString("N0", ic) ?? "—";
+                    usageLines.AppendLine($"- **Context window:** {ctx} / {lim}");
+                }
+                if (usageBySession.TryGetValue(sessionName, out var usageInfo))
+                {
+                    if (!string.IsNullOrEmpty(usageInfo.Model))
+                        usageLines.AppendLine($"- **Model:** {usageInfo.Model}");
+                    if (usageInfo.PremiumQuota is { } quota)
+                    {
+                        usageLines.AppendLine();
+                        usageLines.AppendLine("**Premium Quota**");
+                        if (quota.IsUnlimited)
+                        {
+                            usageLines.AppendLine("- Unlimited entitlement");
+                        }
+                        else
+                        {
+                            usageLines.AppendLine($"- **Used:** {quota.UsedRequests.ToString("N0", ic)} / {quota.EntitlementRequests.ToString("N0", ic)}");
+                            usageLines.AppendLine($"- **Remaining:** {quota.RemainingPercentage}%");
+                        }
+                        if (!string.IsNullOrEmpty(quota.ResetDate))
+                            usageLines.AppendLine($"- **Resets:** {quota.ResetDate}");
+                    }
+                }
+                session.History.Add(ChatMessage.SystemMessage(usageLines.ToString().TrimEnd()));
+                break;
 
             default:
                 // Unknown command — pass through to the SDK as a regular prompt
@@ -1887,6 +1962,75 @@
                 session.History.Add(ChatMessage.SystemMessage($"✅ Prompt **{saved.Name}** saved."));
                 break;
 
+            case "edit":
+                if (string.IsNullOrEmpty(target))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt edit <name> <new content>`\nOr: `/prompt edit <name>` (shows current content)"));
+                    break;
+                }
+                // Greedy name match: discover prompts once, then try longest prefix first so
+                // multi-word names take priority over shorter ones (single filesystem scan).
+                SavedPrompt? existingPrompt = null;
+                string? editContent = null;
+                {
+                    var allPrompts = PromptLibraryService.DiscoverPrompts(session.WorkingDirectory);
+                    var editWords = target.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    for (var i = editWords.Length; i >= 1; i--)
+                    {
+                        var candidateName = string.Join(' ', editWords[..i]);
+                        var candidate = allPrompts.FirstOrDefault(p =>
+                            string.Equals(p.Name, candidateName, StringComparison.OrdinalIgnoreCase));
+                        if (candidate != null)
+                        {
+                            existingPrompt = candidate;
+                            editContent = i < editWords.Length ? string.Join(' ', editWords[i..]) : null;
+                            break;
+                        }
+                    }
+                }
+                if (existingPrompt == null)
+                {
+                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{target}** not found. Use `/prompt save <name> <content>` to create it."));
+                    break;
+                }
+                if (existingPrompt.Source != PromptSource.User)
+                {
+                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{existingPrompt.Name}** is a project prompt and cannot be edited. Only user prompts (`~/.polypilot/prompts/`) can be edited."));
+                    break;
+                }
+                if (editContent != null)
+                {
+                    var edited = PromptLibraryService.SavePrompt(existingPrompt.Name, editContent, existingPrompt.Description);
+                    session.History.Add(ChatMessage.SystemMessage($"✅ Prompt **{edited.Name}** updated."));
+                }
+                else
+                {
+                    // Show current content for the user to copy/modify
+                    var desc = string.IsNullOrEmpty(existingPrompt.Description) ? "" : $"\n> {existingPrompt.Description}\n";
+                    session.History.Add(ChatMessage.SystemMessage(
+                        $"**Prompt: {existingPrompt.Name}** ({existingPrompt.SourceLabel}){desc}\n```\n{existingPrompt.Content}\n```\n\n" +
+                        $"Edit with: `/prompt edit {existingPrompt.Name} <new content>`"));
+                }
+                break;
+
+            case "show":
+            case "view":
+                if (string.IsNullOrEmpty(target))
+                {
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt show <name>`"));
+                    break;
+                }
+                var showPrompt = PromptLibraryService.GetPrompt(target, session.WorkingDirectory);
+                if (showPrompt == null)
+                {
+                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{target}** not found."));
+                    break;
+                }
+                var showDesc = string.IsNullOrEmpty(showPrompt.Description) ? "" : $"\n> {showPrompt.Description}\n";
+                session.History.Add(ChatMessage.SystemMessage(
+                    $"**Prompt: {showPrompt.Name}** ({showPrompt.SourceLabel}){showDesc}\n```\n{showPrompt.Content}\n```"));
+                break;
+
             case "delete":
             case "remove":
                 if (string.IsNullOrEmpty(target))
@@ -1924,7 +2068,7 @@
                     }));
                     session.History.Add(ChatMessage.SystemMessage(
                         $"**{prompts.Count} prompt{(prompts.Count != 1 ? "s" : "")} available:**\n{listing}\n\n" +
-                        "Use: `/prompt use <name>` · Save: `/prompt save <name> <content>` · Delete: `/prompt delete <name>`"));
+                        "Use: `/prompt use <name>` · Edit: `/prompt edit <name>` · Show: `/prompt show <name>` · Delete: `/prompt delete <name>`"));
                 }
                 break;
         }
@@ -2911,6 +3055,14 @@
 
     private static string FormatTokenCount(int count) =>
         count >= 1000 ? $"{count / 1000}k" : count.ToString();
+
+    private static string FormatDurationSeconds(double totalSeconds)
+    {
+        if (totalSeconds < 60) return $"{(int)totalSeconds}s";
+        var minutes = (int)(totalSeconds / 60);
+        var seconds = (int)(totalSeconds % 60);
+        return seconds > 0 ? $"{minutes}m {seconds}s" : $"{minutes}m";
+    }
 
     private static string Truncate(string s, int max) =>
         s.Length <= max ? s : s[..max] + "…";

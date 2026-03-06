@@ -63,6 +63,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public List<PersistedSessionSummary> PersistedSessions { get; set; } = new();
     public string? GitHubAvatarUrl { get; set; }
     public string? GitHubLogin { get; set; }
+    public string? ServerMachineName { get; set; }
 
     public event Action? OnStateChanged;
     public event Action<string, string>? OnContentReceived;

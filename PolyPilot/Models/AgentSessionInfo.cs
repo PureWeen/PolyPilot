@@ -4,7 +4,7 @@ public class AgentSessionInfo
 {
     public required string Name { get; set; }
     public required string Model { get; set; }
-    public DateTime CreatedAt { get; init; }
+    public DateTime CreatedAt { get; set; }
     public int MessageCount { get; set; }
     public bool IsProcessing { get; set; }
     public List<ChatMessage> History { get; } = new();
@@ -50,6 +50,18 @@ public class AgentSessionInfo
     public int TotalOutputTokens { get; set; }
     public int? ContextCurrentTokens { get; set; }
     public int? ContextTokenLimit { get; set; }
+
+    /// <summary>
+    /// Estimated number of premium requests used this session.
+    /// Incremented on each AssistantTurnEndEvent (one per model invocation).
+    /// </summary>
+    public int PremiumRequestsUsed { get; set; }
+
+    /// <summary>
+    /// Total wall-clock seconds spent waiting for model responses (API time).
+    /// Accumulated from ProcessingStartedAt on each turn completion.
+    /// </summary>
+    public double TotalApiTimeSeconds { get; set; }
 
     /// <summary>
     /// History.Count at the time the user last viewed this session.

@@ -22,7 +22,9 @@
 }
 <div class="session-item @cssClass @(isPinned ? "pinned" : "")"
      data-session-name="@Session.Name"
-     @onclick="() => OnSelect.InvokeAsync()">
+     @onclick="() => OnSelect.InvokeAsync()"
+     @oncontextmenu="OpenContextMenu"
+     @oncontextmenu:preventDefault="true">
     <div class="session-info">
         <span class="session-name">
             @if (ShortcutIndex is > 0 and <= 9)
@@ -42,6 +44,7 @@
                 <input type="text" class="rename-input" id="renameInput"
                        value="@Session.Name"
                        @onclick:stopPropagation="true"
+                       @oncontextmenu:stopPropagation="true"
                        @onblur="() => OnCommitRename.InvokeAsync()"
                        @onkeyup="HandleRenameKeyUp" />
             }
@@ -184,6 +187,12 @@
                         🔧 Fix with Copilot
                     </button>
                 }
+                @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(Session.SessionId))
+                {
+                    <button class="menu-item" @onclick="async () => { await OnCloseMenu.InvokeAsync(); await OnAnalyze.InvokeAsync(); }">
+                        📊 Analyze Efficiency
+                    </button>
+                }
                 <div class="menu-separator"></div>
                 @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(Session.SessionId))
                 {
@@ -228,6 +237,7 @@
     [Parameter] public EventCallback OnCloseMenu { get; set; }
     [Parameter] public EventCallback OnReportBug { get; set; }
     [Parameter] public EventCallback OnFixWithCopilot { get; set; }
+    [Parameter] public EventCallback OnAnalyze { get; set; }
 
     /// <summary>
     /// Show close confirmation via a JS-created dialog (outside Blazor's DOM tree).
@@ -264,6 +274,12 @@
     }
 
     private record CloseDialogResult(bool Confirmed, bool DeleteWorktree, bool DeleteBranch);
+
+    private async Task OpenContextMenu(MouseEventArgs e)
+    {
+        if (!IsMenuOpen)
+            await OnToggleMenu.InvokeAsync();
+    }
 
     private async Task HandleRenameKeyUp(KeyboardEventArgs e)
     {
@@ -374,24 +390,48 @@
         if (string.IsNullOrEmpty(dir)) return;
         try
         {
+            // In remote mode, use --folder-uri with vscode-remote:// to open via Remote - Tunnels
+            var remoteFolderUri = PlatformHelper.BuildVSCodeRemoteFolderUri(
+                CopilotService.IsRemoteMode, CopilotService.ServerMachineName, dir);
+
             if (OperatingSystem.IsWindows())
             {
-                Process.Start(new ProcessStartInfo
+                var psi = new ProcessStartInfo
                 {
                     FileName = "cmd.exe",
-                    ArgumentList = { "/c", "code", dir },
                     UseShellExecute = false,
                     CreateNoWindow = true
-                });
+                };
+                psi.ArgumentList.Add("/c");
+                psi.ArgumentList.Add("code");
+                if (remoteFolderUri != null)
+                {
+                    psi.ArgumentList.Add("--folder-uri");
+                    psi.ArgumentList.Add(remoteFolderUri);
+                }
+                else
+                {
+                    psi.ArgumentList.Add(dir);
+                }
+                Process.Start(psi);
             }
             else
             {
-                Process.Start(new ProcessStartInfo
+                var psi = new ProcessStartInfo
                 {
                     FileName = "code",
-                    ArgumentList = { dir },
                     UseShellExecute = false
-                });
+                };
+                if (remoteFolderUri != null)
+                {
+                    psi.ArgumentList.Add("--folder-uri");
+                    psi.ArgumentList.Add(remoteFolderUri);
+                }
+                else
+                {
+                    psi.ArgumentList.Add(dir);
+                }
+                Process.Start(psi);
             }
         }
         catch { }

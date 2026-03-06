@@ -494,6 +494,142 @@ jobs:
             -f description="$DESC" \
             -f context="PolyPilot / Download Android APK"
 
+  publish-linux:
+    name: Publish Linux App (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    needs: build-test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      statuses: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+            rid: linux-x64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            rid: linux-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install GTK4 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev flatpak flatpak-builder
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui-android
+
+      - name: Install Flatpak runtimes
+        run: |
+          flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.gnome.Platform//47 org.gnome.Sdk//47
+
+      - name: Determine version
+        id: version
+        run: |
+          SHA="${GITHUB_SHA::8}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF#refs/tags/v}"
+          else
+            VER="1.0"
+          fi
+          echo "app_version=$VER" >> $GITHUB_OUTPUT
+          echo "commit_sha=$SHA" >> $GITHUB_OUTPUT
+          echo "Version: $VER+$SHA"
+
+      - name: Publish Linux App (${{ matrix.arch }})
+        run: |
+          dotnet publish PolyPilot.Gtk/PolyPilot.Gtk.csproj \
+            -c Release \
+            -r ${{ matrix.rid }} \
+            --self-contained true \
+            --disable-build-servers \
+            -p:UseSharedCompilation=false \
+            -nodeReuse:false \
+            -maxcpucount:1 \
+            -p:ApplicationDisplayVersion=${{ steps.version.outputs.app_version }} \
+            -p:CreateAppImage=true \
+            -p:CreateDeb=true \
+            -p:CreateFlatpak=true
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p ./artifacts
+
+          # tar.gz archive from publish output
+          PUBLISH_DIR=$(find PolyPilot.Gtk/bin/Release -type d -name publish | grep "${{ matrix.rid }}" | head -1)
+          if [ -n "$PUBLISH_DIR" ]; then
+            tar -czf "./artifacts/PolyPilot.${{ matrix.rid }}.tar.gz" -C "$PUBLISH_DIR" .
+            echo "Created: PolyPilot.${{ matrix.rid }}.tar.gz ($(du -h ./artifacts/PolyPilot.${{ matrix.rid }}.tar.gz | cut -f1))"
+          fi
+
+          # Collect generated packages (AppImage, Deb, Flatpak)
+          find PolyPilot.Gtk/bin -name "*.AppImage" -o -name "*.deb" -o -name "*.flatpak" | while read f; do
+            cp "$f" "./artifacts/"
+            echo "Collected: $(basename $f) ($(du -h $f | cut -f1))"
+          done
+
+          echo "=== All artifacts ==="
+          ls -lh ./artifacts/
+
+      - name: Upload Linux tar.gz
+        uses: actions/upload-artifact@v4
+        with:
+          name: PolyPilot.${{ matrix.rid }}
+          path: ./artifacts/PolyPilot.${{ matrix.rid }}.tar.gz
+          retention-days: 30
+
+      - name: Upload Linux .deb packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: PolyPilot.linux-deb-${{ matrix.arch }}
+          path: ./artifacts/*.deb
+          retention-days: 30
+
+      - name: Upload Linux AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: PolyPilot.linux-appimage-${{ matrix.arch }}
+          path: ./artifacts/*.AppImage
+          retention-days: 30
+
+      - name: Upload Linux Flatpak
+        uses: actions/upload-artifact@v4
+        with:
+          name: PolyPilot.linux-flatpak-${{ matrix.arch }}
+          path: ./artifacts/*.flatpak
+          retention-days: 30
+
+      - name: Set commit status with artifact link
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f "./artifacts/PolyPilot.${{ matrix.rid }}.tar.gz" ]; then
+            STATE="success"
+            DESC="PolyPilot Linux ${{ matrix.arch }} built successfully"
+          else
+            STATE="failure"
+            DESC="PolyPilot Linux ${{ matrix.arch }} build failed"
+          fi
+          gh api repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$STATE" \
+            -f target_url="$ARTIFACT_URL" \
+            -f description="$DESC" \
+            -f context="PolyPilot / Download Linux App (${{ matrix.arch }})"
+
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
@@ -521,6 +657,62 @@ jobs:
           name: PolyPilot-Android
           path: ./release
 
+      - name: Download Linux tar.gz (x64)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: PolyPilot.linux-x64
+          path: ./release
+
+      - name: Download Linux tar.gz (arm64)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: PolyPilot.linux-arm64
+          path: ./release
+
+      - name: Download Linux .deb packages (x64)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: PolyPilot.linux-deb-x64
+          path: ./release
+
+      - name: Download Linux .deb packages (arm64)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: PolyPilot.linux-deb-arm64
+          path: ./release
+
+      - name: Download Linux AppImage (x64)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: PolyPilot.linux-appimage-x64
+          path: ./release
+
+      - name: Download Linux AppImage (arm64)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: PolyPilot.linux-appimage-arm64
+          path: ./release
+
+      - name: Download Linux Flatpak (x64)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: PolyPilot.linux-flatpak-x64
+          path: ./release
+
+      - name: Download Linux Flatpak (arm64)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: PolyPilot.linux-flatpak-arm64
+          path: ./release
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -528,6 +720,11 @@ jobs:
             ./release/PolyPilot.zip
             ./release/PolyPilot-Windows.zip
             ./release/PolyPilot-Android.apk
+            ./release/PolyPilot.linux-x64.tar.gz
+            ./release/PolyPilot.linux-arm64.tar.gz
+            ./release/*.deb
+            ./release/*.AppImage
+            ./release/*.flatpak
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
