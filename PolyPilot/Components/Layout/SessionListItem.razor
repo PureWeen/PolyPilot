@@ -79,6 +79,10 @@
                 {
                     <span class="model-override" title="Model override: @Meta.PreferredModel">⚡</span>
                 }
+                @if (Session.HasPermissionIssue)
+                {
+                    <span class="permission-warn-icon" title="Permission errors — reconnect needed">⚠️</span>
+                }
                 @if (Session.IsProcessing)
                 {
                     <span class="processing"> • @GetShortProcessingStatus()</span>
@@ -315,7 +319,7 @@
     {
         if (Session.ProcessingPhase == 0) return "Sending…";
         if (Session.ProcessingPhase == 1) return "Connected…";
-        if (Session.ProcessingPhase == 2 && Session.ToolCallCount == 0) return "Thinking…";
+        if (Session.ProcessingPhase == 2 && Session.ToolCallCount == 0) return AppendShortLastActivity("Thinking…");
         var parts = new List<string>();
         if (Session.ProcessingStartedAt.HasValue)
         {
@@ -327,7 +331,21 @@
         }
         if (Session.ToolCallCount > 0)
             parts.Add($"{Session.ToolCallCount} tools");
-        return parts.Count > 0 ? string.Join(" · ", parts) : "Working";
+        var status = parts.Count > 0 ? string.Join(" · ", parts) : "Working";
+        return AppendShortLastActivity(status);
+    }
+
+    private string AppendShortLastActivity(string status)
+    {
+        var sinceActivity = DateTime.Now - Session.LastUpdatedAt;
+        if (sinceActivity.TotalSeconds >= 30)
+        {
+            var ago = sinceActivity.TotalMinutes >= 1
+                ? $"{(int)sinceActivity.TotalMinutes}m ago"
+                : $"{(int)sinceActivity.TotalSeconds}s ago";
+            return $"{status} · {ago}";
+        }
+        return status;
     }
 
     private string? GetSessionDirectory()

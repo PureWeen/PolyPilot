@@ -116,6 +116,12 @@
     white-space: nowrap;
 }
 
+.permission-warn-icon {
+    margin-left: 2px;
+    font-size: var(--type-subhead);
+    cursor: default;
+}
+
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }

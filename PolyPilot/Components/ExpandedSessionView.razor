@@ -146,11 +146,14 @@
                          ProcessingStartedAt="Session.ProcessingStartedAt"
                          ToolCallCount="Session.ToolCallCount"
                          ProcessingPhase="Session.ProcessingPhase"
+                         LastActivityAt="Session.LastUpdatedAt"
                          Compact="false"
                          UserAvatarUrl="@UserAvatarUrl"
                          Layout="@Layout"
                          Style="@Style"
-                         RepoUrl="@RepoUrl" />
+                         RepoUrl="@RepoUrl"
+                         HasPermissionIssue="Session.HasPermissionIssue"
+                         OnReconnectRequested="OnReconnectRequested" />
     </div>
 
     @if (!string.IsNullOrEmpty(Error))
@@ -347,6 +350,7 @@
     [Parameter] public EventCallback<(string SessionName, FiestaStartRequest Request)> OnStartFiesta { get; set; }
     [Parameter] public EventCallback<string> OnStopFiesta { get; set; }
     [Parameter] public EventCallback OnStopReflection { get; set; }
+    [Parameter] public EventCallback OnReconnectRequested { get; set; }
 
     private bool _showFiestaPicker;
     private string _fiestaName = "";

@@ -2,6 +2,7 @@
 @page "/dashboard"
 @using PolyPilot.Services
 @using PolyPilot.Models
+@using System.Collections.Concurrent
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
 @inject NavigationManager Nav
@@ -161,7 +162,8 @@
                                      OnLoadFullHistory="LoadFullRemoteHistory"
                                      OnStartFiesta="StartFiestaForSession"
                                      OnStopFiesta="StopFiestaForSession"
-                                     OnStopReflection="() => StopReflectionForSession(session.Name)" />
+                                     OnStopReflection="() => StopReflectionForSession(session.Name)"
+                                     OnReconnectRequested="() => CopilotService.RecoverSessionAsync(session.Name)" />
             </KeepAliveSession>
         }
     }
@@ -391,6 +393,11 @@
                 InvokeAsync(SafeRefreshAsync);
             }
         }, null, Timeout.Infinite, Timeout.Infinite);
+
+        // Heartbeat: periodic safety-net that detects new messages or status changes
+        // that event-driven updates may have missed (e.g., zero-idle sessions where
+        // FlushCurrentResponse persists messages but no completion event fires).
+        _heartbeatTimer = new Timer(_ => CheckForMissedUpdates(), null, 5000, 5000);
         
         CopilotService.OnStateChanged += RefreshState;
         CopilotService.OnSessionComplete += HandleComplete;
@@ -820,6 +827,8 @@
     private DateTime _lastRefresh = DateTime.MinValue;
     private volatile bool _renderDirty;
     private Timer? _renderTimer;
+    private Timer? _heartbeatTimer;
+    private readonly ConcurrentDictionary<string, (int MessageCount, bool IsProcessing, int ToolCallCount, int ProcessingPhase, DateTime LastUpdatedAt)> _lastRenderedSnapshot = new();
     private long _switchCooldownUntil; // TickCount64 value: suppress renders until this time
     private readonly RenderThrottle _refreshThrottle = new(500);
     private long _lastDraftCaptureTickMs; // TickCount64 of last JS draft-capture eval
@@ -830,6 +839,49 @@
         _renderDirty = true;
         // Throttle: only reset timer if not already scheduled (avoid starving rapid updates)
         try { _renderTimer?.Change(50, Timeout.Infinite); } catch (ObjectDisposedException) { }
+    }
+
+    /// <summary>
+    /// Heartbeat check: compares current session state against last-rendered snapshot.
+    /// Catches updates missed by event-driven rendering (e.g., zero-idle sessions where
+    /// FlushCurrentResponse adds messages to History but no completion event triggers a render).
+    /// </summary>
+    private void CheckForMissedUpdates()
+    {
+        if (_disposed || !_initializationComplete) return;
+        try
+        {
+            // Snapshot the list to avoid racing with UI-thread mutations
+            var snapshot = sessions;
+            if (snapshot == null || snapshot.Count == 0) return;
+            bool needsRender = false;
+            foreach (var session in snapshot)
+            {
+                var key = session.Name;
+                var current = (session.MessageCount, session.IsProcessing, session.ToolCallCount, session.ProcessingPhase, session.LastUpdatedAt);
+                if (_lastRenderedSnapshot.TryGetValue(key, out var last))
+                {
+                    if (current != last)
+                    {
+                        needsRender = true;
+                        _lastRenderedSnapshot[key] = current;
+                    }
+                    // Also re-render processing sessions so elapsed time / "last activity" text stays fresh
+                    else if (session.IsProcessing)
+                    {
+                        needsRender = true;
+                    }
+                }
+                else
+                {
+                    _lastRenderedSnapshot[key] = current;
+                    needsRender = true;
+                }
+            }
+            if (needsRender)
+                ScheduleRender();
+        }
+        catch { /* heartbeat must never throw */ }
     }
 
     private async Task SafeRefreshAsync()
@@ -3104,6 +3156,8 @@
         CopilotService.OnOrchestratorPhaseChanged -= HandleOrchestratorPhaseChanged;
         FiestaService.OnStateChanged -= HandleFiestaStateChanged;
         FiestaService.OnHostTaskUpdate -= HandleFiestaTaskUpdate;
+        _heartbeatTimer?.Dispose();
+        _heartbeatTimer = null;
         _renderTimer?.Dispose();
         _renderTimer = null;
         foreach (var images in pendingImagesBySession.Values)
