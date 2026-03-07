@@ -1013,4 +1013,118 @@ public class WsBridgeIntegrationTests : IDisposable
         Assert.Equal("switch-b", client.ActiveSessionName);
         client.Stop();
     }
+
+    // ========== BRIDGE ORCHESTRATION ROUTING ==========
+
+    /// <summary>
+    /// Regression: WsBridgeServer.HandleClientMessage called SendPromptAsync directly
+    /// when a mobile client sent a message to an orchestrator session, bypassing the
+    /// multi-agent dispatch pipeline. The orchestrator responded as a normal chat session
+    /// instead of planning + dispatching to workers.
+    ///
+    /// Fix: Bridge now calls GetOrchestratorGroupId and routes through
+    /// SendToMultiAgentGroupAsync when the target is an orchestrator.
+    ///
+    /// This test verifies that when a message is sent to an orchestrator session via
+    /// the bridge, the user message is added to the orchestrator's history (proving the
+    /// server received and processed it through the orchestration path).
+    /// </summary>
+    [Fact]
+    public async Task SendMessage_ToOrchestratorSession_RoutesViaOrchestration()
+    {
+        await InitDemoMode();
+
+        // Create sessions that form a multi-agent group
+        await _copilot.CreateSessionAsync("orch-bridge-test", "gpt-4.1");
+        await _copilot.CreateSessionAsync("worker-bridge-1", "gpt-4.1");
+
+        // Set up multi-agent group with orchestrator mode
+        var group = _copilot.CreateMultiAgentGroup("BridgeOrchTest", MultiAgentMode.Orchestrator);
+        var orchMeta = _copilot.Organization.Sessions.FirstOrDefault(s => s.SessionName == "orch-bridge-test");
+        var workerMeta = _copilot.Organization.Sessions.FirstOrDefault(s => s.SessionName == "worker-bridge-1");
+        Assert.NotNull(orchMeta);
+        Assert.NotNull(workerMeta);
+        orchMeta!.GroupId = group.Id;
+        orchMeta.Role = MultiAgentRole.Orchestrator;
+        workerMeta!.GroupId = group.Id;
+        workerMeta.Role = MultiAgentRole.Worker;
+
+        // Verify routing detection works
+        Assert.Equal(group.Id, _copilot.GetOrchestratorGroupId("orch-bridge-test"));
+        Assert.Null(_copilot.GetOrchestratorGroupId("worker-bridge-1"));
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        // Send message to orchestrator via bridge (this is what mobile does)
+        await client.SendMessageAsync("orch-bridge-test", "Review PR #42", ct: cts.Token);
+
+        // The orchestrator session should have the user message in history
+        // (demo mode processes it through the orchestration pipeline which adds user message)
+        var orchSession = _copilot.GetSession("orch-bridge-test");
+        Assert.NotNull(orchSession);
+        await WaitForAsync(
+            () => orchSession!.History.Any(m => m.Content?.Contains("Review PR #42") == true),
+            cts.Token);
+        Assert.Contains(orchSession!.History, m => m.Content?.Contains("Review PR #42") == true);
+        client.Stop();
+    }
+
+    [Fact]
+    public async Task SendMessage_ToWorkerSession_DoesNotRouteViaOrchestration()
+    {
+        await InitDemoMode();
+
+        await _copilot.CreateSessionAsync("orch-noroute", "gpt-4.1");
+        await _copilot.CreateSessionAsync("worker-noroute", "gpt-4.1");
+
+        var group = _copilot.CreateMultiAgentGroup("WorkerDirectTest", MultiAgentMode.Orchestrator);
+        var orchMeta = _copilot.Organization.Sessions.FirstOrDefault(s => s.SessionName == "orch-noroute");
+        var workerMeta = _copilot.Organization.Sessions.FirstOrDefault(s => s.SessionName == "worker-noroute");
+        orchMeta!.GroupId = group.Id;
+        orchMeta.Role = MultiAgentRole.Orchestrator;
+        workerMeta!.GroupId = group.Id;
+        workerMeta.Role = MultiAgentRole.Worker;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        // Send message directly to worker via bridge — should go direct, not through orchestration
+        await client.SendMessageAsync("worker-noroute", "Direct worker task", ct: cts.Token);
+
+        var workerSession = _copilot.GetSession("worker-noroute");
+        Assert.NotNull(workerSession);
+        await WaitForAsync(
+            () => workerSession!.History.Any(m => m.Content?.Contains("Direct worker task") == true),
+            cts.Token);
+        Assert.Contains(workerSession!.History, m => m.Content?.Contains("Direct worker task") == true);
+
+        // Orchestrator should NOT have received the message
+        var orchSession = _copilot.GetSession("orch-noroute");
+        Assert.DoesNotContain(orchSession!.History, m => m.Content?.Contains("Direct worker task") == true);
+        client.Stop();
+    }
+
+    [Fact]
+    public async Task SendMessage_ToNonGroupSession_WorksNormally()
+    {
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("standalone-bridge", "gpt-4.1");
+
+        // No multi-agent group — GetOrchestratorGroupId should return null
+        Assert.Null(_copilot.GetOrchestratorGroupId("standalone-bridge"));
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var client = await ConnectClientAsync(cts.Token);
+
+        await client.SendMessageAsync("standalone-bridge", "Hello standalone", ct: cts.Token);
+
+        var session = _copilot.GetSession("standalone-bridge");
+        Assert.NotNull(session);
+        await WaitForAsync(
+            () => session!.History.Any(m => m.Content?.Contains("Hello standalone") == true),
+            cts.Token);
+        Assert.Contains(session!.History, m => m.Content?.Contains("Hello standalone") == true);
+        client.Stop();
+    }
 }
