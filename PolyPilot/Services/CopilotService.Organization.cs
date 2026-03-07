@@ -684,9 +684,11 @@ public partial class CopilotService
     {
         try
         {
-            var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+            var sessions = Organization.Sessions.ToArray();
+            var groups = Organization.Groups.ToArray();
+            var meta = sessions.FirstOrDefault(m => m.SessionName == sessionName);
             if (meta == null) return false;
-            var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+            var group = groups.FirstOrDefault(g => g.Id == meta.GroupId);
             return group?.IsMultiAgent == true && meta.Role == MultiAgentRole.Worker;
         }
         catch { return false; }
