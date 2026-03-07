@@ -86,6 +86,7 @@ public class ConnectionSettings
     public List<string> DisabledPlugins { get; set; } = new();
     public PluginSettings Plugins { get; set; } = new();
     public bool EnableSessionNotifications { get; set; } = false;
+    public bool MuteWorkerNotifications { get; set; } = false;
 
     /// <summary>
     /// Normalizes a remote URL by ensuring it has an http(s):// scheme.

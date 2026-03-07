@@ -251,6 +251,8 @@ public partial class CopilotService
                     var currentSettings = ConnectionSettings.Load();
                     if (!currentSettings.EnableSessionNotifications)
                         return;
+                    if (currentSettings.MuteWorkerNotifications && IsWorkerInMultiAgentGroup(payload.SessionName))
+                        return;
                     
                     var notificationService = _serviceProvider?.GetService<INotificationManagerService>();
                     if (notificationService != null)

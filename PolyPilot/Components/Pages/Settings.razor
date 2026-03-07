@@ -380,6 +380,17 @@
                     </label>
                     <p class="toggle-hint">Get notified when a session completes, errors, or needs input</p>
                 </div>
+                @if (settings.EnableSessionNotifications)
+                {
+                    <div class="notifications-toggle" style="margin-left: 1.5em;">
+                        <label class="toggle-label">
+                            <input type="checkbox" checked="@settings.MuteWorkerNotifications"
+                                   @onchange="ToggleMuteWorkerNotifications" />
+                            <span class="toggle-text">🔇 Mute worker notifications</span>
+                        </label>
+                        <p class="toggle-hint">Don't send notifications for worker sessions in multi-agent groups</p>
+                    </div>
+                }
             </div>
         </div>
     }
@@ -1063,6 +1074,12 @@
             if (notifService != null && !notifService.HasPermission)
                 await notifService.InitializeAsync();
         }
+    }
+
+    private void ToggleMuteWorkerNotifications(ChangeEventArgs e)
+    {
+        settings.MuteWorkerNotifications = e.Value is true;
+        SaveSettingsQuietly();
     }
 
     private void ToggleAutoUpdate()
