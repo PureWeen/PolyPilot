@@ -19,5 +19,9 @@ public interface ISessionProviderFactory
     /// Directory the plugin was loaded from. Providers can use this
     /// to find config files, data directories, etc. beside their DLL.
     /// </param>
-    void ConfigureServices(IServiceCollection services, string pluginDirectory);
+    /// <param name="logger">
+    /// Logger for the plugin. Writes to ~/.polypilot/logs/plugins/{name}/plugin.log.
+    /// Also registered in DI as IPluginLogger so providers can resolve it.
+    /// </param>
+    void ConfigureServices(IServiceCollection services, string pluginDirectory, IPluginLogger? logger = null);
 }

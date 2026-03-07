@@ -23,8 +23,9 @@ public partial class CopilotService
         {
             providers = _serviceProvider.GetServices<ISessionProvider>();
         }
-        catch
+        catch (Exception ex)
         {
+            Debug($"Failed to resolve ISessionProvider services: {ex.Message}");
             return;
         }
 
@@ -32,10 +33,12 @@ public partial class CopilotService
         {
             _providers[provider.ProviderId] = provider;
             RegisterProvider(provider);
+            Debug($"Provider '{provider.ProviderId}' ({provider.DisplayName}) registered");
 
             try
             {
                 await provider.InitializeAsync(ct);
+                Debug($"Provider '{provider.ProviderId}' initialized successfully");
             }
             catch (Exception ex)
             {

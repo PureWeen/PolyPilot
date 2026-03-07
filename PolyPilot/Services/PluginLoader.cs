@@ -14,6 +14,7 @@ namespace PolyPilot.Services;
 /// that declares the entry-point DLL, display name, description, and version.
 /// Plugins are never auto-loaded — the user must explicitly approve each one in Settings → Plugins.
 /// A SHA-256 hash check on the entry-point DLL prevents silent replacement.
+/// All operations are logged to ~/.polypilot/logs/plugins/{name}/plugin.log.
 /// </summary>
 public static class PluginLoader
 {
@@ -27,9 +28,16 @@ public static class PluginLoader
     /// </summary>
     public static List<DiscoveredPlugin> DiscoverPlugins()
     {
+        var systemLog = new PluginFileLogger("_system");
         var plugins = new List<DiscoveredPlugin>();
+
         if (!Directory.Exists(PluginsDir))
+        {
+            systemLog.Info($"Plugins directory does not exist: {PluginsDir}");
             return plugins;
+        }
+
+        systemLog.Info($"Scanning plugins directory: {PluginsDir}");
 
         foreach (var dir in Directory.GetDirectories(PluginsDir))
         {
@@ -44,36 +52,43 @@ public static class PluginLoader
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                 if (manifest == null || string.IsNullOrWhiteSpace(manifest.EntryPoint))
+                {
+                    systemLog.Warning($"Plugin in '{dir}' has invalid manifest (missing entryPoint)");
                     continue;
+                }
 
                 var entryDll = Path.Combine(dir, manifest.EntryPoint);
                 if (!File.Exists(entryDll))
+                {
+                    systemLog.Warning($"Plugin '{manifest.Name ?? dir}' entry-point DLL not found: {manifest.EntryPoint}");
                     continue;
+                }
 
                 var dirName = Path.GetFileName(dir);
                 var hash = ComputeHash(entryDll);
 
                 plugins.Add(new DiscoveredPlugin
                 {
-                    // Path is the subdirectory name — the unit of identity
                     Path = dirName,
                     FullPath = entryDll,
                     Hash = hash,
                     FileName = manifest.EntryPoint,
                     DirectoryName = dirName,
                     SizeBytes = new FileInfo(entryDll).Length,
-                    // Manifest metadata for UI display
                     Name = manifest.Name ?? dirName,
                     Description = manifest.Description ?? "",
                     Version = manifest.Version ?? "",
                 });
+
+                systemLog.Info($"Discovered plugin: {manifest.Name ?? dirName} v{manifest.Version ?? "?"} ({manifest.EntryPoint})");
             }
-            catch
+            catch (Exception ex)
             {
-                // Skip malformed manifests
+                systemLog.Error($"Failed to read manifest in '{dir}'", ex);
             }
         }
 
+        systemLog.Info($"Discovery complete: {plugins.Count} plugin(s) found");
         return plugins;
     }
 
@@ -83,10 +98,16 @@ public static class PluginLoader
     /// </summary>
     public static List<string> LoadEnabledProviders(IServiceCollection services, IReadOnlyList<EnabledPlugin> enabledPlugins)
     {
+        var systemLog = new PluginFileLogger("_system");
         var warnings = new List<string>();
+
+        systemLog.Info($"Loading {enabledPlugins.Count} enabled plugin(s)");
 
         foreach (var plugin in enabledPlugins)
         {
+            var pluginLog = new PluginFileLogger(plugin.DisplayName ?? plugin.Path);
+            pluginLog.Info($"--- Plugin load started ---");
+
             // Resolve the entry-point DLL from the plugin subdirectory
             var pluginDir = Path.Combine(PluginsDir, plugin.Path);
             string fullPath;
@@ -103,16 +124,21 @@ public static class PluginLoader
                         var manifest = JsonSerializer.Deserialize<PluginManifest>(json,
                             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                         fullPath = Path.Combine(pluginDir, manifest?.EntryPoint ?? "");
+                        pluginLog.Info($"Manifest loaded: entryPoint={manifest?.EntryPoint}");
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        warnings.Add($"Plugin '{plugin.DisplayName}' has invalid manifest");
+                        var msg = $"Plugin '{plugin.DisplayName}' has invalid manifest";
+                        warnings.Add(msg);
+                        pluginLog.Error(msg, ex);
                         continue;
                     }
                 }
                 else
                 {
-                    warnings.Add($"Plugin '{plugin.DisplayName}' missing plugin.json manifest");
+                    var msg = $"Plugin '{plugin.DisplayName}' missing plugin.json manifest";
+                    warnings.Add(msg);
+                    pluginLog.Warning(msg);
                     continue;
                 }
             }
@@ -120,20 +146,29 @@ public static class PluginLoader
             {
                 // Legacy: Path might be a direct DLL path (backward compat)
                 fullPath = Path.Combine(PluginsDir, plugin.Path);
+                pluginLog.Info($"Using legacy DLL path: {fullPath}");
             }
 
             if (!File.Exists(fullPath))
             {
-                warnings.Add($"Plugin '{plugin.DisplayName}' not found: {plugin.Path}");
+                var msg = $"Plugin '{plugin.DisplayName}' not found: {plugin.Path}";
+                warnings.Add(msg);
+                pluginLog.Error(msg);
                 continue;
             }
 
             var currentHash = ComputeHash(fullPath);
+            pluginLog.Info($"Hash check: stored={plugin.Hash?[..12]}... current={currentHash[..12]}...");
+
             if (!string.Equals(currentHash, plugin.Hash, StringComparison.OrdinalIgnoreCase))
             {
-                warnings.Add($"Plugin '{plugin.DisplayName}' hash changed — needs re-approval");
+                var msg = $"Plugin '{plugin.DisplayName}' hash changed — needs re-approval";
+                warnings.Add(msg);
+                pluginLog.Warning(msg);
                 continue;
             }
+
+            pluginLog.Info("Hash verified OK — loading assembly");
 
             try
             {
@@ -141,20 +176,41 @@ public static class PluginLoader
                 var assembly = loadContext.LoadFromAssemblyPath(fullPath);
                 var assemblyDir = Path.GetDirectoryName(fullPath) ?? PluginsDir;
 
+                pluginLog.Info($"Assembly loaded: {assembly.FullName}");
+
+                // Register the plugin's logger in DI so providers can resolve it
+                services.AddSingleton<IPluginLogger>(pluginLog);
+
+                var factoryCount = 0;
                 foreach (var type in assembly.GetExportedTypes()
                     .Where(t => typeof(ISessionProviderFactory).IsAssignableFrom(t) && !t.IsAbstract))
                 {
+                    pluginLog.Info($"Found factory: {type.FullName}");
+
                     if (Activator.CreateInstance(type) is ISessionProviderFactory factory)
                     {
-                        factory.ConfigureServices(services, assemblyDir);
+                        factory.ConfigureServices(services, assemblyDir, pluginLog);
+                        factoryCount++;
+                        pluginLog.Info($"ConfigureServices completed for {type.Name}");
                     }
                 }
+
+                if (factoryCount == 0)
+                    pluginLog.Warning("No ISessionProviderFactory implementations found in assembly");
+                else
+                    pluginLog.Info($"Plugin loaded successfully ({factoryCount} factory/factories)");
             }
             catch (Exception ex)
             {
-                warnings.Add($"Plugin '{plugin.DisplayName}' failed to load: {ex.Message}");
+                var msg = $"Plugin '{plugin.DisplayName}' failed to load: {ex.Message}";
+                warnings.Add(msg);
+                pluginLog.Error(msg, ex);
             }
         }
+
+        systemLog.Info($"Plugin loading complete: {warnings.Count} warning(s)");
+        foreach (var w in warnings)
+            systemLog.Warning(w);
 
         return warnings;
     }
