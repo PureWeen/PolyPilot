@@ -368,6 +368,8 @@ public partial class CopilotService
                 if (isPermissionDenial || !hasError)
                 {
                     var denialCount = state.Info.RecordToolResult(isPermissionDenial);
+                    if (!isPermissionDenial && !hasError)
+                        Interlocked.Increment(ref state.SuccessfulToolCountThisTurn);
                     if (isPermissionDenial && denialCount == 3)
                     {
                         Invoke(() =>
@@ -587,6 +589,7 @@ public partial class CopilotService
                 CancelProcessingWatchdog(state);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
+                Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 InvokeOnUI(() =>
                 {
                     OnError?.Invoke(sessionName, errMsg);
@@ -786,6 +789,7 @@ public partial class CopilotService
         CancelProcessingWatchdog(state);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
+        Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
         if (!string.IsNullOrWhiteSpace(response))
@@ -1439,6 +1443,7 @@ public partial class CopilotService
                         CancelProcessingWatchdog(state);
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
+                        Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                         state.Info.IsResumed = false;
                         // Flush any accumulated partial response before clearing processing state
                         FlushCurrentResponse(state);
@@ -1496,6 +1501,7 @@ public partial class CopilotService
             state.Info.IsProcessing = false;
             state.Info.IsResumed = false;
             state.HasUsedToolsThisTurn = false;
+            Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
             state.Info.ProcessingStartedAt = null;
             state.Info.ToolCallCount = 0;
@@ -1585,6 +1591,7 @@ public partial class CopilotService
             // doesn't throw "already processing". Must run on UI thread (INV-2).
             // History read also done on UI thread to avoid concurrent List<T> mutation.
             string? lastPrompt = null;
+            bool hadSuccessfulTools = false;
 
             // Use a TaskCompletionSource to wait for the UI-thread cleanup to complete
             // before attempting the resend.
@@ -1594,6 +1601,10 @@ public partial class CopilotService
                 // Read History on UI thread where it's safe (List<T> not thread-safe)
                 var lastUserMsg = state.Info.History.LastOrDefault(m => m.Role == "user");
                 lastPrompt = lastUserMsg?.OriginalContent ?? lastUserMsg?.Content;
+
+                // Check if any tools succeeded this turn — if so, skip auto-resend to avoid
+                // re-executing side-effectful work (issue #298)
+                hadSuccessfulTools = Volatile.Read(ref state.SuccessfulToolCountThisTurn) > 0;
 
                 state.Info.ClearPermissionDenials();
                 // INV-1: Flush partial response to History before discarding buffers
@@ -1606,12 +1617,26 @@ public partial class CopilotService
                 state.Info.IsProcessing = false;
                 state.Info.IsResumed = false;
                 state.HasUsedToolsThisTurn = false;
+                Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ToolCallCount = 0;
                 state.Info.ProcessingPhase = 0;
                 Debug($"[PERMISSION-RECOVER] '{sessionName}' cleared processing state");
-                state.Info.History.Add(ChatMessage.SystemMessage("✅ Session reconnected. Resuming work..."));
+                if (hadSuccessfulTools)
+                {
+                    state.Info.History.Add(ChatMessage.SystemMessage(
+                        "✅ Session reconnected. Auto-resend skipped — some tools had already completed. Send your message again when ready."));
+                }
+                else if (!string.IsNullOrEmpty(lastPrompt))
+                {
+                    var preview = lastPrompt.Length > 50 ? lastPrompt[..50] + "…" : lastPrompt;
+                    state.Info.History.Add(ChatMessage.SystemMessage($"⟳ Resending: \"{preview}\""));
+                }
+                else
+                {
+                    state.Info.History.Add(ChatMessage.SystemMessage("✅ Session reconnected."));
+                }
                 OnActivity?.Invoke(sessionName, "✅ Session reconnected");
                 OnStateChanged?.Invoke();
                 cleanupDone.TrySetResult();
@@ -1623,8 +1648,9 @@ public partial class CopilotService
             await cleanupDone.Task;
 
             // Resend the last prompt so the agent picks up where it left off.
+            // Skipped if tools already completed this turn to avoid re-executing work.
             // IsProcessing is now false and SendingFlag is 0, so SendPromptAsync will succeed.
-            if (!string.IsNullOrEmpty(lastPrompt))
+            if (!hadSuccessfulTools && !string.IsNullOrEmpty(lastPrompt))
             {
                 Debug($"[PERMISSION-RECOVER-RESEND] '{sessionName}' resending last prompt");
                 try
@@ -1635,6 +1661,10 @@ public partial class CopilotService
                 {
                     Debug($"[PERMISSION-RECOVER-RESEND] Failed for '{sessionName}': {sendEx.Message}");
                 }
+            }
+            else if (hadSuccessfulTools)
+            {
+                Debug($"[PERMISSION-RECOVER-RESEND] '{sessionName}' skipping resend — tools had already completed this turn");
             }
         }
         catch (Exception ex)
