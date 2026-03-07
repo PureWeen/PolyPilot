@@ -52,6 +52,35 @@ public class ProviderHostContext : IProviderHostContext
         if (workingDirectory != null)
             options.Cwd = workingDirectory;
 
+        // Forward shell environment so spawned tools (az, gh, git, etc.)
+        // can find binaries and auth state. MAUI apps don't inherit terminal PATH.
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var envPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+
+        // Ensure common tool directories are on PATH
+        var extraPaths = new[]
+        {
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+            Path.Combine(home, ".dotnet", "tools"),
+        };
+        var pathParts = new HashSet<string>(envPath.Split(':', StringSplitOptions.RemoveEmptyEntries));
+        foreach (var p in extraPaths)
+            pathParts.Add(p);
+        var fullPath = string.Join(":", pathParts);
+
+        options.Environment = new Dictionary<string, string>
+        {
+            ["PATH"] = fullPath,
+            ["HOME"] = home,
+            ["AZURE_CONFIG_DIR"] = Environment.GetEnvironmentVariable("AZURE_CONFIG_DIR")
+                ?? Path.Combine(home, ".azure"),
+        };
+
         return options;
     }
 
