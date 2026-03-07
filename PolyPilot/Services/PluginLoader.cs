@@ -263,6 +263,29 @@ public static class PluginLoader
 
             return null;
         }
+
+        protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
+        {
+            // Resolve native libraries from plugin's runtimes directory
+            var arch = System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier;
+            var candidatePaths = new[]
+            {
+                Path.Combine(_pluginDir, "runtimes", arch, "native", $"lib{unmanagedDllName}.dylib"),
+                Path.Combine(_pluginDir, "runtimes", arch, "native", $"{unmanagedDllName}.dylib"),
+                Path.Combine(_pluginDir, "runtimes", arch, "native", $"lib{unmanagedDllName}.so"),
+                Path.Combine(_pluginDir, "runtimes", arch, "native", $"{unmanagedDllName}.so"),
+                Path.Combine(_pluginDir, $"lib{unmanagedDllName}.dylib"),
+                Path.Combine(_pluginDir, $"{unmanagedDllName}.dylib"),
+            };
+
+            foreach (var path in candidatePaths)
+            {
+                if (File.Exists(path))
+                    return LoadUnmanagedDllFromPath(path);
+            }
+
+            return IntPtr.Zero;
+        }
     }
 }
 
