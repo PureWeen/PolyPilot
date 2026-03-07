@@ -392,9 +392,24 @@ public class WsBridgeServer : IDisposable
                         var sendSession = sendReq.SessionName;
                         var sendMessage = sendReq.Message;
                         var sendAgentMode = sendReq.AgentMode;
-                        _ = Task.Run(async () =>
+                        // Check orchestrator routing and dispatch atomically on the UI thread.
+                        // GetOrchestratorGroupId and SendToMultiAgentGroupAsync both read
+                        // Organization.Sessions/Groups (plain List<T>, UI-thread-only).
+                        _ = _copilot.InvokeOnUIAsync(async () =>
                         {
-                            try { await _copilot.SendPromptAsync(sendSession, sendMessage, cancellationToken: ct, agentMode: sendAgentMode); }
+                            try
+                            {
+                                var orchGroupId = _copilot.GetOrchestratorGroupId(sendSession);
+                                if (orchGroupId != null)
+                                {
+                                    Console.WriteLine($"[WsBridge] Routing '{sendSession}' through orchestration pipeline (group={orchGroupId})");
+                                    await _copilot.SendToMultiAgentGroupAsync(orchGroupId, sendMessage, ct);
+                                }
+                                else
+                                {
+                                    await _copilot.SendPromptAsync(sendSession, sendMessage, cancellationToken: ct, agentMode: sendAgentMode);
+                                }
+                            }
                             catch (Exception ex) { Console.WriteLine($"[WsBridge] SendPromptAsync error for '{sendSession}': {ex.Message}"); }
                         });
                     }

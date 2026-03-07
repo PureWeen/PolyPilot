@@ -1728,4 +1728,106 @@ public class MultiAgentRegressionTests
     }
 
     #endregion
+
+    #region Bug #8: Bridge SendMessage bypasses orchestration routing
+
+    /// <summary>
+    /// Regression: WsBridgeServer.HandleClientMessage called SendPromptAsync directly
+    /// when a mobile client sent a message to an orchestrator session. This bypassed
+    /// the multi-agent dispatch pipeline (SendToMultiAgentGroupAsync), so the orchestrator
+    /// responded directly instead of planning + dispatching to workers.
+    ///
+    /// Fix: WsBridgeServer now calls GetOrchestratorGroupId and routes through
+    /// SendToMultiAgentGroupAsync when the target session is an orchestrator.
+    /// </summary>
+    [Fact]
+    public void GetOrchestratorGroupId_ReturnsGroupId_ForOrchestratorReflectMode()
+    {
+        // Bridge fix also applies to OrchestratorReflect mode (not just Orchestrator)
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        var group = svc.CreateMultiAgentGroup("ReflectSquad", MultiAgentMode.OrchestratorReflect);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "reflect-orch", GroupId = group.Id, Role = MultiAgentRole.Orchestrator });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "reflect-w1", GroupId = group.Id, Role = MultiAgentRole.Worker });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "reflect-w2", GroupId = group.Id, Role = MultiAgentRole.Worker });
+
+        // Orchestrator should route through multi-agent pipeline
+        Assert.Equal(group.Id, svc.GetOrchestratorGroupId("reflect-orch"));
+        // Workers should NOT route through multi-agent pipeline
+        Assert.Null(svc.GetOrchestratorGroupId("reflect-w1"));
+        Assert.Null(svc.GetOrchestratorGroupId("reflect-w2"));
+    }
+
+    [Fact]
+    public void GetOrchestratorGroupId_ReturnsNull_ForSequentialMode()
+    {
+        // Sequential mode has no orchestrator — all sessions are peers
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        var group = svc.CreateMultiAgentGroup("SeqTeam", MultiAgentMode.Sequential);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "seq1", GroupId = group.Id });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "seq2", GroupId = group.Id });
+
+        Assert.Null(svc.GetOrchestratorGroupId("seq1"));
+        Assert.Null(svc.GetOrchestratorGroupId("seq2"));
+    }
+
+    [Fact]
+    public void GetOrchestratorGroupId_ReturnsNull_WhenGroupNotMultiAgent()
+    {
+        // Regular groups should never route through orchestration
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        var group = svc.CreateGroup("RegularGroup");
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "regular-s1", GroupId = group.Id, Role = MultiAgentRole.Orchestrator });
+
+        // Even with Role=Orchestrator, non-multi-agent group should return null
+        Assert.Null(svc.GetOrchestratorGroupId("regular-s1"));
+    }
+
+    /// <summary>
+    /// Documents the exact scenario: bridge sends for orchestrator sessions must be
+    /// detectable via GetOrchestratorGroupId so the server can route correctly.
+    /// This mirrors the PR Review Squad setup where mobile sends were going direct.
+    /// </summary>
+    [Fact]
+    public void GetOrchestratorGroupId_PRReviewSquadScenario()
+    {
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        var group = svc.CreateMultiAgentGroup("PR Review Squad", MultiAgentMode.Orchestrator);
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "PR Review Squad-orchestrator",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator,
+            PreferredModel = "claude-opus-4.6"
+        });
+        for (int i = 1; i <= 5; i++)
+        {
+            svc.Organization.Sessions.Add(new SessionMeta
+            {
+                SessionName = $"PR Review Squad-worker-{i}",
+                GroupId = group.Id,
+                Role = MultiAgentRole.Worker,
+                PreferredModel = "claude-sonnet-4.6"
+            });
+        }
+
+        // The orchestrator must be detected so bridge sends route correctly
+        var result = svc.GetOrchestratorGroupId("PR Review Squad-orchestrator");
+        Assert.Equal(group.Id, result);
+
+        // All workers must NOT be detected as orchestrators
+        for (int i = 1; i <= 5; i++)
+        {
+            Assert.Null(svc.GetOrchestratorGroupId($"PR Review Squad-worker-{i}"));
+        }
+    }
+
+    #endregion
 }

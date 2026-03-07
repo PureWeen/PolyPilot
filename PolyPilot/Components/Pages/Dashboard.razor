@@ -1371,6 +1371,17 @@
             }
             else
             {
+            // If this is an orchestrator but images are present, warn the user
+            if (isOrchestrator && imagePaths is { Count: > 0 })
+            {
+                var imgSession = sessions.FirstOrDefault(s => s.Name == sessionName);
+                if (imgSession != null)
+                {
+                    imgSession.History.Add(ChatMessage.SystemMessage(
+                        "⚠️ Images sent directly — orchestration routing does not support images yet."));
+                    imgSession.MessageCount = imgSession.History.Count;
+                }
+            }
             _ = CopilotService.SendPromptAsync(sessionName, finalPrompt, imagePaths, agentMode: agentMode).ContinueWith(t =>
             {
                 if (t.IsFaulted)
