@@ -712,10 +712,10 @@ else
                     }
                 }
 
-                @if (codespaceGroups.Any())
+                @if (CopilotService.CodespacesEnabled && codespaceGroups.Any())
                 {
                     <div class="sidebar-divider"></div>
-                    <div class="section-header"><span class="section-header-label">☁️ Codespaces</span></div>
+                    <div class="section-header"><span class="section-header-label" title="Alpha feature — may have rough edges">☁️ Codespaces <span style="font-size:0.7em;opacity:0.6">α</span></span></div>
                     @foreach (var (group, groupSessions) in codespaceGroups)
                     {
                         var csDisconnected = group.ConnectionState != CodespaceConnectionState.Connected;

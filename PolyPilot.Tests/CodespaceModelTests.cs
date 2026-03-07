@@ -278,4 +278,120 @@ public class CodespaceModelTests
         Assert.Equal(0, csGroup.ReconnectAttempts);
         Assert.Equal(csGroup.Id, restored.Sessions.First(s => s.SessionName == "cs-session").GroupId);
     }
+
+    // ── Codespace WorkingDirectory override for sessions ────────────────────
+
+    [Fact]
+    public void CodespaceGroup_SessionShouldUse_CodespaceWorkingDirectory_NotLocalPath()
+    {
+        // Simulates the bug: sessions in a codespace group should use /workspaces/{repo}
+        // instead of a local Mac worktree path.
+        var group = new SessionGroup
+        {
+            Name = "reflect",
+            CodespaceName = "fuzzy-space-guide-abc",
+            CodespaceRepository = "github/reflect",
+        };
+
+        var localWorktreePath = "/Users/someone/.polypilot/worktrees/github-reflect-abc123";
+
+        // When the group is a codespace, CodespaceWorkingDirectory should be used
+        var effectiveWorkDir = group.IsCodespace && group.CodespaceWorkingDirectory != null
+            ? group.CodespaceWorkingDirectory
+            : localWorktreePath;
+
+        Assert.Equal("/workspaces/reflect", effectiveWorkDir);
+    }
+
+    [Fact]
+    public void NonCodespaceGroup_SessionShouldUse_LocalWorktreePath()
+    {
+        // Non-codespace groups should continue using the local worktree path
+        var group = new SessionGroup
+        {
+            Name = "my-project",
+        };
+
+        var localWorktreePath = "/Users/someone/.polypilot/worktrees/my-project-abc123";
+
+        var effectiveWorkDir = group.IsCodespace && group.CodespaceWorkingDirectory != null
+            ? group.CodespaceWorkingDirectory
+            : localWorktreePath;
+
+        Assert.Equal(localWorktreePath, effectiveWorkDir);
+    }
+
+    [Fact]
+    public void CodespaceGroup_WithoutRepository_FallsBackToLocalPath()
+    {
+        // When CodespaceRepository is not set, CodespaceWorkingDirectory is null,
+        // so we should fall back to the local path gracefully.
+        var group = new SessionGroup
+        {
+            Name = "unnamed-cs",
+            CodespaceName = "some-codespace",
+            // CodespaceRepository not set
+        };
+
+        var localWorktreePath = "/Users/someone/.polypilot/worktrees/unnamed-cs-abc";
+
+        Assert.Null(group.CodespaceWorkingDirectory);
+        var effectiveWorkDir = group.CodespaceWorkingDirectory ?? localWorktreePath;
+        Assert.Equal(localWorktreePath, effectiveWorkDir);
+    }
+
+    [Fact]
+    public void CodespaceGroup_ResumeConfig_ShouldOverrideStoredWorkingDirectory()
+    {
+        // Simulates the resume scenario: stored WorkingDirectory is a local path,
+        // but the group's CodespaceWorkingDirectory should take precedence.
+        var group = new SessionGroup
+        {
+            Name = "reflect",
+            CodespaceName = "fuzzy-space-guide-abc",
+            CodespaceRepository = "github/reflect",
+        };
+
+        var storedWorkingDirectory = "/Users/btessiau/.polypilot/worktrees/github-reflect-1bb4fdc6";
+
+        // This is the pattern used in ResumeCodespaceSessionsAsync after the fix
+        var resumeWorkDir = group.CodespaceWorkingDirectory ?? storedWorkingDirectory;
+
+        Assert.Equal("/workspaces/reflect", resumeWorkDir);
+        Assert.NotEqual(storedWorkingDirectory, resumeWorkDir);
+    }
+
+    [Fact]
+    public void CodespaceGroup_RestoredSession_OverridesPersistedLocalPath()
+    {
+        // Simulates the restore-from-disk scenario: the persisted ActiveSessionEntry has
+        // a local Mac path, but the codespace group's CodespaceWorkingDirectory should
+        // take precedence when creating the placeholder session.
+        var group = new SessionGroup
+        {
+            Name = "reflect",
+            CodespaceName = "fuzzy-space-guide-abc",
+            CodespaceRepository = "github/reflect",
+        };
+
+        var persistedLocalPath = "/Users/btessiau/.polypilot/worktrees/github-reflect-1bb4fdc6";
+
+        // This is the pattern used in RestorePreviousSessionsAsync after the fix
+        var csWorkDir = group.CodespaceWorkingDirectory ?? persistedLocalPath;
+
+        Assert.Equal("/workspaces/reflect", csWorkDir);
+    }
+
+    [Fact]
+    public void CodespaceWorkingDirectory_HandlesNestedRepoNames()
+    {
+        // Ensure repos like "org/sub-repo-name" work correctly
+        var group = new SessionGroup
+        {
+            Name = "sub-repo",
+            CodespaceName = "some-cs",
+            CodespaceRepository = "my-org/my-sub-repo",
+        };
+        Assert.Equal("/workspaces/my-sub-repo", group.CodespaceWorkingDirectory);
+    }
 }

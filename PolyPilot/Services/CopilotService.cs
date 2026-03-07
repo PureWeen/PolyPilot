@@ -219,6 +219,18 @@ public partial class CopilotService : IAsyncDisposable
     public ChatStyle ChatStyle { get; set; } = ChatStyle.Normal;
     public UiTheme Theme { get; set; } = UiTheme.System;
     public VsCodeVariant Editor { get; set; } = VsCodeVariant.Stable;
+    private bool _codespacesEnabled;
+    public bool CodespacesEnabled
+    {
+        get => _codespacesEnabled;
+        set
+        {
+            if (_codespacesEnabled == value) return;
+            _codespacesEnabled = value;
+            if (value)
+                StartCodespaceHealthCheck();
+        }
+    }
 
     /// <summary>In-memory flag: user dismissed the holiday theme for this app session.</summary>
     public bool HolidayThemeDismissed { get; set; }
@@ -425,6 +437,9 @@ public partial class CopilotService : IAsyncDisposable
         ChatStyle = settings.ChatStyle;
         Theme = settings.Theme;
         Editor = settings.Editor;
+        // Codespaces only supported in Embedded mode — tunnels die with the app,
+        // matching Embedded's lifecycle. Prevent confusion in Persistent/Remote mode.
+        CodespacesEnabled = settings.CodespacesEnabled && settings.Mode == ConnectionMode.Embedded;
 
         // On mobile with Remote mode and no URL configured, skip initialization
         if (settings.Mode == ConnectionMode.Remote && string.IsNullOrWhiteSpace(settings.RemoteUrl) && string.IsNullOrWhiteSpace(settings.LanUrl))
@@ -594,7 +609,8 @@ public partial class CopilotService : IAsyncDisposable
         IsRestoring = false;
 
         // Start health check loop for any codespace groups (regardless of whether sessions were restored)
-        StartCodespaceHealthCheck();
+        if (CodespacesEnabled)
+            StartCodespaceHealthCheck();
 
         // Reconcile now that all sessions are restored
         ReconcileOrganization();
@@ -708,6 +724,7 @@ public partial class CopilotService : IAsyncDisposable
         IsDemoMode = false;
         FallbackNotice = null; // Clear any previous fallback notice
         CurrentMode = settings.Mode;
+        CodespacesEnabled = settings.CodespacesEnabled && settings.Mode == ConnectionMode.Embedded;
         OnStateChanged?.Invoke();
 
         // Demo mode: local mock responses
@@ -749,7 +766,8 @@ public partial class CopilotService : IAsyncDisposable
         // Restore previous sessions
         LoadOrganization();
         await RestorePreviousSessionsAsync(cancellationToken);
-        StartCodespaceHealthCheck();
+        if (settings.CodespacesEnabled)
+            StartCodespaceHealthCheck();
         ReconcileOrganization();
         OnStateChanged?.Invoke();
 
@@ -1368,6 +1386,16 @@ public partial class CopilotService : IAsyncDisposable
         }
 
         var resumeWorkingDirectory = workingDirectory ?? GetSessionWorkingDirectory(sessionId);
+
+        // Override for codespace sessions — the local worktree path doesn't exist inside
+        // the codespace; use /workspaces/{repo} instead.
+        if (groupId != null)
+        {
+            var csGroup = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+            if (csGroup?.IsCodespace == true && csGroup.CodespaceWorkingDirectory != null)
+                resumeWorkingDirectory = csGroup.CodespaceWorkingDirectory;
+        }
+
         // Resume the session using the SDK — pass model and working directory so backend context is preserved
         var resumeModel = Models.ModelHelper.NormalizeToSlug(model ?? GetSessionModelFromDisk(sessionId) ?? DefaultModel);
         if (string.IsNullOrEmpty(resumeModel)) resumeModel = DefaultModel;
@@ -1571,6 +1599,15 @@ public partial class CopilotService : IAsyncDisposable
         else
         {
             sessionDir = string.IsNullOrWhiteSpace(workingDirectory) ? ProjectDir : workingDirectory;
+        }
+
+        // Override for codespace sessions — the local worktree path doesn't exist inside
+        // the codespace; use /workspaces/{repo} instead.
+        if (groupId != null)
+        {
+            var csGroup = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+            if (csGroup?.IsCodespace == true && csGroup.CodespaceWorkingDirectory != null)
+                sessionDir = csGroup.CodespaceWorkingDirectory;
         }
 
         // Build system message with critical relaunch instructions
@@ -2094,11 +2131,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
             var client = GetClientForGroup(meta?.GroupId);
 
+            // For codespace sessions, use the codespace working directory instead of the local path
+            var switchWorkDir = state.Info.WorkingDirectory;
+            if (meta?.GroupId != null)
+            {
+                var switchGroup = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+                if (switchGroup?.IsCodespace == true && switchGroup.CodespaceWorkingDirectory != null)
+                    switchWorkDir = switchGroup.CodespaceWorkingDirectory;
+            }
+
             // Resume the same session ID with the new model
             var resumeConfig = new ResumeSessionConfig
             {
                 Model = normalizedModel,
-                WorkingDirectory = state.Info.WorkingDirectory,
+                WorkingDirectory = switchWorkDir,
                 Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
                 OnPermissionRequest = AutoApprovePermissions,
             };

@@ -676,6 +676,10 @@
                 CopilotService.Editor = settings.Editor;
                 CopilotService.NotifyStateChanged();
                 break;
+            case "ui.codespaces":
+                CopilotService.CodespacesEnabled = settings.CodespacesEnabled && settings.Mode == ConnectionMode.Embedded;
+                CopilotService.NotifyStateChanged();
+                break;
         }
         SaveSettingsQuietly();
         StateHasChanged();

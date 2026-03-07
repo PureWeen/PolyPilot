@@ -343,13 +343,19 @@ public partial class CopilotService
                                 Debug($"Deferring codespace session '{entry.DisplayName}' — client not connected yet");
                                 var history = LoadHistoryFromDisk(entry.SessionId);
                                 var resumeModel = Models.ModelHelper.NormalizeToSlug(entry.Model ?? DefaultModel);
+
+                                // Use the codespace working directory (/workspaces/{repo}) instead of the
+                                // persisted local Mac path which doesn't exist inside the codespace.
+                                var csGroup = Organization.Groups.FirstOrDefault(g => g.Id == entry.GroupId);
+                                var csWorkDir = csGroup?.CodespaceWorkingDirectory ?? entry.WorkingDirectory;
+
                                 var info = new AgentSessionInfo
                                 {
                                     Name = entry.DisplayName,
                                     Model = resumeModel ?? DefaultModel,
                                     CreatedAt = DateTime.Now,
                                     SessionId = entry.SessionId,
-                                    WorkingDirectory = entry.WorkingDirectory
+                                    WorkingDirectory = csWorkDir
                                 };
                                 foreach (var msg in history) info.History.Add(msg);
                                 info.History.Add(ChatMessage.SystemMessage("🔄 Waiting for codespace connection..."));

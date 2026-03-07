@@ -661,10 +661,11 @@ public partial class CopilotService : IAsyncDisposable
             try
             {
                 var resumeModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model ?? DefaultModel);
+                var codespaceWorkDir = group.CodespaceWorkingDirectory ?? state.Info.WorkingDirectory;
                 var resumeConfig = new ResumeSessionConfig
                 {
                     Model = resumeModel,
-                    WorkingDirectory = state.Info.WorkingDirectory,
+                    WorkingDirectory = codespaceWorkDir,
                     Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
                     OnPermissionRequest = AutoApprovePermissions,
                 };
@@ -680,13 +681,16 @@ public partial class CopilotService : IAsyncDisposable
                     var freshConfig = new SessionConfig
                     {
                         Model = resumeModel ?? DefaultModel,
-                        WorkingDirectory = state.Info.WorkingDirectory,
+                        WorkingDirectory = codespaceWorkDir,
                         Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
                         OnPermissionRequest = AutoApprovePermissions,
                     };
                     newSession = await client.CreateSessionAsync(freshConfig, ct);
                     state.Info.SessionId = newSession.SessionId;
                 }
+
+                // Update the stored working directory so persistence saves the codespace path
+                state.Info.WorkingDirectory = codespaceWorkDir;
 
                 CancelProcessingWatchdog(state);
                 var newState = new SessionState

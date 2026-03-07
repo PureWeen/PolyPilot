@@ -1,4 +1,5 @@
 using PolyPilot.Models;
+using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
@@ -175,5 +176,116 @@ public class CodespaceUxTests
             sessionName = $"Main {n}";
         }
         return sessionName;
+    }
+}
+
+/// <summary>
+/// Tests for the CodespacesEnabled feature toggle in ConnectionSettings.
+/// </summary>
+public class CodespacesEnabledToggleTests
+{
+    [Fact]
+    public void CodespacesEnabled_DefaultsToFalse()
+    {
+        var settings = new ConnectionSettings();
+        Assert.False(settings.CodespacesEnabled);
+    }
+
+    [Fact]
+    public void CodespacesEnabled_RoundTripsViaSerialization()
+    {
+        var settings = new ConnectionSettings { CodespacesEnabled = true };
+        var json = System.Text.Json.JsonSerializer.Serialize(settings);
+        var deserialized = System.Text.Json.JsonSerializer.Deserialize<ConnectionSettings>(json)!;
+        Assert.True(deserialized.CodespacesEnabled);
+    }
+
+    [Fact]
+    public void CodespacesEnabled_MissingInJson_DefaultsFalse()
+    {
+        // Simulates loading old settings.json that doesn't have the property
+        var json = """{"Mode":0,"Host":"localhost","Port":4321}""";
+        var settings = System.Text.Json.JsonSerializer.Deserialize<ConnectionSettings>(json)!;
+        Assert.False(settings.CodespacesEnabled);
+    }
+
+    [Fact]
+    public void SettingsRegistry_HasCodespacesDescriptor()
+    {
+        var ctx = new SettingsContext
+        {
+            Settings = new ConnectionSettings(),
+            IsDesktop = true
+        };
+        var codespaces = SettingsRegistry.All.FirstOrDefault(d => d.Id == "ui.codespaces");
+        Assert.NotNull(codespaces);
+        Assert.Equal(SettingType.Bool, codespaces.Type);
+        Assert.Equal("UI", codespaces.Category);
+    }
+
+    [Fact]
+    public void SettingsRegistry_CodespacesHiddenOnMobile()
+    {
+        var ctx = new SettingsContext
+        {
+            Settings = new ConnectionSettings(),
+            IsDesktop = false,
+            IsMobile = true
+        };
+        var codespaces = SettingsRegistry.All.FirstOrDefault(d => d.Id == "ui.codespaces");
+        Assert.NotNull(codespaces);
+        Assert.False(codespaces.IsVisible?.Invoke(ctx) ?? true);
+    }
+
+    [Fact]
+    public void SettingsRegistry_CodespacesGetSetValue()
+    {
+        var ctx = new SettingsContext
+        {
+            Settings = new ConnectionSettings(),
+            IsDesktop = true,
+            InitialMode = ConnectionMode.Embedded
+        };
+        var codespaces = SettingsRegistry.All.First(d => d.Id == "ui.codespaces");
+
+        // Default is false
+        Assert.Equal(false, codespaces.GetValue?.Invoke(ctx));
+
+        // Set to true (allowed in Embedded mode)
+        codespaces.SetValue?.Invoke(ctx, true);
+        Assert.True(ctx.Settings.CodespacesEnabled);
+        Assert.Equal(true, codespaces.GetValue?.Invoke(ctx));
+    }
+
+    [Fact]
+    public void SettingsRegistry_CodespacesBlockedInPersistentMode()
+    {
+        var ctx = new SettingsContext
+        {
+            Settings = new ConnectionSettings(),
+            IsDesktop = true,
+            InitialMode = ConnectionMode.Persistent
+        };
+        var codespaces = SettingsRegistry.All.First(d => d.Id == "ui.codespaces");
+
+        // Enabling should be blocked in Persistent mode
+        codespaces.SetValue?.Invoke(ctx, true);
+        Assert.False(ctx.Settings.CodespacesEnabled);
+    }
+
+    [Fact]
+    public void SettingsRegistry_CodespacesCanDisableInAnyMode()
+    {
+        var ctx = new SettingsContext
+        {
+            Settings = new ConnectionSettings { CodespacesEnabled = true },
+            IsDesktop = true,
+            InitialMode = ConnectionMode.Persistent
+        };
+        var codespaces = SettingsRegistry.All.First(d => d.Id == "ui.codespaces");
+
+        // Disabling should always work, even in Persistent mode
+        codespaces.SetValue?.Invoke(ctx, false);
+        Assert.False(ctx.Settings.CodespacesEnabled);
     }
 }

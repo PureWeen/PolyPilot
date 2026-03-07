@@ -22,9 +22,9 @@ else
                 }
                 <button class="ns-chip @(mode == FormMode.Directory ? "active" : "")" @onclick="() => SetMode(FormMode.Directory)">📁 Directory</button>
                 <button class="ns-chip @(mode == FormMode.Empty ? "active" : "")" @onclick="() => SetMode(FormMode.Empty)">💬 Empty</button>
-                @if (PlatformHelper.IsDesktop)
+                @if (PlatformHelper.IsDesktop && CopilotService.CodespacesEnabled)
                 {
-                    <button class="ns-chip @(mode == FormMode.Codespace ? "active" : "")" @onclick="() => SetMode(FormMode.Codespace)">☁️ Codespace</button>
+                    <button class="ns-chip @(mode == FormMode.Codespace ? "active" : "")" @onclick="() => SetMode(FormMode.Codespace)" title="Alpha feature">☁️ Codespace</button>
                 }
             </div>
         }
