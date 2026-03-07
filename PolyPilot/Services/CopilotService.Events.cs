@@ -360,8 +360,7 @@ public partial class CopilotService
                 var resultStr = FormatToolResult(toolDone.Data!.Result);
                 var hasError = toolDone.Data.Error != null;
                 var errorStr = toolDone.Data.Error?.ToString();
-                var isPermissionDenial = (resultStr?.Contains("Permission denied", StringComparison.OrdinalIgnoreCase) == true)
-                    || (errorStr?.Contains("Permission denied", StringComparison.OrdinalIgnoreCase) == true);
+                var isPermissionDenial = IsPermissionDenialText(resultStr) || IsPermissionDenialText(errorStr);
 
                 // Track permission denials via sliding window (3 of last 5 tool results)
                 // This handles cases where an occasional OK tool resets a strict consecutive counter
@@ -435,6 +434,11 @@ public partial class CopilotService
                 break;
 
             case AssistantTurnStartEvent:
+                // Cancel any pending TurnEnd→Idle fallback — another agent round is starting
+                {
+                    var prevCts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
+                    prevCts?.Cancel();
+                }
                 state.HasReceivedDeltasThisTurn = false;
                 var phaseAdvancedToThinking = state.Info.ProcessingPhase < 2;
                 if (phaseAdvancedToThinking) state.Info.ProcessingPhase = 2; // Thinking
@@ -453,6 +457,25 @@ public partial class CopilotService
                 {
                     Debug($"[EVT-ERR] '{sessionName}' CompleteReasoningMessages threw in TurnEnd: {ex}");
                 }
+                // Schedule a delayed CompleteResponse in case SessionIdleEvent never arrives (SDK bug #299).
+                // Cancelled by AssistantTurnStartEvent (another round starting) or SessionIdleEvent (normal path).
+                {
+                    var turnEndGen = Interlocked.Read(ref state.ProcessingGeneration);
+                    var idleFallbackCts = new CancellationTokenSource();
+                    var prevCts = Interlocked.Exchange(ref state.TurnEndIdleCts, idleFallbackCts);
+                    prevCts?.Cancel();
+                    var fallbackToken = idleFallbackCts.Token;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(4000, fallbackToken);
+                            Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received 4s after TurnEnd — firing CompleteResponse");
+                            Invoke(() => CompleteResponse(state, turnEndGen));
+                        }
+                        catch (OperationCanceledException) { }
+                    });
+                }
                 Invoke(() =>
                 {
                     // Flush any accumulated assistant text to history/DB at end of each sub-turn.
@@ -466,6 +489,11 @@ public partial class CopilotService
                 break;
 
             case SessionIdleEvent:
+                // Cancel the TurnEnd→Idle fallback — normal SessionIdleEvent arrived
+                {
+                    var prevCts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
+                    prevCts?.Cancel();
+                }
                 try { CompleteReasoningMessages(state, sessionName); }
                 catch (Exception ex)
                 {
@@ -787,6 +815,11 @@ public partial class CopilotService
               $"(responseLen={state.CurrentResponse.Length}, flushedLen={state.FlushedResponse.Length}, thread={Environment.CurrentManagedThreadId})");
         
         CancelProcessingWatchdog(state);
+        // Also cancel any pending TurnEnd→Idle fallback — CompleteResponse is now executing
+        {
+            var cts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
+            cts?.Cancel();
+        }
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -1334,6 +1367,20 @@ public partial class CopilotService
         }
     }
 
+    /// <summary>
+    /// Returns true if the text indicates a permission denial from the Copilot SDK.
+    /// Matches both the human-readable "Permission denied" message and the SDK's internal
+    /// error codes (e.g. "denied-no-approval-rule-and-could-not-request-from-user").
+    /// This is more robust than a single string match and handles future SDK message variants.
+    /// </summary>
+    private static bool IsPermissionDenialText(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        return text.Contains("Permission denied", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("denied-no-approval-rule", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("could not request permission", StringComparison.OrdinalIgnoreCase);
+    }
+
     private void StartProcessingWatchdog(SessionState state, string sessionName)
     {
         CancelProcessingWatchdog(state);
@@ -1444,6 +1491,11 @@ public partial class CopilotService
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                        // Cancel any pending TurnEnd→Idle fallback
+                        {
+                            var cts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
+                            cts?.Cancel();
+                        }
                         state.Info.IsResumed = false;
                         // Flush any accumulated partial response before clearing processing state
                         FlushCurrentResponse(state);
@@ -1490,6 +1542,11 @@ public partial class CopilotService
         state.ResponseCompletion?.TrySetCanceled();
         Interlocked.Exchange(ref state.SendingFlag, 0);
         state.Info.ClearPermissionDenials();
+        // Cancel any pending TurnEnd→Idle fallback
+        {
+            var cts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
+            cts?.Cancel();
+        }
         if (state.Info.IsProcessing)
         {
             FlushCurrentResponse(state);

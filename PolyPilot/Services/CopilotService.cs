@@ -292,6 +292,14 @@ public partial class CopilotService : IAsyncDisposable
         public bool SkipReflectionEvaluationOnce { get; set; }
         public long LastEventAtTicks = DateTime.UtcNow.Ticks;
         public CancellationTokenSource? ProcessingWatchdog { get; set; }
+        /// <summary>
+        /// CancellationTokenSource for the delayed CompleteResponse fallback started on AssistantTurnEndEvent.
+        /// Cancelled when SessionIdleEvent fires (normal completion), AssistantTurnStartEvent fires
+        /// (another tool round is starting), or a new SendPromptAsync call starts.
+        /// This handles the SDK bug where session.idle is never emitted after assistant.turn_end.
+        /// Must be a field (not property) so it can be used with Interlocked.Exchange.
+        /// </summary>
+        public CancellationTokenSource? TurnEndIdleCts;
         /// <summary>Number of tool calls started but not yet completed this turn.</summary>
         public int ActiveToolCallCount;
         /// <summary>True if any tool call has started during the current processing cycle.
@@ -2283,6 +2291,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+        // Cancel any pending TurnEnd→Idle fallback from the previous turn
+        var prevTurnEndCts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
+        prevTurnEndCts?.Cancel();
         state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName); // Cache for watchdog (UI thread safe)
         Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2611,12 +2622,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+        // Release send lock — allows a subsequent SteerSessionAsync to acquire it immediately
         Interlocked.Exchange(ref state.SendingFlag, 0);
         // Clear queued messages so they don't auto-send after abort
         state.Info.MessageQueue.Clear();
         _queuedImagePaths.TryRemove(sessionName, out _);
         _queuedAgentModes.TryRemove(sessionName, out _);
         _permissionRecoveryAttempts.TryRemove(sessionName, out _);
+        // Cancel any pending TurnEnd→Idle fallback so it doesn't fire CompleteResponse after abort
+        {
+            var cts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
+            cts?.Cancel();
+        }
         CancelProcessingWatchdog(state);
         state.FlushedResponse.Clear();
         state.PendingReasoningMessages.Clear();
