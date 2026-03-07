@@ -43,6 +43,12 @@ public partial class CopilotService
     // so the model sees them in its conversation context.
     private readonly ConcurrentDictionary<string, ConcurrentQueue<string>> _reflectQueuedPrompts = new();
 
+    // Per-orchestrator delegation context for tool-based worker dispatch in OrchestratorReflect mode.
+    private readonly ConcurrentDictionary<string, WorkerDelegationContext> _delegationContexts = new();
+
+    // Orchestrator sessions configured with ExcludedTools=["task"] + custom delegation tool.
+    private readonly ConcurrentDictionary<string, byte> _reflectToolConfigured = new();
+
     #region Session Organization (groups, pinning, sorting)
 
     public async Task<string> CreateMultiAgentGroupAsync(string groupName, string orchestratorModel, string workerModel, int workerCount, MultiAgentMode mode, string? systemPrompt = null)
@@ -1167,6 +1173,62 @@ public partial class CopilotService
         return sb.ToString();
     }
 
+    private string BuildOrchestratorReflectToolPrompt(
+        string userPrompt,
+        List<string> workerNames,
+        string? additionalInstructions,
+        string? routingContext,
+        bool isReplan = false,
+        string? lastEvaluation = null)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available via the `task` tool:");
+        foreach (var w in workerNames)
+        {
+            var meta = GetSessionMeta(w);
+            var model = GetEffectiveModel(w);
+            var wtInfo = meta?.WorktreeId != null
+                ? _repoManager.Worktrees.FirstOrDefault(wt => wt.Id == meta.WorktreeId) : null;
+            var desc = $"  - '{w}' (model: {model})";
+            if (!string.IsNullOrEmpty(meta?.SystemPrompt))
+                desc += $" — {meta.SystemPrompt}";
+            if (wtInfo != null)
+                desc += $" [isolated worktree: {wtInfo.Path}, branch: {wtInfo.Branch}]";
+            sb.AppendLine(desc);
+        }
+        sb.AppendLine();
+        if (isReplan && lastEvaluation != null)
+        {
+            sb.AppendLine("## Previous Iteration Feedback");
+            sb.AppendLine(lastEvaluation);
+            sb.AppendLine();
+        }
+        sb.AppendLine("## User Request");
+        sb.AppendLine(userPrompt);
+        if (!string.IsNullOrEmpty(additionalInstructions))
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Additional Orchestration Instructions");
+            sb.AppendLine(additionalInstructions);
+        }
+        if (!string.IsNullOrEmpty(routingContext))
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Work Routing (from team definition)");
+            sb.AppendLine(routingContext);
+        }
+        sb.AppendLine();
+        sb.AppendLine("## Your Task");
+        sb.AppendLine("Use the `task` tool to delegate work to your workers. Call it once per sub-task.");
+        sb.AppendLine("Each `task` call dispatches one worker and returns its response.");
+        sb.AppendLine("You MUST call `task` at least once — do NOT attempt to do the work yourself.");
+        sb.AppendLine();
+        sb.AppendLine("After all workers have completed (all `task` calls return), synthesize their results into a final response.");
+        sb.AppendLine("If the combined work fully satisfies the goal, include `[[GROUP_REFLECT_COMPLETE]]` in your final response.");
+        sb.AppendLine("If more work is needed, include `[[NEEDS_ITERATION]]` followed by what specific gaps remain.");
+        return sb.ToString();
+    }
+
     internal record TaskAssignment(string WorkerName, string Task);
 
     /// <summary>
@@ -1218,6 +1280,75 @@ public partial class CopilotService
     }
 
     private record WorkerResult(string WorkerName, string? Response, bool Success, string? Error, TimeSpan Duration);
+
+    private async Task EnsureOrchestratorReflectToolsAsync(
+        string orchestratorName,
+        List<string> workerNames,
+        CancellationToken ct)
+    {
+        if (_reflectToolConfigured.ContainsKey(orchestratorName))
+            return;
+
+        if (!_sessions.TryGetValue(orchestratorName, out var state) || state.Info.SessionId == null)
+        {
+            Debug($"[REFLECT] EnsureOrchestratorReflectToolsAsync: session '{orchestratorName}' not found, skipping tool setup");
+            return;
+        }
+
+        if (_client == null)
+        {
+            Debug("[REFLECT] EnsureOrchestratorReflectToolsAsync: client not initialized, skipping tool setup");
+            return;
+        }
+
+        var context = _delegationContexts.GetOrAdd(orchestratorName, _ => new WorkerDelegationContext());
+
+        async Task<(bool, string?, string?, TimeSpan)> ExecuteWrapper(
+            string worker, string task, string originalPrompt, CancellationToken workerCt)
+        {
+            var result = await ExecuteWorkerAsync(worker, task, originalPrompt, workerCt);
+            return (result.Success, result.Response, result.Error, result.Duration);
+        }
+
+        var delegationFunction = WorkerDelegationTool.CreateFunction(context, ExecuteWrapper);
+
+        Debug($"[REFLECT] Resuming orchestrator '{orchestratorName}' with ExcludedTools=[\"task\"] + custom delegation tool");
+
+        try
+        {
+            try { await state.Session.DisposeAsync(); } catch { }
+
+            var resumeConfig = new GitHub.Copilot.SDK.ResumeSessionConfig
+            {
+                Model = state.Info.Model,
+                WorkingDirectory = state.Info.WorkingDirectory,
+                Tools = new List<Microsoft.Extensions.AI.AIFunction>
+                {
+                    ShowImageTool.CreateFunction(),
+                    delegationFunction,
+                },
+                ExcludedTools = new List<string> { WorkerDelegationTool.ToolName },
+                OnPermissionRequest = AutoApprovePermissions,
+            };
+
+            var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, ct);
+
+            var newState = new SessionState
+            {
+                Session = newSession,
+                Info = state.Info,
+            };
+            newSession.On(evt => HandleSessionEvent(newState, evt));
+            _sessions[orchestratorName] = newState;
+
+            _reflectToolConfigured[orchestratorName] = 1;
+            Debug($"[REFLECT] Orchestrator '{orchestratorName}' configured with tool-dispatch for reflect mode");
+        }
+        catch (Exception ex)
+        {
+            Debug($"[REFLECT] Failed to configure orchestrator '{orchestratorName}' with delegation tool: {ex.Message}. Falling back to @worker: text dispatch.");
+        }
+    }
 
     private async Task<WorkerResult> ExecuteWorkerAsync(string workerName, string task, string originalPrompt, CancellationToken cancellationToken)
     {
@@ -2023,6 +2154,10 @@ public partial class CopilotService
         var dispatchedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var attemptedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        await EnsureOrchestratorReflectToolsAsync(orchestratorName, workerNames, ct);
+        var usingToolDispatch = _reflectToolConfigured.ContainsKey(orchestratorName)
+                                && _delegationContexts.ContainsKey(orchestratorName);
+
         try
         {
         while (reflectState.IsActive && !reflectState.IsPaused
@@ -2061,16 +2196,94 @@ public partial class CopilotService
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Planning, iterDetail));
 
             string planPrompt;
-            if (reflectState.CurrentIteration == 1)
+            if (usingToolDispatch)
             {
-                planPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext, dispatcherOnly: true);
+                var delegCtx = _delegationContexts[orchestratorName];
+                delegCtx.Reset(prompt, workerNames, ct);
+
+                planPrompt = reflectState.CurrentIteration == 1
+                    ? BuildOrchestratorReflectToolPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext)
+                    : BuildOrchestratorReflectToolPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext,
+                        isReplan: true, lastEvaluation: reflectState.LastEvaluation ?? "Continue iterating.");
             }
             else
             {
-                planPrompt = BuildReplanPrompt(reflectState.LastEvaluation ?? "Continue iterating.", workerNames, prompt, group.RoutingContext);
+                planPrompt = reflectState.CurrentIteration == 1
+                    ? BuildOrchestratorPlanningPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext, dispatcherOnly: true)
+                    : BuildReplanPrompt(reflectState.LastEvaluation ?? "Continue iterating.", workerNames, prompt, group.RoutingContext);
             }
 
             var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct, originalPrompt: prompt);
+
+            // Tool-dispatch path: workers ran as tool calls during SendPromptAndWaitAsync
+            if (usingToolDispatch && _delegationContexts.TryGetValue(orchestratorName, out var dispatchCtx)
+                && dispatchCtx.DispatchedResults.Count > 0)
+            {
+                Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch: {dispatchCtx.DispatchedResults.Count} worker(s) completed via task tool. Iteration={reflectState.CurrentIteration}");
+                var toolResults = dispatchCtx.DispatchedResults
+                    .Select(r => new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration))
+                    .ToArray();
+
+                foreach (var r in dispatchCtx.DispatchedResults)
+                {
+                    attemptedWorkers.Add(r.WorkerName);
+                    if (r.Success) dispatchedWorkers.Add(r.WorkerName);
+                }
+
+                // Phase 4: Synthesize + Evaluate (planResponse already contains synthesis)
+                InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, iterDetail));
+                AutoAdjustFromFeedback(groupId, group, toolResults.ToList(), reflectState);
+
+                var allDispatched = workerNames.All(w => dispatchedWorkers.Contains(w));
+
+                if (planResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) && allDispatched)
+                {
+                    reflectState.GoalMet = true;
+                    reflectState.IsActive = false;
+                    AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.BuildCompletionSummary()}");
+                    break;
+                }
+
+                if (planResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) && !allDispatched)
+                {
+                    var missing = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
+                    var detail = missing.Any(w => attemptedWorkers.Contains(w))
+                        ? $"Dispatched but failed: {string.Join(", ", missing.Where(w => attemptedWorkers.Contains(w)))}."
+                        : $"Not yet dispatched: {string.Join(", ", missing)}.";
+                    reflectState.LastEvaluation = $"{detail} Dispatch to the remaining workers before completing.";
+                    AddOrchestratorSystemMessage(orchestratorName, $"🔄 Overriding completion — {detail}");
+                }
+                else
+                {
+                    reflectState.LastEvaluation = ExtractIterationEvaluation(planResponse);
+                    var selfScore = planResponse.Contains("[[NEEDS_ITERATION]]", StringComparison.OrdinalIgnoreCase) ? 0.4 : 0.7;
+                    reflectState.RecordEvaluation(reflectState.CurrentIteration, selfScore,
+                        reflectState.LastEvaluation ?? "", GetEffectiveModel(orchestratorName));
+                }
+
+                if (reflectState.CheckStall(planResponse))
+                {
+                    reflectState.ConsecutiveStalls++;
+                    if (reflectState.ConsecutiveStalls >= 2)
+                    {
+                        reflectState.IsStalled = true;
+                        reflectState.IsCancelled = true;
+                        AddOrchestratorSystemMessage(orchestratorName, $"⚠️ {reflectState.BuildCompletionSummary()}");
+                        break;
+                    }
+                    reflectState.PendingAdjustments.Add("⚠️ Output similarity detected — may be stalling. Will stop if it repeats.");
+                }
+                else
+                {
+                    reflectState.ConsecutiveStalls = 0;
+                    reflectState.ConsecutiveErrors = 0;
+                }
+
+                SaveOrganization();
+                InvokeOnUI(() => OnStateChanged?.Invoke());
+                continue;
+            }
+
             var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
             Debug($"[DISPATCH] '{orchestratorName}' reflect plan parsed: {rawAssignments.Count} raw assignments from {workerNames.Count} workers. Iteration={reflectState.CurrentIteration}, Response length={planResponse.Length}");
             var assignments = rawAssignments
