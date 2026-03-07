@@ -2325,6 +2325,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.MessageQueue.Clear();
         _queuedImagePaths.TryRemove(sessionName, out _);
         _queuedAgentModes.TryRemove(sessionName, out _);
+        _permissionRecoveryAttempts.TryRemove(sessionName, out _);
         CancelProcessingWatchdog(state);
         state.FlushedResponse.Clear();
         state.PendingReasoningMessages.Clear();

@@ -163,7 +163,7 @@
                                      OnStartFiesta="StartFiestaForSession"
                                      OnStopFiesta="StopFiestaForSession"
                                      OnStopReflection="() => StopReflectionForSession(session.Name)"
-                                     OnReconnectRequested="HandleReconnect" />
+                                     OnReconnectRequested="() => CopilotService.RecoverSessionAsync(session.Name)" />
             </KeepAliveSession>
         }
     }
@@ -2257,16 +2257,6 @@
     private async Task StopSession(string sessionName)
     {
         await CopilotService.AbortSessionAsync(sessionName);
-    }
-
-    private async Task HandleReconnect()
-    {
-        // Per-session recovery: only reconnects the affected session, not all sessions.
-        var sessionName = CopilotService.ActiveSessionName;
-        if (!string.IsNullOrEmpty(sessionName))
-        {
-            await CopilotService.RecoverSessionAsync(sessionName);
-        }
     }
 
     private IReadOnlyList<FiestaLinkedWorker> GetFiestaWorkersForSession(string sessionName)

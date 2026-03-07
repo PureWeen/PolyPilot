@@ -63,7 +63,7 @@ public class AgentSessionInfo
     /// <summary>
     /// Count of denials in the sliding window. Read-only for UI binding.
     /// </summary>
-    public int PermissionDenialCount { get => Volatile.Read(ref _permissionDenialCount); set => Volatile.Write(ref _permissionDenialCount, value); }
+    public int PermissionDenialCount => Volatile.Read(ref _permissionDenialCount);
 
     /// <summary>
     /// Records a tool result into the sliding window. Returns the denial count in the window.

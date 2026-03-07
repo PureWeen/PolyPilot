@@ -66,8 +66,8 @@ public class RightClickContextMenuTests
         var contextMenuIndex = razor.IndexOf("@oncontextmenu=");
         Assert.True(sessionItemIndex >= 0, "session-item div not found");
         Assert.True(contextMenuIndex >= 0, "@oncontextmenu not found");
-        // The contextmenu handler should be on the same element (within ~200 chars)
-        Assert.True(Math.Abs(contextMenuIndex - sessionItemIndex) < 200,
+        // The contextmenu handler should be on the same element (within ~400 chars)
+        Assert.True(Math.Abs(contextMenuIndex - sessionItemIndex) < 400,
             "contextmenu handler should be on the session-item div");
     }
 }

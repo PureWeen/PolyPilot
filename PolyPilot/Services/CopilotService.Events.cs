@@ -1406,11 +1406,10 @@ public partial class CopilotService
                 var totalProcessingSeconds = startedAt.HasValue
                     ? (DateTime.UtcNow - startedAt.Value).TotalSeconds
                     : 0;
-                var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds
-                    && elapsed >= effectiveTimeout;
 
-                if (elapsed >= effectiveTimeout || exceededMaxTime)
+                if (elapsed >= effectiveTimeout)
                 {
+                    var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds;
                     var timeoutDisplay = exceededMaxTime
                         ? $"{WatchdogMaxProcessingTimeSeconds / 60} minute(s) total processing time"
                         : effectiveTimeout >= 60
@@ -1473,9 +1472,16 @@ public partial class CopilotService
     /// </summary>
     // Guard against infinite recovery loops (permission denied → recover → resend → denied again)
     private readonly ConcurrentDictionary<string, int> _permissionRecoveryAttempts = new();
+    private readonly ConcurrentDictionary<string, bool> _recoveryInProgress = new();
 
     private async Task TryRecoverPermissionAsync(SessionState state, string sessionName)
     {
+        // Guard against concurrent recovery for the same session (auto + manual can race)
+        if (!_recoveryInProgress.TryAdd(sessionName, true))
+        {
+            Debug($"[PERMISSION-RECOVER] Recovery already in progress for '{sessionName}'");
+            return;
+        }
         try
         {
             if (_client == null || state.Info.SessionId == null) return;
@@ -1546,14 +1552,18 @@ public partial class CopilotService
 
             // Bug A fix: Clear IsProcessing + all 9 companion fields so SendPromptAsync
             // doesn't throw "already processing". Must run on UI thread (INV-2).
-            var lastUserMsg = state.Info.History.LastOrDefault(m => m.Role == "user");
-            var lastPrompt = lastUserMsg?.OriginalContent ?? lastUserMsg?.Content;
+            // History read also done on UI thread to avoid concurrent List<T> mutation.
+            string? lastPrompt = null;
 
             // Use a TaskCompletionSource to wait for the UI-thread cleanup to complete
             // before attempting the resend.
             var cleanupDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             InvokeOnUI(() =>
             {
+                // Read History on UI thread where it's safe (List<T> not thread-safe)
+                var lastUserMsg = state.Info.History.LastOrDefault(m => m.Role == "user");
+                lastPrompt = lastUserMsg?.OriginalContent ?? lastUserMsg?.Content;
+
                 state.Info.ClearPermissionDenials();
                 // INV-1: Flush partial response to History before discarding buffers
                 FlushCurrentResponse(state);
@@ -1606,6 +1616,10 @@ public partial class CopilotService
                     "⚠️ Auto-recovery failed. Use the Reconnect button in Settings → Save & Reconnect to restore permissions."));
                 OnStateChanged?.Invoke();
             });
+        }
+        finally
+        {
+            _recoveryInProgress.TryRemove(sessionName, out _);
         }
     }
 
