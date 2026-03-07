@@ -1782,6 +1782,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     imgState.Info.MessageCount = imgState.Info.History.Count;
                 }
             }
+            // Mirror Dashboard.razor's AutoStartReflectionIfNeeded behavior for OrchestratorReflect groups
+            if (createOrchGroupId != null && nextImagePaths is null or { Count: 0 })
+            {
+                var drainOrchGroup = Organization.Groups.FirstOrDefault(g => g.Id == createOrchGroupId);
+                if (drainOrchGroup?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+                    StartGroupReflection(createOrchGroupId, nextPrompt, drainOrchGroup.MaxReflectIterations ?? 5);
+            }
             var createDrainTask = createOrchGroupId != null && nextImagePaths is null or { Count: 0 }
                 ? SendToMultiAgentGroupAsync(createOrchGroupId, nextPrompt)
                 : SendPromptAsync(name, nextPrompt, imagePaths: nextImagePaths, agentMode: nextAgentMode);

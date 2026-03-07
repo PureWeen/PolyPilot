@@ -402,6 +402,10 @@ public class WsBridgeServer : IDisposable
                                 var orchGroupId = _copilot.GetOrchestratorGroupId(sendSession);
                                 if (orchGroupId != null)
                                 {
+                                    // Mirror Dashboard.razor's AutoStartReflectionIfNeeded behavior
+                                    var orchGroup = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == orchGroupId);
+                                    if (orchGroup?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+                                        _copilot.StartGroupReflection(orchGroupId, sendMessage, orchGroup.MaxReflectIterations ?? 5);
                                     Console.WriteLine($"[WsBridge] Routing '{sendSession}' through orchestration pipeline (group={orchGroupId})");
                                     await _copilot.SendToMultiAgentGroupAsync(orchGroupId, sendMessage, ct);
                                 }
