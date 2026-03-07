@@ -510,6 +510,7 @@ public partial class CopilotService : IAsyncDisposable
                     IsInitialized = true;
                     NeedsConfiguration = false;
                     Debug($"Copilot client started after server restart in {settings.Mode} mode");
+                    OnStateChanged?.Invoke();
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception retryEx)
@@ -527,16 +528,17 @@ public partial class CopilotService : IAsyncDisposable
             else
             {
                 Debug("Server restart failed, falling back to Embedded mode");
-                settings.Mode = ConnectionMode.Embedded;
                 CurrentMode = ConnectionMode.Embedded;
                 FallbackNotice = "Persistent server had a version mismatch and couldn't restart — fell back to Embedded mode.";
-                _client = CreateClient(settings);
+                var embeddedSettings = new ConnectionSettings { Mode = ConnectionMode.Embedded, Host = settings.Host, Port = settings.Port };
+                _client = CreateClient(embeddedSettings);
                 try
                 {
                     await _client.StartAsync(cancellationToken);
                     IsInitialized = true;
                     NeedsConfiguration = false;
                     Debug($"Copilot client started in Embedded fallback mode");
+                    OnStateChanged?.Invoke();
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception fallbackEx)
