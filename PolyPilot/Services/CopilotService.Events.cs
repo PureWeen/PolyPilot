@@ -375,8 +375,8 @@ public partial class CopilotService
                             state.Info.History.Add(ChatMessage.SystemMessage(
                                 "⚠️ Permission errors detected. Attempting to reconnect session..."));
                             OnStateChanged?.Invoke();
+                            _ = TryRecoverPermissionAsync(state, sessionName);
                         });
-                        _ = Task.Run(async () => await TryRecoverPermissionAsync(state, sessionName));
                     }
                 }
 
@@ -1574,6 +1574,8 @@ public partial class CopilotService
                     state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
                 state.Info.IsProcessing = false;
                 state.Info.IsResumed = false;
+                state.HasUsedToolsThisTurn = false;
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ToolCallCount = 0;
                 state.Info.ProcessingPhase = 0;
@@ -1584,38 +1586,52 @@ public partial class CopilotService
                 cleanupDone.TrySetResult();
             });
 
-            // Wait for UI-thread cleanup before resending
-            await cleanupDone.Task.ConfigureAwait(false);
+            // Wait for UI-thread cleanup before resending.
+            // Since TryRecoverPermissionAsync runs on UI thread (via Invoke), the
+            // continuation stays on UI thread — satisfying INV-2 for SendPromptAsync.
+            await cleanupDone.Task;
 
             // Resend the last prompt so the agent picks up where it left off.
             // IsProcessing is now false and SendingFlag is 0, so SendPromptAsync will succeed.
-            // INV-2: SendPromptAsync mutates IsProcessing — must run on UI thread.
             if (!string.IsNullOrEmpty(lastPrompt))
             {
                 Debug($"[PERMISSION-RECOVER-RESEND] '{sessionName}' resending last prompt");
-                var resendDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                InvokeOnUI(() =>
+                try
                 {
-                    _ = SendPromptAsync(sessionName, lastPrompt, skipHistoryMessage: true)
-                        .ContinueWith(t =>
-                        {
-                            if (t.IsFaulted)
-                                Debug($"[PERMISSION-RECOVER-RESEND] Failed for '{sessionName}': {t.Exception?.InnerException?.Message}");
-                            resendDone.TrySetResult();
-                        });
-                });
-                await resendDone.Task.ConfigureAwait(false);
+                    await SendPromptAsync(sessionName, lastPrompt, skipHistoryMessage: true);
+                }
+                catch (Exception sendEx)
+                {
+                    Debug($"[PERMISSION-RECOVER-RESEND] Failed for '{sessionName}': {sendEx.Message}");
+                }
             }
         }
         catch (Exception ex)
         {
             Debug($"[PERMISSION-RECOVER] Failed for '{sessionName}': {ex.Message}");
-            InvokeOnUI(() =>
+            // Clean up stuck state so the session isn't frozen in "Thinking..." until watchdog
+            state.ResponseCompletion?.TrySetCanceled();
+            Interlocked.Exchange(ref state.SendingFlag, 0);
+            state.Info.ClearPermissionDenials();
+            if (state.Info.IsProcessing)
             {
-                state.Info.History.Add(ChatMessage.SystemMessage(
-                    "⚠️ Auto-recovery failed. Use the Reconnect button in Settings → Save & Reconnect to restore permissions."));
-                OnStateChanged?.Invoke();
-            });
+                FlushCurrentResponse(state);
+                state.CurrentResponse.Clear();
+                state.FlushedResponse.Clear();
+                state.PendingReasoningMessages.Clear();
+                if (state.Info.ProcessingStartedAt is { } started)
+                    state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
+                state.Info.IsProcessing = false;
+                state.Info.IsResumed = false;
+                state.HasUsedToolsThisTurn = false;
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                state.Info.ProcessingStartedAt = null;
+                state.Info.ToolCallCount = 0;
+                state.Info.ProcessingPhase = 0;
+            }
+            state.Info.History.Add(ChatMessage.SystemMessage(
+                "⚠️ Auto-recovery failed. Use the Reconnect button in Settings → Save & Reconnect to restore permissions."));
+            OnStateChanged?.Invoke();
         }
         finally
         {
