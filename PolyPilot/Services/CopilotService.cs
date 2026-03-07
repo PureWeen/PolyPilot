@@ -41,6 +41,15 @@ public partial class CopilotService : IAsyncDisposable
     private readonly IServiceProvider? _serviceProvider;
     private readonly UsageStatsService? _usageStats;
     private CopilotClient? _client;
+    // Per-codespace-group clients keyed by SessionGroup.Id
+    private readonly ConcurrentDictionary<string, CopilotClient> _codespaceClients = new();
+    // Port-forward tunnel handles keyed by SessionGroup.Id — kept alive while group is active
+    private readonly ConcurrentDictionary<string, CodespaceService.TunnelHandle> _tunnelHandles = new();
+    // Codespace health-check background task
+    private CancellationTokenSource? _codespaceHealthCts;
+    private Task? _codespaceHealthTask;
+    // Cached dotfiles status — checked once when first SetupRequired state is encountered
+    private CodespaceService.DotfilesStatus? _dotfilesStatus;
     private ConnectionSettings? _currentSettings;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
@@ -295,6 +304,7 @@ public partial class CopilotService : IAsyncDisposable
             message.StartsWith("[COMPLETE") || message.StartsWith("[SEND") ||
             message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
             message.StartsWith("[DISPATCH") || message.StartsWith("[WATCHDOG") ||
+            message.StartsWith("[HEALTH") ||
             message.Contains("watchdog"))
         {
             try
@@ -583,6 +593,9 @@ public partial class CopilotService : IAsyncDisposable
         await RestorePreviousSessionsAsync(cancellationToken);
         IsRestoring = false;
 
+        // Start health check loop for any codespace groups (regardless of whether sessions were restored)
+        StartCodespaceHealthCheck();
+
         // Reconcile now that all sessions are restored
         ReconcileOrganization();
         OnStateChanged?.Invoke();
@@ -655,6 +668,7 @@ public partial class CopilotService : IAsyncDisposable
         _currentSettings = settings;
 
         StopConnectivityMonitoring();
+        StopCodespaceHealthCheck();
 
         // Dispose existing sessions and client
         foreach (var state in _sessions.Values)
@@ -677,6 +691,16 @@ public partial class CopilotService : IAsyncDisposable
             try { await _client.DisposeAsync(); } catch { }
             _client = null;
         }
+        foreach (var kv in _codespaceClients)
+        {
+            try { await kv.Value.DisposeAsync(); } catch { }
+        }
+        _codespaceClients.Clear();
+        foreach (var kv in _tunnelHandles)
+        {
+            try { await kv.Value.DisposeAsync(); } catch { }
+        }
+        _tunnelHandles.Clear();
         _bridgeClient.Stop();
 
         IsInitialized = false;
@@ -725,6 +749,7 @@ public partial class CopilotService : IAsyncDisposable
         // Restore previous sessions
         LoadOrganization();
         await RestorePreviousSessionsAsync(cancellationToken);
+        StartCodespaceHealthCheck();
         ReconcileOrganization();
         OnStateChanged?.Invoke();
 
@@ -768,6 +793,7 @@ public partial class CopilotService : IAsyncDisposable
 
         return new CopilotClient(options);
     }
+
 
     /// <summary>
     /// Resolves the copilot CLI path based on user preference.
@@ -1282,7 +1308,7 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>
     /// Resume an existing session by its GUID
     /// </summary>
-    public async Task<AgentSessionInfo> ResumeSessionAsync(string sessionId, string displayName, string? workingDirectory = null, string? model = null, CancellationToken cancellationToken = default, string? lastPrompt = null)
+    public async Task<AgentSessionInfo> ResumeSessionAsync(string sessionId, string displayName, string? workingDirectory = null, string? model = null, CancellationToken cancellationToken = default, string? lastPrompt = null, string? groupId = null)
     {
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
@@ -1306,6 +1332,18 @@ public partial class CopilotService : IAsyncDisposable
             await _bridgeClient.ResumeSessionAsync(sessionId, displayName, cancellationToken);
             _ = Task.Delay(30_000).ContinueWith(t => { _pendingRemoteSessions.TryRemove(displayName, out _); });
             return remoteInfo;
+        }
+
+        // For codespace sessions, verify the group is connected before attempting resume.
+        // This MUST come before the _client == null guard below, because codespace sessions
+        // use _codespaceClients (not _client). Without this check, the "Service not initialized"
+        // error fires and maps to the misleading "Copilot is not connected yet" user-facing message.
+        if (groupId != null)
+        {
+            var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+            if (group?.IsCodespace == true && !_codespaceClients.ContainsKey(groupId))
+                throw new InvalidOperationException(
+                    $"Codespace '{group.Name}' is not connected yet. The health check will reconnect automatically. Please retry in a moment.");
         }
 
         if (!IsInitialized || _client == null)
@@ -1335,7 +1373,7 @@ public partial class CopilotService : IAsyncDisposable
         if (string.IsNullOrEmpty(resumeModel)) resumeModel = DefaultModel;
         Debug($"Resuming session '{displayName}' with model: '{resumeModel}', cwd: '{resumeWorkingDirectory}'");
         var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions };
-        var copilotSession = await _client.ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+        var copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
 
         var isStillProcessing = IsSessionStillProcessing(sessionId);
 
@@ -1462,9 +1500,9 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>Auto-approve all tool permission requests. Without this, worker sessions
     /// (which have no interactive user) get "Permission denied" on every tool call.</summary>
     private static Task<PermissionRequestResult> AutoApprovePermissions(PermissionRequest request, PermissionInvocation invocation)
-        => Task.FromResult(new PermissionRequestResult { Kind = "approved" });
+        => Task.FromResult(new PermissionRequestResult { Kind = PermissionRequestResultKind.Approved });
 
-    public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
+    public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default, string? groupId = null)
     {
         // In demo mode, create a local mock session
         if (IsDemoMode)
@@ -1498,6 +1536,18 @@ public partial class CopilotService : IAsyncDisposable
             await _bridgeClient.CreateSessionAsync(name, model, workingDirectory, cancellationToken);
             _ = Task.Delay(30_000).ContinueWith(t => { _pendingRemoteSessions.TryRemove(name, out _); });
             return remoteInfo;
+        }
+
+        // For codespace sessions, verify the group is connected before attempting create.
+        // This MUST come before the _client == null guard below, because codespace sessions
+        // use _codespaceClients (not _client). Without this, the "Service not initialized"
+        // error fires and maps to the misleading "Copilot is not connected yet" message.
+        if (groupId != null)
+        {
+            var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+            if (group?.IsCodespace == true && !_codespaceClients.ContainsKey(groupId))
+                throw new InvalidOperationException(
+                    $"Codespace '{group.Name}' is not connected yet. The health check will reconnect automatically. Please retry in a moment.");
         }
 
         if (!IsInitialized || _client == null)
@@ -1592,13 +1642,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         _sessions[name] = state;
         _activeSessionName = name;
         if (!Organization.Sessions.Any(m => m.SessionName == name))
-            Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
+            Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = groupId ?? SessionGroup.DefaultId });
         OnStateChanged?.Invoke();
 
         CopilotSession copilotSession;
         try
         {
-            copilotSession = await _client.CreateSessionAsync(config, cancellationToken);
+            copilotSession = await GetClientForGroup(groupId).CreateSessionAsync(config, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -1611,6 +1661,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         catch (Exception ex) when (IsConnectionError(ex))
         {
             Debug($"CreateSessionAsync connection error, attempting recovery: {ex.Message}");
+
+            // Don't nuke the main client for codespace session failures —
+            // the codespace health check handles reconnection automatically.
+            var isCodespaceSession = groupId != null &&
+                Organization.Groups.Any(g => g.Id == groupId && g.IsCodespace);
+            if (isCodespaceSession)
+            {
+                _sessions.TryRemove(name, out _);
+                Organization.Sessions.RemoveAll(m => m.SessionName == name);
+                _activeSessionName = previousActiveSessionName;
+                OnStateChanged?.Invoke();
+                throw new InvalidOperationException(
+                    "Codespace connection lost. The health check will reconnect automatically. Please retry in a moment.");
+            }
 
             // In persistent mode, restart the server if it's not running
             if (CurrentMode == ConnectionMode.Persistent)
@@ -1730,7 +1794,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Reset stale pin from a previous session with the same name
         var staleMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
         if (staleMeta != null)
+        {
             staleMeta.IsPinned = false;
+            if (!string.IsNullOrEmpty(groupId))
+                staleMeta.GroupId = groupId;
+        }
+        else if (!string.IsNullOrEmpty(groupId))
+        {
+            // Pre-create meta with the correct group so ReconcileOrganization places it there
+            Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = groupId });
+        }
 
         SaveActiveSessionsToDisk();
         ReconcileOrganization();
@@ -1951,10 +2024,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!_sessions.TryGetValue(name, out var state)) return null;
 
         var workingDir = state.Info.WorkingDirectory;
+        // Preserve group assignment so the new session stays in the same group (e.g., codespace group)
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
+        var groupId = meta?.GroupId;
         
         await CloseSessionAsync(name);
         
-        return await CreateSessionAsync(name, newModel, workingDir);
+        return await CreateSessionAsync(name, newModel, workingDir, groupId: groupId);
     }
 
     /// <summary>
@@ -2014,8 +2090,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // Dispose old session connection (may already be disposed if disconnected)
             try { await state.Session.DisposeAsync(); } catch { }
 
-            if (_client == null)
-                throw new InvalidOperationException("Client is not initialized");
+            // Use the correct client (codespace tunnel client for codespace sessions, main client otherwise)
+            var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+            var client = GetClientForGroup(meta?.GroupId);
 
             // Resume the same session ID with the new model
             var resumeConfig = new ResumeSessionConfig
@@ -2025,7 +2102,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
                 OnPermissionRequest = AutoApprovePermissions,
             };
-            var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, cancellationToken);
+            var newSession = await client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, cancellationToken);
 
             // Build replacement state, preserving info/history
             state.Info.Model = normalizedModel;
@@ -2100,6 +2177,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (state.Info.IsCreating)
             throw new InvalidOperationException("Session is still being created. Please wait.");
+
+        // Placeholder codespace sessions have Session=null until the tunnel connects
+        if (state.Session == null)
+            throw new InvalidOperationException("This session is waiting for its codespace to connect. Please wait for the green status dot.");
 
         if (state.Info.IsProcessing)
             throw new InvalidOperationException("Session is already processing a request.");
@@ -2193,7 +2274,21 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 try
                 {
                     try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
-                    if (_client == null)
+                    
+                    // Use the correct client for codespace sessions (not always _client)
+                    var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+                    var sessionGroupId = meta?.GroupId;
+
+                    // For codespace sessions, don't try local persistent server reconnect —
+                    // the health check handles codespace reconnection automatically.
+                    var isCodespaceSession = sessionGroupId != null &&
+                        Organization.Groups.Any(g => g.Id == sessionGroupId && g.IsCodespace);
+                    if (isCodespaceSession)
+                        throw new InvalidOperationException(
+                            "Codespace connection lost. The health check will reconnect automatically. Please retry in a moment.");
+
+                    var client = GetClientForGroup(sessionGroupId);
+                    if (client == null)
                         throw new InvalidOperationException("Client is not initialized");
 
                     // If the underlying connection is broken, recreate the client first
@@ -2247,7 +2342,27 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         reconnectConfig.Model = reconnectModel;
                     if (!string.IsNullOrEmpty(state.Info.WorkingDirectory))
                         reconnectConfig.WorkingDirectory = state.Info.WorkingDirectory;
-                    var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, reconnectConfig, cancellationToken);
+                    
+                    CopilotSession newSession;
+                    try
+                    {
+                        newSession = await client.ResumeSessionAsync(state.Info.SessionId, reconnectConfig, cancellationToken);
+                    }
+                    catch (Exception resumeEx) when (resumeEx.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Session expired server-side (e.g., codespace restarted). Create a fresh session.
+                        Debug($"Session '{sessionName}' expired on server, creating fresh session...");
+                        OnActivity?.Invoke(sessionName, "🔄 Session expired, creating new session...");
+                        var freshConfig = new SessionConfig
+                        {
+                            Model = reconnectModel ?? DefaultModel,
+                            WorkingDirectory = state.Info.WorkingDirectory,
+                            Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
+                            OnPermissionRequest = AutoApprovePermissions
+                        };
+                        newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
+                        state.Info.SessionId = newSession.SessionId;
+                    }
                     // Cancel old watchdog BEFORE creating new state — they share Info/TCS
                     CancelProcessingWatchdog(state);
                     Debug($"[RECONNECT] '{sessionName}' replacing state (old handler will be orphaned, " +
@@ -2982,6 +3097,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     public async ValueTask DisposeAsync()
     {
         StopConnectivityMonitoring();
+        StopCodespaceHealthCheck();
 
         // Flush any pending debounced writes immediately
         FlushSaveActiveSessionsToDisk();
@@ -3000,6 +3116,17 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         // Shut down all registered providers
         await ShutdownProvidersAsync();
+
+        foreach (var kv in _codespaceClients)
+        {
+            try { await kv.Value.DisposeAsync(); } catch { }
+        }
+        _codespaceClients.Clear();
+        foreach (var kv in _tunnelHandles)
+        {
+            try { await kv.Value.DisposeAsync(); } catch { }
+        }
+        _tunnelHandles.Clear();
 
         if (_client != null)
         {
@@ -3027,6 +3154,7 @@ public class ActiveSessionEntry
     public string Model { get; set; } = "";
     public string? WorkingDirectory { get; set; }
     public string? LastPrompt { get; set; }
+    public string? GroupId { get; set; }
     // Usage stats persisted across reconnects
     public int TotalInputTokens { get; set; }
     public int TotalOutputTokens { get; set; }

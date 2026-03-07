@@ -2,6 +2,7 @@
 @using PolyPilot.Models
 @using System.Diagnostics
 @inject CopilotService CopilotService
+@inject CodespaceService CodespaceService
 @inject RepoManager RepoManager
 @inject IJSRuntime JS
 
@@ -13,6 +14,7 @@
     var cssClass = IsActive ? "active" : 
                    IsCompleted ? "completed" :
                    Session.IsProcessing ? "busy" : "";
+    if (IsDisabled) cssClass += " cs-disconnected";
     // Prefer SDK-reported context window; fall back to accumulated totals
     var hasContextWindow = Session.ContextCurrentTokens > 0 && Session.ContextTokenLimit > 0;
     var totalTokens = Session.TotalInputTokens + Session.TotalOutputTokens;
@@ -25,7 +27,7 @@
 <div class="session-item @cssClass @(isPinned ? "pinned" : "") @(provider != null ? "provider-session" : "")"
      data-session-name="@Session.Name"
      style="@(provider != null ? $"border-left: 3px solid {provider.AccentColor};" : "")"
-     @onclick="() => OnSelect.InvokeAsync()"
+     @onclick="async () => { if (!IsDisabled) await OnSelect.InvokeAsync(); }"
      @oncontextmenu="OpenContextMenu"
      @oncontextmenu:preventDefault="true">
     <div class="session-info">
@@ -131,14 +133,20 @@
                         📌 Pin
                     </button>
                 }
-                @if (Groups != null && Groups.Count > 1)
+                @{
+                    var currentGroupForMove = Groups?.FirstOrDefault(g => g.Id == Meta?.GroupId);
+                    var isInCodespace = currentGroupForMove?.IsCodespace == true;
+                    // Codespace sessions are bound to their codespace — don't allow moving them.
+                    // Also exclude codespace groups as move targets for regular sessions.
+                    var moveTargets = Groups?.Where(g => g.Id != Meta?.GroupId && !g.IsCodespace).ToList();
+                }
+                @if (!isInCodespace && moveTargets != null && moveTargets.Count > 0)
                 {
                     <div class="menu-separator"></div>
                     <div class="menu-submenu">
                         <span class="menu-item submenu-label">📁 Move to…</span>
-                        @foreach (var g in Groups)
+                        @foreach (var g in moveTargets)
                         {
-                            if (g.Id == Meta?.GroupId) continue;
                             var targetId = g.Id;
                             <button class="menu-item submenu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnMove.InvokeAsync(targetId); }">
                                 @g.Name
@@ -209,16 +217,16 @@
                     </button>
                 }
                 <div class="menu-separator"></div>
-                @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(Session.SessionId))
+                @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(Session.SessionId) && currentGroup?.IsCodespace != true)
                 {
                     <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInCopilotConsole(); }">
                         >_ Copilot Console
                     </button>
                 }
-                @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(sessionDir))
+                @if (PlatformHelper.IsDesktop && (!string.IsNullOrEmpty(sessionDir) || currentGroup?.IsCodespace == true))
                 {
                     <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OpenInVSCode(); }">
-                        ⌨ @CopilotService.Editor.DisplayName()
+                        ⌨ @CopilotService.Editor.DisplayName()@(currentGroup?.IsCodespace == true ? " (Codespace)" : "")
                     </button>
                     <div class="menu-separator"></div>
                 }
@@ -235,6 +243,7 @@
     [Parameter] public SessionMeta? Meta { get; set; }
     [Parameter] public bool IsActive { get; set; }
     [Parameter] public bool IsCompleted { get; set; }
+    [Parameter] public bool IsDisabled { get; set; }
     [Parameter] public bool IsRenaming { get; set; }
     [Parameter] public bool IsMenuOpen { get; set; }
     [Parameter] public int ShortcutIndex { get; set; }
@@ -292,6 +301,7 @@
 
     private async Task OpenContextMenu(MouseEventArgs e)
     {
+        if (IsDisabled) return;
         if (!IsMenuOpen)
             await OnToggleMenu.InvokeAsync();
     }
@@ -423,6 +433,32 @@
 
     private void OpenInVSCode()
     {
+        var currentGroup = Groups?.FirstOrDefault(g => g.Id == Meta?.GroupId);
+
+        // For codespace sessions, open VS Code directly in the codespace via gh cs code
+        if (currentGroup?.IsCodespace == true && !string.IsNullOrEmpty(currentGroup.CodespaceName))
+        {
+            try
+            {
+                var ghPath = CodespaceService.FindGhPath();
+                var psi = new ProcessStartInfo
+                {
+                    FileName = ghPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                psi.ArgumentList.Add("cs");
+                psi.ArgumentList.Add("code");
+                psi.ArgumentList.Add("-c");
+                psi.ArgumentList.Add(currentGroup.CodespaceName);
+                if (CopilotService.Editor == VsCodeVariant.Insiders)
+                    psi.ArgumentList.Add("--insiders");
+                Process.Start(psi);
+            }
+            catch (Exception ex) { Console.WriteLine($"Failed to open VS Code for codespace: {ex.Message}"); }
+            return;
+        }
+
         var dir = GetSessionDirectory();
         if (string.IsNullOrEmpty(dir)) return;
         try

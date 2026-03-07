@@ -26,7 +26,7 @@ echo "🔨 Building..."
 cd "$PROJECT_DIR"
 
 # Capture full build output to check for errors
-BUILD_OUTPUT=$(dotnet build PolyPilot.csproj -f net10.0-maccatalyst 2>&1)
+BUILD_OUTPUT=$(dotnet build PolyPilot.csproj -f net10.0-maccatalyst -p:ValidateXcodeVersion=false 2>&1)
 BUILD_EXIT_CODE=$?
 
 if [ $BUILD_EXIT_CODE -ne 0 ]; then

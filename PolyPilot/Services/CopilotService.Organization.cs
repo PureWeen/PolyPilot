@@ -238,8 +238,11 @@ public partial class CopilotService
         if (allowPruning) _lastReconcileSessionHash = currentHash;
         bool changed = false;
 
-        // Build lookup of multi-agent group IDs so we can protect their sessions
+        // Build lookup of group IDs that must not be auto-reassigned by reconciliation.
+        // Multi-agent and codespace group sessions must stay where they were placed.
         var multiAgentGroupIds = Organization.Groups.Where(g => g.IsMultiAgent).Select(g => g.Id).ToHashSet();
+        var codespaceGroupIds = Organization.Groups.Where(g => g.IsCodespace).Select(g => g.Id).ToHashSet();
+        var protectedGroupIds = multiAgentGroupIds.Union(codespaceGroupIds).ToHashSet();
 
         // Add missing sessions to default group and link to worktrees
         foreach (var name in activeNames)
@@ -256,8 +259,8 @@ public partial class CopilotService
                 changed = true;
             }
 
-            // Don't auto-reassign sessions that belong to a multi-agent group
-            if (multiAgentGroupIds.Contains(meta.GroupId))
+            // Don't auto-reassign sessions that belong to a multi-agent or codespace group
+            if (protectedGroupIds.Contains(meta.GroupId))
                 continue;
             
             // Auto-link session to worktree if working directory matches
@@ -459,9 +462,9 @@ public partial class CopilotService
         foreach (var m in Organization.Sessions.Where(m => m.GroupId == groupId))
             if (m.WorktreeId != null) worktreeIds.Add(m.WorktreeId);
 
-        if (isMultiAgent)
+        if (isMultiAgent || group?.IsCodespace == true)
         {
-            // Multi-agent sessions are meaningless without their group — close them
+            // Multi-agent and codespace sessions are bound to their group — close them
             var sessionNames = Organization.Sessions
                 .Where(m => m.GroupId == groupId)
                 .Select(m => m.SessionName)
@@ -527,6 +530,14 @@ public partial class CopilotService
             Organization.DeletedRepoGroupRepoIds.Add(group.RepoId);
 
         Organization.Groups.RemoveAll(g => g.Id == groupId);
+
+
+        // Clean up codespace tunnel and client if applicable
+        if (_codespaceClients.TryRemove(groupId, out var csClient))
+            _ = Task.Run(async () => { try { await csClient.DisposeAsync(); } catch { } });
+        if (_tunnelHandles.TryRemove(groupId, out var tunnel))
+            _ = Task.Run(async () => { try { await tunnel.DisposeAsync(); } catch { } });
+
         // Clean up per-group caches to prevent memory leaks
         _reflectLoopLocks.TryRemove(groupId, out _);
         _reflectQueuedPrompts.TryRemove(groupId, out _);

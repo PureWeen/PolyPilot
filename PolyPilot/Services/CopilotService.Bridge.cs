@@ -298,16 +298,30 @@ public partial class CopilotService
                 await Task.Delay(50, ct);
         }
 
-        // Set IsRemoteMode before SyncRemoteSessions to prevent ReconcileOrganization from running
+        // Set IsRemoteMode before SyncRemoteSessions to prevent ReconcileOrganization from running.
+        // Wrap in try/catch to ensure consistent state: if SyncRemoteSessions fails,
+        // reset IsRemoteMode so the service doesn't get stuck in a half-initialized limbo.
         IsRemoteMode = true;
+        try
+        {
+            // Sync all received history into local sessions before returning
+            SyncRemoteSessions();
 
-        // Sync all received history into local sessions before returning
-        SyncRemoteSessions();
-
-        IsInitialized = true;
-        NeedsConfiguration = false;
-        Debug($"Connected to remote server via WebSocket bridge ({_bridgeClient.Sessions.Count} sessions, {_bridgeClient.SessionHistories.Count} histories)");
-        OnStateChanged?.Invoke();
+            IsInitialized = true;
+            NeedsConfiguration = false;
+            Debug($"Connected to remote server via WebSocket bridge ({_bridgeClient.Sessions.Count} sessions, {_bridgeClient.SessionHistories.Count} histories)");
+            OnStateChanged?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to complete remote initialization: {ex.Message}");
+            IsRemoteMode = false;
+            IsInitialized = false;
+            NeedsConfiguration = true;
+            _bridgeClient.Stop();
+            OnStateChanged?.Invoke();
+            throw;
+        }
 
         // Request repos/worktrees so the worktree picker works on mobile
         _ = Task.Run(async () => { try { await _bridgeClient.RequestReposAsync(ct); } catch { } });
