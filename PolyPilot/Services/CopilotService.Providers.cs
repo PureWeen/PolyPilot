@@ -18,14 +18,23 @@ public partial class CopilotService
     {
         if (_serviceProvider == null) return;
 
-        IEnumerable<ISessionProvider> providers;
+        List<ISessionProvider> providers;
         try
         {
-            providers = _serviceProvider.GetServices<ISessionProvider>();
+            // Materialize eagerly so DI construction errors are caught here
+            providers = _serviceProvider.GetServices<ISessionProvider>().ToList();
+            Debug($"Resolved {providers.Count} ISessionProvider(s) from DI");
         }
         catch (Exception ex)
         {
-            Debug($"Failed to resolve ISessionProvider services: {ex.Message}");
+            Debug($"Failed to resolve ISessionProvider services: {ex}");
+            // Also log to plugin system log for visibility
+            try
+            {
+                var systemLog = new PluginFileLogger("_system");
+                systemLog.Error($"DI resolution of ISessionProvider failed: {ex}");
+            }
+            catch { }
             return;
         }
 
@@ -43,6 +52,13 @@ public partial class CopilotService
             catch (Exception ex)
             {
                 Debug($"Provider '{provider.ProviderId}' init failed: {ex.Message}");
+                // Log to plugin system log
+                try
+                {
+                    var systemLog = new PluginFileLogger("_system");
+                    systemLog.Error($"Provider '{provider.ProviderId}' init failed: {ex}");
+                }
+                catch { }
             }
         }
     }
