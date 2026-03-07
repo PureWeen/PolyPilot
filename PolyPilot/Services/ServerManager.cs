@@ -75,6 +75,7 @@ public class ServerManager : IServerManager
 
             // Use ArgumentList for proper escaping (especially MCP JSON)
             psi.ArgumentList.Add("--headless");
+            psi.ArgumentList.Add("--no-auto-update");
             psi.ArgumentList.Add("--log-level");
             psi.ArgumentList.Add("info");
             psi.ArgumentList.Add("--port");
@@ -208,7 +209,12 @@ public class ServerManager : IServerManager
 
     private static string FindCopilotBinary()
     {
-        // Try platform-specific native binaries first (faster startup, better detachment)
+        // Prefer the SDK-bundled binary — it's guaranteed to match the SDK's protocol version.
+        // System-installed CLIs may have been updated independently and could have a mismatched protocol.
+        var bundledPath = CopilotService.ResolveBundledCliPath();
+        if (bundledPath != null) return bundledPath;
+
+        // Fall back to platform-specific native binaries (system-installed)
         var nativePaths = new List<string>();
 
         if (OperatingSystem.IsWindows())
@@ -235,10 +241,6 @@ public class ServerManager : IServerManager
         {
             if (File.Exists(path)) return path;
         }
-
-        // Try the bundled binary from the SDK (MonoBundle/copilot or runtimes/{rid}/native/copilot)
-        var bundledPath = CopilotService.ResolveBundledCliPath();
-        if (bundledPath != null) return bundledPath;
 
         // Fallback to node wrapper (works if copilot is on PATH)
         return OperatingSystem.IsWindows() ? "copilot.cmd" : "copilot";

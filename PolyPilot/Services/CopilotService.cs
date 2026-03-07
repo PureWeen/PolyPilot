@@ -480,6 +480,77 @@ public partial class CopilotService : IAsyncDisposable
             Debug($"Copilot client started in {settings.Mode} mode");
         }
         catch (OperationCanceledException) { throw; }
+        catch (Exception ex) when (settings.Mode == ConnectionMode.Persistent
+            && ex.Message.Contains("version mismatch", StringComparison.OrdinalIgnoreCase))
+        {
+            // The persistent server is running an older/newer protocol version than the SDK.
+            // Kill it, restart with the current CLI, and retry once.
+            Debug($"Protocol version mismatch with persistent server — restarting: {ex.Message}");
+            try { await _client.DisposeAsync(); } catch { }
+            _client = null;
+
+            _serverManager.StopServer();
+
+            // Wait for the old server to fully release the port (Kill is async)
+            for (int i = 0; i < 20; i++)
+            {
+                if (!_serverManager.CheckServerRunning("127.0.0.1", settings.Port))
+                    break;
+                await Task.Delay(250, cancellationToken);
+            }
+
+            var restarted = await _serverManager.StartServerAsync(settings.Port);
+            if (restarted)
+            {
+                Debug("Server restarted, retrying connection...");
+                _client = CreateClient(settings);
+                try
+                {
+                    await _client.StartAsync(cancellationToken);
+                    IsInitialized = true;
+                    NeedsConfiguration = false;
+                    Debug($"Copilot client started after server restart in {settings.Mode} mode");
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception retryEx)
+                {
+                    Debug($"Failed to start Copilot client after server restart: {retryEx.Message}");
+                    try { await _client.DisposeAsync(); } catch { }
+                    _client = null;
+                    IsInitialized = false;
+                    NeedsConfiguration = true;
+                    FallbackNotice = $"Protocol version mismatch and restart failed — go to Settings to reconnect.";
+                    OnStateChanged?.Invoke();
+                    return;
+                }
+            }
+            else
+            {
+                Debug("Server restart failed, falling back to Embedded mode");
+                settings.Mode = ConnectionMode.Embedded;
+                CurrentMode = ConnectionMode.Embedded;
+                FallbackNotice = "Persistent server had a version mismatch and couldn't restart — fell back to Embedded mode.";
+                _client = CreateClient(settings);
+                try
+                {
+                    await _client.StartAsync(cancellationToken);
+                    IsInitialized = true;
+                    NeedsConfiguration = false;
+                    Debug($"Copilot client started in Embedded fallback mode");
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception fallbackEx)
+                {
+                    Debug($"Embedded fallback also failed: {fallbackEx.Message}");
+                    try { await _client.DisposeAsync(); } catch { }
+                    _client = null;
+                    IsInitialized = false;
+                    NeedsConfiguration = true;
+                    OnStateChanged?.Invoke();
+                    return;
+                }
+            }
+        }
         catch (Exception ex)
         {
             Debug($"Failed to start Copilot client: {ex.Message}");
