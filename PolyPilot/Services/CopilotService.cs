@@ -1770,7 +1770,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             }
             Debug($"[CREATE] Draining queued message for newly created session '{name}'");
             // Check if the session is an orchestrator — route through multi-agent pipeline if so.
+            // CreateSessionAsync runs on UI thread, so Organization reads are safe here.
             var createOrchGroupId = GetOrchestratorGroupId(name);
+            if (createOrchGroupId != null && nextImagePaths is { Count: > 0 })
+            {
+                Debug($"[CREATE] Orchestrator '{name}' — images present, sending direct (orchestration does not support images)");
+                if (_sessions.TryGetValue(name, out var imgState))
+                {
+                    imgState.Info.History.Add(ChatMessage.SystemMessage(
+                        "⚠️ Images sent directly — orchestration routing does not support images yet."));
+                    imgState.Info.MessageCount = imgState.Info.History.Count;
+                }
+            }
             var createDrainTask = createOrchGroupId != null && nextImagePaths is null or { Count: 0 }
                 ? SendToMultiAgentGroupAsync(createOrchGroupId, nextPrompt)
                 : SendPromptAsync(name, nextPrompt, imagePaths: nextImagePaths, agentMode: nextAgentMode);
