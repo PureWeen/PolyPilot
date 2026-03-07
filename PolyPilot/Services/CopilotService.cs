@@ -1769,7 +1769,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 }
             }
             Debug($"[CREATE] Draining queued message for newly created session '{name}'");
-            _ = SendPromptAsync(name, nextPrompt, imagePaths: nextImagePaths, agentMode: nextAgentMode)
+            // Check if the session is an orchestrator — route through multi-agent pipeline if so.
+            var createOrchGroupId = GetOrchestratorGroupId(name);
+            var createDrainTask = createOrchGroupId != null && nextImagePaths is null or { Count: 0 }
+                ? SendToMultiAgentGroupAsync(createOrchGroupId, nextPrompt)
+                : SendPromptAsync(name, nextPrompt, imagePaths: nextImagePaths, agentMode: nextAgentMode);
+            _ = createDrainTask
                 .ContinueWith(t =>
                 {
                     if (t.IsFaulted)

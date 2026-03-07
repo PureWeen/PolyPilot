@@ -392,9 +392,23 @@ public class WsBridgeServer : IDisposable
                         var sendSession = sendReq.SessionName;
                         var sendMessage = sendReq.Message;
                         var sendAgentMode = sendReq.AgentMode;
+                        // Check if the target session is an orchestrator — if so, route through the
+                        // multi-agent dispatch pipeline so workers get dispatched, not just the orchestrator.
+                        var orchGroupId = _copilot.GetOrchestratorGroupId(sendSession);
                         _ = Task.Run(async () =>
                         {
-                            try { await _copilot.SendPromptAsync(sendSession, sendMessage, cancellationToken: ct, agentMode: sendAgentMode); }
+                            try
+                            {
+                                if (orchGroupId != null)
+                                {
+                                    Console.WriteLine($"[WsBridge] Routing '{sendSession}' through orchestration pipeline (group={orchGroupId})");
+                                    await _copilot.SendToMultiAgentGroupAsync(orchGroupId, sendMessage, ct);
+                                }
+                                else
+                                {
+                                    await _copilot.SendPromptAsync(sendSession, sendMessage, cancellationToken: ct, agentMode: sendAgentMode);
+                                }
+                            }
                             catch (Exception ex) { Console.WriteLine($"[WsBridge] SendPromptAsync error for '{sendSession}': {ex.Message}"); }
                         });
                     }
