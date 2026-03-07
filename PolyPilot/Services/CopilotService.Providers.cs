@@ -217,6 +217,8 @@ public partial class CopilotService
                 state.Info.IsProcessing = false;
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ProcessingPhase = 0;
+                state.Info.ToolCallCount = 0;
+                state.Info.IsResumed = false;
             }
             OnTurnEnd?.Invoke(sessionName);
             OnStateChanged?.Invoke();
@@ -226,9 +228,19 @@ public partial class CopilotService
         {
             if (_sessions.TryGetValue(sessionName, out var state))
             {
+                // Flush any partial content before clearing state
+                if (state.CurrentResponse.Length > 0)
+                {
+                    var responseText = state.CurrentResponse.ToString();
+                    state.Info.History.Add(ChatMessage.AssistantMessage(responseText));
+                    state.Info.MessageCount = state.Info.History.Count;
+                    state.CurrentResponse.Clear();
+                }
                 state.Info.IsProcessing = false;
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ProcessingPhase = 0;
+                state.Info.ToolCallCount = 0;
+                state.Info.IsResumed = false;
             }
             OnError?.Invoke(sessionName, error);
             OnStateChanged?.Invoke();
@@ -291,6 +303,8 @@ public partial class CopilotService
                 state.Info.IsProcessing = false;
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ProcessingPhase = 0;
+                state.Info.ToolCallCount = 0;
+                state.Info.IsResumed = false;
             }
             OnTurnEnd?.Invoke(sessionName);
             OnStateChanged?.Invoke();
@@ -301,9 +315,18 @@ public partial class CopilotService
             var sessionName = $"{prefix}{memberId}{suffix}";
             if (_sessions.TryGetValue(sessionName, out var state))
             {
+                if (state.CurrentResponse.Length > 0)
+                {
+                    var responseText = state.CurrentResponse.ToString();
+                    state.Info.History.Add(ChatMessage.AssistantMessage(responseText));
+                    state.Info.MessageCount = state.Info.History.Count;
+                    state.CurrentResponse.Clear();
+                }
                 state.Info.IsProcessing = false;
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ProcessingPhase = 0;
+                state.Info.ToolCallCount = 0;
+                state.Info.IsResumed = false;
             }
             OnError?.Invoke(sessionName, error);
             OnStateChanged?.Invoke();

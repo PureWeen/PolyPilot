@@ -157,6 +157,17 @@ public static class PluginLoader
                 continue;
             }
 
+            // Defense-in-depth: ensure resolved path is within the plugins directory
+            var normalizedPath = Path.GetFullPath(fullPath);
+            var pluginsRoot = Path.GetFullPath(PluginsDir) + Path.DirectorySeparatorChar;
+            if (!normalizedPath.StartsWith(pluginsRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                var msg = $"Plugin '{plugin.DisplayName}' path escapes plugins directory — blocked";
+                warnings.Add(msg);
+                pluginLog.Error(msg);
+                continue;
+            }
+
             var currentHash = ComputeHash(fullPath);
             pluginLog.Info($"Hash check: stored={plugin.Hash?[..12]}... current={currentHash[..12]}...");
 

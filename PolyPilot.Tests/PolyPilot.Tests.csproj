@@ -82,6 +82,7 @@
     <Compile Include="../PolyPilot/Services/MarkdownRenderer.cs" Link="Shared/MarkdownRenderer.cs" />
     <Compile Include="../PolyPilot/Services/CopilotService.Providers.cs" Link="Shared/CopilotService.Providers.cs" />
     <Compile Include="../PolyPilot/Services/PluginLoader.cs" Link="Shared/PluginLoader.cs" />
+    <Compile Include="../PolyPilot/Services/PluginFileLogger.cs" Link="Shared/PluginFileLogger.cs" />
     <Compile Include="../PolyPilot/Services/ProviderHostContext.cs" Link="Shared/ProviderHostContext.cs" />
     <Compile Include="../PolyPilot/Models/PluginSettings.cs" Link="Shared/PluginSettings.cs" />
   </ItemGroup>
