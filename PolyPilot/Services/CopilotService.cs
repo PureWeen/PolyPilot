@@ -774,7 +774,7 @@ public partial class CopilotService : IAsyncDisposable
     /// BuiltIn: bundled binary first, then system fallback.
     /// System: system-installed binary first, then bundled fallback.
     /// </summary>
-    private static string? ResolveCopilotCliPath(CliSourceMode source = CliSourceMode.BuiltIn)
+    internal static string? ResolveCopilotCliPath(CliSourceMode source = CliSourceMode.BuiltIn)
     {
         if (source == CliSourceMode.System)
         {

@@ -366,6 +366,12 @@
         var sessionId = Session.SessionId;
         if (string.IsNullOrEmpty(sessionId)) return;
         var dir = GetSessionDirectory() ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        // Resolve the actual CLI binary path instead of assuming 'copilot' is on PATH
+        var settings = ConnectionSettings.Load();
+        var cliPath = CopilotService.ResolveCopilotCliPath(settings.CliSource);
+        if (string.IsNullOrEmpty(cliPath)) return;
+
         try
         {
             if (OperatingSystem.IsWindows())
@@ -374,13 +380,14 @@
                 var psDir = dir.Replace("'", "''");
                 var psName = Session.Name.Replace("'", "''");
                 var psId = sessionId.Replace("'", "''");
+                var psCli = cliPath.Replace("'", "''");
                 var psScript = Path.Combine(Path.GetTempPath(), $"polypilot-copilot-{Guid.NewGuid():N}.ps1");
                 File.WriteAllText(psScript,
                     $"Set-Location '{psDir}'\n" +
                     $"Write-Host '🔗 Resuming session: {psName} ({psId})'\n" +
                     "Write-Host '─────────────────────────────────────────'\n" +
                     "Write-Host ''\n" +
-                    $"copilot --resume '{psId}' --yolo\n");
+                    $"& '{psCli}' --resume '{psId}' --yolo\n");
                 Process.Start(new ProcessStartInfo("powershell.exe",
                     $"-ExecutionPolicy Bypass -NoExit -File \"{psScript}\"")
                 {
@@ -393,6 +400,7 @@
                 var safeDir = PlatformHelper.ShellEscape(dir);
                 var safeName = PlatformHelper.ShellEscape(Session.Name);
                 var safeId = PlatformHelper.ShellEscape(sessionId);
+                var safeCli = PlatformHelper.ShellEscape(cliPath);
 
                 var shellScript = Path.Combine(Path.GetTempPath(), $"polypilot-copilot-{Guid.NewGuid():N}.sh");
                 File.WriteAllText(shellScript,
@@ -401,7 +409,7 @@
                     $"echo '🔗 Resuming session:' {safeName} '('{safeId}')'\n" +
                     "echo '─────────────────────────────────────────'\n" +
                     "echo ''\n" +
-                    $"copilot --resume {safeId} --yolo\n");
+                    $"{safeCli} --resume {safeId} --yolo\n");
                 Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
                 Process.Start(new ProcessStartInfo("open", $"-a Terminal \"{shellScript}\"")
                 {
