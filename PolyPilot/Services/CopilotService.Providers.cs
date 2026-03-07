@@ -48,6 +48,13 @@ public partial class CopilotService
             {
                 await provider.InitializeAsync(ct);
                 Debug($"Provider '{provider.ProviderId}' initialized successfully");
+
+                // Re-sync members after init — the initial sync during RegisterProvider
+                // runs before the provider has loaded its agents
+                var groupId = $"__provider_{provider.ProviderId}__";
+                SyncProviderMembers(provider, groupId);
+                var memberCount = provider.GetMembers().Count;
+                Debug($"Provider '{provider.ProviderId}' has {memberCount} member(s) after init");
             }
             catch (Exception ex)
             {
