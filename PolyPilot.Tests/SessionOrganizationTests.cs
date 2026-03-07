@@ -1364,6 +1364,22 @@ public class GroupPresetTests
         Assert.NotNull(prSquad.WorkerSystemPrompts);
         Assert.Equal(prSquad.WorkerModels.Length, prSquad.WorkerSystemPrompts!.Length);
     }
+
+    [Fact]
+    public void BuiltInPresets_IncludeSkillValidator()
+    {
+        var skillValidator = GroupPreset.BuiltIn.FirstOrDefault(p => p.Name == "Skill Validator");
+        Assert.NotNull(skillValidator);
+        Assert.Equal(2, skillValidator!.WorkerModels.Length);
+        Assert.Equal(MultiAgentMode.OrchestratorReflect, skillValidator.Mode);
+        Assert.Equal("⚖️", skillValidator.Emoji);
+        Assert.NotNull(skillValidator.SharedContext);
+        Assert.NotNull(skillValidator.RoutingContext);
+        Assert.NotNull(skillValidator.WorkerSystemPrompts);
+        Assert.Equal(2, skillValidator.WorkerSystemPrompts!.Length);
+        Assert.All(skillValidator.WorkerSystemPrompts, p => Assert.False(string.IsNullOrWhiteSpace(p)));
+        Assert.NotNull(skillValidator.MaxReflectIterations);
+    }
 }
 
 public class GroupModelAnalyzerTests
@@ -1766,7 +1782,7 @@ public class MultiAgentScenarioTests
     /// 
     /// User flow:
     ///   1. Click 🚀 Preset in sidebar toolbar
-    ///   2. Preset picker appears showing 2 built-in templates
+    ///   2. Preset picker appears showing 3 built-in templates
     ///   3. Select "PR Review Squad" (📋)
     ///   4. System creates: Orchestrator (claude-opus-4.6) + 5 Workers
     ///   5. Sidebar shows group with mode selector set to "🎯 Orchestrator"
@@ -1777,7 +1793,7 @@ public class MultiAgentScenarioTests
     {
         // Step 1-2: User sees built-in presets
         var presets = GroupPreset.BuiltIn;
-        Assert.Equal(2, presets.Length);
+        Assert.Equal(3, presets.Length);
 
         // Step 3: User picks "PR Review Squad"
         var prReview = presets.First(p => p.Name == "PR Review Squad");
