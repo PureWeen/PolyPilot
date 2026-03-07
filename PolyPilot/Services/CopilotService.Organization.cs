@@ -684,8 +684,9 @@ public partial class CopilotService
     {
         try
         {
-            var sessions = Organization.Sessions.ToArray();
-            var groups = Organization.Groups.ToArray();
+            var org = Organization;
+            var sessions = org.Sessions.ToArray();
+            var groups = org.Groups.ToArray();
             var meta = sessions.FirstOrDefault(m => m.SessionName == sessionName);
             if (meta == null) return false;
             var group = groups.FirstOrDefault(g => g.Id == meta.GroupId);
