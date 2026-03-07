@@ -1474,6 +1474,34 @@ public partial class CopilotService
     private readonly ConcurrentDictionary<string, int> _permissionRecoveryAttempts = new();
     private readonly ConcurrentDictionary<string, bool> _recoveryInProgress = new();
 
+    /// <summary>
+    /// Clears all processing state so the session isn't stuck in "Thinking..." after a failed recovery.
+    /// Must be called on the UI thread. Resolves the pending TCS, clears SendingFlag, and resets
+    /// all 9 companion fields per INV-1.
+    /// </summary>
+    private void ClearProcessingStateForRecoveryFailure(SessionState state, string sessionName)
+    {
+        state.ResponseCompletion?.TrySetCanceled();
+        Interlocked.Exchange(ref state.SendingFlag, 0);
+        state.Info.ClearPermissionDenials();
+        if (state.Info.IsProcessing)
+        {
+            FlushCurrentResponse(state);
+            state.CurrentResponse.Clear();
+            state.FlushedResponse.Clear();
+            state.PendingReasoningMessages.Clear();
+            if (state.Info.ProcessingStartedAt is { } started)
+                state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
+            state.Info.IsProcessing = false;
+            state.Info.IsResumed = false;
+            state.HasUsedToolsThisTurn = false;
+            Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+            state.Info.ProcessingStartedAt = null;
+            state.Info.ToolCallCount = 0;
+            state.Info.ProcessingPhase = 0;
+        }
+    }
+
     private async Task TryRecoverPermissionAsync(SessionState state, string sessionName)
     {
         // Guard against concurrent recovery for the same session (auto + manual can race)
@@ -1484,19 +1512,21 @@ public partial class CopilotService
         }
         try
         {
-            if (_client == null || state.Info.SessionId == null) return;
+            if (_client == null || state.Info.SessionId == null)
+            {
+                ClearProcessingStateForRecoveryFailure(state, sessionName);
+                return;
+            }
 
             // Limit recovery attempts per session to prevent infinite loops
             var attempts = _permissionRecoveryAttempts.AddOrUpdate(sessionName, 1, (_, v) => v + 1);
             if (attempts > 2)
             {
                 Debug($"[PERMISSION-RECOVER] Max recovery attempts reached for '{sessionName}'");
-                InvokeOnUI(() =>
-                {
-                    state.Info.History.Add(ChatMessage.SystemMessage(
-                        "⚠️ Multiple recovery attempts failed. Use Settings → Save & Reconnect to fully restart the service."));
-                    OnStateChanged?.Invoke();
-                });
+                ClearProcessingStateForRecoveryFailure(state, sessionName);
+                state.Info.History.Add(ChatMessage.SystemMessage(
+                    "⚠️ Multiple recovery attempts failed. Use Settings → Save & Reconnect to fully restart the service."));
+                OnStateChanged?.Invoke();
                 return;
             }
 
@@ -1609,26 +1639,7 @@ public partial class CopilotService
         catch (Exception ex)
         {
             Debug($"[PERMISSION-RECOVER] Failed for '{sessionName}': {ex.Message}");
-            // Clean up stuck state so the session isn't frozen in "Thinking..." until watchdog
-            state.ResponseCompletion?.TrySetCanceled();
-            Interlocked.Exchange(ref state.SendingFlag, 0);
-            state.Info.ClearPermissionDenials();
-            if (state.Info.IsProcessing)
-            {
-                FlushCurrentResponse(state);
-                state.CurrentResponse.Clear();
-                state.FlushedResponse.Clear();
-                state.PendingReasoningMessages.Clear();
-                if (state.Info.ProcessingStartedAt is { } started)
-                    state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
-                state.Info.IsProcessing = false;
-                state.Info.IsResumed = false;
-                state.HasUsedToolsThisTurn = false;
-                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-                state.Info.ProcessingStartedAt = null;
-                state.Info.ToolCallCount = 0;
-                state.Info.ProcessingPhase = 0;
-            }
+            ClearProcessingStateForRecoveryFailure(state, sessionName);
             state.Info.History.Add(ChatMessage.SystemMessage(
                 "⚠️ Auto-recovery failed. Use the Reconnect button in Settings → Save & Reconnect to restore permissions."));
             OnStateChanged?.Invoke();
