@@ -235,6 +235,10 @@ public static class PluginLoader
             "PolyPilot.Provider.Abstractions",
             "Microsoft.Extensions.DependencyInjection.Abstractions",
             "Microsoft.Extensions.DependencyInjection",
+            "Microsoft.Extensions.Logging",
+            "Microsoft.Extensions.Logging.Abstractions",
+            "Microsoft.Extensions.Options",
+            "Microsoft.Extensions.Hosting.Abstractions",
             "GitHub.Copilot.SDK",
         };
 
