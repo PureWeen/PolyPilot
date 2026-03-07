@@ -239,6 +239,8 @@ public static class PluginLoader
             "Microsoft.Extensions.Logging.Abstractions",
             "Microsoft.Extensions.Options",
             "Microsoft.Extensions.Hosting.Abstractions",
+            "Microsoft.Extensions.AI",
+            "Microsoft.Extensions.AI.Abstractions",
             "GitHub.Copilot.SDK",
         };
 
