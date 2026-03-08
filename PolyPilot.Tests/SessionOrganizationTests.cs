@@ -3505,4 +3505,48 @@ public class GroupingStabilityTests
             try { Directory.Delete(tempDir, recursive: true); } catch { }
         }
     }
+
+    [Fact]
+    public void UnpinnedCollapsed_DefaultsFalse()
+    {
+        var group = new SessionGroup { Name = "Test" };
+        Assert.False(group.UnpinnedCollapsed);
+    }
+
+    [Fact]
+    public void UnpinnedCollapsed_SerializesRoundTrip()
+    {
+        var group = new SessionGroup { Name = "Test", UnpinnedCollapsed = true };
+        var json = System.Text.Json.JsonSerializer.Serialize(group);
+        var deserialized = System.Text.Json.JsonSerializer.Deserialize<SessionGroup>(json)!;
+        Assert.True(deserialized.UnpinnedCollapsed);
+    }
+
+    [Fact]
+    public void ToggleUnpinnedCollapsed_TogglesState()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+            var group = svc.Organization.Groups[0];
+            Assert.False(group.UnpinnedCollapsed);
+
+            svc.ToggleUnpinnedCollapsed(group.Id);
+            Assert.True(group.UnpinnedCollapsed);
+
+            svc.ToggleUnpinnedCollapsed(group.Id);
+            Assert.False(group.UnpinnedCollapsed);
+
+            svc.FlushSaveOrganization();
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
 }

@@ -11,6 +11,8 @@ public class SessionGroup
     public string Name { get; set; } = "";
     public int SortOrder { get; set; }
     public bool IsCollapsed { get; set; }
+    /// <summary>When true, unpinned sessions within this group are collapsed into a summary row.</summary>
+    public bool UnpinnedCollapsed { get; set; }
     /// <summary>If set, this group auto-tracks a repository managed by RepoManager.</summary>
     public string? RepoId { get; set; }
 

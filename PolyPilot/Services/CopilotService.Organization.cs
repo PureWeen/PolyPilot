@@ -557,6 +557,17 @@ public partial class CopilotService
         }
     }
 
+    public void ToggleUnpinnedCollapsed(string groupId)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group != null)
+        {
+            group.UnpinnedCollapsed = !group.UnpinnedCollapsed;
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
     public void SetSortMode(SessionSortMode mode)
     {
         Organization.SortMode = mode;

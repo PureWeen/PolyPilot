@@ -379,6 +379,10 @@ public partial class CopilotService : IAsyncDisposable
             // Even when tunnel + client exist, verify the remote end is still reachable
             // by probing the tunnel port. The CopilotClient can become stale if the remote
             // copilot process died while the SSH tunnel stayed open.
+            // Note: A simple TCP connect suffices here because SSH tunnels refuse connections
+            // outright when the remote end isn't listening (unlike `gh cs ports forward` which
+            // accepts locally). See CodespaceService.IsCopilotListeningAsync for the more
+            // sophisticated probe needed for non-SSH tunnels.
             if (tunnelAlive && clientExists && group.ConnectionState == CodespaceConnectionState.Connected)
             {
                 bool portReachable = false;
