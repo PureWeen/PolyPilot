@@ -246,6 +246,29 @@
     text-align: center;
 }
 
+.unpinned-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.25rem 0.75rem 0.2rem 1.2rem;
+    cursor: pointer;
+    user-select: none;
+}
+.unpinned-toggle:hover { background: var(--hover-bg); }
+
+.unpinned-chevron {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    width: 0.7rem;
+    text-align: center;
+}
+
+.unpinned-label {
+    font-size: var(--type-caption2);
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
 .group-name {
     font-size: var(--type-callout);
     font-weight: 600;

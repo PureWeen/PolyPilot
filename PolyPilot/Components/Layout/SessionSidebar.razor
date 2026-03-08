@@ -678,7 +678,7 @@ else
                                 </div>
                             }
                         }
-                        @foreach (var session in groupSessions)
+                        @foreach (var session in GetFilteredSessions(groupSessions, group, true))
                         {
                             sessionIndex++;
                             var idx = sessionIndex;
@@ -693,6 +693,43 @@ else
                                              ShortcutIndex="idx"
                                              Groups="CopilotService.Organization.Groups"
                                              UsageInfo="@(usageBySession.TryGetValue(session.Name, out var usg) ? usg : null)"
+                                             OnSelect="() => SelectSession(sName)"
+                                             OnClose="() => CloseSession(sName)"
+                                             OnCloseWithOptions="(opts) => CloseSessionWithOptions(sName, opts.DeleteWorktree, opts.DeleteBranch)"
+                                             OnPin="(pinned) => { CopilotService.PinSession(sName, pinned); }"
+                                             OnMove="(groupId) => CopilotService.MoveSession(sName, groupId)"
+                                             OnStartRename="() => StartRename(sName)"
+                                             OnCommitRename="CommitRename"
+                                             OnToggleMenu="() => ToggleSessionMenu(sName)"
+                                             OnCloseMenu="() => { openMenuSession = null; }"
+                                             OnReportBug="() => OpenBugReportForSession(sName)"
+                                             OnFixWithCopilot="() => OpenFixItForSession(sName)"
+                                             OnAnalyze="() => AnalyzeSessionEfficiency(sName)" />
+                        }
+                        @if (HasUnpinnedToggle(groupSessions))
+                        {
+                            var toggleGroupId = group.Id;
+                            var unpinnedCount = CountUnpinned(groupSessions);
+                            <div class="unpinned-toggle" @onclick="() => CopilotService.ToggleUnpinnedCollapsed(toggleGroupId)" @onclick:stopPropagation="true">
+                                <span class="unpinned-chevron">@(group.UnpinnedCollapsed ? "▶" : "▼")</span>
+                                <span class="unpinned-label">@(unpinnedCount) more @(unpinnedCount != 1 ? "sessions" : "session")</span>
+                            </div>
+                        }
+                        @foreach (var session in GetFilteredSessions(groupSessions, group, false))
+                        {
+                            sessionIndex++;
+                            var idx = sessionIndex;
+                            var meta = CopilotService.GetSessionMeta(session.Name);
+                            var sName = session.Name;
+                            <SessionListItem Session="session"
+                                             Meta="meta"
+                                             IsActive="@(session.Name == CopilotService.ActiveSessionName)"
+                                             IsCompleted="@completedSessions.Contains(session.Name)"
+                                             IsRenaming="@(renamingSession == session.Name)"
+                                             IsMenuOpen="@(openMenuSession == session.Name)"
+                                             ShortcutIndex="idx"
+                                             Groups="CopilotService.Organization.Groups"
+                                             UsageInfo="@(usageBySession.TryGetValue(session.Name, out var usg2) ? usg2 : null)"
                                              OnSelect="() => SelectSession(sName)"
                                              OnClose="() => CloseSession(sName)"
                                              OnCloseWithOptions="(opts) => CloseSessionWithOptions(sName, opts.DeleteWorktree, opts.DeleteBranch)"
@@ -792,6 +829,35 @@ else
     private bool showDirectoryPicker;
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
+
+    private List<AgentSessionInfo> GetFilteredSessions(List<AgentSessionInfo> all, SessionGroup group, bool pinnedPass)
+    {
+        var hasPinned = all.Any(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned == true);
+        var hasUnpinned = all.Any(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned != true);
+        if (!hasPinned || !hasUnpinned)
+            return pinnedPass ? all : new List<AgentSessionInfo>();
+
+        if (pinnedPass)
+            return all.Where(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned == true).ToList();
+
+        if (group.UnpinnedCollapsed)
+            return new List<AgentSessionInfo>();
+
+        return all.Where(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned != true).ToList();
+    }
+
+    private bool HasUnpinnedToggle(List<AgentSessionInfo> all)
+    {
+        var hasPinned = all.Any(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned == true);
+        var hasUnpinned = all.Any(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned != true);
+        return hasPinned && hasUnpinned;
+    }
+
+    private int CountUnpinned(List<AgentSessionInfo> all)
+    {
+        return all.Count(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned != true);
+    }
+
     private bool showAddRepo = false;
     private string newRepoUrl = "";
     private string? addRepoError = null;
