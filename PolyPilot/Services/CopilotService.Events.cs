@@ -1494,7 +1494,7 @@ public partial class CopilotService
     /// </summary>
     private void ClearProcessingStateForRecoveryFailure(SessionState state, string sessionName)
     {
-        state.ResponseCompletion?.TrySetCanceled();
+        // Clear SendingFlag early so we don't block new sends
         Interlocked.Exchange(ref state.SendingFlag, 0);
         state.Info.ClearPermissionDenials();
         if (state.Info.IsProcessing)
@@ -1512,6 +1512,15 @@ public partial class CopilotService
             state.Info.ProcessingStartedAt = null;
             state.Info.ToolCallCount = 0;
             state.Info.ProcessingPhase = 0;
+            // Complete TCS AFTER state cleanup (INV-O3: state must be ready for retry)
+            state.ResponseCompletion?.TrySetCanceled();
+            // Fire completion notification so orchestrator loops are unblocked (INV-O4)
+            OnSessionComplete?.Invoke(sessionName, "[Recovery] failed");
+        }
+        else
+        {
+            // Even if not processing, still complete TCS if pending
+            state.ResponseCompletion?.TrySetCanceled();
         }
     }
 
