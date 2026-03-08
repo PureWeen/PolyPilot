@@ -125,6 +125,14 @@ public class InputValidationTests
         try
         {
             File.CreateSymbolicLink(linkPath, "/etc/passwd");
+        }
+        catch (IOException)
+        {
+            // Symlink creation requires elevated privileges on Windows — skip
+            return;
+        }
+        try
+        {
             Assert.Equal("Path not allowed", WsBridgeServer.ValidateImagePath(linkPath));
         }
         finally
@@ -143,6 +151,14 @@ public class InputValidationTests
         {
             // Create a directory symlink inside images/ pointing to /etc/
             Directory.CreateSymbolicLink(symlinkDir, "/etc");
+        }
+        catch (IOException)
+        {
+            // Symlink creation requires elevated privileges on Windows — skip
+            return;
+        }
+        try
+        {
             var attackPath = Path.Combine(symlinkDir, "passwd");
             Assert.Equal("Path not allowed", WsBridgeServer.ValidateImagePath(attackPath));
         }
