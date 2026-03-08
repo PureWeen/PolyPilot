@@ -47,6 +47,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../PolyPilot.Provider.Abstractions/PolyPilot.Provider.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Maui" Version="14.0.1" />
     <PackageReference Include="Platform.Maui.Linux.Gtk4" Version="0.5.1" />
     <PackageReference Include="Platform.Maui.Linux.Gtk4.Essentials" Version="0.5.1" />
@@ -66,8 +70,8 @@
 
   <ItemGroup>
     <TrimmerRootAssembly Include="GitHub.Copilot.SDK" RootMode="All" />
-    <TrimmerRootAssembly Include="CommunityToolkit.Maui" />
-    <TrimmerRootAssembly Include="CommunityToolkit.Maui.Core" />
+    <TrimmerRootAssembly Include="CommunityToolkit.Maui" RootMode="All" />
+    <TrimmerRootAssembly Include="CommunityToolkit.Maui.Core" RootMode="All" />
   </ItemGroup>
 
   <Target Name="_CopyBlazorWebViewFrameworkAssets" AfterTargets="Build">
