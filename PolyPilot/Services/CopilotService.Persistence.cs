@@ -6,15 +6,60 @@ namespace PolyPilot.Services;
 public partial class CopilotService
 {
     /// <summary>
-    /// Save active session list to disk so we can restore on relaunch
+    /// Save active session list to disk so we can restore on relaunch.
+    /// Uses a 2-second debounce — multiple calls within the window coalesce into a single write.
+    /// Snapshots session data on the caller's thread for thread safety.
     /// </summary>
     private void SaveActiveSessionsToDisk()
     {
+        if (IsDemoMode || IsRestoring) return;
+        // Snapshot entries on caller's thread to avoid concurrent mutation during timer callback
+        List<ActiveSessionEntry> entries;
         try
         {
-            // Ensure directory exists (required on iOS where it may not exist by default)
-            Directory.CreateDirectory(PolyPilotBaseDir);
-            
+            entries = _sessions.Values
+                .Where(s => s.Info.SessionId != null && !s.Info.IsHidden)
+                .Select(s => new ActiveSessionEntry
+                {
+                    SessionId = s.Info.SessionId!,
+                    DisplayName = s.Info.Name,
+                    Model = s.Info.Model,
+                    WorkingDirectory = s.Info.WorkingDirectory,
+                    LastPrompt = s.Info.IsProcessing
+                        ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
+                        : null,
+                    TotalInputTokens = s.Info.TotalInputTokens,
+                    TotalOutputTokens = s.Info.TotalOutputTokens,
+                    ContextCurrentTokens = s.Info.ContextCurrentTokens,
+                    ContextTokenLimit = s.Info.ContextTokenLimit,
+                    PremiumRequestsUsed = s.Info.PremiumRequestsUsed,
+                    TotalApiTimeSeconds = s.Info.TotalApiTimeSeconds,
+                    CreatedAt = s.Info.CreatedAt,
+                })
+                .ToList();
+        }
+        catch { return; }
+        _saveSessionsDebounce?.Dispose();
+        _saveSessionsDebounce = new Timer(_ => WriteActiveSessionsFile(entries), null, 2000, Timeout.Infinite);
+    }
+
+    /// <summary>
+    /// Flush pending session save immediately (used during dispose/shutdown).
+    /// </summary>
+    private void FlushSaveActiveSessionsToDisk()
+    {
+        _saveSessionsDebounce?.Dispose();
+        _saveSessionsDebounce = null;
+        if (IsRestoring) return;
+        SaveActiveSessionsToDiskCore();
+    }
+
+    private void SaveActiveSessionsToDiskCore()
+    {
+        if (IsDemoMode) return;
+
+        try
+        {
             var entries = _sessions.Values
                 .Where(s => s.Info.SessionId != null && !s.Info.IsHidden)
                 .Select(s => new ActiveSessionEntry
@@ -25,14 +70,34 @@ public partial class CopilotService
                     WorkingDirectory = s.Info.WorkingDirectory,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
-                        : null
+                        : null,
+                    TotalInputTokens = s.Info.TotalInputTokens,
+                    TotalOutputTokens = s.Info.TotalOutputTokens,
+                    ContextCurrentTokens = s.Info.ContextCurrentTokens,
+                    ContextTokenLimit = s.Info.ContextTokenLimit,
+                    PremiumRequestsUsed = s.Info.PremiumRequestsUsed,
+                    TotalApiTimeSeconds = s.Info.TotalApiTimeSeconds,
+                    CreatedAt = s.Info.CreatedAt,
                 })
                 .ToList();
-            
-            // Merge: preserve entries from the existing file that aren't currently in memory
-            // but whose session directory still exists on disk. This prevents data loss when
-            // sessions fail to restore (e.g. during mode switches) or if the app is killed
-            // mid-restore.
+            WriteActiveSessionsFile(entries);
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to save active sessions: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Write entries to disk, merging with existing file to preserve sessions not in memory.
+    /// Safe to call from any thread — only does file I/O on pre-built data.
+    /// </summary>
+    private void WriteActiveSessionsFile(List<ActiveSessionEntry> entries)
+    {
+        if (IsDemoMode) return;
+        try
+        {
+            Directory.CreateDirectory(PolyPilotBaseDir);
             try
             {
                 if (File.Exists(ActiveSessionsFile))
@@ -42,7 +107,8 @@ public partial class CopilotService
                     if (existingEntries != null)
                     {
                         var closedIds = new HashSet<string>(_closedSessionIds.Keys, StringComparer.OrdinalIgnoreCase);
-                        entries = MergeSessionEntries(entries, existingEntries, closedIds,
+                        var closedNames = new HashSet<string>(_closedSessionNames.Keys, StringComparer.OrdinalIgnoreCase);
+                        entries = MergeSessionEntries(entries, existingEntries, closedIds, closedNames,
                             sessionId => Directory.Exists(Path.Combine(SessionStatePath, sessionId)));
                     }
                 }
@@ -53,7 +119,10 @@ public partial class CopilotService
             }
             
             var json = JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(ActiveSessionsFile, json);
+            // Atomic write: write to temp file then rename to prevent corruption on crash
+            var tempFile = ActiveSessionsFile + ".tmp";
+            File.WriteAllText(tempFile, json);
+            File.Move(tempFile, ActiveSessionsFile, overwrite: true);
         }
         catch (Exception ex)
         {
@@ -64,12 +133,13 @@ public partial class CopilotService
     /// <summary>
     /// Merge active (in-memory) session entries with persisted (on-disk) entries.
     /// Persisted entries are kept if they aren't already active, weren't explicitly
-    /// closed, and their session directory still exists.
+    /// closed (by ID or display name), and their session directory still exists.
     /// </summary>
     internal static List<ActiveSessionEntry> MergeSessionEntries(
         List<ActiveSessionEntry> active,
         List<ActiveSessionEntry> persisted,
         ISet<string> closedIds,
+        ISet<string> closedNames,
         Func<string, bool> sessionDirExists)
     {
         var merged = new List<ActiveSessionEntry>(active);
@@ -79,6 +149,7 @@ public partial class CopilotService
         {
             if (activeIds.Contains(existing.SessionId)) continue;
             if (closedIds.Contains(existing.SessionId)) continue;
+            if (closedNames.Contains(existing.DisplayName)) continue;
             if (!sessionDirExists(existing.SessionId)) continue;
 
             merged.Add(existing);
@@ -86,6 +157,117 @@ public partial class CopilotService
         }
 
         return merged;
+    }
+
+    /// <summary>
+    /// Restore persisted usage stats onto the in-memory session after resume.
+    /// Uses Math.Max for accumulative fields to avoid overwriting values the SDK
+    /// may have already set via event replay during ResumeSessionAsync.
+    /// If usage fields are missing (e.g., from before the feature was added),
+    /// backfill from events.jsonl on disk.
+    /// </summary>
+    private void RestoreUsageStats(ActiveSessionEntry entry)
+    {
+        if (!_sessions.TryGetValue(entry.DisplayName, out var state)) return;
+        // Use Max to preserve values from SDK event replay (which may have already
+        // incremented these via SessionUsageInfoEvent/AssistantUsageEvent)
+        state.Info.TotalInputTokens = Math.Max(state.Info.TotalInputTokens, entry.TotalInputTokens);
+        state.Info.TotalOutputTokens = Math.Max(state.Info.TotalOutputTokens, entry.TotalOutputTokens);
+        if (entry.ContextCurrentTokens.HasValue)
+            state.Info.ContextCurrentTokens = entry.ContextCurrentTokens;
+        if (entry.ContextTokenLimit.HasValue)
+            state.Info.ContextTokenLimit = entry.ContextTokenLimit;
+        state.Info.PremiumRequestsUsed = Math.Max(state.Info.PremiumRequestsUsed, entry.PremiumRequestsUsed);
+        state.Info.TotalApiTimeSeconds = Math.Max(state.Info.TotalApiTimeSeconds, entry.TotalApiTimeSeconds);
+        if (entry.CreatedAt.HasValue)
+            state.Info.CreatedAt = entry.CreatedAt.Value;
+
+        // Backfill from events.jsonl only when ALL tracked fields are zero (indicating "never tracked")
+        if (entry.PremiumRequestsUsed == 0 && entry.TotalApiTimeSeconds == 0 && !entry.CreatedAt.HasValue)
+        {
+            try { BackfillUsageFromEvents(state.Info, entry.SessionId); }
+            catch (Exception ex) { Debug($"BackfillUsageFromEvents failed for '{entry.DisplayName}': {ex.Message}"); }
+        }
+    }
+
+    /// <summary>
+    /// Scan events.jsonl to backfill premium request count, session start time,
+    /// and API time for sessions persisted before usage tracking was added.
+    /// </summary>
+    private static void BackfillUsageFromEvents(AgentSessionInfo info, string sessionId)
+    {
+        var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        if (!File.Exists(eventsFile)) return;
+
+        int turnEndCount = 0;
+        DateTime? firstTimestamp = null;
+        double apiTimeSeconds = 0;
+        DateTime? lastUserMessage = null;
+        DateTime? lastTurnEnd = null;
+
+        foreach (var line in File.ReadLines(eventsFile))
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            // Fast string check before parsing JSON
+            if (firstTimestamp == null || line.Contains("user.message") ||
+                line.Contains("assistant.turn_end") || line.Contains("session.idle"))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+
+                    DateTime? eventTime = null;
+                    if (root.TryGetProperty("timestamp", out var tsEl) &&
+                        DateTime.TryParse(tsEl.GetString(), null,
+                            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+                            out var ts))
+                    {
+                        eventTime = ts;
+                        if (firstTimestamp == null) firstTimestamp = ts;
+                    }
+
+                    if (!root.TryGetProperty("type", out var typeEl)) continue;
+                    var type = typeEl.GetString();
+
+                    switch (type)
+                    {
+                        case "user.message":
+                            // Close previous turn's API time if we hit a new user message
+                            if (lastUserMessage.HasValue && lastTurnEnd.HasValue)
+                                apiTimeSeconds += (lastTurnEnd.Value - lastUserMessage.Value).TotalSeconds;
+                            lastUserMessage = eventTime;
+                            lastTurnEnd = null;
+                            break;
+
+                        case "assistant.turn_end":
+                            turnEndCount++;
+                            lastTurnEnd = eventTime;
+                            break;
+
+                        case "session.idle":
+                            // Prefer session.idle as the end marker when available
+                            if (eventTime.HasValue)
+                                lastTurnEnd = eventTime;
+                            break;
+                    }
+                }
+                catch { /* skip malformed lines */ }
+            }
+        }
+
+        // Close the last turn
+        if (lastUserMessage.HasValue && lastTurnEnd.HasValue)
+            apiTimeSeconds += (lastTurnEnd.Value - lastUserMessage.Value).TotalSeconds;
+
+        if (info.PremiumRequestsUsed == 0 && turnEndCount > 0)
+            info.PremiumRequestsUsed = turnEndCount;
+
+        if (info.TotalApiTimeSeconds == 0 && apiTimeSeconds > 0)
+            info.TotalApiTimeSeconds = apiTimeSeconds;
+
+        if (firstTimestamp.HasValue && info.CreatedAt == default)
+            info.CreatedAt = firstTimestamp.Value;
     }
 
     /// <summary>
@@ -104,10 +286,32 @@ public partial class CopilotService
                     Debug($"Restoring {entries.Count} previous sessions...");
                     IsRestoring = true;
 
+                    // Collect evaluator session names referenced by active reflection cycles
+                    var activeEvaluators = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var g in Organization.Groups)
+                    {
+                        if (g.ReflectionState?.IsActive == true && !string.IsNullOrEmpty(g.ReflectionState.EvaluatorSessionName))
+                            activeEvaluators.Add(g.ReflectionState.EvaluatorSessionName);
+                    }
+
                     foreach (var entry in entries)
                     {
                         try
                         {
+                            // Prune ghost evaluator sessions from crashed cycles
+                            if (entry.DisplayName.StartsWith("__evaluator_") && !activeEvaluators.Contains(entry.DisplayName))
+                            {
+                                Debug($"Pruning ghost evaluator session '{entry.DisplayName}' — not referenced by active cycle");
+                                _closedSessionIds[entry.SessionId] = 0; // prevent merge from re-adding
+                                // Clean up persisted session directory
+                                var ghostDir = Path.Combine(SessionStatePath, entry.SessionId);
+                                if (Directory.Exists(ghostDir))
+                                {
+                                    try { Directory.Delete(ghostDir, recursive: true); }
+                                    catch (Exception delEx) { Debug($"Failed to delete ghost session dir: {delEx.Message}"); }
+                                }
+                                continue;
+                            }
                             // Skip if already active
                             if (_sessions.ContainsKey(entry.DisplayName))
                             {
@@ -124,18 +328,33 @@ public partial class CopilotService
                             }
 
                             await ResumeSessionAsync(entry.SessionId, entry.DisplayName, entry.WorkingDirectory, entry.Model, cancellationToken, entry.LastPrompt);
+                            RestoreUsageStats(entry);
                             Debug($"Restored session: {entry.DisplayName}");
                         }
                         catch (Exception ex)
                         {
                             Debug($"Failed to restore '{entry.DisplayName}': {ex.GetType().Name}: {ex.Message}");
 
+                            // "Session not found" means the CLI server doesn't know this session
+                            // (e.g., worker sessions that were created but never received a message).
+                            // Fall back to creating a fresh session so multi-agent workers don't vanish.
+                            if (ex.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase))
+                            {
+                                try
+                                {
+                                    Debug($"Falling back to CreateSessionAsync for '{entry.DisplayName}'");
+                                    await CreateSessionAsync(entry.DisplayName, entry.Model, entry.WorkingDirectory, cancellationToken);
+                                    Debug($"Recreated session: {entry.DisplayName}");
+                                    continue;
+                                }
+                                catch (Exception createEx)
+                                {
+                                    Debug($"Fallback CreateSessionAsync also failed for '{entry.DisplayName}': {createEx.Message}");
+                                }
+                            }
+
                             // If the connection broke, recreate the client
-                            if (ex is System.IO.IOException or System.Net.Sockets.SocketException
-                                or ObjectDisposedException
-                                || ex.InnerException is System.IO.IOException or System.Net.Sockets.SocketException
-                                || ex.Message.Contains("Connection", StringComparison.OrdinalIgnoreCase)
-                                || ex.Message.Contains("transport", StringComparison.OrdinalIgnoreCase))
+                            if (IsConnectionError(ex))
                             {
                                 Debug("Connection lost during restore, recreating client...");
                                 try
@@ -170,7 +389,6 @@ public partial class CopilotService
     {
         try
         {
-            // Ensure directory exists (critical for iOS where it doesn't exist by default)
             Directory.CreateDirectory(PolyPilotBaseDir);
             
             var existing = LoadUiState();
@@ -184,8 +402,34 @@ public partial class CopilotService
                 ExpandedSession = expandedSession == "<<unspecified>>" ? existing?.ExpandedSession : expandedSession,
                 InputModes = inputModes != null
                     ? new Dictionary<string, string>(inputModes)
-                    : existing?.InputModes ?? new Dictionary<string, string>()
+                    : existing?.InputModes ?? new Dictionary<string, string>(),
+                CompletedTutorials = existing?.CompletedTutorials ?? new HashSet<string>()
             };
+
+            lock (_uiStateLock)
+            {
+                _pendingUiState = state;
+            }
+            _saveUiStateDebounce?.Dispose();
+            _saveUiStateDebounce = new Timer(_ => FlushUiState(), null, 1000, Timeout.Infinite);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to prepare UI state: {ex.Message}");
+        }
+    }
+
+    private void FlushUiState()
+    {
+        UiState? state;
+        lock (_uiStateLock)
+        {
+            state = _pendingUiState;
+            _pendingUiState = null;
+        }
+        if (state == null) return;
+        try
+        {
             var json = JsonSerializer.Serialize(state);
             File.WriteAllText(UiStateFile, json);
         }
@@ -195,8 +439,29 @@ public partial class CopilotService
         }
     }
 
+    public void SaveTutorialProgress(HashSet<string> completedChapters)
+    {
+        try
+        {
+            var existing = LoadUiState() ?? new UiState();
+            existing.CompletedTutorials = completedChapters;
+            lock (_uiStateLock)
+            {
+                _pendingUiState = existing;
+            }
+            _saveUiStateDebounce?.Dispose();
+            _saveUiStateDebounce = new Timer(_ => FlushUiState(), null, 1000, Timeout.Infinite);
+        }
+        catch { }
+    }
+
     public UiState? LoadUiState()
     {
+        // Return pending (debounced) state if available — avoids stale disk reads
+        lock (_uiStateLock)
+        {
+            if (_pendingUiState != null) return _pendingUiState;
+        }
         try
         {
             if (!File.Exists(UiStateFile)) return null;
@@ -312,6 +577,9 @@ public partial class CopilotService
 
     public bool DeletePersistedSession(string sessionId)
     {
+        // In demo mode, don't delete real session data from disk
+        if (IsDemoMode) return false;
+
         if (string.IsNullOrWhiteSpace(sessionId) || !Guid.TryParse(sessionId, out _))
             return false;
 
@@ -343,7 +611,9 @@ public partial class CopilotService
                 if (kept.Count != entries.Count)
                 {
                     var updatedJson = JsonSerializer.Serialize(kept, new JsonSerializerOptions { WriteIndented = true });
-                    File.WriteAllText(ActiveSessionsFile, updatedJson);
+                    var tempFile = ActiveSessionsFile + ".tmp";
+                    File.WriteAllText(tempFile, updatedJson);
+                    File.Move(tempFile, ActiveSessionsFile, overwrite: true);
                     deleted = true;
                 }
             }

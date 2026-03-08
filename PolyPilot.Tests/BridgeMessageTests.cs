@@ -85,7 +85,10 @@ public class BridgeMessageTests
             Model = "gpt-5",
             IsProcessing = true,
             MessageCount = 5,
-            QueueCount = 2
+            QueueCount = 2,
+            ProcessingStartedAt = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc),
+            ToolCallCount = 7,
+            ProcessingPhase = 3
         };
         var msg = BridgeMessage.Create(BridgeMessageTypes.SessionsList, payload);
         var json = msg.Serialize();
@@ -97,6 +100,9 @@ public class BridgeMessageTests
         Assert.Contains("\"model\"", json);
         Assert.Contains("\"isProcessing\"", json);
         Assert.Contains("\"messageCount\"", json);
+        Assert.Contains("\"processingStartedAt\"", json);
+        Assert.Contains("\"toolCallCount\"", json);
+        Assert.Contains("\"processingPhase\"", json);
 
         // Verify null values are excluded (JsonIgnoreCondition.WhenWritingNull)
         Assert.DoesNotContain("\"sessionId\"", json);
@@ -164,6 +170,7 @@ public class BridgePayloadTests
     [Fact]
     public void SessionsListPayload_RoundTrip()
     {
+        var startedAt = new DateTime(2025, 6, 15, 10, 30, 0, DateTimeKind.Utc);
         var payload = new SessionsListPayload
         {
             ActiveSession = "main",
@@ -177,7 +184,10 @@ public class BridgePayloadTests
                     MessageCount = 10,
                     IsProcessing = false,
                     SessionId = "abc-123",
-                    QueueCount = 0
+                    QueueCount = 0,
+                    ProcessingStartedAt = null,
+                    ToolCallCount = 0,
+                    ProcessingPhase = 0
                 },
                 new()
                 {
@@ -186,7 +196,10 @@ public class BridgePayloadTests
                     CreatedAt = new DateTime(2025, 1, 1, 13, 0, 0, DateTimeKind.Utc),
                     MessageCount = 3,
                     IsProcessing = true,
-                    QueueCount = 2
+                    QueueCount = 2,
+                    ProcessingStartedAt = startedAt,
+                    ToolCallCount = 5,
+                    ProcessingPhase = 3
                 }
             }
         };
@@ -202,6 +215,14 @@ public class BridgePayloadTests
         Assert.Equal("claude-opus-4.6", restoredPayload.Sessions[0].Model);
         Assert.True(restoredPayload.Sessions[1].IsProcessing);
         Assert.Equal(2, restoredPayload.Sessions[1].QueueCount);
+
+        // Verify processing status fields survive round-trip
+        Assert.Null(restoredPayload.Sessions[0].ProcessingStartedAt);
+        Assert.Equal(0, restoredPayload.Sessions[0].ToolCallCount);
+        Assert.Equal(0, restoredPayload.Sessions[0].ProcessingPhase);
+        Assert.Equal(startedAt, restoredPayload.Sessions[1].ProcessingStartedAt);
+        Assert.Equal(5, restoredPayload.Sessions[1].ToolCallCount);
+        Assert.Equal(3, restoredPayload.Sessions[1].ProcessingPhase);
     }
 
     [Fact]
@@ -435,5 +456,75 @@ public class BridgePayloadTests
         var restored = BridgeMessage.Deserialize(msg.Serialize())!.GetPayload<AttentionNeededPayload>();
 
         Assert.Equal(reason, restored!.Reason);
+    }
+
+    [Fact]
+    public void MultiAgentBroadcastPayload_RoundTrips()
+    {
+        var payload = new MultiAgentBroadcastPayload
+        {
+            GroupId = "group-123",
+            Message = "Build the feature"
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.MultiAgentBroadcast, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<MultiAgentBroadcastPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("group-123", restored!.GroupId);
+        Assert.Equal("Build the feature", restored.Message);
+    }
+
+    [Fact]
+    public void MultiAgentCreateGroupPayload_RoundTrips()
+    {
+        var payload = new MultiAgentCreateGroupPayload
+        {
+            Name = "Dev Team",
+            Mode = "Orchestrator",
+            OrchestratorPrompt = "Coordinate the workers",
+            SessionNames = new List<string> { "session-1", "session-2" }
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.MultiAgentCreateGroup, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<MultiAgentCreateGroupPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("Dev Team", restored!.Name);
+        Assert.Equal("Orchestrator", restored.Mode);
+        Assert.Equal("Coordinate the workers", restored.OrchestratorPrompt);
+        Assert.Equal(2, restored.SessionNames!.Count);
+        Assert.Contains("session-1", restored.SessionNames);
+    }
+
+    [Fact]
+    public void MultiAgentProgressPayload_RoundTrips()
+    {
+        var payload = new MultiAgentProgressPayload
+        {
+            GroupId = "group-1",
+            TotalSessions = 3,
+            CompletedSessions = 1,
+            ProcessingSessions = 2,
+            CompletedSessionNames = new List<string> { "worker-1" }
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.MultiAgentProgress, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<MultiAgentProgressPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("group-1", restored!.GroupId);
+        Assert.Equal(3, restored.TotalSessions);
+        Assert.Equal(1, restored.CompletedSessions);
+        Assert.Equal(2, restored.ProcessingSessions);
+        Assert.Single(restored.CompletedSessionNames);
+    }
+
+    [Fact]
+    public void MultiAgentMessageTypes_AreCorrectStrings()
+    {
+        Assert.Equal("multi_agent_broadcast", BridgeMessageTypes.MultiAgentBroadcast);
+        Assert.Equal("multi_agent_create_group", BridgeMessageTypes.MultiAgentCreateGroup);
+        Assert.Equal("multi_agent_progress", BridgeMessageTypes.MultiAgentProgress);
     }
 }

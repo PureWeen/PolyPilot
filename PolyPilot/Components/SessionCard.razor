@@ -3,6 +3,11 @@
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
 
+@{
+    var providerDisplayName = CopilotService.GetProviderSessionDisplayName(Session.Name);
+    var displayName = providerDisplayName ?? Session.Name;
+}
+
 <div class="session-card @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : "idle") @(Meta?.IsPinned == true ? "pinned" : "")" data-session="@Session.Name">
     <div class="card-header">
         <div class="card-title" @onclick="GoToSession" style="cursor:pointer">
@@ -17,11 +22,11 @@
                        value="@Session.Name"
                        @onclick:stopPropagation="true"
                        @onblur="CommitRename"
-                       @onkeydown="HandleRenameKeyDown" />
+                       @onkeyup="HandleRenameKeyUp" />
             }
             else
             {
-                <h3>@Session.Name</h3>
+                <h3>@displayName</h3>
                 @if (Session.UnreadCount > 0)
                 {
                     <span class="unread-badge">@Session.UnreadCount</span>
@@ -51,7 +56,7 @@
                 }
                 <div class="card-menu-separator"></div>
                 <button class="card-menu-item destructive" @onclick="async () => { await OnCloseMenu.InvokeAsync(); _ = CopilotService.CloseSessionAsync(Session.Name); }">
-                    🗑 Close Session
+                    ✕ Close Session
                 </button>
             </div>
             }
@@ -93,10 +98,15 @@
                          ToolActivities="@ToolActivities"
                          ActivityText="@ActivityText"
                          IsProcessing="Session.IsProcessing"
+                         ProcessingStartedAt="Session.ProcessingStartedAt"
+                         ToolCallCount="Session.ToolCallCount"
+                         ProcessingPhase="Session.ProcessingPhase"
+                         LastActivityAt="Session.LastUpdatedAt"
                          Compact="true"
                          UserAvatarUrl="@UserAvatarUrl"
                          Layout="@Layout"
-                         Style="@Style" />
+                         Style="@Style"
+                         RepoUrl="@RepoUrl" />
     </div>
 
     @if (!string.IsNullOrEmpty(Error))
@@ -138,14 +148,14 @@
 
     <div class="card-input">
         <input type="text" id="input-@Session.Name.Replace(" ", "-")"
-               autocorrect="off" autocapitalize="off" spellcheck="false"
-               placeholder="@(Session.IsProcessing ? "Queue a message…" : $"Send to {Session.Name}...")"
+               autocomplete="off"
+               placeholder="@(Session.IsProcessing ? "Queue a message…" : $"Send to {displayName}...")"
                @onkeyup="HandleInputKeyUp" />
         @if (Session.IsProcessing)
         {
             <button class="card-stop-btn" @onclick="() => CopilotService.AbortSessionAsync(Session.Name)" title="Stop">■</button>
         }
-        <button @onclick="SendInput">➤</button>
+        <button class="send-btn" @onclick="SendInput">➤</button>
     </div>
 </div>
 
@@ -161,6 +171,7 @@
     [Parameter] public string? Error { get; set; }
     [Parameter] public List<PendingImage> PendingImages { get; set; } = new();
     [Parameter] public string? UserAvatarUrl { get; set; }
+    [Parameter] public string? RepoUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
     [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
     
@@ -180,8 +191,7 @@
     [Parameter] public EventCallback OnClearQueue { get; set; }
     [Parameter] public EventCallback<int> OnRemovePendingImage { get; set; }
     [Parameter] public EventCallback<string> OnSend { get; set; } // message text
-
-    private async Task HandleRenameKeyDown(KeyboardEventArgs e)
+    private async Task HandleRenameKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
         {

@@ -27,8 +27,19 @@ adb shell am start -n com.microsoft.PolyPilot/crc64ef8e1bf56c865459.MainActivity
 ```
 Fast Deployment requires `dotnet build -t:Install` — it pushes assemblies to `.__override__` on device.
 
+> ⚠️ **WiFi ADB on macOS**: Do NOT use `adb kill-server` (wipes TLS pairing keys; proxy dies).
+> Build with `-p:EmbedAssembliesIntoApk=true` for WiFi deploy (Fast Deployment APKs are stale).
+> macOS firewall blocks ADB's outbound TLS — a Python TCP proxy is required.
+> **Full playbook**: `.claude/skills/android-wifi-deploy/SKILL.md`
+
 **Package name**: `com.microsoft.PolyPilot` (not `com.companyname.PolyPilot`)  
 **Launch activity**: `crc64ef8e1bf56c865459.MainActivity`
+
+### Windows
+```bash
+dotnet build -f net10.0-windows10.0.19041.0       # Build only
+dotnet run -f net10.0-windows10.0.19041.0          # Build + launch
+```
 
 ### iOS (physical device)
 ```bash
@@ -55,6 +66,17 @@ maui-devflow MAUI logs             # Application ILogger output
 For Android, always run `adb reverse tcp:9223 tcp:9223` after deploy.
 
 ## Architecture
+
+**See `docs/multi-agent-orchestration.md` for the multi-agent architecture spec** (orchestration modes, reflection loop, sentinel protocol, invariants, Squad integration). Test scenarios in `PolyPilot.Tests/Scenarios/multi-agent-scenarios.json`. Read these before modifying orchestration, reconciliation, or TCS completion logic.
+
+### Squad Integration
+PolyPilot discovers [bradygaster/squad](https://github.com/bradygaster/squad) team definitions from `.squad/` (or legacy `.ai-team/`) directories in the worktree root. Each agent's `charter.md` becomes a worker system prompt, `team.md` defines the roster, `decisions.md` provides shared context injected into all worker prompts, and `routing.md` is injected into the orchestrator's planning prompt. Repo-level teams appear in a **"📂 From Repo"** section in the preset picker, above built-in presets.
+
+**Squad write-back:** When saving a multi-agent group as a preset, PolyPilot writes the team definition back to `.squad/` format in the worktree root via `SquadWriter`. This creates `team.md`, `agents/{name}/charter.md`, and optional `decisions.md`/`routing.md`. The preset is also saved to `presets.json` as a personal backup. This enables round-tripping: discover → modify → save back → share via repo.
+
+**Preset priority (three-tier merge):** Built-in presets are always shown and cannot be overridden. User presets (`~/.polypilot/presets.json`) and repo teams (`.squad/`) with the same name as a built-in are skipped. The preset picker shows three sections: "📂 From Repo" (with delete button), "⚙️ Built-in", and "👤 My Presets".
+
+**Group deletion:** Deleting a multi-agent team closes and removes all its sessions (they're meaningless without the team). Deleting a regular group moves sessions to the default group.
 
 This is a .NET MAUI Blazor Hybrid app targeting Mac Catalyst, Android, and iOS. It manages multiple GitHub Copilot CLI sessions through a native GUI.
 
@@ -90,12 +112,26 @@ When switching between Embedded and Persistent modes (via Settings → Save & Re
 ### Platform Differences
 `Models/PlatformHelper.cs` exposes `IsDesktop`/`IsMobile` and controls which `ConnectionMode`s are available. Mobile can only use Remote mode. Desktop defaults to Persistent.
 
+**Mobile-only behavior:**
+- Desktop menu items (Fix with Copilot, Copilot Console, Terminal, VS Code) are hidden via `PlatformHelper.IsDesktop` guards in `SessionListItem.razor`.
+- Report Bug opens the browser with a pre-filled GitHub issue URL via `Launcher.Default.OpenAsync` instead of the inline sidebar form.
+- Processing status indicator shows elapsed time and tool round count, synced via bridge.
+
+**Editor preference:**
+- `Editor` setting (`VsCodeVariant.Stable`/`Insiders`) in `ConnectionSettings` controls which VS Code binary (`code`/`code-insiders`) is launched from session context menus.
+- Configurable in Settings → UI → Editor (desktop only). Persists in `settings.json`.
+
 ## Critical Conventions
+
+### Build & Launch
+- **NEVER use `--no-build`** when running the app (`dotnet run`). Always do a full build to catch and fix compile errors before launching. Using `--no-build` can cause silent crashes from stale binaries.
 
 ### Git Workflow
 - **NEVER use `git push --force`** — always use `git push --force-with-lease` instead when a force push is needed (e.g., after a rebase). This prevents overwriting remote changes made by others.
 - **NEVER commit screenshots, images, or binary files** — use `git diff --stat` or `git status` before committing to verify no `.png`, `.jpg`, `.bmp`, or other image files are staged. Screenshots from PolyPilot (e.g., `screenshot_*.png`) are generated locally and must NEVER be committed. The `.gitignore` blocks common patterns, but always double-check.
 - **NEVER use `git add -A` or `git add .` blindly** — always review what's being staged first with `git status`. Prefer `git add <specific-files>` when possible to avoid accidentally committing generated files.
+- **When creating a new branch for a PR**, always base it on `upstream/main` (or `origin/main`). Do NOT branch from whatever HEAD happens to be — the repo may be on a feature branch. Use `git checkout -b <branch> upstream/main`. After creating the branch, verify with `git log --oneline upstream/main..HEAD` that only your commits appear.
+- **NEVER use `git commit --amend`** unless the user explicitly asks for it. Always add new commits on top. This preserves history so reviewers and other agents can see what changed between iterations.
 - When contributing to an existing PR, prefer adding commits on top. Rebase only when explicitly asked.
 - Use `git add -f` when adding files matched by `.gitignore` patterns (e.g., `*.app/` catches `PolyPilot/`).
 
@@ -130,24 +166,47 @@ Disabled in `Platforms/MacCatalyst/Entitlements.plist` — required for spawning
 
 ### SDK Event Flow
 When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in order:
-1. `AssistantTurnStartEvent` → "Thinking..." indicator
-2. `AssistantMessageDeltaEvent` → streaming content chunks
-3. `AssistantMessageEvent` → full message (may include tool requests)
-4. `ToolExecutionStartEvent` / `ToolExecutionCompleteEvent` → tool activity
-5. `AssistantIntentEvent` → intent/plan updates
-6. `SessionIdleEvent` → turn complete, response finalized
+1. `SessionUsageInfoEvent` → server acknowledged, sets `ProcessingPhase=1`
+2. `AssistantTurnStartEvent` → model generating, sets `ProcessingPhase=2`
+3. `AssistantMessageDeltaEvent` → streaming content chunks
+4. `AssistantMessageEvent` → full message (may include tool requests)
+5. `ToolExecutionStartEvent` → tool activity starts, sets `ProcessingPhase=3`, increments `ToolCallCount` on complete
+6. `ToolExecutionCompleteEvent` → tool done, increments `ToolCallCount`
+7. `AssistantIntentEvent` → intent/plan updates
+8. `AssistantTurnEndEvent` → end of a sub-turn, tool loop continues. `FlushCurrentResponse` persists accumulated text before the next sub-turn.
+9. `SessionIdleEvent` → turn complete, response finalized
+
+### Processing Status Indicator
+`AgentSessionInfo` tracks three fields for the processing status UI:
+- `ProcessingStartedAt` (DateTime?) — set to `DateTime.UtcNow` in `SendPromptAsync`
+- `ToolCallCount` (int) — incremented on each `ToolExecutionCompleteEvent`
+- `ProcessingPhase` (int) — 0=Sending, 1=ServerConnected, 2=Thinking, 3=Working
+
+All three are reset in `SendPromptAsync` (new turn) and cleared in `CompleteResponse` (turn done) and `AbortSessionAsync` (user stop). They're synced to mobile via `SessionSummary` in the bridge protocol.
+
+The UI shows: "Sending…" → "Server connected…" → "Thinking…" → "Working · Xm Xs · N tool calls…".
+
+### Abort Behavior
+`AbortSessionAsync` must clear ALL processing state — see `.claude/skills/processing-state-safety/SKILL.md` for the full cleanup checklist and the 8 paths that clear `IsProcessing`.
+
+### ⚠️ IsProcessing Cleanup Invariant
+**CRITICAL**: Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (7 PRs of fix/regression cycles). **Read `.claude/skills/processing-state-safety/SKILL.md` before modifying ANY processing path.** There are 8 such paths across CopilotService.cs, Events.cs, and Bridge.cs.
+
+### Content Persistence
+`FlushCurrentResponse` is also called on `AssistantTurnEndEvent` to persist accumulated response text at each sub-turn boundary. This prevents content loss if the app restarts between `turn_end` and `session.idle` (e.g., "zero-idle sessions" where the SDK never emits `session.idle`). The flush includes a dedup guard to prevent duplicate messages from event replay on resume.
 
 ### Processing Watchdog
-The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has two timeout tiers:
+The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has three timeout tiers:
+- **30 seconds** (resume quiescence) — for resumed sessions with zero SDK events since restart. Assumes the turn already finished before the restart. **Bypassed** when the events file shows recent activity (< 120s old) — in that case, the session was genuinely active and gets the longer timeout.
 - **120 seconds** (inactivity timeout) — for sessions with no tool activity
 - **600 seconds** (tool execution timeout) — used when ANY of these are true:
   - A tool call is actively running (`ActiveToolCallCount > 0`)
   - The session was resumed mid-turn after app restart (`IsResumed`)
   - Tools have been used this turn (`HasUsedToolsThisTurn`) — even between tool rounds when the model is thinking
 
-The 10-second resume timeout was removed — the watchdog handles all stuck-session detection.
+Note: Some sessions never receive `session.idle` events (SDK/CLI bug). In these "zero-idle" cases, `IsProcessing` is only cleared by the watchdog or user abort. The turn_end flush (see Content Persistence above) ensures response content is not lost.
 
-When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message. All code paths that set `IsProcessing = false` must go through the UI thread.
+When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message.
 
 ### Diagnostic Log Tags
 The event diagnostics log (`~/.polypilot/event-diagnostics.log`) uses these tags:
@@ -160,6 +219,7 @@ The event diagnostics log (`~/.polypilot/event-diagnostics.log`) uses these tags
 - `[ABORT]` — user-initiated abort cleared IsProcessing
 - `[BRIDGE-COMPLETE]` — bridge OnTurnEnd cleared IsProcessing
 - `[INTERRUPTED]` — app restart detected interrupted turn (watchdog timeout after resume)
+- `[WATCHDOG]` — watchdog clearing IsResumed or timing out a stuck session
 
 Every code path that sets `IsProcessing = false` MUST have a diagnostic log entry. This is critical for debugging stuck-session issues.
 
@@ -187,6 +247,11 @@ When a user changes the model via the UI dropdown:
 
 ### Blazor Input Performance
 Avoid `@bind:event="oninput"` — causes round-trip lag per keystroke. Use plain HTML inputs with JS event listeners and read values via `JS.InvokeAsync<string>("eval", "document.getElementById('id')?.value")` on submit.
+
+### Render Performance
+`SaveActiveSessionsToDisk`, `SaveOrganization`, and `SaveUiState` use timer-based debounce (2s/2s/1s) — **must flush in DisposeAsync**. `LoadPersistedSessions()` scans all session directories (750+) — **never call from render-triggered paths**. `GetOrganizedSessions()` is cached with hash-key invalidation. `_sessionSwitching` flag must stay true until `SafeRefreshAsync` reads it. See `.claude/skills/performance-optimization/SKILL.md` for detailed invariants.
+
+For detailed stuck-session debugging knowledge (8 invariants from 7 PRs of fix cycles), see `.claude/skills/processing-state-safety/SKILL.md`.
 
 ### Session Persistence
 - Active sessions: `~/.polypilot/active-sessions.json` (includes `LastPrompt` — last user message if session was processing during save)
@@ -230,7 +295,7 @@ Test files in `PolyPilot.Tests/`:
 - `BridgeMessageTests.cs` — Bridge protocol serialization, type constants
 - `RemoteModeTests.cs` — Remote mode payloads, organization state, chat serialization
 - `ChatMessageTests.cs` — Chat message factory methods, state transitions
-- `AgentSessionInfoTests.cs` — Session info properties, history, queue
+- `AgentSessionInfoTests.cs` — Session info properties, history, queue, processing status fields
 - `SessionOrganizationTests.cs` — Groups, sorting, metadata
 - `ConnectionSettingsTests.cs` — Settings persistence
 - `CopilotServiceInitializationTests.cs` — Initialization error handling, mode switching, fallback notices, CLI source persistence
@@ -240,7 +305,7 @@ Test files in `PolyPilot.Tests/`:
 - `PlatformHelperTests.cs` — Platform detection
 - `ToolResultFormattingTests.cs` — Tool output formatting
 - `UiStatePersistenceTests.cs` — UI state save/load
-- `ProcessingWatchdogTests.cs` — Watchdog constants, timeout selection, HasUsedToolsThisTurn, IsResumed
+- `ProcessingWatchdogTests.cs` — Watchdog constants, timeout selection, HasUsedToolsThisTurn, IsResumed, abort clears queue and processing status
 - `CliPathResolutionTests.cs` — CLI path resolution
 - `InitializationModeTests.cs` — Mode initialization
 - `PersistentModeTests.cs` — Persistent mode behavior
@@ -256,6 +321,17 @@ UI scenario definitions live in `PolyPilot.Tests/Scenarios/mode-switch-scenarios
 Tests include source files via `<Compile Include>` links in the csproj. When adding new model classes, add a corresponding link entry.
 
 ### Test Safety
+
+#### ⚠️ CRITICAL: Test File System Isolation
+Tests MUST NEVER read from or write to the real `~/.polypilot/` directory. `TestSetup.cs` contains a `[ModuleInitializer]` that calls `CopilotService.SetBaseDirForTesting()` to redirect ALL file I/O (organization.json, active-sessions.json, ui-state.json, etc.) to a per-process temp directory. This runs automatically before any test.
+
+**Why this matters:** Without isolation, tests that call `CreateGroup`, `SaveOrganization`, `FlushSaveActiveSessionsToDisk`, etc. overwrite the user's real data files — destroying squad groups, session metadata, and settings. This caused production data loss (squad groups destroyed) multiple times before the guard was added.
+
+**Guard tests:** `TestIsolationGuardTests.cs` contains 4 tests that verify isolation is active. If any of these fail, ALL other test results are suspect because they may have corrupted real user data.
+
+**When adding new file paths to CopilotService:** You MUST also clear the corresponding backing field in `SetBaseDirForTesting()`, or the new path will leak to the real filesystem.
+
+#### Other test safety rules
 - Tests must **NEVER** call `ConnectionSettings.Save()` or `ConnectionSettings.Load()` — these read/write `~/.polypilot/settings.json` which is shared with the running app.
 - All tests use `ReconnectAsync(settings)` with an in-memory settings object.
 - Never use `ConnectionMode.Embedded` in tests — it spawns real copilot processes. Use `ConnectionMode.Persistent` with port 19999 for deterministic failures, or `ConnectionMode.Demo` for success paths.

@@ -1,4 +1,6 @@
+using Microsoft.Extensions.DependencyInjection;
 using PolyPilot.Models;
+using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
@@ -890,4 +892,190 @@ public class AgentSessionInfoReflectionCycleTests
         Assert.Equal(expectedMax, maxIterations);
         Assert.Equal(expectedGoal, goal);
     }
+
+    #region StartGroupReflection Guard
+
+    private CopilotService CreateService()
+    {
+        var services = new ServiceCollection();
+        return new CopilotService(
+            new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+            new RepoManager(), services.BuildServiceProvider(), new StubDemoService());
+    }
+
+    [Fact]
+    public void StartGroupReflection_SkipsIfAlreadyActive()
+    {
+        var svc = CreateService();
+        var group = new SessionGroup { Id = "g1", Name = "Test", IsMultiAgent = true };
+        svc.Organization.Groups.Add(group);
+
+        svc.StartGroupReflection("g1", "First goal", 3);
+        Assert.NotNull(group.ReflectionState);
+        Assert.Equal("First goal", group.ReflectionState!.Goal);
+        Assert.True(group.ReflectionState.IsActive);
+
+        // Calling again should NOT overwrite
+        svc.StartGroupReflection("g1", "Second goal", 5);
+        Assert.Equal("First goal", group.ReflectionState.Goal);
+        Assert.Equal(3, group.ReflectionState.MaxIterations);
+    }
+
+    [Fact]
+    public void StartGroupReflection_AllowsAfterCancellation()
+    {
+        var svc = CreateService();
+        var group = new SessionGroup { Id = "g1", Name = "Test", IsMultiAgent = true };
+        svc.Organization.Groups.Add(group);
+
+        svc.StartGroupReflection("g1", "First goal", 3);
+        svc.StopGroupReflection("g1");
+        Assert.True(group.ReflectionState!.IsCancelled);
+
+        // Now should allow a new reflection
+        svc.StartGroupReflection("g1", "Second goal", 5);
+        Assert.Equal("Second goal", group.ReflectionState.Goal);
+        Assert.True(group.ReflectionState.IsActive);
+        Assert.False(group.ReflectionState.IsCancelled);
+    }
+
+    #endregion
+
+    #region Sentinel Stripping in Synthesis
+
+    [Fact]
+    public void SentinelStripping_ReplacesGroupReflectComplete()
+    {
+        // Verify the replacement logic used in BuildSynthesisPrompt
+        var workerResponse = "The implementation looks good.\n[[GROUP_REFLECT_COMPLETE]]\nAll tests pass.";
+        var sanitized = workerResponse.Replace("[[GROUP_REFLECT_COMPLETE]]", "[WORKER_APPROVED]", StringComparison.OrdinalIgnoreCase);
+
+        Assert.DoesNotContain("[[GROUP_REFLECT_COMPLETE]]", sanitized);
+        Assert.Contains("[WORKER_APPROVED]", sanitized);
+        Assert.Contains("The implementation looks good.", sanitized);
+        Assert.Contains("All tests pass.", sanitized);
+    }
+
+    [Fact]
+    public void SentinelStripping_CaseInsensitive()
+    {
+        var workerResponse = "Done. [[group_reflect_complete]]";
+        var sanitized = workerResponse.Replace("[[GROUP_REFLECT_COMPLETE]]", "[WORKER_APPROVED]", StringComparison.OrdinalIgnoreCase);
+
+        Assert.DoesNotContain("[[group_reflect_complete]]", sanitized, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("[WORKER_APPROVED]", sanitized);
+    }
+
+    [Fact]
+    public void SentinelStripping_PreservesNeedsIteration()
+    {
+        var workerResponse = "Issues found:\n[[NEEDS_ITERATION]]\n1. Missing error handling";
+        var sanitized = workerResponse.Replace("[[GROUP_REFLECT_COMPLETE]]", "[WORKER_APPROVED]", StringComparison.OrdinalIgnoreCase);
+
+        // NEEDS_ITERATION should not be affected by the stripping
+        Assert.Contains("[[NEEDS_ITERATION]]", sanitized);
+        Assert.Contains("Missing error handling", sanitized);
+    }
+
+    [Fact]
+    public void SentinelStripping_HandlesNull()
+    {
+        string? workerResponse = null;
+        var sanitized = workerResponse?.Replace("[[GROUP_REFLECT_COMPLETE]]", "[WORKER_APPROVED]", StringComparison.OrdinalIgnoreCase) ?? "";
+        Assert.Equal("", sanitized);
+    }
+
+    #endregion
+
+    #region BuildSynthesisPrompt Sentinel Stripping
+
+    [Fact]
+    public void BuildSynthesisPrompt_StripsSentinelFromWorkerResponse()
+    {
+        var svc = CreateService();
+        var method = typeof(CopilotService).GetMethod("BuildSynthesisPrompt",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(method);
+
+        // Create WorkerResult via reflection since it's a private record
+        var workerResultType = typeof(CopilotService).GetNestedType("WorkerResult",
+            System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(workerResultType);
+
+        var workerResponse = "Review looks great! All tests pass.\n[[GROUP_REFLECT_COMPLETE]]\nFinal notes here.";
+        var result = Activator.CreateInstance(workerResultType!, "worker-1", workerResponse, true, (string?)null, TimeSpan.FromSeconds(5));
+        var results = (System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(workerResultType!))!;
+        results.Add(result!);
+
+        var synthesisPrompt = (string)method!.Invoke(svc, new object[] { "Review this PR", results })!;
+
+        Assert.DoesNotContain("[[GROUP_REFLECT_COMPLETE]]", synthesisPrompt);
+        Assert.Contains("[WORKER_APPROVED]", synthesisPrompt);
+        Assert.Contains("Review looks great!", synthesisPrompt);
+        Assert.Contains("Final notes here.", synthesisPrompt);
+    }
+
+    [Fact]
+    public void BuildSynthesisPrompt_StripsMultipleSentinelOccurrences()
+    {
+        var svc = CreateService();
+        var method = typeof(CopilotService).GetMethod("BuildSynthesisPrompt",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(method);
+
+        var workerResultType = typeof(CopilotService).GetNestedType("WorkerResult",
+            System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(workerResultType);
+
+        var workerResponse = "[[GROUP_REFLECT_COMPLETE]] middle text [[GROUP_REFLECT_COMPLETE]]";
+        var result = Activator.CreateInstance(workerResultType!, "worker-1", workerResponse, true, (string?)null, TimeSpan.FromSeconds(1));
+        var results = (System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(workerResultType!))!;
+        results.Add(result!);
+
+        var synthesisPrompt = (string)method!.Invoke(svc, new object[] { "task", results })!;
+
+        Assert.DoesNotContain("[[GROUP_REFLECT_COMPLETE]]", synthesisPrompt);
+        // Both occurrences should be replaced
+        Assert.Equal(2, synthesisPrompt.Split("[WORKER_APPROVED]").Length - 1);
+    }
+
+    #endregion
+
+    #region ReflectionCycle Cancellation Tests
+
+    [Fact]
+    public void ReflectionCycle_IsCancelled_StillClearsIsActive()
+    {
+        // Verify the data contract: if IsCancelled is set, IsActive should also be clearable.
+        // The actual cleanup happens in SendViaOrchestratorReflectAsync's finally block,
+        // but we verify the model supports both states simultaneously.
+        var cycle = ReflectionCycle.Create("Fix bug");
+        Assert.True(cycle.IsActive);
+
+        // Simulate cancellation path: set IsCancelled without clearing IsActive first
+        cycle.IsCancelled = true;
+        Assert.True(cycle.IsActive); // still active until finally clears it
+
+        // Simulate finally block cleanup
+        cycle.IsActive = false;
+        cycle.CompletedAt = DateTime.Now;
+
+        Assert.False(cycle.IsActive);
+        Assert.True(cycle.IsCancelled);
+        Assert.NotNull(cycle.CompletedAt);
+    }
+
+    [Fact]
+    public void ReflectionCycle_CompletionSummary_WhenCancelled()
+    {
+        var cycle = ReflectionCycle.Create("Fix bug");
+        cycle.IsCancelled = true;
+        cycle.IsActive = false;
+        cycle.CompletedAt = DateTime.Now;
+
+        var summary = cycle.BuildCompletionSummary();
+        Assert.Contains("cancelled", summary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    #endregion
 }

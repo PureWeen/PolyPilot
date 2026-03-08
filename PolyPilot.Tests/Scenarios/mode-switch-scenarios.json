@@ -8,7 +8,7 @@
   "scenarios": [
     {
       "id": "mode-switch-persistent-to-embedded-and-back",
-      "name": "Sessions survive Persistent → Embedded → Persistent round trip",
+      "name": "Sessions survive Persistent \u2192 Embedded \u2192 Persistent round trip",
       "steps": [
         {
           "action": "evaluate",
@@ -23,78 +23,110 @@
             "action": "evaluate",
             "script": "document.querySelector('.status')?.textContent?.trim()"
           },
-          "expect": { "contains": "Persistent" }
+          "expect": {
+            "contains": "Persistent"
+          }
         },
         {
           "action": "click",
           "selector": "a[href='/settings']"
         },
-        { "action": "wait", "ms": 1000 },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
         {
           "action": "click",
           "selector": ".mode-card:first-child",
           "note": "Select Embedded mode"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('.mode-card.selected .mode-title')?.textContent",
-          "expect": { "equals": "Embedded" }
+          "expect": {
+            "equals": "Embedded"
+          }
         },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'",
           "note": "Click Save & Reconnect"
         },
-        { "action": "wait", "ms": 15000 },
+        {
+          "action": "wait",
+          "ms": 15000
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": { "contains": "Embedded" }
+          "expect": {
+            "contains": "Embedded"
+          }
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.className",
-          "expect": { "contains": "connected" }
+          "expect": {
+            "contains": "connected"
+          }
         },
         {
           "action": "click",
           "selector": ".mode-card:nth-child(2)",
           "note": "Select Persistent mode"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 15000 },
+        {
+          "action": "wait",
+          "ms": 15000
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": { "contains": "Persistent" }
+          "expect": {
+            "contains": "Persistent"
+          }
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.className",
-          "expect": { "contains": "connected" }
+          "expect": {
+            "contains": "connected"
+          }
         },
         {
           "action": "click",
           "selector": "a[href='/']",
           "note": "Navigate back to dashboard"
         },
-        { "action": "wait", "ms": 2000 },
+        {
+          "action": "wait",
+          "ms": 2000
+        },
         {
           "action": "evaluate",
           "script": "document.querySelectorAll('.session-item').length + Array.from(document.querySelectorAll('.group-count')).reduce((sum, el) => sum + parseInt(el.textContent.trim() || '0'), 0)",
           "note": "Total sessions = visible items + collapsed counts. Compare with initial.",
-          "expect": { "greaterThanOrEqual": "initialSessionCount" }
+          "expect": {
+            "greaterThanOrEqual": "initialSessionCount"
+          }
         }
       ]
     },
     {
       "id": "mode-switch-rapid-no-session-loss",
-      "name": "Rapid Embedded↔Persistent switching preserves active-sessions.json",
+      "name": "Rapid Embedded\u2194Persistent switching preserves active-sessions.json",
       "steps": [
         {
           "action": "shell",
@@ -105,33 +137,50 @@
           "action": "click",
           "selector": "a[href='/settings']"
         },
-        { "action": "wait", "ms": 1000 },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
         {
           "action": "click",
           "selector": ".mode-card:first-child",
           "note": "Embedded"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 10000 },
+        {
+          "action": "wait",
+          "ms": 10000
+        },
         {
           "action": "click",
           "selector": ".mode-card:nth-child(2)",
           "note": "Back to Persistent immediately"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 15000 },
+        {
+          "action": "wait",
+          "ms": 15000
+        },
         {
           "action": "shell",
           "command": "python3 -c \"import json,os; print(len(json.load(open(os.path.expanduser('~/.polypilot/active-sessions.json')))))\"",
-          "expect": { "equals": "initialJsonCount" }
+          "expect": {
+            "equals": "initialJsonCount"
+          }
         }
       ]
     },
@@ -143,13 +192,19 @@
           "action": "click",
           "selector": "a[href='/settings']"
         },
-        { "action": "wait", "ms": 1000 },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
         {
           "action": "click",
           "selector": ".mode-card:nth-child(2)",
           "note": "Persistent mode"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('input[placeholder*=\"Port\"]').value = '19999'; document.querySelector('input[placeholder*=\"Port\"]').dispatchEvent(new Event('change')); 'set'",
@@ -159,11 +214,16 @@
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 10000 },
+        {
+          "action": "wait",
+          "ms": 10000
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.className",
-          "expect": { "notContains": "connected" },
+          "expect": {
+            "notContains": "connected"
+          },
           "note": "Status should NOT show connected"
         }
       ]
@@ -176,38 +236,57 @@
           "action": "click",
           "selector": "a[href='/settings']"
         },
-        { "action": "wait", "ms": 1000 },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
         {
           "action": "click",
           "selector": ".mode-card:nth-child(2)",
           "note": "Persistent"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 10000 },
+        {
+          "action": "wait",
+          "ms": 10000
+        },
         {
           "action": "click",
           "selector": ".mode-card:last-child",
           "note": "Switch to Demo mode (last card)"
         },
-        { "action": "wait", "ms": 500 },
+        {
+          "action": "wait",
+          "ms": 500
+        },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim().includes('Save & Reconnect'))?.click(); 'clicked'"
         },
-        { "action": "wait", "ms": 5000 },
+        {
+          "action": "wait",
+          "ms": 5000
+        },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.className",
-          "expect": { "contains": "connected" }
+          "expect": {
+            "contains": "connected"
+          }
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": { "contains": "Demo" }
+          "expect": {
+            "contains": "Demo"
+          }
         }
       ]
     },
@@ -223,13 +302,17 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.className",
-          "expect": { "contains": "connected" }
+          "expect": {
+            "contains": "connected"
+          }
         },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('.group-count')).reduce((sum, el) => sum + parseInt(el.textContent.trim() || '0'), 0)",
           "note": "Sum all group counts (includes collapsed groups)",
-          "expect": { "greaterThanOrEqual": "expectedCount" }
+          "expect": {
+            "greaterThanOrEqual": "expectedCount"
+          }
         }
       ]
     },
@@ -264,13 +347,17 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
-          "expect": { "equals": "System" },
+          "expect": {
+            "equals": "System"
+          },
           "note": "Verify System is now selected"
         },
         {
           "action": "shell",
           "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['CliSource'])\"",
-          "expect": { "equals": "1" },
+          "expect": {
+            "equals": "1"
+          },
           "note": "Verify CliSource=1 (System) persisted to disk"
         },
         {
@@ -285,7 +372,9 @@
         {
           "action": "shell",
           "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['CliSource'])\"",
-          "expect": { "equals": "0" },
+          "expect": {
+            "equals": "0"
+          },
           "note": "Verify CliSource=0 (BuiltIn) persisted to disk"
         }
       ]
@@ -315,7 +404,9 @@
         {
           "action": "shell",
           "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['Mode'])\"",
-          "expect": { "equals": "0" },
+          "expect": {
+            "equals": "0"
+          },
           "note": "Verify Mode=0 (Embedded) persisted immediately"
         },
         {
@@ -330,7 +421,9 @@
         {
           "action": "shell",
           "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)['Mode'])\"",
-          "expect": { "equals": "1" },
+          "expect": {
+            "equals": "1"
+          },
           "note": "Verify Mode=1 (Persistent) persisted immediately"
         }
       ]
@@ -351,7 +444,9 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.bug-report-btn')?.textContent?.trim()",
-          "expect": { "contains": "Report Bug" },
+          "expect": {
+            "contains": "Report Bug"
+          },
           "note": "Verify bug report button exists in sidebar"
         },
         {
@@ -366,19 +461,25 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.bug-report-inline') !== null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Verify inline form opened"
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.bug-report-textarea') !== null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Verify textarea exists"
         },
         {
           "action": "evaluate",
           "script": "document.querySelector('.bug-report-submit') !== null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Verify submit button exists"
         }
       ]
@@ -399,13 +500,17 @@
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('.sidebar-toolbar .new-group-btn')).some(b => b.textContent.includes('Refresh'))",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Verify refresh button exists"
         },
         {
           "action": "evaluate",
           "script": "(() => { const btn = Array.from(document.querySelectorAll('.sidebar-toolbar .new-group-btn')).find(b => b.textContent.includes('Refresh')); if (!btn) return 'missing'; btn.click(); return 'clicked'; })()",
-          "expect": { "equals": "clicked" },
+          "expect": {
+            "equals": "clicked"
+          },
           "note": "Click refresh button"
         },
         {
@@ -415,7 +520,9 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.sidebar-toolbar') !== null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Verify toolbar remains available after refresh"
         }
       ]
@@ -436,7 +543,9 @@
         {
           "action": "evaluate",
           "script": "document.querySelectorAll('.session-item').length > 0",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "At least one session exists"
         },
         {
@@ -447,7 +556,9 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.chat-input textarea') !== null",
-          "expect": { "equals": "true" }
+          "expect": {
+            "equals": "true"
+          }
         },
         {
           "action": "type",
@@ -470,7 +581,7 @@
         },
         {
           "action": "note",
-          "text": "To fully test: kill the persistent server process while session is processing, then wait up to 2 minutes for the watchdog to detect inactivity and clear the stuck state (10 min if a tool is running). The session should show a system message: 'Session appears stuck — no response received.'"
+          "text": "To fully test: kill the persistent server process while session is processing, then wait up to 2 minutes for the watchdog to detect inactivity and clear the stuck state (10 min if a tool is running). The session should show a system message: 'Session appears stuck \u2014 no response received.'"
         },
         {
           "action": "wait",
@@ -480,13 +591,17 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.action-item.running') === null",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "Processing indicator should be gone after watchdog fires"
         },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('.chat-msg')).some(el => el.textContent.includes('appears stuck'))",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "System message about stuck session should appear in chat"
         }
       ]
@@ -523,20 +638,835 @@
         {
           "action": "evaluate",
           "script": "document.querySelector('.status')?.textContent?.trim()",
-          "expect": { "not_contains": "Disconnected" },
+          "expect": {
+            "not_contains": "Disconnected"
+          },
           "note": "App should be connected (Persistent or Embedded fallback)"
         },
         {
           "action": "evaluate",
           "script": "document.querySelectorAll('.session-item').length > 0",
-          "expect": { "equals": "true" },
-          "note": "Sessions should be visible after relaunch — not silently lost"
+          "expect": {
+            "equals": "true"
+          },
+          "note": "Sessions should be visible after relaunch \u2014 not silently lost"
         },
         {
           "action": "evaluate",
           "script": "Array.from(document.querySelectorAll('.session-item')).filter(el => el.querySelector('.processing')).length === 0",
-          "expect": { "equals": "true" },
+          "expect": {
+            "equals": "true"
+          },
           "note": "No sessions should be stuck in processing state after relaunch"
+        }
+      ]
+    },
+    {
+      "id": "abort-clears-queue-and-status",
+      "name": "Stop button clears message queue and processing status",
+      "description": "When user clicks Stop on an active session, the message queue is cleared so no more messages auto-send, and processing status fields (elapsed time, tool rounds) are reset.",
+      "category": "session-management",
+      "unitTestCoverage": [
+        "ProcessingWatchdogTests.AbortSessionAsync_ClearsQueueAndProcessingStatus",
+        "ProcessingWatchdogTests.AbortSessionAsync_WorksRegardlessOfGeneration"
+      ],
+      "steps": [
+        {
+          "action": "note",
+          "note": "A session must be actively processing (IsProcessing=true)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.send-btn.stop-btn') !== null",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "Stop button should be visible for processing sessions"
+        },
+        {
+          "action": "click",
+          "target": ".send-btn.stop-btn",
+          "note": "Click the stop button"
+        },
+        {
+          "action": "evaluate",
+          "script": "!document.querySelector('.expanded-card.processing')",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "Session card should no longer show processing state after stop"
+        }
+      ]
+    },
+    {
+      "id": "processing-status-indicator",
+      "name": "Processing sessions show elapsed time and tool round count",
+      "description": "When a session is processing, the UI shows a status indicator with elapsed time and tool round count. Before the first SDK event, it shows 'Waiting for first response'. Processing status fields are synced via bridge to mobile.",
+      "category": "session-management",
+      "unitTestCoverage": [
+        "AgentSessionInfoTests.NewSession_HasDefaultProcessingStatusFields",
+        "AgentSessionInfoTests.ProcessingStatusFields_CanBeSetAndCleared",
+        "BridgeMessageTests.Serialize_CamelCaseNaming",
+        "BridgeMessageTests.SessionsListPayload_RoundTrip"
+      ],
+      "steps": [
+        {
+          "action": "note",
+          "note": "A session must be actively processing"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.expanded-card.processing') !== null",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "Active session should show processing card state"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.processing-status') !== null || document.querySelector('.chat-message-list')?.textContent?.includes('Working') || document.querySelector('.chat-message-list')?.textContent?.includes('Waiting')",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "Processing status text (elapsed time / tool rounds / waiting) should be visible"
+        }
+      ]
+    },
+    {
+      "id": "stale-session-not-marked-processing-on-restore",
+      "name": "Stale sessions are NOT marked as processing on restore",
+      "description": "When a session's events.jsonl hasn't been modified in over 10 minutes, the session should not be restored with IsProcessing=true, even if the last event was an 'active' type. This prevents hours-old sessions from showing a permanent 'Thinking' indicator.",
+      "unitTestCoverage": [
+        "StuckSessionRecoveryTests.IsSessionStillProcessing_StaleFile_ReturnsFalse",
+        "StuckSessionRecoveryTests.IsSessionStillProcessing_RecentFile_ActiveEvent_ReturnsTrue",
+        "StuckSessionRecoveryTests.IsSessionStillProcessing_RecentFile_IdleEvent_ReturnsFalse",
+        "StuckSessionRecoveryTests.StalenessThreshold_UsesWatchdogToolExecutionTimeout"
+      ],
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.className",
+          "expect": {
+            "contains": "connected"
+          },
+          "note": "App should be connected"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.session-card.processing, .session-item .processing-dot')).length",
+          "note": "Count sessions showing processing state \u2014 stale sessions should not be here"
+        },
+        {
+          "action": "note",
+          "text": "Manual verification: check debug info for any sessions with IsProcessing=true where LastUpdatedAt is over 10 minutes old. Such sessions should have been detected as stale during restore."
+        }
+      ]
+    },
+    {
+      "id": "saved-sessions-visible-on-desktop",
+      "name": "Saved Sessions section visible on desktop with session count",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/']",
+          "note": "Navigate to dashboard"
+        },
+        {
+          "action": "wait",
+          "ms": 2000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.section-header-label')?.textContent?.trim()",
+          "expect": {
+            "matches": "Saved Sessions \\(\\d+\\)"
+          },
+          "note": "Section header shows 'Saved Sessions (N)' with non-zero count"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.toggle-icon')?.textContent?.trim()",
+          "expect": {
+            "equals": "\u25b6"
+          },
+          "note": "Section starts collapsed"
+        },
+        {
+          "action": "click",
+          "selector": ".section-header",
+          "note": "Expand saved sessions section"
+        },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.toggle-icon')?.textContent?.trim()",
+          "expect": {
+            "equals": "\u25bc"
+          },
+          "note": "Section is now expanded"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-item.persisted').length",
+          "expect": {
+            "greaterThan": 0
+          },
+          "note": "At least one persisted session item is rendered"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.filter-input')?.placeholder",
+          "expect": {
+            "equals": "Filter sessions..."
+          },
+          "note": "Filter input is visible when expanded"
+        }
+      ]
+    },
+    {
+      "id": "settings-qr-code-blur",
+      "name": "QR code and token have independent blur toggles",
+      "steps": [
+        {
+          "action": "note",
+          "note": "Navigate to /settings page. Requires an active DevTunnel to see QR code."
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.qr-code img')?.classList.contains('blurred')",
+          "expect": {
+            "equals": true
+          },
+          "note": "QR code image is blurred by default (showQrCode=false)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.token-value')?.classList.contains('blurred')",
+          "expect": {
+            "equals": true
+          },
+          "note": "Token value is also blurred by default (showToken=false)"
+        },
+        {
+          "action": "click",
+          "selector": ".qr-code .qr-reveal-btn",
+          "note": "Click the QR-specific reveal button (independent from token reveal)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.qr-code img')?.classList.contains('blurred')",
+          "expect": {
+            "equals": false
+          },
+          "note": "QR code is revealed after clicking its own reveal button"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.token-value')?.classList.contains('blurred')",
+          "expect": {
+            "equals": true
+          },
+          "note": "Token remains blurred \u2014 QR and token toggles are independent"
+        }
+      ]
+    },
+    {
+      "id": "cli-source-builtin-card-not-disabled-with-system-fallback",
+      "name": "Built-in CLI card is selectable when bundled CLI is missing but system CLI exists (fallback)",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/settings']",
+          "note": "Navigate to Settings"
+        },
+        {
+          "action": "wait",
+          "duration": 2000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.cli-card')[0].classList.contains('disabled')",
+          "expect": {
+            "equals": "false"
+          },
+          "note": "Built-in card should NOT be disabled even if bundled CLI is missing (system fallback exists)"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.cli-card')[1].click()",
+          "note": "Click System CLI card"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+          "expect": {
+            "equals": "System"
+          },
+          "note": "Verify System is now selected"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.cli-card')[0].click()",
+          "note": "Click Built-in card to switch back"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.cli-card.selected .cli-card-label')?.textContent",
+          "expect": {
+            "equals": "Built-in"
+          },
+          "note": "Verify Built-in is selected again (this was the bug: could not switch back)"
+        },
+        {
+          "action": "shell",
+          "command": "cat ~/.polypilot/settings.json | python3 -c \"import sys,json; print(json.load(sys.stdin)[\\\"CliSource\\\"])\"",
+          "expect": {
+            "equals": "0"
+          },
+          "note": "Verify CliSource=0 (BuiltIn) persisted to disk after switching back"
+        }
+      ]
+    },
+    {
+      "id": "shell-command-uses-platform-shell",
+      "name": "Bang commands use platform-appropriate shell (cmd.exe on Windows, /bin/bash on Mac/Linux)",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.chat-input textarea') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Chat input is present"
+        },
+        {
+          "action": "type",
+          "selector": ".chat-input textarea",
+          "text": "!echo hello"
+        },
+        {
+          "action": "click",
+          "selector": ".chat-input .send-btn",
+          "note": "Send the shell command"
+        },
+        {
+          "action": "wait",
+          "duration": 3000,
+          "note": "Wait for shell command to execute"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.shell-output')?.textContent?.includes('hello')",
+          "expect": {
+            "equals": true
+          },
+          "note": "Shell output contains the echoed text, confirming the platform shell executed successfully"
+        }
+      ]
+    },
+    {
+      "id": "session-menu-closes-on-click-outside",
+      "name": "Session contextual menu (\u22ef) closes when clicking outside, including main content area",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.more-btn').length > 0",
+          "expect": {
+            "equals": true
+          },
+          "note": "At least one session exists with a more-btn"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.more-btn')[0].dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true})); true",
+          "note": "Open the session menu"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-menu').length",
+          "expect": {
+            "equals": 1
+          },
+          "note": "Session menu is open"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('main').dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true})); true",
+          "note": "Click in the main content area (outside sidebar)"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.session-menu').length",
+          "expect": {
+            "equals": 0
+          },
+          "note": "Session menu closed after clicking outside in main content area"
+        }
+      ]
+    },
+    {
+      "id": "custom-agent-popup-click-to-use",
+      "name": "Custom agents popup is clickable and inserts @agent-name into textarea",
+      "steps": [
+        {
+          "action": "note",
+          "text": "Prerequisite: working directory must contain .github/agents/my-agent.md"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('[data-trigger=\"agents\"]')?.textContent",
+          "expect": {
+            "contains": "agents"
+          }
+        },
+        {
+          "action": "click",
+          "selector": "[data-trigger=\"agents\"]"
+        },
+        {
+          "action": "wait",
+          "ms": 300
+        },
+        {
+          "action": "evaluate",
+          "script": "document.getElementById('skills-popup-overlay') !== null",
+          "expect": {
+            "equals": true
+          }
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('#skills-popup-overlay')?.textContent?.includes('click to use')",
+          "expect": {
+            "equals": true
+          },
+          "note": "Header should say 'Available Agents (click to use)'"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.agent-row') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Agent rows should have class 'agent-row' and be clickable"
+        },
+        {
+          "action": "evaluate",
+          "script": "(function(){ var row = document.querySelector('.agent-row'); var name = row?.getAttribute('data-agent'); row?.click(); return name; })()",
+          "capture": "clickedAgentName"
+        },
+        {
+          "action": "wait",
+          "ms": 200
+        },
+        {
+          "action": "evaluate",
+          "script": "document.getElementById('skills-popup-overlay') === null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Popup should close after clicking an agent"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.chat-input textarea')?.value",
+          "expect": {
+            "matchesPattern": "^@.+ $"
+          },
+          "note": "Textarea should contain '@agent-name ' ready for the user to type their message"
+        }
+      ]
+    },
+    {
+      "id": "group-menu-closes-on-click-outside",
+      "name": "Group contextual menu closes when clicking outside, including main content area",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.group-more-btn').length > 0",
+          "expect": {
+            "equals": true
+          },
+          "note": "At least one group exists with a more-btn"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.group-more-btn')[0].dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true})); true",
+          "note": "Open the group menu"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.group-menu').length",
+          "expect": {
+            "equals": 1
+          },
+          "note": "Group menu is open"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('main').dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true})); true",
+          "note": "Click in the main content area"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.group-menu').length",
+          "expect": {
+            "equals": 0
+          },
+          "note": "Group menu closed after clicking outside in main content area"
+        }
+      ]
+    },
+    {
+      "id": "cmd-comma-opens-settings",
+      "name": "Cmd+, keyboard shortcut navigates to Settings page",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.settings-page')",
+          "expect": {
+            "equals": null
+          },
+          "note": "Not on settings page initially"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.dispatchEvent(new KeyboardEvent('keydown', {key: ',', metaKey: true, bubbles: true})); true",
+          "note": "Simulate Cmd+,"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.settings-page') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Settings page is now displayed"
+        }
+      ]
+    },
+    {
+      "id": "statistics-popup-opens-from-sidebar",
+      "name": "Statistics popup opens when clicking chart icon in sidebar header",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.stats-popup-overlay.open')",
+          "expect": {
+            "equals": null
+          },
+          "note": "Statistics popup is initially closed"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('button[title=\"Statistics\"]').click(); true",
+          "note": "Click the statistics icon button"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.stats-popup-overlay.open') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Statistics popup is now open"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.stats-popup-header h3')?.textContent",
+          "expect": {
+            "equals": "Usage Statistics"
+          },
+          "note": "Popup displays correct title"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.stats-popup-overlay').click(); true",
+          "note": "Click overlay to close"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.stats-popup-overlay.open')",
+          "expect": {
+            "equals": null
+          },
+          "note": "Statistics popup is closed again"
+        }
+      ]
+    },
+    {
+      "id": "settings-category-nav-scrolls-to-section",
+      "name": "Settings page category navigation scrolls to the selected section",
+      "steps": [
+        {
+          "action": "evaluate",
+          "note": "Navigate to settings page",
+          "script": "window.location.href = '/settings'; true"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.settings-nav') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Category nav is visible"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.settings-nav-item.active')?.textContent?.trim()",
+          "note": "Check which category is active"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.settings-nav-item')[2]?.click(); true",
+          "note": "Click the UI category nav item"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.getElementById('settings-ui') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "UI settings section exists with correct id"
+        }
+      ]
+    },
+    {
+      "id": "settings-no-statistics-section",
+      "name": "Settings page no longer contains Statistics section",
+      "steps": [
+        {
+          "action": "evaluate",
+          "note": "Navigate to settings page",
+          "script": "window.location.href = '/settings'; true"
+        },
+        {
+          "action": "wait",
+          "duration": 1000
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.group-title')).map(e => e.textContent)",
+          "capture": "groupTitles",
+          "note": "Get all group titles"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.group-title')).some(e => e.textContent === 'Statistics')",
+          "expect": {
+            "equals": false
+          },
+          "note": "Statistics is not a settings group"
+        }
+      ]
+    },
+    {
+      "id": "settings-data-driven-ui-rendering",
+      "name": "Settings page UI section is rendered from SettingsRegistry descriptors",
+      "steps": [
+        {
+          "action": "evaluate",
+          "note": "Navigate to settings page",
+          "script": "window.location.href = '/settings'; true"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "note": "UI group should contain data-driven setting rows",
+          "script": "document.querySelector('#settings-ui .setting-row, #settings-ui .setting-row-vertical') !== null",
+          "expect": {
+            "equals": true
+          }
+        },
+        {
+          "action": "evaluate",
+          "note": "Search bar should be full-width in header",
+          "script": "document.querySelector('.settings-search .search-input') !== null",
+          "expect": {
+            "equals": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "settings-search-filters-individual-settings",
+      "name": "Settings search filters individual setting rows",
+      "steps": [
+        {
+          "action": "evaluate",
+          "note": "Navigate to settings page",
+          "script": "window.location.href = '/settings'; true"
+        },
+        {
+          "action": "wait",
+          "duration": 500
+        },
+        {
+          "action": "evaluate",
+          "note": "Type font into search and trigger input event",
+          "script": "var el = document.getElementById('settings-search'); el.value = 'font'; el.dispatchEvent(new Event('input')); true"
+        },
+        {
+          "action": "wait",
+          "duration": 300
+        },
+        {
+          "action": "evaluate",
+          "note": "Font size setting should still be visible after searching",
+          "script": "document.querySelector('.search-hidden') !== null || document.querySelectorAll('.setting-row').length > 0",
+          "expect": {
+            "equals": true
+          }
+        }
+      ]
+    }
+,
+    {
+      "id": "vscode-remote-tunnels-in-remote-mode",
+      "name": "VS Code opens with Remote - Tunnels when in remote mode",
+      "description": "When connected to a remote PolyPilot server, clicking the VS Code context menu item should open VS Code with --folder-uri vscode-remote://tunnel+<serverMachineName>/<path> so it connects via the Remote - Tunnels extension instead of opening a local path.",
+      "category": "remote-mode",
+      "unitTestCoverage": [
+        "PlatformHelperTests.BuildVSCodeRemoteFolderUri_RemoteMode_UnixPath",
+        "PlatformHelperTests.BuildVSCodeRemoteFolderUri_RemoteMode_WindowsPath",
+        "PlatformHelperTests.BuildVSCodeRemoteFolderUri_NotRemoteMode_ReturnsNull",
+        "PlatformHelperTests.BuildVSCodeRemoteFolderUri_NullMachineName_ReturnsNull",
+        "PlatformHelperTests.BuildVSCodeRemoteFolderUri_EmptyMachineName_ReturnsNull",
+        "PlatformHelperTests.BuildVSCodeRemoteFolderUri_NullPath_ReturnsNull",
+        "RemoteModeTests.SessionsListPayload_ServerMachineName_RoundTrip",
+        "RemoteModeTests.SessionsListPayload_NullServerMachineName_OmittedInJson",
+        "RemoteModeTests.SessionsListPayload_LegacyPayload_WithoutServerMachineName"
+      ],
+      "steps": [
+        {
+          "action": "note",
+          "note": "Prerequisites: App must be in Remote mode connected to a remote server"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.status')?.textContent?.includes('Remote')",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "App is in Remote mode"
+        },
+        {
+          "action": "click",
+          "selector": ".session-item",
+          "note": "Right-click or long-press to open context menu"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.menu-item')?.textContent?.includes('VS Code')",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "VS Code menu item is visible in the context menu"
+        }
+      ]
+    }
+,
+    {
+      "id": "info-popover-not-clipped-by-main-pane",
+      "name": "Sidebar content has overflow:visible so info popover is not clipped",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "getComputedStyle(document.querySelector('.sidebar-content')).overflow",
+          "expect": {
+            "contains": "visible"
+          },
+          "note": ".sidebar-content must have overflow:visible so the absolutely-positioned info popover can render outside sidebar bounds without being clipped"
+        }
+      ]
+    },
+    {
+      "id": "right-click-opens-session-menu",
+      "name": "Right-click on session item opens the ⋯ menu",
+      "description": "Right-clicking (contextual click) on a session in the left pane should open the same ⋯ menu that the ellipsis button opens, and suppress the browser default context menu.",
+      "category": "ui-interaction",
+      "unitTestCoverage": [
+        "RightClickContextMenuTests.SessionListItem_HasContextMenuHandler",
+        "RightClickContextMenuTests.SessionListItem_PreventsDefaultContextMenu",
+        "RightClickContextMenuTests.SessionListItem_HasOpenContextMenuMethod"
+      ],
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.session-item') !== null",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "At least one session item exists in the sidebar"
+        },
+        {
+          "action": "evaluate",
+          "script": "var item = document.querySelector('.session-item'); var evt = new MouseEvent('contextmenu', {bubbles: true, cancelable: true}); var prevented = !item.dispatchEvent(evt); prevented",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "contextmenu event is preventDefault'd on session items"
+        },
+        {
+          "action": "wait",
+          "ms": 200,
+          "note": "Allow Blazor async event handler and re-render to complete before checking DOM"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.session-menu') !== null",
+          "expect": {
+            "equals": "true"
+          },
+          "note": "The session menu is visible after right-click"
         }
       ]
     }

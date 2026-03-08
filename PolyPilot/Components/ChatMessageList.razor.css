@@ -121,6 +121,36 @@
     margin-bottom: 0;
 }
 
+::deep .orchestration-prompt-details {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+}
+
+::deep .orchestration-prompt-details summary {
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 0.75rem;
+    user-select: none;
+}
+
+::deep .orchestration-prompt-details summary:hover {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+::deep .orchestration-prompt-details .orchestration-prompt-content {
+    margin-top: 0.4rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.55);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
 .chat-message-list.full ::deep .chat-msg.assistant .chat-msg-content {
     background: rgba(0, 195, 91, 0.06);
     border: 1px solid rgba(0, 195, 91, 0.12);
@@ -213,8 +243,12 @@
     justify-content: center;
 }
 
+.chat-message-list.full ::deep .chat-msg.system.system-multiline {
+    justify-content: flex-start;
+}
+
 .chat-message-list.full ::deep .system-text {
-    font-size: 12px;
+    font-size: var(--type-subhead);
     color: var(--text-muted);
     font-style: italic;
     text-align: center;
@@ -222,12 +256,17 @@
     opacity: 0.7;
 }
 
+.chat-message-list.full ::deep .chat-msg.system.system-multiline .system-text {
+    text-align: left;
+    font-style: normal;
+}
+
 .chat-message-list.full ::deep .chat-msg.reflection {
     justify-content: center;
 }
 
 .chat-message-list.full ::deep .reflection-text {
-    font-size: 11px;
+    font-size: var(--type-footnote);
     color: rgba(168, 85, 247, 0.7);
     font-weight: 500;
     text-align: center;
@@ -660,6 +699,8 @@
 
 ::deep .markdown-body code {
     background: var(--control-border);
+    color: var(--text-bright);
+    border: 1px solid var(--border-subtle);
     padding: 0.15em 0.3em;
     border-radius: 3px;
     font-size: 0.85em;
@@ -667,6 +708,8 @@
 
 ::deep .markdown-body pre {
     background: var(--bg-tertiary);
+    color: var(--text-bright);
+    border: 1px solid var(--control-border);
     padding: 0.75rem;
     border-radius: 6px;
     overflow-x: auto;
@@ -674,6 +717,8 @@
 
 ::deep .markdown-body pre code {
     background: none;
+    color: inherit;
+    border: none;
     padding: 0;
 }
 
@@ -884,13 +929,79 @@
 .chat-message-list.full.style-minimal ::deep .chat-msg.system {
     justify-content: center;
 }
+.chat-message-list.full.style-minimal ::deep .chat-msg.system.system-multiline {
+    justify-content: flex-start;
+}
 .chat-message-list.full.style-minimal ::deep .system-text {
-    font-size: 12px;
+    font-size: var(--type-subhead);
     text-align: center;
     padding: 0.2rem 0.5rem;
     opacity: 0.7;
 }
+.chat-message-list.full.style-minimal ::deep .chat-msg.system.system-multiline .system-text {
+    text-align: left;
+    font-style: normal;
+}
 .chat-message-list.full.style-minimal ::deep .chat-msg-time {
     font-size: 16px;
     opacity: 0.8;
+}
+
+/* Image bubble — clean presentation */
+::deep .image-bubble .image-bubble-content {
+    max-width: 480px;
+    border-radius: 12px;
+    overflow: hidden;
+}
+::deep .image-bubble .image-bubble-img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border-radius: 12px;
+    cursor: pointer;
+}
+::deep .image-bubble .image-bubble-caption {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+::deep .image-bubble .image-bubble-content.loading {
+    padding: 1rem;
+    color: var(--text-muted);
+    font-size: 0.9em;
+}
+@media (max-width: 640px) {
+    ::deep .image-bubble .image-bubble-content {
+        max-width: 100%;
+    }
+}
+
+/* Permission warning banner */
+.permission-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin: 8px 0;
+    background: rgba(255, 170, 0, 0.15);
+    border: 1px solid rgba(255, 170, 0, 0.3);
+    border-radius: 8px;
+    color: #ffaa00;
+    font-size: 0.85rem;
+}
+
+.reconnect-btn {
+    padding: 4px 12px;
+    background: rgba(255, 170, 0, 0.2);
+    border: 1px solid rgba(255, 170, 0, 0.4);
+    border-radius: 4px;
+    color: #ffaa00;
+    cursor: pointer;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.reconnect-btn:hover {
+    background: rgba(255, 170, 0, 0.3);
 }

@@ -1,16 +1,26 @@
 @using PolyPilot.Services
 @using PolyPilot.Models
 @using static PolyPilot.Components.Pages.Dashboard
+@using CommunityToolkit.Maui.Media
+@using System.Globalization
+@implements IAsyncDisposable
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
+@inject ISpeechToText SpeechToText
 
 @{
     var isCompleted = IsCompleted;
     var cardClass = Session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
+    var providerDisplayName = CopilotService.GetProviderSessionDisplayName(Session.Name);
+    var displayName = providerDisplayName ?? Session.Name;
 }
 <div class="expanded-card @cardClass" data-session="@Session.Name">
     <div class="chat-header">
-        <h2 class="chat-header-title">@Session.Name</h2>
+        <h2 class="chat-header-title">@displayName</h2>
+        @if (!string.IsNullOrEmpty(Session.GitBranch))
+        {
+            <span class="chat-header-branch" title="@Session.GitBranch">@Session.GitBranch</span>
+        }
         <div class="chat-header-badges">
             @if (Session.IsProcessing)
             {
@@ -105,11 +115,27 @@
 
     <div class="messages expanded-messages">
         @{ var expandedMessages = GetWindowedMessages(); }
-        @if (Session.History.Count > expandedMessages.Count)
+        @if (IsLoadingHistory)
         {
-            <button class="load-more-btn" @onclick="LoadMore">
-                ⬆️ Load more (@(Session.History.Count - expandedMessages.Count) remaining)
-            </button>
+            <div class="loading-history-indicator">
+                <div class="loading-history-spinner"></div>
+                <span>Loading conversation…</span>
+            </div>
+        }
+        else
+        {
+            @if (HasMoreRemoteHistory)
+            {
+                <button class="load-more-btn" @onclick="LoadFullHistory">
+                    ⬆️ Load rest of conversation
+                </button>
+            }
+            else if (Session.History.Count > expandedMessages.Count)
+            {
+                <button class="load-more-btn" @onclick="LoadMore">
+                    ⬆️ Load more (@(Session.History.Count - expandedMessages.Count) remaining)
+                </button>
+            }
         }
         <ChatMessageList Messages="expandedMessages"
                          StreamingContent="@StreamingContent"
@@ -117,10 +143,17 @@
                          ToolActivities="@ToolActivities"
                          ActivityText="@ActivityText"
                          IsProcessing="Session.IsProcessing"
+                         ProcessingStartedAt="Session.ProcessingStartedAt"
+                         ToolCallCount="Session.ToolCallCount"
+                         ProcessingPhase="Session.ProcessingPhase"
+                         LastActivityAt="Session.LastUpdatedAt"
                          Compact="false"
                          UserAvatarUrl="@UserAvatarUrl"
                          Layout="@Layout"
-                         Style="@Style" />
+                         Style="@Style"
+                         RepoUrl="@RepoUrl"
+                         HasPermissionIssue="Session.HasPermissionIssue"
+                         OnReconnectRequested="OnReconnectRequested" />
     </div>
 
     @if (!string.IsNullOrEmpty(Error))
@@ -132,6 +165,23 @@
     }
 
     <div class="input-area">
+        @if (_isListening)
+        {
+            <div class="stt-overlay" @onclick="StopListening">
+                <div class="stt-overlay-content" @onclick:stopPropagation="true">
+                    <button class="stt-mic-circle" @onclick="StopListening" title="Click to stop">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2"/><line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2"/></svg>
+                    </button>
+                    <p class="stt-transcript">@(string.IsNullOrEmpty(_partialText) ? "Listening…" : _partialText)</p>
+                    @if (!string.IsNullOrEmpty(_partialText))
+                    {
+                        <button class="stt-send-btn" @onclick="StopAndSend" title="Send now">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8V4z"/></svg>
+                        </button>
+                    }
+                </div>
+            </div>
+        }
         @if (!string.IsNullOrEmpty(Intent))
         {
             <div class="intent-pill">💭 @Intent</div>
@@ -174,11 +224,17 @@
             <input type="file" id="file-@Session.Name.Replace(" ", "-")" accept="image/*" multiple style="display:none" />
             <textarea id="input-@Session.Name.Replace(" ", "-")"
                       data-fiesta-workers="@FiestaAutocompleteWorkers"
-                      autocorrect="off" autocapitalize="off" spellcheck="false"
-                      placeholder="@(Session.IsProcessing ? "Message will be queued…" : PlatformHelper.IsMobile ? "Message..." : "Message... (↵ send, ⇧↵ newline)")"
+                      autocomplete="off"
+                      autocorrect="off"
+                      placeholder="@(Session.IsProcessing ? "Send to steer…" : PlatformHelper.IsMobile ? "Message..." : "Message... (↵ send, ⇧↵ newline)")"
                       rows="1"></textarea>
             <button class="attach-btn" @onclick="() => OnAttach.InvokeAsync(Session.Name)" title="Attach image">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
+            </button>
+            <button class="mic-btn @(_isListening ? "listening" : "")"
+                    @onclick="ToggleListening"
+                    title="@(_isListening ? "Click to stop recording" : "Click to start recording")">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
             </button>
             @if (Session.IsProcessing)
             {
@@ -186,15 +242,15 @@
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                 </button>
             }
-            <button class="send-btn" @onclick="() => OnSend.InvokeAsync(Session.Name)">
+            <button class="send-btn" @onclick="() => OnSend.InvokeAsync(Session.Name)" title="Send message">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z"/></svg>
             </button>
         </div>
         <div class="input-status-bar">
             <div class="mode-switcher">
-                <button class="mode-btn @(InputMode == "chat" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("chat")'>Chat</button>
-                <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")'>Plan</button>
-                <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")'>Autopilot</button>
+                <button class="mode-btn @(InputMode == "chat" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("chat")' title="Chat mode — interactive conversation">Chat</button>
+                <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")' title="Plan mode — create a plan before implementing">Plan</button>
+                <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")' title="Autopilot mode — auto-approve tool calls">Autopilot</button>
 
             </div>
             @if (Session.ReflectionCycle is null || !Session.ReflectionCycle.IsActive)
@@ -202,18 +258,23 @@
                 <button class="mode-btn" style="margin-left:8px;opacity:0.7" title="Start a reflection cycle" @onclick="InsertReflectCommand">Reflect</button>
             }
             <span class="status-sep">·</span>
-            <span class="log-label" style="font-size:var(--type-footnote)">Log</span>
+            <span class="log-label" style="font-size:var(--type-footnote)" data-trigger="log-@EscapeForJs(Session.SessionId ?? "")" title="View session event log" @onclick="ShowLogPopup">Log</span>
             <span class="status-sep">·</span>
-            <span class="status-msgs">@Session.History.Count msgs</span>
+            <span class="status-msgs" title="Total messages in this session">@Session.History.Count msgs</span>
             @if (availableSkills?.Count > 0)
             {
                 <span class="status-sep">·</span>
-                <span class="skills-trigger" @onclick="ShowSkillsPopup">@availableSkills.Count skills</span>
+                <span class="skills-trigger" data-trigger="skills" @onclick="ShowSkillsPopup" title="View available skills">@availableSkills.Count skills</span>
             }
             @if (availableAgents?.Count > 0)
             {
                 <span class="status-sep">·</span>
-                <span class="skills-trigger" @onclick="ShowAgentsPopup">@availableAgents.Count agents</span>
+                <span class="skills-trigger" data-trigger="agents" @onclick="ShowAgentsPopup" title="View available agents">@availableAgents.Count agents</span>
+            }
+            @if (availablePrompts != null)
+            {
+                <span class="status-sep">·</span>
+                <span class="skills-trigger" data-trigger="prompts" @onclick="ShowPromptsPopup" title="Manage saved prompts">@(availablePrompts.Count == 1 ? "1 prompt" : $"{availablePrompts.Count} prompts")</span>
             }
             <span class="status-sep">·</span>
             <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
@@ -232,14 +293,14 @@
                 {
                     @if (UsageInfo.InputTokens.HasValue || UsageInfo.OutputTokens.HasValue)
                     {
-                        <span class="status-tokens">↑@FormatTokenCount(UsageInfo.InputTokens ?? 0) ↓@FormatTokenCount(UsageInfo.OutputTokens ?? 0)</span>
+                        <span class="status-tokens" title="Token usage: ↑ input tokens sent, ↓ output tokens received">↑@FormatTokenCount(UsageInfo.InputTokens ?? 0) ↓@FormatTokenCount(UsageInfo.OutputTokens ?? 0)</span>
                     }
                     @if (UsageInfo.CurrentTokens.HasValue && UsageInfo.TokenLimit.HasValue)
                     {
                         var pct = (double)UsageInfo.CurrentTokens.Value / UsageInfo.TokenLimit.Value;
                         var ctxColor = pct > 0.9 ? "#ef4444" : pct > 0.75 ? "#fbbf24" : "inherit";
                         <span class="status-sep">·</span>
-                        <span class="status-ctx" style="color:@ctxColor">@FormatTokenCount(UsageInfo.CurrentTokens.Value)/@FormatTokenCount(UsageInfo.TokenLimit.Value) ctx</span>
+                        <span class="status-ctx" style="color:@ctxColor" title="Context window usage — current tokens / maximum tokens">@FormatTokenCount(UsageInfo.CurrentTokens.Value)/@FormatTokenCount(UsageInfo.TokenLimit.Value) ctx</span>
                     }
                 }
             </span>
@@ -262,8 +323,11 @@
     [Parameter] public IReadOnlyList<string> AvailableModels { get; set; } = Array.Empty<string>();
     [Parameter] public List<PendingImage>? PendingImages { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
+    [Parameter] public string? RepoUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
     [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
+    [Parameter] public bool IsLoadingHistory { get; set; }
+    [Parameter] public bool HasMoreRemoteHistory { get; set; }
     [Parameter] public int FontSize { get; set; } = 20;
     [Parameter] public int MessageWindowSize { get; set; } = 25;
     [Parameter] public bool FiestaActive { get; set; }
@@ -282,13 +346,144 @@
 
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
     [Parameter] public EventCallback<string> OnLoadMore { get; set; }
+    [Parameter] public EventCallback<string> OnLoadFullHistory { get; set; }
     [Parameter] public EventCallback<(string SessionName, FiestaStartRequest Request)> OnStartFiesta { get; set; }
     [Parameter] public EventCallback<string> OnStopFiesta { get; set; }
     [Parameter] public EventCallback OnStopReflection { get; set; }
+    [Parameter] public EventCallback OnReconnectRequested { get; set; }
 
     private bool _showFiestaPicker;
     private string _fiestaName = "";
     private readonly HashSet<string> _selectedWorkerIds = new(StringComparer.Ordinal);
+    private bool _isListening;
+    private string _partialText = "";
+    private CancellationTokenSource? _listenCts;
+
+    private async Task ToggleListening()
+    {
+        if (_isListening)
+            await StopListening();
+        else
+            await StartListening();
+    }
+
+    private async Task StopAndSend()
+    {
+        var text = _partialText;
+        try { await SpeechToText.StopListenAsync(CancellationToken.None); } catch { }
+        CleanupListening();
+        StateHasChanged();
+
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            var inputId = $"input-{Session.Name.Replace(" ", "-")}";
+            await JS.InvokeVoidAsync("appendSpeechText", inputId, text);
+            await OnSend.InvokeAsync(Session.Name);
+        }
+    }
+
+    private async Task StartListening()
+    {
+        if (_isListening) return;
+        try
+        {
+            var granted = await SpeechToText.RequestPermissions(CancellationToken.None);
+            if (!granted) return;
+
+            _isListening = true;
+            _partialText = "";
+            _listenCts = new CancellationTokenSource();
+
+            SpeechToText.RecognitionResultUpdated += OnRecognitionUpdated;
+            SpeechToText.RecognitionResultCompleted += OnRecognitionCompleted;
+
+            // Use a well-known locale as fallback if current culture isn't supported
+            CultureInfo culture;
+            try { culture = CultureInfo.CurrentCulture; }
+            catch { culture = new CultureInfo("en-US"); }
+
+            await SpeechToText.StartListenAsync(new SpeechToTextOptions
+            {
+                Culture = culture,
+                ShouldReportPartialResults = true
+            }, _listenCts.Token);
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[STT] StartListening error: {ex}");
+            CleanupListening();
+            StateHasChanged();
+        }
+    }
+
+    private async Task StopListening()
+    {
+        if (!_isListening) return;
+        try
+        {
+            await SpeechToText.StopListenAsync(CancellationToken.None);
+        }
+        catch
+        {
+            CleanupListening();
+            StateHasChanged();
+        }
+    }
+
+    private void CleanupListening()
+    {
+        SpeechToText.RecognitionResultUpdated -= OnRecognitionUpdated;
+        SpeechToText.RecognitionResultCompleted -= OnRecognitionCompleted;
+        _listenCts?.Dispose();
+        _listenCts = null;
+        _isListening = false;
+    }
+
+    private void OnRecognitionUpdated(object? sender, SpeechToTextRecognitionResultUpdatedEventArgs e)
+    {
+        try
+        {
+            var word = e.RecognitionResult;
+            if (!string.IsNullOrWhiteSpace(word))
+                _partialText = string.IsNullOrEmpty(_partialText) ? word : _partialText + " " + word;
+            InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[STT] OnRecognitionUpdated error: {ex}");
+        }
+    }
+
+    private void OnRecognitionCompleted(object? sender, SpeechToTextRecognitionResultCompletedEventArgs e)
+    {
+        try
+        {
+            var lastPartial = _partialText;
+            CleanupListening();
+
+            var finalText = e.RecognitionResult?.Text;
+            if (string.IsNullOrWhiteSpace(finalText))
+                finalText = lastPartial;
+
+            InvokeAsync(async () =>
+            {
+                if (!string.IsNullOrWhiteSpace(finalText))
+                {
+                    var inputId = $"input-{Session.Name.Replace(" ", "-")}";
+                    await JS.InvokeVoidAsync("appendSpeechText", inputId, finalText);
+                }
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[STT] OnRecognitionCompleted error: {ex}");
+            CleanupListening();
+            InvokeAsync(StateHasChanged);
+        }
+    }
 
     private List<ChatMessage> GetWindowedMessages()
     {
@@ -299,6 +494,7 @@
     }
 
     private void LoadMore() => OnLoadMore.InvokeAsync(Session.Name);
+    private void LoadFullHistory() => OnLoadFullHistory.InvokeAsync(Session.Name);
 
     private static string PrettifyModel(string modelId)
     {
@@ -346,16 +542,53 @@
 
     private List<SkillInfo>? availableSkills;
     private List<AgentInfo>? availableAgents;
+    private List<SavedPrompt>? availablePrompts;
     private string? _lastSkillSessionName;
+    private DotNetObjectReference<ExpandedSessionView>? _promptDotNetRef;
+
+    [JSInvokable]
+    public async Task SavePromptFromPopup(string name, string content, string description)
+    {
+        try
+        {
+            PromptLibraryService.SavePrompt(name, content, string.IsNullOrWhiteSpace(description) ? null : description);
+            var workDir = Session.WorkingDirectory;
+            availablePrompts = await Task.Run(() => PromptLibraryService.DiscoverPrompts(workDir));
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Prompts] Save failed: {ex.Message}");
+            throw;
+        }
+    }
+
+    [JSInvokable]
+    public async Task DeletePromptFromPopup(string name)
+    {
+        try
+        {
+            PromptLibraryService.DeletePrompt(name);
+            var workDir = Session.WorkingDirectory;
+            availablePrompts = await Task.Run(() => PromptLibraryService.DiscoverPrompts(workDir));
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Prompts] Delete failed: {ex.Message}");
+            throw;
+        }
+    }
 
     protected override void OnParametersSet()
     {
         if (Session.Name != _lastSkillSessionName)
         {
             _lastSkillSessionName = Session.Name;
-            // Defer skill/agent discovery to background thread — don't block session switch
+            // Defer skill/agent/prompt discovery to background thread — don't block session switch
             availableSkills = null;
             availableAgents = null;
+            availablePrompts = null;
             _fiestaName = Session.Name;
             _selectedWorkerIds.Clear();
             foreach (var worker in FiestaWorkers)
@@ -368,6 +601,7 @@
                 {
                     var skills = CopilotService.DiscoverAvailableSkills(workDir);
                     var agents = CopilotService.DiscoverAvailableAgents(workDir);
+                    var prompts = PromptLibraryService.DiscoverPrompts(workDir);
                     InvokeAsync(() =>
                     {
                         // Only apply if we're still on the same session
@@ -375,6 +609,7 @@
                         {
                             availableSkills = skills;
                             availableAgents = agents;
+                            availablePrompts = prompts;
                             StateHasChanged();
                         }
                     });
@@ -454,29 +689,29 @@
         var rows = string.Join("", availableSkills.Select(s =>
         {
             var desc = string.IsNullOrWhiteSpace(s.Description) ? "" :
-                $"<div style=\"font-size:13px;color:#a6adc8;margin-top:3px;line-height:1.4\">{EscapeHtml(TruncateDesc(s.Description))}</div>";
-            return $"<div style=\"padding:8px 14px;border-bottom:1px solid #313244\">" +
-                $"<div style=\"display:flex;justify-content:space-between;align-items:center;font-size:15px\">" +
-                $"<span style=\"color:#cdd6f4;font-weight:600\">{EscapeHtml(s.Name)}</span>" +
-                $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(s.Source)}</span></div>" +
+                $"<div class=\"skills-popup-row-desc\">{EscapeHtml(TruncateDesc(s.Description))}</div>";
+            return $"<div class=\"skills-popup-row\">" +
+                $"<div class=\"skills-popup-row-title\">" +
+                $"<span class=\"skills-popup-row-name\">{EscapeHtml(s.Name)}</span>" +
+                $"<span class=\"skills-popup-row-source\">{EscapeHtml(s.Source)}</span></div>" +
                 desc + "</div>";
         }));
         var jsHtml = EscapeForJs(rows);
-        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Skills</div>");
+        var headerHtml = EscapeForJs("<div class=\"skills-popup-header\">Available Skills</div>");
         await JS.InvokeVoidAsync("eval", $@"
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
                 if(old) old.remove();
-                var trigger = document.querySelector('[class*=""skills-trigger""]');
+                var trigger = document.querySelector('[data-trigger=""skills""]');
                 var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
                 var ov = document.createElement('div');
                 ov.id = 'skills-popup-overlay';
-                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
+                ov.className = 'skills-popup-overlay';
                 ov.onclick = function(){{ ov.remove(); }};
                 var popup = document.createElement('div');
                 var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
                 var bottom = window.innerHeight - rect.top + 8;
-                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
+                popup.className = 'skills-popup'; popup.style.bottom=bottom+'px'; popup.style.left=left+'px';
                 popup.innerHTML = '{headerHtml}{jsHtml}';
                 popup.onclick = function(e){{ e.stopPropagation(); }};
                 ov.appendChild(popup);
@@ -491,32 +726,212 @@
         var rows = string.Join("", availableAgents.Select(a =>
         {
             var desc = string.IsNullOrWhiteSpace(a.Description) ? "" :
-                $"<div style=\"font-size:13px;color:#a6adc8;margin-top:3px;line-height:1.4\">{EscapeHtml(TruncateDesc(a.Description))}</div>";
-            return $"<div style=\"padding:8px 14px;border-bottom:1px solid #313244\">" +
-                $"<div style=\"display:flex;justify-content:space-between;align-items:center;font-size:15px\">" +
-                $"<span style=\"color:#cdd6f4;font-weight:600\">{EscapeHtml(a.Name)}</span>" +
-                $"<span style=\"font-size:11px;color:#6c7086;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:3px;white-space:nowrap;margin-left:8px\">{EscapeHtml(a.Source)}</span></div>" +
+                $"<div class=\"skills-popup-row-desc\">{EscapeHtml(TruncateDesc(a.Description))}</div>";
+            return $"<div class=\"skills-popup-row skills-popup-row--clickable agent-row\" data-agent=\"{EscapeHtml(a.Name)}\">" +
+                $"<div class=\"skills-popup-row-title\">" +
+                $"<span class=\"skills-popup-row-name\">{EscapeHtml(a.Name)}</span>" +
+                $"<span class=\"skills-popup-row-source\">{EscapeHtml(a.Source)}</span></div>" +
                 desc + "</div>";
         }));
         var jsHtml = EscapeForJs(rows);
-        var headerHtml = EscapeForJs("<div style=\"padding:8px 14px;font-size:13px;color:#6c7086;border-bottom:1px solid #313244;font-weight:600\">Available Agents</div>");
+        var headerHtml = EscapeForJs("<div class=\"skills-popup-header\">Available Agents (click to use)</div>");
         await JS.InvokeVoidAsync("eval", $@"
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
                 if(old) old.remove();
-                var trigger = document.querySelectorAll('[class*=""skills-trigger""]');
-                var el = trigger.length > 1 ? trigger[1] : trigger[0];
-                var rect = el ? el.getBoundingClientRect() : {{left:20,bottom:60}};
+                var trigger = document.querySelector('[data-trigger=""agents""]');
+                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
                 var ov = document.createElement('div');
                 ov.id = 'skills-popup-overlay';
-                ov.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.3)';
+                ov.className = 'skills-popup-overlay';
                 ov.onclick = function(){{ ov.remove(); }};
                 var popup = document.createElement('div');
                 var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
                 var bottom = window.innerHeight - rect.top + 8;
-                popup.style.cssText = 'position:fixed;bottom:'+bottom+'px;left:'+left+'px;z-index:9999;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:6px 0;min-width:240px;max-width:360px;max-height:50vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,0.5)';
+                popup.className = 'skills-popup'; popup.style.bottom=bottom+'px'; popup.style.left=left+'px';
                 popup.innerHTML = '{headerHtml}{jsHtml}';
+                popup.onclick = function(e){{
+                    var row = e.target.closest('.agent-row');
+                    if(row){{
+                        var name = row.getAttribute('data-agent');
+                        ov.remove();
+                        var inputEl = document.querySelector('[data-session=' + JSON.stringify('{EscapeForJs(Session.Name)}') + '] textarea');
+                        if(inputEl){{
+                            inputEl.value = '@' + name + ' ';
+                            inputEl.dispatchEvent(new Event('input', {{bubbles: true}}));
+                            inputEl.focus();
+                        }}
+                    }}
+                }};
+                ov.appendChild(popup);
+                document.body.appendChild(ov);
+            }})()
+        ");
+    }
+
+    private async Task ShowPromptsPopup()
+    {
+        _promptDotNetRef ??= DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("eval", "window.__ppSetRef = window.__ppSetRef || function(r) { window.__ppRef = r; };");
+        await JS.InvokeVoidAsync("__ppSetRef", _promptDotNetRef);
+
+        var promptJson = System.Text.Json.JsonSerializer.Serialize(
+            (availablePrompts ?? new List<SavedPrompt>()).Select(p => new {
+                name = p.Name,
+                description = p.Description ?? "",
+                content = p.Content ?? "",
+                sourceLabel = p.SourceLabel,
+                isUser = p.Source == PromptSource.User
+            })
+        );
+        var sessionName = EscapeForJs(Session.Name);
+
+        await JS.InvokeVoidAsync("eval", $"window.__ppData = {promptJson};");
+        await JS.InvokeVoidAsync("eval", $@"
+            (function(){{
+                var old = document.getElementById('skills-popup-overlay');
+                if(old) old.remove();
+                var prompts = window.__ppData || [];
+                var trigger = document.querySelector('[data-trigger=""prompts""]');
+                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
+                var ov = document.createElement('div');
+                ov.id = 'skills-popup-overlay';
+                ov.className = 'skills-popup-overlay';
+                ov.onclick = function(){{ ov.remove(); }};
+                var popup = document.createElement('div');
+                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 408));
+                var bottom = window.innerHeight - rect.top + 8;
+                popup.className = 'skills-popup'; popup.style.bottom=bottom+'px'; popup.style.left=left+'px';
                 popup.onclick = function(e){{ e.stopPropagation(); }};
+
+                function renderList() {{
+                    popup.innerHTML = '';
+                    var h = document.createElement('div');
+                    h.className = 'skills-popup-header'; h.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
+                    var ht = document.createElement('span');
+                    ht.textContent = 'Prompts (click to use)';
+                    h.appendChild(ht);
+                    var newBtn = document.createElement('button');
+                    newBtn.textContent = '+ New';
+                    newBtn.style.cssText = 'background:var(--bg-tertiary);border:none;color:var(--text-bright);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:12px';
+                    newBtn.onmouseover = function(){{ this.style.background='var(--control-border)'; }};
+                    newBtn.onmouseout = function(){{ this.style.background='var(--bg-tertiary)'; }};
+                    newBtn.onclick = function(e){{ e.stopPropagation(); renderForm('','','','new'); }};
+                    h.appendChild(newBtn);
+                    popup.appendChild(h);
+
+                    if(prompts.length === 0) {{
+                        var empty = document.createElement('div');
+                        empty.className = 'skills-popup-empty';
+                        empty.textContent = 'No prompts yet. Click + New to create one.';
+                        popup.appendChild(empty);
+                    }} else {{
+                        prompts.forEach(function(p) {{
+                            var row = document.createElement('div');
+                            row.className = 'skills-popup-row skills-popup-row--clickable';
+                            var top = document.createElement('div');
+                            top.className = 'skills-popup-row-title';
+                            var nameSpan = document.createElement('span');
+                            nameSpan.className = 'skills-popup-row-name'; nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
+                            nameSpan.textContent = p.name;
+                            top.appendChild(nameSpan);
+                            var actions = document.createElement('span');
+                            actions.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px;flex-shrink:0';
+                            var srcLabel = document.createElement('span');
+                            srcLabel.className = 'skills-popup-row-source';
+                            srcLabel.textContent = p.sourceLabel;
+                            actions.appendChild(srcLabel);
+                            if(p.isUser) {{
+                                var editBtn = document.createElement('button');
+                                editBtn.textContent = '\u270F\uFE0F';
+                                editBtn.title = 'Edit prompt';
+                                editBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.7';
+                                editBtn.onmouseover = function(){{ this.style.opacity='1'; }};
+                                editBtn.onmouseout = function(){{ this.style.opacity='0.7'; }};
+                                editBtn.onclick = function(e){{ e.stopPropagation(); renderForm(p.name, p.description, p.content, 'edit'); }};
+                                actions.appendChild(editBtn);
+                                var delBtn = document.createElement('button');
+                                delBtn.textContent = '\uD83D\uDDD1\uFE0F';
+                                delBtn.title = 'Delete prompt';
+                                delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.7';
+                                delBtn.onmouseover = function(){{ this.style.opacity='1'; }};
+                                delBtn.onmouseout = function(){{ this.style.opacity='0.7'; }};
+                                delBtn.onclick = function(e){{
+                                    e.stopPropagation();
+                                    if(confirm('Delete prompt \""' + p.name + '\""?')) {{
+                                        if(!window.__ppRef){{ov.remove();return;}} window.__ppRef.invokeMethodAsync('DeletePromptFromPopup', p.name).then(function(){{ ov.remove(); }}).catch(function(e){{ alert('Delete failed: ' + (e.message || e)); }});
+                                    }}
+                                }};
+                                actions.appendChild(delBtn);
+                            }}
+                            top.appendChild(actions);
+                            row.appendChild(top);
+                            if(p.description) {{
+                                var desc = document.createElement('div');
+                                desc.className = 'skills-popup-row-desc';
+                                desc.textContent = p.description.length > 120 ? p.description.substring(0,117) + '\u2026' : p.description;
+                                row.appendChild(desc);
+                            }}
+                            row.onclick = function(e) {{
+                                if(e.target.tagName === 'BUTTON') return;
+                                ov.remove();
+                                var inputEl = document.querySelector('[data-session=""{sessionName}""] textarea');
+                                if(inputEl){{
+                                    inputEl.value = '/prompt use ' + p.name;
+                                    inputEl.dispatchEvent(new Event('input'));
+                                }}
+                            }};
+                            popup.appendChild(row);
+                        }});
+                    }}
+                }}
+
+                function renderForm(name, desc, content, mode) {{
+                    popup.innerHTML = '';
+                    var h = document.createElement('div');
+                    h.style.cssText = 'padding:8px 14px;font-size:13px;color:var(--text-muted);border-bottom:1px solid var(--border-subtle);font-weight:600';
+                    h.textContent = mode === 'edit' ? 'Edit Prompt' : 'New Prompt';
+                    popup.appendChild(h);
+                    var form = document.createElement('div');
+                    form.style.cssText = 'padding:10px 14px';
+                    var mkLabel = function(text) {{ var l = document.createElement('div'); l.style.cssText = 'font-size:12px;color:var(--text-muted);margin-bottom:4px;margin-top:8px'; l.textContent = text; return l; }};
+                    var mkInput = function(val, ph) {{ var i = document.createElement('input'); i.style.cssText = 'width:100%;background:var(--bg-tertiary);border:1px solid var(--control-border);border-radius:4px;padding:6px 8px;color:var(--text-bright);font-size:14px;box-sizing:border-box'; i.value = val||''; i.placeholder = ph; return i; }};
+                    form.appendChild(mkLabel('Name'));
+                    var nameInput = mkInput(name, 'Prompt name');
+                    if(mode === 'edit') {{ nameInput.readOnly = true; nameInput.style.opacity = '0.6'; }}
+                    form.appendChild(nameInput);
+                    form.appendChild(mkLabel('Description (optional)'));
+                    var descInput = mkInput(desc, 'Brief description');
+                    form.appendChild(descInput);
+                    form.appendChild(mkLabel('Content'));
+                    var contentArea = document.createElement('textarea');
+                    contentArea.style.cssText = 'width:100%;background:var(--bg-tertiary);border:1px solid var(--control-border);border-radius:4px;padding:6px 8px;color:var(--text-bright);font-size:14px;min-height:100px;resize:vertical;box-sizing:border-box;font-family:inherit';
+                    contentArea.value = content||'';
+                    contentArea.placeholder = 'Prompt content...';
+                    form.appendChild(contentArea);
+                    var btns = document.createElement('div');
+                    btns.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:12px;padding-bottom:4px';
+                    var cancelBtn = document.createElement('button');
+                    cancelBtn.textContent = 'Cancel';
+                    cancelBtn.style.cssText = 'background:var(--bg-tertiary);border:none;color:var(--text-bright);padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px';
+                    cancelBtn.onclick = function(){{ renderList(); }};
+                    btns.appendChild(cancelBtn);
+                    var saveBtn = document.createElement('button');
+                    saveBtn.textContent = 'Save';
+                    saveBtn.style.cssText = 'background:var(--accent-primary);border:none;color:var(--bg-primary);padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600';
+                    saveBtn.onclick = function(){{
+                        var n = nameInput.value.trim();
+                        var c = contentArea.value.trim();
+                        if(!n || !c) return;
+                        if(!window.__ppRef){{ov.remove();return;}} window.__ppRef.invokeMethodAsync('SavePromptFromPopup', n, c, descInput.value.trim()).then(function(){{ ov.remove(); }}).catch(function(e){{ alert('Save failed: ' + (e.message || e)); }});
+                    }};
+                    btns.appendChild(saveBtn);
+                    form.appendChild(btns);
+                    popup.appendChild(form);
+                    if(mode !== 'edit') nameInput.focus(); else contentArea.focus();
+                }}
+
+                renderList();
                 ov.appendChild(popup);
                 document.body.appendChild(ov);
             }})()
@@ -526,6 +941,65 @@
     private static string EscapeHtml(string s) =>
         s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 
+    private async Task ShowLogPopup()
+    {
+        var entries = await Task.Run(() => CopilotService.GetSessionEventLogSummary(Session.SessionId));
+        string rowsHtml;
+        List<(string Timestamp, string EventType, string Detail)> filtered;
+        if (entries.Count == 0)
+        {
+            filtered = entries;
+            rowsHtml = "<div class=\"skills-popup-empty\">No event log available</div>";
+        }
+        else
+        {
+            // Skip noisy delta events and show compact log
+            filtered = entries.Where(e => e.EventType != "assistant.message_delta").ToList();
+            var rows = string.Join("", filtered.Select(e =>
+            {
+                var typeColor = e.EventType switch
+                {
+                    "user.message" => "var(--accent-primary)",
+                    "assistant.message" => "var(--accent-success)",
+                    "tool.execution_start" or "tool.execution_complete" => "var(--accent-warning)",
+                    "session.error" => "var(--accent-error)",
+                    _ => "var(--text-muted)"
+                };
+                var shortType = e.EventType.Replace("assistant.", "ai.").Replace("tool.execution_", "tool.");
+                var detail = string.IsNullOrEmpty(e.Detail) ? "" :
+                    $"<span class=\"skills-popup-log-detail\">{EscapeHtml(e.Detail)}</span>";
+                return $"<div class=\"skills-popup-log-row\">" +
+                    $"<span class=\"skills-popup-log-ts\">{EscapeHtml(e.Timestamp)}</span> " +
+                    $"<span style=\"color:{typeColor}\">{EscapeHtml(shortType)}</span>" +
+                    detail + "</div>";
+            }));
+            rowsHtml = rows;
+        }
+        var jsRows = EscapeForJs(rowsHtml);
+        var sessionTrigger = EscapeForJs("log-" + (Session.SessionId ?? ""));
+        var headerHtml = EscapeForJs($"<div class=\"skills-popup-header\" style=\"display:flex;justify-content:space-between\"><span>Session Event Log</span><span>{filtered.Count} events</span></div>");
+        await JS.InvokeVoidAsync("eval", $@"
+            (function(){{
+                var old = document.getElementById('skills-popup-overlay');
+                if(old) old.remove();
+                var trigger = document.querySelector('[data-trigger=""{sessionTrigger}""]');
+                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
+                var ov = document.createElement('div');
+                ov.id = 'skills-popup-overlay';
+                ov.className = 'skills-popup-overlay';
+                ov.onclick = function(){{ ov.remove(); }};
+                var popup = document.createElement('div');
+                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 468));
+                var bottom = window.innerHeight - rect.top + 8;
+                popup.className = 'skills-popup skills-popup--wide'; popup.style.bottom=bottom+'px'; popup.style.left=left+'px';
+                popup.innerHTML = '{headerHtml}{jsRows}';
+                popup.onclick = function(e){{ e.stopPropagation(); }};
+                ov.appendChild(popup);
+                document.body.appendChild(ov);
+            }})()
+        ");
+    }
+
     private async Task InsertReflectCommand()
     {
         var inputId = EscapeForJs("input-" + Session.Name.Replace(" ", "-"));
@@ -533,12 +1007,20 @@
     }
 
     private static string EscapeForJs(string s) =>
-        s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "");
+        s.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "")
+         .Replace("\u2028", "\\u2028").Replace("\u2029", "\\u2029");
 
     private static string TruncateDesc(string desc)
     {
         desc = desc.Trim();
         if (desc.Length <= 120) return desc;
         return desc[..117] + "…";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("eval", "window.__ppRef = null;"); } catch { }
+        _promptDotNetRef?.Dispose();
+        _promptDotNetRef = null;
     }
 }

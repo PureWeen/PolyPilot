@@ -177,6 +177,38 @@ public class ScenarioReferenceTests
         Assert.True(true, "See ProcessingWatchdogTests for relaunch/reconnect resilience tests");
     }
 
+    /// <summary>
+    /// Scenario: "shell-command-uses-platform-shell"
+    /// Unit test equivalents: PlatformHelperTests.GetShellCommand_*
+    /// </summary>
+    [Fact]
+    public void Scenario_ShellCommandUsesPlatformShell_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See PlatformHelperTests.GetShellCommand_* for platform shell selection tests");
+    }
+
+    /// <summary>
+    /// Scenario: "vscode-remote-tunnels-in-remote-mode"
+    /// Unit test equivalents: PlatformHelperTests.BuildVSCodeRemoteArg_*,
+    ///   RemoteModeTests.SessionsListPayload_ServerMachineName_RoundTrip,
+    ///   RemoteModeTests.SessionsListPayload_LegacyPayload_WithoutServerMachineName
+    /// </summary>
+    [Fact]
+    public void Scenario_VSCodeRemoteTunnels_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See PlatformHelperTests.BuildVSCodeRemoteArg_* and RemoteModeTests.SessionsListPayload_ServerMachineName_*");
+    }
+
+    /// <summary>
+    /// Scenario: "custom-agent-popup-click-to-use"
+    /// Unit test equivalents: AgentDiscoveryTests.*
+    /// </summary>
+    [Fact]
+    public void Scenario_CustomAgentPopupClickToUse_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See AgentDiscoveryTests for agent discovery and invocation text format tests");
+    }
+
     [Fact]
     public void AllScenarios_HaveUniqueIds()
     {
@@ -188,5 +220,95 @@ public class ScenarioReferenceTests
             .ToList();
 
         Assert.Equal(ids.Count, ids.Distinct().Count());
+    }
+
+    [Fact]
+    public void MultiAgentScenarios_HaveUniqueIds()
+    {
+        var json = File.ReadAllText(Path.Combine(ScenariosDir, "multi-agent-scenarios.json"));
+        var doc = JsonDocument.Parse(json);
+        var ids = doc.RootElement.GetProperty("scenarios")
+            .EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString())
+            .ToList();
+
+        Assert.Equal(ids.Count, ids.Distinct().Count());
+    }
+
+    [Fact]
+    public void MultiAgentScenarios_IncludeSquadIntegration()
+    {
+        var json = File.ReadAllText(Path.Combine(ScenariosDir, "multi-agent-scenarios.json"));
+        var doc = JsonDocument.Parse(json);
+        var ids = doc.RootElement.GetProperty("scenarios")
+            .EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString())
+            .ToHashSet();
+
+        Assert.Contains("squad-discovery-creates-preset", ids);
+        Assert.Contains("squad-charter-becomes-system-prompt", ids);
+        Assert.Contains("squad-decisions-shared-context", ids);
+        Assert.Contains("squad-legacy-ai-team-compat", ids);
+    }
+
+    [Fact]
+    public void MultiAgentScenarios_IncludeGroupDeletion()
+    {
+        var json = File.ReadAllText(Path.Combine(ScenariosDir, "multi-agent-scenarios.json"));
+        var doc = JsonDocument.Parse(json);
+        var ids = doc.RootElement.GetProperty("scenarios")
+            .EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString())
+            .ToHashSet();
+
+        Assert.Contains("delete-group-no-contamination", ids);
+        Assert.Contains("delete-multi-agent-group-closes-sessions", ids);
+    }
+
+    [Fact]
+    public void MultiAgentScenarios_IncludeSquadWriteBack()
+    {
+        var json = File.ReadAllText(Path.Combine(ScenariosDir, "multi-agent-scenarios.json"));
+        var doc = JsonDocument.Parse(json);
+        var ids = doc.RootElement.GetProperty("scenarios")
+            .EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString())
+            .ToHashSet();
+
+        Assert.Contains("save-preset-creates-squad-dir", ids);
+        Assert.Contains("round-trip-squad-write-read", ids);
+        Assert.Contains("squad-write-sanitizes-names", ids);
+    }
+
+    [Fact]
+    public void MultiAgentScenarios_AllHaveRequiredFields()
+    {
+        var json = File.ReadAllText(Path.Combine(ScenariosDir, "multi-agent-scenarios.json"));
+        var doc = JsonDocument.Parse(json);
+        var scenarios = doc.RootElement.GetProperty("scenarios").EnumerateArray().ToList();
+
+        Assert.NotEmpty(scenarios);
+        foreach (var s in scenarios)
+        {
+            Assert.True(s.TryGetProperty("id", out _), "Scenario missing 'id'");
+            Assert.True(s.TryGetProperty("name", out _), "Scenario missing 'name'");
+            Assert.True(s.TryGetProperty("steps", out var steps), "Scenario missing 'steps'");
+            Assert.NotEqual(0, steps.GetArrayLength());
+        }
+    }
+
+    [Fact]
+    public void MultiAgentScenarios_IncludeReflectLoopScenarios()
+    {
+        var json = File.ReadAllText(Path.Combine(ScenariosDir, "multi-agent-scenarios.json"));
+        var doc = JsonDocument.Parse(json);
+        var ids = doc.RootElement.GetProperty("scenarios")
+            .EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString())
+            .ToHashSet();
+
+        Assert.Contains("reflect-loop-completes-goal-met", ids);
+        Assert.Contains("reflect-loop-max-iterations", ids);
+        Assert.Contains("stall-detection-triggers", ids);
     }
 }

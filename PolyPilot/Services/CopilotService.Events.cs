@@ -137,13 +137,25 @@ public partial class CopilotService
         if (string.IsNullOrEmpty(content)) return;
 
         var normalizedReasoningId = ResolveReasoningId(state.Info, reasoningId);
-        var reasoningMsg = FindReasoningMessage(state.Info, normalizedReasoningId);
+
+        // Check pending map first (covers the race window before InvokeOnUI fires)
+        var reasoningMsg = state.PendingReasoningMessages.GetValueOrDefault(normalizedReasoningId)
+            ?? FindReasoningMessage(state.Info, normalizedReasoningId);
         var isNew = false;
         if (reasoningMsg == null)
         {
             reasoningMsg = ChatMessage.ReasoningMessage(normalizedReasoningId);
-            state.Info.History.Add(reasoningMsg);
-            state.Info.MessageCount = state.Info.History.Count;
+            // Register in pending map BEFORE posting to UI thread — this prevents
+            // rapid consecutive deltas from creating duplicates
+            state.PendingReasoningMessages[normalizedReasoningId] = reasoningMsg;
+            // Must add to History on UI thread to avoid concurrent List<T> mutation
+            InvokeOnUI(() =>
+            {
+                state.Info.History.Add(reasoningMsg);
+                state.Info.MessageCount = state.Info.History.Count;
+                // Remove from pending — now findable via History search
+                state.PendingReasoningMessages.TryRemove(normalizedReasoningId, out _);
+            });
             isNew = true;
         }
 
@@ -197,7 +209,16 @@ public partial class CopilotService
     private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
         Volatile.Write(ref state.HasReceivedEventsSinceResume, true);
-        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+        // Don't reset the watchdog timer for pure metrics/info events (SessionUsageInfoEvent,
+        // AssistantUsageEvent). These are informational only and don't indicate actual turn
+        // progress. If the SDK enters a state where it sends repeated usage info events
+        // without ever completing the turn (e.g., FailedDelegation), the watchdog must still
+        // fire based on lack of real progress events.
+        if (evt is not SessionUsageInfoEvent and not AssistantUsageEvent)
+        {
+            Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+            state.Info.LastUpdatedAt = DateTime.Now;
+        }
         var sessionName = state.Info.Name;
         var isCurrentState = _sessions.TryGetValue(sessionName, out var current) && ReferenceEquals(current, state);
 
@@ -210,13 +231,16 @@ public partial class CopilotService
         }
 
         // Warn if receiving events on an orphaned (replaced) state object.
-        // We don't early-return here: both old and new SessionState share the same Info object
-        // (reconnect copies Info to newState), so CompleteResponse on the orphaned state still
-        // correctly clears IsProcessing on the live session's shared Info.
+        // After the generation-carry fix, stale callbacks on orphaned state would have
+        // matching generations and could incorrectly complete the new turn. Gate all
+        // terminal/mutating events to only fire on the current (live) state.
         if (!isCurrentState)
         {
             Debug($"[EVT-WARN] '{sessionName}' event {evt.GetType().Name} delivered to ORPHANED state " +
                   $"(not in _sessions). This handler should have been detached.");
+            // Block ALL events from orphaned state — stale deltas, tool events, and
+            // terminal events can all produce ghost mutations on shared Info.History.
+            return;
         }
 
         void Invoke(Action action)
@@ -276,6 +300,11 @@ public partial class CopilotService
                 if (toolStart.Data == null) break;
                 Interlocked.Increment(ref state.ActiveToolCallCount);
                 Volatile.Write(ref state.HasUsedToolsThisTurn, true);
+                if (state.Info.ProcessingPhase < 3)
+                {
+                    state.Info.ProcessingPhase = 3; // Working
+                    Invoke(() => OnStateChanged?.Invoke());
+                }
                 var startToolName = toolStart.Data.ToolName ?? "unknown";
                 var startCallId = toolStart.Data.ToolCallId ?? "";
                 var toolInput = ExtractToolInput(toolStart.Data);
@@ -290,17 +319,30 @@ public partial class CopilotService
                         break;
                     }
 
-                    // Flush any accumulated assistant text before adding tool message
-                    FlushCurrentResponse(state);
-                    
-                    var toolMsg = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
-                    state.Info.History.Add(toolMsg);
-                    
-                    Invoke(() =>
+                    // Flush any accumulated assistant text before adding tool message,
+                    // then add the tool message — all on the UI thread to avoid
+                    // concurrent writes to List<ChatMessage> (History).
+                    if (startToolName == ShowImageTool.ToolName)
                     {
-                        OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
-                        OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
-                    });
+                        var imgPlaceholder = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
+                        Invoke(() =>
+                        {
+                            FlushCurrentResponse(state);
+                            state.Info.History.Add(imgPlaceholder);
+                            OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
+                        });
+                    }
+                    else
+                    {
+                        var toolMsg = ChatMessage.ToolCallMessage(startToolName, startCallId, toolInput);
+                        Invoke(() =>
+                        {
+                            FlushCurrentResponse(state);
+                            state.Info.History.Add(toolMsg);
+                            OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
+                            OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
+                        });
+                    }
                 }
                 else if (state.CurrentResponse.Length > 0)
                 {
@@ -312,10 +354,31 @@ public partial class CopilotService
             case ToolExecutionCompleteEvent toolDone:
                 if (toolDone.Data == null) break;
                 Interlocked.Decrement(ref state.ActiveToolCallCount);
+                Interlocked.Increment(ref state.Info._toolCallCount);
                 var completeCallId = toolDone.Data.ToolCallId ?? "";
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
                 var resultStr = FormatToolResult(toolDone.Data!.Result);
                 var hasError = toolDone.Data.Error != null;
+                var errorStr = toolDone.Data.Error?.ToString();
+                var isPermissionDenial = (resultStr?.Contains("Permission denied", StringComparison.OrdinalIgnoreCase) == true)
+                    || (errorStr?.Contains("Permission denied", StringComparison.OrdinalIgnoreCase) == true);
+
+                // Track permission denials via sliding window (3 of last 5 tool results)
+                // This handles cases where an occasional OK tool resets a strict consecutive counter
+                if (isPermissionDenial || !hasError)
+                {
+                    var denialCount = state.Info.RecordToolResult(isPermissionDenial);
+                    if (isPermissionDenial && denialCount == 3)
+                    {
+                        Invoke(() =>
+                        {
+                            state.Info.History.Add(ChatMessage.SystemMessage(
+                                "⚠️ Permission errors detected. Attempting to reconnect session..."));
+                            OnStateChanged?.Invoke();
+                            _ = TryRecoverPermissionAsync(state, sessionName);
+                        });
+                    }
+                }
 
                 // Skip filtered tools
                 if (completeToolName != null && FilteredTools.Contains(completeToolName))
@@ -327,13 +390,30 @@ public partial class CopilotService
                 var histToolMsg = state.Info.History.LastOrDefault(m => m.ToolCallId == completeCallId);
                 if (histToolMsg != null)
                 {
-                    histToolMsg.IsComplete = true;
-                    histToolMsg.IsSuccess = !hasError;
-                    histToolMsg.Content = resultStr;
+                    var effectiveToolName = completeToolName ?? histToolMsg.ToolName;
+                    if (effectiveToolName == ShowImageTool.ToolName && !hasError)
+                    {
+                        // Convert tool call placeholder into an Image message
+                        (string? imgPath, string? imgCaption) = ShowImageTool.ParseResult(resultStr);
+                        histToolMsg.MessageType = ChatMessageType.Image;
+                        histToolMsg.ImagePath = imgPath;
+                        histToolMsg.Caption = imgCaption;
+                        histToolMsg.IsComplete = true;
+                        histToolMsg.IsSuccess = true;
+                        histToolMsg.Content = resultStr;
+                    }
+                    else
+                    {
+                        histToolMsg.IsComplete = true;
+                        histToolMsg.IsSuccess = !hasError;
+                        histToolMsg.Content = resultStr;
+                    }
                 }
 
                 Invoke(() =>
                 {
+                    if (isPermissionDenial)
+                        OnStateChanged?.Invoke();
                     OnToolCompleted?.Invoke(sessionName, completeCallId, resultStr, !hasError);
                     OnActivity?.Invoke(sessionName, hasError ? "❌ Tool failed" : "✅ Tool completed");
                 });
@@ -354,11 +434,14 @@ public partial class CopilotService
 
             case AssistantTurnStartEvent:
                 state.HasReceivedDeltasThisTurn = false;
+                var phaseAdvancedToThinking = state.Info.ProcessingPhase < 2;
+                if (phaseAdvancedToThinking) state.Info.ProcessingPhase = 2; // Thinking
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 Invoke(() =>
                 {
                     OnTurnStart?.Invoke(sessionName);
                     OnActivity?.Invoke(sessionName, "🤔 Thinking...");
+                    if (phaseAdvancedToThinking) OnStateChanged?.Invoke();
                 });
                 break;
 
@@ -370,6 +453,11 @@ public partial class CopilotService
                 }
                 Invoke(() =>
                 {
+                    // Flush any accumulated assistant text to history/DB at end of each sub-turn.
+                    // Without this, content in CurrentResponse is lost if the app restarts between
+                    // turn_end and session.idle (which triggers CompleteResponse).
+                    // Must run on UI thread to avoid racing with History list reads.
+                    FlushCurrentResponse(state);
                     OnTurnEnd?.Invoke(sessionName);
                     OnActivity?.Invoke(sessionName, "");
                 });
@@ -425,10 +513,11 @@ public partial class CopilotService
                     state.Info.Model = normalizedStartModel;
                     Debug($"Session model from start event: {startModel} → {normalizedStartModel}");
                 }
-                if (!IsRestoring) SaveActiveSessionsToDisk();
+                Invoke(() => { if (!IsRestoring) SaveActiveSessionsToDisk(); });
                 break;
 
             case SessionUsageInfoEvent usageInfo:
+                if (state.Info.ProcessingPhase < 1) state.Info.ProcessingPhase = 1; // Server acknowledged
                 var uData = usageInfo.Data;
                 if (uData != null)
                 {
@@ -495,13 +584,24 @@ public partial class CopilotService
             case SessionErrorEvent err:
                 var errMsg = Models.ErrorMessageHelper.HumanizeMessage(err.Data?.Message ?? "Unknown error");
                 CancelProcessingWatchdog(state);
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                state.HasUsedToolsThisTurn = false;
                 InvokeOnUI(() =>
                 {
                     OnError?.Invoke(sessionName, errMsg);
+                    // Flush any accumulated partial response before clearing the accumulator
+                    FlushCurrentResponse(state);
+                    state.FlushedResponse.Clear();
+                    state.PendingReasoningMessages.Clear();
                     state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                     Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
+                    if (state.Info.ProcessingStartedAt is { } errStarted)
+                        state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - errStarted).TotalSeconds;
+                    state.Info.ProcessingStartedAt = null;
+                    state.Info.ToolCallCount = 0;
+                    state.Info.ProcessingPhase = 0;
                     OnStateChanged?.Invoke();
                 });
                 break;
@@ -606,12 +706,34 @@ public partial class CopilotService
         var text = state.CurrentResponse.ToString();
         if (string.IsNullOrWhiteSpace(text)) return;
         
+        // Dedup guard: if this exact text was already flushed (e.g., SDK replayed events
+        // after resume and content was re-appended to CurrentResponse), don't duplicate.
+        var lastAssistant = state.Info.History.LastOrDefault(m => 
+            m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
+        if (lastAssistant?.Content == text)
+        {
+            Debug($"[DEDUP] FlushCurrentResponse skipped duplicate content ({text.Length} chars) for session '{state.Info.Name}'");
+            state.CurrentResponse.Clear();
+            state.HasReceivedDeltasThisTurn = false;
+            return;
+        }
+        
         var msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
         state.Info.History.Add(msg);
         state.Info.MessageCount = state.Info.History.Count;
         
         if (!string.IsNullOrEmpty(state.Info.SessionId))
             _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+        
+        // Track code suggestions from accumulated response segment
+        _usageStats?.TrackCodeSuggestion(text);
+        
+        // Accumulate flushed text so CompleteResponse can include it in the TCS result.
+        // Without this, orchestrator dispatch gets "" because TurnEnd flush clears
+        // CurrentResponse before SessionIdle fires CompleteResponse.
+        if (state.FlushedResponse.Length > 0)
+            state.FlushedResponse.Append("\n\n");
+        state.FlushedResponse.Append(text);
         
         state.CurrentResponse.Clear();
         state.HasReceivedDeltasThisTurn = false;
@@ -627,7 +749,19 @@ public partial class CopilotService
     {
         if (!state.Info.IsProcessing)
         {
-            Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse skipped — IsProcessing already false");
+            // Still flush any accumulated content — delta events may have arrived
+            // after IsProcessing was cleared prematurely by watchdog/error handler.
+            if (state.CurrentResponse.Length > 0)
+            {
+                Debug($"[COMPLETE] '{state.Info.Name}' IsProcessing already false but flushing " +
+                      $"{state.CurrentResponse.Length} chars of accumulated content");
+                FlushCurrentResponse(state);
+                OnStateChanged?.Invoke();
+            }
+            else
+            {
+                Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse skipped — IsProcessing already false");
+            }
             return; // Already completed (e.g. timeout)
         }
 
@@ -646,9 +780,10 @@ public partial class CopilotService
         }
         
         Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse executing " +
-              $"(responseLen={state.CurrentResponse.Length}, thread={Environment.CurrentManagedThreadId})");
+              $"(responseLen={state.CurrentResponse.Length}, flushedLen={state.FlushedResponse.Length}, thread={Environment.CurrentManagedThreadId})");
         
         CancelProcessingWatchdog(state);
+        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
@@ -664,16 +799,51 @@ public partial class CopilotService
             // Write-through to DB
             if (!string.IsNullOrEmpty(state.Info.SessionId))
                 _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+            
+            // Track code suggestions from final response segment
+            _usageStats?.TrackCodeSuggestion(response);
         }
-        state.ResponseCompletion?.TrySetResult(response);
+        // Build full turn response for TCS: include text flushed mid-turn (e.g., on TurnEnd)
+        // plus any remaining text in CurrentResponse. Without this, orchestrator dispatch
+        // gets "" because FlushCurrentResponse on TurnEnd clears CurrentResponse before
+        // SessionIdle fires CompleteResponse.
+        var fullResponse = state.FlushedResponse.Length > 0
+            ? (string.IsNullOrEmpty(response)
+                ? state.FlushedResponse.ToString()
+                : state.FlushedResponse + "\n\n" + response)
+            : response;
+        // Track one message per completed turn regardless of trailing text
+        _usageStats?.TrackMessage();
+        // Reset permission recovery attempts on successful turn completion
+        _permissionRecoveryAttempts.TryRemove(state.Info.Name, out _);
+        // Clear IsProcessing BEFORE completing the TCS — if the continuation runs
+        // synchronously (e.g., in orchestrator reflection loops), the next SendPromptAsync
+        // call must see IsProcessing=false or it throws "already processing".
         state.CurrentResponse.Clear();
+        state.FlushedResponse.Clear();
+        state.PendingReasoningMessages.Clear();
+        // Accumulate API time before clearing ProcessingStartedAt
+        if (state.Info.ProcessingStartedAt is { } started)
+        {
+            state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
+            state.Info.PremiumRequestsUsed++;
+        }
         state.Info.IsProcessing = false;
+        state.Info.IsResumed = false; // After first successful completion, use normal watchdog timeouts
+        Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
+        state.Info.ProcessingStartedAt = null;
+        state.Info.ToolCallCount = 0;
+        state.Info.ProcessingPhase = 0;
+        state.Info.ClearPermissionDenials();
         state.Info.LastUpdatedAt = DateTime.Now;
-        OnStateChanged?.Invoke();
+        state.ResponseCompletion?.TrySetResult(fullResponse);
         
-        // Fire completion notification
-        var summary = response.Length > 100 ? response[..100] + "..." : response;
+        // Fire completion notification BEFORE OnStateChanged — this ensures
+        // HandleComplete populates completedSessions before RefreshState checks the
+        // throttle (completedSessions.Count > 0 bypasses throttle).
+        var summary = fullResponse.Length > 0 ? (fullResponse.Length > 100 ? fullResponse[..100] + "..." : fullResponse) : "";
         OnSessionComplete?.Invoke(state.Info.Name, summary);
+        OnStateChanged?.Invoke();
 
         // Reflection cycle: evaluate response and enqueue follow-up if goal not yet met
         var cycle = state.Info.ReflectionCycle;
@@ -722,16 +892,40 @@ public partial class CopilotService
             state.Info.MessageQueue.RemoveAt(0);
             // Retrieve any queued image paths for this message
             List<string>? nextImagePaths = null;
-            if (_queuedImagePaths.TryGetValue(state.Info.Name, out var imageQueue) && imageQueue.Count > 0)
+            lock (_imageQueueLock)
             {
-                nextImagePaths = imageQueue[0];
-                imageQueue.RemoveAt(0);
-                if (imageQueue.Count == 0)
-                    _queuedImagePaths.TryRemove(state.Info.Name, out _);
+                if (_queuedImagePaths.TryGetValue(state.Info.Name, out var imageQueue) && imageQueue.Count > 0)
+                {
+                    nextImagePaths = imageQueue[0];
+                    imageQueue.RemoveAt(0);
+                    if (imageQueue.Count == 0)
+                        _queuedImagePaths.TryRemove(state.Info.Name, out _);
+                }
+            }
+            // Retrieve any queued agent mode for this message
+            string? nextAgentMode = null;
+            lock (_imageQueueLock)
+            {
+                if (_queuedAgentModes.TryGetValue(state.Info.Name, out var modeQueue) && modeQueue.Count > 0)
+                {
+                    nextAgentMode = modeQueue[0];
+                    modeQueue.RemoveAt(0);
+                    if (modeQueue.Count == 0)
+                        _queuedAgentModes.TryRemove(state.Info.Name, out _);
+                }
             }
 
             var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
                               ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt);
+
+            // Check if the dequeued message is for an orchestrator session — if so,
+            // route through the multi-agent dispatch pipeline instead of direct send.
+            
+            // If we are restoring, the global ReconcileOrganization() hasn't run yet.
+            // We must force an additive-only update so this session's metadata exists.
+            if (IsRestoring) ReconcileOrganization(allowPruning: false);
+            
+            var orchGroupId = GetOrchestratorGroupId(state.Info.Name);
 
             // Use Task.Run to dispatch on a clean stack frame, avoiding reentrancy
             // issues where CompleteResponse hasn't fully unwound yet.
@@ -743,12 +937,20 @@ public partial class CopilotService
                     await Task.Delay(100);
                     if (_syncContext != null)
                     {
-                        var tcs = new TaskCompletionSource();
+                        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                         _syncContext.Post(async _ =>
                         {
                             try
                             {
-                                await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory);
+                                if (orchGroupId != null && nextImagePaths is null or { Count: 0 })
+                                {
+                                    Debug($"[DISPATCH] Queue drain routing to multi-agent pipeline: session='{state.Info.Name}', group='{orchGroupId}'");
+                                    await SendToMultiAgentGroupAsync(orchGroupId, nextPrompt);
+                                }
+                                else
+                                {
+                                    await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
+                                }
                                 tcs.TrySetResult();
                             }
                             catch (Exception ex)
@@ -760,7 +962,15 @@ public partial class CopilotService
                     }
                     else
                     {
-                        await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory);
+                        if (orchGroupId != null && nextImagePaths is null or { Count: 0 })
+                        {
+                            Debug($"[DISPATCH] Queue drain routing to multi-agent pipeline: session='{state.Info.Name}', group='{orchGroupId}'");
+                            await SendToMultiAgentGroupAsync(orchGroupId, nextPrompt);
+                        }
+                        else
+                        {
+                            await SendPromptAsync(state.Info.Name, nextPrompt, imagePaths: nextImagePaths, skipHistoryMessage: skipHistory, agentMode: nextAgentMode);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -771,8 +981,24 @@ public partial class CopilotService
                         state.Info.MessageQueue.Insert(0, nextPrompt);
                         if (nextImagePaths != null)
                         {
-                            var images = _queuedImagePaths.GetOrAdd(state.Info.Name, _ => new List<List<string>>());
-                            images.Insert(0, nextImagePaths);
+                            lock (_imageQueueLock)
+                            {
+                                var images = _queuedImagePaths.GetOrAdd(state.Info.Name, _ => new List<List<string>>());
+                                images.Insert(0, nextImagePaths);
+                            }
+                        }
+                        // Re-queue the agent mode too (always re-insert to maintain alignment)
+                        lock (_imageQueueLock)
+                        {
+                            if (_queuedAgentModes.TryGetValue(state.Info.Name, out var existingModes))
+                            {
+                                existingModes.Insert(0, nextAgentMode);
+                            }
+                            else if (nextAgentMode != null)
+                            {
+                                var modes = _queuedAgentModes.GetOrAdd(state.Info.Name, _ => new List<string?>());
+                                modes.Insert(0, nextAgentMode);
+                            }
                         }
                     });
                 }
@@ -844,7 +1070,7 @@ public partial class CopilotService
             while (evalState.Info.IsProcessing && !cts.Token.IsCancellationRequested)
                 await Task.Delay(200, cts.Token);
 
-            evalState.ResponseCompletion = new TaskCompletionSource<string>();
+            evalState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             await SendPromptAsync(evaluatorName, evalPrompt, cancellationToken: cts.Token, skipHistoryMessage: true);
 
             // Wait for the evaluator response
@@ -984,6 +1210,19 @@ public partial class CopilotService
                 var nextPrompt = state.Info.MessageQueue[0];
                 state.Info.MessageQueue.RemoveAt(0);
 
+                // Consume any queued agent mode to keep alignment
+                string? nextAgentMode2 = null;
+                lock (_imageQueueLock)
+                {
+                    if (_queuedAgentModes.TryGetValue(state.Info.Name, out var modeQueue2) && modeQueue2.Count > 0)
+                    {
+                        nextAgentMode2 = modeQueue2[0];
+                        modeQueue2.RemoveAt(0);
+                        if (modeQueue2.Count == 0)
+                            _queuedAgentModes.TryRemove(state.Info.Name, out _);
+                    }
+                }
+
                 var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
                                   ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt);
 
@@ -994,12 +1233,12 @@ public partial class CopilotService
                         await Task.Delay(100);
                         if (_syncContext != null)
                         {
-                            var tcs = new TaskCompletionSource();
+                            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                             _syncContext.Post(async _ =>
                             {
                                 try
                                 {
-                                    await SendPromptAsync(state.Info.Name, nextPrompt, skipHistoryMessage: skipHistory);
+                                    await SendPromptAsync(state.Info.Name, nextPrompt, skipHistoryMessage: skipHistory, agentMode: nextAgentMode2);
                                     tcs.TrySetResult();
                                 }
                                 catch (Exception ex)
@@ -1071,6 +1310,14 @@ public partial class CopilotService
     /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
     /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
     internal const int WatchdogToolExecutionTimeoutSeconds = 600;
+    /// <summary>If a resumed session receives zero SDK events for this many seconds, it was likely already
+    /// finished when the app restarted. Short enough that users don't have to click Stop, long enough
+    /// for the SDK to start streaming if the turn is genuinely still active.</summary>
+    internal const int WatchdogResumeQuiescenceTimeoutSeconds = 30;
+    /// <summary>Absolute maximum processing time in seconds. Even if events keep arriving,
+    /// no single turn should run longer than this. This is a safety net for scenarios where
+    /// non-progress events (like repeated SessionUsageInfoEvent) keep arriving without a terminal event.</summary>
+    internal const int WatchdogMaxProcessingTimeSeconds = 3600; // 60 minutes
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
@@ -1085,6 +1332,10 @@ public partial class CopilotService
     private void StartProcessingWatchdog(SessionState state, string sessionName)
     {
         CancelProcessingWatchdog(state);
+        // Always seed from DateTime.UtcNow. Do NOT pass events.jsonl file time here —
+        // that would make elapsed = (file age) + check interval, causing the 30s quiescence
+        // timeout to fire on the first watchdog check for any file > ~15s old.
+        // This is the exact regression pattern from PR #148 (short timeout killing active sessions).
         Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         state.ProcessingWatchdog = new CancellationTokenSource();
         var ct = state.ProcessingWatchdog.Token;
@@ -1104,23 +1355,70 @@ public partial class CopilotService
                 var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
                 var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
                 var hasActiveTool = Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0;
+
+                // After events have started flowing on a resumed session, clear IsResumed
+                // so the watchdog transitions from the long 600s timeout to the shorter 120s.
+                // Guard: don't clear if tools are active or have been used this turn — between
+                // tool rounds, ActiveToolCallCount returns to 0 when AssistantTurnStartEvent
+                // resets it, but the model may still be reasoning about the next tool call.
+                // HasUsedToolsThisTurn persists across rounds and prevents premature downgrade.
+                if (state.Info.IsResumed && Volatile.Read(ref state.HasReceivedEventsSinceResume)
+                    && !hasActiveTool && !Volatile.Read(ref state.HasUsedToolsThisTurn))
+                {
+                    Debug($"[WATCHDOG] '{sessionName}' clearing IsResumed — events have arrived since resume with no tool activity");
+                    InvokeOnUI(() => state.Info.IsResumed = false);
+                }
                 // Use the longer tool-execution timeout if:
                 // 1. A tool call is actively running (hasActiveTool), OR
                 // 2. This is a resumed session that was mid-turn (agent sessions routinely
                 //    have 2-3 min gaps between events while the model reasons), OR
                 // 3. Tools have been executed this turn (HasUsedToolsThisTurn) — even between
                 //    tool rounds when ActiveToolCallCount is 0, the model may spend minutes
-                //    thinking about what tool to call next.
-                var useToolTimeout = hasActiveTool || state.Info.IsResumed || Volatile.Read(ref state.HasUsedToolsThisTurn);
-                var effectiveTimeout = useToolTimeout
-                    ? WatchdogToolExecutionTimeoutSeconds
-                    : WatchdogInactivityTimeoutSeconds;
+                //    thinking about what tool to call next, OR
+                // 4. Session is in a multi-agent group — workers doing text-heavy tasks
+                //    (e.g., PR reviews) can take 2-4 min without tool calls. The orchestration
+                //    loop has its own 10-minute CancelAfter timeout per worker. Cached at
+                //    send time on UI thread to avoid cross-thread List<T> access.
+                var isMultiAgentSession = Volatile.Read(ref state.IsMultiAgentSession);
+                var hasReceivedEvents = Volatile.Read(ref state.HasReceivedEventsSinceResume);
+                var hasUsedTools = Volatile.Read(ref state.HasUsedToolsThisTurn);
+
+                // Resumed session that has received ZERO events since restart — the turn likely
+                // completed before the app restarted. Use a short 30s quiescence timeout so the
+                // user doesn't have to click Stop. If events start flowing, HasReceivedEventsSinceResume
+                // goes true and we fall through to the normal timeout tiers.
+                var useResumeQuiescence = state.Info.IsResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
+
+                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgentSession;
+                var effectiveTimeout = useResumeQuiescence
+                    ? WatchdogResumeQuiescenceTimeoutSeconds
+                    : useToolTimeout
+                        ? WatchdogToolExecutionTimeoutSeconds
+                        : WatchdogInactivityTimeoutSeconds;
+
+                // Safety net: check absolute max processing time, but only if events have also
+                // gone stale. If events are still flowing (elapsed < effectiveTimeout), the session
+                // is actively working — don't kill it just because the turn is long-running.
+                // This prevents premature kills on CI/agent sessions that legitimately work for hours.
+                // The cap still catches "zombie" sessions where non-progress events (e.g., repeated
+                // SessionUsageInfoEvent with FailedDelegation) keep the inactivity timer happy.
+                var startedAt = state.Info.ProcessingStartedAt;
+                var totalProcessingSeconds = startedAt.HasValue
+                    ? (DateTime.UtcNow - startedAt.Value).TotalSeconds
+                    : 0;
 
                 if (elapsed >= effectiveTimeout)
                 {
-                    var timeoutMinutes = effectiveTimeout / 60;
-                    Debug($"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
-                          $"(timeout={effectiveTimeout}s, hasActiveTool={hasActiveTool}, isResumed={state.Info.IsResumed}, hasUsedTools={state.HasUsedToolsThisTurn}), clearing stuck processing state");
+                    var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds;
+                    var timeoutDisplay = exceededMaxTime
+                        ? $"{WatchdogMaxProcessingTimeSeconds / 60} minute(s) total processing time"
+                        : effectiveTimeout >= 60
+                            ? $"{effectiveTimeout / 60} minute(s)"
+                            : $"{effectiveTimeout} seconds";
+                    Debug(exceededMaxTime
+                        ? $"Session '{sessionName}' watchdog: total processing time {totalProcessingSeconds:F0}s exceeded max {WatchdogMaxProcessingTimeSeconds}s, clearing stuck processing state"
+                        : $"Session '{sessionName}' watchdog: no events for {elapsed:F0}s " +
+                          $"(timeout={effectiveTimeout}s, hasActiveTool={hasActiveTool}, isResumed={state.Info.IsResumed}, hasUsedTools={state.HasUsedToolsThisTurn}, multiAgent={isMultiAgentSession}), clearing stuck processing state");
                     // Capture generation before posting — same guard pattern as CompleteResponse.
                     // Prevents a stale watchdog callback from killing a new turn if the user
                     // aborts + resends between the Post() and the callback execution.
@@ -1141,11 +1439,23 @@ public partial class CopilotService
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         state.Info.IsResumed = false;
+                        // Flush any accumulated partial response before clearing processing state
+                        FlushCurrentResponse(state);
+                        Debug($"[WATCHDOG] '{sessionName}' IsProcessing=false — watchdog timeout after {totalProcessingSeconds:F0}s total, elapsed={elapsed:F0}s, exceededMaxTime={exceededMaxTime}");
                         state.Info.IsProcessing = false;
+                        Interlocked.Exchange(ref state.SendingFlag, 0);
+                        if (state.Info.ProcessingStartedAt is { } wdStarted)
+                            state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - wdStarted).TotalSeconds;
+                        state.Info.ProcessingStartedAt = null;
+                        state.Info.ToolCallCount = 0;
+                        state.Info.ProcessingPhase = 0;
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
-                        state.ResponseCompletion?.TrySetResult("");
-                        OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutMinutes} minute(s).");
+                        var watchdogResponse = state.FlushedResponse.ToString();
+                        state.FlushedResponse.Clear();
+                        state.PendingReasoningMessages.Clear();
+                        state.ResponseCompletion?.TrySetResult(watchdogResponse);
+                        OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutDisplay}.");
                         OnStateChanged?.Invoke();
                     });
                     break;
@@ -1154,5 +1464,201 @@ public partial class CopilotService
         }
         catch (OperationCanceledException) { /* Normal cancellation when response completes */ }
         catch (Exception ex) { Debug($"Watchdog error for '{sessionName}': {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Attempts to recover a session whose permission callback binding was lost.
+    /// Disposes the broken session and resumes it with a fresh AutoApprovePermissions callback.
+    /// </summary>
+    // Guard against infinite recovery loops (permission denied → recover → resend → denied again)
+    private readonly ConcurrentDictionary<string, int> _permissionRecoveryAttempts = new();
+    private readonly ConcurrentDictionary<string, bool> _recoveryInProgress = new();
+
+    /// <summary>
+    /// Clears all processing state so the session isn't stuck in "Thinking..." after a failed recovery.
+    /// Must be called on the UI thread. Resolves the pending TCS, clears SendingFlag, and resets
+    /// all 9 companion fields per INV-1.
+    /// </summary>
+    private void ClearProcessingStateForRecoveryFailure(SessionState state, string sessionName)
+    {
+        state.ResponseCompletion?.TrySetCanceled();
+        Interlocked.Exchange(ref state.SendingFlag, 0);
+        state.Info.ClearPermissionDenials();
+        if (state.Info.IsProcessing)
+        {
+            FlushCurrentResponse(state);
+            state.CurrentResponse.Clear();
+            state.FlushedResponse.Clear();
+            state.PendingReasoningMessages.Clear();
+            if (state.Info.ProcessingStartedAt is { } started)
+                state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
+            state.Info.IsProcessing = false;
+            state.Info.IsResumed = false;
+            state.HasUsedToolsThisTurn = false;
+            Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+            state.Info.ProcessingStartedAt = null;
+            state.Info.ToolCallCount = 0;
+            state.Info.ProcessingPhase = 0;
+        }
+    }
+
+    private async Task TryRecoverPermissionAsync(SessionState state, string sessionName)
+    {
+        // Guard against concurrent recovery for the same session (auto + manual can race)
+        if (!_recoveryInProgress.TryAdd(sessionName, true))
+        {
+            Debug($"[PERMISSION-RECOVER] Recovery already in progress for '{sessionName}'");
+            return;
+        }
+        try
+        {
+            if (_client == null || state.Info.SessionId == null)
+            {
+                ClearProcessingStateForRecoveryFailure(state, sessionName);
+                return;
+            }
+
+            // Limit recovery attempts per session to prevent infinite loops
+            var attempts = _permissionRecoveryAttempts.AddOrUpdate(sessionName, 1, (_, v) => v + 1);
+            if (attempts > 2)
+            {
+                Debug($"[PERMISSION-RECOVER] Max recovery attempts reached for '{sessionName}'");
+                ClearProcessingStateForRecoveryFailure(state, sessionName);
+                state.Info.History.Add(ChatMessage.SystemMessage(
+                    "⚠️ Multiple recovery attempts failed. Use Settings → Save & Reconnect to fully restart the service."));
+                OnStateChanged?.Invoke();
+                return;
+            }
+
+            Debug($"[PERMISSION-RECOVER] Attempting session reconnect for '{sessionName}'");
+
+            // Dispose the old session
+            try { await state.Session.DisposeAsync(); } catch { }
+
+            // Resume with fresh permission callback
+            var resumeModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
+            var resumeConfig = new ResumeSessionConfig
+            {
+                Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
+                OnPermissionRequest = AutoApprovePermissions
+            };
+            if (!string.IsNullOrEmpty(resumeModel))
+                resumeConfig.Model = resumeModel;
+            if (!string.IsNullOrEmpty(state.Info.WorkingDirectory))
+                resumeConfig.WorkingDirectory = state.Info.WorkingDirectory;
+
+            var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, resumeConfig);
+
+            // Cancel old watchdog BEFORE creating new state
+            CancelProcessingWatchdog(state);
+
+            // Bug B fix: Cancel the old ResponseCompletion TCS so the original
+            // SendPromptAsync awaiter doesn't hang forever.
+            state.ResponseCompletion?.TrySetCanceled();
+
+            // Create new state preserving Info
+            var newState = new SessionState
+            {
+                Session = newSession,
+                Info = state.Info
+            };
+            newState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Interlocked.Exchange(ref newState.ProcessingGeneration,
+                Interlocked.Read(ref state.ProcessingGeneration));
+            newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn;
+            newState.IsMultiAgentSession = state.IsMultiAgentSession;
+            // Transfer ActiveToolCallCount to prevent negative counts from in-flight completions.
+            // Don't transfer SendingFlag — we need it at 0 for the resend below.
+            Interlocked.Exchange(ref newState.ActiveToolCallCount,
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0));
+            Interlocked.Exchange(ref state.SendingFlag, 0);
+            // Clear stale tool flag so watchdog uses normal timeout if resend is skipped
+            newState.HasUsedToolsThisTurn = false;
+
+            // Replace in sessions dictionary BEFORE registering event handler
+            // so HandleSessionEvent's isCurrentState check passes for the new state.
+            _sessions[sessionName] = newState;
+            newSession.On(evt => HandleSessionEvent(newState, evt));
+
+            // Bug A fix: Clear IsProcessing + all 9 companion fields so SendPromptAsync
+            // doesn't throw "already processing". Must run on UI thread (INV-2).
+            // History read also done on UI thread to avoid concurrent List<T> mutation.
+            string? lastPrompt = null;
+
+            // Use a TaskCompletionSource to wait for the UI-thread cleanup to complete
+            // before attempting the resend.
+            var cleanupDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            InvokeOnUI(() =>
+            {
+                // Read History on UI thread where it's safe (List<T> not thread-safe)
+                var lastUserMsg = state.Info.History.LastOrDefault(m => m.Role == "user");
+                lastPrompt = lastUserMsg?.OriginalContent ?? lastUserMsg?.Content;
+
+                state.Info.ClearPermissionDenials();
+                // INV-1: Flush partial response to History before discarding buffers
+                FlushCurrentResponse(state);
+                state.CurrentResponse.Clear();
+                state.FlushedResponse.Clear();
+                state.PendingReasoningMessages.Clear();
+                if (state.Info.ProcessingStartedAt is { } started)
+                    state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
+                state.Info.IsProcessing = false;
+                state.Info.IsResumed = false;
+                state.HasUsedToolsThisTurn = false;
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                state.Info.ProcessingStartedAt = null;
+                state.Info.ToolCallCount = 0;
+                state.Info.ProcessingPhase = 0;
+                Debug($"[PERMISSION-RECOVER] '{sessionName}' cleared processing state");
+                state.Info.History.Add(ChatMessage.SystemMessage("✅ Session reconnected. Resuming work..."));
+                OnActivity?.Invoke(sessionName, "✅ Session reconnected");
+                OnStateChanged?.Invoke();
+                cleanupDone.TrySetResult();
+            });
+
+            // Wait for UI-thread cleanup before resending.
+            // Since TryRecoverPermissionAsync runs on UI thread (via Invoke), the
+            // continuation stays on UI thread — satisfying INV-2 for SendPromptAsync.
+            await cleanupDone.Task;
+
+            // Resend the last prompt so the agent picks up where it left off.
+            // IsProcessing is now false and SendingFlag is 0, so SendPromptAsync will succeed.
+            if (!string.IsNullOrEmpty(lastPrompt))
+            {
+                Debug($"[PERMISSION-RECOVER-RESEND] '{sessionName}' resending last prompt");
+                try
+                {
+                    await SendPromptAsync(sessionName, lastPrompt, skipHistoryMessage: true);
+                }
+                catch (Exception sendEx)
+                {
+                    Debug($"[PERMISSION-RECOVER-RESEND] Failed for '{sessionName}': {sendEx.Message}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"[PERMISSION-RECOVER] Failed for '{sessionName}': {ex.Message}");
+            ClearProcessingStateForRecoveryFailure(state, sessionName);
+            state.Info.History.Add(ChatMessage.SystemMessage(
+                "⚠️ Auto-recovery failed. Use the Reconnect button in Settings → Save & Reconnect to restore permissions."));
+            OnStateChanged?.Invoke();
+        }
+        finally
+        {
+            _recoveryInProgress.TryRemove(sessionName, out _);
+        }
+    }
+
+    /// <summary>
+    /// Public entry point for per-session permission recovery.
+    /// Looks up the session by name and attempts to reconnect it with a fresh permission callback.
+    /// </summary>
+    public async Task RecoverSessionAsync(string sessionName)
+    {
+        if (_sessions.TryGetValue(sessionName, out var state))
+        {
+            await TryRecoverPermissionAsync(state, sessionName);
+        }
     }
 }

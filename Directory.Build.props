@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- GitHub.Copilot.SDK's DownloadFile timeout is interpreted in milliseconds. -->
+    <CopilotCliDownloadTimeout Condition="'$(CopilotCliDownloadTimeout)' == ''">600000</CopilotCliDownloadTimeout>
+  </PropertyGroup>
+</Project>

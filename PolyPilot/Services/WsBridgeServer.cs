@@ -18,6 +18,7 @@ public class WsBridgeServer : IDisposable
     private int _bridgePort;
     private CopilotService? _copilot;
     private FiestaService? _fiestaService;
+    private RepoManager? _repoManager;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
 
@@ -84,7 +85,7 @@ public class WsBridgeServer : IDisposable
         if (_copilot != null) return;
         _copilot = copilot;
 
-        _copilot.OnStateChanged += () => BroadcastSessionsList();
+        _copilot.OnStateChanged += () => { BroadcastSessionsList(); BroadcastOrganizationState(); };
         _copilot.OnContentReceived += (session, content) =>
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ContentDelta,
                 new ContentDeltaPayload { SessionName = session, Content = content }));
@@ -92,8 +93,26 @@ public class WsBridgeServer : IDisposable
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ToolStarted,
                 new ToolStartedPayload { SessionName = session, ToolName = tool, CallId = callId, ToolInput = input }));
         _copilot.OnToolCompleted += (session, callId, result, success) =>
-            Broadcast(BridgeMessage.Create(BridgeMessageTypes.ToolCompleted,
-                new ToolCompletedPayload { SessionName = session, CallId = callId, Result = result, Success = success }));
+        {
+            var payload = new ToolCompletedPayload { SessionName = session, CallId = callId, Result = result, Success = success };
+            // Check if this is a show_image result — include image data for remote clients
+            if (success)
+            {
+                var (imgPath, caption) = ShowImageTool.ParseResult(result);
+                if (!string.IsNullOrEmpty(imgPath) && File.Exists(imgPath))
+                {
+                    try
+                    {
+                        var bytes = File.ReadAllBytes(imgPath);
+                        payload.ImageData = Convert.ToBase64String(bytes);
+                        payload.ImageMimeType = ImageMimeType(imgPath);
+                        payload.Caption = caption;
+                    }
+                    catch { /* fall through — remote client won't get the image */ }
+                }
+            }
+            Broadcast(BridgeMessage.Create(BridgeMessageTypes.ToolCompleted, payload));
+        };
         _copilot.OnReasoningReceived += (session, reasoningId, content) =>
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ReasoningDelta,
                 new ReasoningDeltaPayload { SessionName = session, ReasoningId = reasoningId, Content = content }));
@@ -135,6 +154,11 @@ public class WsBridgeServer : IDisposable
     public void SetFiestaService(FiestaService fiestaService)
     {
         _fiestaService ??= fiestaService;
+    }
+
+    public void SetRepoManager(RepoManager repoManager)
+    {
+        _repoManager ??= repoManager;
     }
 
     public void Stop()
@@ -191,6 +215,13 @@ public class WsBridgeServer : IDisposable
                 }
                 else
                 {
+                    // Validate auth so LAN probes correctly fail when token is missing/wrong
+                    if (!ValidateClientToken(context.Request))
+                    {
+                        context.Response.StatusCode = 401;
+                        context.Response.Close();
+                        continue;
+                    }
                     context.Response.StatusCode = 200;
                     context.Response.ContentType = "text/plain";
                     var buffer = Encoding.UTF8.GetBytes("WsBridge OK");
@@ -266,20 +297,30 @@ public class WsBridgeServer : IDisposable
             Console.WriteLine($"[WsBridge] Client {clientId} connected ({_clients.Count} total)");
 
             // Send initial state
-            await SendToClientAsync(clientId, ws,
-                BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
-            await SendToClientAsync(clientId, ws,
-                BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot?.Organization ?? new OrganizationState()), ct);
-            await SendPersistedToClient(clientId, ws, ct);
-
-            // Send history for all active sessions so mobile has full state on connect
             if (_copilot != null)
             {
-                foreach (var session in _copilot.GetAllSessions())
-                {
-                    if (session.History.Count > 0)
-                        await SendSessionHistoryToClient(clientId, ws, session.Name, ct);
-                }
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot.Organization), ct);
+            }
+            else
+            {
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.SessionsList, new SessionsListPayload()), ct);
+                await SendToClientAsync(clientId, ws,
+                    BridgeMessage.Create(BridgeMessageTypes.OrganizationState, new OrganizationState()), ct);
+            }
+            await SendPersistedToClient(clientId, ws, ct);
+
+            // Send history only for the active session on connect — sending all sessions'
+            // history blocks the command reader and causes the mobile UI to spin.
+            // Other sessions' history is fetched lazily via SwitchSession.
+            if (_copilot != null)
+            {
+                var active = _copilot.GetActiveSession();
+                if (active != null && active.History.Count > 0)
+                    await SendSessionHistoryToClient(clientId, ws, active.Name, 10, ct);
             }
 
             // Read client commands (with fragmentation support)
@@ -337,7 +378,7 @@ public class WsBridgeServer : IDisposable
                 case BridgeMessageTypes.GetHistory:
                     var histReq = msg.GetPayload<GetHistoryPayload>();
                     if (histReq != null)
-                        await SendSessionHistoryToClient(clientId, ws, histReq.SessionName, ct);
+                        await SendSessionHistoryToClient(clientId, ws, histReq.SessionName, histReq.Limit, ct);
                     break;
 
                 case BridgeMessageTypes.SendMessage:
@@ -345,7 +386,17 @@ public class WsBridgeServer : IDisposable
                     if (sendReq != null && !string.IsNullOrWhiteSpace(sendReq.SessionName) && !string.IsNullOrWhiteSpace(sendReq.Message))
                     {
                         Console.WriteLine($"[WsBridge] Client sending message to '{sendReq.SessionName}'");
-                        await _copilot.SendPromptAsync(sendReq.SessionName, sendReq.Message, cancellationToken: ct);
+                        // Fire-and-forget: don't block the client message loop waiting for the full response.
+                        // SendPromptAsync awaits ResponseCompletion (minutes). Responses stream back via events.
+                        // Blocking here prevents the client from sending abort, switch, or other commands.
+                        var sendSession = sendReq.SessionName;
+                        var sendMessage = sendReq.Message;
+                        var sendAgentMode = sendReq.AgentMode;
+                        _ = Task.Run(async () =>
+                        {
+                            try { await _copilot.SendPromptAsync(sendSession, sendMessage, cancellationToken: ct, agentMode: sendAgentMode); }
+                            catch (Exception ex) { Console.WriteLine($"[WsBridge] SendPromptAsync error for '{sendSession}': {ex.Message}"); }
+                        });
                     }
                     break;
 
@@ -365,6 +416,9 @@ public class WsBridgeServer : IDisposable
                                 !Directory.Exists(createReq.WorkingDirectory))
                             {
                                 Console.WriteLine($"[WsBridge] Rejected invalid WorkingDirectory: {createReq.WorkingDirectory}");
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                        new ErrorPayload { SessionName = createReq.Name, Error = $"Working directory not found on server: {createReq.WorkingDirectory}" }), ct);
                                 break;
                             }
                         }
@@ -380,14 +434,15 @@ public class WsBridgeServer : IDisposable
                     if (switchReq != null)
                     {
                         _copilot.SetActiveSession(switchReq.SessionName);
-                        await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, ct);
+                        BroadcastSessionsList();
+                        await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, 10, ct);
                     }
                     break;
 
                 case BridgeMessageTypes.QueueMessage:
                     var queueReq = msg.GetPayload<QueueMessagePayload>();
                     if (queueReq != null && !string.IsNullOrWhiteSpace(queueReq.SessionName) && !string.IsNullOrWhiteSpace(queueReq.Message))
-                        _copilot.EnqueueMessage(queueReq.SessionName, queueReq.Message);
+                        _copilot.EnqueueMessage(queueReq.SessionName, queueReq.Message, agentMode: queueReq.AgentMode);
                     break;
 
                 case BridgeMessageTypes.GetPersistedSessions:
@@ -428,7 +483,7 @@ public class WsBridgeServer : IDisposable
 
                 case BridgeMessageTypes.CloseSession:
                     var closeReq = msg.GetPayload<SessionNamePayload>();
-                    if (closeReq != null)
+                    if (closeReq != null && !string.IsNullOrWhiteSpace(closeReq.SessionName))
                     {
                         Console.WriteLine($"[WsBridge] Client closing session '{closeReq.SessionName}'");
                         await _copilot.CloseSessionAsync(closeReq.SessionName);
@@ -444,11 +499,45 @@ public class WsBridgeServer : IDisposable
                     }
                     break;
 
+                case BridgeMessageTypes.ChangeModel:
+                    var changeModelReq = msg.GetPayload<ChangeModelPayload>();
+                    if (changeModelReq != null && !string.IsNullOrWhiteSpace(changeModelReq.SessionName))
+                    {
+                        Console.WriteLine($"[WsBridge] Client changing model for '{changeModelReq.SessionName}' to '{changeModelReq.NewModel}'");
+                        var modelChanged = await _copilot.ChangeModelAsync(changeModelReq.SessionName, changeModelReq.NewModel);
+                        if (!modelChanged)
+                        {
+                            await SendToClientAsync(clientId, ws,
+                                BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                    new ErrorPayload { SessionName = changeModelReq.SessionName, Error = "Failed to change model. Session may be processing or model is invalid." }), ct);
+                        }
+                        // Always broadcast latest session state so client stays in sync
+                        BroadcastSessionsList();
+                    }
+                    break;
+
+                case BridgeMessageTypes.RenameSession:
+                    var renameReq = msg.GetPayload<RenameSessionPayload>();
+                    if (renameReq != null && !string.IsNullOrWhiteSpace(renameReq.OldName) && !string.IsNullOrWhiteSpace(renameReq.NewName))
+                    {
+                        Console.WriteLine($"[WsBridge] Client renaming session '{renameReq.OldName}' to '{renameReq.NewName}'");
+                        var renamed = _copilot.RenameSession(renameReq.OldName, renameReq.NewName);
+                        if (!renamed)
+                        {
+                            await SendToClientAsync(clientId, ws,
+                                BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                    new ErrorPayload { SessionName = renameReq.OldName, Error = "Failed to rename session. Name may already exist." }), ct);
+                        }
+                        BroadcastSessionsList();
+                        BroadcastOrganizationState();
+                    }
+                    break;
+
                 case BridgeMessageTypes.OrganizationCommand:
                     var orgCmd = msg.GetPayload<OrganizationCommandPayload>();
                     if (orgCmd != null)
                     {
-                        HandleOrganizationCommand(orgCmd);
+                        await HandleOrganizationCommandAsync(orgCmd);
                         BroadcastOrganizationState();
                     }
                     break;
@@ -459,7 +548,7 @@ public class WsBridgeServer : IDisposable
                     if (string.IsNullOrWhiteSpace(dirPath))
                         dirPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-                    var dirResult = new DirectoriesListPayload { Path = dirPath! };
+                    var dirResult = new DirectoriesListPayload { Path = dirPath!, RequestId = dirReq?.RequestId };
                     try
                     {
                         if (!Path.IsPathRooted(dirPath!) || dirPath!.Contains(".."))
@@ -497,6 +586,250 @@ public class WsBridgeServer : IDisposable
                         BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, dirResult), ct);
                     break;
 
+                case BridgeMessageTypes.MultiAgentBroadcast:
+                    var maReq = msg.GetPayload<MultiAgentBroadcastPayload>();
+                    if (maReq != null && _copilot != null)
+                    {
+                        _ = _copilot.SendToMultiAgentGroupAsync(maReq.GroupId, maReq.Message, ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.MultiAgentCreateGroup:
+                    var maCreateReq = msg.GetPayload<MultiAgentCreateGroupPayload>();
+                    if (maCreateReq != null && _copilot != null)
+                    {
+                        var mode = Enum.TryParse<MultiAgentMode>(maCreateReq.Mode, out var m) ? m : MultiAgentMode.Broadcast;
+                        _copilot.CreateMultiAgentGroup(maCreateReq.Name, mode, maCreateReq.OrchestratorPrompt, maCreateReq.SessionNames);
+                    }
+                    break;
+
+                case BridgeMessageTypes.PushOrganization:
+                    var pushOrg = msg.GetPayload<OrganizationState>();
+                    if (pushOrg != null && _copilot != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            await _copilot.InvokeOnUIAsync(() =>
+                            {
+                                _copilot.Organization = pushOrg;
+                                _copilot.SaveOrganization();
+                                _copilot.FlushSaveOrganization();
+                            });
+                            BroadcastOrganizationState();
+                        });
+                    }
+                    break;
+
+                case BridgeMessageTypes.MultiAgentSetRole:
+                    var maRoleReq = msg.GetPayload<MultiAgentSetRolePayload>();
+                    if (maRoleReq != null && _copilot != null)
+                    {
+                        var role = Enum.TryParse<MultiAgentRole>(maRoleReq.Role, out var r) ? r : MultiAgentRole.Worker;
+                        _copilot.SetSessionRole(maRoleReq.SessionName, role);
+                    }
+                    break;
+
+                case BridgeMessageTypes.FetchImage:
+                    var imgReq = msg.GetPayload<FetchImagePayload>();
+                    if (imgReq != null)
+                    {
+                        var imgResponse = new FetchImageResponsePayload { RequestId = imgReq.RequestId };
+                        try
+                        {
+                            var validationError = ValidateImagePath(imgReq.Path, out var resolvedPath);
+                            if (validationError != null)
+                            {
+                                imgResponse.Error = validationError;
+                            }
+                            else
+                            {
+                                if (!File.Exists(resolvedPath))
+                                {
+                                    imgResponse.Error = "File not found";
+                                }
+                                else
+                                {
+                                    var bytes = await File.ReadAllBytesAsync(resolvedPath, ct);
+                                    imgResponse.ImageData = Convert.ToBase64String(bytes);
+                                    imgResponse.MimeType = ImageMimeType(resolvedPath);
+                                }
+                            }
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch { imgResponse.Error = "Access denied"; }
+                        await SendToClientAsync(clientId, ws,
+                            BridgeMessage.Create(BridgeMessageTypes.FetchImageResponse, imgResponse), ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.ListRepos:
+                    if (_repoManager != null)
+                    {
+                        var listReq = msg.GetPayload<ListReposPayload>();
+                        var repos = _repoManager.Repositories.Select(r => new RepoSummary
+                        {
+                            Id = r.Id, Name = r.Name, Url = r.Url
+                        }).ToList();
+                        var worktrees = _repoManager.Worktrees.Select(w => new WorktreeSummary
+                        {
+                            Id = w.Id, RepoId = w.RepoId, Branch = w.Branch, Path = w.Path, PrNumber = w.PrNumber, Remote = w.Remote
+                        }).ToList();
+                        await SendToClientAsync(clientId, ws,
+                            BridgeMessage.Create(BridgeMessageTypes.ReposList,
+                                new ReposListPayload { RequestId = listReq?.RequestId, Repos = repos, Worktrees = worktrees }), ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.AddRepo:
+                    var addReq = msg.GetPayload<AddRepoPayload>();
+                    if (addReq != null && _repoManager != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var repo = await _repoManager.AddRepositoryAsync(addReq.Url, progress =>
+                                {
+                                    _ = SendToClientAsync(clientId, ws,
+                                        BridgeMessage.Create(BridgeMessageTypes.RepoProgress,
+                                            new RepoProgressPayload { RequestId = addReq.RequestId, Message = progress }), ct);
+                                }, ct);
+                                _copilot?.InvokeOnUI(() =>
+                                    _copilot?.GetOrCreateRepoGroup(repo.Id, repo.Name, explicitly: true));
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.RepoAdded,
+                                        new RepoAddedPayload
+                                        {
+                                            RequestId = addReq.RequestId,
+                                            RepoId = repo.Id,
+                                            RepoName = repo.Name,
+                                            Url = repo.Url
+                                        }), ct);
+                            }
+                            catch (Exception ex)
+                            {
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.RepoError,
+                                        new RepoErrorPayload { RequestId = addReq.RequestId, Error = ex.Message }), ct);
+                            }
+                        }, ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.RemoveRepo:
+                    var removeReq = msg.GetPayload<RemoveRepoPayload>();
+                    if (removeReq != null && _repoManager != null)
+                    {
+                        try
+                        {
+                            await _repoManager.RemoveRepositoryAsync(removeReq.RepoId, removeReq.DeleteFromDisk, ct);
+                            if (!string.IsNullOrEmpty(removeReq.GroupId) && _copilot != null)
+                                await _copilot.InvokeOnUIAsync(() => _copilot.DeleteGroup(removeReq.GroupId));
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[WsBridgeServer] RemoveRepo error: {ex.Message}");
+                        }
+                    }
+                    break;
+
+                case BridgeMessageTypes.CreateWorktree:
+                    var wtReq = msg.GetPayload<CreateWorktreePayload>();
+                    if (wtReq != null && _repoManager != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                WorktreeInfo wt;
+                                if (wtReq.PrNumber.HasValue)
+                                    wt = await _repoManager.CreateWorktreeFromPrAsync(wtReq.RepoId, wtReq.PrNumber.Value, ct);
+                                else
+                                    wt = await _repoManager.CreateWorktreeAsync(wtReq.RepoId, wtReq.BranchName ?? "main", null, ct: ct);
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.WorktreeCreated,
+                                        new WorktreeCreatedPayload
+                                        {
+                                            RequestId = wtReq.RequestId,
+                                            WorktreeId = wt.Id,
+                                            RepoId = wt.RepoId,
+                                            Branch = wt.Branch,
+                                            Path = wt.Path,
+                                            PrNumber = wt.PrNumber,
+                                            Remote = wt.Remote
+                                        }), ct);
+                            }
+                            catch (Exception ex)
+                            {
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.WorktreeError,
+                                        new RepoErrorPayload { RequestId = wtReq.RequestId, Error = ex.Message }), ct);
+                            }
+                        }, ct);
+                    }
+                    break;
+
+                case BridgeMessageTypes.RemoveWorktree:
+                    var rmWtReq = msg.GetPayload<RemoveWorktreePayload>();
+                    if (rmWtReq != null && _repoManager != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await _repoManager.RemoveWorktreeAsync(rmWtReq.WorktreeId, deleteBranch: rmWtReq.DeleteBranch);
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.WorktreeRemoved,
+                                        new RemoveWorktreePayload { RequestId = rmWtReq.RequestId, WorktreeId = rmWtReq.WorktreeId }), ct);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"[WsBridgeServer] RemoveWorktree error: {ex.Message}");
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.WorktreeError,
+                                        new RepoErrorPayload { RequestId = rmWtReq.RequestId, Error = ex.Message }), ct);
+                            }
+                        });
+                    }
+                    break;
+
+                case BridgeMessageTypes.CreateSessionWithWorktree:
+                    var cswtReq = msg.GetPayload<CreateSessionWithWorktreePayload>();
+                    if (cswtReq != null && _copilot != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                Console.WriteLine($"[WsBridge] Client creating session+worktree for repo '{cswtReq.RepoId}'");
+                                // Run on UI thread — CreateSessionWithWorktreeAsync calls
+                                // ReconcileOrganization() which mutates Organization.Sessions
+                                await _copilot.InvokeOnUIAsync(async () =>
+                                {
+                                    await _copilot.CreateSessionWithWorktreeAsync(
+                                        repoId: cswtReq.RepoId,
+                                        branchName: cswtReq.BranchName,
+                                        prNumber: cswtReq.PrNumber,
+                                        worktreeId: cswtReq.WorktreeId,
+                                        sessionName: cswtReq.SessionName,
+                                        model: cswtReq.Model,
+                                        initialPrompt: cswtReq.InitialPrompt,
+                                        ct: ct);
+                                });
+                                BroadcastSessionsList();
+                                BroadcastOrganizationState();
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"[WsBridge] CreateSessionWithWorktree error: {ex.Message}");
+                                await SendToClientAsync(clientId, ws,
+                                    BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                        new ErrorPayload { SessionName = cswtReq.SessionName ?? "", Error = $"Create session+worktree failed: {ex.Message}" }), ct);
+                            }
+                        }, ct);
+                    }
+                    break;
+
                 case BridgeMessageTypes.FiestaAssign:
                 case BridgeMessageTypes.FiestaPing:
                     if (_fiestaService != null)
@@ -521,7 +854,11 @@ public class WsBridgeServer : IDisposable
         if (!_clientSendLocks.TryGetValue(clientId, out var sendLock)) return;
 
         var bytes = Encoding.UTF8.GetBytes(msg.Serialize());
-        await sendLock.WaitAsync(ct);
+        try
+        {
+            await sendLock.WaitAsync(ct);
+        }
+        catch (ObjectDisposedException) { return; }
         try
         {
             if (ws.State == WebSocketState.Open)
@@ -529,7 +866,7 @@ public class WsBridgeServer : IDisposable
         }
         finally
         {
-            sendLock.Release();
+            try { sendLock.Release(); } catch (ObjectDisposedException) { }
         }
     }
 
@@ -559,17 +896,66 @@ public class WsBridgeServer : IDisposable
         await SendToClientAsync(clientId, ws, msg, ct);
     }
 
-    private async Task SendSessionHistoryToClient(string clientId, WebSocket ws, string sessionName, CancellationToken ct)
+    private async Task SendSessionHistoryToClient(string clientId, WebSocket ws, string sessionName, int? limit, CancellationToken ct)
     {
         if (_copilot == null) return;
 
         var session = _copilot.GetSession(sessionName);
         if (session == null) return;
 
+        // Take a defensive snapshot — History is a plain List<ChatMessage> that may be
+        // modified concurrently by SDK event handlers on background threads.
+        // ToArray() uses Array.Copy internally so it won't throw InvalidOperationException,
+        // but can hit ArgumentOutOfRangeException if the list resizes during copy.
+        // On failure, skip sending entirely — never send an empty authoritative payload
+        // (that would make the client think the session has no history with no recovery path).
+        ChatMessage[] snapshot;
+        try { snapshot = session.History.ToArray(); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WsBridge] History snapshot failed for '{sessionName}': {ex.Message}");
+            return;
+        }
+
+        var totalCount = snapshot.Length;
+        
+        // Apply limit — take the most recent N messages
+        List<ChatMessage> messagesToSend;
+        bool hasMore;
+        if (limit.HasValue && limit.Value < totalCount)
+        {
+            messagesToSend = snapshot.Skip(totalCount - limit.Value).ToList();
+            hasMore = true;
+        }
+        else
+        {
+            messagesToSend = snapshot.ToList();
+            hasMore = false;
+        }
+
+        // Populate ImageDataUri for Image messages so mobile can render them
+        foreach (var m in messagesToSend)
+        {
+            if (m.MessageType == ChatMessageType.Image && string.IsNullOrEmpty(m.ImageDataUri) && !string.IsNullOrEmpty(m.ImagePath))
+            {
+                try
+                {
+                    if (File.Exists(m.ImagePath))
+                    {
+                        var bytes = await File.ReadAllBytesAsync(m.ImagePath);
+                        m.ImageDataUri = $"data:{ImageMimeType(m.ImagePath)};base64,{Convert.ToBase64String(bytes)}";
+                    }
+                }
+                catch { /* best effort */ }
+            }
+        }
+
         var payload = new SessionHistoryPayload
         {
             SessionName = sessionName,
-            Messages = session.History.ToList()
+            Messages = messagesToSend,
+            TotalCount = totalCount,
+            HasMore = hasMore
         };
         var msg = BridgeMessage.Create(BridgeMessageTypes.SessionHistory, payload);
         await SendToClientAsync(clientId, ws, msg, ct);
@@ -587,6 +973,9 @@ public class WsBridgeServer : IDisposable
             SessionId = s.SessionId,
             WorkingDirectory = s.WorkingDirectory,
             QueueCount = s.MessageQueue.Count,
+            ProcessingStartedAt = s.ProcessingStartedAt,
+            ToolCallCount = s.ToolCallCount,
+            ProcessingPhase = s.ProcessingPhase,
         }).ToList();
 
         return new SessionsListPayload
@@ -595,6 +984,7 @@ public class WsBridgeServer : IDisposable
             ActiveSession = _copilot.ActiveSessionName,
             GitHubAvatarUrl = _copilot.GitHubAvatarUrl,
             GitHubLogin = _copilot.GitHubLogin,
+            ServerMachineName = Environment.MachineName,
         };
     }
 
@@ -612,35 +1002,35 @@ public class WsBridgeServer : IDisposable
         Broadcast(msg);
     }
 
-    private void HandleOrganizationCommand(OrganizationCommandPayload cmd)
+    private async Task HandleOrganizationCommandAsync(OrganizationCommandPayload cmd)
     {
         if (_copilot == null) return;
         switch (cmd.Command)
         {
             case "pin":
-                if (cmd.SessionName != null) _copilot.PinSession(cmd.SessionName, true);
+                if (cmd.SessionName != null) await _copilot.InvokeOnUIAsync(() => _copilot.PinSession(cmd.SessionName, true));
                 break;
             case "unpin":
-                if (cmd.SessionName != null) _copilot.PinSession(cmd.SessionName, false);
+                if (cmd.SessionName != null) await _copilot.InvokeOnUIAsync(() => _copilot.PinSession(cmd.SessionName, false));
                 break;
             case "move":
-                if (cmd.SessionName != null && cmd.GroupId != null) _copilot.MoveSession(cmd.SessionName, cmd.GroupId);
+                if (cmd.SessionName != null && cmd.GroupId != null) await _copilot.InvokeOnUIAsync(() => _copilot.MoveSession(cmd.SessionName, cmd.GroupId));
                 break;
             case "create_group":
-                if (cmd.Name != null) _copilot.CreateGroup(cmd.Name);
+                if (cmd.Name != null) await _copilot.InvokeOnUIAsync(() => _copilot.CreateGroup(cmd.Name));
                 break;
             case "rename_group":
-                if (cmd.GroupId != null && cmd.Name != null) _copilot.RenameGroup(cmd.GroupId, cmd.Name);
+                if (cmd.GroupId != null && cmd.Name != null) await _copilot.InvokeOnUIAsync(() => _copilot.RenameGroup(cmd.GroupId, cmd.Name));
                 break;
             case "delete_group":
-                if (cmd.GroupId != null) _copilot.DeleteGroup(cmd.GroupId);
+                if (cmd.GroupId != null) await _copilot.InvokeOnUIAsync(() => _copilot.DeleteGroup(cmd.GroupId));
                 break;
             case "toggle_collapsed":
-                if (cmd.GroupId != null) _copilot.ToggleGroupCollapsed(cmd.GroupId);
+                if (cmd.GroupId != null) await _copilot.InvokeOnUIAsync(() => _copilot.ToggleGroupCollapsed(cmd.GroupId));
                 break;
             case "set_sort":
                 if (cmd.SortMode != null && Enum.TryParse<SessionSortMode>(cmd.SortMode, out var mode))
-                    _copilot.SetSortMode(mode);
+                    await _copilot.InvokeOnUIAsync(() => _copilot.SetSortMode(mode));
                 break;
         }
     }
@@ -666,21 +1056,28 @@ public class WsBridgeServer : IDisposable
             var clientId = id;
             _ = Task.Run(async () =>
             {
-                await sendLock.WaitAsync();
                 try
                 {
+                    await sendLock.WaitAsync();
                     if (ws.State == WebSocketState.Open)
                         await ws.SendAsync(new ArraySegment<byte>(bytes),
                             WebSocketMessageType.Text, true, CancellationToken.None);
                 }
+                catch (ObjectDisposedException)
+                {
+                    _clients.TryRemove(clientId, out _);
+                    return;
+                }
                 catch
                 {
                     _clients.TryRemove(clientId, out _);
-                    if (_clientSendLocks.TryRemove(clientId, out var lk2)) lk2.Dispose();
                 }
                 finally
                 {
-                    sendLock.Release();
+                    try { sendLock.Release(); } catch (ObjectDisposedException) { }
+                    // Clean up lock for removed clients
+                    if (!_clients.ContainsKey(clientId))
+                        if (_clientSendLocks.TryRemove(clientId, out var lk)) lk.Dispose();
                 }
             });
         }
@@ -714,4 +1111,91 @@ public class WsBridgeServer : IDisposable
         text = text.Replace("\n", " ").Replace("\r", "").Trim();
         return text.Length <= maxLength ? text : text[..(maxLength - 3)] + "...";
     }
+
+    /// <summary>
+    /// Validates that an image path is safe to read. Returns an error string if invalid, null if OK.
+    /// </summary>
+    internal static string? ValidateImagePath(string? path, out string resolvedPath)
+    {
+        resolvedPath = string.Empty;
+
+        if (string.IsNullOrEmpty(path) || !Path.IsPathRooted(path))
+            return "Invalid path";
+
+        var allowedDir = Path.GetFullPath(ShowImageTool.GetImagesDir());
+        var fullPath = Path.GetFullPath(path);
+        var sep = Path.DirectorySeparatorChar;
+
+        // Resolve file symlinks and validate resolved target is within boundary
+        var fi = new FileInfo(fullPath);
+        string pathToCheck = fullPath;
+        if (fi.LinkTarget != null)
+        {
+            var resolved = fi.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+            if (resolved == null)
+                return "Path not allowed";
+            if (!resolved.StartsWith(allowedDir + sep, StringComparison.OrdinalIgnoreCase))
+                return "Path not allowed";
+            // Also walk the resolved target's parent dirs for symlinks
+            var resolvedDirCheck = WalkParentDirs(Path.GetDirectoryName(resolved), allowedDir, sep);
+            if (resolvedDirCheck != null)
+                return resolvedDirCheck;
+            pathToCheck = resolved;
+        }
+
+        // Walk the original path's parent dirs for directory symlinks
+        var origDirCheck = WalkParentDirs(Path.GetDirectoryName(fullPath), allowedDir, sep);
+        if (origDirCheck != null)
+            return origDirCheck;
+
+        if (!pathToCheck.StartsWith(allowedDir + sep, StringComparison.OrdinalIgnoreCase))
+            return "Path not allowed";
+
+        var ext = Path.GetExtension(pathToCheck).ToLowerInvariant();
+        var allowedExts = new HashSet<string> { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff" };
+        if (!allowedExts.Contains(ext))
+            return "Unsupported file type";
+
+        resolvedPath = pathToCheck;
+        return null;
+    }
+
+    /// <summary>Convenience overload for callers that don't need the resolved path.</summary>
+    internal static string? ValidateImagePath(string? path)
+        => ValidateImagePath(path, out _);
+
+    /// <summary>
+    /// Walks parent directories from the given dir up to allowedDir, checking each for
+    /// symlinks that escape the allowed boundary.
+    /// </summary>
+    private static string? WalkParentDirs(string? startDir, string allowedDir, char sep)
+    {
+        var checkDir = startDir;
+        while (checkDir != null &&
+               checkDir.Length > allowedDir.Length &&
+               checkDir.StartsWith(allowedDir, StringComparison.OrdinalIgnoreCase))
+        {
+            var di = new DirectoryInfo(checkDir);
+            if (di.LinkTarget != null)
+            {
+                var resolvedDir = di.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+                if (resolvedDir == null || !resolvedDir.StartsWith(allowedDir + sep, StringComparison.OrdinalIgnoreCase))
+                    return "Path not allowed";
+            }
+            checkDir = Path.GetDirectoryName(checkDir);
+        }
+        return null;
+    }
+
+    private static string ImageMimeType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".png" => "image/png",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".bmp" => "image/bmp",
+        ".svg" => "image/svg+xml",
+        ".tiff" => "image/tiff",
+        _ => "image/png"
+    };
 }

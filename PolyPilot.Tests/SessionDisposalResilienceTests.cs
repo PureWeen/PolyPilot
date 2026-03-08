@@ -486,12 +486,13 @@ public class SessionDisposalResilienceTests
         await svc.CreateSessionAsync("remove");
 
         await svc.SendPromptAsync("keep", "preserved message");
+        await Task.Delay(50); // Let demo response complete
 
         await svc.CloseSessionAsync("remove");
 
         var kept = svc.GetSession("keep");
         Assert.NotNull(kept);
-        Assert.Single(kept!.History);
-        Assert.Contains("preserved message", kept.History[0].Content);
+        Assert.True(kept!.History.Count >= 1);
+        Assert.Contains(kept.History, m => m.Content.Contains("preserved message"));
     }
 }

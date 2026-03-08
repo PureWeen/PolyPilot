@@ -1,5 +1,4 @@
 @using PolyPilot.Models
-@using System.Web
 
 @if (Files.Count == 0)
 {
@@ -48,9 +47,9 @@ else
                                 {
                                     <tr>
                                         <td class="diff-ln @(row.Left?.Type == DiffLineType.Removed ? "ln-del" : "")">@(row.Left?.OldLineNo?.ToString() ?? "")</td>
-                                        <td class="diff-code @(row.Left == null ? "diff-blank" : row.Left.Type == DiffLineType.Removed ? "diff-del" : "diff-ctx")"><pre>@(row.Left != null ? HtmlEncode(row.Left.Content) : "")</pre></td>
+                                        <td class="diff-code @(row.Left == null ? "diff-blank" : row.Left.Type == DiffLineType.Removed ? "diff-del" : "diff-ctx")"><pre>@(row.Left?.Content ?? "")</pre></td>
                                         <td class="diff-ln @(row.Right?.Type == DiffLineType.Added ? "ln-add" : "")">@(row.Right?.NewLineNo?.ToString() ?? "")</td>
-                                        <td class="diff-code @(row.Right == null ? "diff-blank" : row.Right.Type == DiffLineType.Added ? "diff-add" : "diff-ctx")"><pre>@(row.Right != null ? HtmlEncode(row.Right.Content) : "")</pre></td>
+                                        <td class="diff-code @(row.Right == null ? "diff-blank" : row.Right.Type == DiffLineType.Added ? "diff-add" : "diff-ctx")"><pre>@(row.Right?.Content ?? "")</pre></td>
                                     </tr>
                                 }
                             }
@@ -71,6 +70,4 @@ else
         Files = DiffParser.Parse(RawDiff);
     }
 
-    private static string HtmlEncode(string s) =>
-        System.Web.HttpUtility.HtmlEncode(s);
 }

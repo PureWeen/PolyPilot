@@ -16,6 +16,39 @@ public class AgentSessionInfoTests
     }
 
     [Fact]
+    public void NewSession_HasDefaultProcessingStatusFields()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+
+        Assert.Null(session.ProcessingStartedAt);
+        Assert.Equal(0, session.ToolCallCount);
+        Assert.Equal(0, session.ProcessingPhase);
+    }
+
+    [Fact]
+    public void ProcessingStatusFields_CanBeSetAndCleared()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+
+        session.ProcessingStartedAt = DateTime.UtcNow;
+        session.ToolCallCount = 5;
+        session.ProcessingPhase = 3;
+
+        Assert.NotNull(session.ProcessingStartedAt);
+        Assert.Equal(5, session.ToolCallCount);
+        Assert.Equal(3, session.ProcessingPhase);
+
+        // Clear (as abort/complete would)
+        session.ProcessingStartedAt = null;
+        session.ToolCallCount = 0;
+        session.ProcessingPhase = 0;
+
+        Assert.Null(session.ProcessingStartedAt);
+        Assert.Equal(0, session.ToolCallCount);
+        Assert.Equal(0, session.ProcessingPhase);
+    }
+
+    [Fact]
     public void History_CanAddMessages()
     {
         var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
@@ -133,5 +166,79 @@ public class AgentSessionInfoTests
         session.LastReadMessageCount = 100; // Beyond history length
 
         Assert.Equal(0, session.UnreadCount);
+    }
+
+    [Fact]
+    public void IsCreating_DefaultsToFalse()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        Assert.False(session.IsCreating);
+    }
+
+    [Fact]
+    public void IsCreating_CanBeSetAndCleared()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5", IsCreating = true };
+        Assert.True(session.IsCreating);
+
+        session.IsCreating = false;
+        Assert.False(session.IsCreating);
+    }
+
+    [Fact]
+    public void PermissionDenialCount_DefaultsToZero()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        Assert.Equal(0, info.PermissionDenialCount);
+        Assert.False(info.HasPermissionIssue);
+    }
+
+    [Fact]
+    public void HasPermissionIssue_TrueWhenSlidingWindowReachesThreshold()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        info.RecordToolResult(true);  // denial 1
+        info.RecordToolResult(true);  // denial 2
+        Assert.False(info.HasPermissionIssue);
+        info.RecordToolResult(true);  // denial 3 — triggers
+        Assert.True(info.HasPermissionIssue);
+    }
+
+    [Fact]
+    public void HasPermissionIssue_SlidingWindowToleratesOccasionalOk()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        info.RecordToolResult(true);   // denial
+        info.RecordToolResult(true);   // denial
+        info.RecordToolResult(false);  // ok — would have reset old consecutive logic
+        info.RecordToolResult(true);   // denial — window now has 3/4 denials
+        Assert.True(info.HasPermissionIssue);  // should be true with sliding window
+    }
+
+    [Fact]
+    public void HasPermissionIssue_FalseAfterClear()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        info.RecordToolResult(true);
+        info.RecordToolResult(true);
+        info.RecordToolResult(true);
+        Assert.True(info.HasPermissionIssue);
+        info.ClearPermissionDenials();
+        Assert.False(info.HasPermissionIssue);
+    }
+
+    [Fact]
+    public void SlidingWindow_OldEntriesDropOff()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        info.RecordToolResult(true);   // denial
+        info.RecordToolResult(true);   // denial
+        info.RecordToolResult(true);   // denial — 3/3
+        Assert.True(info.HasPermissionIssue);
+        // Push 3 OKs to push denials out of window (size 5)
+        info.RecordToolResult(false);  // 3/4
+        info.RecordToolResult(false);  // 3/5
+        info.RecordToolResult(false);  // 2/5 (oldest denial drops)
+        Assert.False(info.HasPermissionIssue);
     }
 }

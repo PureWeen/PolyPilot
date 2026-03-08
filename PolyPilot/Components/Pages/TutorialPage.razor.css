@@ -1,0 +1,128 @@
+.tutorial-page {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 24px;
+}
+
+.tutorial-page-header {
+    margin-bottom: 28px;
+}
+
+.tutorial-page-header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin: 0 0 4px;
+}
+
+.tutorial-page-subtitle {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 0 0 16px;
+}
+
+.tutorial-page-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.tutorial-start-all {
+    padding: 8px 20px;
+    font-size: 0.85rem;
+}
+
+.tutorial-chapters-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.tutorial-chapter-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.tutorial-chapter-card:hover {
+    border-color: var(--accent-primary);
+    background: var(--bg-tertiary);
+}
+
+.tutorial-chapter-card.completed {
+    border-color: var(--accent-success);
+}
+
+.chapter-card-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.chapter-card-body h3 {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin: 0 0 2px;
+}
+
+.chapter-card-body p {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    margin: 0 0 4px;
+    line-height: 1.4;
+}
+
+.chapter-step-count {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.chapter-completed-badge {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--accent-success);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    margin-top: 2px;
+}
+
+/* Shared button styles (also used by overlay) */
+.tutorial-btn {
+    padding: 5px 14px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: background 0.15s;
+}
+
+.tutorial-btn-primary {
+    background: var(--accent-primary);
+    color: #fff;
+}
+
+.tutorial-btn-primary:hover {
+    filter: brightness(1.15);
+}
+
+.tutorial-btn-secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.tutorial-btn-secondary:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}

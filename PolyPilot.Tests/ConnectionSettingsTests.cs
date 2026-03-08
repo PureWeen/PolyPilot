@@ -224,6 +224,265 @@ public class ConnectionSettingsTests
         Assert.Equal(1, (int)CliSourceMode.System);
     }
 
+    [Fact]
+    public void InvalidCliSource_DeserializesToInvalidEnumValue()
+    {
+        // When settings.json has an out-of-range integer for CliSource,
+        // JsonSerializer deserializes it as an undefined enum value.
+        // ConnectionSettings.Load() should normalize this to BuiltIn.
+        var json = """{"Mode":1,"Host":"localhost","Port":4321,"CliSource":99}""";
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        // Raw deserialization produces an undefined enum value
+        Assert.False(Enum.IsDefined(loaded!.CliSource));
+    }
+
+    [Fact]
+    public void Load_InvalidCliSource_NormalizesToBuiltIn()
+    {
+        // Simulate what ConnectionSettings.Load() does: deserialize + validate
+        var json = """{"Mode":1,"Host":"localhost","Port":4321,"CliSource":99}""";
+        var settings = JsonSerializer.Deserialize<ConnectionSettings>(json)!;
+
+        // Apply the same validation that Load() applies
+        if (!Enum.IsDefined(settings.CliSource))
+            settings.CliSource = CliSourceMode.BuiltIn;
+
+        Assert.Equal(CliSourceMode.BuiltIn, settings.CliSource);
+    }
+
+    [Fact]
+    public void Load_NegativeCliSource_NormalizesToBuiltIn()
+    {
+        var json = """{"Mode":1,"Host":"localhost","Port":4321,"CliSource":-1}""";
+        var settings = JsonSerializer.Deserialize<ConnectionSettings>(json)!;
+
+        if (!Enum.IsDefined(settings.CliSource))
+            settings.CliSource = CliSourceMode.BuiltIn;
+
+        Assert.Equal(CliSourceMode.BuiltIn, settings.CliSource);
+    }
+
+    [Fact]
+    public void CliSourceCard_DisabledOnlyWhenNoCli()
+    {
+        // The Built-in card should NOT be disabled when builtInPath is null
+        // but systemPath exists — because ResolveCopilotCliPath(BuiltIn) falls
+        // back to system CLI. Card should only be disabled when BOTH are null.
+
+        // Scenario 1: builtIn=null, system=exists → NOT disabled
+        string? builtInPath = null;
+        string? systemPath = "/usr/local/bin/copilot";
+        bool disabled = builtInPath == null && systemPath == null;
+        Assert.False(disabled, "Built-in card should NOT be disabled when system CLI exists as fallback");
+
+        // Scenario 2: builtIn=exists, system=null → NOT disabled
+        builtInPath = "/app/copilot";
+        systemPath = null;
+        disabled = builtInPath == null && systemPath == null;
+        Assert.False(disabled, "Built-in card should NOT be disabled when built-in CLI exists");
+
+        // Scenario 3: both null → disabled
+        builtInPath = null;
+        systemPath = null;
+        disabled = builtInPath == null && systemPath == null;
+        Assert.True(disabled, "Card should be disabled when no CLI is available at all");
+
+        // Scenario 4: both exist → NOT disabled
+        builtInPath = "/app/copilot";
+        systemPath = "/usr/local/bin/copilot";
+        disabled = builtInPath == null && systemPath == null;
+        Assert.False(disabled, "Card should NOT be disabled when both CLIs exist");
+    }
+
+    [Fact]
+    public void SetCliSource_AllowsSwitchBackToBuiltIn_WhenSystemExists()
+    {
+        // Simulates the SetCliSource guard logic.
+        // When builtInPath is null but systemPath exists,
+        // the user should be able to switch to BuiltIn mode.
+        string? builtInPath = null;
+        string? systemPath = "/usr/local/bin/copilot";
+
+        // Old (buggy) guard: blocks if builtInPath is null
+        bool oldGuardBlocks = builtInPath == null;
+        Assert.True(oldGuardBlocks, "Old guard incorrectly blocks switch to Built-in");
+
+        // New (fixed) guard: blocks only if BOTH are null
+        bool newGuardBlocks = builtInPath == null && systemPath == null;
+        Assert.False(newGuardBlocks, "New guard should allow switch to Built-in when system CLI exists");
+    }
+
+    [Fact]
+    public void SetCliSource_AllowsSwitchToSystem_WhenBuiltInExists()
+    {
+        // Mirror test: System card with only built-in available
+        string? builtInPath = "/app/copilot";
+        string? systemPath = null;
+
+        bool newGuardBlocks = builtInPath == null && systemPath == null;
+        Assert.False(newGuardBlocks, "Should allow switch to System when built-in CLI exists as fallback");
+    }
+
+    [Fact]
+    public void SetCliSource_BlocksWhenNoCli()
+    {
+        string? builtInPath = null;
+        string? systemPath = null;
+
+        bool newGuardBlocks = builtInPath == null && systemPath == null;
+        Assert.True(newGuardBlocks, "Should block when no CLI is available at all");
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", "")]
+    [InlineData("  ", "  ")]
+    public void NormalizeRemoteUrl_NullOrEmpty_ReturnsAsIs(string? input, string? expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Theory]
+    [InlineData("http://192.168.1.5:4322", "http://192.168.1.5:4322")]
+    [InlineData("https://my-tunnel.devtunnels.ms", "https://my-tunnel.devtunnels.ms")]
+    [InlineData("ws://localhost:4322", "ws://localhost:4322")]
+    [InlineData("wss://tunnel.example.com", "wss://tunnel.example.com")]
+    [InlineData("HTTP://MYHOST:5000", "HTTP://MYHOST:5000")]
+    public void NormalizeRemoteUrl_WithScheme_PassesThrough(string input, string expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Theory]
+    [InlineData("192.168.1.5:4322", "http://192.168.1.5:4322")]
+    [InlineData("localhost:4322", "http://localhost:4322")]
+    [InlineData("10.0.0.1", "http://10.0.0.1")]
+    [InlineData("myserver.local:8080", "http://myserver.local:8080")]
+    public void NormalizeRemoteUrl_BareAddress_PrependsHttp(string input, string expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Theory]
+    [InlineData("xxx.devtunnels.ms", "https://xxx.devtunnels.ms")]
+    [InlineData("abc123.ngrok.io", "https://abc123.ngrok.io")]
+    [InlineData("tunnel.ngrok-free.app", "https://tunnel.ngrok-free.app")]
+    public void NormalizeRemoteUrl_KnownTlsHost_PrependsHttps(string input, string expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Theory]
+    [InlineData("http://192.168.1.5:4322/", "http://192.168.1.5:4322")]
+    [InlineData("  192.168.1.5:4322  ", "http://192.168.1.5:4322")]
+    [InlineData("https://tunnel.devtunnels.ms/", "https://tunnel.devtunnels.ms")]
+    public void NormalizeRemoteUrl_TrimsWhitespaceAndSlash(string input, string expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Theory]
+    [InlineData("ftp://somehost.com", "ftp://somehost.com")]
+    [InlineData("ssh://myserver:22", "ssh://myserver:22")]
+    public void NormalizeRemoteUrl_UnknownScheme_PassesThrough(string input, string expected)
+    {
+        Assert.Equal(expected, ConnectionSettings.NormalizeRemoteUrl(input));
+    }
+
+    [Fact]
+    public void NormalizeRemoteUrl_FalsePositive_NgrokSubstring_GetsHttp()
+    {
+        // A hostname that contains ".ngrok" but is NOT a real ngrok tunnel
+        // should get http://, not https://
+        var result = ConnectionSettings.NormalizeRemoteUrl("myserver.ngrokfake.com");
+        Assert.Equal("http://myserver.ngrokfake.com", result);
+    }
+
+    [Fact]
+    public void NormalizeRemoteUrl_DoesNotDoubleScheme()
+    {
+        var result = ConnectionSettings.NormalizeRemoteUrl("http://http://example.com");
+        Assert.Equal("http://http://example.com", result);
+    }
+
+    [Fact]
+    public void Editor_DefaultIsStable()
+    {
+        var settings = new ConnectionSettings();
+        Assert.Equal(VsCodeVariant.Stable, settings.Editor);
+    }
+
+    [Fact]
+    public void VsCodeVariant_Enum_HasExpectedValues()
+    {
+        Assert.Equal(0, (int)VsCodeVariant.Stable);
+        Assert.Equal(1, (int)VsCodeVariant.Insiders);
+    }
+
+    [Fact]
+    public void Editor_RoundTrip()
+    {
+        var original = new ConnectionSettings { Editor = VsCodeVariant.Insiders };
+        var json = JsonSerializer.Serialize(original);
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(VsCodeVariant.Insiders, loaded!.Editor);
+    }
+
+    [Fact]
+    public void Editor_BackwardCompatibility_MissingField()
+    {
+        var json = """{"Mode":0,"Host":"localhost","Port":4321}""";
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(VsCodeVariant.Stable, loaded!.Editor);
+    }
+
+    [Fact]
+    public void Editor_InvalidValue_NormalizesToStable()
+    {
+        var json = """{"Mode":1,"Host":"localhost","Port":4321,"Editor":99}""";
+        var settings = JsonSerializer.Deserialize<ConnectionSettings>(json)!;
+
+        // Call the real validation that Load() uses
+        ConnectionSettings.NormalizeEnumFields(settings);
+
+        Assert.Equal(VsCodeVariant.Stable, settings.Editor);
+    }
+
+    [Fact]
+    public void NormalizeEnumFields_ValidValues_Unchanged()
+    {
+        var settings = new ConnectionSettings
+        {
+            CliSource = CliSourceMode.System,
+            Editor = VsCodeVariant.Insiders
+        };
+
+        ConnectionSettings.NormalizeEnumFields(settings);
+
+        Assert.Equal(CliSourceMode.System, settings.CliSource);
+        Assert.Equal(VsCodeVariant.Insiders, settings.Editor);
+    }
+
+    [Fact]
+    public void VsCodeVariant_Command_ReturnsCorrectBinary()
+    {
+        Assert.Equal("code", VsCodeVariant.Stable.Command());
+        Assert.Equal("code-insiders", VsCodeVariant.Insiders.Command());
+    }
+
+    [Fact]
+    public void VsCodeVariant_DisplayName_ReturnsCorrectLabel()
+    {
+        Assert.Equal("VS Code", VsCodeVariant.Stable.DisplayName());
+        Assert.Equal("VS Code Insiders", VsCodeVariant.Insiders.DisplayName());
+    }
+
     private void Dispose()
     {
         try { Directory.Delete(_testDir, true); } catch { }

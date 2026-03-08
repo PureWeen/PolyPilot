@@ -9,6 +9,27 @@
 
 ## Simulator Management
 
+### Avoiding multi-project conflicts
+
+When multiple projects (or AI agents) may deploy to iOS simulators simultaneously, each
+project should use its own dedicated simulator. Two apps deployed to the same simulator
+will replace each other — only the last-deployed app survives.
+
+**Before creating or booting a simulator, check what's already in use:**
+```bash
+maui-devflow list                             # shows agents with platform + port
+xcrun simctl list devices booted              # shows all booted simulators
+```
+
+If a booted simulator is already running another project's agent, create a new one:
+```bash
+xcrun simctl create "ProjectName-iPhone17Pro" "iPhone 17 Pro" "iOS 26.2"
+# Use the returned UDID in your build command
+```
+
+**Naming convention:** Use `<ProjectName>-<DeviceType>` (e.g. `TodoApp-iPhone17Pro`) so
+it's clear which simulator belongs to which project.
+
 ### List simulators
 ```bash
 xcrun simctl list devices                     # all devices by runtime

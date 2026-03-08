@@ -29,20 +29,15 @@ public class ServerManager : IServerManager
     /// <summary>
     /// Check if a copilot server is listening on the given port
     /// </summary>
-    public bool CheckServerRunning(string host = "localhost", int? port = null)
+    public bool CheckServerRunning(string host = "127.0.0.1", int? port = null)
     {
         port ??= ServerPort;
         try
         {
             using var client = new TcpClient();
-            var result = client.BeginConnect(host, port.Value, null, null);
-            var success = result.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(1));
-            if (success && client.Connected)
-            {
-                client.EndConnect(result);
-                return true;
-            }
-            return false;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            client.ConnectAsync(host, port.Value, cts.Token).AsTask().GetAwaiter().GetResult();
+            return true;
         }
         catch
         {
@@ -57,7 +52,7 @@ public class ServerManager : IServerManager
     {
         ServerPort = port;
 
-        if (CheckServerRunning("localhost", port))
+        if (CheckServerRunning("127.0.0.1", port))
         {
             Console.WriteLine($"[ServerManager] Server already running on port {port}");
             OnStatusChanged?.Invoke();
@@ -80,6 +75,7 @@ public class ServerManager : IServerManager
 
             // Use ArgumentList for proper escaping (especially MCP JSON)
             psi.ArgumentList.Add("--headless");
+            psi.ArgumentList.Add("--no-auto-update");
             psi.ArgumentList.Add("--log-level");
             psi.ArgumentList.Add("info");
             psi.ArgumentList.Add("--port");
@@ -113,7 +109,7 @@ public class ServerManager : IServerManager
             for (int i = 0; i < 15; i++)
             {
                 await Task.Delay(1000);
-                if (CheckServerRunning("localhost", port))
+                if (CheckServerRunning("127.0.0.1", port))
                 {
                     Console.WriteLine($"[ServerManager] Server is ready on port {port}");
                     OnStatusChanged?.Invoke();
@@ -164,7 +160,7 @@ public class ServerManager : IServerManager
         if (info == null) return false;
 
         ServerPort = info.Value.Port;
-        if (CheckServerRunning("localhost", info.Value.Port))
+        if (CheckServerRunning("127.0.0.1", info.Value.Port))
         {
             Console.WriteLine($"[ServerManager] Found existing server PID {info.Value.Pid} on port {info.Value.Port}");
             return true;
@@ -213,7 +209,12 @@ public class ServerManager : IServerManager
 
     private static string FindCopilotBinary()
     {
-        // Try platform-specific native binaries first (faster startup, better detachment)
+        // Prefer the SDK-bundled binary — it's guaranteed to match the SDK's protocol version.
+        // System-installed CLIs may have been updated independently and could have a mismatched protocol.
+        var bundledPath = CopilotService.ResolveBundledCliPath();
+        if (bundledPath != null) return bundledPath;
+
+        // Fall back to platform-specific native binaries (system-installed)
         var nativePaths = new List<string>();
 
         if (OperatingSystem.IsWindows())
@@ -240,10 +241,6 @@ public class ServerManager : IServerManager
         {
             if (File.Exists(path)) return path;
         }
-
-        // Try the bundled binary from the SDK (MonoBundle/copilot or runtimes/{rid}/native/copilot)
-        var bundledPath = CopilotService.ResolveBundledCliPath();
-        if (bundledPath != null) return bundledPath;
 
         // Fallback to node wrapper (works if copilot is on PATH)
         return OperatingSystem.IsWindows() ? "copilot.cmd" : "copilot";

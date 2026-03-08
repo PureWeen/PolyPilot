@@ -11,7 +11,7 @@
         <!-- Full-screen camera -->
         <zxing:CameraBarcodeReaderView
             x:Name="barcodeReader"
-            IsDetecting="True"
+            IsDetecting="False"
             CameraLocation="Rear"
             BarcodesDetected="OnBarcodesDetected" />
 

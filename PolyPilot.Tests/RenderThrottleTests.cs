@@ -112,4 +112,95 @@ public class RenderThrottleTests
         // Step 3: HandleComplete runs, adds to completedSessions, calls StateHasChanged directly
         // (bypasses RefreshState/throttle entirely — this is the fix)
     }
+
+    [Fact]
+    public void HandleComplete_MustNotUseInvokeAsync_RegressionGuard()
+    {
+        // Regression guard: HandleComplete is called from CompleteResponse which is
+        // already marshaled to the UI thread via Invoke(SynchronizationContext.Post).
+        // Wrapping the body in InvokeAsync DEFERS execution, causing StateHasChanged()
+        // to run too late — after other RefreshState calls consume the dirty flag.
+        // The DOM then never updates with IsProcessing=false ("stuck Thinking" bug).
+        //
+        // Only the delayed 10-second cleanup callback should use InvokeAsync
+        // (because Task.Delay.ContinueWith runs on the thread pool).
+        var dashboardPath = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..",
+            "PolyPilot", "Components", "Pages", "Dashboard.razor");
+        Assert.True(File.Exists(dashboardPath), $"Dashboard.razor not found at {dashboardPath}");
+
+        var source = File.ReadAllText(dashboardPath);
+
+        // Extract the HandleComplete method body (from signature to next "private " or "protected ")
+        var methodStart = source.IndexOf("private void HandleComplete(", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0, "HandleComplete method not found in Dashboard.razor");
+
+        // Find the next method definition after HandleComplete
+        var afterSignature = source.IndexOf('\n', methodStart) + 1;
+        var nextMethod = source.IndexOf("\n    private ", afterSignature, StringComparison.Ordinal);
+        if (nextMethod < 0) nextMethod = source.Length;
+        var methodBody = source.Substring(methodStart, nextMethod - methodStart);
+
+        // Count InvokeAsync calls — should have exactly 1 (the delayed cleanup only)
+        var invokeAsyncCount = 0;
+        var searchFrom = 0;
+        while (true)
+        {
+            var idx = methodBody.IndexOf("InvokeAsync(", searchFrom, StringComparison.Ordinal);
+            if (idx < 0) break;
+            invokeAsyncCount++;
+            searchFrom = idx + 1;
+        }
+
+        Assert.True(invokeAsyncCount <= 1,
+            $"HandleComplete has {invokeAsyncCount} InvokeAsync calls — expected at most 1 (the delayed cleanup). " +
+            "The synchronous body must NOT use InvokeAsync because HandleComplete is already on the UI thread " +
+            "(called from CompleteResponse via Invoke/SynchronizationContext.Post). " +
+            "InvokeAsync defers execution and causes stale renders (stuck 'Thinking' indicators).");
+
+        // The one allowed InvokeAsync must be inside a Task.Delay continuation
+        if (invokeAsyncCount == 1)
+        {
+            var invokeIdx = methodBody.IndexOf("InvokeAsync(", StringComparison.Ordinal);
+            var precedingContext = methodBody.Substring(Math.Max(0, invokeIdx - 100), Math.Min(100, invokeIdx));
+            Assert.Contains("Task.Delay", precedingContext,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void CompleteResponse_OnSessionComplete_FiresBeforeOnStateChanged()
+    {
+        // Regression guard: In the main completion path of CompleteResponse (after
+        // IsProcessing=false), OnSessionComplete must fire BEFORE OnStateChanged.
+        // HandleComplete (OnSessionComplete handler) populates completedSessions;
+        // RefreshState (OnStateChanged handler) checks completedSessions.Count > 0
+        // to bypass throttle. If order is reversed, throttle drops the render.
+        var eventsPath = Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..",
+            "PolyPilot", "Services", "CopilotService.Events.cs");
+        Assert.True(File.Exists(eventsPath), $"CopilotService.Events.cs not found at {eventsPath}");
+
+        var source = File.ReadAllText(eventsPath);
+
+        // Find CompleteResponse method
+        var methodStart = source.IndexOf("private void CompleteResponse(", StringComparison.Ordinal);
+        Assert.True(methodStart >= 0, "CompleteResponse method not found");
+
+        // The critical ordering is AFTER IsProcessing = false (the main completion path).
+        // Use the preceding comment as anchor to find the right occurrence.
+        var anchor = source.IndexOf("// Clear IsProcessing BEFORE completing the TCS", methodStart, StringComparison.Ordinal);
+        Assert.True(anchor >= 0, "CompleteResponse TCS comment not found");
+        var isProcessingFalse = source.IndexOf("state.Info.IsProcessing = false;", anchor, StringComparison.Ordinal);
+        Assert.True(isProcessingFalse >= 0, "IsProcessing = false not found in CompleteResponse main path");
+
+        var afterProcessing = source.Substring(isProcessingFalse, 1000);
+        var completeIdx = afterProcessing.IndexOf("OnSessionComplete?", StringComparison.Ordinal);
+        var stateIdx = afterProcessing.IndexOf("OnStateChanged?", StringComparison.Ordinal);
+        Assert.True(completeIdx >= 0, "OnSessionComplete not found after IsProcessing=false in CompleteResponse");
+        Assert.True(stateIdx >= 0, "OnStateChanged not found after IsProcessing=false in CompleteResponse");
+        Assert.True(completeIdx < stateIdx,
+            "OnSessionComplete must fire BEFORE OnStateChanged in CompleteResponse. " +
+            "HandleComplete populates completedSessions which RefreshState checks to bypass throttle.");
+    }
 }

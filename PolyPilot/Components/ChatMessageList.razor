@@ -1,5 +1,5 @@
 @using PolyPilot.Models
-@using Markdig
+@using PolyPilot.Services
 
 @* Shared chat message list — used by Dashboard.razor (grid=compact, expanded=full) *@
 
@@ -12,7 +12,7 @@
     {
         @foreach (var msg in Messages.ToList())
         {
-            <ChatMessageItem @key="msg" Message="msg" Compact="Compact" UserAvatarUrl="@UserAvatarUrl" />
+            <ChatMessageItem @key="msg" Message="msg" Compact="Compact" UserAvatarUrl="@UserAvatarUrl" RepoUrl="@RepoUrl" />
         }
 
         @* Current turn tool activity feed — skip activities already in history *@
@@ -72,8 +72,17 @@
                     {
                         <span class="chat-msg-role">AI</span>
                     }
-                    <div class="chat-msg-text markdown-body">@((MarkupString)RenderMarkdown(StreamingContent))</div>
+                    <div class="chat-msg-text markdown-body">@((MarkupString)RenderMarkdown(StreamingContent, RepoUrl))</div>
                 </div>
+            </div>
+        }
+
+        @* Permission warning banner *@
+        @if (HasPermissionIssue)
+        {
+            <div class="permission-warning">
+                <span>⚠️ Tools are failing with permission errors.</span>
+                <button class="reconnect-btn" @onclick="OnReconnectRequested">Reconnect</button>
             </div>
         }
 
@@ -84,14 +93,14 @@
             {
                 <div class="chat-msg tool">
                     <span class="chat-msg-role">⏳</span>
-                    <span class="chat-msg-text">@(string.IsNullOrEmpty(ActivityText) ? "Thinking…" : ActivityText)</span>
+                    <span class="chat-msg-text">@(string.IsNullOrEmpty(ActivityText) ? GetProcessingStatus() : ActivityText)</span>
                 </div>
             }
             else
             {
                 <div class="action-item action-default running">
                     <span class="action-dot"></span>
-                    <span class="action-label">Thinking</span>
+                    <span class="action-label">@GetProcessingStatus()</span>
                 </div>
             }
         }
@@ -110,6 +119,51 @@
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public ChatLayout Layout { get; set; } = ChatLayout.Default;
     [Parameter] public ChatStyle Style { get; set; } = ChatStyle.Normal;
+    [Parameter] public DateTime? ProcessingStartedAt { get; set; }
+    [Parameter] public int ToolCallCount { get; set; }
+    [Parameter] public int ProcessingPhase { get; set; }
+    [Parameter] public DateTime? LastActivityAt { get; set; }
+    [Parameter] public string? RepoUrl { get; set; }
+    [Parameter] public bool HasPermissionIssue { get; set; }
+    [Parameter] public EventCallback OnReconnectRequested { get; set; }
+
+    private string GetProcessingStatus()
+    {
+        // Phase 0: Sending, 1: Server connected, 2: Thinking, 3: Working (tools)
+        if (ProcessingPhase == 0)
+            return "Sending…";
+        if (ProcessingPhase == 1)
+            return "Server connected…";
+        if (ProcessingPhase == 2 && ToolCallCount == 0)
+            return AppendLastActivity("Thinking…");
+
+        var parts = new List<string> { "Working" };
+        if (ProcessingStartedAt.HasValue)
+        {
+            var elapsed = DateTime.UtcNow - ProcessingStartedAt.Value;
+            if (elapsed.TotalMinutes >= 1)
+                parts.Add($"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s");
+            else if (elapsed.TotalSeconds >= 5)
+                parts.Add($"{(int)elapsed.TotalSeconds}s");
+        }
+        if (ToolCallCount > 0)
+            parts.Add($"{ToolCallCount} tool call{(ToolCallCount != 1 ? "s" : "")}");
+        return AppendLastActivity(string.Join(" · ", parts) + "…");
+    }
+
+    private string AppendLastActivity(string status)
+    {
+        if (!LastActivityAt.HasValue) return status;
+        var sinceActivity = DateTime.Now - LastActivityAt.Value;
+        if (sinceActivity.TotalSeconds >= 30)
+        {
+            var ago = sinceActivity.TotalMinutes >= 1
+                ? $"{(int)sinceActivity.TotalMinutes}m ago"
+                : $"{(int)sinceActivity.TotalSeconds}s ago";
+            return $"{status} (last activity {ago})";
+        }
+        return status;
+    }
 
     private string GetLayoutClass() => Layout switch
     {
@@ -130,24 +184,24 @@
         return ToolActivities.Where(a => !historyCallIds.Contains(a.CallId));
     }
 
-    private static readonly MarkdownPipeline MdPipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions().Build();
-
     private static readonly Dictionary<string, string> _imageCache = new();
-    private static readonly Dictionary<int, string> _markdownCache = new();
+    // LRU markdown cache: uses content string as key (no hash collisions), with eviction at 1000 entries
+    private static readonly Dictionary<string, string> _markdownCache = new();
+    private static readonly LinkedList<string> _markdownCacheLru = new();
+    private const int MarkdownCacheMaxSize = 1000;
 
     private static readonly System.Text.RegularExpressions.Regex ImagePathRegex = new(
         @"(?<!\(|""|\w)((?:/[\w\-. ]+)+\.(?:png|jpg|jpeg|gif|webp|svg|bmp|tiff))(?!\)|""|\w)",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    internal static string RenderMarkdown(string content)
+    internal static string RenderMarkdown(string content, string? repoUrl = null)
     {
         if (string.IsNullOrEmpty(content)) return "";
-        var key = content.GetHashCode();
-        if (_markdownCache.TryGetValue(key, out var cached)) return cached;
+        var cacheKey = repoUrl != null ? $"{repoUrl}\0{content}" : content;
+        if (_markdownCache.TryGetValue(cacheKey, out var cached)) return cached;
         try
         {
-            var html = Markdig.Markdown.ToHtml(content, MdPipeline);
+            var html = MarkdownRenderer.ToHtml(content);
             html = ImagePathRegex.Replace(html, match =>
             {
                 var path = match.Value;
@@ -156,7 +210,19 @@
                     return $"<img src=\"{dataUri}\" alt=\"{System.IO.Path.GetFileName(path)}\" />";
                 return match.Value;
             });
-            if (_markdownCache.Count < 500) _markdownCache[key] = html;
+            html = PolyPilot.Services.GitHubReferenceLinker.LinkifyReferences(html, repoUrl);
+            // LRU eviction: remove oldest when at capacity
+            if (_markdownCache.Count >= MarkdownCacheMaxSize)
+            {
+                var oldest = _markdownCacheLru.First;
+                if (oldest != null)
+                {
+                    _markdownCache.Remove(oldest.Value);
+                    _markdownCacheLru.RemoveFirst();
+                }
+            }
+            _markdownCache[cacheKey] = html;
+            _markdownCacheLru.AddLast(cacheKey);
             return html;
         }
         catch { return System.Net.WebUtility.HtmlEncode(content).Replace("\n", "<br/>"); }
@@ -244,6 +310,7 @@
             "store_memory" => ("Memory", "action-memory"),
             "report_intent" => ("Intent", "action-intent"),
             "skill" => ("Skill", "action-agent"),
+            "show_image" or "ShowImageAsync" => ("Preview", "action-read"),
             _ when toolName.StartsWith("github-mcp") => ("GitHub", "action-fetch"),
             _ when toolName.StartsWith("context7") => ("Docs", "action-read"),
             _ => (FormatToolName(toolName), "action-default"),
@@ -389,7 +456,7 @@
             var pathStart = trimmed.LastIndexOf(' ', idx) + 1;
             if (pathStart < 0) pathStart = 0;
             var path = trimmed[pathStart..endIdx];
-            if (path.StartsWith('/') && System.IO.File.Exists(path))
+            if (path.StartsWith('/'))
                 return path;
         }
         return null;
@@ -419,6 +486,32 @@
             return dataUri;
         }
         catch { return null; }
+    }
+
+    /// <summary>Copies an image to ~/.polypilot/images/ for persistence, returns data URI. Caches on the ChatMessage.</summary>
+    internal static string? PersistAndLoadImage(string path, ChatMessage msg)
+    {
+        // Already loaded?
+        if (!string.IsNullOrEmpty(msg.ImageDataUri)) return msg.ImageDataUri;
+
+        var dataUri = FileToDataUri(path);
+        if (dataUri == null) return null;
+
+        // Copy to persistent storage
+        try
+        {
+            var imagesDir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot", "images");
+            System.IO.Directory.CreateDirectory(imagesDir);
+            var ext = System.IO.Path.GetExtension(path);
+            var persistentPath = System.IO.Path.Combine(imagesDir, $"{Guid.NewGuid()}{ext}");
+            System.IO.File.Copy(path, persistentPath);
+            msg.ImagePath = persistentPath;
+        }
+        catch { /* persistence is best-effort */ }
+
+        msg.ImageDataUri = dataUri;
+        return dataUri;
     }
 
     internal static string SummarizeToolInput(string toolName, string? input)

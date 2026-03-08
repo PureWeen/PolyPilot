@@ -85,15 +85,36 @@ public partial class CopilotService
     }
 
     /// <summary>
-    /// Check if a session was still processing when the app last closed
+    /// Check if a session was still processing when the app last closed.
+    /// Returns false if the events file is stale (not modified recently),
+    /// preventing sessions from being incorrectly marked as processing
+    /// after long app restarts.
     /// </summary>
-    private bool IsSessionStillProcessing(string sessionId)
+    internal bool IsSessionStillProcessing(string sessionId) =>
+        IsSessionStillProcessing(sessionId, SessionStatePath);
+
+    /// <summary>
+    /// Testable overload that accepts a custom base path.
+    /// </summary>
+    internal bool IsSessionStillProcessing(string sessionId, string basePath)
     {
-        var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        var eventsFile = Path.Combine(basePath, sessionId, "events.jsonl");
         if (!File.Exists(eventsFile)) return false;
 
         try
         {
+            // Staleness check: if the file hasn't been modified recently,
+            // the CLI finished processing long ago — don't mark as still active.
+            var lastWrite = File.GetLastWriteTimeUtc(eventsFile);
+            var staleness = (DateTime.UtcNow - lastWrite).TotalSeconds;
+            if (staleness > WatchdogToolExecutionTimeoutSeconds)
+            {
+                Debug($"[RESTORE] events.jsonl for '{sessionId}' is stale " +
+                      $"({staleness:F0}s old > {WatchdogToolExecutionTimeoutSeconds}s threshold), " +
+                      $"treating session as idle");
+                return false;
+            }
+
             string? lastLine = null;
             foreach (var line in File.ReadLines(eventsFile))
             {
@@ -114,6 +135,48 @@ public partial class CopilotService
             return activeEvents.Contains(type);
         }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// During session restore, determines whether the events.jsonl file shows recent server activity
+    /// and whether the last event was a tool event. Used to pre-seed watchdog flags so that
+    /// the 30s quiescence timeout is bypassed for sessions that were genuinely active before restart.
+    /// </summary>
+    internal (bool isRecentlyActive, bool hadToolActivity) GetEventsFileRestoreHints(string sessionId) =>
+        GetEventsFileRestoreHints(sessionId, SessionStatePath);
+
+    /// <summary>
+    /// Testable overload that accepts a custom base path.
+    /// </summary>
+    internal (bool isRecentlyActive, bool hadToolActivity) GetEventsFileRestoreHints(string sessionId, string basePath)
+    {
+        var eventsFile = Path.Combine(basePath, sessionId, "events.jsonl");
+        if (!File.Exists(eventsFile)) return (false, false);
+
+        var isRecentlyActive = false;
+        try
+        {
+            var lastWrite = File.GetLastWriteTimeUtc(eventsFile);
+            var fileAge = (DateTime.UtcNow - lastWrite).TotalSeconds;
+            isRecentlyActive = fileAge < WatchdogToolExecutionTimeoutSeconds;
+
+            if (!isRecentlyActive) return (false, false);
+
+            string? lastLine = null;
+            foreach (var line in File.ReadLines(eventsFile))
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                    lastLine = line;
+            }
+            if (lastLine == null) return (isRecentlyActive, false);
+
+            using var doc = JsonDocument.Parse(lastLine);
+            var type = doc.RootElement.GetProperty("type").GetString();
+            var hadToolActivity = type is "tool.execution_start" or "tool.execution_progress";
+
+            return (isRecentlyActive, hadToolActivity);
+        }
+        catch { return (isRecentlyActive, false); }
     }
 
     /// <summary>
@@ -154,6 +217,95 @@ public partial class CopilotService
             return (lastTool, lastContent);
         }
         catch { return (null, null); }
+    }
+
+    /// <summary>
+    /// Get a compact event log summary from events.jsonl for display in the Log popup.
+    /// Returns a list of (timestamp, eventType, detail) tuples.
+    /// </summary>
+    public List<(string Timestamp, string EventType, string Detail)> GetSessionEventLogSummary(string? sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId)) return new();
+        var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        return ParseEventLogFile(eventsFile);
+    }
+
+    /// <summary>
+    /// Testable overload that reads event log from a specific file path.
+    /// </summary>
+    internal static List<(string Timestamp, string EventType, string Detail)> ParseEventLogFile(string eventsFilePath)
+    {
+        var result = new List<(string, string, string)>();
+        try
+        {
+            if (!File.Exists(eventsFilePath)) return result;
+            foreach (var line in File.ReadLines(eventsFilePath))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+                    var type = root.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+                    var ts = root.TryGetProperty("timestamp", out var tsEl) ? tsEl.GetString() ?? "" : "";
+                    var tsDisplay = DateTime.TryParse(ts, out var dt) ? dt.ToString("HH:mm:ss") : ts;
+                    var detail = GetEventDetail(type, root);
+                    result.Add((tsDisplay, type, detail));
+                }
+                catch { /* skip malformed lines */ }
+            }
+            if (result.Count > 500)
+                result = result.GetRange(result.Count - 500, 500);
+        }
+        catch { /* file read error */ }
+        return result;
+    }
+
+    internal static string GetEventDetail(string type, JsonElement root)
+    {
+        if (!root.TryGetProperty("data", out var data)) return "";
+        try
+        {
+            return type switch
+            {
+                "user.message" => Truncate(data.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "", 80),
+                "assistant.message" => Truncate(data.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "", 80),
+                "assistant.message_delta" => "",
+                "tool.execution_start" => data.TryGetProperty("toolName", out var tn) ? tn.GetString() ?? "" : "",
+                "tool.execution_complete" => data.TryGetProperty("toolName", out var tn) ? tn.GetString() ?? "" : "",
+                "session.start" => data.TryGetProperty("context", out var ctx) && ctx.TryGetProperty("cwd", out var cwd) ? cwd.GetString() ?? "" : "",
+                "assistant.intent" => Truncate(data.TryGetProperty("intent", out var i) ? i.GetString() ?? "" : "", 80),
+                "session.error" => Truncate(data.TryGetProperty("message", out var m) ? m.GetString() ?? "" : "", 80),
+                _ => ""
+            };
+        }
+        catch { return ""; }
+    }
+
+    private static string Truncate(string s, int max) =>
+        s.Length <= max ? s : s[..max] + "…";
+
+    /// <summary>
+    /// Returns true if the exception indicates a broken connection
+    /// (JSON-RPC lost, socket closed, transport error, etc.).
+    /// Used by CreateSessionAsync retry logic and session restore.
+    /// </summary>
+    internal static bool IsConnectionError(Exception ex)
+    {
+        var msg = ex.Message;
+        if (ex is System.IO.IOException or System.Net.Sockets.SocketException or ObjectDisposedException
+            || msg.Contains("connection refused", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("connection reset", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("connection was closed", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("connection lost", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("transport connection", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("transport is closed", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("JSON-RPC connection", StringComparison.OrdinalIgnoreCase))
+            return true;
+        // Walk the full exception chain, including all AggregateException inner exceptions
+        if (ex is AggregateException agg)
+            return agg.InnerExceptions.Any(IsConnectionError);
+        return ex.InnerException != null && IsConnectionError(ex.InnerException);
     }
 
     /// <summary>

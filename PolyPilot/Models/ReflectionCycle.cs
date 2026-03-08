@@ -55,9 +55,24 @@ public partial class ReflectionCycle
     public bool IsStalled { get; set; }
 
     /// <summary>
-    /// Number of consecutive stalls detected. Exposed for diagnostics and warning UI.
+    /// Whether the cycle was manually cancelled by the user via StopGroupReflection.
     /// </summary>
-    public int ConsecutiveStalls { get; private set; }
+    public bool IsCancelled { get; set; }
+
+    /// <summary>
+    /// Number of consecutive stalls detected. Exposed for diagnostics and warning UI.
+    /// Not serialized — private stall state (_recentResponses, _lastResponse) is not recoverable
+    /// from JSON, so persisting this counter would create inconsistent state after restart.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int ConsecutiveStalls { get; internal set; }
+
+    /// <summary>
+    /// Number of consecutive errors in the reflection loop. Separate from ConsecutiveStalls
+    /// because stalls and errors have different thresholds and recovery strategies.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int ConsecutiveErrors { get; internal set; }
 
     /// <summary>
     /// Optional instructions on how to evaluate whether the goal has been met.
@@ -68,12 +83,14 @@ public partial class ReflectionCycle
     /// <summary>
     /// True only on the advance where the first stall is detected.
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public bool ShouldWarnOnStall { get; private set; }
 
     /// <summary>
     /// The Jaccard similarity score from the last stall check (0.0–1.0).
     /// Exposed so the UI can show "91% similar to previous response".
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public double LastSimilarity { get; private set; }
 
     /// <summary>
@@ -92,7 +109,7 @@ public partial class ReflectionCycle
     public bool IsPaused { get; set; }
 
     /// <summary>
-    /// Name of the hidden evaluator session used for independent goal evaluation.
+    /// Optional: session name of a dedicated evaluator (different from orchestrator/worker).
     /// </summary>
     public string? EvaluatorSessionName { get; set; }
 
@@ -101,8 +118,24 @@ public partial class ReflectionCycle
     /// </summary>
     public string? EvaluatorFeedback { get; set; }
 
+    /// <summary>
+    /// The orchestrator's evaluation from the last iteration (for multi-agent).
+    /// </summary>
+    public string? LastEvaluation { get; set; }
+
+    /// <summary>
+    /// Per-iteration evaluation results for trend tracking.
+    /// </summary>
+    public List<EvaluationResult> EvaluationHistory { get; set; } = new();
+
+    /// <summary>
+    /// Auto-adjustment suggestions surfaced to the user.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<string> PendingAdjustments { get; } = new();
+
     // Stall detection state (not serialized)
-    private readonly List<int> _recentHashes = new();
+    private readonly List<string> _recentResponses = new();
     private string _lastResponse = "";
 
     /// <summary>
@@ -111,9 +144,10 @@ public partial class ReflectionCycle
     /// </summary>
     public void ResetStallDetection()
     {
-        _recentHashes.Clear();
+        _recentResponses.Clear();
         _lastResponse = "";
         ConsecutiveStalls = 0;
+        ConsecutiveErrors = 0;
         ShouldWarnOnStall = false;
     }
 
@@ -237,7 +271,7 @@ public partial class ReflectionCycle
 
     /// <summary>
     /// Checks if the response indicates a stall (repetitive or near-identical to previous).
-    /// Uses exact hash matching over a sliding window and Jaccard token similarity.
+    /// Uses exact string matching over a sliding window and Jaccard token similarity.
     /// </summary>
     public bool CheckStall(string response)
     {
@@ -246,16 +280,15 @@ public partial class ReflectionCycle
         bool isStall = false;
         LastSimilarity = 0.0;
 
-        // Exact repetition check over last 5 responses
-        int currentHash = response.GetHashCode();
-        if (_recentHashes.Contains(currentHash))
+        // Exact repetition check over last 5 responses (full string equality, no hash collisions)
+        if (_recentResponses.Contains(response))
         {
             isStall = true;
             LastSimilarity = 1.0;
         }
 
-        _recentHashes.Add(currentHash);
-        if (_recentHashes.Count > 5) _recentHashes.RemoveAt(0);
+        _recentResponses.Add(response);
+        if (_recentResponses.Count > 5) _recentResponses.RemoveAt(0);
 
         // Jaccard similarity with immediate predecessor
         if (!isStall && !string.IsNullOrEmpty(_lastResponse))
@@ -386,8 +419,8 @@ public partial class ReflectionCycle
     /// </summary>
     public string BuildCompletionSummary()
     {
-        var emoji = GoalMet ? "✅" : IsStalled ? "⚠️" : "⏱️";
-        var reasonText = GoalMet ? "Goal met" : IsStalled ? $"Stalled ({LastSimilarity:P0} similarity)" : $"Max iterations reached ({MaxIterations})";
+        var emoji = GoalMet ? "✅" : IsStalled ? "⚠️" : IsCancelled ? "⏹️" : "⏱️";
+        var reasonText = GoalMet ? "Goal met" : IsStalled ? $"Stalled ({LastSimilarity:P0} similarity)" : IsCancelled ? "Cancelled by user" : $"Max iterations reached ({MaxIterations})";
         var durationText = "";
         if (StartedAt.HasValue && CompletedAt.HasValue)
         {
@@ -404,7 +437,7 @@ public partial class ReflectionCycle
     /// <summary>
     /// Creates a new reflection cycle with the given goal and iteration limit.
     /// </summary>
-    public static ReflectionCycle Create(string goal, int maxIterations = 5, string? evaluationPrompt = null)
+    public static ReflectionCycle Create(string goal, int maxIterations = 5, string? evaluationPrompt = null, string? evaluatorSession = null)
     {
         return new ReflectionCycle
         {
@@ -415,6 +448,43 @@ public partial class ReflectionCycle
             CurrentIteration = 0,
             GoalMet = false,
             StartedAt = DateTime.Now,
+            EvaluatorSessionName = evaluatorSession
         };
     }
+
+    /// <summary>
+    /// Record an evaluation result and return the quality trend.
+    /// </summary>
+    public QualityTrend RecordEvaluation(int iteration, double score, string rationale, string evaluatorModel)
+    {
+        EvaluationHistory.Add(new EvaluationResult
+        {
+            Iteration = iteration,
+            Score = score,
+            Rationale = rationale,
+            EvaluatorModel = evaluatorModel,
+            Timestamp = DateTime.Now
+        });
+
+        if (EvaluationHistory.Count < 2) return QualityTrend.Stable;
+
+        var recent = EvaluationHistory.TakeLast(3).Select(e => e.Score).ToList();
+        if (recent.Count >= 2 && recent.Last() > recent[^2] + 0.1) return QualityTrend.Improving;
+        if (recent.Count >= 2 && recent.Last() < recent[^2] - 0.1) return QualityTrend.Degrading;
+        return QualityTrend.Stable;
+    }
+}
+
+/// <summary>Quality trend across iterations.</summary>
+public enum QualityTrend { Improving, Stable, Degrading }
+
+/// <summary>Structured evaluation result from one reflect iteration.</summary>
+public class EvaluationResult
+{
+    public int Iteration { get; set; }
+    /// <summary>Quality score 0.0-1.0.</summary>
+    public double Score { get; set; }
+    public string Rationale { get; set; } = "";
+    public string EvaluatorModel { get; set; } = "";
+    public DateTime Timestamp { get; set; }
 }

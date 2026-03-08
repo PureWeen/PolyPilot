@@ -55,12 +55,15 @@ internal class StubServerManager : IServerManager
 internal class StubWsBridgeClient : IWsBridgeClient
 {
     public bool IsConnected { get; set; }
+    public bool HasReceivedSessionsList { get; set; }
     public List<SessionSummary> Sessions { get; set; } = new();
     public string? ActiveSessionName { get; set; }
-    public Dictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
+    public System.Collections.Concurrent.ConcurrentDictionary<string, List<ChatMessage>> SessionHistories { get; } = new();
+    public System.Collections.Concurrent.ConcurrentDictionary<string, bool> SessionHistoryHasMore { get; } = new();
     public List<PersistedSessionSummary> PersistedSessions { get; set; } = new();
     public string? GitHubAvatarUrl { get; set; }
     public string? GitHubLogin { get; set; }
+    public string? ServerMachineName { get; set; }
 
     public event Action? OnStateChanged;
     public event Action<string, string>? OnContentReceived;
@@ -68,6 +71,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public event Action<string, string, string, bool>? OnToolCompleted;
     public event Action<string, string, string>? OnReasoningReceived;
     public event Action<string, string>? OnReasoningComplete;
+    public event Action<string, string, string?, string?>? OnImageReceived;
     public event Action<string, string>? OnIntentChanged;
     public event Action<string, SessionUsageInfo>? OnUsageInfoChanged;
     public event Action<string>? OnTurnStart;
@@ -78,15 +82,18 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public event Action<AttentionNeededPayload>? OnAttentionNeeded;
 
     public Task ConnectAsync(string wsUrl, string? authToken = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task ConnectSmartAsync(string? tunnelWsUrl, string? tunnelToken, string? lanWsUrl, string? lanToken, CancellationToken ct = default) => Task.CompletedTask;
+    public string? ActiveUrl { get; set; }
     public void Stop() { IsConnected = false; }
+    public void AbortForReconnect() { }
     public int RequestSessionsCallCount { get; private set; }
     public Task RequestSessionsAsync(CancellationToken ct = default)
     {
         RequestSessionsCallCount++;
         return Task.CompletedTask;
     }
-    public Task RequestHistoryAsync(string sessionName, CancellationToken ct = default) => Task.CompletedTask;
-    public Task SendMessageAsync(string sessionName, string message, CancellationToken ct = default) => Task.CompletedTask;
+    public Task RequestHistoryAsync(string sessionName, int? limit = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task SendMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken ct = default) => Task.CompletedTask;
     public string? LastSwitchedSession { get; private set; }
     public int SwitchSessionCallCount { get; private set; }
@@ -98,13 +105,73 @@ internal class StubWsBridgeClient : IWsBridgeClient
     }
 
     public void FireOnStateChanged() => OnStateChanged?.Invoke();
-    public Task QueueMessageAsync(string sessionName, string message, CancellationToken ct = default) => Task.CompletedTask;
+    public Task QueueMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task ResumeSessionAsync(string sessionId, string? displayName = null, CancellationToken ct = default) => Task.CompletedTask;
-    public Task CloseSessionAsync(string name, CancellationToken ct = default) => Task.CompletedTask;
+    public Func<string, Task>? CloseSessionOverride { get; set; }
+    public Task CloseSessionAsync(string name, CancellationToken ct = default)
+    {
+        if (CloseSessionOverride != null) return CloseSessionOverride(name);
+        return Task.CompletedTask;
+    }
     public Task AbortSessionAsync(string sessionName, CancellationToken ct = default) => Task.CompletedTask;
+    public string? LastChangedModelSession { get; private set; }
+    public string? LastChangedModel { get; private set; }
+    public int ChangeModelCallCount { get; private set; }
+    public Task ChangeModelAsync(string sessionName, string newModel, CancellationToken ct = default)
+    {
+        LastChangedModelSession = sessionName;
+        LastChangedModel = newModel;
+        ChangeModelCallCount++;
+        return Task.CompletedTask;
+    }
     public Task SendOrganizationCommandAsync(OrganizationCommandPayload payload, CancellationToken ct = default) => Task.CompletedTask;
+    public Task PushOrganizationAsync(OrganizationState organization, CancellationToken ct = default) => Task.CompletedTask;
+    public Task CreateSessionWithWorktreeAsync(CreateSessionWithWorktreePayload payload, CancellationToken ct = default) => Task.CompletedTask;
+    public string? LastRenamedOldName { get; private set; }
+    public string? LastRenamedNewName { get; private set; }
+    public int RenameSessionCallCount { get; private set; }
+    public Task RenameSessionAsync(string oldName, string newName, CancellationToken ct = default)
+    {
+        LastRenamedOldName = oldName;
+        LastRenamedNewName = newName;
+        RenameSessionCallCount++;
+        return Task.CompletedTask;
+    }
     public Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
         => Task.FromResult(new DirectoriesListPayload());
+
+    // Repo operations
+    public event Action<ReposListPayload>? OnReposListReceived;
+    public string? LastAddedRepoUrl { get; private set; }
+    public int AddRepoCallCount { get; private set; }
+    public Task<RepoAddedPayload> AddRepoAsync(string url, Action<string>? onProgress = null, CancellationToken ct = default)
+    {
+        LastAddedRepoUrl = url;
+        AddRepoCallCount++;
+        var id = url.Split('/').Last();
+        return Task.FromResult(new RepoAddedPayload { RequestId = "test", RepoId = id, RepoName = id, Url = url });
+    }
+    public string? LastRemovedRepoId { get; private set; }
+    public int RemoveRepoCallCount { get; private set; }
+    public Task RemoveRepoAsync(string repoId, bool deleteFromDisk, string? groupId = null, CancellationToken ct = default)
+    {
+        LastRemovedRepoId = repoId;
+        RemoveRepoCallCount++;
+        return Task.CompletedTask;
+    }
+    public int RequestReposCallCount { get; private set; }
+    public Task RequestReposAsync(CancellationToken ct = default)
+    {
+        RequestReposCallCount++;
+        return Task.CompletedTask;
+    }
+
+    public Task<WorktreeCreatedPayload> CreateWorktreeAsync(string repoId, string? branchName, int? prNumber, CancellationToken ct = default)
+        => Task.FromResult(new WorktreeCreatedPayload { RepoId = repoId, Branch = branchName ?? "main", Path = "/tmp/test" });
+    public Task RemoveWorktreeAsync(string worktreeId, bool deleteBranch = false, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<FetchImageResponsePayload> FetchImageAsync(string path, CancellationToken ct = default)
+        => Task.FromResult(new FetchImageResponsePayload { Error = "Stub" });
 }
 
 internal class StubDemoService : IDemoService
@@ -135,7 +202,18 @@ internal class StubDemoService : IDemoService
 
     public void SetActiveSession(string name) { if (_sessions.ContainsKey(name)) ActiveSessionName = name; }
 
-    public Task SimulateResponseAsync(string sessionName, string prompt, SynchronizationContext? syncContext = null, CancellationToken ct = default)
-        => Task.CompletedTask;
+    public async Task SimulateResponseAsync(string sessionName, string prompt, SynchronizationContext? syncContext = null, CancellationToken ct = default)
+    {
+        await Task.Delay(10, ct);
+        OnTurnStart?.Invoke(sessionName);
+        OnContentReceived?.Invoke(sessionName, "Demo response");
+        if (_sessions.TryGetValue(sessionName, out var info))
+        {
+            info.History.Add(ChatMessage.AssistantMessage("Demo response"));
+            info.IsProcessing = false;
+        }
+        OnTurnEnd?.Invoke(sessionName);
+        OnStateChanged?.Invoke();
+    }
 }
 #pragma warning restore CS0067

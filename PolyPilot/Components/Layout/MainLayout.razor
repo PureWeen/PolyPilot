@@ -1,15 +1,16 @@
 @inherits LayoutComponentBase
 @using PolyPilot.Services
 @using PolyPilot.Models
+@implements IDisposable
 
 <div class="page @(flyoutOpen ? "flyout-open" : "")">
     <div class="sidebar desktop-only">
-        <SessionSidebar />
+        <SessionSidebar OnToggleStatistics="ToggleStatistics" />
         <div class="sidebar-resize-handle" @onmousedown="StartResize"></div>
     </div>
 
     <div class="mobile-top-bar mobile-only">
-        <SessionSidebar IsMobileTopBar="true" OnToggleFlyout="ToggleFlyout" FontSize="fontSize" OnFontSizeChange="HandleFontSizeChange" />
+        <SessionSidebar IsMobileTopBar="true" OnToggleFlyout="ToggleFlyout" FontSize="fontSize" OnFontSizeChange="HandleFontSizeChange" OnToggleStatistics="ToggleStatistics" />
     </div>
 
     <main>
@@ -20,31 +21,60 @@
 
     <div class="flyout-backdrop mobile-only @(flyoutOpen ? "open" : "")" @onclick="CloseFlyout"></div>
     <div class="flyout-panel mobile-only @(flyoutOpen ? "open" : "")">
-        <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" />
+        <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" OnToggleStatistics="ToggleStatistics" />
     </div>
+
+    <PolyPilot.Components.Tutorial.TutorialOverlay />
+    <PolyPilot.Components.Layout.StatisticsPopup Visible="showStatistics" OnClose="CloseStatistics" />
 </div>
 
 @code {
     private bool flyoutOpen;
+    private bool showStatistics;
     private int fontSize = 20;
+    private Timer? _holidayTimer;
+    private bool _lastHolidayCheck;
+    private bool _disposed;
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private CopilotService CopilotService { get; set; } = default!;
     [Inject] private NavigationManager NavManager { get; set; } = default!;
+    [Inject] private TutorialService TutorialService { get; set; } = default!;
+
+    private DotNetObjectReference<MainLayout>? _navRef;
+
+    [JSInvokable]
+    public void NavigateToSettings()
+    {
+        CopilotService.SaveUiState("/settings");
+        NavManager.NavigateTo("/settings");
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            var dataTheme = CopilotService.Theme switch
+            // Apply holiday theme if active (before user theme, so it takes precedence)
+            var effectiveTheme = CopilotService.Theme;
+            var holidayTheme = HolidayThemeHelper.GetActiveHolidayTheme();
+            _lastHolidayCheck = holidayTheme.HasValue;
+            if (holidayTheme.HasValue && !CopilotService.HolidayThemeDismissed)
             {
-                UiTheme.System => "system",
-                UiTheme.PolyPilotLight => "polypilot-light",
-                UiTheme.SolarizedDark => "solarized-dark",
-                UiTheme.SolarizedLight => "solarized-light",
-                _ => ""
-            };
+                effectiveTheme = holidayTheme.Value;
+                CopilotService.Theme = effectiveTheme;
+            }
+
+            var dataTheme = HolidayThemeHelper.GetDataThemeString(effectiveTheme);
             await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
+            await JS.InvokeVoidAsync("eval", $"document.body.setAttribute('data-platform', '{PlatformHelper.PlatformName}')");
+
+            // Start timer to detect date transitions (e.g., midnight crossing into/out of March 8)
+            _holidayTimer = new Timer(OnHolidayTimerTick, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+
+            // Register nav ref for global keyboard shortcuts (Cmd+,)
+            _navRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("eval", "window.__setNavRef = function(ref) { window._navRef = ref; };");
+            await JS.InvokeVoidAsync("__setNavRef", _navRef);
 
             // Load saved font size and navigate to last page
             var uiState = CopilotService.LoadUiState();
@@ -55,6 +85,8 @@
                     fontSize = uiState.FontSize;
                     await ApplyFontSize();
                 }
+
+                TutorialService.LoadCompleted(uiState.CompletedTutorials);
                 
                 // Navigate to the last page if not already there
                 var currentUri = new Uri(NavManager.Uri);
@@ -66,6 +98,58 @@
                 
                 StateHasChanged();
             }
+        }
+    }
+
+    private void OnHolidayTimerTick(object? state)
+    {
+        if (_disposed) return;
+
+        var holidayTheme = HolidayThemeHelper.GetActiveHolidayTheme();
+        var isHoliday = holidayTheme.HasValue;
+
+        if (isHoliday && !_lastHolidayCheck && !CopilotService.HolidayThemeDismissed)
+        {
+            _ = InvokeAsync(async () =>
+            {
+                if (_disposed) return;
+                try
+                {
+                    // Just crossed into a holiday — activate theme
+                    _lastHolidayCheck = true;
+                    CopilotService.HolidayThemeDismissed = false;
+                    CopilotService.Theme = holidayTheme!.Value;
+                    var dt = HolidayThemeHelper.GetDataThemeString(holidayTheme!.Value);
+                    await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dt}')");
+                    StateHasChanged();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error activating holiday theme: {ex.Message}");
+                }
+            });
+        }
+        else if (!isHoliday && _lastHolidayCheck)
+        {
+            _ = InvokeAsync(async () =>
+            {
+                if (_disposed) return;
+                try
+                {
+                    // Holiday ended — revert to user's saved theme
+                    _lastHolidayCheck = false;
+                    CopilotService.HolidayThemeDismissed = false;
+                    var saved = ConnectionSettings.Load();
+                    CopilotService.Theme = saved.Theme;
+                    var dt = HolidayThemeHelper.GetDataThemeString(saved.Theme);
+                    await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dt}')");
+                    StateHasChanged();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error reverting holiday theme: {ex.Message}");
+                }
+            });
         }
     }
 
@@ -115,5 +199,22 @@
     private void CloseFlyout()
     {
         flyoutOpen = false;
+    }
+
+    private void ToggleStatistics()
+    {
+        showStatistics = !showStatistics;
+    }
+
+    private void CloseStatistics()
+    {
+        showStatistics = false;
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _holidayTimer?.Dispose();
+        _navRef?.Dispose();
     }
 }

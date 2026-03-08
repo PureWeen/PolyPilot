@@ -81,9 +81,38 @@ public static class BridgeMessageTypes
     public const string AbortSession = "abort_session";
     public const string OrganizationCommand = "organization_command";
     public const string ListDirectories = "list_directories";
+    public const string MultiAgentBroadcast = "multi_agent_broadcast";
+    public const string MultiAgentCreateGroup = "multi_agent_create_group";
+    public const string MultiAgentSetRole = "multi_agent_set_role";
+    public const string ChangeModel = "change_model";
+    public const string RenameSession = "rename_session";
+    public const string PushOrganization = "push_organization";
+    public const string CreateSessionWithWorktree = "create_session_with_worktree";
+
+    // Client → Server (repo operations)
+    public const string AddRepo = "add_repo";
+    public const string RemoveRepo = "remove_repo";
+    public const string ListRepos = "list_repos";
+    public const string CreateWorktree = "create_worktree";
+    public const string RemoveWorktree = "remove_worktree";
+
+    // Server → Client (repo responses)
+    public const string ReposList = "repos_list";
+    public const string RepoAdded = "repo_added";
+    public const string RepoProgress = "repo_progress";
+    public const string RepoError = "repo_error";
+    public const string WorktreeCreated = "worktree_created";
+    public const string WorktreeRemoved = "worktree_removed";
+    public const string WorktreeError = "worktree_error";
 
     // Server → Client (response)
     public const string DirectoriesList = "directories_list";
+    public const string MultiAgentProgress = "multi_agent_progress";
+
+    // Client → Server (image fetch)
+    public const string FetchImage = "fetch_image";
+    // Server → Client (image response)
+    public const string FetchImageResponse = "fetch_image_response";
 
     // Fiesta Host ↔ Worker
     public const string FiestaAssign = "fiesta_assign";
@@ -103,6 +132,8 @@ public class SessionsListPayload
     public string? ActiveSession { get; set; }
     public string? GitHubAvatarUrl { get; set; }
     public string? GitHubLogin { get; set; }
+    /// <summary>Server's machine name, used by remote clients to open VS Code via Remote - Tunnels.</summary>
+    public string? ServerMachineName { get; set; }
 }
 
 public class SessionSummary
@@ -115,12 +146,19 @@ public class SessionSummary
     public string? SessionId { get; set; }
     public string? WorkingDirectory { get; set; }
     public int QueueCount { get; set; }
+    public DateTime? ProcessingStartedAt { get; set; }
+    public int ToolCallCount { get; set; }
+    public int ProcessingPhase { get; set; }
 }
 
 public class SessionHistoryPayload
 {
     public string SessionName { get; set; } = "";
     public List<ChatMessage> Messages { get; set; } = new();
+    /// <summary>Total message count on the server (may be more than Messages.Count when limited).</summary>
+    public int TotalCount { get; set; }
+    /// <summary>True when the server has older messages not included in this response.</summary>
+    public bool HasMore { get; set; }
 }
 
 public class ContentDeltaPayload
@@ -143,6 +181,10 @@ public class ToolCompletedPayload
     public string CallId { get; set; } = "";
     public string Result { get; set; } = "";
     public bool Success { get; set; }
+    // Image fields (populated when tool is show_image)
+    public string? ImageData { get; set; }
+    public string? ImageMimeType { get; set; }
+    public string? Caption { get; set; }
 }
 
 public class ReasoningDeltaPayload
@@ -196,12 +238,18 @@ public class ErrorPayload
 public class GetHistoryPayload
 {
     public string SessionName { get; set; } = "";
+    /// <summary>
+    /// Max messages to return (most recent). Null = all messages.
+    /// </summary>
+    public int? Limit { get; set; }
 }
 
 public class SendMessagePayload
 {
     public string SessionName { get; set; } = "";
     public string Message { get; set; } = "";
+    /// <summary>SDK agent mode: "interactive", "plan", "autopilot", "shell". Null = default (interactive).</summary>
+    public string? AgentMode { get; set; }
 }
 
 public class CreateSessionPayload
@@ -220,6 +268,7 @@ public class QueueMessagePayload
 {
     public string SessionName { get; set; } = "";
     public string Message { get; set; } = "";
+    public string? AgentMode { get; set; }
 }
 
 public class PersistedSessionsPayload
@@ -242,6 +291,18 @@ public class ResumeSessionPayload
     public string? DisplayName { get; set; }
 }
 
+public class ChangeModelPayload
+{
+    public string SessionName { get; set; } = "";
+    public string NewModel { get; set; } = "";
+}
+
+public class RenameSessionPayload
+{
+    public string OldName { get; set; } = "";
+    public string NewName { get; set; } = "";
+}
+
 // --- Organization bridge payloads ---
 
 public class OrganizationCommandPayload
@@ -258,6 +319,7 @@ public class OrganizationCommandPayload
 public class ListDirectoriesPayload
 {
     public string? Path { get; set; }
+    public string? RequestId { get; set; }
 }
 
 public class DirectoriesListPayload
@@ -266,6 +328,7 @@ public class DirectoriesListPayload
     public List<DirectoryEntry> Directories { get; set; } = new();
     public bool IsGitRepo { get; set; }
     public string? Error { get; set; }
+    public string? RequestId { get; set; }
 }
 
 public class DirectoryEntry
@@ -290,6 +353,37 @@ public class AttentionNeededPayload
     public string? SessionId { get; set; }
     public AttentionReason Reason { get; set; }
     public string Summary { get; set; } = "";
+}
+
+// --- Multi-agent orchestration payloads ---
+
+public class MultiAgentBroadcastPayload
+{
+    public string GroupId { get; set; } = "";
+    public string Message { get; set; } = "";
+}
+
+public class MultiAgentCreateGroupPayload
+{
+    public string Name { get; set; } = "";
+    public string Mode { get; set; } = "Broadcast";
+    public string? OrchestratorPrompt { get; set; }
+    public List<string>? SessionNames { get; set; }
+}
+
+public class MultiAgentProgressPayload
+{
+    public string GroupId { get; set; } = "";
+    public int TotalSessions { get; set; }
+    public int CompletedSessions { get; set; }
+    public int ProcessingSessions { get; set; }
+    public List<string> CompletedSessionNames { get; set; } = new();
+}
+
+public class MultiAgentSetRolePayload
+{
+    public string SessionName { get; set; } = "";
+    public string Role { get; set; } = "Worker";
 }
 
 // --- Fiesta payloads ---
@@ -339,4 +433,122 @@ public class FiestaPingPayload
 public class FiestaPongPayload
 {
     public string Sender { get; set; } = "";
+}
+
+// --- Repo bridge payloads ---
+
+public class AddRepoPayload
+{
+    public string Url { get; set; } = "";
+    public string RequestId { get; set; } = "";
+}
+
+public class RemoveRepoPayload
+{
+    public string RepoId { get; set; } = "";
+    public bool DeleteFromDisk { get; set; }
+    public string? GroupId { get; set; }
+}
+
+public class ListReposPayload
+{
+    public string? RequestId { get; set; }
+}
+
+public class ReposListPayload
+{
+    public string? RequestId { get; set; }
+    public List<RepoSummary> Repos { get; set; } = new();
+    public List<WorktreeSummary> Worktrees { get; set; } = new();
+}
+
+public class RepoSummary
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Url { get; set; } = "";
+}
+
+public class WorktreeSummary
+{
+    public string Id { get; set; } = "";
+    public string RepoId { get; set; } = "";
+    public string Branch { get; set; } = "";
+    public string Path { get; set; } = "";
+    public int? PrNumber { get; set; }
+    /// <summary>Git remote name (e.g., "origin", "upstream") if this worktree was created from a PR and the remote exists locally.</summary>
+    public string? Remote { get; set; }
+}
+
+public class RepoAddedPayload
+{
+    public string RequestId { get; set; } = "";
+    public string RepoId { get; set; } = "";
+    public string RepoName { get; set; } = "";
+    public string Url { get; set; } = "";
+}
+
+public class RepoProgressPayload
+{
+    public string RequestId { get; set; } = "";
+    public string Message { get; set; } = "";
+}
+
+public class RepoErrorPayload
+{
+    public string RequestId { get; set; } = "";
+    public string Error { get; set; } = "";
+}
+
+public class CreateWorktreePayload
+{
+    public string RequestId { get; set; } = Guid.NewGuid().ToString();
+    public string RepoId { get; set; } = "";
+    public string? BranchName { get; set; }
+    public int? PrNumber { get; set; }
+}
+
+public class CreateSessionWithWorktreePayload
+{
+    public string RequestId { get; set; } = Guid.NewGuid().ToString();
+    public string RepoId { get; set; } = "";
+    public string? BranchName { get; set; }
+    public int? PrNumber { get; set; }
+    public string? WorktreeId { get; set; }
+    public string? SessionName { get; set; }
+    public string? Model { get; set; }
+    public string? InitialPrompt { get; set; }
+}
+
+public class RemoveWorktreePayload
+{
+    public string RequestId { get; set; } = "";
+    public string WorktreeId { get; set; } = "";
+    public bool DeleteBranch { get; set; }
+}
+
+public class WorktreeCreatedPayload
+{
+    public string RequestId { get; set; } = "";
+    public string WorktreeId { get; set; } = "";
+    public string RepoId { get; set; } = "";
+    public string Branch { get; set; } = "";
+    public string Path { get; set; } = "";
+    public int? PrNumber { get; set; }
+    /// <summary>Git remote name (e.g., "origin", "upstream") if this worktree was created from a PR and the remote exists locally.</summary>
+    public string? Remote { get; set; }
+}
+
+public class FetchImagePayload
+{
+    public string Path { get; set; } = "";
+    public string RequestId { get; set; } = "";
+}
+
+public class FetchImageResponsePayload
+{
+    public string RequestId { get; set; } = "";
+    public string? ImageData { get; set; }
+    public string? MimeType { get; set; }
+    public string? Error { get; set; }
 }

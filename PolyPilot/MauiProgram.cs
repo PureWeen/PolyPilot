@@ -1,8 +1,12 @@
 using PolyPilot.Services;
+using PolyPilot.Models;
+using PolyPilot.Provider;
 using Microsoft.Extensions.Logging;
 using ZXing.Net.Maui.Controls;
 using MauiDevFlow.Agent;
 using MauiDevFlow.Blazor;
+using CommunityToolkit.Maui;
+using CommunityToolkit.Maui.Media;
 #if MACCATALYST
 using Microsoft.Maui.LifecycleEvents;
 using UIKit;
@@ -51,6 +55,7 @@ public static class MauiProgram
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
+			.UseMauiCommunityToolkit()
 			.UseBarcodeReader()
 			.ConfigureFonts(fonts =>
 			{
@@ -102,13 +107,24 @@ public static class MauiProgram
 		builder.Services.AddSingleton<KeyCommandService>();
 	builder.Services.AddSingleton<GitAutoUpdateService>();
 	builder.Services.AddSingleton<RepoManager>();
+	builder.Services.AddSingleton<TutorialService>();
+	builder.Services.AddSingleton<UsageStatsService>();
 	builder.Services.AddSingleton<INotificationManagerService, NotificationManagerService>();
+	builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
+	builder.Services.AddSingleton<EfficiencyAnalysisService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
 		builder.Logging.AddDebug();
 		builder.AddMauiDevFlowAgent();
 		builder.AddMauiBlazorDevFlowTools();
+#endif
+
+		// Provider plugin system (desktop only — mobile uses WsBridge)
+#if !IOS && !ANDROID
+		var pluginSettings = PolyPilot.Models.ConnectionSettings.Load();
+		builder.Services.AddSingleton<IProviderHostContext>(new ProviderHostContext(pluginSettings));
+		PluginLoader.LoadEnabledProviders(builder.Services, pluginSettings.Plugins.Enabled);
 #endif
 
 		return builder.Build();
