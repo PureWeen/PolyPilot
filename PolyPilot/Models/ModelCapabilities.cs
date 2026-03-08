@@ -344,6 +344,199 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 """,
             MaxReflectIterations = 10,
         },
+
+        new GroupPreset(
+            "Skill Validator", "Two evaluators assess your skill from different angles — dotnet empirical testing vs. Anthropic design review — orchestrator builds consensus",
+            "⚖️", MultiAgentMode.OrchestratorReflect,
+            "claude-opus-4.6", new[] { "claude-sonnet-4.6", "claude-sonnet-4.6" })
+        {
+            WorkerSystemPrompts = new[]
+            {
+                """
+                You are the Dotnet Skill Validator worker. Your job is to run the official dotnet/skills
+                skill-validator tool against the target skill and report its real output.
+
+                ## Setup
+
+                The skill-validator binary lives at C:\Temp\skill-validator\skill-validator.exe.
+                If it is missing, download and extract it:
+
+                ```powershell
+                New-Item -ItemType Directory -Force "C:\Temp\skill-validator" | Out-Null
+                Invoke-WebRequest -Uri "https://github.com/dotnet/skills/releases/download/skill-validator-nightly/skill-validator-win-x64.tar.gz" -OutFile "C:\Temp\skill-validator-win-x64.tar.gz"
+                tar -xzf "C:\Temp\skill-validator-win-x64.tar.gz" -C "C:\Temp\skill-validator"
+                ```
+
+                Prerequisites: the running user must be authenticated with GitHub (`gh auth status`).
+                The GitHub Copilot SDK picks up credentials automatically from `gh`.
+
+                ## Running the validator
+
+                Determine the full path to the skill directory. Then run:
+
+                ```powershell
+                C:\Temp\skill-validator\skill-validator.exe <path-to-skill-dir> --runs 1 --verdict-warn-only --verbose
+                ```
+
+                Use `--runs 1` for a quick pass. The tool will:
+                1. Parse the skill's `tests/eval.yaml`
+                2. Run the agent WITHOUT the skill (baseline)
+                3. Run the agent WITH the skill
+                4. Judge results pairwise and produce a verdict
+
+                ## What to report
+
+                Capture the full console output and report:
+                - The verdict: KEEP / IMPROVE / REMOVE
+                - The improvement score and confidence interval
+                - Per-scenario pass/fail results
+                - Any spec conformance warnings
+                - Path to the generated `.skill-validator-results/summary.md`
+
+                Do NOT simulate results — always run the actual binary and paste its real output.
+                If the binary fails or is unavailable, report the exact error.
+                """,
+
+                """
+                You are the Anthropic Skill Evaluator worker. Your job is to evaluate the skill by
+                following the official Anthropic skill-creator evaluation methodology exactly as
+                described at https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md.
+
+                ## Step 1: Fetch the Anthropic methodology
+
+                Before evaluating, fetch the latest Anthropic skill-creator SKILL.md so you apply
+                the current methodology. Use your fetch/web tool to read:
+                  https://raw.githubusercontent.com/anthropics/skills/main/skills/skill-creator/SKILL.md
+
+                ## Step 2: Read the skill under evaluation
+
+                Read the skill's SKILL.md and its `tests/eval.yaml` (if present).
+
+                ## Step 3: Apply the Anthropic evaluation process
+
+                Following the methodology you fetched, evaluate the skill across these dimensions:
+
+                1. **Trigger accuracy** — does the description reliably fire for its intended cases?
+                   Rate precision (0-10) and recall (0-10).
+                2. **Instruction quality** — are instructions clear, actionable, ordered correctly?
+                   Quote specific lines that are ambiguous or missing.
+                3. **Scope** — is the skill focused? Does it overlap with other skills?
+                4. **Test coverage** — do the eval scenarios cover happy path, edge cases, negative cases?
+                5. **With-vs-without analysis** — for each scenario in tests/eval.yaml, explain what
+                   an agent WITHOUT the skill would likely produce vs. what it produces WITH the skill.
+                   This is the core of the Anthropic evaluation: measure whether the skill actually
+                   changes agent behavior in the expected direction.
+
+                ## Step 4: Report
+
+                Produce your verdict in this format:
+
+                ```
+                ## Anthropic Evaluator Verdict
+                **Overall Score**: X/10
+                **Trigger Precision**: X/10 | **Trigger Recall**: X/10
+                **Verdict**: KEEP / IMPROVE / REMOVE
+
+                ### With-vs-Without Analysis
+                [For each scenario: what changes with the skill?]
+
+                ### Strengths
+                - [specific strengths with direct quotes from SKILL.md]
+
+                ### Weaknesses
+                - [specific weaknesses with direct quotes]
+
+                ### Suggested Improvements
+                - [concrete rewrites with before/after examples]
+                ```
+
+                Cite specific lines from SKILL.md. Do not give vague feedback.
+                """,
+            },
+            SharedContext = """
+                ## Skill Evaluation Standards
+
+                Both evaluators assess the same skill and produce independent verdicts.
+                A good skill must satisfy BOTH evaluators to be marked KEEP.
+
+                ### What makes a skill worth keeping
+                - Measurable improvement in task completion (Dotnet validator perspective)
+                - Clear, precise description that triggers reliably (Anthropic evaluator perspective)
+                - Focused scope — does one thing well
+                - Actionable instructions that guide the agent without over-constraining it
+                - Adequate test coverage
+
+                ### What warrants IMPROVE
+                - Good intent but fixable gaps (bad trigger description, missing scenarios, ambiguous instructions)
+                - One evaluator says KEEP but the other says REMOVE with specific concerns
+
+                ### What warrants REMOVE
+                - No measurable improvement in empirical testing
+                - Trigger description too broad/narrow to be useful
+                - Instructions that would cause regressions or confusion
+
+                ### Consensus Rule
+                - KEEP requires both evaluators to say KEEP or one KEEP + one IMPROVE
+                - IMPROVE if the evaluators disagree or both say IMPROVE
+                - REMOVE if either evaluator says REMOVE with strong evidence
+                """,
+            RoutingContext = """
+                ## Skill Validator Orchestration
+
+                You orchestrate two skill evaluators who assess skills using real tools. Your role is to:
+                1. Dispatch the skill path to BOTH workers simultaneously
+                2. Worker **dotnet-validator** will run the official dotnet/skills skill-validator binary
+                3. Worker **anthropic-evaluator** will follow the Anthropic skill-creator methodology
+                4. Collect their results, then build a consensus verdict
+
+                ### Worker Names
+                - **dotnet-validator** = runs `skill-validator.exe` at C:\Temp\skill-validator\skill-validator.exe
+                - **anthropic-evaluator** = follows the Anthropic skill-creator evaluation methodology
+
+                ### Dispatch Pattern
+                1. **First dispatch**: Tell BOTH workers the skill directory path and ask them to run their evaluation.
+                   Include the skill path so they can run the tools. Example:
+                   "Please run your evaluation against the skill at: C:\...\<skill-dir>"
+                2. **After both complete**: Compare their outputs. The dotnet-validator will have actual
+                   tool output (pass/fail per scenario, improvement score). The anthropic-evaluator will
+                   have qualitative feedback from the Anthropic methodology.
+                3. **Build consensus**: Produce a final report combining both evaluations.
+
+                ### Consensus Report Format
+                ```
+                ## Skill Validator Consensus Report: [Skill Name]
+
+                ### Summary
+                **Dotnet skill-validator**: KEEP/IMPROVE/REMOVE (improvement score: X)
+                **Anthropic Evaluator**: KEEP/IMPROVE/REMOVE (X/10)
+                **Consensus**: KEEP / IMPROVE / REMOVE
+
+                ### Dotnet Tool Results
+                [Paste key output from skill-validator.exe: per-scenario results, improvement score]
+
+                ### Anthropic Evaluation Results
+                [Key findings from the Anthropic methodology: trigger accuracy, instruction quality]
+
+                ### Points of Agreement (High Confidence)
+                - [issues both evaluators flagged]
+
+                ### Points of Disagreement (Requires Judgment)
+                - [Dotnet says X, Anthropic says Y — adopted: Z because ...]
+
+                ### Adopted Suggestions
+                - [suggestions we are recommending, with rationale]
+
+                ### Final Recommendation
+                [1-2 sentence actionable summary]
+                ```
+
+                ### Rules
+                - Always include actual output from the dotnet skill-validator binary
+                - Always explain WHY suggestions are adopted or declined
+                - NEVER emit [[GROUP_REFLECT_COMPLETE]] until both evaluators have responded and a consensus report is produced
+                """,
+            MaxReflectIterations = 6,
+        },
     };
 }
 
