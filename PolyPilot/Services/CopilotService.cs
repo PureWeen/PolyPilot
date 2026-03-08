@@ -1462,7 +1462,7 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>Auto-approve all tool permission requests. Without this, worker sessions
     /// (which have no interactive user) get "Permission denied" on every tool call.</summary>
     private static Task<PermissionRequestResult> AutoApprovePermissions(PermissionRequest request, PermissionInvocation invocation)
-        => Task.FromResult(new PermissionRequestResult { Kind = "approved" });
+        => Task.FromResult(new PermissionRequestResult { Kind = PermissionRequestResultKind.Approved });
 
     public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
