@@ -10,11 +10,19 @@ namespace PolyPilot.Tests;
 public class ChatDatabaseResilienceTests : IDisposable
 {
     private readonly string _tempDir;
+    // A path that is truly impossible on ALL platforms (Windows, macOS, Linux).
+    // We create a regular file, then reference a path "inside" it — no OS allows
+    // creating directories underneath a regular file.
+    private readonly string _impossibleDbPath;
 
     public ChatDatabaseResilienceTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-chatdb-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempDir);
+
+        var blockerFile = Path.Combine(_tempDir, "blocker");
+        File.WriteAllText(blockerFile, "x");
+        _impossibleDbPath = Path.Combine(blockerFile, "sub", "test.db");
     }
 
     public void Dispose()
@@ -39,7 +47,7 @@ public class ChatDatabaseResilienceTests : IDisposable
     public async Task AddMessageAsync_WithInvalidPath_ReturnsNegativeOne()
     {
         // Point to a non-existent deeply nested path that can't be created
-        ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/test.db");
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
         var db = new ChatDatabase();
         db.ResetConnection();
 
@@ -52,7 +60,7 @@ public class ChatDatabaseResilienceTests : IDisposable
     [Fact]
     public async Task BulkInsertAsync_WithInvalidPath_DoesNotThrow()
     {
-        ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/test.db");
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
         var db = new ChatDatabase();
         db.ResetConnection();
 
@@ -65,7 +73,7 @@ public class ChatDatabaseResilienceTests : IDisposable
     [Fact]
     public async Task UpdateToolCompleteAsync_WithInvalidPath_DoesNotThrow()
     {
-        ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/test.db");
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
         var db = new ChatDatabase();
         db.ResetConnection();
 
@@ -75,7 +83,7 @@ public class ChatDatabaseResilienceTests : IDisposable
     [Fact]
     public async Task UpdateReasoningContentAsync_WithInvalidPath_DoesNotThrow()
     {
-        ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/test.db");
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
         var db = new ChatDatabase();
         db.ResetConnection();
 
@@ -86,7 +94,7 @@ public class ChatDatabaseResilienceTests : IDisposable
     public async Task GetConnectionAsync_DoesNotCacheBrokenConnection()
     {
         // First: use an invalid path to trigger failure
-        ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/test.db");
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
         var db = new ChatDatabase();
         db.ResetConnection();
 
@@ -124,7 +132,7 @@ public class ChatDatabaseResilienceTests : IDisposable
     [Fact]
     public async Task GetAllMessagesAsync_WithInvalidPath_ReturnsEmptyList()
     {
-        ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/test.db");
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
         var db = new ChatDatabase();
         db.ResetConnection();
 
@@ -135,7 +143,7 @@ public class ChatDatabaseResilienceTests : IDisposable
     [Fact]
     public async Task HasMessagesAsync_WithInvalidPath_ReturnsFalse()
     {
-        ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/test.db");
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
         var db = new ChatDatabase();
         db.ResetConnection();
 
@@ -146,7 +154,7 @@ public class ChatDatabaseResilienceTests : IDisposable
     [Fact]
     public async Task GetMessageCountAsync_WithInvalidPath_ReturnsZero()
     {
-        ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/test.db");
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
         var db = new ChatDatabase();
         db.ResetConnection();
 
@@ -157,7 +165,7 @@ public class ChatDatabaseResilienceTests : IDisposable
     [Fact]
     public async Task ClearSessionAsync_WithInvalidPath_DoesNotThrow()
     {
-        ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/test.db");
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
         var db = new ChatDatabase();
         db.ResetConnection();
 
@@ -242,7 +250,7 @@ public class ChatDatabaseResilienceTests : IDisposable
         TaskScheduler.UnobservedTaskException += handler;
         try
         {
-            ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/test.db");
+            ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
             var db = new ChatDatabase();
             db.ResetConnection();
 
@@ -348,7 +356,7 @@ public class ChatDatabaseResilienceTests : IDisposable
     [Fact]
     public async Task GetMessagesAsync_WithInvalidPath_ReturnsEmptyList()
     {
-        ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/test.db");
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
         var db = new ChatDatabase();
         db.ResetConnection();
 
@@ -423,7 +431,7 @@ public class ChatDatabaseResilienceTests : IDisposable
         db.ResetConnection();
         foreach (var f in Directory.GetFiles(_tempDir, "deleted-db*"))
             File.Delete(f);
-        ChatDatabase.SetDbPathForTesting("/dev/null/impossible/path/deleted.db");
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
 
         var result = await db.GetAllMessagesAsync("s1");
         Assert.Empty(result);

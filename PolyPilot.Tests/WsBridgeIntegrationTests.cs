@@ -16,7 +16,15 @@ public class WsBridgeIntegrationTests : IDisposable
     private readonly WsBridgeServer _server;
     private readonly CopilotService _copilot;
     private readonly int _port;
-    private static int _portCounter = 19100;
+
+    private static int GetFreePort()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
 
     /// <summary>
     /// Polls until a condition is true, with a timeout. Replaces fixed Task.Delay for reliability under load.
@@ -30,7 +38,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
     public WsBridgeIntegrationTests()
     {
-        _port = Interlocked.Increment(ref _portCounter);
+        _port = GetFreePort();
         _server = new WsBridgeServer();
 
         _copilot = new CopilotService(
@@ -422,9 +430,9 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "create_group", Name = "Mobile Group" }, cts.Token);
-        await WaitForAsync(() => _copilot.Organization.Groups.Any(g => g.Name == "Mobile Group"), cts.Token);
+        await WaitForAsync(() => _copilot.Organization.Groups.Any(g => g?.Name == "Mobile Group"), cts.Token);
 
-        Assert.Contains(_copilot.Organization.Groups, g => g.Name == "Mobile Group");
+        Assert.Contains(_copilot.Organization.Groups, g => g?.Name == "Mobile Group");
         client.Stop();
     }
 
@@ -499,8 +507,8 @@ public class WsBridgeIntegrationTests : IDisposable
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "rename_group", GroupId = group.Id, Name = "NewName" }, cts.Token);
 
-        await WaitForAsync(() => _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id)?.Name == "NewName", cts.Token);
-        var renamed = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id);
+        await WaitForAsync(() => _copilot.Organization.Groups.FirstOrDefault(g => g?.Id == group.Id)?.Name == "NewName", cts.Token);
+        var renamed = _copilot.Organization.Groups.FirstOrDefault(g => g?.Id == group.Id);
         Assert.NotNull(renamed);
         Assert.Equal("NewName", renamed!.Name);
         client.Stop();
@@ -517,9 +525,9 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "delete_group", GroupId = group.Id }, cts.Token);
-        await WaitForAsync(() => !_copilot.Organization.Groups.Any(g => g.Id == group.Id), cts.Token);
+        await WaitForAsync(() => !_copilot.Organization.Groups.Any(g => g?.Id == group.Id), cts.Token);
 
-        Assert.DoesNotContain(_copilot.Organization.Groups, g => g.Id == group.Id);
+        Assert.DoesNotContain(_copilot.Organization.Groups, g => g?.Id == group.Id);
         client.Stop();
     }
 
@@ -535,9 +543,9 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "toggle_collapsed", GroupId = group.Id }, cts.Token);
-        await WaitForAsync(() => _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id)?.IsCollapsed == true, cts.Token);
+        await WaitForAsync(() => _copilot.Organization.Groups.FirstOrDefault(g => g?.Id == group.Id)?.IsCollapsed == true, cts.Token);
 
-        var updated = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id);
+        var updated = _copilot.Organization.Groups.FirstOrDefault(g => g?.Id == group.Id);
         Assert.NotNull(updated);
         Assert.True(updated!.IsCollapsed);
         client.Stop();

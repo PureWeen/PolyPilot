@@ -198,7 +198,7 @@ else
     [Parameter] public string SelectedModel { get; set; } = "claude-opus-4.6";
     [Parameter] public EventCallback<string> SelectedModelChanged { get; set; }
 
-    [Parameter] public EventCallback<(string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber)> OnCreate { get; set; }
+    [Parameter] public EventCallback<(string Name, string Model, string? Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber)> OnCreate { get; set; }
     [Parameter] public EventCallback OnBrowseDirectory { get; set; }
     [Parameter] public string SessionName { get; set; } = "";
     [Parameter] public EventCallback<string> SessionNameChanged { get; set; }
