@@ -712,7 +712,7 @@ else
                             var unpinnedCount = CountUnpinned(groupSessions);
                             <div class="unpinned-toggle" @onclick="() => CopilotService.ToggleUnpinnedCollapsed(toggleGroupId)" @onclick:stopPropagation="true">
                                 <span class="unpinned-chevron">@(group.UnpinnedCollapsed ? "▶" : "▼")</span>
-                                <span class="unpinned-label">@(unpinnedCount) more @(unpinnedCount != 1 ? "sessions" : "session")</span>
+                                <span class="unpinned-label">@(unpinnedCount) @(group.UnpinnedCollapsed ? "more" : "") @(unpinnedCount != 1 ? "sessions" : "session")</span>
                             </div>
                         }
                         @foreach (var session in GetFilteredSessions(groupSessions, group, false))
