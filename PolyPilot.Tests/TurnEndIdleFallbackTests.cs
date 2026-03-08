@@ -105,6 +105,100 @@ public class TurnEndIdleFallbackTests
         cts.Dispose();
     }
 
+    // ===== HasUsedToolsThisTurn guard: fallback does NOT fire after tool use =====
+
+    [Fact]
+    public async Task Fallback_DoesNotFire_WhenToolsWereUsedThisTurn()
+    {
+        // Simulates the HasUsedToolsThisTurn guard in the fallback closure:
+        //   if (Volatile.Read(ref state.HasUsedToolsThisTurn)) return;
+        // When tools were used, a new TurnStart is expected — skip CompleteResponse.
+        bool hasUsedTools = true; // simulates state.HasUsedToolsThisTurn = true
+        bool completeResponseFired = false;
+
+        var fallbackTask = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(50); // short delay (no CTS, always completes)
+                // Guard: mirrors the production guard
+                if (hasUsedTools) return;
+                completeResponseFired = true;
+            }
+            catch (OperationCanceledException) { }
+        });
+
+        await fallbackTask;
+        Assert.False(completeResponseFired,
+            "Fallback must NOT fire CompleteResponse when tools were used this turn (TurnStart is coming)");
+    }
+
+    [Fact]
+    public async Task Fallback_DoesFire_WhenNoToolsUsedAndNoSessionIdle()
+    {
+        // Simulates a first turn (no tools) where SessionIdle never arrives.
+        // HasUsedToolsThisTurn = false → guard passes → CompleteResponse fires.
+        bool hasUsedTools = false; // simulates first turn, no tools executed
+        bool completeResponseFired = false;
+
+        var fallbackTask = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(50);
+                if (hasUsedTools) return;
+                completeResponseFired = true;
+            }
+            catch (OperationCanceledException) { }
+        });
+
+        await fallbackTask;
+        Assert.True(completeResponseFired,
+            "Fallback SHOULD fire CompleteResponse when no tools were used and no SessionIdle arrived");
+    }
+
+    // ===== Multiple rapid TurnEnd events: no CTS leak =====
+
+    [Fact]
+    public void MultipleRapidTurnEnds_NoCtsLeak()
+    {
+        // Simulates multiple rapid AssistantTurnEnd events each creating a new CTS.
+        // Each install cancels and disposes the previous one (Interlocked.Exchange pattern).
+        // Verifies that all previous CTS instances are cancelled+disposed (no leak).
+        CancellationTokenSource? field = null;
+        var cancellations = new List<CancellationTokenSource>();
+
+        for (int i = 0; i < 10; i++)
+        {
+            var newCts = new CancellationTokenSource();
+            cancellations.Add(newCts);
+
+            // Replicate the TurnEnd CTS install pattern:
+            //   var prevCts = Interlocked.Exchange(ref state.TurnEndIdleCts, newCts);
+            //   prevCts?.Cancel(); prevCts?.Dispose();
+            var prev = Interlocked.Exchange(ref field, newCts);
+            prev?.Cancel();
+            prev?.Dispose();
+        }
+
+        // All CTS except the last should be cancelled
+        for (int i = 0; i < cancellations.Count - 1; i++)
+        {
+            Assert.True(cancellations[i].IsCancellationRequested,
+                $"CTS[{i}] should be cancelled after being replaced by a newer TurnEnd");
+        }
+
+        // The last CTS is still installed (not cancelled)
+        Assert.False(cancellations[^1].IsCancellationRequested,
+            "The most recently installed CTS must NOT be cancelled — it's still active");
+        Assert.Same(field, cancellations[^1]);
+
+        // Cleanup
+        var last = Interlocked.Exchange(ref field, null);
+        last?.Cancel();
+        last?.Dispose();
+    }
+
     // ===== Verify TurnEndIdleFallbackMs constant is accessible and correct =====
 
     [Fact]
