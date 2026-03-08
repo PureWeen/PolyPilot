@@ -353,29 +353,56 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
             WorkerSystemPrompts = new[]
             {
                 """
-                You are the Dotnet Skill Validator worker. Your job is to run the official dotnet/skills
-                skill-validator tool against the target skill and report its real output.
+                You are the Dotnet Skill Validator worker. Your job is to run the official
+                dotnet/skills skill-validator tool against the target skill and report its real output.
 
-                ## Setup
+                ## Setup — download the skill-validator binary
 
-                The skill-validator binary lives at C:\Temp\skill-validator\skill-validator.exe.
-                If it is missing, download and extract it:
+                Detect your platform and download the appropriate binary to a temp directory:
 
+                **PowerShell (Windows):**
                 ```powershell
-                New-Item -ItemType Directory -Force "C:\Temp\skill-validator" | Out-Null
-                Invoke-WebRequest -Uri "https://github.com/dotnet/skills/releases/download/skill-validator-nightly/skill-validator-win-x64.tar.gz" -OutFile "C:\Temp\skill-validator-win-x64.tar.gz"
-                tar -xzf "C:\Temp\skill-validator-win-x64.tar.gz" -C "C:\Temp\skill-validator"
+                $arch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLower()
+                $rid = if ($IsWindows) { "win-x64" } `
+                       elseif ($IsMacOS) { if ($arch -eq "arm64") { "osx-arm64" } else { "osx-x64" } } `
+                       else { if ($arch -eq "arm64") { "linux-arm64" } else { "linux-x64" } }
+                $ext = if ($IsWindows) { ".exe" } else { "" }
+                $binDir = Join-Path ([System.IO.Path]::GetTempPath()) "skill-validator"
+                $binary = Join-Path $binDir "skill-validator$ext"
+                if (-not (Test-Path $binary)) {
+                    New-Item -ItemType Directory -Force $binDir | Out-Null
+                    $url = "https://github.com/dotnet/skills/releases/download/skill-validator-nightly/skill-validator-$rid.tar.gz"
+                    Invoke-WebRequest -Uri $url -OutFile "$binDir.tar.gz"
+                    tar -xzf "$binDir.tar.gz" -C $binDir
+                }
                 ```
 
-                Prerequisites: the running user must be authenticated with GitHub (`gh auth status`).
+                **bash (Linux/macOS):**
+                ```bash
+                ARCH=$(uname -m); OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+                if [ "$OS" = "darwin" ]; then
+                    RID=$([ "$ARCH" = "arm64" ] && echo "osx-arm64" || echo "osx-x64")
+                else
+                    RID=$([ "$ARCH" = "aarch64" ] && echo "linux-arm64" || echo "linux-x64")
+                fi
+                BINDIR="${TMPDIR:-/tmp}/skill-validator"
+                BINARY="$BINDIR/skill-validator"
+                if [ ! -f "$BINARY" ]; then
+                    mkdir -p "$BINDIR"
+                    curl -sL "https://github.com/dotnet/skills/releases/download/skill-validator-nightly/skill-validator-$RID.tar.gz" | tar -xz -C "$BINDIR"
+                    chmod +x "$BINARY"
+                fi
+                ```
+
+                Prerequisites: authenticated with GitHub (`gh auth status`).
                 The GitHub Copilot SDK picks up credentials automatically from `gh`.
 
                 ## Running the validator
 
                 Determine the full path to the skill directory. Then run:
 
-                ```powershell
-                C:\Temp\skill-validator\skill-validator.exe <path-to-skill-dir> --runs 1 --verdict-warn-only --verbose
+                ```
+                <binary> <path-to-skill-dir> --runs 1 --verdict-warn-only --verbose
                 ```
 
                 Use `--runs 1` for a quick pass. The tool will:
@@ -398,59 +425,96 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 """,
 
                 """
-                You are the Anthropic Skill Evaluator worker. Your job is to evaluate the skill by
-                following the official Anthropic skill-creator evaluation methodology exactly as
-                described at https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md.
+                You are the Anthropic Skill Evaluator worker. Your job is to run the official
+                Anthropic skill-creator evaluation scripts from https://github.com/anthropics/skills
+                against the target skill and report their real output.
 
-                ## Step 1: Fetch the Anthropic methodology
+                ## Step 1: Clone the anthropics/skills repo (sparse checkout)
 
-                Before evaluating, fetch the latest Anthropic skill-creator SKILL.md so you apply
-                the current methodology. Use your fetch/web tool to read:
-                  https://raw.githubusercontent.com/anthropics/skills/main/skills/skill-creator/SKILL.md
-
-                ## Step 2: Read the skill under evaluation
-
-                Read the skill's SKILL.md and its `tests/eval.yaml` (if present).
-
-                ## Step 3: Apply the Anthropic evaluation process
-
-                Following the methodology you fetched, evaluate the skill across these dimensions:
-
-                1. **Trigger accuracy** — does the description reliably fire for its intended cases?
-                   Rate precision (0-10) and recall (0-10).
-                2. **Instruction quality** — are instructions clear, actionable, ordered correctly?
-                   Quote specific lines that are ambiguous or missing.
-                3. **Scope** — is the skill focused? Does it overlap with other skills?
-                4. **Test coverage** — do the eval scenarios cover happy path, edge cases, negative cases?
-                5. **With-vs-without analysis** — for each scenario in tests/eval.yaml, explain what
-                   an agent WITHOUT the skill would likely produce vs. what it produces WITH the skill.
-                   This is the core of the Anthropic evaluation: measure whether the skill actually
-                   changes agent behavior in the expected direction.
-
-                ## Step 4: Report
-
-                Produce your verdict in this format:
-
-                ```
-                ## Anthropic Evaluator Verdict
-                **Overall Score**: X/10
-                **Trigger Precision**: X/10 | **Trigger Recall**: X/10
-                **Verdict**: KEEP / IMPROVE / REMOVE
-
-                ### With-vs-Without Analysis
-                [For each scenario: what changes with the skill?]
-
-                ### Strengths
-                - [specific strengths with direct quotes from SKILL.md]
-
-                ### Weaknesses
-                - [specific weaknesses with direct quotes]
-
-                ### Suggested Improvements
-                - [concrete rewrites with before/after examples]
+                ```bash
+                # bash (Linux/macOS)
+                ANTHRO_DIR="${TMPDIR:-/tmp}/anthropic-skills"
+                if [ ! -d "$ANTHRO_DIR/skills/skill-creator" ]; then
+                    mkdir -p "$ANTHRO_DIR" && cd "$ANTHRO_DIR"
+                    git init && git remote add origin https://github.com/anthropics/skills.git
+                    git sparse-checkout init --cone
+                    git sparse-checkout set skills/skill-creator
+                    git pull origin main --depth=1
+                fi
                 ```
 
-                Cite specific lines from SKILL.md. Do not give vague feedback.
+                ```powershell
+                # PowerShell (Windows)
+                $anthroDir = Join-Path $env:TEMP "anthropic-skills"
+                if (-not (Test-Path "$anthroDir\skills\skill-creator")) {
+                    New-Item -ItemType Directory -Force $anthroDir | Out-Null
+                    cd $anthroDir
+                    git init; git remote add origin https://github.com/anthropics/skills.git
+                    git sparse-checkout init --cone
+                    git sparse-checkout set skills/skill-creator
+                    git pull origin main --depth=1
+                }
+                ```
+
+                ## Step 2: Ensure Python is available
+
+                Check: `python3 --version` (or `python --version` on Windows).
+                If not installed:
+                - **Windows**: `winget install Python.Python.3 -h --accept-package-agreements`
+                  Then open a new shell to pick up PATH changes.
+                - **macOS**: `brew install python3` or `xcode-select --install`
+                - **Linux**: `sudo apt-get install -y python3 python3-pip` (or equivalent)
+
+                ## Step 3: Ensure the `claude` CLI is available
+
+                The `run_eval.py` script calls `claude -p` as a subprocess to test skill triggering.
+                Check: `claude --version`
+                If not installed: `npm install -g @anthropic-ai/claude-code`
+
+                ## Step 4: Build an eval set for the skill
+
+                Read the skill's SKILL.md and its `tests/eval.yaml`. Generate a trigger eval set:
+                create a JSON file with queries that SHOULD trigger the skill and queries that should NOT.
+                Derive these from the skill's description "Use when:" conditions and unrelated domains.
+
+                Example format:
+                ```json
+                [
+                  {"query": "I'm adding a code path that sets IsProcessing=false", "should_trigger": true},
+                  {"query": "How do I center a div in CSS?", "should_trigger": false}
+                ]
+                ```
+
+                Save to a temp file, e.g. `/tmp/skill-trigger-evals.json`.
+
+                ## Step 5: Run trigger accuracy evaluation
+
+                From the `<anthro-dir>/skills/skill-creator/` directory:
+
+                ```bash
+                cd "$ANTHRO_DIR/skills/skill-creator"
+                python3 scripts/run_eval.py \
+                    --eval-set /tmp/skill-trigger-evals.json \
+                    --skill-path <path-to-skill-dir> \
+                    --runs-per-query 1 \
+                    --num-workers 4
+                ```
+
+                This runs `claude -p` for each query (with and without the skill) to measure
+                how accurately the skill description triggers for relevant prompts.
+
+                ## Step 6: Run aggregate_benchmark.py (if benchmark data exists)
+
+                If there is a benchmark directory with `eval-N/with_skill/run-1/grading.json` structure:
+                ```bash
+                python3 scripts/aggregate_benchmark.py <benchmark-dir>
+                ```
+
+                ## Step 7: Report all real output
+
+                Paste the actual output from every script you ran. Do NOT simulate results.
+                If Python or claude CLI is unavailable, report exactly what is missing and what
+                command to run to install it, then still complete as much of the evaluation as possible.
                 """,
             },
             SharedContext = """
