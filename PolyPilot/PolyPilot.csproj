@@ -90,8 +90,8 @@
     <!-- Prevent linker from trimming SDK event types needed for pattern matching -->
     <ItemGroup>
         <TrimmerRootAssembly Include="GitHub.Copilot.SDK" RootMode="All" />
-        <TrimmerRootAssembly Include="CommunityToolkit.Maui" />
-        <TrimmerRootAssembly Include="CommunityToolkit.Maui.Core" />
+        <TrimmerRootAssembly Include="CommunityToolkit.Maui" RootMode="All" />
+        <TrimmerRootAssembly Include="CommunityToolkit.Maui.Core" RootMode="All" />
     </ItemGroup>
 
     <!-- The SDK registers the copilot CLI as ContentWithTargetPath but doesn't set

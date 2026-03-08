@@ -1017,7 +1017,7 @@ else
         }
     }
 
-    private async Task HandleCreateSession((string Name, string Model, string Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber) args)
+    private async Task HandleCreateSession((string Name, string Model, string? Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber) args)
     {
         if (isCreating) return;
         isCreating = true;

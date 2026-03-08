@@ -126,7 +126,7 @@ public class InputValidationTests
         {
             File.CreateSymbolicLink(linkPath, "/etc/passwd");
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Symlink creation requires elevated privileges on Windows — skip
             return;
@@ -152,7 +152,7 @@ public class InputValidationTests
             // Create a directory symlink inside images/ pointing to /etc/
             Directory.CreateSymbolicLink(symlinkDir, "/etc");
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Symlink creation requires elevated privileges on Windows — skip
             return;
