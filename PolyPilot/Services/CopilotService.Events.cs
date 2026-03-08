@@ -1374,7 +1374,7 @@ public partial class CopilotService
     /// Milliseconds to wait after AssistantTurnEndEvent before firing CompleteResponse
     /// as a fallback, in case SessionIdleEvent never arrives (SDK bug #299).
     /// </summary>
-    private const int TurnEndIdleFallbackMs = 4000;
+    internal const int TurnEndIdleFallbackMs = 4000;
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
