@@ -1370,6 +1370,12 @@ public partial class CopilotService
     /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
     /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
     internal const int WatchdogToolExecutionTimeoutSeconds = 600;
+    /// <summary>If no SDK events arrive for this many seconds for a multi-agent session WITHOUT active tools, 
+    /// the session is considered stuck. This is shorter than WatchdogToolExecutionTimeoutSeconds because:
+    /// - Multi-agent sessions without tool activity are likely waiting for model reasoning (1-3 min typical)
+    /// - If the connection died (SocketException 10054), we don't want users waiting 10 minutes
+    /// - The orchestration loop has its own CancelAfter timeout as a backup</summary>
+    internal const int WatchdogMultiAgentNoToolTimeoutSeconds = 180;
     /// <summary>If a resumed session receives zero SDK events for this many seconds, it was likely already
     /// finished when the app restarted. Short enough that users don't have to click Stop, long enough
     /// for the SDK to start streaming if the turn is genuinely still active.</summary>
@@ -1481,12 +1487,25 @@ public partial class CopilotService
                 // goes true and we fall through to the normal timeout tiers.
                 var useResumeQuiescence = state.Info.IsResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
 
-                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgentSession;
+                // Timeout tier selection:
+                // 1. Resumed session with no events → 30s quiescence
+                // 2. Active tool running OR resumed session with events → 600s (tools can take 10+ min)
+                // 3. Multi-agent session WITHOUT active tools or prior tool use → 180s (catch dead connections faster)
+                // 4. Standard session → 120s inactivity
+                //
+                // The key insight for tier 3: multi-agent sessions that haven't touched tools are likely
+                // doing pure model reasoning (1-3 min typical). If we hit 3 min with no events, the
+                // connection is probably dead (SocketException 10054 in SDK event loop). Users shouldn't
+                // wait 10 min to discover a dead connection.
+                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools;
+                var useMultiAgentNoToolTimeout = isMultiAgentSession && !hasActiveTool && !hasUsedTools && !state.Info.IsResumed;
                 var effectiveTimeout = useResumeQuiescence
                     ? WatchdogResumeQuiescenceTimeoutSeconds
                     : useToolTimeout
                         ? WatchdogToolExecutionTimeoutSeconds
-                        : WatchdogInactivityTimeoutSeconds;
+                        : useMultiAgentNoToolTimeout
+                            ? WatchdogMultiAgentNoToolTimeoutSeconds
+                            : WatchdogInactivityTimeoutSeconds;
 
                 // Safety net: check absolute max processing time, but only if events have also
                 // gone stale. If events are still flowing (elapsed < effectiveTimeout), the session

@@ -57,6 +57,20 @@ public class ProcessingWatchdogTests
     }
 
     [Fact]
+    public void WatchdogMultiAgentNoToolTimeout_IsReasonable()
+    {
+        // Multi-agent no-tool timeout must be between base inactivity and tool execution timeouts.
+        // Long enough for model reasoning (1-3 min) but short enough to catch dead connections.
+        Assert.InRange(CopilotService.WatchdogMultiAgentNoToolTimeoutSeconds, 120, 300);
+        Assert.True(
+            CopilotService.WatchdogMultiAgentNoToolTimeoutSeconds > CopilotService.WatchdogInactivityTimeoutSeconds,
+            "Multi-agent no-tool timeout must be greater than base inactivity timeout");
+        Assert.True(
+            CopilotService.WatchdogMultiAgentNoToolTimeoutSeconds < CopilotService.WatchdogToolExecutionTimeoutSeconds,
+            "Multi-agent no-tool timeout must be less than tool execution timeout");
+    }
+
+    [Fact]
     public void WatchdogTimeout_IsGreaterThanCheckInterval()
     {
         // Timeout must be strictly greater than check interval — watchdog needs
@@ -889,18 +903,21 @@ public class ProcessingWatchdogTests
     }
 
     /// <summary>
-    /// Mirrors the three-tier timeout selection logic from RunProcessingWatchdogAsync.
+    /// Mirrors the four-tier timeout selection logic from RunProcessingWatchdogAsync.
     /// Kept in sync so tests validate the actual production formula.
     /// </summary>
     private static int ComputeEffectiveTimeout(bool hasActiveTool, bool isResumed, bool hasReceivedEvents, bool hasUsedTools, bool isMultiAgent = false)
     {
         var useResumeQuiescence = isResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
-        var useToolTimeout = hasActiveTool || (isResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgent;
+        var useToolTimeout = hasActiveTool || (isResumed && !useResumeQuiescence) || hasUsedTools;
+        var useMultiAgentNoToolTimeout = isMultiAgent && !hasActiveTool && !hasUsedTools && !isResumed;
         return useResumeQuiescence
             ? CopilotService.WatchdogResumeQuiescenceTimeoutSeconds
             : useToolTimeout
                 ? CopilotService.WatchdogToolExecutionTimeoutSeconds
-                : CopilotService.WatchdogInactivityTimeoutSeconds;
+                : useMultiAgentNoToolTimeout
+                    ? CopilotService.WatchdogMultiAgentNoToolTimeoutSeconds
+                    : CopilotService.WatchdogInactivityTimeoutSeconds;
     }
 
     [Fact]
@@ -973,11 +990,34 @@ public class ProcessingWatchdogTests
     }
 
     [Fact]
-    public void WatchdogTimeoutSelection_MultiAgent_UsesToolTimeout()
+    public void WatchdogTimeoutSelection_MultiAgent_NoTools_UsesMultiAgentNoToolTimeout()
     {
-        // Multi-agent sessions use longer tool timeout even without tool activity
+        // Multi-agent sessions without tool activity use a moderate timeout (180s)
+        // to catch dead connections faster than 600s while still allowing model reasoning
         var effectiveTimeout = ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true);
+
+        Assert.Equal(CopilotService.WatchdogMultiAgentNoToolTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(180, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_MultiAgent_WithTools_UsesToolTimeout()
+    {
+        // Multi-agent sessions WITH tool activity still use the full 600s timeout
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: true, isResumed: false, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true);
+
+        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(600, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_MultiAgent_HasUsedTools_UsesToolTimeout()
+    {
+        // Multi-agent sessions that have used tools this turn use 600s timeout
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: true, isMultiAgent: true);
 
         Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
         Assert.Equal(600, effectiveTimeout);
@@ -1194,14 +1234,22 @@ public class ProcessingWatchdogTests
     public void ResumeQuiescence_NotResumed_NeverTriggersQuiescence()
     {
         // Non-resumed sessions must NEVER get the 30s quiescence timeout,
-        // regardless of other flags.
+        // regardless of other flags. Each case uses its appropriate timeout tier:
+        // - Base inactivity (120s) for standard sessions
+        // - Tool execution (600s) for sessions with tool activity
+        // - Multi-agent no-tool (180s) for multi-agent sessions without tools
         Assert.Equal(120, ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false));
         Assert.Equal(600, ComputeEffectiveTimeout(
             hasActiveTool: true, isResumed: false, hasReceivedEvents: false, hasUsedTools: false));
         Assert.Equal(600, ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: true));
-        Assert.Equal(600, ComputeEffectiveTimeout(
+        Assert.Equal(180, ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true));
+        // All must NOT be 30s (quiescence)
+        Assert.NotEqual(30, ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false));
+        Assert.NotEqual(30, ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true));
     }
 
@@ -1238,7 +1286,9 @@ public class ProcessingWatchdogTests
     [InlineData(false, true,  true,  false, false, 600)]   // Resumed, events: tool timeout
     [InlineData(true,  true,  false, false, false, 600)]   // Resumed, active tool: tool timeout
     [InlineData(false, true,  false, true,  false, 600)]   // Resumed, used tools: tool timeout
-    [InlineData(false, false, false, false, true,  600)]   // Multi-agent: tool timeout
+    [InlineData(false, false, false, false, true,  180)]   // Multi-agent, no tools: 180s (faster dead connection detection)
+    [InlineData(true,  false, false, false, true,  600)]   // Multi-agent, active tool: tool timeout
+    [InlineData(false, false, false, true,  true,  600)]   // Multi-agent, used tools: tool timeout
     [InlineData(false, true,  false, false, true,  30)]    // Resumed+multiAgent, no events: quiescence wins
     [InlineData(false, false, false, true,  false, 600)]   // HasUsedTools: tool timeout
     [InlineData(true,  true,  true,  true,  true,  600)]   // All flags: tool timeout
@@ -1817,14 +1867,41 @@ public class ProcessingWatchdogTests
     // --- PR #195 regression: multi-agent workers killed at 120s ---
 
     [Fact]
-    public void Regression_PR195_MultiAgentWorkers_Use600s()
+    public void Regression_PR195_MultiAgentWorkers_NotKilledAt120s()
     {
         // Multi-agent workers doing text-heavy tasks (PR reviews, no tools)
-        // were killed at 120s inactivity. Fix: isMultiAgent flag → 600s.
-        var timeout = ComputeEffectiveTimeout(
+        // were killed at 120s inactivity. Fix: now uses 180s (multi-agent no-tool timeout).
+        // Sessions with tool activity use 600s.
+        var timeoutNoTools = ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: true,
             hasUsedTools: false, isMultiAgent: true);
-        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, timeout);
+        Assert.Equal(CopilotService.WatchdogMultiAgentNoToolTimeoutSeconds, timeoutNoTools);
+        Assert.True(timeoutNoTools > 120, "Multi-agent sessions must not be killed at 120s");
+        
+        // If tools are being used, use the full 600s timeout
+        var timeoutWithTools = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: true,
+            hasUsedTools: true, isMultiAgent: true);
+        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, timeoutWithTools);
+    }
+
+    // --- Bug fix: orchestrator stuck after SocketException 10054 ---
+
+    [Fact]
+    public void Regression_OrchestratorStuck_MultiAgentNoToolsUsesModerateTimeout()
+    {
+        // When SocketException 10054 kills the JSON-RPC connection, orchestrator sessions
+        // would previously wait 600s before the watchdog cleared IsProcessing.
+        // Fix: multi-agent sessions without tool activity use 180s timeout.
+        // This is long enough for legitimate model reasoning (1-3 min)
+        // but short enough to not leave users waiting 10 minutes for a dead connection.
+        var timeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true);
+        
+        Assert.Equal(CopilotService.WatchdogMultiAgentNoToolTimeoutSeconds, timeout);
+        Assert.Equal(180, timeout);
+        Assert.True(timeout < 600, "Multi-agent no-tool timeout must be shorter than tool timeout");
+        Assert.True(timeout > 120, "Multi-agent no-tool timeout must be longer than base inactivity timeout");
     }
 
     // --- PR #211 regression: quiescence must not kill active sessions ---
