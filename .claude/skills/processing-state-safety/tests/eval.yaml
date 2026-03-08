@@ -1,0 +1,133 @@
+scenarios:
+  - name: "New IsProcessing=false path missing state cleanup"
+    prompt: |
+      I need to add a new code path in CopilotService.cs that clears IsProcessing when
+      a push notification tells us the remote session ended. Here's the stub I wrote:
+
+      ```csharp
+      private void OnPushNotificationReceived(PushNotification n)
+      {
+          if (n.Type == "session_ended")
+          {
+              state.IsProcessing = false;
+          }
+      }
+      ```
+
+      Review this and tell me what's wrong with it. Then write the corrected version.
+    rubric:
+      - "Identifies that 8 additional fields must be cleared when setting IsProcessing=false"
+      - "Mentions FlushCurrentResponse must be called BEFORE clearing IsProcessing"
+      - "Identifies thread safety issue — mutation must run on UI thread via InvokeOnUI"
+      - "Provides corrected code that clears all required fields: IsResumed, HasUsedToolsThisTurn, ActiveToolCallCount, ProcessingStartedAt, ToolCallCount, ProcessingPhase"
+      - "Adds a diagnostic log entry (e.g. [COMPLETE] or [ABORT] tag)"
+    assertions:
+      - type: "output_contains"
+        value: "InvokeOnUI"
+      - type: "output_contains"
+        value: "FlushCurrentResponse"
+
+  - name: "Watchdog timeout regression — missing HasUsedToolsThisTurn"
+    prompt: |
+      The processing watchdog in CopilotService is firing at 120 seconds even though
+      the session is still using tools. I traced through the code and found the timeout
+      decision point. Here's the relevant section:
+
+      ```csharp
+      int timeoutSeconds = ActiveToolCallCount > 0 ? 600 : 120;
+      ```
+
+      Is this correct? If not, explain why and write the fix.
+    rubric:
+      - "Explains that ActiveToolCallCount is reset by AssistantTurnStartEvent between tool rounds, so it can be 0 even mid-tool-use"
+      - "Explains HasUsedToolsThisTurn persists across the full turn and is the correct signal"
+      - "Provides corrected condition using HasUsedToolsThisTurn"
+      - "Optionally mentions INV-5 or similar invariant about using both signals"
+    assertions:
+      - type: "output_contains"
+        value: "HasUsedToolsThisTurn"
+
+  - name: "Session restore missing multi-agent watchdog initialization"
+    prompt: |
+      I have a bug: multi-agent worker sessions restored on app restart use a 120-second
+      watchdog timeout instead of the expected 600-second timeout. The 600s timeout is
+      supposed to kick in for multi-agent sessions.
+
+      Here's a simplified RestoreSingleSessionAsync:
+
+      ```csharp
+      private async Task RestoreSingleSessionAsync(SessionInfo info)
+      {
+          var state = CreateSessionState(info);
+          await LoadHistoryAsync(state);
+          StartProcessingWatchdog(state);
+      }
+      ```
+
+      What's missing and how do I fix it?
+    rubric:
+      - "Identifies that IsMultiAgentSession must be set BEFORE StartProcessingWatchdog"
+      - "Explains how to detect multi-agent session from the session info (IsSessionInMultiAgentGroup or similar)"
+      - "Provides corrected code that sets IsMultiAgentSession before the watchdog call"
+      - "Optionally mentions INV-9 about the restore path being independent from SendPromptAsync"
+    assertions:
+      - type: "output_contains"
+        value: "IsMultiAgentSession"
+
+  - name: "InvokeAsync vs InvokeOnUI in HandleComplete"
+    prompt: |
+      I want to make HandleComplete awaitable so I can chain some async work after it.
+      Here's my change:
+
+      ```csharp
+      private async Task HandleComplete(SessionState state)
+      {
+          await InvokeAsync(() =>
+          {
+              state.IsProcessing = false;
+              // ... other cleanup
+          });
+      }
+      ```
+
+      Is this the right approach? Review this change.
+    rubric:
+      - "Explains that HandleComplete is already called on the UI thread"
+      - "Explains that InvokeAsync defers execution and causes stale renders"
+      - "Recommends using InvokeOnUI (synchronous dispatch) or calling directly without dispatch"
+      - "Mentions INV-8 or the principle that HandleComplete should not use InvokeAsync"
+    assertions:
+      - type: "output_contains"
+        value: "InvokeAsync"
+
+  - name: "ChatDatabase exception filter — too narrow"
+    prompt: |
+      I'm trying to clean up error handling in ChatDatabase.cs. The current catch is:
+
+      ```csharp
+      catch (Exception ex)
+      {
+          _logger.LogError(ex, "DB write failed");
+      }
+      ```
+
+      I want to narrow it so we only suppress SQLite errors and let other exceptions propagate:
+
+      ```csharp
+      catch (Exception ex) when (ex is SQLiteException or InvalidOperationException)
+      {
+          _logger.LogError(ex, "DB write failed");
+      }
+      ```
+
+      Is this safe?
+    rubric:
+      - "Identifies that narrowing the catch filter is dangerous because all callers are fire-and-forget"
+      - "Explains that unhandled exceptions from fire-and-forget tasks become unobserved task exceptions and crash the app"
+      - "Explains that ChatDatabase is a write-through cache and DB failures are self-healing via events.jsonl replay"
+      - "Recommends keeping the broad catch (Exception ex) filter"
+    assertions:
+      - type: "output_contains"
+        value: "fire-and-forget"
+      - type: "output_not_contains"
+        value: "safe to narrow"
