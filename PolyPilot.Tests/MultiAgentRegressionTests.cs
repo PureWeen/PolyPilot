@@ -1467,6 +1467,28 @@ public class MultiAgentRegressionTests
     }
 
     [Fact]
+    public void ReconnectState_ShouldClearReflectToolConfigured()
+    {
+        // After reconnect, _reflectToolConfigured must be cleared for the reconnected session.
+        // Without this, EnsureOrchestratorReflectToolsAsync thinks the orchestrator already has
+        // the delegation tool, but the new session was resumed with only ShowImageTool (no
+        // ExcludedTools=["task"] and no custom delegation function). The orchestrator would then
+        // attempt to call the "task" tool which doesn't exist on the new session, breaking the
+        // reflect loop.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        // Anchor on the unique reconnect debug message that follows the state assignment.
+        // "[RECONNECT] '{sessionName}' reset processing state" only appears in the reconnect block.
+        var anchorIdx = source.IndexOf("[RECONNECT] '{sessionName}' reset processing state");
+        Assert.True(anchorIdx >= 0, "Reconnect block anchor not found");
+
+        // _reflectToolConfigured.TryRemove must appear within ~1000 chars before the anchor
+        var start = Math.Max(0, anchorIdx - 1000);
+        var reconnectBlock = source.Substring(start, anchorIdx - start + 200);
+        Assert.Contains("_reflectToolConfigured.TryRemove(sessionName", reconnectBlock);
+    }
+
+    [Fact]
     public void MonitorAndSynthesize_ShouldFilterByDispatchTimestamp()
     {
         // MonitorAndSynthesizeAsync must filter worker results by dispatch timestamp
