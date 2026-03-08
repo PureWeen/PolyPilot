@@ -13,13 +13,23 @@ namespace PolyPilot.Services;
 internal sealed class WorkerDelegationContext
 {
     private int _roundRobinIndex = -1;
+    private readonly object _resultsLock = new();
 
     public IReadOnlyList<string> WorkerNames { get; private set; } = Array.Empty<string>();
     public string OriginalPrompt { get; private set; } = "";
     public CancellationToken CancellationToken { get; private set; }
 
     private readonly List<ToolDispatchedResult> _results = new();
-    public IReadOnlyList<ToolDispatchedResult> DispatchedResults => _results;
+
+    /// <summary>
+    /// Returns a thread-safe snapshot of results recorded so far.
+    /// The SDK may invoke the task tool multiple times concurrently (parallel tool calls),
+    /// so all access to _results is synchronized via _resultsLock.
+    /// </summary>
+    public IReadOnlyList<ToolDispatchedResult> DispatchedResults
+    {
+        get { lock (_resultsLock) { return _results.ToList(); } }
+    }
 
     /// <summary>Resets state for a new planning-prompt round.</summary>
     public void Reset(string originalPrompt, IReadOnlyList<string> workerNames, CancellationToken ct)
@@ -27,7 +37,7 @@ internal sealed class WorkerDelegationContext
         OriginalPrompt = originalPrompt;
         WorkerNames = workerNames;
         CancellationToken = ct;
-        _results.Clear();
+        lock (_resultsLock) { _results.Clear(); }
         _roundRobinIndex = -1;
     }
 
@@ -38,7 +48,10 @@ internal sealed class WorkerDelegationContext
         return WorkerNames[idx];
     }
 
-    internal void AddResult(ToolDispatchedResult result) => _results.Add(result);
+    internal void AddResult(ToolDispatchedResult result)
+    {
+        lock (_resultsLock) { _results.Add(result); }
+    }
 }
 
 /// <summary>One worker result produced via the task-tool interception path.</summary>

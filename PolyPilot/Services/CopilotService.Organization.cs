@@ -1253,6 +1253,22 @@ public partial class CopilotService
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Nudge prompt for when the model is in tool-dispatch mode but didn't call the task tool.
+    /// Uses different language from BuildDelegationNudgePrompt since the expected format is different
+    /// (tool call vs @worker: text blocks).
+    /// </summary>
+    internal static string BuildToolDispatchNudgePrompt(List<string> workerNames)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("You did not call the `task` tool. You MUST use the `task` tool to delegate work to a worker agent — do NOT respond with plain text or @worker blocks.");
+        sb.AppendLine();
+        sb.AppendLine($"Workers available ({workerNames.Count}): {string.Join(", ", workerNames)}");
+        sb.AppendLine();
+        sb.AppendLine("Call the `task` tool at least once now with a clear task description.");
+        return sb.ToString();
+    }
+
     internal static List<TaskAssignment> ParseTaskAssignments(string orchestratorResponse, List<string> availableWorkers)
     {
         var assignments = new List<TaskAssignment>();
@@ -2166,6 +2182,16 @@ public partial class CopilotService
             ct.ThrowIfCancellationRequested();
             reflectState.CurrentIteration++;
 
+            // Re-ensure tools are registered each iteration: if a mid-loop reconnect cleared
+            // _reflectToolConfigured, EnsureOrchestratorReflectToolsAsync will re-configure the
+            // new session. This is a no-op when already configured (fast dict lookup).
+            if (usingToolDispatch && !_reflectToolConfigured.ContainsKey(orchestratorName))
+            {
+                await EnsureOrchestratorReflectToolsAsync(orchestratorName, workerNames, ct);
+                usingToolDispatch = _reflectToolConfigured.ContainsKey(orchestratorName)
+                                    && _delegationContexts.ContainsKey(orchestratorName);
+            }
+
             try
             {
             Debug($"Reflection loop: starting iteration {reflectState.CurrentIteration}/{reflectState.MaxIterations} " +
@@ -2215,10 +2241,39 @@ public partial class CopilotService
 
             var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct, originalPrompt: prompt);
 
-            // Tool-dispatch path: workers ran as tool calls during SendPromptAndWaitAsync
-            if (usingToolDispatch && _delegationContexts.TryGetValue(orchestratorName, out var dispatchCtx)
-                && dispatchCtx.DispatchedResults.Count > 0)
+            // Tool-dispatch path: workers ran as tool calls during SendPromptAndWaitAsync.
+            // Also handles the case where the model skipped tool calls (nudge + retry inline).
+            if (usingToolDispatch && _delegationContexts.TryGetValue(orchestratorName, out var dispatchCtx))
             {
+                // If the model didn't call the task tool, nudge it once before giving up.
+                if (dispatchCtx.DispatchedResults.Count == 0)
+                {
+                    reflectState.ConsecutiveErrors++;
+                    if (reflectState.ConsecutiveErrors >= 3)
+                    {
+                        reflectState.IsStalled = true;
+                        reflectState.IsCancelled = true;
+                        AddOrchestratorSystemMessage(orchestratorName, $"⚠️ Orchestrator never called the `task` tool. {reflectState.BuildCompletionSummary()}");
+                        break;
+                    }
+                    Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch: model skipped task tool. ConsecutiveErrors={reflectState.ConsecutiveErrors}. Nudging.");
+                    AddOrchestratorSystemMessage(orchestratorName, "⚠️ No `task` tool calls detected. Nudging orchestrator to use the tool...");
+                    dispatchCtx.Reset(prompt, workerNames, ct);
+                    var nudgeResp = await SendPromptAndWaitAsync(orchestratorName,
+                        BuildToolDispatchNudgePrompt(workerNames), ct, originalPrompt: prompt);
+                    if (dispatchCtx.DispatchedResults.Count == 0)
+                    {
+                        // Still no tool calls — skip to next iteration
+                        Debug($"[DISPATCH] '{orchestratorName}' nudge produced no tool calls either. Continuing to next iteration.");
+                        SaveOrganization();
+                        InvokeOnUI(() => OnStateChanged?.Invoke());
+                        continue;
+                    }
+                    // Nudge triggered tool calls — use nudge response for synthesis evaluation
+                    planResponse = nudgeResp;
+                    reflectState.ConsecutiveErrors = 0;
+                }
+
                 Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch: {dispatchCtx.DispatchedResults.Count} worker(s) completed via task tool. Iteration={reflectState.CurrentIteration}");
                 var toolResults = dispatchCtx.DispatchedResults
                     .Select(r => new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration))

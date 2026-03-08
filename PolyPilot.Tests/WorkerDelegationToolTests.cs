@@ -168,4 +168,37 @@ public class WorkerDelegationToolTests
         Assert.Null(r.Error);
         Assert.Equal(dur, r.Duration);
     }
+
+    [Fact]
+    public void Context_DispatchedResults_ReturnsConcurrentSnapshot()
+    {
+        // DispatchedResults must return a snapshot (not the live list) so concurrent callers
+        // can't observe a partially-mutated list.
+        var ctx = new WorkerDelegationContext();
+        ctx.Reset("p", new List<string> { "w1", "w2" }, CancellationToken.None);
+
+        ctx.AddResult(new ToolDispatchedResult("w1", "r1", true, null, TimeSpan.Zero));
+        var snapshot = ctx.DispatchedResults; // capture snapshot
+
+        // Adding another result after the snapshot was taken must not change the snapshot
+        ctx.AddResult(new ToolDispatchedResult("w2", "r2", true, null, TimeSpan.Zero));
+
+        Assert.Single(snapshot);           // snapshot is frozen at 1
+        Assert.Equal(2, ctx.DispatchedResults.Count); // current state has 2
+    }
+
+    [Fact]
+    public async Task Context_ConcurrentAddResult_DoesNotCorrupt()
+    {
+        // Parallel tool calls must not race on _results. Run 100 concurrent AddResult
+        // calls and verify all are recorded without corruption.
+        var ctx = new WorkerDelegationContext();
+        var workers = Enumerable.Range(0, 100).Select(i => $"w{i}").ToList();
+        ctx.Reset("p", workers, CancellationToken.None);
+
+        await Task.WhenAll(Enumerable.Range(0, 100).Select(i => Task.Run(() =>
+            ctx.AddResult(new ToolDispatchedResult($"w{i}", "ok", true, null, TimeSpan.Zero)))));
+
+        Assert.Equal(100, ctx.DispatchedResults.Count);
+    }
 }

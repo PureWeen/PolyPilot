@@ -1489,6 +1489,57 @@ public class MultiAgentRegressionTests
     }
 
     [Fact]
+    public void ToolDispatch_ShouldRefreshUsingToolDispatchEachIteration()
+    {
+        // usingToolDispatch must be refreshed at the start of each reflect loop iteration.
+        // If a mid-loop reconnect clears _reflectToolConfigured, the per-iteration refresh
+        // calls EnsureOrchestratorReflectToolsAsync to re-register the tool on the new session.
+        // Without this, the loop uses stale usingToolDispatch=true with a session that has no tool.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+
+        // The reflect loop body: must contain the per-iteration refresh logic
+        Assert.Contains("usingToolDispatch && !_reflectToolConfigured.ContainsKey(orchestratorName)", source);
+        Assert.Contains("await EnsureOrchestratorReflectToolsAsync(orchestratorName, workerNames, ct)", source);
+    }
+
+    [Fact]
+    public void ToolDispatch_ShouldNudgeWhenModelSkipsTaskTool()
+    {
+        // When usingToolDispatch=true but the model doesn't call the task tool (DispatchedResults.Count==0),
+        // the loop must send a tool-specific nudge (BuildToolDispatchNudgePrompt) rather than:
+        // (a) falling through to the @worker: text-parsing path, or
+        // (b) declaring GoalMet at iteration > 1 with no workers dispatched.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+
+        // The nudge method must exist
+        Assert.Contains("BuildToolDispatchNudgePrompt", source);
+        // Must be called inside the tool-dispatch if block (within ~3000 chars of its entry point)
+        var toolDispatchIdx = source.IndexOf("// Tool-dispatch path: workers ran as tool calls during SendPromptAndWaitAsync");
+        Assert.True(toolDispatchIdx >= 0, "Tool-dispatch block anchor not found");
+        var dispatchBlock = source.Substring(toolDispatchIdx, Math.Min(3000, source.Length - toolDispatchIdx));
+        Assert.Contains("BuildToolDispatchNudgePrompt(workerNames)", dispatchBlock);
+        Assert.Contains("dispatchCtx.DispatchedResults.Count == 0", dispatchBlock);
+    }
+
+    [Fact]
+    public void WorkerDelegationContext_ResultsList_IsThreadSafe()
+    {
+        // WorkerDelegationContext._results must be protected by a lock since the SDK
+        // may invoke the task tool multiple times concurrently (parallel tool calls).
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "WorkerDelegationTool.cs"));
+
+        // Must have a lock object
+        Assert.Contains("_resultsLock", source);
+        // AddResult must lock
+        var addResultIdx = source.IndexOf("internal void AddResult");
+        Assert.True(addResultIdx >= 0, "AddResult method not found");
+        var addBlock = source.Substring(addResultIdx, 150);
+        Assert.Contains("lock (_resultsLock)", addBlock);
+        // DispatchedResults getter must return a snapshot (not direct list reference)
+        Assert.Contains("_results.ToList()", source);
+    }
+
+    [Fact]
     public void MonitorAndSynthesize_ShouldFilterByDispatchTimestamp()
     {
         // MonitorAndSynthesizeAsync must filter worker results by dispatch timestamp
