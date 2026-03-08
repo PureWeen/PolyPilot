@@ -420,3 +420,9 @@
 .close-dialog-btn:hover {
     filter: brightness(1.1);
 }
+
+.session-item.cs-disconnected {
+    opacity: 0.4;
+    pointer-events: none;
+    cursor: default;
+}

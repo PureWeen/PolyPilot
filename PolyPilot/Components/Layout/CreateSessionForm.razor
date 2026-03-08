@@ -3,6 +3,7 @@
 @inject IJSRuntime JS
 @inject RepoManager RepoManager
 @inject CopilotService CopilotService
+@inject CodespaceService CodespaceService
 
 @if (!isExpanded)
 {
@@ -12,12 +13,19 @@ else
 {
     <div class="new-session-form">
         @* Mode chips — shown only when repos exist *@
-        @if (RepoManager.Repositories.Count > 0)
+        @if (RepoManager.Repositories.Count > 0 || PlatformHelper.IsDesktop)
         {
             <div class="ns-mode-chips">
-                <button class="ns-chip @(mode == FormMode.Repo ? "active" : "")" @onclick="() => SetMode(FormMode.Repo)">📦 Repo</button>
+                @if (RepoManager.Repositories.Count > 0)
+                {
+                    <button class="ns-chip @(mode == FormMode.Repo ? "active" : "")" @onclick="() => SetMode(FormMode.Repo)">📦 Repo</button>
+                }
                 <button class="ns-chip @(mode == FormMode.Directory ? "active" : "")" @onclick="() => SetMode(FormMode.Directory)">📁 Directory</button>
                 <button class="ns-chip @(mode == FormMode.Empty ? "active" : "")" @onclick="() => SetMode(FormMode.Empty)">💬 Empty</button>
+                @if (PlatformHelper.IsDesktop && CopilotService.CodespacesEnabled)
+                {
+                    <button class="ns-chip @(mode == FormMode.Codespace ? "active" : "")" @onclick="() => SetMode(FormMode.Codespace)" title="Alpha feature">☁️ Codespace</button>
+                }
             </div>
         }
 
@@ -86,7 +94,70 @@ else
                 <button class="ns-dir-browse" @onclick="BrowseDirectory">…</button>
             </div>
         }
+        else if (mode == FormMode.Codespace)
+        {
+            @if (isLoadingCodespaces)
+            {
+                <div class="ns-hint">⏳ Discovering codespaces...</div>
+            }
+            else if (codespaces.Count == 0)
+            {
+                <div class="ns-hint">No codespaces found.</div>
+                <button class="ns-cs-action" @onclick="LoadCodespacesAsync">🔄 Retry</button>
+            }
+            else
+            {
+                <div class="ns-codespace-list">
+                    @foreach (var cs in codespaces)
+                    {
+                        var csName = cs.Name;
+                        var alreadyAdded = CopilotService.Organization.Groups.Any(g => g.CodespaceName == csName);
+                        var isConnecting = connectingCodespace == csName;
+                        var isStopped = cs.State != "Available";
+                        <div class="ns-codespace-row @(isStopped ? "ns-codespace-row-stopped" : "")">
+                            <div class="ns-codespace-info">
+                                <span class="ns-codespace-repo">@cs.Repository</span>
+                                <span class="ns-codespace-name">@cs.Name</span>
+                                @{
+                                    var existingGroup = CopilotService.Organization.Groups.FirstOrDefault(g => g.CodespaceName == csName);
+                                    var sshKnown = existingGroup?.SshAvailable;
+                                }
+                                <span class="ns-codespace-state @(cs.State == "Available" ? "state-available" : "")">● @cs.State@(sshKnown == false ? " · No SSH" : "")</span>
+                            </div>
+                            @if (alreadyAdded)
+                            {
+                                <span class="ns-codespace-added">✓ Added</span>
+                            }
+                            else if (cs.State == "Available")
+                            {
+                                <button class="ns-cs-action" @onclick="() => AddCodespaceAsync(csName)" disabled="@(connectingCodespace != null)">
+                                    @if (isConnecting) { <text>⏳</text> } else { <text>+ Add</text> }
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="ns-cs-play" @onclick="() => StartAndAddCodespaceAsync(csName)" disabled="@(connectingCodespace != null)">▶ Start &amp; Add</button>
+                            }
+                        </div>
+                        @if (isConnecting && !string.IsNullOrEmpty(connectingStatus))
+                        {
+                            <div class="ns-hint">@connectingStatus</div>
+                        }
+                    }
+                </div>
+                <button class="ns-cs-action" @onclick="LoadCodespacesAsync" style="margin-top:0.5rem">🔄 Refresh</button>
+            }
+            @if (!string.IsNullOrEmpty(codespaceError))
+            {
+                <div class="ns-error">
+                    <span>⚠ @codespaceError</span>
+                    <button class="ns-error-dismiss" @onclick="() => { codespaceError = null; StateHasChanged(); }">✕</button>
+                </div>
+            }
+        }
 
+        @if (mode != FormMode.Codespace)
+        {
         <input type="text" value="@SessionName" @oninput="OnNameInput" @onkeyup="HandleKeyUp"
                placeholder="Session name..." class="ns-name" />
         <textarea @bind="initialPrompt" placeholder="What should this session do? (optional)"
@@ -102,6 +173,16 @@ else
                 </button>
             </div>
         </div>
+        }
+        else
+        {
+        <div class="ns-footer">
+            <div></div>
+            <div class="ns-footer-actions">
+                <button class="ns-cancel" @onclick="Collapse">Close</button>
+            </div>
+        </div>
+        }
 
         @if (!string.IsNullOrEmpty(CreateError))
         {
@@ -122,7 +203,7 @@ else
     [Parameter] public string SessionName { get; set; } = "";
     [Parameter] public EventCallback<string> SessionNameChanged { get; set; }
 
-    private enum FormMode { Repo, Directory, Empty }
+    private enum FormMode { Repo, Directory, Empty, Codespace }
     private enum WtMode { Auto, Branch, PR, Existing }
 
     private bool isExpanded;
@@ -176,6 +257,8 @@ else
         mode = newMode;
         worktreeError = null;
         if (!nameManuallyEdited) { SessionName = ""; _ = SessionNameChanged.InvokeAsync(""); }
+        if (newMode == FormMode.Codespace && codespaces.Count == 0 && !isLoadingCodespaces)
+            _ = LoadCodespacesAsync();
     }
 
     private void SetWtMode(WtMode newWtMode)
@@ -329,5 +412,114 @@ else
     {
         sessionDirectory = path;
         StateHasChanged();
+    }
+
+    // ── Codespace mode ──
+    private List<CodespaceService.CodespaceInfo> codespaces = new();
+    private bool isLoadingCodespaces;
+    private string? connectingCodespace;
+    private string connectingStatus = "";
+    private string? codespaceError;
+    private CancellationTokenSource? _errorDismissCts;
+
+    private void SetCodespaceError(string message)
+    {
+        codespaceError = message;
+        _errorDismissCts?.Cancel();
+        _errorDismissCts = new CancellationTokenSource();
+        var ct = _errorDismissCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(10_000, ct);
+                await InvokeAsync(() => { codespaceError = null; StateHasChanged(); });
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
+
+    private async Task LoadCodespacesAsync()
+    {
+        isLoadingCodespaces = true;
+        codespaceError = null;
+        StateHasChanged();
+        try
+        {
+            codespaces = await CodespaceService.ListCodespacesAsync();
+        }
+        catch (Exception ex)
+        {
+            SetCodespaceError(ex.Message);
+        }
+        finally
+        {
+            isLoadingCodespaces = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task AddCodespaceAsync(string codespaceName)
+    {
+        var cs = codespaces.FirstOrDefault(c => c.Name == codespaceName);
+        if (cs == null || cs.State != "Available") return;
+
+        connectingCodespace = codespaceName;
+        connectingStatus = "Starting...";
+        codespaceError = null;
+        StateHasChanged();
+        try
+        {
+            var group = await CopilotService.CreateCodespaceGroupAsync(
+                codespaceName,
+                cs.Repository ?? "",
+                onProgress: msg => { connectingStatus = msg; InvokeAsync(StateHasChanged); });
+
+            if (group.ConnectionState == CodespaceConnectionState.SetupRequired)
+                connectingStatus = "Setup required — opened in browser. Install SSHD and start copilot.";
+            else if (group.ConnectionState == CodespaceConnectionState.WaitingForCopilot)
+                connectingStatus = $"Copilot not running — run: copilot --headless --port {group.CodespacePort}";
+            Collapse();
+        }
+        catch (Exception ex)
+        {
+            SetCodespaceError(ex.Message);
+        }
+        finally
+        {
+            connectingCodespace = null;
+            connectingStatus = "";
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartAndAddCodespaceAsync(string codespaceName)
+    {
+        var cs = codespaces.FirstOrDefault(c => c.Name == codespaceName);
+        if (cs == null) return;
+
+        codespaceError = null;
+        connectingCodespace = codespaceName;
+        connectingStatus = "Starting codespace...";
+        StateHasChanged();
+        try
+        {
+            CopilotService.AddStoppedCodespaceGroup(codespaceName, cs.Repository ?? "");
+            connectingStatus = "Codespace starting — check sidebar for status";
+            StateHasChanged();
+            // Brief delay so user sees the status before collapse
+            await Task.Delay(1500);
+            Collapse();
+        }
+        catch (Exception ex)
+        {
+            SetCodespaceError(ex.Message);
+        }
+        finally
+        {
+            connectingCodespace = null;
+            connectingStatus = "";
+            StateHasChanged();
+        }
     }
 }

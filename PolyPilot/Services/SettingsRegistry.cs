@@ -351,6 +351,26 @@ public static class SettingsRegistry
             IsVisible = ctx => ctx.IsDesktop
         });
 
+        list.Add(new SettingDescriptor
+        {
+            Id = "ui.codespaces",
+            Label = "Codespaces",
+            Description = "⚠️ Alpha — Enable GitHub Codespaces integration. Requires Embedded mode. Adds the ability to connect sessions to running codespaces via SSH tunnels.",
+            Category = "UI",
+            Section = "Features",
+            Type = SettingType.Bool,
+            Order = 65,
+            SearchKeywords = "codespaces github cloud remote ssh tunnel embedded",
+            GetValue = ctx => ctx.Settings.CodespacesEnabled,
+            SetValue = (ctx, v) =>
+            {
+                // Only allow enabling in Embedded mode; always allow disabling
+                if (v is bool b && (ctx.InitialMode == ConnectionMode.Embedded || !b))
+                    ctx.Settings.CodespacesEnabled = b;
+            },
+            IsVisible = ctx => ctx.IsDesktop
+        });
+
         // ── Developer ───────────────────────────────────────────────
 
         list.Add(new SettingDescriptor

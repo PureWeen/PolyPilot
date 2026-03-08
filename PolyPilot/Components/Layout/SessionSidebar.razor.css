@@ -394,6 +394,20 @@
 .group-menu-item.destructive { color: var(--accent-primary); }
 .group-menu-item.destructive:hover { background: var(--control-border); color: var(--accent-primary); }
 
+.group-menu-hint {
+    display: block;
+    padding: 0.15rem 0.5rem 0.3rem;
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    font-family: monospace;
+}
+.group-menu-hint.setup-hint-title {
+    font-family: inherit;
+    font-weight: 600;
+    color: var(--warning, #facc15);
+    padding-top: 0.3rem;
+}
+
 .repo-remove-confirm {
     display: flex;
     align-items: center;
@@ -430,6 +444,64 @@
     font-size: 0.7rem;
     opacity: 0.5;
     margin-right: 0.15rem;
+}
+
+.codespace-state-dot {
+    font-size: 0.55rem;
+    margin-right: 0.15rem;
+}
+.codespace-state-dot.connected { color: var(--success, #4ade80); }
+.codespace-state-dot.reconnecting { color: var(--warning, #facc15); animation: pulse-dot 1.5s ease-in-out infinite; }
+.codespace-state-dot.stopped { color: var(--error, #e05252); }
+.codespace-state-dot.starting { color: var(--warning, #facc15); animation: pulse-dot 1.5s ease-in-out infinite; }
+.codespace-state-dot.waiting { color: var(--warning, #facc15); animation: pulse-dot 1.5s ease-in-out infinite; }
+.codespace-state-dot.setup { color: var(--warning, #facc15); }
+
+.codespace-play-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.6rem;
+    padding: 0 0.15rem;
+    color: var(--success, #4ade80);
+    opacity: 0.8;
+}
+.codespace-play-btn:hover { opacity: 1; }
+
+.cs-group-disabled {
+    opacity: 0.6;
+}
+.cs-group-label {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+    gap: 0;
+}
+.cs-group-label .group-name {
+    line-height: 1.2;
+}
+.cs-group-codespace-name {
+    font-size: 0.6rem;
+    color: var(--text-tertiary, #6c7086);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.1;
+}
+.cs-inline-hint {
+    font-size: 0.55rem;
+    color: var(--warning, #facc15);
+    opacity: 0.8;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
 }
 
 /* Sidebar multi-agent controls */

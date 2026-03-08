@@ -57,7 +57,11 @@
     <Compile Include="../PolyPilot/Services/CopilotService.Bridge.cs" Link="Shared/CopilotService.Bridge.cs" />
     <Compile Include="../PolyPilot/Services/CopilotService.Organization.cs" Link="Shared/CopilotService.Organization.cs" />
     <Compile Include="../PolyPilot/Services/CopilotService.Persistence.cs" Link="Shared/CopilotService.Persistence.cs" />
+    <Compile Include="../PolyPilot/Services/CopilotService.Codespace.cs" Link="Shared/CopilotService.Codespace.cs" />
     <Compile Include="../PolyPilot/Services/CopilotService.Utilities.cs" Link="Shared/CopilotService.Utilities.cs" />
+    <Compile Include="../PolyPilot/Services/CodespaceService.cs" Link="Shared/CodespaceService.cs" />
+    <Compile Include="../PolyPilot/Services/CodespaceService.Diagnostics.cs" Link="Shared/CodespaceService.Diagnostics.cs" />
+    <Compile Include="../PolyPilot/Services/CodespaceService.Lifecycle.cs" Link="Shared/CodespaceService.Lifecycle.cs" />
     <Compile Include="../PolyPilot/Services/ShowImageTool.cs" Link="Shared/ShowImageTool.cs" />
     <Compile Include="../PolyPilot/Services/WsBridgeServer.cs" Link="Shared/WsBridgeServer.cs" />
     <Compile Include="../PolyPilot/Services/WsBridgeClient.cs" Link="Shared/WsBridgeClient.cs" />

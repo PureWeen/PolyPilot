@@ -100,6 +100,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<DevTunnelService>();
 		builder.Services.AddSingleton<WsBridgeServer>();
 		builder.Services.AddSingleton<TailscaleService>();
+		builder.Services.AddSingleton<CodespaceService>();
 		builder.Services.AddSingleton<WsBridgeClient>();
 		builder.Services.AddSingleton<IWsBridgeClient>(sp => sp.GetRequiredService<WsBridgeClient>());
 		builder.Services.AddSingleton<FiestaService>();

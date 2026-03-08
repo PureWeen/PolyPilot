@@ -61,6 +61,69 @@ public class SessionGroup
 
     /// <summary>Maximum reflection iterations for OrchestratorReflect mode. Null = default (5).</summary>
     public int? MaxReflectIterations { get; set; }
+
+    /// <summary>
+    /// GitHub Codespace name (e.g. "fuzzy-space-guide-rj7wx59jr7hp6q5").
+    /// When set, this group connects sessions to copilot running inside the codespace via port-forward tunnel.
+    /// </summary>
+    public string? CodespaceName { get; set; }
+
+    /// <summary>Repository slug for the codespace (e.g. "github/reflect"). Used to derive the working directory.</summary>
+    public string? CodespaceRepository { get; set; }
+
+    /// <summary>Remote port for the copilot --headless server inside the codespace. Default 4321.</summary>
+    public int CodespacePort { get; set; } = 4321;
+
+    /// <summary>True when this group is backed by a GitHub Codespace (connected via port-forward tunnel).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsCodespace => !string.IsNullOrWhiteSpace(CodespaceName);
+
+    /// <summary>Working directory inside the codespace (e.g. "/workspaces/reflect").</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? CodespaceWorkingDirectory =>
+        !string.IsNullOrEmpty(CodespaceRepository) ? $"/workspaces/{CodespaceRepository.Split('/').Last()}" : null;
+
+    /// <summary>
+    /// Runtime connection state for codespace groups. Not persisted.
+    /// Updated by the health-check loop and displayed in the sidebar.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public CodespaceConnectionState ConnectionState { get; set; } = CodespaceConnectionState.Unknown;
+
+    /// <summary>Whether SSH (gh cs ssh) works for this codespace. Cached at runtime to avoid slow retries.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool? SshAvailable { get; set; }
+
+    /// <summary>Number of reconnect attempts since last successful connection. Reset on Connected.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int ReconnectAttempts { get; set; }
+
+    /// <summary>UTC time of the last reconnect attempt. Used for UI feedback.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DateTime? LastReconnectAttempt { get; set; }
+
+    /// <summary>Human-readable setup/error message shown when ConnectionState is SetupRequired.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? SetupMessage { get; set; }
+}
+
+/// <summary>Connection state for a codespace group, tracked at runtime by the health-check loop.</summary>
+public enum CodespaceConnectionState
+{
+    /// <summary>Initial state before first health check.</summary>
+    Unknown,
+    /// <summary>Tunnel is open and copilot client is connected.</summary>
+    Connected,
+    /// <summary>Health check detected tunnel/client failure; attempting to reconnect.</summary>
+    Reconnecting,
+    /// <summary>The codespace itself is stopped — user must start it.</summary>
+    CodespaceStopped,
+    /// <summary>Starting the codespace via gh cs start.</summary>
+    StartingCodespace,
+    /// <summary>Codespace is running but copilot is not listening and SSH is unavailable. User must start copilot manually.</summary>
+    WaitingForCopilot,
+    /// <summary>Codespace lacks SSH — user must install SSHD feature and run copilot. One-time setup.</summary>
+    SetupRequired
 }
 
 public class SessionMeta
