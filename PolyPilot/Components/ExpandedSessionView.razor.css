@@ -39,7 +39,7 @@
 .info-panel {
     position: absolute;
     top: calc(100% + 4px);
-    right: -0.5rem;
+    left: 0;
     background: var(--bg-tertiary);
     border: 1px solid var(--control-border);
     border-radius: 8px;
