@@ -11,6 +11,13 @@ gh pr checkout <number>
 This sets the branch tracking to the correct remote automatically (fork or origin).  
 **Never** use `git fetch origin pull/<N>/head:...` — that creates a branch with no tracking.
 
+> **Worktree conflict?** If `gh pr checkout` fails with "already checked out at...", run:
+> ```bash
+> git worktree list                      # find which worktree has the branch
+> git worktree remove <path>             # remove stale worktree if safe, OR
+> gh pr checkout <number> -b pr-<number>-fix  # use a unique local branch name
+> ```
+
 ### 2. Integrate with main (MERGE, not rebase)
 ```bash
 git fetch origin main
@@ -35,16 +42,35 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
 ### 6. Push to the correct remote
+
+**Always verify the push target before pushing:**
+```bash
+# Get expected owner/branch from the PR
+gh pr view <N> --json headRepositoryOwner,headRefName \
+  --jq '"Expected: " + .headRepositoryOwner.login + "/" + .headRefName'
+
+# Confirm branch tracking matches
+git config branch.$(git branch --show-current).remote
+```
+These must agree. If they don't, stop and investigate before pushing.
+
+Once verified:
 ```bash
 git push
 ```
 `gh pr checkout` sets branch tracking correctly, so bare `git push` lands on the right remote.
 
-If `git push` fails, verify the remote first:
+**If `git push` fails** (e.g., tracking not set up correctly), push explicitly using the owner's remote.
+`gh pr checkout` registers the fork owner's GitHub login as a named remote — use it directly:
 ```bash
-gh pr view <N> --json headRepositoryOwner,headRefName
+# Discover the owner's remote name
+OWNER=$(gh pr view <N> --json headRepositoryOwner --jq '.headRepositoryOwner.login')
+BRANCH=$(gh pr view <N> --json headRefName --jq '.headRefName')
+git remote -v | grep "$OWNER"   # confirm remote exists
+
+git push "$OWNER" HEAD:"$BRANCH"
 ```
-Then push explicitly: `git push <owner-remote> HEAD:<branch>`
+Alternatively, use `.squad/push-to-pr.sh <N>` which automates the above.
 
 ### 7. Verify the push landed
 ```bash
