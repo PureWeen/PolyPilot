@@ -61,6 +61,13 @@
                     Developer
                 </button>
             }
+            @if (PlatformHelper.IsDesktop)
+            {
+                <button class="settings-nav-item @(activeCategory == "plugins" ? "active" : "")" @onclick='() => ScrollToCategory("plugins")'>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6l3-3"/><path d="M12 2v6l-3-3"/><rect x="3" y="14" width="18" height="8" rx="2"/><circle cx="8" cy="18" r="1"/><circle cx="16" cy="18" r="1"/></svg>
+                    Plugins
+                </button>
+            }
         </nav>
         }
 
@@ -373,6 +380,17 @@
                     </label>
                     <p class="toggle-hint">Get notified when a session completes, errors, or needs input</p>
                 </div>
+                @if (settings.EnableSessionNotifications)
+                {
+                    <div class="notifications-toggle" style="margin-left: 1.5em;">
+                        <label class="toggle-label">
+                            <input type="checkbox" checked="@settings.MuteWorkerNotifications"
+                                   @onchange="ToggleMuteWorkerNotifications" />
+                            <span class="toggle-text">🔇 Mute worker notifications</span>
+                        </label>
+                        <p class="toggle-hint">Don't send notifications for worker sessions in multi-agent groups</p>
+                    </div>
+                }
             </div>
         </div>
     }
@@ -446,6 +464,77 @@
     </div>
     }
 
+    @if (PlatformHelper.IsDesktop)
+    {
+    <div id="settings-plugins" class="settings-group @(GroupVisible("plugins") ? "" : "search-hidden")">
+        <h2 class="group-title">Plugins</h2>
+
+        <div class="settings-section @(SectionVisible("plugins provider extension dll assembly") ? "" : "search-hidden")">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="margin:0;">Installed Plugins</h3>
+                <button class="plugin-scan-btn" @onclick="ScanPlugins">🔍 Scan</button>
+            </div>
+
+            @if (discoveredPlugins.Count == 0)
+            {
+                <p class="section-desc" style="color: var(--text-tertiary);">
+                    No plugins found. Place plugin folders in <code>~/.polypilot/plugins/</code> — each folder should contain a <code>plugin.json</code> manifest.
+                </p>
+            }
+            else
+            {
+                @foreach (var plugin in discoveredPlugins)
+                {
+                    var enabled = settings.Plugins.Enabled.FirstOrDefault(e => e.Path == plugin.Path);
+                    var disabled = settings.Plugins.Disabled.FirstOrDefault(d => d.Path == plugin.Path);
+                    var hashChanged = enabled != null && !string.Equals(enabled.Hash, plugin.Hash, StringComparison.OrdinalIgnoreCase);
+
+                    <div class="plugin-card" style="border-left: 3px solid @(enabled != null && !hashChanged ? "var(--accent-success)" : hashChanged ? "var(--accent-warning, orange)" : "var(--border-primary)");">
+                        <div class="plugin-header">
+                            <span class="plugin-status">@(enabled != null && !hashChanged ? "✅" : hashChanged ? "⚠️" : "🆕")</span>
+                            <strong>@plugin.Name</strong>
+                            @if (!string.IsNullOrEmpty(plugin.Version))
+                            {
+                                <span style="font-size:0.8em; color:var(--text-secondary); margin-left:6px;">v@plugin.Version</span>
+                            }
+                        </div>
+                        @if (!string.IsNullOrEmpty(plugin.Description))
+                        {
+                            <div style="font-size:0.9em; margin:4px 0;">@plugin.Description</div>
+                        }
+                        <div class="plugin-details" style="font-size:0.85em; color:var(--text-secondary); margin:4px 0;">
+                            <div>📦 @plugin.DirectoryName / @plugin.FileName</div>
+                            <div>🔒 SHA-256: @plugin.Hash[..Math.Min(16, plugin.Hash.Length)]…</div>
+                            @if (enabled != null && !hashChanged)
+                            {
+                                <div>Enabled: @enabled.EnabledAt.ToString("MMM d, yyyy")</div>
+                            }
+                            @if (hashChanged)
+                            {
+                                <div style="color:var(--accent-warning, orange);">DLL was replaced — re-approve to load</div>
+                            }
+                        </div>
+                        <div class="plugin-actions" style="margin-top:6px;">
+                            @if (enabled != null && !hashChanged)
+                            {
+                                <button class="plugin-btn plugin-btn-danger" @onclick="() => DisablePlugin(plugin)">Disable</button>
+                            }
+                            else
+                            {
+                                <button class="plugin-btn" @onclick="() => EnablePlugin(plugin)">Enable</button>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+
+            <p class="section-desc" style="margin-top:12px; font-size:0.8em; color:var(--text-tertiary);">
+                ℹ️ Enabling a plugin loads its code into PolyPilot. Only enable plugins you trust. A restart is required after enabling or disabling plugins.
+            </p>
+        </div>
+    </div>
+    }
+
     @if (!string.IsNullOrEmpty(statusMessage))
     {
         <div class="status-toast @statusClass">@(statusClass == "success" ? "✓ " : statusClass == "error" ? "✗ " : "")@statusMessage</div>
@@ -483,6 +572,7 @@
     private string fiestaLinkToken = "";
     private string? fiestaLinkError;
     private SettingsContext settingsCtx = null!;
+    private List<DiscoveredPlugin> discoveredPlugins = new();
 
     [JSInvokable]
     public void JsUpdateSearch(string query)
@@ -529,6 +619,7 @@
             "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect"),
             "ui" => SectionVisible("chat message layout default reversed both left theme font size text zoom"),
             "developer" => SectionVisible("auto update main git watch relaunch rebuild"),
+            "plugins" => SectionVisible("plugins provider extension dll assembly trust enable disable"),
             _ => true
         };
     }
@@ -581,6 +672,14 @@
             case "cli.source":
                 cliSourceChanged = settings.CliSource != _initialCliSource;
                 break;
+            case "ui.editor":
+                CopilotService.Editor = settings.Editor;
+                CopilotService.NotifyStateChanged();
+                break;
+            case "ui.codespaces":
+                CopilotService.CodespacesEnabled = settings.CodespacesEnabled && settings.Mode == ConnectionMode.Embedded;
+                CopilotService.NotifyStateChanged();
+                break;
         }
         SaveSettingsQuietly();
         StateHasChanged();
@@ -623,6 +722,7 @@
         if (uiState?.FontSize > 0) fontSize = uiState.FontSize;
 
         RebuildSettingsContext();
+        ScanPlugins();
 
         if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
             GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
@@ -980,6 +1080,12 @@
         }
     }
 
+    private void ToggleMuteWorkerNotifications(ChangeEventArgs e)
+    {
+        settings.MuteWorkerNotifications = e.Value is true;
+        SaveSettingsQuietly();
+    }
+
     private void ToggleAutoUpdate()
     {
         if (GitAutoUpdate.IsEnabled)
@@ -1250,5 +1356,55 @@
             directQrCodeDataUri = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
         }
         catch { }
+    }
+
+    // ── Plugin Management ───────────────────────────────────
+
+    private void ScanPlugins()
+    {
+        try
+        {
+            discoveredPlugins = PluginLoader.DiscoverPlugins();
+        }
+        catch
+        {
+            discoveredPlugins = new();
+        }
+    }
+
+    private void EnablePlugin(DiscoveredPlugin plugin)
+    {
+        // Remove from disabled list if present
+        settings.Plugins.Disabled.RemoveAll(d => d.Path == plugin.Path);
+
+        // Remove existing enabled entry (in case of re-approval after hash change)
+        settings.Plugins.Enabled.RemoveAll(e => e.Path == plugin.Path);
+
+        settings.Plugins.Enabled.Add(new EnabledPlugin
+        {
+            Path = plugin.Path,
+            Hash = plugin.Hash,
+            EnabledAt = DateTime.UtcNow,
+            DisplayName = plugin.Name
+        });
+
+        settings.Save();
+        ShowStatus("Plugin enabled. Restart PolyPilot to load it.", "success");
+    }
+
+    private void DisablePlugin(DiscoveredPlugin plugin)
+    {
+        var enabled = settings.Plugins.Enabled.FirstOrDefault(e => e.Path == plugin.Path);
+        settings.Plugins.Enabled.RemoveAll(e => e.Path == plugin.Path);
+
+        settings.Plugins.Disabled.Add(new DisabledPlugin
+        {
+            Path = plugin.Path,
+            Reason = "user_disabled",
+            LastKnownHash = enabled?.Hash ?? plugin.Hash
+        });
+
+        settings.Save();
+        ShowStatus("Plugin disabled. Restart PolyPilot to unload it.", "success");
     }
 }

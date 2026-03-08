@@ -238,8 +238,11 @@ public partial class CopilotService
         if (allowPruning) _lastReconcileSessionHash = currentHash;
         bool changed = false;
 
-        // Build lookup of multi-agent group IDs so we can protect their sessions
+        // Build lookup of group IDs that must not be auto-reassigned by reconciliation.
+        // Multi-agent and codespace group sessions must stay where they were placed.
         var multiAgentGroupIds = Organization.Groups.Where(g => g.IsMultiAgent).Select(g => g.Id).ToHashSet();
+        var codespaceGroupIds = Organization.Groups.Where(g => g.IsCodespace).Select(g => g.Id).ToHashSet();
+        var protectedGroupIds = multiAgentGroupIds.Union(codespaceGroupIds).ToHashSet();
 
         // Add missing sessions to default group and link to worktrees
         foreach (var name in activeNames)
@@ -256,8 +259,8 @@ public partial class CopilotService
                 changed = true;
             }
 
-            // Don't auto-reassign sessions that belong to a multi-agent group
-            if (multiAgentGroupIds.Contains(meta.GroupId))
+            // Don't auto-reassign sessions that belong to a multi-agent or codespace group
+            if (protectedGroupIds.Contains(meta.GroupId))
                 continue;
             
             // Auto-link session to worktree if working directory matches
@@ -444,6 +447,9 @@ public partial class CopilotService
     {
         if (groupId == SessionGroup.DefaultId) return;
 
+        // Provider groups are managed by their plugin — can't be deleted while plugin is loaded
+        if (GetProviderForGroup(groupId) != null) return;
+
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         var isMultiAgent = group?.IsMultiAgent ?? false;
 
@@ -456,9 +462,9 @@ public partial class CopilotService
         foreach (var m in Organization.Sessions.Where(m => m.GroupId == groupId))
             if (m.WorktreeId != null) worktreeIds.Add(m.WorktreeId);
 
-        if (isMultiAgent)
+        if (isMultiAgent || group?.IsCodespace == true)
         {
-            // Multi-agent sessions are meaningless without their group — close them
+            // Multi-agent and codespace sessions are bound to their group — close them
             var sessionNames = Organization.Sessions
                 .Where(m => m.GroupId == groupId)
                 .Select(m => m.SessionName)
@@ -524,6 +530,14 @@ public partial class CopilotService
             Organization.DeletedRepoGroupRepoIds.Add(group.RepoId);
 
         Organization.Groups.RemoveAll(g => g.Id == groupId);
+
+
+        // Clean up codespace tunnel and client if applicable
+        if (_codespaceClients.TryRemove(groupId, out var csClient))
+            _ = Task.Run(async () => { try { await csClient.DisposeAsync(); } catch { } });
+        if (_tunnelHandles.TryRemove(groupId, out var tunnel))
+            _ = Task.Run(async () => { try { await tunnel.DisposeAsync(); } catch { } });
+
         // Clean up per-group caches to prevent memory leaks
         _reflectLoopLocks.TryRemove(groupId, out _);
         _reflectQueuedPrompts.TryRemove(groupId, out _);
@@ -538,6 +552,17 @@ public partial class CopilotService
         if (group != null)
         {
             group.IsCollapsed = !group.IsCollapsed;
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    public void ToggleUnpinnedCollapsed(string groupId)
+    {
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group != null)
+        {
+            group.UnpinnedCollapsed = !group.UnpinnedCollapsed;
             SaveOrganization();
             OnStateChanged?.Invoke();
         }
@@ -670,6 +695,26 @@ public partial class CopilotService
         if (meta == null) return false;
         var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
         return group?.IsMultiAgent == true;
+    }
+
+    /// <summary>
+    /// Check whether a session is a worker in a multi-agent group.
+    /// Used by notification filtering to suppress noisy worker notifications.
+    /// Best-effort read — returns false on any error (safe to call from background threads).
+    /// </summary>
+    internal bool IsWorkerInMultiAgentGroup(string sessionName)
+    {
+        try
+        {
+            var org = Organization;
+            var sessions = org.Sessions.ToArray();
+            var groups = org.Groups.ToArray();
+            var meta = sessions.FirstOrDefault(m => m.SessionName == sessionName);
+            if (meta == null) return false;
+            var group = groups.FirstOrDefault(g => g.Id == meta.GroupId);
+            return group?.IsMultiAgent == true && meta.Role == MultiAgentRole.Worker;
+        }
+        catch { return false; }
     }
 
     /// <summary>

@@ -392,9 +392,28 @@ public class WsBridgeServer : IDisposable
                         var sendSession = sendReq.SessionName;
                         var sendMessage = sendReq.Message;
                         var sendAgentMode = sendReq.AgentMode;
-                        _ = Task.Run(async () =>
+                        // Check orchestrator routing and dispatch atomically on the UI thread.
+                        // GetOrchestratorGroupId and SendToMultiAgentGroupAsync both read
+                        // Organization.Sessions/Groups (plain List<T>, UI-thread-only).
+                        _ = _copilot.InvokeOnUIAsync(async () =>
                         {
-                            try { await _copilot.SendPromptAsync(sendSession, sendMessage, cancellationToken: ct, agentMode: sendAgentMode); }
+                            try
+                            {
+                                var orchGroupId = _copilot.GetOrchestratorGroupId(sendSession);
+                                if (orchGroupId != null)
+                                {
+                                    // Mirror Dashboard.razor's AutoStartReflectionIfNeeded behavior
+                                    var orchGroup = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == orchGroupId);
+                                    if (orchGroup?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+                                        _copilot.StartGroupReflection(orchGroupId, sendMessage, orchGroup.MaxReflectIterations ?? 5);
+                                    Console.WriteLine($"[WsBridge] Routing '{sendSession}' through orchestration pipeline (group={orchGroupId})");
+                                    await _copilot.SendToMultiAgentGroupAsync(orchGroupId, sendMessage, ct);
+                                }
+                                else
+                                {
+                                    await _copilot.SendPromptAsync(sendSession, sendMessage, cancellationToken: ct, agentMode: sendAgentMode);
+                                }
+                            }
                             catch (Exception ex) { Console.WriteLine($"[WsBridge] SendPromptAsync error for '{sendSession}': {ex.Message}"); }
                         });
                     }
@@ -537,7 +556,7 @@ public class WsBridgeServer : IDisposable
                     var orgCmd = msg.GetPayload<OrganizationCommandPayload>();
                     if (orgCmd != null)
                     {
-                        HandleOrganizationCommand(orgCmd);
+                        await HandleOrganizationCommandAsync(orgCmd);
                         BroadcastOrganizationState();
                     }
                     break;
@@ -723,8 +742,8 @@ public class WsBridgeServer : IDisposable
                         try
                         {
                             await _repoManager.RemoveRepositoryAsync(removeReq.RepoId, removeReq.DeleteFromDisk, ct);
-                            if (!string.IsNullOrEmpty(removeReq.GroupId))
-                                _copilot?.DeleteGroup(removeReq.GroupId);
+                            if (!string.IsNullOrEmpty(removeReq.GroupId) && _copilot != null)
+                                await _copilot.InvokeOnUIAsync(() => _copilot.DeleteGroup(removeReq.GroupId));
                         }
                         catch (Exception ex)
                         {
@@ -1002,35 +1021,35 @@ public class WsBridgeServer : IDisposable
         Broadcast(msg);
     }
 
-    private void HandleOrganizationCommand(OrganizationCommandPayload cmd)
+    private async Task HandleOrganizationCommandAsync(OrganizationCommandPayload cmd)
     {
         if (_copilot == null) return;
         switch (cmd.Command)
         {
             case "pin":
-                if (cmd.SessionName != null) _copilot.PinSession(cmd.SessionName, true);
+                if (cmd.SessionName != null) await _copilot.InvokeOnUIAsync(() => _copilot.PinSession(cmd.SessionName, true));
                 break;
             case "unpin":
-                if (cmd.SessionName != null) _copilot.PinSession(cmd.SessionName, false);
+                if (cmd.SessionName != null) await _copilot.InvokeOnUIAsync(() => _copilot.PinSession(cmd.SessionName, false));
                 break;
             case "move":
-                if (cmd.SessionName != null && cmd.GroupId != null) _copilot.MoveSession(cmd.SessionName, cmd.GroupId);
+                if (cmd.SessionName != null && cmd.GroupId != null) await _copilot.InvokeOnUIAsync(() => _copilot.MoveSession(cmd.SessionName, cmd.GroupId));
                 break;
             case "create_group":
-                if (cmd.Name != null) _copilot.CreateGroup(cmd.Name);
+                if (cmd.Name != null) await _copilot.InvokeOnUIAsync(() => _copilot.CreateGroup(cmd.Name));
                 break;
             case "rename_group":
-                if (cmd.GroupId != null && cmd.Name != null) _copilot.RenameGroup(cmd.GroupId, cmd.Name);
+                if (cmd.GroupId != null && cmd.Name != null) await _copilot.InvokeOnUIAsync(() => _copilot.RenameGroup(cmd.GroupId, cmd.Name));
                 break;
             case "delete_group":
-                if (cmd.GroupId != null) _copilot.DeleteGroup(cmd.GroupId);
+                if (cmd.GroupId != null) await _copilot.InvokeOnUIAsync(() => _copilot.DeleteGroup(cmd.GroupId));
                 break;
             case "toggle_collapsed":
-                if (cmd.GroupId != null) _copilot.ToggleGroupCollapsed(cmd.GroupId);
+                if (cmd.GroupId != null) await _copilot.InvokeOnUIAsync(() => _copilot.ToggleGroupCollapsed(cmd.GroupId));
                 break;
             case "set_sort":
                 if (cmd.SortMode != null && Enum.TryParse<SessionSortMode>(cmd.SortMode, out var mode))
-                    _copilot.SetSortMode(mode);
+                    await _copilot.InvokeOnUIAsync(() => _copilot.SetSortMode(mode));
                 break;
         }
     }

@@ -25,9 +25,12 @@ Every code path that sets `IsProcessing = false` MUST also:
 4. Clear `ProcessingStartedAt = null`
 5. Clear `ToolCallCount = 0`
 6. Clear `ProcessingPhase = 0`
-7. Call `FlushCurrentResponse(state)` BEFORE clearing IsProcessing
-8. Add a diagnostic log entry (`[COMPLETE]`, `[ERROR]`, `[ABORT]`, etc.)
-9. Run on UI thread (via `InvokeOnUI()` or already on UI thread)
+7. Clear `SendingFlag = 0` (prevents session deadlock on next send)
+8. Call `ClearPermissionDenials()`
+9. Call `FlushCurrentResponse(state)` BEFORE clearing IsProcessing
+10. Fire `OnSessionComplete` (unblocks orchestrator loops waiting for completion)
+11. Add a diagnostic log entry (`[COMPLETE]`, `[ERROR]`, `[ABORT]`, etc.)
+12. Run on UI thread (via `InvokeOnUI()` or already on UI thread)
 
 ## The 8 Paths That Clear IsProcessing
 

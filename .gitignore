@@ -40,6 +40,9 @@ launchSettings.json
 ## .NET
 *.binlog
 
+## Test results
+**/TestResults/
+
 ## Screenshots & images (never commit these)
 screenshot_*.png
 *.screenshot.png

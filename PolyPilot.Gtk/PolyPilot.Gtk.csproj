@@ -19,7 +19,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <MauiIcon Include="../PolyPilot/Resources/AppIcon/appicon.png" Link="Resources/AppIcon/appicon.png" Color="#0f0f23" />
+    <MauiIcon Include="Resources/AppIcon/appicon.png" Color="#0f0f23" />
     <MauiSplashScreen Include="../PolyPilot/Resources/Splash/splash.png" Link="Resources/Splash/splash.png" Color="#0d1526" BaseSize="128,128" />
     <MauiImage Include="../PolyPilot/Resources/Images/*" Link="Resources/Images/%(Filename)%(Extension)" />
     <MauiImage Update="../PolyPilot/Resources/Images/dotnet_bot.svg" BaseSize="168,208" />
@@ -47,12 +47,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../PolyPilot.Provider.Abstractions/PolyPilot.Provider.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Maui" Version="14.0.1" />
     <PackageReference Include="Platform.Maui.Linux.Gtk4" Version="0.5.1" />
     <PackageReference Include="Platform.Maui.Linux.Gtk4.Essentials" Version="0.5.1" />
     <PackageReference Include="Platform.Maui.Linux.Gtk4.BlazorWebView" Version="0.5.1" />
-    <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.26" />
-    <PackageReference Include="Markdig" Version="1.0.0" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.32" />
+    <PackageReference Include="Markdig" Version="1.1.1" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView" Version="10.0.3" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
     <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
@@ -66,8 +70,8 @@
 
   <ItemGroup>
     <TrimmerRootAssembly Include="GitHub.Copilot.SDK" RootMode="All" />
-    <TrimmerRootAssembly Include="CommunityToolkit.Maui" />
-    <TrimmerRootAssembly Include="CommunityToolkit.Maui.Core" />
+    <TrimmerRootAssembly Include="CommunityToolkit.Maui" RootMode="All" />
+    <TrimmerRootAssembly Include="CommunityToolkit.Maui.Core" RootMode="All" />
   </ItemGroup>
 
   <Target Name="_CopyBlazorWebViewFrameworkAssets" AfterTargets="Build">

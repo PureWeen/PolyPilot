@@ -68,9 +68,13 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\PolyPilot.Provider.Abstractions\PolyPilot.Provider.Abstractions.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
         <PackageReference Include="CommunityToolkit.Maui" Version="14.0.1" />
-        <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.26" />
-        <PackageReference Include="Markdig" Version="1.0.0" />
+        <PackageReference Include="GitHub.Copilot.SDK" Version="0.1.32" />
+        <PackageReference Include="Markdig" Version="1.1.1" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.3" />
@@ -86,8 +90,8 @@
     <!-- Prevent linker from trimming SDK event types needed for pattern matching -->
     <ItemGroup>
         <TrimmerRootAssembly Include="GitHub.Copilot.SDK" RootMode="All" />
-        <TrimmerRootAssembly Include="CommunityToolkit.Maui" />
-        <TrimmerRootAssembly Include="CommunityToolkit.Maui.Core" />
+        <TrimmerRootAssembly Include="CommunityToolkit.Maui" RootMode="All" />
+        <TrimmerRootAssembly Include="CommunityToolkit.Maui.Core" RootMode="All" />
     </ItemGroup>
 
     <!-- The SDK registers the copilot CLI as ContentWithTargetPath but doesn't set
@@ -107,14 +111,14 @@
 
     <!-- Inject privacy keys into Mac Catalyst Info.plist (MAUI build strips NS*UsageDescription keys) -->
     <Target Name="InjectMacCatalystPrivacyKeys" AfterTargets="Build" Condition="$(TargetFramework.Contains('maccatalyst'))">
-        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSMicrophoneUsageDescription 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot; 2>/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSMicrophoneUsageDescription string 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot;" />
-        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSSpeechRecognitionUsageDescription 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot; 2>/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSSpeechRecognitionUsageDescription string 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot;" />
+        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSMicrophoneUsageDescription 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot; 2&gt;/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSMicrophoneUsageDescription string 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot;" />
+        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSSpeechRecognitionUsageDescription 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot; 2&gt;/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSSpeechRecognitionUsageDescription string 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot;" />
     </Target>
 
     <!-- Inject privacy keys into iOS Info.plist (MAUI build strips NS*UsageDescription keys here too) -->
     <Target Name="InjectIOSPrivacyKeys" AfterTargets="Build" Condition="$(TargetFramework.Contains('ios'))">
-        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSMicrophoneUsageDescription 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot; 2>/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSMicrophoneUsageDescription string 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot;" />
-        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSSpeechRecognitionUsageDescription 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot; 2>/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSSpeechRecognitionUsageDescription string 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot;" />
+        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSMicrophoneUsageDescription 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot; 2&gt;/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSMicrophoneUsageDescription string 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot;" />
+        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSSpeechRecognitionUsageDescription 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot; 2&gt;/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSSpeechRecognitionUsageDescription string 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot;" />
         <Exec Command="codesign --force --sign &quot;Apple Development: Jakub Florkowski (8MT3Q77PP8)&quot; --entitlements &quot;$(MSBuildProjectDirectory)/obj/Debug/$(TargetFramework)/ios-arm64/Entitlements.xcent&quot; &quot;$(OutputPath)$(AssemblyName).app&quot;" />
     </Target>
 

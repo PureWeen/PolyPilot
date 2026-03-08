@@ -308,6 +308,69 @@ public static class SettingsRegistry
             }
         });
 
+        list.Add(new SettingDescriptor
+        {
+            Id = "ui.muteWorkerNotifications",
+            Label = "Mute Worker Notifications",
+            Description = "Don't send notifications for worker sessions in multi-agent groups.",
+            Category = "UI",
+            Section = "Notifications",
+            Type = SettingType.Bool,
+            Order = 61,
+            SearchKeywords = "notifications worker multi-agent mute quiet",
+            IsVisible = ctx => ctx.Settings.EnableSessionNotifications,
+            GetValue = ctx => ctx.Settings.MuteWorkerNotifications,
+            SetValue = (ctx, v) =>
+            {
+                if (v is bool b)
+                    ctx.Settings.MuteWorkerNotifications = b;
+            }
+        });
+
+        list.Add(new SettingDescriptor
+        {
+            Id = "ui.editor",
+            Label = "Editor",
+            Description = "Which VS Code variant to launch from session menus.",
+            Category = "UI",
+            Section = "Editor",
+            Type = SettingType.CardEnum,
+            Order = 70,
+            SearchKeywords = "editor vscode vs code insiders",
+            Options = new[]
+            {
+                new SettingOption("Stable", "VS Code"),
+                new SettingOption("Insiders", "VS Code Insiders"),
+            },
+            GetValue = ctx => ctx.Settings.Editor.ToString(),
+            SetValue = (ctx, v) =>
+            {
+                if (v is string s && Enum.TryParse<VsCodeVariant>(s, out var variant))
+                    ctx.Settings.Editor = variant;
+            },
+            IsVisible = ctx => ctx.IsDesktop
+        });
+
+        list.Add(new SettingDescriptor
+        {
+            Id = "ui.codespaces",
+            Label = "Codespaces",
+            Description = "⚠️ Alpha — Enable GitHub Codespaces integration. Requires Embedded mode. Adds the ability to connect sessions to running codespaces via SSH tunnels.",
+            Category = "UI",
+            Section = "Features",
+            Type = SettingType.Bool,
+            Order = 65,
+            SearchKeywords = "codespaces github cloud remote ssh tunnel embedded",
+            GetValue = ctx => ctx.Settings.CodespacesEnabled,
+            SetValue = (ctx, v) =>
+            {
+                // Only allow enabling in Embedded mode; always allow disabling
+                if (v is bool b && (ctx.InitialMode == ConnectionMode.Embedded || !b))
+                    ctx.Settings.CodespacesEnabled = b;
+            },
+            IsVisible = ctx => ctx.IsDesktop
+        });
+
         // ── Developer ───────────────────────────────────────────────
 
         list.Add(new SettingDescriptor

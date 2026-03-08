@@ -247,4 +247,44 @@ public class SettingsRegistryTests
     {
         Assert.All(SettingsRegistry.All, s => Assert.False(string.IsNullOrWhiteSpace(s.Category)));
     }
+
+    [Fact]
+    public void Editor_GetValue_ReturnsStableByDefault()
+    {
+        var ctx = CreateContext();
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.editor");
+        Assert.Equal("Stable", desc.GetValue!(ctx));
+    }
+
+    [Fact]
+    public void Editor_SetValue_ParsesInsiders()
+    {
+        var settings = new ConnectionSettings();
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.editor");
+        desc.SetValue!(ctx, "Insiders");
+        Assert.Equal(VsCodeVariant.Insiders, settings.Editor);
+    }
+
+    [Fact]
+    public void Editor_SetValue_GarbageValue_KeepsDefault()
+    {
+        var settings = new ConnectionSettings();
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.editor");
+        desc.SetValue!(ctx, "garbage");
+        Assert.Equal(VsCodeVariant.Stable, settings.Editor);
+    }
+
+    [Fact]
+    public void Editor_VisibleOnDesktopOnly()
+    {
+        var ctx = CreateContext();
+        ctx.IsDesktop = true;
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.editor");
+        Assert.True(desc.IsVisible!(ctx));
+
+        ctx.IsDesktop = false;
+        Assert.False(desc.IsVisible!(ctx));
+    }
 }

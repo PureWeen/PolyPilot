@@ -31,12 +31,14 @@
 /* === Mode Chips === */
 .ns-mode-chips {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.25rem;
     padding-bottom: 0.15rem;
 }
 
 .ns-chip {
-    flex: 1;
+    flex: 1 1 calc(50% - 0.15rem);
+    min-width: 0;
     padding: 0.3rem 0.4rem;
     border: 1px solid var(--control-border);
     border-radius: 6px;
@@ -278,9 +280,120 @@
     color: #ff6b6b;
     font-size: var(--type-caption2);
     padding: 0.1rem 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+.ns-error span {
+    flex: 1;
+}
+.ns-error-dismiss {
+    background: none;
+    border: none;
+    color: #ff6b6b;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+.ns-error-dismiss:hover {
+    opacity: 1;
 }
 
 /* === Mobile === */
+
+/* === Codespace picker === */
+.ns-codespace-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    max-height: 200px;
+    overflow-y: auto;
+}
+.ns-codespace-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.35rem 0.5rem;
+    background: var(--surface-secondary, rgba(255,255,255,0.04));
+    border-radius: 6px;
+    gap: 0.5rem;
+}
+.ns-codespace-row-stopped {
+    opacity: 0.7;
+}
+.ns-codespace-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+    flex: 1;
+}
+.ns-codespace-repo {
+    font-size: var(--type-caption1);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ns-codespace-name {
+    font-size: var(--type-caption2);
+    color: var(--text-tertiary, #6c7086);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ns-codespace-state {
+    font-size: var(--type-caption2);
+    color: var(--text-tertiary, #6c7086);
+}
+.ns-codespace-state.state-available { color: var(--success, #4ade80); }
+.ns-codespace-added {
+    font-size: var(--type-caption2);
+    color: var(--success, #4ade80);
+    white-space: nowrap;
+}
+.ns-cs-action {
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: var(--type-caption2);
+    font-weight: 500;
+    white-space: nowrap;
+    transition: all 0.15s;
+}
+.ns-cs-action:hover {
+    color: var(--text-primary);
+    background: var(--hover-bg);
+}
+.ns-cs-action:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+.ns-cs-play {
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--success, #4ade80);
+    border-radius: 6px;
+    background: none;
+    color: var(--success, #4ade80);
+    cursor: pointer;
+    font-size: var(--type-caption2);
+    font-weight: 500;
+    white-space: nowrap;
+    transition: all 0.15s;
+}
+.ns-cs-play:hover {
+    background: rgba(74, 222, 128, 0.1);
+}
+.ns-cs-play:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 @media (max-width: 640px) {
     .new-session-btn {
         padding: 0.5rem 0.75rem;

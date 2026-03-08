@@ -41,6 +41,27 @@ public enum CliSourceMode
     System     // Use the CLI installed on the system (PATH, homebrew, npm)
 }
 
+public enum VsCodeVariant
+{
+    Stable,    // Use 'code' command
+    Insiders   // Use 'code-insiders' command
+}
+
+public static class VsCodeVariantExtensions
+{
+    public static string Command(this VsCodeVariant v) => v switch
+    {
+        VsCodeVariant.Insiders => "code-insiders",
+        _ => "code"
+    };
+
+    public static string DisplayName(this VsCodeVariant v) => v switch
+    {
+        VsCodeVariant.Insiders => "VS Code Insiders",
+        _ => "VS Code"
+    };
+}
+
 public class ConnectionSettings
 {
     public ConnectionMode Mode { get; set; } = PlatformHelper.DefaultMode;
@@ -60,9 +81,13 @@ public class ConnectionSettings
     public UiTheme Theme { get; set; } = UiTheme.System;
     public bool AutoUpdateFromMain { get; set; } = false;
     public CliSourceMode CliSource { get; set; } = CliSourceMode.BuiltIn;
+    public VsCodeVariant Editor { get; set; } = VsCodeVariant.Stable;
     public List<string> DisabledMcpServers { get; set; } = new();
     public List<string> DisabledPlugins { get; set; } = new();
+    public PluginSettings Plugins { get; set; } = new();
     public bool EnableSessionNotifications { get; set; } = false;
+    public bool MuteWorkerNotifications { get; set; } = false;
+    public bool CodespacesEnabled { get; set; } = false;
 
     /// <summary>
     /// Normalizes a remote URL by ensuring it has an http(s):// scheme.
@@ -145,15 +170,22 @@ public class ConnectionSettings
         if (!PlatformHelper.AvailableModes.Contains(settings.Mode))
             settings.Mode = PlatformHelper.DefaultMode;
 
-        // Ensure CliSource is a valid enum value (guards against corrupt settings)
-        if (!Enum.IsDefined(settings.CliSource))
-            settings.CliSource = CliSourceMode.BuiltIn;
+        NormalizeEnumFields(settings);
 
         // InternationalWomensDay is ephemeral — never persist it; revert to System on load
         if (settings.Theme == UiTheme.InternationalWomensDay)
             settings.Theme = UiTheme.System;
 
         return settings;
+    }
+
+    /// <summary>Normalize invalid enum values to safe defaults. Testable separately from Load().</summary>
+    internal static void NormalizeEnumFields(ConnectionSettings settings)
+    {
+        if (!Enum.IsDefined(settings.CliSource))
+            settings.CliSource = CliSourceMode.BuiltIn;
+        if (!Enum.IsDefined(settings.Editor))
+            settings.Editor = VsCodeVariant.Stable;
     }
 
     private static ConnectionSettings DefaultSettings()

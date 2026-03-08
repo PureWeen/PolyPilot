@@ -1,4 +1,6 @@
 using PolyPilot.Services;
+using PolyPilot.Models;
+using PolyPilot.Provider;
 using Microsoft.Extensions.Logging;
 using ZXing.Net.Maui.Controls;
 using MauiDevFlow.Agent;
@@ -98,6 +100,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<DevTunnelService>();
 		builder.Services.AddSingleton<WsBridgeServer>();
 		builder.Services.AddSingleton<TailscaleService>();
+		builder.Services.AddSingleton<CodespaceService>();
 		builder.Services.AddSingleton<WsBridgeClient>();
 		builder.Services.AddSingleton<IWsBridgeClient>(sp => sp.GetRequiredService<WsBridgeClient>());
 		builder.Services.AddSingleton<FiestaService>();
@@ -116,6 +119,13 @@ public static class MauiProgram
 		builder.Logging.AddDebug();
 		builder.AddMauiDevFlowAgent();
 		builder.AddMauiBlazorDevFlowTools();
+#endif
+
+		// Provider plugin system (desktop only — mobile uses WsBridge)
+#if !IOS && !ANDROID
+		var pluginSettings = PolyPilot.Models.ConnectionSettings.Load();
+		builder.Services.AddSingleton<IProviderHostContext>(new ProviderHostContext(pluginSettings));
+		PluginLoader.LoadEnabledProviders(builder.Services, pluginSettings.Plugins.Enabled);
 #endif
 
 		return builder.Build();

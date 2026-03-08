@@ -26,6 +26,8 @@ public class PlatformHelperTests
         if (!PlatformHelper.IsDesktop)
         {
             Assert.Contains(ConnectionMode.Remote, PlatformHelper.AvailableModes);
+            Assert.DoesNotContain(ConnectionMode.Embedded, PlatformHelper.AvailableModes);
+            Assert.DoesNotContain(ConnectionMode.Persistent, PlatformHelper.AvailableModes);
 #if DEBUG
             Assert.Equal(2, PlatformHelper.AvailableModes.Length);
             Assert.Contains(ConnectionMode.Demo, PlatformHelper.AvailableModes);

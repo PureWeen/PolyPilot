@@ -184,4 +184,61 @@ public class AgentSessionInfoTests
         session.IsCreating = false;
         Assert.False(session.IsCreating);
     }
+
+    [Fact]
+    public void PermissionDenialCount_DefaultsToZero()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        Assert.Equal(0, info.PermissionDenialCount);
+        Assert.False(info.HasPermissionIssue);
+    }
+
+    [Fact]
+    public void HasPermissionIssue_TrueWhenSlidingWindowReachesThreshold()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        info.RecordToolResult(true);  // denial 1
+        info.RecordToolResult(true);  // denial 2
+        Assert.False(info.HasPermissionIssue);
+        info.RecordToolResult(true);  // denial 3 — triggers
+        Assert.True(info.HasPermissionIssue);
+    }
+
+    [Fact]
+    public void HasPermissionIssue_SlidingWindowToleratesOccasionalOk()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        info.RecordToolResult(true);   // denial
+        info.RecordToolResult(true);   // denial
+        info.RecordToolResult(false);  // ok — would have reset old consecutive logic
+        info.RecordToolResult(true);   // denial — window now has 3/4 denials
+        Assert.True(info.HasPermissionIssue);  // should be true with sliding window
+    }
+
+    [Fact]
+    public void HasPermissionIssue_FalseAfterClear()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        info.RecordToolResult(true);
+        info.RecordToolResult(true);
+        info.RecordToolResult(true);
+        Assert.True(info.HasPermissionIssue);
+        info.ClearPermissionDenials();
+        Assert.False(info.HasPermissionIssue);
+    }
+
+    [Fact]
+    public void SlidingWindow_OldEntriesDropOff()
+    {
+        var info = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        info.RecordToolResult(true);   // denial
+        info.RecordToolResult(true);   // denial
+        info.RecordToolResult(true);   // denial — 3/3
+        Assert.True(info.HasPermissionIssue);
+        // Push 3 OKs to push denials out of window (size 5)
+        info.RecordToolResult(false);  // 3/4
+        info.RecordToolResult(false);  // 3/5
+        info.RecordToolResult(false);  // 2/5 (oldest denial drops)
+        Assert.False(info.HasPermissionIssue);
+    }
 }
