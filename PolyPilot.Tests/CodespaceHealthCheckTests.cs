@@ -1,5 +1,6 @@
 using System.Text.Json;
 using PolyPilot.Models;
+using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
@@ -69,10 +70,9 @@ public class CodespaceHealthCheckTests
     }
 
     [Fact]
-    public void AddStoppedCodespaceGroup_CreatesSimilarGroup_WithCorrectProperties()
+    public void SessionGroup_WithCodespaceName_DerivesFriendlyNameFromRepository()
     {
-        // Test the logic that AddStoppedCodespaceGroup would use
-        // Arrange - Simulate creating a group like AddStoppedCodespaceGroup does
+        // SessionGroup with CodespaceName + CodespaceRepository derives Name from repo
         string codespaceName = "test-cs";
         string repository = "org/repo";
         var groupName = !string.IsNullOrEmpty(repository) ? repository.Split('/').Last() : codespaceName;
@@ -85,8 +85,7 @@ public class CodespaceHealthCheckTests
             ConnectionState = CodespaceConnectionState.StartingCodespace,
         };
 
-        // Act & Assert
-        Assert.Equal("repo", group.Name); // Derived from repository
+        Assert.Equal("repo", group.Name);
         Assert.Equal(CodespaceConnectionState.StartingCodespace, group.ConnectionState);
         Assert.Equal("test-cs", group.CodespaceName);
         Assert.Equal("org/repo", group.CodespaceRepository);
@@ -289,22 +288,13 @@ public class CodespaceHealthCheckTests
     }
 
     [Fact]
-    public void DotfilesStatus_Model_HasCorrectStructure()
+    public void DotfilesStatus_Record_CanBeInstantiated()
     {
-        // Test the DotfilesStatus record structure (without actually calling the service)
-        // This tests that the model properties exist as expected for health check logic
-        
-        // We can't instantiate DotfilesStatus directly since it's in CodespaceService,
-        // but we can test that it would have the expected properties by testing similar logic
-        
-        // Simulate what CheckDotfilesConfiguredAsync would return
-        bool isConfigured = true;
-        string? repository = "test/repo";
-        bool hasSshdInstall = false;
-        
-        // Assert the values match expected DotfilesStatus structure
-        Assert.True(isConfigured);
-        Assert.Equal("test/repo", repository);
-        Assert.False(hasSshdInstall);
+        // DotfilesStatus is a public record — verify its properties work correctly
+        var status = new CodespaceService.DotfilesStatus(true, "test/repo", false);
+
+        Assert.True(status.IsConfigured);
+        Assert.Equal("test/repo", status.Repository);
+        Assert.False(status.HasSshdInstall);
     }
 }

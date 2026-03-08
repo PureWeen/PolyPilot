@@ -1399,10 +1399,11 @@ else
         {
             var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
             if (group?.CodespaceName == null) return;
-            group.ConnectionState = CodespaceConnectionState.CodespaceStopped;
+            var previousState = group.ConnectionState;
+            group.ConnectionState = CodespaceConnectionState.StartingCodespace; // "Stopping…" indicator
             StateHasChanged();
             var csName = group.CodespaceName;
-            await Task.Run(() =>
+            var exitCode = await Task.Run(() =>
             {
                 var ghPath = CodespaceService.FindGhPath();
                 var psi = new System.Diagnostics.ProcessStartInfo
@@ -1415,8 +1416,14 @@ else
                     RedirectStandardError = true,
                 };
                 using var proc = System.Diagnostics.Process.Start(psi);
-                proc?.WaitForExit(30_000);
+                if (proc == null) return -1;
+                proc.WaitForExit(30_000);
+                return proc.HasExited ? proc.ExitCode : -1;
             });
+            group.ConnectionState = exitCode == 0
+                ? CodespaceConnectionState.CodespaceStopped
+                : previousState; // Revert on failure
+            StateHasChanged();
         }
         catch (Exception ex)
         {

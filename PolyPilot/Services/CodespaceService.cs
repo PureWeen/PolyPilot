@@ -1,14 +1,14 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Text.Json.Serialization;
 
 namespace PolyPilot.Services;
 
 /// <summary>
 /// Discovers GitHub Codespaces and manages port-forwarding tunnels to copilot --headless servers.
-/// Prefers <c>gh cs ssh -L</c> for combined SSH+tunnel when SSHD is available in the container;
-/// falls back to <c>gh cs ports forward</c> (no SSH required) otherwise.
+/// Requires SSH (SSHD) in the codespace container — used for both starting copilot and establishing tunnels.
+/// A <c>gh cs ports forward</c> fallback exists but is only useful if copilot is already running,
+/// since there is no way to start copilot remotely without SSH.
 /// </summary>
 public partial class CodespaceService
 {
@@ -157,7 +157,7 @@ public partial class CodespaceService
         }
 
         // Read stderr in background to detect "SSH server not available" quickly
-        var sshFailed = false;
+        var sshFailed = 0; // 0=false, 1=true; int for Volatile.Read/Write (bool has no Volatile overload)
         var stderrTask = Task.Run(async () =>
         {
             try
@@ -171,7 +171,7 @@ public partial class CodespaceService
                     if (errLine == null) break; // stream closed
                     if (errLine.Contains("SSH server") || errLine.Contains("error getting ssh") || errLine.Contains("failed to start SSH"))
                     {
-                        sshFailed = true;
+                        Volatile.Write(ref sshFailed, 1);
                         break;
                     }
                 }
@@ -186,7 +186,7 @@ public partial class CodespaceService
         bool copilotListening = false;
         while (DateTime.UtcNow < deadline)
         {
-            if (process.HasExited || sshFailed)
+            if (process.HasExited || Volatile.Read(ref sshFailed) != 0)
             {
                 // SSH failed — likely no SSHD in the container
                 try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
@@ -213,12 +213,13 @@ public partial class CodespaceService
             {
                 // Inject GitHub auth token so copilot can authenticate with GitHub's backend.
                 // Codespaces don't have gh auth configured for SSH sessions by default.
+                // Token is written via heredoc to gh auth login's stdin to avoid exposing it
+                // in process arguments visible via /proc/<pid>/cmdline.
                 var localToken = await GetLocalGhTokenAsync();
                 var authCmd = "";
                 if (!string.IsNullOrEmpty(localToken))
                 {
-                    var escapedToken = localToken.Replace("'", "'\\''");
-                    authCmd = $"echo '{escapedToken}' | gh auth login --with-token 2>/dev/null; ";
+                    authCmd = $"gh auth login --with-token <<< '{localToken.Replace("'", "'\\''")}' 2>/dev/null; ";
                     Console.WriteLine($"[CodespaceService] Injecting gh auth token into codespace SSH session");
                 }
 
@@ -315,6 +316,8 @@ public partial class CodespaceService
         }
     }
 
+    // TOCTOU: port may be taken between Stop() and the caller binding to it.
+    // Callers handle this via retry (health check loop retries on tunnel failure).
     private static int FindFreePort()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);

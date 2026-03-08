@@ -186,13 +186,14 @@ public partial class CopilotService : IAsyncDisposable
     public List<string> AvailableModels { get; private set; } = new();
 
     private readonly RepoManager _repoManager;
+    private readonly CodespaceService _codespaceService;
     
     public CopilotService(IChatDatabase chatDb, IServerManager serverManager, IWsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider)
-    : this(chatDb, serverManager, bridgeClient, repoManager, serviceProvider, new DemoService())
+    : this(chatDb, serverManager, bridgeClient, repoManager, serviceProvider, new DemoService(), new CodespaceService())
     {
     }
 
-    internal CopilotService(IChatDatabase chatDb, IServerManager serverManager, IWsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider, IDemoService demoService)
+    internal CopilotService(IChatDatabase chatDb, IServerManager serverManager, IWsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider, IDemoService demoService, CodespaceService? codespaceService = null)
     {
         _chatDb = chatDb;
         _serverManager = serverManager;
@@ -200,6 +201,7 @@ public partial class CopilotService : IAsyncDisposable
         _repoManager = repoManager;
         _serviceProvider = serviceProvider;
         _demoService = demoService;
+        _codespaceService = codespaceService ?? new CodespaceService();
         try { _usageStats = serviceProvider?.GetService(typeof(UsageStatsService)) as UsageStatsService; } catch { }
     }
 
@@ -228,7 +230,23 @@ public partial class CopilotService : IAsyncDisposable
             if (_codespacesEnabled == value) return;
             _codespacesEnabled = value;
             if (value)
+            {
                 StartCodespaceHealthCheck();
+            }
+            else
+            {
+                // Tear down all codespace resources when disabling
+                _ = Task.Run(async () =>
+                {
+                    await StopCodespaceHealthCheckAsync();
+                    foreach (var kv in _codespaceClients)
+                        try { await kv.Value.DisposeAsync(); } catch { }
+                    _codespaceClients.Clear();
+                    foreach (var kv in _tunnelHandles)
+                        try { await kv.Value.DisposeAsync(); } catch { }
+                    _tunnelHandles.Clear();
+                });
+            }
         }
     }
 
@@ -684,7 +702,7 @@ public partial class CopilotService : IAsyncDisposable
         _currentSettings = settings;
 
         StopConnectivityMonitoring();
-        StopCodespaceHealthCheck();
+        await StopCodespaceHealthCheckAsync();
 
         // Dispose existing sessions and client
         foreach (var state in _sessions.Values)
@@ -2120,6 +2138,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (string.IsNullOrEmpty(state.Info.SessionId)) return false;
 
+        // Placeholder codespace sessions have Session = null until tunnel connects
+        if (state.Session == null) return false;
+
         Debug($"Switching model for '{sessionName}': {state.Info.Model} → {normalizedModel}");
 
         try
@@ -2537,8 +2558,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         if (!state.Info.IsProcessing) return;
 
-        // In demo mode, Session is null — skip the SDK abort call
-        if (!IsDemoMode)
+        // In demo mode or placeholder codespace sessions, Session is null — skip the SDK abort call
+        if (!IsDemoMode && state.Session != null)
         {
             try
             {
@@ -3143,7 +3164,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     public async ValueTask DisposeAsync()
     {
         StopConnectivityMonitoring();
-        StopCodespaceHealthCheck();
+        await StopCodespaceHealthCheckAsync();
 
         // Flush any pending debounced writes immediately
         FlushSaveActiveSessionsToDisk();

@@ -290,8 +290,12 @@ public partial class CopilotService
 
                     // Mark all codespace groups as Reconnecting — health check will connect them in background.
                     // We do NOT block app startup with slow SSH calls here.
-                    foreach (var group in Organization.Groups.Where(g => g.IsCodespace))
-                        group.ConnectionState = CodespaceConnectionState.Reconnecting;
+                    // When CodespacesEnabled is off, groups stay in memory but are inert (UI hidden, health check off).
+                    if (CodespacesEnabled)
+                    {
+                        foreach (var group in Organization.Groups.Where(g => g.IsCodespace))
+                            group.ConnectionState = CodespaceConnectionState.Reconnecting;
+                    }
 
                     // Collect evaluator session names referenced by active reflection cycles
                     var activeEvaluators = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -336,10 +340,16 @@ public partial class CopilotService
 
                             // Codespace sessions: create placeholder state (client not yet connected).
                             // Health check will resume them after the codespace tunnel is established.
+                            // When toggle is off, skip entirely — don't create null-session placeholders.
                             var isCodespaceSession = !string.IsNullOrEmpty(entry.GroupId) &&
                                 Organization.Groups.Any(g => g.Id == entry.GroupId && g.IsCodespace);
                             if (isCodespaceSession)
                             {
+                                if (!CodespacesEnabled)
+                                {
+                                    Debug($"Skipping codespace session '{entry.DisplayName}' — CodespacesEnabled is off");
+                                    continue;
+                                }
                                 Debug($"Deferring codespace session '{entry.DisplayName}' — client not connected yet");
                                 var history = LoadHistoryFromDisk(entry.SessionId);
                                 var resumeModel = Models.ModelHelper.NormalizeToSlug(entry.Model ?? DefaultModel);

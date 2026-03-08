@@ -171,8 +171,11 @@ public partial class CodespaceService
         scriptLines.Add($"exec {copilotBin} --headless --port {remotePort}");
         var scriptContent = string.Join("\n", scriptLines);
 
-        // Write script via heredoc — avoids escaping issues with special chars in tokens
-        var writeCmd = $"cat > /tmp/polypilot-launch.sh << 'POLYPILOT_EOF'\n{scriptContent}\nPOLYPILOT_EOF\nchmod +x /tmp/polypilot-launch.sh";
+        // Write script via heredoc — avoids escaping issues with special chars in tokens.
+        // Use a randomized delimiter to prevent injection if scriptContent ever contains the marker.
+        var nonce = Guid.NewGuid().ToString("N")[..8];
+        var delimiter = $"POLYPILOT_EOF_{nonce}";
+        var writeCmd = $"cat > /tmp/polypilot-launch.sh << '{delimiter}'\n{scriptContent}\n{delimiter}\nchmod +x /tmp/polypilot-launch.sh";
         await RunGhCommandAsync(10, "cs", "ssh", "-c", codespaceName, "--", "bash", "--norc", "--noprofile", "-c", writeCmd);
 
         // Launch the script in background. Use bash + disown instead of nohup (which fails

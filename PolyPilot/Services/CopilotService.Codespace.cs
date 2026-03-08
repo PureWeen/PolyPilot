@@ -12,6 +12,9 @@ namespace PolyPilot.Services;
 /// </summary>
 public partial class CopilotService : IAsyncDisposable
 {
+    /// Per-group reconnect locks to prevent concurrent reconnect attempts from leaking tunnel processes.
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _reconnectLocks = new();
+
     /// <summary>
     /// Creates a CopilotClient that connects to a remote copilot --headless server (e.g., in a codespace via port-forward tunnel).
     /// </summary>
@@ -44,7 +47,9 @@ public partial class CopilotService : IAsyncDisposable
                 throw new InvalidOperationException($"Codespace '{group.Name}' is not connected. Wait for the connection to be re-established or check the codespace status.");
             }
         }
-        return _client!;
+        if (!IsInitialized || _client == null)
+            throw new InvalidOperationException("Service not initialized. Call InitializeAsync first.");
+        return _client;
     }
 
     /// <summary>
@@ -55,7 +60,7 @@ public partial class CopilotService : IAsyncDisposable
     public async Task<SessionGroup> CreateCodespaceGroupAsync(string codespaceName, string repository, int remotePort = 4321, Action<string>? onProgress = null, CancellationToken cancellationToken = default)
     {
         var groupName = !string.IsNullOrEmpty(repository) ? repository.Split('/').Last() : codespaceName;
-        var svc = new CodespaceService();
+        var svc = _codespaceService;
 
         // If a group for this codespace already exists, reuse its ID (sessions are linked to it) and
         // dispose old tunnel/client to avoid accumulating orphaned port-forward processes.
@@ -98,11 +103,15 @@ public partial class CopilotService : IAsyncDisposable
         }
 
         // Strategy 2: Separate SSH (for copilot start) + gh cs ports forward (for tunnel)
+        // Note: Without SSH, there is no way to start copilot remotely. The port-forward
+        // tunnel opens but will find nothing listening — the group enters WaitingForCopilot
+        // and eventually SetupRequired. This path exists as a graceful degradation, not a
+        // viable alternative to SSH.
         if (tunnel == null)
         {
             if (!sshAvailable)
             {
-                // Try starting copilot via separate SSH invocations
+                // Try starting copilot via separate SSH invocations (also requires SSH)
                 onProgress?.Invoke("SSH tunnel unavailable. Trying port-forward...");
                 Debug($"SSH unavailable for '{codespaceName}', trying StartCopilotHeadlessAsync + ports forward");
                 sshAvailable = await svc.StartCopilotHeadlessAsync(codespaceName, remotePort);
@@ -111,8 +120,9 @@ public partial class CopilotService : IAsyncDisposable
             int tunnelTimeoutSeconds;
             if (!sshAvailable)
             {
+                // No SSH means copilot can't be started remotely — quick probe only
                 onProgress?.Invoke("No SSH — opening port-forward tunnel...");
-                Debug($"SSH unavailable for '{codespaceName}' — opening tunnel (copilot may not be running).");
+                Debug($"SSH unavailable for '{codespaceName}' — opening tunnel (copilot unlikely to be running).");
                 tunnelTimeoutSeconds = 15; // Quick probe — don't block user for 90s
             }
             else
@@ -316,7 +326,7 @@ public partial class CopilotService : IAsyncDisposable
             var ct = _codespaceHealthCts.Token;
             _codespaceHealthTask = Task.Run(async () =>
             {
-                var svc = new CodespaceService();
+                var svc = _codespaceService;
                 // Run immediately on first start so disconnected groups reconnect without waiting 30s
                 await RunCodespaceHealthCheckAsync(svc, ct);
                 while (!ct.IsCancellationRequested)
@@ -328,7 +338,7 @@ public partial class CopilotService : IAsyncDisposable
         }
     }
 
-    private void StopCodespaceHealthCheck()
+    private async Task StopCodespaceHealthCheckAsync()
     {
         Task? taskToWait;
         CancellationTokenSource? ctsToDispose;
@@ -342,7 +352,7 @@ public partial class CopilotService : IAsyncDisposable
         }
         if (taskToWait != null)
         {
-            try { taskToWait.Wait(TimeSpan.FromSeconds(10)); } catch { }
+            try { await taskToWait.WaitAsync(TimeSpan.FromSeconds(10)); } catch { }
         }
         ctsToDispose?.Dispose();
     }
@@ -351,7 +361,11 @@ public partial class CopilotService : IAsyncDisposable
 
     private async Task RunCodespaceHealthCheckAsync(CodespaceService svc, CancellationToken ct)
     {
-        var codespaceGroups = Organization.Groups.Where(g => g.IsCodespace).ToList();
+        // Take a snapshot of codespace groups to avoid InvalidOperationException from
+        // concurrent modifications on the UI thread. List<T> is not thread-safe.
+        List<SessionGroup> codespaceGroups;
+        try { codespaceGroups = Organization.Groups.Where(g => g.IsCodespace).ToList(); }
+        catch (InvalidOperationException) { return; } // Collection modified during enumeration — retry next cycle
         if (codespaceGroups.Count == 0) return;
 
         foreach (var group in codespaceGroups)
@@ -372,8 +386,13 @@ public partial class CopilotService : IAsyncDisposable
                 continue;
             }
 
-            group.ReconnectAttempts++;
-            group.LastReconnectAttempt = DateTime.UtcNow;
+            // All group state mutations are marshaled to the UI thread via InvokeOnUI
+            // to avoid data races with Blazor render cycles reading the same properties.
+            InvokeOnUI(() =>
+            {
+                group.ReconnectAttempts++;
+                group.LastReconnectAttempt = DateTime.UtcNow;
+            });
 
             // For WaitingForCopilot: lightweight tunnel-only probe (no SSH, fast)
             if (group.ConnectionState == CodespaceConnectionState.WaitingForCopilot)
@@ -382,9 +401,12 @@ public partial class CopilotService : IAsyncDisposable
                 if (group.SshAvailable == false)
                 {
                     Debug($"[HEALTH] Upgrading '{group.Name}' from WaitingForCopilot to SetupRequired (no SSH)");
-                    group.ConnectionState = CodespaceConnectionState.SetupRequired;
-                    group.SetupMessage = "SSH not available. Configure dotfiles to enable codespace integration.";
-                    InvokeOnUI(() => OnStateChanged?.Invoke());
+                    InvokeOnUI(() =>
+                    {
+                        group.ConnectionState = CodespaceConnectionState.SetupRequired;
+                        group.SetupMessage = "SSH not available. Configure dotfiles to enable codespace integration.";
+                        OnStateChanged?.Invoke();
+                    });
                     continue;
                 }
 
@@ -392,18 +414,22 @@ public partial class CopilotService : IAsyncDisposable
                 try
                 {
                     await ReconnectCodespaceGroupAsync(group, svc, ct);
-                    group.ConnectionState = CodespaceConnectionState.Connected;
-                    group.ReconnectAttempts = 0;
-                    group.SetupMessage = null;
                     Debug($"[HEALTH] Codespace group '{group.Name}' connected (copilot appeared)");
                     await ResumeCodespaceSessionsAsync(group, ct);
+                    InvokeOnUI(() =>
+                    {
+                        group.ConnectionState = CodespaceConnectionState.Connected;
+                        group.ReconnectAttempts = 0;
+                        group.SetupMessage = null;
+                        OnStateChanged?.Invoke();
+                    });
                     NotifyCodespaceConnected(group);
                 }
                 catch
                 {
                     // Still not listening — stay in WaitingForCopilot
+                    InvokeOnUI(() => OnStateChanged?.Invoke());
                 }
-                InvokeOnUI(() => OnStateChanged?.Invoke());
                 continue;
             }
 
@@ -413,35 +439,48 @@ public partial class CopilotService : IAsyncDisposable
                 Debug($"[HEALTH] Probing '{group.Name}' (setup required, attempt {group.ReconnectAttempts})...");
                 try
                 {
-                    group.SshAvailable = null; // Re-probe SSH availability
+                    InvokeOnUI(() => group.SshAvailable = null); // Re-probe SSH availability
                     await ReconnectCodespaceGroupAsync(group, svc, ct);
-                    group.ConnectionState = CodespaceConnectionState.Connected;
-                    group.ReconnectAttempts = 0;
-                    group.SetupMessage = null;
                     Debug($"[HEALTH] Codespace group '{group.Name}' connected (setup completed by user)");
                     await ResumeCodespaceSessionsAsync(group, ct);
+                    InvokeOnUI(() =>
+                    {
+                        group.ConnectionState = CodespaceConnectionState.Connected;
+                        group.ReconnectAttempts = 0;
+                        group.SetupMessage = null;
+                        OnStateChanged?.Invoke();
+                    });
                     NotifyCodespaceConnected(group);
                 }
                 catch
                 {
                     // Still not reachable — stay in SetupRequired
-                    group.ConnectionState = CodespaceConnectionState.SetupRequired;
+                    InvokeOnUI(() =>
+                    {
+                        group.ConnectionState = CodespaceConnectionState.SetupRequired;
+                        OnStateChanged?.Invoke();
+                    });
                 }
-                InvokeOnUI(() => OnStateChanged?.Invoke());
                 continue;
             }
 
             // Tunnel or client is down — check codespace state
             Debug($"[HEALTH] Codespace group '{group.Name}' unhealthy (tunnel={tunnelAlive}, client={clientExists}, attempt {group.ReconnectAttempts})");
-            group.ConnectionState = CodespaceConnectionState.Reconnecting;
-            InvokeOnUI(() => OnStateChanged?.Invoke());
+            InvokeOnUI(() =>
+            {
+                group.ConnectionState = CodespaceConnectionState.Reconnecting;
+                OnStateChanged?.Invoke();
+            });
 
             var state = await svc.GetCodespaceStateAsync(group.CodespaceName!);
             if (state != null && state != "Available")
             {
                 Debug($"[HEALTH] Codespace '{group.CodespaceName}' is {state}");
-                group.ConnectionState = CodespaceConnectionState.CodespaceStopped;
-                InvokeOnUI(() => OnStateChanged?.Invoke());
+                InvokeOnUI(() =>
+                {
+                    group.ConnectionState = CodespaceConnectionState.CodespaceStopped;
+                    OnStateChanged?.Invoke();
+                });
                 continue;
             }
 
@@ -449,29 +488,36 @@ public partial class CopilotService : IAsyncDisposable
             try
             {
                 await ReconnectCodespaceGroupAsync(group, svc, ct);
-                group.ConnectionState = CodespaceConnectionState.Connected;
-                group.ReconnectAttempts = 0;
-                group.SetupMessage = null;
                 Debug($"[HEALTH] Codespace group '{group.Name}' reconnected");
                 await ResumeCodespaceSessionsAsync(group, ct);
+                InvokeOnUI(() =>
+                {
+                    group.ConnectionState = CodespaceConnectionState.Connected;
+                    group.ReconnectAttempts = 0;
+                    group.SetupMessage = null;
+                    OnStateChanged?.Invoke();
+                });
                 NotifyCodespaceConnected(group);
             }
             catch (Exception ex)
             {
-                // ReconnectCodespaceGroupAsync already sets WaitingForCopilot if appropriate
-                if (group.ConnectionState != CodespaceConnectionState.WaitingForCopilot)
-                    group.ConnectionState = CodespaceConnectionState.Reconnecting;
                 Debug($"[HEALTH] Failed to reconnect '{group.Name}': [{ex.GetType().Name}] {ex.Message}");
-
-                // After too many consecutive failures, stop retrying automatically
-                if (group.ReconnectAttempts >= MaxConsecutiveFailures)
+                InvokeOnUI(() =>
                 {
-                    group.ConnectionState = CodespaceConnectionState.SetupRequired;
-                    group.SetupMessage = $"Connection failed repeatedly: {ex.Message}. Check codespace compatibility.";
-                    Debug($"[HEALTH] '{group.Name}' exceeded {MaxConsecutiveFailures} failures — moving to SetupRequired");
-                }
+                    // ReconnectCodespaceGroupAsync already sets WaitingForCopilot if appropriate
+                    if (group.ConnectionState != CodespaceConnectionState.WaitingForCopilot)
+                        group.ConnectionState = CodespaceConnectionState.Reconnecting;
+
+                    // After too many consecutive failures, stop retrying automatically
+                    if (group.ReconnectAttempts >= MaxConsecutiveFailures)
+                    {
+                        group.ConnectionState = CodespaceConnectionState.SetupRequired;
+                        group.SetupMessage = $"Connection failed repeatedly: {ex.Message}. Check codespace compatibility.";
+                        Debug($"[HEALTH] '{group.Name}' exceeded {MaxConsecutiveFailures} failures — moving to SetupRequired");
+                    }
+                    OnStateChanged?.Invoke();
+                });
             }
-            InvokeOnUI(() => OnStateChanged?.Invoke());
         }
     }
 
@@ -504,7 +550,7 @@ public partial class CopilotService : IAsyncDisposable
     {
         if (_dotfilesStatus != null)
             return _dotfilesStatus;
-        var svc = new CodespaceService();
+        var svc = _codespaceService;
         _dotfilesStatus = await svc.CheckDotfilesConfiguredAsync();
         return _dotfilesStatus;
     }
@@ -518,7 +564,7 @@ public partial class CopilotService : IAsyncDisposable
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         if (group == null || !group.IsCodespace) return;
 
-        var svc = new CodespaceService();
+        var svc = _codespaceService;
         var previousState = group.ConnectionState;
 
         group.LastReconnectAttempt = DateTime.UtcNow;
@@ -559,11 +605,17 @@ public partial class CopilotService : IAsyncDisposable
     /// </summary>
     private async Task ReconnectCodespaceGroupAsync(SessionGroup group, CodespaceService svc, CancellationToken ct)
     {
-        // Clean up old resources
-        if (_tunnelHandles.TryRemove(group.Id, out var oldTunnel))
-            try { await oldTunnel.DisposeAsync(); } catch { }
-        if (_codespaceClients.TryRemove(group.Id, out var oldClient))
-            try { await oldClient.DisposeAsync(); } catch { }
+        // Serialize reconnect attempts per-group to prevent concurrent calls from
+        // spawning duplicate SSH tunnels (loser's tunnel would be orphaned).
+        var groupLock = _reconnectLocks.GetOrAdd(group.Id, _ => new SemaphoreSlim(1, 1));
+        await groupLock.WaitAsync(ct);
+        try
+        {
+            // Clean up old resources
+            if (_tunnelHandles.TryRemove(group.Id, out var oldTunnel))
+                try { await oldTunnel.DisposeAsync(); } catch { }
+            if (_codespaceClients.TryRemove(group.Id, out var oldClient))
+                try { await oldClient.DisposeAsync(); } catch { }
 
         CodespaceService.TunnelHandle? tunnel = null;
 
@@ -575,18 +627,18 @@ public partial class CopilotService : IAsyncDisposable
                 tunnel = await svc.OpenSshTunnelAsync(group.CodespaceName!, group.CodespacePort, connectTimeoutSeconds: 30);
                 if (tunnel != null)
                 {
-                    group.SshAvailable = true;
+                    InvokeOnUI(() => group.SshAvailable = true);
                     Debug($"[HEALTH] SSH tunnel re-established for '{group.CodespaceName}'");
                 }
                 else
                 {
-                    group.SshAvailable = false;
+                    InvokeOnUI(() => group.SshAvailable = false);
                     Debug($"[HEALTH] SSH unavailable for '{group.CodespaceName}' — falling back to ports forward");
                 }
             }
             catch (TimeoutException)
             {
-                group.SshAvailable = true; // SSH itself works
+                InvokeOnUI(() => group.SshAvailable = true); // SSH itself works
                 Debug($"[HEALTH] SSH tunnel timeout for '{group.CodespaceName}' — copilot not listening");
             }
         }
@@ -609,7 +661,7 @@ public partial class CopilotService : IAsyncDisposable
                 if (!copilotReady)
                 {
                     // Tunnel alive but copilot not running
-                    group.ConnectionState = CodespaceConnectionState.WaitingForCopilot;
+                    InvokeOnUI(() => group.ConnectionState = CodespaceConnectionState.WaitingForCopilot);
                     _tunnelHandles[group.Id] = tunnel;
                     InvokeOnUI(() => OnStateChanged?.Invoke());
                     throw new TimeoutException("Copilot not listening");
@@ -618,7 +670,7 @@ public partial class CopilotService : IAsyncDisposable
             catch (InvalidOperationException) when (group.SshAvailable == false)
             {
                 // Port forward process died — codespace not reachable
-                group.ConnectionState = CodespaceConnectionState.WaitingForCopilot;
+                InvokeOnUI(() => group.ConnectionState = CodespaceConnectionState.WaitingForCopilot);
                 InvokeOnUI(() => OnStateChanged?.Invoke());
                 throw;
             }
@@ -638,6 +690,11 @@ public partial class CopilotService : IAsyncDisposable
             throw;
         }
         _codespaceClients[group.Id] = client;
+        }
+        finally
+        {
+            groupLock.Release();
+        }
     }
 
     /// <summary>
@@ -729,7 +786,7 @@ public partial class CopilotService : IAsyncDisposable
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         if (group == null || !group.IsCodespace) return;
 
-        var svc = new CodespaceService();
+        var svc = _codespaceService;
 
         group.ConnectionState = CodespaceConnectionState.StartingCodespace;
         OnStateChanged?.Invoke();
