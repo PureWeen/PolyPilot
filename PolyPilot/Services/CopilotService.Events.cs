@@ -471,18 +471,27 @@ public partial class CopilotService
                         try
                         {
                             await Task.Delay(TurnEndIdleFallbackMs, fallbackToken);
+                            if (fallbackToken.IsCancellationRequested) return;
                             // Guard: if tools are still active, a TurnStart is coming — skip.
-                            // This handles the case where a tool takes >4s and we'd fire
-                            // CompleteResponse while it's still in-flight.
                             if (Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0)
                             {
                                 Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — tools still active");
                                 return;
                             }
+                            // Guard: if tools were used this turn, the LLM may still be reasoning
+                            // between tool rounds (TurnEnd → thinking → TurnStart, >4s).
+                            // HasUsedToolsThisTurn stays true across all sub-turns and is only
+                            // cleared at CompleteResponse/abort.
+                            if (Volatile.Read(ref state.HasUsedToolsThisTurn))
+                            {
+                                Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — tools were used this turn, TurnStart likely coming");
+                                return;
+                            }
                             Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs}ms after TurnEnd — firing CompleteResponse");
                             Invoke(() => CompleteResponse(state, turnEndGen));
                         }
-                        catch (OperationCanceledException) { }
+                        catch (OperationCanceledException) { /* expected on cancellation */ }
+                        catch (Exception ex) { Debug($"[IDLE-FALLBACK] '{sessionName}' unexpected error: {ex}"); }
                     });
                 }
                 Invoke(() =>
@@ -1395,7 +1404,7 @@ public partial class CopilotService
     /// error codes (e.g. "denied-no-approval-rule-and-could-not-request-from-user").
     /// This is more robust than a single string match and handles future SDK message variants.
     /// </summary>
-    private static bool IsPermissionDenialText(string? text)
+    internal static bool IsPermissionDenialText(string? text)
     {
         if (string.IsNullOrEmpty(text)) return false;
         return text.Contains("Permission denied", StringComparison.OrdinalIgnoreCase)
