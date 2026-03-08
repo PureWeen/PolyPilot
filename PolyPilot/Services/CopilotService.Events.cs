@@ -594,8 +594,11 @@ public partial class CopilotService
                     FlushCurrentResponse(state);
                     state.FlushedResponse.Clear();
                     state.PendingReasoningMessages.Clear();
-                    state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                     Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
+                    // Clear IsProcessing BEFORE completing the TCS — if the continuation runs
+                    // synchronously (e.g., orchestrator retry logic), the next SendPromptAsync
+                    // call must see IsProcessing=false or it throws "already processing".
+                    // (Matches CompleteResponse ordering per INV-O3)
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
                     Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock (INV-1)
@@ -605,6 +608,8 @@ public partial class CopilotService
                     state.Info.ToolCallCount = 0;
                     state.Info.ProcessingPhase = 0;
                     state.Info.ClearPermissionDenials();
+                    // Complete TCS AFTER state cleanup (INV-O3: state must be ready for retry)
+                    state.ResponseCompletion?.TrySetException(new Exception(errMsg));
                     // Fire completion notification so orchestrator loops are unblocked
                     OnSessionComplete?.Invoke(sessionName, $"[Error] {errMsg}");
                     OnStateChanged?.Invoke();
@@ -1454,12 +1459,15 @@ public partial class CopilotService
                         state.Info.ProcessingStartedAt = null;
                         state.Info.ToolCallCount = 0;
                         state.Info.ProcessingPhase = 0;
+                        state.Info.ClearPermissionDenials(); // INV-1: clear on all termination paths
                         state.Info.History.Add(ChatMessage.SystemMessage(
                             "⚠️ Session appears stuck — no response received. You can try sending your message again."));
                         var watchdogResponse = state.FlushedResponse.ToString();
                         state.FlushedResponse.Clear();
                         state.PendingReasoningMessages.Clear();
                         state.ResponseCompletion?.TrySetResult(watchdogResponse);
+                        // Fire completion notification so orchestrator loops are unblocked (INV-O4)
+                        OnSessionComplete?.Invoke(sessionName, "[Watchdog] timeout");
                         OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutDisplay}.");
                         OnStateChanged?.Invoke();
                     });
