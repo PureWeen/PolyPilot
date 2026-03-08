@@ -725,6 +725,7 @@ public partial class CopilotService : IAsyncDisposable
         foreach (var state in _sessions.Values)
         {
             CancelProcessingWatchdog(state);
+            CancelTurnEndFallback(state);
             try { if (state.Session != null) await state.Session.DisposeAsync(); } catch { }
         }
         _sessions.Clear();
@@ -2292,8 +2293,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
         // Cancel any pending TurnEnd→Idle fallback from the previous turn
-        var prevTurnEndCts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
-        prevTurnEndCts?.Cancel();
+        CancelTurnEndFallback(state);
         state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName); // Cache for watchdog (UI thread safe)
         Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2451,8 +2451,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
                         state.Info.SessionId = newSession.SessionId;
                     }
-                    // Cancel old watchdog BEFORE creating new state — they share Info/TCS
+                    // Cancel old watchdog AND TurnEnd fallback BEFORE creating new state — they share Info/TCS
                     CancelProcessingWatchdog(state);
+                    CancelTurnEndFallback(state);
                     Debug($"[RECONNECT] '{sessionName}' replacing state (old handler will be orphaned, " +
                           $"old session disposed, new session={newSession.SessionId})");
                     var newState = new SessionState
@@ -2499,6 +2500,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Console.WriteLine($"[DEBUG] Reconnect+retry failed: {retryEx.Message}");
                     OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {Models.ErrorMessageHelper.Humanize(retryEx)}");
                     CancelProcessingWatchdog(state);
+                    CancelTurnEndFallback(state);
                     FlushCurrentResponse(state);
                     Debug($"[ERROR] '{sessionName}' reconnect+retry failed, clearing IsProcessing");
                     Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
@@ -2519,6 +2521,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 OnError?.Invoke(sessionName, $"SendAsync failed: {Models.ErrorMessageHelper.Humanize(ex)}");
                 CancelProcessingWatchdog(state);
+                CancelTurnEndFallback(state);
                 FlushCurrentResponse(state);
                 Debug($"[ERROR] '{sessionName}' SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
@@ -2630,10 +2633,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         _queuedAgentModes.TryRemove(sessionName, out _);
         _permissionRecoveryAttempts.TryRemove(sessionName, out _);
         // Cancel any pending TurnEnd→Idle fallback so it doesn't fire CompleteResponse after abort
-        {
-            var cts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
-            cts?.Cancel();
-        }
+        CancelTurnEndFallback(state);
         CancelProcessingWatchdog(state);
         state.FlushedResponse.Clear();
         state.PendingReasoningMessages.Clear();
@@ -2717,6 +2717,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 OnError?.Invoke(sessionName, $"Soft steer failed: {Models.ErrorMessageHelper.Humanize(ex)}");
                 CancelProcessingWatchdog(state);
+                CancelTurnEndFallback(state);
                 FlushCurrentResponse(state);
                 Debug($"[STEER-ERROR] '{sessionName}' soft steer SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
@@ -3163,6 +3164,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             FlushSaveOrganization();
         }
 
+        // Cancel any pending timers so they don't fire on torn-down state after session removal
+        CancelProcessingWatchdog(state);
+        CancelTurnEndFallback(state);
+
         // Dispose the SDK session AFTER UI has updated — DisposeAsync talks to the CLI
         // process and may trigger additional SDK events on background threads. Running it
         // after the state change prevents render batch collisions.
@@ -3207,6 +3212,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         foreach (var state in _sessions.Values)
         {
             CancelProcessingWatchdog(state);
+            CancelTurnEndFallback(state);
             if (state.Session is not null)
                 try { await state.Session.DisposeAsync(); } catch { }
         }

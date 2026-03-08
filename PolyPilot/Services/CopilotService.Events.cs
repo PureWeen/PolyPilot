@@ -435,10 +435,7 @@ public partial class CopilotService
 
             case AssistantTurnStartEvent:
                 // Cancel any pending TurnEnd→Idle fallback — another agent round is starting
-                {
-                    var prevCts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
-                    prevCts?.Cancel();
-                }
+                CancelTurnEndFallback(state);
                 state.HasReceivedDeltasThisTurn = false;
                 var phaseAdvancedToThinking = state.Info.ProcessingPhase < 2;
                 if (phaseAdvancedToThinking) state.Info.ProcessingPhase = 2; // Thinking
@@ -462,15 +459,17 @@ public partial class CopilotService
                 {
                     var turnEndGen = Interlocked.Read(ref state.ProcessingGeneration);
                     var idleFallbackCts = new CancellationTokenSource();
+                    // Cancel any previous fallback and install the new one atomically
                     var prevCts = Interlocked.Exchange(ref state.TurnEndIdleCts, idleFallbackCts);
                     prevCts?.Cancel();
+                    prevCts?.Dispose();
                     var fallbackToken = idleFallbackCts.Token;
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            await Task.Delay(4000, fallbackToken);
-                            Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received 4s after TurnEnd — firing CompleteResponse");
+                            await Task.Delay(TurnEndIdleFallbackMs, fallbackToken);
+                            Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs}ms after TurnEnd — firing CompleteResponse");
                             Invoke(() => CompleteResponse(state, turnEndGen));
                         }
                         catch (OperationCanceledException) { }
@@ -490,10 +489,7 @@ public partial class CopilotService
 
             case SessionIdleEvent:
                 // Cancel the TurnEnd→Idle fallback — normal SessionIdleEvent arrived
-                {
-                    var prevCts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
-                    prevCts?.Cancel();
-                }
+                CancelTurnEndFallback(state);
                 try { CompleteReasoningMessages(state, sessionName); }
                 catch (Exception ex)
                 {
@@ -816,10 +812,7 @@ public partial class CopilotService
         
         CancelProcessingWatchdog(state);
         // Also cancel any pending TurnEnd→Idle fallback — CompleteResponse is now executing
-        {
-            var cts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
-            cts?.Cancel();
-        }
+        CancelTurnEndFallback(state);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -1357,6 +1350,12 @@ public partial class CopilotService
     /// non-progress events (like repeated SessionUsageInfoEvent) keep arriving without a terminal event.</summary>
     internal const int WatchdogMaxProcessingTimeSeconds = 3600; // 60 minutes
 
+    /// <summary>
+    /// Milliseconds to wait after AssistantTurnEndEvent before firing CompleteResponse
+    /// as a fallback, in case SessionIdleEvent never arrives (SDK bug #299).
+    /// </summary>
+    private const int TurnEndIdleFallbackMs = 4000;
+
     private static void CancelProcessingWatchdog(SessionState state)
     {
         if (state.ProcessingWatchdog != null)
@@ -1365,6 +1364,18 @@ public partial class CopilotService
             state.ProcessingWatchdog.Dispose();
             state.ProcessingWatchdog = null;
         }
+    }
+
+    /// <summary>
+    /// Cancels and disposes any pending TurnEnd→Idle fallback timer on the state.
+    /// Mirrors the CancelProcessingWatchdog pattern: Cancel + Dispose to avoid
+    /// kernel timer queue resource leaks over many tool-call cycles.
+    /// </summary>
+    private static void CancelTurnEndFallback(SessionState state)
+    {
+        var prev = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
+        prev?.Cancel();
+        prev?.Dispose();
     }
 
     /// <summary>
@@ -1492,10 +1503,7 @@ public partial class CopilotService
                         state.HasUsedToolsThisTurn = false;
                         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                         // Cancel any pending TurnEnd→Idle fallback
-                        {
-                            var cts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
-                            cts?.Cancel();
-                        }
+                        CancelTurnEndFallback(state);
                         state.Info.IsResumed = false;
                         // Flush any accumulated partial response before clearing processing state
                         FlushCurrentResponse(state);
@@ -1543,10 +1551,7 @@ public partial class CopilotService
         Interlocked.Exchange(ref state.SendingFlag, 0);
         state.Info.ClearPermissionDenials();
         // Cancel any pending TurnEnd→Idle fallback
-        {
-            var cts = Interlocked.Exchange(ref state.TurnEndIdleCts, null);
-            cts?.Cancel();
-        }
+        CancelTurnEndFallback(state);
         if (state.Info.IsProcessing)
         {
             FlushCurrentResponse(state);
@@ -1613,8 +1618,9 @@ public partial class CopilotService
 
             var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, resumeConfig);
 
-            // Cancel old watchdog BEFORE creating new state
+            // Cancel old watchdog AND TurnEnd fallback BEFORE creating new state
             CancelProcessingWatchdog(state);
+            CancelTurnEndFallback(state);
 
             // Bug B fix: Cancel the old ResponseCompletion TCS so the original
             // SendPromptAsync awaiter doesn't hang forever.
@@ -1661,7 +1667,7 @@ public partial class CopilotService
 
                 // Check if any tools succeeded this turn — if so, skip auto-resend to avoid
                 // re-executing side-effectful work (issue #298)
-                hadSuccessfulTools = Volatile.Read(ref state.SuccessfulToolCountThisTurn) > 0;
+                hadSuccessfulTools = Interlocked.CompareExchange(ref state.SuccessfulToolCountThisTurn, 0, 0) > 0;
 
                 state.Info.ClearPermissionDenials();
                 // INV-1: Flush partial response to History before discarding buffers
