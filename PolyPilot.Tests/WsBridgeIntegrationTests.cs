@@ -16,7 +16,15 @@ public class WsBridgeIntegrationTests : IDisposable
     private readonly WsBridgeServer _server;
     private readonly CopilotService _copilot;
     private readonly int _port;
-    private static int _portCounter = 19100;
+
+    private static int GetFreePort()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
 
     /// <summary>
     /// Polls until a condition is true, with a timeout. Replaces fixed Task.Delay for reliability under load.
@@ -30,7 +38,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
     public WsBridgeIntegrationTests()
     {
-        _port = Interlocked.Increment(ref _portCounter);
+        _port = GetFreePort();
         _server = new WsBridgeServer();
 
         _copilot = new CopilotService(
