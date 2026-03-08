@@ -459,16 +459,26 @@ public partial class CopilotService
                 {
                     var turnEndGen = Interlocked.Read(ref state.ProcessingGeneration);
                     var idleFallbackCts = new CancellationTokenSource();
+                    // Capture token BEFORE publishing so CancelTurnEndFallback on another thread
+                    // cannot dispose the CTS before we read .Token (benign but fragile otherwise).
+                    var fallbackToken = idleFallbackCts.Token;
                     // Cancel any previous fallback and install the new one atomically
                     var prevCts = Interlocked.Exchange(ref state.TurnEndIdleCts, idleFallbackCts);
                     prevCts?.Cancel();
                     prevCts?.Dispose();
-                    var fallbackToken = idleFallbackCts.Token;
                     _ = Task.Run(async () =>
                     {
                         try
                         {
                             await Task.Delay(TurnEndIdleFallbackMs, fallbackToken);
+                            // Guard: if tools are still active, a TurnStart is coming — skip.
+                            // This handles the case where a tool takes >4s and we'd fire
+                            // CompleteResponse while it's still in-flight.
+                            if (Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0)
+                            {
+                                Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — tools still active");
+                                return;
+                            }
                             Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs}ms after TurnEnd — firing CompleteResponse");
                             Invoke(() => CompleteResponse(state, turnEndGen));
                         }
@@ -611,6 +621,7 @@ public partial class CopilotService
             case SessionErrorEvent err:
                 var errMsg = Models.ErrorMessageHelper.HumanizeMessage(err.Data?.Message ?? "Unknown error");
                 CancelProcessingWatchdog(state);
+                CancelTurnEndFallback(state);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -1667,7 +1678,7 @@ public partial class CopilotService
 
                 // Check if any tools succeeded this turn — if so, skip auto-resend to avoid
                 // re-executing side-effectful work (issue #298)
-                hadSuccessfulTools = Interlocked.CompareExchange(ref state.SuccessfulToolCountThisTurn, 0, 0) > 0;
+                hadSuccessfulTools = Volatile.Read(ref state.SuccessfulToolCountThisTurn) > 0;
 
                 state.Info.ClearPermissionDenials();
                 // INV-1: Flush partial response to History before discarding buffers
