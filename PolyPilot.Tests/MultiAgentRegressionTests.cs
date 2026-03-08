@@ -1669,6 +1669,35 @@ public class MultiAgentRegressionTests
 
     #endregion
 
+    #region Bug: EnsureOrchestratorReflectTools used _client instead of GetClientForGroup
+
+    /// <summary>
+    /// Bug: EnsureOrchestratorReflectToolsAsync called _client.ResumeSessionAsync directly.
+    /// For codespace orchestrators, _client is the local Copilot client — the codespace
+    /// tunnel client lives in _codespaceClients[groupId]. Using _client would resume the
+    /// session against the wrong server, silently falling back to @worker: text dispatch.
+    /// Fix: call GetClientForGroup(orchestratorGroupId) to get the correct client.
+    /// </summary>
+    [Fact]
+    public void EnsureOrchestratorReflectTools_UsesGetClientForGroup()
+    {
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+
+        var methodIdx = source.IndexOf("private async Task EnsureOrchestratorReflectToolsAsync");
+        Assert.True(methodIdx >= 0, "EnsureOrchestratorReflectToolsAsync method not found");
+        var methodEnd = source.IndexOf("\n    private ", methodIdx + 1);
+        var methodBody = source.Substring(methodIdx, methodEnd - methodIdx);
+
+        // Must use GetClientForGroup to resolve the client (not _client directly)
+        Assert.Contains("GetClientForGroup(orchestratorGroupId)", methodBody);
+        // Must NOT call _client.ResumeSessionAsync directly
+        Assert.DoesNotContain("await _client.ResumeSessionAsync", methodBody);
+        // Resolved client variable must be used for ResumeSessionAsync
+        Assert.Contains("await client.ResumeSessionAsync", methodBody);
+    }
+
+    #endregion
+
     #region GetOrchestratorGroupId
 
     [Fact]

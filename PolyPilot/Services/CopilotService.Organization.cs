@@ -1311,9 +1311,13 @@ public partial class CopilotService
             return;
         }
 
-        if (_client == null)
+        // Use the correct client for this orchestrator's group (may be a codespace tunnel client).
+        var orchestratorGroupId = GetSessionMeta(orchestratorName)?.GroupId;
+        GitHub.Copilot.SDK.CopilotClient client;
+        try { client = GetClientForGroup(orchestratorGroupId); }
+        catch (InvalidOperationException ex)
         {
-            Debug("[REFLECT] EnsureOrchestratorReflectToolsAsync: client not initialized, skipping tool setup");
+            Debug($"[REFLECT] EnsureOrchestratorReflectToolsAsync: client not available for '{orchestratorName}': {ex.Message}. Skipping tool setup.");
             return;
         }
 
@@ -1347,7 +1351,7 @@ public partial class CopilotService
                 OnPermissionRequest = AutoApprovePermissions,
             };
 
-            var newSession = await _client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, ct);
+            var newSession = await client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, ct);
 
             var newState = new SessionState
             {
