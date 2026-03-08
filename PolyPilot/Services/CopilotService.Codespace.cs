@@ -376,8 +376,31 @@ public partial class CopilotService : IAsyncDisposable
             bool tunnelAlive = _tunnelHandles.TryGetValue(group.Id, out var tunnel) && tunnel.IsAlive;
             bool clientExists = _codespaceClients.ContainsKey(group.Id);
 
+            // Even when tunnel + client exist, verify the remote end is still reachable
+            // by probing the tunnel port. The CopilotClient can become stale if the remote
+            // copilot process died while the SSH tunnel stayed open.
             if (tunnelAlive && clientExists && group.ConnectionState == CodespaceConnectionState.Connected)
-                continue;
+            {
+                bool portReachable = false;
+                try
+                {
+                    using var probe = new System.Net.Sockets.TcpClient();
+                    await probe.ConnectAsync("127.0.0.1", tunnel.LocalPort, ct);
+                    portReachable = true;
+                }
+                catch { /* TCP connect failed — remote end not listening */ }
+
+                if (portReachable)
+                    continue;
+
+                // Client is stale — remove it so the reconnect path kicks in
+                Debug($"[HEALTH] Codespace '{group.Name}' tunnel alive but remote port {tunnel.LocalPort} not reachable — marking for reconnect");
+                if (_codespaceClients.TryRemove(group.Id, out var staleClient))
+                {
+                    try { await staleClient.DisposeAsync(); } catch { }
+                }
+                clientExists = false;
+            }
 
             // Skip groups where SSH is known-unavailable — user must configure dotfiles first
             if (group.ConnectionState == CodespaceConnectionState.SetupRequired && group.SshAvailable == false)

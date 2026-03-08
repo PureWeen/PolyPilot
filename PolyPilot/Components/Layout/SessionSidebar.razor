@@ -793,7 +793,7 @@ else
                                     <div class="group-menu" @onclick:stopPropagation="true">
                                         @if (!csDisconnected)
                                         {
-                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForCodespace(gId); }">
+                                            <button class="group-menu-item" @onclick="async () => { openGroupMenuId = null; await QuickCreateSessionForCodespace(gId); }">
                                                 ➕ New Session
                                             </button>
                                         }
@@ -894,6 +894,12 @@ else
                                                  OnReportBug="() => OpenBugReportForSession(sName)"
                                                  OnFixWithCopilot="() => OpenFixItForSession(sName)"
                                                  OnAnalyze="() => AnalyzeSessionEfficiency(sName)" />
+                            }
+                            @if (!string.IsNullOrEmpty(createError))
+                            {
+                                <div class="codespace-create-error" @onclick="() => createError = null" title="Click to dismiss">
+                                    ⚠️ @createError
+                                </div>
                             }
                         }
                     }
