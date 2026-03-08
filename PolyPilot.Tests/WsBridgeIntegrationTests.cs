@@ -430,9 +430,9 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "create_group", Name = "Mobile Group" }, cts.Token);
-        await WaitForAsync(() => _copilot.Organization.Groups.Any(g => g.Name == "Mobile Group"), cts.Token);
+        await WaitForAsync(() => _copilot.Organization.Groups.Any(g => g?.Name == "Mobile Group"), cts.Token);
 
-        Assert.Contains(_copilot.Organization.Groups, g => g.Name == "Mobile Group");
+        Assert.Contains(_copilot.Organization.Groups, g => g?.Name == "Mobile Group");
         client.Stop();
     }
 
@@ -507,8 +507,8 @@ public class WsBridgeIntegrationTests : IDisposable
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "rename_group", GroupId = group.Id, Name = "NewName" }, cts.Token);
 
-        await WaitForAsync(() => _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id)?.Name == "NewName", cts.Token);
-        var renamed = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id);
+        await WaitForAsync(() => _copilot.Organization.Groups.FirstOrDefault(g => g?.Id == group.Id)?.Name == "NewName", cts.Token);
+        var renamed = _copilot.Organization.Groups.FirstOrDefault(g => g?.Id == group.Id);
         Assert.NotNull(renamed);
         Assert.Equal("NewName", renamed!.Name);
         client.Stop();
@@ -525,9 +525,9 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "delete_group", GroupId = group.Id }, cts.Token);
-        await WaitForAsync(() => !_copilot.Organization.Groups.Any(g => g.Id == group.Id), cts.Token);
+        await WaitForAsync(() => !_copilot.Organization.Groups.Any(g => g?.Id == group.Id), cts.Token);
 
-        Assert.DoesNotContain(_copilot.Organization.Groups, g => g.Id == group.Id);
+        Assert.DoesNotContain(_copilot.Organization.Groups, g => g?.Id == group.Id);
         client.Stop();
     }
 
@@ -543,9 +543,9 @@ public class WsBridgeIntegrationTests : IDisposable
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "toggle_collapsed", GroupId = group.Id }, cts.Token);
-        await WaitForAsync(() => _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id)?.IsCollapsed == true, cts.Token);
+        await WaitForAsync(() => _copilot.Organization.Groups.FirstOrDefault(g => g?.Id == group.Id)?.IsCollapsed == true, cts.Token);
 
-        var updated = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == group.Id);
+        var updated = _copilot.Organization.Groups.FirstOrDefault(g => g?.Id == group.Id);
         Assert.NotNull(updated);
         Assert.True(updated!.IsCollapsed);
         client.Stop();
