@@ -788,16 +788,22 @@ public partial class CopilotService : IAsyncDisposable
 
         var svc = _codespaceService;
 
-        group.ConnectionState = CodespaceConnectionState.StartingCodespace;
-        OnStateChanged?.Invoke();
+        InvokeOnUI(() =>
+        {
+            group.ConnectionState = CodespaceConnectionState.StartingCodespace;
+            OnStateChanged?.Invoke();
+        });
 
         onProgress?.Invoke("Starting codespace...");
         Debug($"Starting codespace '{group.CodespaceName}'...");
         var started = await svc.StartCodespaceAsync(group.CodespaceName!, timeoutSeconds: 180, ct);
         if (!started)
         {
-            group.ConnectionState = CodespaceConnectionState.CodespaceStopped;
-            OnStateChanged?.Invoke();
+            InvokeOnUI(() =>
+            {
+                group.ConnectionState = CodespaceConnectionState.CodespaceStopped;
+                OnStateChanged?.Invoke();
+            });
             throw new InvalidOperationException(
                 $"Could not start codespace '{group.CodespaceName}'. It may be suspended or deleted. " +
                 $"Try starting it from github.com or `gh cs start -c {group.CodespaceName}`.");
@@ -808,30 +814,32 @@ public partial class CopilotService : IAsyncDisposable
         if (!Organization.Groups.Any(g => g.Id == groupId)) return;
         // Reset SSH availability — it was likely cached as false from when the codespace
         // was stopped. Now that it's running, SSH should work.
-        group.SshAvailable = null;
+        InvokeOnUI(() => group.SshAvailable = null);
         try
         {
             await ReconnectCodespaceGroupAsync(group, svc, ct);
-            group.ConnectionState = CodespaceConnectionState.Connected;
+            InvokeOnUI(() => group.ConnectionState = CodespaceConnectionState.Connected);
             Debug($"Codespace '{group.CodespaceName}' started and reconnected");
             StartCodespaceHealthCheck();
             await ResumeCodespaceSessionsAsync(group, ct);
         }
         catch (Exception ex)
         {
-            // If SSH is unavailable, this is a SetupRequired situation — open browser with instructions
+            InvokeOnUI(() =>
+            {
+                // If SSH is unavailable, this is a SetupRequired situation
+                if (group.SshAvailable == false)
+                    group.ConnectionState = CodespaceConnectionState.SetupRequired;
+                else if (group.ConnectionState != CodespaceConnectionState.WaitingForCopilot)
+                    group.ConnectionState = CodespaceConnectionState.Reconnecting;
+            });
             if (group.SshAvailable == false)
             {
-                group.ConnectionState = CodespaceConnectionState.SetupRequired;
 #if MACCATALYST || IOS || ANDROID || WINDOWS
                 try { await Launcher.Default.OpenAsync(new Uri($"https://{group.CodespaceName}.github.dev/")); }
                 catch { }
 #endif
                 Debug($"Codespace '{group.CodespaceName}' started but has no SSH — SetupRequired, opened browser");
-            }
-            else if (group.ConnectionState != CodespaceConnectionState.WaitingForCopilot)
-            {
-                group.ConnectionState = CodespaceConnectionState.Reconnecting;
             }
             throw new InvalidOperationException(
                 $"Codespace '{group.CodespaceName}' is running but copilot is not responding. " +
@@ -839,7 +847,7 @@ public partial class CopilotService : IAsyncDisposable
         }
         finally
         {
-            OnStateChanged?.Invoke();
+            InvokeOnUI(() => OnStateChanged?.Invoke());
         }
     }
 }

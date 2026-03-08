@@ -188,8 +188,8 @@ public partial class CopilotService : IAsyncDisposable
     private readonly RepoManager _repoManager;
     private readonly CodespaceService _codespaceService;
     
-    public CopilotService(IChatDatabase chatDb, IServerManager serverManager, IWsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider)
-    : this(chatDb, serverManager, bridgeClient, repoManager, serviceProvider, new DemoService(), new CodespaceService())
+    public CopilotService(IChatDatabase chatDb, IServerManager serverManager, IWsBridgeClient bridgeClient, RepoManager repoManager, IServiceProvider serviceProvider, CodespaceService codespaceService)
+    : this(chatDb, serverManager, bridgeClient, repoManager, serviceProvider, new DemoService(), codespaceService)
     {
     }
 
@@ -235,10 +235,12 @@ public partial class CopilotService : IAsyncDisposable
             }
             else
             {
-                // Tear down all codespace resources when disabling
+                // Stop health check first (awaits cancellation), then clean up resources.
+                // Sequential: health check must exit before we clear the dictionaries it reads.
                 _ = Task.Run(async () =>
                 {
                     await StopCodespaceHealthCheckAsync();
+                    // Health check has exited — safe to dispose resources
                     foreach (var kv in _codespaceClients)
                         try { await kv.Value.DisposeAsync(); } catch { }
                     _codespaceClients.Clear();
@@ -784,7 +786,7 @@ public partial class CopilotService : IAsyncDisposable
         // Restore previous sessions
         LoadOrganization();
         await RestorePreviousSessionsAsync(cancellationToken);
-        if (settings.CodespacesEnabled)
+        if (CodespacesEnabled)
             StartCodespaceHealthCheck();
         ReconcileOrganization();
         OnStateChanged?.Invoke();

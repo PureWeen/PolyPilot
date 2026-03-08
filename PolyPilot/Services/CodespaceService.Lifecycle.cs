@@ -46,8 +46,10 @@ public partial class CodespaceService
     {
         try
         {
+            // Sanitize codespace name to prevent jq injection (escape backslashes and quotes)
+            var sanitized = codespaceName.Replace("\\", "\\\\").Replace("\"", "\\\"");
             var output = await RunGhCommandAsync(10, "cs", "list", "--json", "name,state", "-q",
-                $".[] | select(.name == \"{codespaceName}\") | .state");
+                $".[] | select(.name == \"{sanitized}\") | .state");
             // gh with -q (jq filter) returns just the state string
             if (!string.IsNullOrWhiteSpace(output))
                 return output.Trim().Trim('"');
