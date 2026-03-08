@@ -1519,8 +1519,11 @@ public partial class CopilotService
         }
         else
         {
-            // Even if not processing, still complete TCS if pending
+            // Even if not processing, still complete TCS if pending and notify listeners
             state.ResponseCompletion?.TrySetCanceled();
+            // Fire completion notification even when not processing — ensures bridge clients
+            // don't remain stuck if they were waiting on this session (INV-O4)
+            OnSessionComplete?.Invoke(sessionName, "[Recovery] idle session reset");
         }
     }
 
