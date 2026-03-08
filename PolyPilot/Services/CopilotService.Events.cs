@@ -598,11 +598,15 @@ public partial class CopilotService
                     Debug($"[ERROR] '{sessionName}' SessionErrorEvent cleared IsProcessing (error={errMsg})");
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
+                    Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock (INV-1)
                     if (state.Info.ProcessingStartedAt is { } errStarted)
                         state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - errStarted).TotalSeconds;
                     state.Info.ProcessingStartedAt = null;
                     state.Info.ToolCallCount = 0;
                     state.Info.ProcessingPhase = 0;
+                    state.Info.ClearPermissionDenials();
+                    // Fire completion notification so orchestrator loops are unblocked
+                    OnSessionComplete?.Invoke(sessionName, $"[Error] {errMsg}");
                     OnStateChanged?.Invoke();
                 });
                 break;
