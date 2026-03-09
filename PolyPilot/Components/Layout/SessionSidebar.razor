@@ -2426,8 +2426,9 @@ else
                 var baseBranch = await GetDefaultRemoteBranch(repoRoot);
                 if (baseBranch != null)
                 {
-                    // Fetch latest and create branch from the upstream default
-                    await RunProcessAsync("git", "fetch --quiet upstream 2>/dev/null || git fetch --quiet origin", repoRoot);
+                    // Best-effort fetch — continue offline from cached refs
+                    try { await RunProcessAsync("git", "fetch --quiet upstream 2>/dev/null || git fetch --quiet origin", repoRoot); }
+                    catch { /* offline is fine — use cached refs */ }
                     await RunProcessAsync("git", $"checkout -b {branchName} {baseBranch}", repoRoot);
                 }
                 else
