@@ -19,14 +19,19 @@ STAGING_DIR="$PROJECT_DIR/bin/staging"
 MAX_LAUNCH_ATTEMPTS=2
 STABILITY_SECONDS=8
 
+# Prefer ~/.dotnet/dotnet (.NET 10) over system dotnet (.NET 7)
+if [ -x "$HOME/.dotnet/dotnet" ]; then
+    export PATH="$HOME/.dotnet:$PATH"
+fi
+
 # Capture PIDs of currently running instances BEFORE build
 OLD_PIDS=$(ps -eo pid,comm | grep "PolyPilot" | grep -v grep | grep -v "PolyPilot.csproj" | awk '{print $1}' | tr '\n' ' ')
 
 echo "🔨 Building..."
 cd "$PROJECT_DIR"
 
-# Capture full build output to check for errors
-BUILD_OUTPUT=$(dotnet build PolyPilot.csproj -f net10.0-maccatalyst 2>&1)
+# -p:ValidateXcodeVersion=false handles Xcode minor version mismatches
+BUILD_OUTPUT=$(dotnet build PolyPilot.csproj -f net10.0-maccatalyst -p:ValidateXcodeVersion=false 2>&1)
 BUILD_EXIT_CODE=$?
 
 if [ $BUILD_EXIT_CODE -ne 0 ]; then
