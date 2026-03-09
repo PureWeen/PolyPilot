@@ -2637,7 +2637,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         CancelProcessingWatchdog(state);
         state.FlushedResponse.Clear();
         state.PendingReasoningMessages.Clear();
+        state.Info.ClearPermissionDenials(); // INV-1: clear on all termination paths
+        // Complete TCS AFTER state cleanup (INV-O3)
         state.ResponseCompletion?.TrySetCanceled();
+        // Fire completion notification so orchestrator loops are unblocked (INV-O4)
+        OnSessionComplete?.Invoke(sessionName, "[Abort] user cancelled");
         OnStateChanged?.Invoke();
     }
 
@@ -2725,19 +2729,24 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 state.Info.IsResumed = false;
                 Interlocked.Exchange(ref state.SendingFlag, 0);
-                state.ResponseCompletion?.TrySetCanceled();
+                // Clear IsProcessing BEFORE completing TCS (INV-O3)
                 state.Info.IsProcessing = false;
                 if (state.Info.ProcessingStartedAt is { } steerStarted)
                     state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - steerStarted).TotalSeconds;
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ToolCallCount = 0;
                 state.Info.ProcessingPhase = 0;
+                state.Info.ClearPermissionDenials(); // INV-1: clear on all termination paths
                 // Clear queued messages so stale entries don't auto-send on the next successful turn
                 state.Info.MessageQueue.Clear();
                 _queuedImagePaths.TryRemove(sessionName, out _);
                 _queuedAgentModes.TryRemove(sessionName, out _);
                 state.FlushedResponse.Clear();
                 state.PendingReasoningMessages.Clear();
+                // Complete TCS AFTER state cleanup (INV-O3)
+                state.ResponseCompletion?.TrySetCanceled();
+                // Fire completion notification so orchestrator loops are unblocked (INV-O4)
+                OnSessionComplete?.Invoke(sessionName, "[SteerError] soft steer failed");
                 OnStateChanged?.Invoke();
                 return;
             }
