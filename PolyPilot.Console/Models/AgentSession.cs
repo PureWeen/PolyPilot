@@ -100,10 +100,14 @@ public class AgentSession : IAsyncDisposable
 
         History.Add(new ChatMessage("user", prompt, DateTime.Now));
 
+        // WORKAROUND: Pass CancellationToken.None to avoid SDK bug where StreamJsonRpc's
+        // StandardCancellationStrategy tries to serialize RequestId (not in SDK's JSON context).
+        // Cancellation is handled below via TCS registration.
+        // See: https://github.com/PureWeen/PolyPilot/issues/319
         await _session.SendAsync(new MessageOptions
         {
             Prompt = prompt
-        }, cancellationToken);
+        }, CancellationToken.None);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.Token.Register(() => _responseCompletion.TrySetCanceled());
