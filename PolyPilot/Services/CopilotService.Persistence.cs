@@ -392,8 +392,12 @@ public partial class CopilotService
 
                             // "Session not found" means the CLI server doesn't know this session
                             // (e.g., worker sessions that were created but never received a message).
+                            // "corrupted" / "session file" errors mean the events.jsonl is locked or
+                            // unreadable (e.g., another copilot process owns the session).
                             // Fall back to creating a fresh session so multi-agent workers don't vanish.
-                            if (ex.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase))
+                            if (ex.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase) ||
+                                ex.Message.Contains("corrupt", StringComparison.OrdinalIgnoreCase) ||
+                                ex.Message.Contains("session file", StringComparison.OrdinalIgnoreCase))
                             {
                                 try
                                 {
