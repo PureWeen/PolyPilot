@@ -2620,10 +2620,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     newState.IsMultiAgentSession = state.IsMultiAgentSession;
                     newSession.On(evt => HandleSessionEvent(newState, evt));
                     _sessions[sessionName] = newState;
-                    // Clear the reflect-tool-configured flag so EnsureOrchestratorReflectToolsAsync
+                    // Clear the tool-dispatch-configured flag so EnsureOrchestratorToolsAsync
                     // re-runs with the new session. Without this, the flag stays set but the new
                     // session only has ShowImageTool (no delegation function, no ExcludedTools).
-                    _reflectToolConfigured.TryRemove(sessionName, out _);
+                    _toolDispatchConfigured.TryRemove(sessionName, out _);
                     state = newState;
 
                     // Increment generation AFTER registering the event handler so that any

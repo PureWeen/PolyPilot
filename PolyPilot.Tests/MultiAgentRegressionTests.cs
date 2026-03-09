@@ -1243,7 +1243,7 @@ public class MultiAgentRegressionTests
         Assert.NotNull(method);
 
         var workers = new List<string> { "sec-worker", "perf-worker" };
-        var result = (string)method!.Invoke(svc, new object?[] { "Review this code", workers, null, null, false })!;
+        var result = (string)method!.Invoke(svc, new object?[] { "Review this code", workers, null, null, false, false })!;
 
         Assert.Contains("security auditor", result);
         Assert.Contains("performance optimizer", result);
@@ -1469,8 +1469,8 @@ public class MultiAgentRegressionTests
     [Fact]
     public void ReconnectState_ShouldClearReflectToolConfigured()
     {
-        // After reconnect, _reflectToolConfigured must be cleared for the reconnected session.
-        // Without this, EnsureOrchestratorReflectToolsAsync thinks the orchestrator already has
+        // After reconnect, _toolDispatchConfigured must be cleared for the reconnected session.
+        // Without this, EnsureOrchestratorToolsAsync thinks the orchestrator already has
         // the delegation tool, but the new session was resumed with only ShowImageTool (no
         // ExcludedTools=["task"] and no custom delegation function). The orchestrator would then
         // attempt to call the "task" tool which doesn't exist on the new session, breaking the
@@ -1482,24 +1482,24 @@ public class MultiAgentRegressionTests
         var anchorIdx = source.IndexOf("[RECONNECT] '{sessionName}' reset processing state");
         Assert.True(anchorIdx >= 0, "Reconnect block anchor not found");
 
-        // _reflectToolConfigured.TryRemove must appear within ~1000 chars before the anchor
+        // _toolDispatchConfigured.TryRemove must appear within ~1000 chars before the anchor
         var start = Math.Max(0, anchorIdx - 1000);
         var reconnectBlock = source.Substring(start, anchorIdx - start + 200);
-        Assert.Contains("_reflectToolConfigured.TryRemove(sessionName", reconnectBlock);
+        Assert.Contains("_toolDispatchConfigured.TryRemove(sessionName", reconnectBlock);
     }
 
     [Fact]
     public void ToolDispatch_ShouldRefreshUsingToolDispatchEachIteration()
     {
         // usingToolDispatch must be refreshed at the start of each reflect loop iteration.
-        // If a mid-loop reconnect clears _reflectToolConfigured, the per-iteration refresh
-        // calls EnsureOrchestratorReflectToolsAsync to re-register the tool on the new session.
+        // If a mid-loop reconnect clears _toolDispatchConfigured, the per-iteration refresh
+        // calls EnsureOrchestratorToolsAsync to re-register the tool on the new session.
         // Without this, the loop uses stale usingToolDispatch=true with a session that has no tool.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
 
         // The reflect loop body: must contain the per-iteration refresh logic
-        Assert.Contains("usingToolDispatch && !_reflectToolConfigured.ContainsKey(orchestratorName)", source);
-        Assert.Contains("await EnsureOrchestratorReflectToolsAsync(orchestratorName, workerNames, ct)", source);
+        Assert.Contains("usingToolDispatch && !_toolDispatchConfigured.ContainsKey(orchestratorName)", source);
+        Assert.Contains("await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, ct)", source);
     }
 
     [Fact]
@@ -1514,7 +1514,8 @@ public class MultiAgentRegressionTests
         // The nudge method must exist
         Assert.Contains("BuildToolDispatchNudgePrompt", source);
         // Must be called inside the tool-dispatch if block (within ~3000 chars of its entry point)
-        var toolDispatchIdx = source.IndexOf("// Tool-dispatch path: workers ran as tool calls during SendPromptAndWaitAsync");
+        // Use the second comment line which is unique to the reflect loop's tool-dispatch block.
+        var toolDispatchIdx = source.IndexOf("// Also handles the case where the model skipped tool calls (nudge + retry inline)");
         Assert.True(toolDispatchIdx >= 0, "Tool-dispatch block anchor not found");
         var dispatchBlock = source.Substring(toolDispatchIdx, Math.Min(3000, source.Length - toolDispatchIdx));
         Assert.Contains("BuildToolDispatchNudgePrompt(workerNames)", dispatchBlock);
@@ -1669,22 +1670,22 @@ public class MultiAgentRegressionTests
 
     #endregion
 
-    #region Bug: EnsureOrchestratorReflectTools used _client instead of GetClientForGroup
+    #region Bug: EnsureOrchestratorTools used _client instead of GetClientForGroup
 
     /// <summary>
-    /// Bug: EnsureOrchestratorReflectToolsAsync called _client.ResumeSessionAsync directly.
+    /// Bug: EnsureOrchestratorToolsAsync called _client.ResumeSessionAsync directly.
     /// For codespace orchestrators, _client is the local Copilot client — the codespace
     /// tunnel client lives in _codespaceClients[groupId]. Using _client would resume the
     /// session against the wrong server, silently falling back to @worker: text dispatch.
     /// Fix: call GetClientForGroup(orchestratorGroupId) to get the correct client.
     /// </summary>
     [Fact]
-    public void EnsureOrchestratorReflectTools_UsesGetClientForGroup()
+    public void EnsureOrchestratorTools_UsesGetClientForGroup()
     {
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
 
-        var methodIdx = source.IndexOf("private async Task EnsureOrchestratorReflectToolsAsync");
-        Assert.True(methodIdx >= 0, "EnsureOrchestratorReflectToolsAsync method not found");
+        var methodIdx = source.IndexOf("private async Task EnsureOrchestratorToolsAsync");
+        Assert.True(methodIdx >= 0, "EnsureOrchestratorToolsAsync method not found");
         var methodEnd = source.IndexOf("\n    private ", methodIdx + 1);
         var methodBody = source.Substring(methodIdx, methodEnd - methodIdx);
 

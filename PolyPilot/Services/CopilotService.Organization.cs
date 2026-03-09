@@ -43,11 +43,11 @@ public partial class CopilotService
     // so the model sees them in its conversation context.
     private readonly ConcurrentDictionary<string, ConcurrentQueue<string>> _reflectQueuedPrompts = new();
 
-    // Per-orchestrator delegation context for tool-based worker dispatch in OrchestratorReflect mode.
+    // Per-orchestrator delegation context for tool-based worker dispatch.
     private readonly ConcurrentDictionary<string, WorkerDelegationContext> _delegationContexts = new();
 
     // Orchestrator sessions configured with ExcludedTools=["task"] + custom delegation tool.
-    private readonly ConcurrentDictionary<string, byte> _reflectToolConfigured = new();
+    private readonly ConcurrentDictionary<string, byte> _toolDispatchConfigured = new();
 
     #region Session Organization (groups, pinning, sorting)
 
@@ -1044,12 +1044,42 @@ public partial class CopilotService
 
         var workerNames = members.Where(m => m != orchestratorName).ToList();
 
+        // Configure the orchestrator session with the task delegation tool.
+        await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, cancellationToken);
+        var usingToolDispatch = _toolDispatchConfigured.ContainsKey(orchestratorName)
+                                && _delegationContexts.ContainsKey(orchestratorName);
+
         // Phase 1: Planning — ask orchestrator to analyze and assign tasks
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Planning, null));
 
-        var planningPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group?.OrchestratorPrompt, group?.RoutingContext);
+        if (usingToolDispatch)
+        {
+            var delegCtx = _delegationContexts[orchestratorName];
+            delegCtx.Reset(prompt, workerNames, cancellationToken);
+        }
+
+        var planningPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group?.OrchestratorPrompt, group?.RoutingContext, useToolDispatch: usingToolDispatch);
         var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken, originalPrompt: prompt);
 
+        // Tool-dispatch path: workers ran as tool calls during SendPromptAndWaitAsync.
+        if (usingToolDispatch && _delegationContexts.TryGetValue(orchestratorName, out var dispatchCtx)
+            && dispatchCtx.DispatchedResults.Count > 0)
+        {
+            Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch: {dispatchCtx.DispatchedResults.Count} worker(s) completed via task tool.");
+            var toolResults = dispatchCtx.DispatchedResults
+                .Select(r => new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration))
+                .ToList();
+
+            // Phase 4: Synthesize — send worker results back to orchestrator
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
+
+            var synthesisPrompt = BuildSynthesisPrompt(prompt, toolResults);
+            await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken, originalPrompt: prompt);
+            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
+            return;
+        }
+
+        // Fallback: text-parsing path via @worker: blocks
         // Phase 2: Parse task assignments from orchestrator response
         var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
         Debug($"[DISPATCH] '{orchestratorName}' plan parsed: {rawAssignments.Count} raw assignments from {workerNames.Count} workers. Response length={planResponse.Length}");
@@ -1116,10 +1146,13 @@ public partial class CopilotService
         }
     }
 
-    private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions, string? routingContext = null, bool dispatcherOnly = false)
+    private string BuildOrchestratorPlanningPrompt(string userPrompt, List<string> workerNames, string? additionalInstructions, string? routingContext = null, bool dispatcherOnly = false, bool useToolDispatch = false)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available:");
+        var workerIntro = useToolDispatch
+            ? $"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available via the `task` tool:"
+            : $"You are the orchestrator of a multi-agent group. You have {workerNames.Count} worker agent(s) available:";
+        sb.AppendLine(workerIntro);
         foreach (var w in workerNames)
         {
             var meta = GetSessionMeta(w);
@@ -1134,7 +1167,8 @@ public partial class CopilotService
             sb.AppendLine(desc);
         }
         sb.AppendLine();
-        sb.AppendLine("Route tasks to workers based on their specialization. If a worker has a described role, assign tasks that match their expertise.");
+        if (!useToolDispatch)
+            sb.AppendLine("Route tasks to workers based on their specialization. If a worker has a described role, assign tasks that match their expertise.");
         sb.AppendLine();
         sb.AppendLine("## User Request");
         sb.AppendLine(userPrompt);
@@ -1152,24 +1186,37 @@ public partial class CopilotService
         }
         sb.AppendLine();
         sb.AppendLine("## Your Task");
-        if (dispatcherOnly)
+        if (useToolDispatch)
+        {
+            sb.AppendLine("Use the `task` tool to delegate work to your workers. Call it once per sub-task.");
+            sb.AppendLine("Each `task` call dispatches one worker and returns its response.");
+            sb.AppendLine("You MUST call `task` at least once — do NOT attempt to do the work yourself.");
+            sb.AppendLine();
+            sb.AppendLine("After all `task` calls complete, synthesize the workers' results into a final response.");
+        }
+        else if (dispatcherOnly)
         {
             sb.AppendLine("You are a DISPATCHER ONLY. You do NOT have tools. You CANNOT write code, read files, or run commands yourself.");
             sb.AppendLine("Your ONLY job is to write @worker/@end blocks that assign work to your workers.");
+            sb.AppendLine("Use this exact format for each assignment:");
+            sb.AppendLine();
+            sb.AppendLine("@worker:worker-name");
+            sb.AppendLine("Detailed task description for this worker.");
+            sb.AppendLine("@end");
+            sb.AppendLine();
+            sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
         }
         else
         {
             sb.AppendLine("Break the request into tasks and assign them to workers. You may also do some coordination work yourself (e.g., verifying results, running commands).");
+            sb.AppendLine("Use this exact format for each assignment:");
+            sb.AppendLine();
+            sb.AppendLine("@worker:worker-name");
+            sb.AppendLine("Detailed task description for this worker.");
+            sb.AppendLine("@end");
+            sb.AppendLine();
+            sb.AppendLine("You may include brief analysis before the @worker blocks, but you MUST produce at least one @worker block.");
         }
-        sb.AppendLine("Use this exact format for each assignment:");
-        sb.AppendLine();
-        sb.AppendLine("@worker:worker-name");
-        sb.AppendLine("Detailed task description for this worker.");
-        sb.AppendLine("@end");
-        sb.AppendLine();
-        sb.AppendLine("You may include brief analysis before the @worker blocks, but you MUST produce at least one @worker block.");
-        if (dispatcherOnly)
-            sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
         return sb.ToString();
     }
 
@@ -1297,17 +1344,17 @@ public partial class CopilotService
 
     private record WorkerResult(string WorkerName, string? Response, bool Success, string? Error, TimeSpan Duration);
 
-    private async Task EnsureOrchestratorReflectToolsAsync(
+    private async Task EnsureOrchestratorToolsAsync(
         string orchestratorName,
         List<string> workerNames,
         CancellationToken ct)
     {
-        if (_reflectToolConfigured.ContainsKey(orchestratorName))
+        if (_toolDispatchConfigured.ContainsKey(orchestratorName))
             return;
 
         if (!_sessions.TryGetValue(orchestratorName, out var state) || state.Info.SessionId == null)
         {
-            Debug($"[REFLECT] EnsureOrchestratorReflectToolsAsync: session '{orchestratorName}' not found, skipping tool setup");
+            Debug($"[DISPATCH] EnsureOrchestratorToolsAsync: session '{orchestratorName}' not found, skipping tool setup");
             return;
         }
 
@@ -1317,7 +1364,7 @@ public partial class CopilotService
         try { client = GetClientForGroup(orchestratorGroupId); }
         catch (InvalidOperationException ex)
         {
-            Debug($"[REFLECT] EnsureOrchestratorReflectToolsAsync: client not available for '{orchestratorName}': {ex.Message}. Skipping tool setup.");
+            Debug($"[DISPATCH] EnsureOrchestratorToolsAsync: client not available for '{orchestratorName}': {ex.Message}. Skipping tool setup.");
             return;
         }
 
@@ -1332,7 +1379,7 @@ public partial class CopilotService
 
         var delegationFunction = WorkerDelegationTool.CreateFunction(context, ExecuteWrapper);
 
-        Debug($"[REFLECT] Resuming orchestrator '{orchestratorName}' with ExcludedTools=[\"task\"] + custom delegation tool");
+        Debug($"[DISPATCH] Resuming orchestrator '{orchestratorName}' with ExcludedTools=[\"task\"] + custom delegation tool");
 
         try
         {
@@ -1361,12 +1408,12 @@ public partial class CopilotService
             newSession.On(evt => HandleSessionEvent(newState, evt));
             _sessions[orchestratorName] = newState;
 
-            _reflectToolConfigured[orchestratorName] = 1;
-            Debug($"[REFLECT] Orchestrator '{orchestratorName}' configured with tool-dispatch for reflect mode");
+            _toolDispatchConfigured[orchestratorName] = 1;
+            Debug($"[DISPATCH] Orchestrator '{orchestratorName}' configured with tool-dispatch");
         }
         catch (Exception ex)
         {
-            Debug($"[REFLECT] Failed to configure orchestrator '{orchestratorName}' with delegation tool: {ex.Message}. Falling back to @worker: text dispatch.");
+            Debug($"[DISPATCH] Failed to configure orchestrator '{orchestratorName}' with delegation tool: {ex.Message}. Falling back to @worker: text dispatch.");
         }
     }
 
@@ -2174,8 +2221,8 @@ public partial class CopilotService
         var dispatchedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var attemptedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        await EnsureOrchestratorReflectToolsAsync(orchestratorName, workerNames, ct);
-        var usingToolDispatch = _reflectToolConfigured.ContainsKey(orchestratorName)
+        await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, ct);
+        var usingToolDispatch = _toolDispatchConfigured.ContainsKey(orchestratorName)
                                 && _delegationContexts.ContainsKey(orchestratorName);
 
         try
@@ -2187,12 +2234,12 @@ public partial class CopilotService
             reflectState.CurrentIteration++;
 
             // Re-ensure tools are registered each iteration: if a mid-loop reconnect cleared
-            // _reflectToolConfigured, EnsureOrchestratorReflectToolsAsync will re-configure the
+            // _toolDispatchConfigured, EnsureOrchestratorToolsAsync will re-configure the
             // new session. This is a no-op when already configured (fast dict lookup).
-            if (usingToolDispatch && !_reflectToolConfigured.ContainsKey(orchestratorName))
+            if (usingToolDispatch && !_toolDispatchConfigured.ContainsKey(orchestratorName))
             {
-                await EnsureOrchestratorReflectToolsAsync(orchestratorName, workerNames, ct);
-                usingToolDispatch = _reflectToolConfigured.ContainsKey(orchestratorName)
+                await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, ct);
+                usingToolDispatch = _toolDispatchConfigured.ContainsKey(orchestratorName)
                                     && _delegationContexts.ContainsKey(orchestratorName);
             }
 
