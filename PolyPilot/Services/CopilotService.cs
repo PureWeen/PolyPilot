@@ -2317,7 +2317,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
             // Write-through to DB
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, state.Info.History.Last());
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, state.Info.History.Last()), "AddMessageAsync");
         }
         OnStateChanged?.Invoke();
 
@@ -2381,6 +2381,30 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     if (isCodespaceSession)
                         throw new InvalidOperationException(
                             "Codespace connection lost. The health check will reconnect automatically. Please retry in a moment.");
+
+                    // If a previous reconnect failure left the client dead (null/uninitialized),
+                    // attempt lazy re-initialization so the session can self-heal.
+                    if (!isCodespaceSession && (!IsInitialized || _client == null))
+                    {
+                        Debug("Client not initialized (previous failure), attempting lazy re-initialization...");
+                        try
+                        {
+                            var reinitSettings = _currentSettings ?? ConnectionSettings.Load();
+                            if (CurrentMode == ConnectionMode.Persistent &&
+                                !_serverManager.CheckServerRunning("127.0.0.1", reinitSettings.Port))
+                            {
+                                await _serverManager.StartServerAsync(reinitSettings.Port);
+                            }
+                            _client = CreateClient(reinitSettings);
+                            await _client.StartAsync(cancellationToken);
+                            IsInitialized = true;
+                            Debug("Lazy re-initialization succeeded");
+                        }
+                        catch (Exception reinitEx)
+                        {
+                            Debug($"Lazy re-initialization failed: {reinitEx.Message}");
+                        }
+                    }
 
                     var client = GetClientForGroup(sessionGroupId);
                     if (client == null)
@@ -2654,7 +2678,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             state.Info.History.Add(msg);
             state.Info.MessageCount = state.Info.History.Count;
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, msg), "AddMessageAsync");
         }
         state.CurrentResponse.Clear();
 
@@ -2744,7 +2768,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 softSteerSucceeded = true;
                 // Write to DB only after successful send to avoid orphaned entries on connection errors.
                 if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, userMsg);
+                    SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, userMsg), "AddMessageAsync");
             }
             catch (Exception ex) when (IsConnectionError(ex))
             {

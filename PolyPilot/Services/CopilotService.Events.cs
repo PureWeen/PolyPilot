@@ -169,9 +169,9 @@ public partial class CopilotService
         if (!string.IsNullOrEmpty(state.Info.SessionId))
         {
             if (isNew)
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, reasoningMsg);
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, reasoningMsg), "AddMessageAsync");
             else
-                _ = _chatDb.UpdateReasoningContentAsync(state.Info.SessionId, normalizedReasoningId, reasoningMsg.Content, false);
+                SafeFireAndForget(_chatDb.UpdateReasoningContentAsync(state.Info.SessionId, normalizedReasoningId, reasoningMsg.Content, false), "UpdateReasoningContentAsync");
         }
 
         InvokeOnUI(() => OnReasoningReceived?.Invoke(sessionName, normalizedReasoningId, content));
@@ -194,7 +194,7 @@ public partial class CopilotService
             {
                 completedIds.Add(msg.ReasoningId);
                 if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.UpdateReasoningContentAsync(state.Info.SessionId, msg.ReasoningId, msg.Content, true);
+                    SafeFireAndForget(_chatDb.UpdateReasoningContentAsync(state.Info.SessionId, msg.ReasoningId, msg.Content, true), "UpdateReasoningContentAsync");
             }
         }
 
@@ -780,7 +780,7 @@ public partial class CopilotService
         state.Info.MessageCount = state.Info.History.Count;
         
         if (!string.IsNullOrEmpty(state.Info.SessionId))
-            _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+            SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, msg), "AddMessageAsync");
         
         // Track code suggestions from accumulated response segment
         _usageStats?.TrackCodeSuggestion(text);
@@ -858,7 +858,7 @@ public partial class CopilotService
 
             // Write-through to DB
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, msg), "AddMessageAsync");
             
             // Track code suggestions from final response segment
             _usageStats?.TrackCodeSuggestion(response);
@@ -1202,7 +1202,7 @@ public partial class CopilotService
             state.Info.History.Add(stallWarning);
             state.Info.MessageCount = state.Info.History.Count;
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, stallWarning);
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, stallWarning), "AddMessageAsync");
         }
 
         if (shouldContinue)
@@ -1218,7 +1218,7 @@ public partial class CopilotService
                     state.Info.History.Add(ctxWarning);
                     state.Info.MessageCount = state.Info.History.Count;
                     if (!string.IsNullOrEmpty(state.Info.SessionId))
-                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
+                        SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning), "AddMessageAsync");
                 }
                 else if (ctxPct > 0.7)
                 {
@@ -1226,7 +1226,7 @@ public partial class CopilotService
                     state.Info.History.Add(ctxWarning);
                     state.Info.MessageCount = state.Info.History.Count;
                     if (!string.IsNullOrEmpty(state.Info.SessionId))
-                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
+                        SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning), "AddMessageAsync");
                 }
             }
 
@@ -1247,7 +1247,7 @@ public partial class CopilotService
             state.Info.History.Add(reflectionMsg);
             state.Info.MessageCount = state.Info.History.Count;
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, reflectionMsg);
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, reflectionMsg), "AddMessageAsync");
 
             // Show evaluator feedback in chat if available
             if (!string.IsNullOrEmpty(evaluatorFeedback))
@@ -1256,7 +1256,7 @@ public partial class CopilotService
                 state.Info.History.Add(feedbackMsg);
                 state.Info.MessageCount = state.Info.History.Count;
                 if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, feedbackMsg);
+                    SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, feedbackMsg), "AddMessageAsync");
             }
 
             // Keep queue FIFO so user steering messages queued during this turn run first.
@@ -1329,7 +1329,7 @@ public partial class CopilotService
                 state.Info.History.Add(passMsg);
                 state.Info.MessageCount = state.Info.History.Count;
                 if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, passMsg);
+                    SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, passMsg), "AddMessageAsync");
             }
             else if (!string.IsNullOrEmpty(evaluatorFeedback))
             {
@@ -1337,14 +1337,14 @@ public partial class CopilotService
                 state.Info.History.Add(feedbackMsg);
                 state.Info.MessageCount = state.Info.History.Count;
                 if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, feedbackMsg);
+                    SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, feedbackMsg), "AddMessageAsync");
             }
 
             var completionMsg = ChatMessage.SystemMessage(cycle.BuildCompletionSummary());
             state.Info.History.Add(completionMsg);
             state.Info.MessageCount = state.Info.History.Count;
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, completionMsg);
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, completionMsg), "AddMessageAsync");
 
             // Clean up evaluator session
             if (!string.IsNullOrEmpty(cycle.EvaluatorSessionName))
