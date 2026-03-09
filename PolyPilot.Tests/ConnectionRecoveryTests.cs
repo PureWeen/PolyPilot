@@ -264,6 +264,88 @@ public class ConnectionRecoveryTests
             "client.CreateSessionAsync (Session not found fallback) must be after client = _client refresh");
     }
 
+    // ===== Regression: Fresh session after "Session not found" must include MCP servers & skills =====
+    // When the JSON-RPC connection is lost and the server-side session has expired,
+    // SendPromptAsync falls back to creating a fresh session via CreateSessionAsync.
+    // Previously, the freshConfig was missing McpServers, SkillDirectories, and
+    // SystemMessage — causing "environment keeps going away" because MCP tools
+    // disappeared after reconnection.
+
+    [Fact]
+    public void SendPromptAsync_FreshSessionConfig_IncludesMcpServers()
+    {
+        // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must assign
+        // McpServers in the freshConfig so MCP tools survive reconnection.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        // Anchor on the freshConfig initializer inside the "Session not found" reconnect path
+        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
+        Assert.True(freshConfigIndex > 0, "Could not find freshConfig in reconnect path");
+
+        // Extract the config block (generously sized to cover all fields)
+        var endIndex = Math.Min(freshConfigIndex + 600, source.Length);
+        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
+        Assert.Contains("McpServers = ", configBlock);
+    }
+
+    [Fact]
+    public void SendPromptAsync_FreshSessionConfig_IncludesSkillDirectories()
+    {
+        // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must assign
+        // SkillDirectories in the freshConfig so skills survive reconnection.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
+        Assert.True(freshConfigIndex > 0, "Could not find freshConfig in reconnect path");
+
+        var endIndex = Math.Min(freshConfigIndex + 600, source.Length);
+        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
+        Assert.Contains("SkillDirectories = ", configBlock);
+    }
+
+    [Fact]
+    public void SendPromptAsync_FreshSessionConfig_IncludesSystemMessage()
+    {
+        // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must include
+        // SystemMessage so the session retains its system prompt after reconnection.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
+        Assert.True(freshConfigIndex > 0, "Could not find freshConfig in reconnect path");
+
+        var endIndex = Math.Min(freshConfigIndex + 600, source.Length);
+        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
+        Assert.Contains("SystemMessage = ", configBlock);
+        Assert.Contains("SystemMessageMode.Append", configBlock);
+    }
+
+    [Fact]
+    public void SendPromptAsync_FreshSessionConfig_MatchesCreateSessionFields()
+    {
+        // STRUCTURAL REGRESSION GUARD: The freshConfig in the reconnect path must
+        // set the same critical fields as the original CreateSessionAsync config.
+        // This prevents "environment keeps going away" after connection loss.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
+        Assert.True(freshConfigIndex > 0);
+
+        // Extract the full config initializer block
+        var endIndex = Math.Min(freshConfigIndex + 800, source.Length);
+        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
+
+        // All critical SessionConfig property assignments must be present
+        var requiredAssignments = new[]
+        {
+            "Model = ", "WorkingDirectory = ", "McpServers = ", "SkillDirectories = ",
+            "Tools = ", "SystemMessage = ", "OnPermissionRequest = "
+        };
+        foreach (var assignment in requiredAssignments)
+        {
+            Assert.Contains(assignment, configBlock);
+        }
+    }
+
     [Fact]
     public void IsConnectionError_DetectsOrchestratorDispatchError()
     {

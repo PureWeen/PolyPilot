@@ -2426,8 +2426,9 @@ else
                 var baseBranch = await GetDefaultRemoteBranch(repoRoot);
                 if (baseBranch != null)
                 {
-                    // Fetch latest and create branch from the upstream default
-                    await RunProcessAsync("git", "fetch --quiet upstream 2>/dev/null || git fetch --quiet origin", repoRoot);
+                    // Best-effort fetch — continue offline from cached refs
+                    try { await RunProcessAsync("git", "fetch --quiet upstream 2>/dev/null || git fetch --quiet origin", repoRoot); }
+                    catch { /* offline is fine — use cached refs */ }
                     await RunProcessAsync("git", $"checkout -b {branchName} {baseBranch}", repoRoot);
                 }
                 else
@@ -2518,8 +2519,15 @@ Important conventions:
 
     private static void LaunchCopilotInTerminal(string workingDir, string promptFile)
     {
+        // Resolve the actual CLI binary path from settings instead of assuming 'copilot' is on PATH
+        var settings = ConnectionSettings.Load();
+        var cliPath = CopilotService.ResolveCopilotCliPath(settings.CliSource);
+        if (string.IsNullOrEmpty(cliPath))
+            throw new InvalidOperationException("Copilot CLI binary not found. Check Settings → CLI Source.");
+
         if (OperatingSystem.IsWindows())
         {
+            var psCli = cliPath.Replace("'", "''");
             // Write a PowerShell script that sends the prompt as the first message
             var psScript = Path.Combine(Path.GetTempPath(), $"polypilot-launch-{Guid.NewGuid():N}.ps1");
             File.WriteAllText(psScript,
@@ -2528,7 +2536,7 @@ Important conventions:
                 $"Write-Host \"─────────────────────────────────────────\"\n" +
                 $"Write-Host \"\"\n" +
                 $"$prompt = Get-Content '{promptFile}' -Raw\n" +
-                $"copilot --yolo -i \"$prompt\"\n");
+                $"& '{psCli}' --yolo -i \"$prompt\"\n");
 
             // Launch in a new Windows Terminal / cmd window
             var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe",
@@ -2541,6 +2549,7 @@ Important conventions:
         }
         else
         {
+            var safeCli = PlatformHelper.ShellEscape(cliPath);
             // Write a shell script that sends the prompt as the first message
             var shellScript = Path.Combine(Path.GetTempPath(), $"polypilot-launch-{Guid.NewGuid():N}.sh");
             File.WriteAllText(shellScript,
@@ -2552,7 +2561,7 @@ Important conventions:
                 // --yolo grants all permissions
                 // -i (--interactive) sends the prompt then stays interactive for follow-ups
                 // (-p exits after completion; -i keeps the session open)
-                $"copilot --yolo -i \"$(cat '{promptFile}')\"\n");
+                $"{safeCli} --yolo -i \"$(cat '{promptFile}')\"\n");
             System.Diagnostics.Process.Start("chmod", $"+x \"{shellScript}\"")?.WaitForExit();
 
             // Use 'open -a Terminal <script>' — launches Terminal.app as a fully independent

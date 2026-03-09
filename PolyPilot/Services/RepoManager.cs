@@ -494,9 +494,13 @@ public class RepoManager
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
         await EnsureRepoCloneInCurrentRootAsync(repo, null, ct);
 
-        // Fetch latest from origin (prune to clean up deleted remote branches)
+        // Fetch latest from origin (prune to clean up deleted remote branches).
+        // Best-effort: continue offline so worktree creation still works from cached refs.
         if (!skipFetch)
-            await RunGitAsync(repo.BareClonePath, ct, "fetch", "--prune", "origin");
+        {
+            try { await RunGitAsync(repo.BareClonePath, ct, "fetch", "--prune", "origin"); }
+            catch (Exception ex) { Console.WriteLine($"[RepoManager] Fetch failed (continuing offline): {ex.Message}"); }
+        }
 
         // Determine base ref
         var baseRef = baseBranch ?? await GetDefaultBranch(repo.BareClonePath, ct);
