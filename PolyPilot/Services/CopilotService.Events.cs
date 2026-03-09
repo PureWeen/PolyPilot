@@ -480,11 +480,23 @@ public partial class CopilotService
                             }
                             // Guard: if tools were used this turn, the LLM may still be reasoning
                             // between tool rounds (TurnEnd → thinking → TurnStart, >4s).
-                            // HasUsedToolsThisTurn stays true across all sub-turns and is only
-                            // cleared at CompleteResponse/abort.
+                            // Don't complete immediately — wait an additional period. If no new
+                            // TurnStart arrives within that window, SessionIdleEvent was lost
+                            // (SDK bug #299) and we must complete to unblock the session.
                             if (Volatile.Read(ref state.HasUsedToolsThisTurn))
                             {
-                                Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — tools were used this turn, TurnStart likely coming");
+                                await Task.Delay(TurnEndIdleToolFallbackAdditionalMs, fallbackToken);
+                                if (fallbackToken.IsCancellationRequested) return;
+                                // Re-check: if a new tool started or TurnStart fired and cancelled
+                                // this token, we would have exited above. If still here, no new
+                                // activity arrived → SessionIdleEvent was lost → complete.
+                                if (Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0)
+                                {
+                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped after extended wait — tools still active");
+                                    return;
+                                }
+                                Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs + TurnEndIdleToolFallbackAdditionalMs}ms after TurnEnd (tools used) — firing CompleteResponse");
+                                Invoke(() => CompleteResponse(state, turnEndGen));
                                 return;
                             }
                             Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs}ms after TurnEnd — firing CompleteResponse");
@@ -1385,6 +1397,15 @@ public partial class CopilotService
     /// </summary>
     internal const int TurnEndIdleFallbackMs = 4000;
 
+    /// <summary>
+    /// Additional milliseconds to wait after the initial TurnEnd fallback when tools were used
+    /// this turn. After the base 4s wait we know there are no active tools, but the LLM may
+    /// be reasoning between rounds (TurnEnd → TurnStart gap can exceed 4s). If no TurnStart
+    /// arrives within this additional window, SessionIdleEvent was likely lost — fire CompleteResponse.
+    /// Total wait for tool sessions = TurnEndIdleFallbackMs + TurnEndIdleToolFallbackAdditionalMs = 34s.
+    /// </summary>
+    internal const int TurnEndIdleToolFallbackAdditionalMs = 30_000;
+
     private static void CancelProcessingWatchdog(SessionState state)
     {
         if (state.ProcessingWatchdog != null)
@@ -1502,6 +1523,56 @@ public partial class CopilotService
                 if (elapsed >= effectiveTimeout)
                 {
                     var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds;
+
+                    // Before killing, check what state we're actually in:
+                    //
+                    // Case A — Tool actively running (ActiveToolCallCount > 0):
+                    //   The SDK only fires events at tool start/complete; a long build or test run
+                    //   produces zero events while executing. Use server TCP liveness to decide:
+                    //   - Server alive → tool is running, reset inactivity timer and keep waiting
+                    //   - Server dead → no events will ever arrive, kill with error
+                    //   (Skipped for demo/remote where we can't probe the local TCP port)
+                    //
+                    // Case B — No active tool (ActiveToolCallCount = 0) and tools were used:
+                    //   Tool has finished. The LLM has finished (AssistantTurnEndEvent fired).
+                    //   SessionIdleEvent was lost (SDK bug #299 or network hiccup).
+                    //   The 34s fallback should have caught this, but if not, complete cleanly.
+                    //   No error message — the response IS complete, we just missed the terminal event.
+                    //
+                    // Case C — Max time exceeded OR server dead / demo / remote:
+                    //   Kill with error (genuine zombie session).
+                    if (!exceededMaxTime)
+                    {
+                        if (hasActiveTool && !IsDemoMode && !IsRemoteMode)
+                        {
+                            // Case A: check server TCP port
+                            var serverAlive = _serverManager.IsServerRunning;
+                            if (serverAlive)
+                            {
+                                Debug($"[WATCHDOG] '{sessionName}' {elapsed:F0}s inactivity but tool is running and server is alive — resetting timer " +
+                                      $"(timeout={effectiveTimeout}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                continue; // keep waiting — don't kill
+                            }
+                            Debug($"[WATCHDOG] '{sessionName}' tool running but server is not responding — killing stuck session " +
+                                  $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                        }
+                        else if (!hasActiveTool && hasUsedTools)
+                        {
+                            // Case B: tool finished, no active tools, SessionIdleEvent lost — complete cleanly
+                            var watchdogGen = Interlocked.Read(ref state.ProcessingGeneration);
+                            Debug($"[WATCHDOG] '{sessionName}' tool finished but SessionIdleEvent never arrived — completing cleanly " +
+                                  $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                            InvokeOnUI(() =>
+                            {
+                                if (!state.Info.IsProcessing) return;
+                                if (Interlocked.Read(ref state.ProcessingGeneration) != watchdogGen) return;
+                                CompleteResponse(state, watchdogGen);
+                            });
+                            break;
+                        }
+                    }
+
                     var timeoutDisplay = exceededMaxTime
                         ? $"{WatchdogMaxProcessingTimeSeconds / 60} minute(s) total processing time"
                         : effectiveTimeout >= 60

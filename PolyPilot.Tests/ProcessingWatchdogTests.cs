@@ -2153,4 +2153,93 @@ public class ProcessingWatchdogTests
         Assert.Equal(CopilotService.WatchdogInactivityTimeoutSeconds, timeout);
         Assert.True(timeout > 30, "Normal prompt must use timeout > 30s");
     }
+
+    // ===== Watchdog tool-vs-no-tool behavior (new in PR fix) =====
+
+    [Fact]
+    public void WatchdogDecision_ActiveTool_ServerAlive_ShouldResetTimer()
+    {
+        // When a tool is actively running (ActiveToolCallCount > 0) and the server is alive,
+        // the watchdog must reset the inactivity timer rather than killing the session.
+        // This is verified via source-code assertion (since SessionState is private).
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var elapsedIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
+        var block = source.Substring(elapsedIdx, 3500);
+
+        // Must check hasActiveTool before deciding server liveness path
+        Assert.True(block.Contains("hasActiveTool"),
+            "Watchdog must branch on hasActiveTool to distinguish running tool from lost-idle scenario");
+
+        // Server liveness check must be conditioned on hasActiveTool
+        var activeToolIdx = block.IndexOf("hasActiveTool");
+        var serverRunningIdx = block.IndexOf("IsServerRunning");
+        Assert.True(serverRunningIdx > activeToolIdx,
+            "IsServerRunning check must appear AFTER the hasActiveTool check (guarded by it)");
+
+        // Timer reset: LastEventAtTicks must be updated in the 'server alive' path
+        var lastEventIdx = block.IndexOf("LastEventAtTicks");
+        Assert.True(lastEventIdx > 0, "Must reset LastEventAtTicks when server is alive and tool is running");
+
+        // Must use continue to skip the kill
+        var continueIdx = block.IndexOf("continue;");
+        Assert.True(continueIdx > 0, "Must 'continue' watchdog loop when server alive and tool running");
+    }
+
+    [Fact]
+    public void WatchdogDecision_NoActiveTool_ToolsWereUsed_ShouldCompleteCleanly()
+    {
+        // When no tool is active (ActiveToolCallCount = 0) but tools WERE used this turn,
+        // the watchdog must complete the session CLEANLY (call CompleteResponse, no error msg).
+        // This is the "SessionIdleEvent lost" scenario — response is done, just terminal event missed.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var elapsedIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
+        var block = source.Substring(elapsedIdx, 8000);
+
+        // Must have both conditions
+        Assert.True(block.Contains("hasUsedTools"),
+            "Watchdog must check hasUsedTools to identify lost-idle-event scenario");
+
+        // CompleteResponse must be called in this path (not just the error path)
+        var completeResponseIdx = block.IndexOf("CompleteResponse");
+        Assert.True(completeResponseIdx > 0,
+            "Watchdog must call CompleteResponse for the lost-idle-event scenario (not just show error)");
+
+        // The error message should NOT appear in this path — clean completion, no error text
+        // The error path ('Session appears stuck') should be in a different branch
+        var stuckMsgIdx = block.IndexOf("Session appears stuck");
+        Assert.True(stuckMsgIdx > completeResponseIdx,
+            "The 'appears stuck' error message must come AFTER CompleteResponse, in a separate branch");
+    }
+
+    [Fact]
+    public void WatchdogDecision_MaxTimeExceeded_AlwaysKills()
+    {
+        // When total processing time exceeds WatchdogMaxProcessingTimeSeconds, the watchdog
+        // must kill regardless of server liveness or tool state — no session runs forever.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var elapsedIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
+        var block = source.Substring(elapsedIdx, 8000);
+
+        // exceededMaxTime must gate the liveness/clean-complete paths
+        var exceededIdx = block.IndexOf("exceededMaxTime");
+        var serverRunningIdx = block.IndexOf("IsServerRunning");
+        Assert.True(exceededIdx > 0 && serverRunningIdx > 0,
+            "Both exceededMaxTime and IsServerRunning must be present");
+        Assert.True(exceededIdx < serverRunningIdx,
+            "exceededMaxTime check must appear before the server liveness bypass — max time always kills");
+    }
+
+    private static string GetRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "PolyPilot.slnx")))
+            dir = dir.Parent;
+        return dir?.FullName ?? throw new InvalidOperationException("Could not find repo root");
+    }
 }
