@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
@@ -76,11 +77,16 @@ internal static class WorkerDelegationTool
     {
         var holder = new FunctionHolder(context, executeWorker);
         return AIFunctionFactory.Create(
-            holder.InvokeAsync,
-            name: ToolName,
-            description: "Launch a specialized agent worker to complete a task within the multi-agent group. "
-                       + "Call this once per sub-task you want to delegate. "
-                       + "Each invocation dispatches one worker session and returns its response.");
+            (Delegate)holder.InvokeAsync,
+            new AIFunctionFactoryOptions
+            {
+                Name = ToolName,
+                Description = "Launch a specialized agent worker to complete a task within the multi-agent group. "
+                            + "Call this once per sub-task you want to delegate. "
+                            + "Each invocation dispatches one worker session and returns its response.",
+                AdditionalProperties = new ReadOnlyDictionary<string, object?>(
+                    new Dictionary<string, object?> { ["is_override"] = true })
+            });
     }
 
     private sealed class FunctionHolder
