@@ -2348,7 +2348,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // Changing session.Model at runtime only updates the UI display.
             // To actually switch models, the session would need to be recreated.
             
-            await state.Session.SendAsync(messageOptions, cancellationToken);
+            // WORKAROUND: Pass CancellationToken.None to avoid SDK bug where StreamJsonRpc's
+            // StandardCancellationStrategy tries to serialize RequestId (not in SDK's JSON context).
+            // Cancellation is handled at the TCS level via ResponseCompletion.TrySetCanceled().
+            // See: https://github.com/PureWeen/PolyPilot/issues/319
+            await state.Session.SendAsync(messageOptions, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -2492,7 +2496,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     {
                         Prompt = prompt
                     };
-                    await state.Session.SendAsync(retryOptions, cancellationToken);
+                    // WORKAROUND: Pass CancellationToken.None (same reason as primary send path)
+                    await state.Session.SendAsync(retryOptions, CancellationToken.None);
                     Debug($"[RECONNECT] '{sessionName}' SendAsync completed after reconnect — awaiting events");
                 }
                 catch (Exception retryEx)
