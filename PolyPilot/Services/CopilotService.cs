@@ -2647,15 +2647,29 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // Start fresh watchdog for the new connection
                     StartProcessingWatchdog(state, sessionName);
                     
-                    Debug($"[RECONNECT] '{sessionName}' retrying prompt (len={prompt.Length})...");
-                    var retryOptions = new MessageOptions
+                    // For orchestrator sessions with tool dispatch, DON'T retry on the
+                    // reconnected session — it's likely stuck in "tool executing" state
+                    // server-side and won't produce events. Instead, complete immediately
+                    // so the reflection loop's post-send re-ensure can create a clean session.
+                    if (_delegationFunctions.ContainsKey(sessionName))
                     {
-                        Prompt = prompt
-                    };
-                    // WORKAROUND: Pass CancellationToken.None (same reason as primary send path).
-                    // Same watchdog limitation applies here.
-                    await state.Session.SendAsync(retryOptions, CancellationToken.None);
-                    Debug($"[RECONNECT] '{sessionName}' SendAsync completed after reconnect — awaiting events");
+                        Debug($"[RECONNECT] '{sessionName}' orchestrator with tool dispatch — skipping retry, loop will re-ensure tools.");
+                        CancelProcessingWatchdog(state);
+                        state.Info.IsProcessing = false;
+                        state.ResponseCompletion.TrySetResult("");
+                    }
+                    else
+                    {
+                        Debug($"[RECONNECT] '{sessionName}' retrying prompt (len={prompt.Length})...");
+                        var retryOptions = new MessageOptions
+                        {
+                            Prompt = prompt
+                        };
+                        // WORKAROUND: Pass CancellationToken.None (same reason as primary send path).
+                        // Same watchdog limitation applies here.
+                        await state.Session.SendAsync(retryOptions, CancellationToken.None);
+                        Debug($"[RECONNECT] '{sessionName}' SendAsync completed after reconnect — awaiting events");
+                    }
                 }
                 catch (Exception retryEx)
                 {
