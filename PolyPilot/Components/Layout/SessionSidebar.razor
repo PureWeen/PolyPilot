@@ -1368,9 +1368,7 @@ else
         _codespaceErrors.Remove(groupId);
         try
         {
-            var existingNames = CopilotService.GetAllSessions()
-                .Select(s => s.Name)
-                .ToHashSet();
+            var existingNames = CopilotService.GetAllSessionNames().ToHashSet();
             var sessionName = "Main";
             if (existingNames.Contains(sessionName))
             {
