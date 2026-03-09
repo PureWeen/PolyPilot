@@ -1128,9 +1128,11 @@ public partial class CopilotService
                 var prevSummary = string.Join("\n\n", allToolResults.Select(r =>
                     $"### {r.WorkerName} (completed)\n{(r.Success ? r.Response : $"ERROR: {r.Error}")}"));
                 var contPrompt = $"You are continuing to dispatch workers. You have already dispatched and received results from:\n{prevSummary}\n\n" +
-                    $"The following workers still need tasks: {string.Join(", ", remaining)}\n\n" +
+                    $"The following workers are available (but you do NOT need to use all of them): {string.Join(", ", remaining)}\n\n" +
                     $"Original request: {prompt}\n\n" +
-                    "Use the `task` tool to dispatch the next worker. Call `task` ONE AT A TIME.";
+                    "IMPORTANT: Only dispatch another worker if the original request requires MORE work beyond what has already been completed above. " +
+                    "If all requested work is done, do NOT dispatch more workers — simply respond with your final answer or synthesis.\n\n" +
+                    "If you do need to dispatch, use the `task` tool ONE AT A TIME.";
 
                 var contResponse = await SendPromptAndWaitAsync(orchestratorName, contPrompt, cancellationToken, originalPrompt: prompt);
 
