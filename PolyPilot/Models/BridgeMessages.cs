@@ -123,6 +123,10 @@ public static class BridgeMessageTypes
     public const string FiestaTaskError = "fiesta_task_error";
     public const string FiestaPing = "fiesta_ping";
     public const string FiestaPong = "fiesta_pong";
+
+    // Fiesta push-to-pair (unauthenticated /pair WebSocket path)
+    public const string FiestaPairRequest = "fiesta_pair_request";
+    public const string FiestaPairResponse = "fiesta_pair_response";
 }
 
 // --- Server → Client payloads ---
@@ -455,6 +459,22 @@ public class FiestaPingPayload
 public class FiestaPongPayload
 {
     public string Sender { get; set; } = "";
+}
+
+public class FiestaPairRequestPayload
+{
+    public string RequestId { get; set; } = "";
+    public string HostInstanceId { get; set; } = "";
+    public string HostName { get; set; } = "";
+}
+
+public class FiestaPairResponsePayload
+{
+    public string RequestId { get; set; } = "";
+    public bool Approved { get; set; }
+    public string? BridgeUrl { get; set; }
+    public string? Token { get; set; }
+    public string? WorkerName { get; set; }
 }
 
 // --- Repo bridge payloads ---
