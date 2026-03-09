@@ -22,7 +22,7 @@ public class WsBridgeServer : IDisposable
     private RepoManager? _repoManager;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
-    private DateTime _lastPairRequestAcceptedAt = DateTime.MinValue;
+    private long _lastPairRequestAcceptedAtTicks = DateTime.MinValue.Ticks;
 
     public int BridgePort => _bridgePort;
     public bool IsRunning => _listener?.IsListening == true;
@@ -210,14 +210,18 @@ public class WsBridgeServer : IDisposable
                     context.Request.Url?.AbsolutePath == "/pair")
                 {
                     // Unauthenticated pairing handshake path — rate-limited at HTTP level
-                    if ((DateTime.UtcNow - _lastPairRequestAcceptedAt).TotalSeconds < 5)
+                    // Use Interlocked.CompareExchange to atomically claim the slot, preventing TOCTOU races.
+                    var nowTicks = DateTime.UtcNow.Ticks;
+                    var lastTicks = Interlocked.Read(ref _lastPairRequestAcceptedAtTicks);
+                    var elapsed = TimeSpan.FromTicks(nowTicks - lastTicks);
+                    if (elapsed.TotalSeconds < 5 ||
+                        Interlocked.CompareExchange(ref _lastPairRequestAcceptedAtTicks, nowTicks, lastTicks) != lastTicks)
                     {
                         context.Response.StatusCode = 429;
                         context.Response.Close();
                         Console.WriteLine("[WsBridge] Pair request rate-limited");
                         continue;
                     }
-                    _lastPairRequestAcceptedAt = DateTime.UtcNow;
                     _ = Task.Run(() => HandlePairHandshakeAsync(context, ct), ct);
                 }
                 else if (context.Request.IsWebSocketRequest)
