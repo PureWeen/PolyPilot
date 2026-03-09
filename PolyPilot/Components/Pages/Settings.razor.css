@@ -666,6 +666,26 @@
     margin: 0;
 }
 
+.pair-request-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: rgba(var(--accent-rgb, 59,130,246), 0.12);
+    border: 1px solid rgba(var(--accent-rgb, 59,130,246), 0.35);
+    border-radius: 8px;
+}
+
+.pair-request-banner p {
+    margin: 0;
+    font-size: var(--type-body);
+}
+
+.pair-request-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
 .tunnel-url-section {
     display: flex;
     flex-direction: column;

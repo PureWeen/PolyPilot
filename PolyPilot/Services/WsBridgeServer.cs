@@ -22,6 +22,7 @@ public class WsBridgeServer : IDisposable
     private RepoManager? _repoManager;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
+    private DateTime _lastPairRequestAcceptedAt = DateTime.MinValue;
 
     public int BridgePort => _bridgePort;
     public bool IsRunning => _listener?.IsListening == true;
@@ -205,7 +206,21 @@ public class WsBridgeServer : IDisposable
             {
                 var context = await _listener!.GetContextAsync();
 
-                if (context.Request.IsWebSocketRequest)
+                if (context.Request.IsWebSocketRequest &&
+                    context.Request.Url?.AbsolutePath == "/pair")
+                {
+                    // Unauthenticated pairing handshake path — rate-limited at HTTP level
+                    if ((DateTime.UtcNow - _lastPairRequestAcceptedAt).TotalSeconds < 5)
+                    {
+                        context.Response.StatusCode = 429;
+                        context.Response.Close();
+                        Console.WriteLine("[WsBridge] Pair request rate-limited");
+                        continue;
+                    }
+                    _lastPairRequestAcceptedAt = DateTime.UtcNow;
+                    _ = Task.Run(() => HandlePairHandshakeAsync(context, ct), ct);
+                }
+                else if (context.Request.IsWebSocketRequest)
                 {
                     if (!ValidateClientToken(context.Request))
                     {
@@ -1310,4 +1325,31 @@ public class WsBridgeServer : IDisposable
         ".tiff" => "image/tiff",
         _ => "image/png"
     };
+
+    private async Task HandlePairHandshakeAsync(HttpListenerContext ctx, CancellationToken ct)
+    {
+        WebSocket? ws = null;
+        try
+        {
+            var wsCtx = await ctx.AcceptWebSocketAsync(null);
+            ws = wsCtx.WebSocket;
+            var remoteIp = ctx.Request.RemoteEndPoint?.Address.ToString() ?? "unknown";
+            Console.WriteLine($"[WsBridge] Pair handshake from {remoteIp}");
+
+            if (_fiestaService != null)
+                await _fiestaService.HandleIncomingPairHandshakeAsync(ws, remoteIp, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WsBridge] Pair handshake error: {ex.Message}");
+        }
+        finally
+        {
+            if (ws?.State == WebSocketState.Open)
+            {
+                try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None); }
+                catch { }
+            }
+        }
+    }
 }
