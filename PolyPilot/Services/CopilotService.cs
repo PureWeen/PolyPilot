@@ -2453,13 +2453,37 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         var freshSettings = _currentSettings ?? ConnectionSettings.Load();
                         var freshMcpServers = LoadMcpServers(freshSettings.DisabledMcpServers, freshSettings.DisabledPlugins);
                         var freshSkillDirs = LoadSkillDirectories(freshSettings.DisabledPlugins);
+                        // Rebuild system message with the same conditional logic as CreateSessionAsync
+                        var freshSystemContent = new StringBuilder();
+                        var freshDir = state.Info.WorkingDirectory;
+                        if (string.Equals(freshDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var relaunchCmd = OperatingSystem.IsWindows()
+                                ? $"powershell -ExecutionPolicy Bypass -File \"{Path.Combine(ProjectDir, "relaunch.ps1")}\""
+                                : $"bash {Path.Combine(ProjectDir, "relaunch.sh")}";
+                            freshSystemContent.AppendLine($@"
+CRITICAL BUILD INSTRUCTION: You are running inside the PolyPilot MAUI application.
+When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and relaunch by running:
+
+    {relaunchCmd}
+
+This script builds the app, launches a new instance, waits for it to start, then kills the old one.
+NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
+ALWAYS run the relaunch script as the final step after making changes to this project.
+");
+                        }
                         var freshConfig = new SessionConfig
                         {
                             Model = reconnectModel ?? DefaultModel,
-                            WorkingDirectory = state.Info.WorkingDirectory,
+                            WorkingDirectory = freshDir,
                             McpServers = freshMcpServers,
                             SkillDirectories = freshSkillDirs,
                             Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
+                            SystemMessage = new SystemMessageConfig
+                            {
+                                Mode = SystemMessageMode.Append,
+                                Content = freshSystemContent.ToString()
+                            },
                             OnPermissionRequest = AutoApprovePermissions
                         };
                         if (freshMcpServers != null)

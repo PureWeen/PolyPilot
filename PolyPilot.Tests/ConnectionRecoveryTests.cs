@@ -274,33 +274,49 @@ public class ConnectionRecoveryTests
     [Fact]
     public void SendPromptAsync_FreshSessionConfig_IncludesMcpServers()
     {
-        // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must load
-        // McpServers so MCP tools survive reconnection.
+        // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must assign
+        // McpServers in the freshConfig so MCP tools survive reconnection.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
-        // Find the "Session not found" catch block
-        var sessionNotFoundIndex = source.IndexOf("Session not found", StringComparison.OrdinalIgnoreCase);
-        Assert.True(sessionNotFoundIndex > 0, "Could not find 'Session not found' catch block");
+        // Anchor on the freshConfig initializer inside the "Session not found" reconnect path
+        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
+        Assert.True(freshConfigIndex > 0, "Could not find freshConfig in reconnect path");
 
-        // The freshConfig must include McpServers
-        var afterNotFound = source.Substring(sessionNotFoundIndex, 800);
-        Assert.Contains("McpServers", afterNotFound);
-        Assert.Contains("LoadMcpServers", afterNotFound);
+        // Extract the config block (generously sized to cover all fields)
+        var endIndex = Math.Min(freshConfigIndex + 600, source.Length);
+        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
+        Assert.Contains("McpServers = ", configBlock);
     }
 
     [Fact]
     public void SendPromptAsync_FreshSessionConfig_IncludesSkillDirectories()
     {
-        // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must load
-        // SkillDirectories so skill-based tools survive reconnection.
+        // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must assign
+        // SkillDirectories in the freshConfig so skills survive reconnection.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
-        var sessionNotFoundIndex = source.IndexOf("Session not found", StringComparison.OrdinalIgnoreCase);
-        Assert.True(sessionNotFoundIndex > 0, "Could not find 'Session not found' catch block");
+        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
+        Assert.True(freshConfigIndex > 0, "Could not find freshConfig in reconnect path");
 
-        var afterNotFound = source.Substring(sessionNotFoundIndex, 800);
-        Assert.Contains("SkillDirectories", afterNotFound);
-        Assert.Contains("LoadSkillDirectories", afterNotFound);
+        var endIndex = Math.Min(freshConfigIndex + 600, source.Length);
+        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
+        Assert.Contains("SkillDirectories = ", configBlock);
+    }
+
+    [Fact]
+    public void SendPromptAsync_FreshSessionConfig_IncludesSystemMessage()
+    {
+        // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must include
+        // SystemMessage so the session retains its system prompt after reconnection.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
+        Assert.True(freshConfigIndex > 0, "Could not find freshConfig in reconnect path");
+
+        var endIndex = Math.Min(freshConfigIndex + 600, source.Length);
+        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
+        Assert.Contains("SystemMessage = ", configBlock);
+        Assert.Contains("SystemMessageMode.Append", configBlock);
     }
 
     [Fact]
@@ -311,18 +327,22 @@ public class ConnectionRecoveryTests
         // This prevents "environment keeps going away" after connection loss.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
-        var sessionNotFoundIndex = source.IndexOf("Session not found", StringComparison.OrdinalIgnoreCase);
-        Assert.True(sessionNotFoundIndex > 0);
+        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
+        Assert.True(freshConfigIndex > 0);
 
-        // Extract the freshConfig block (from "Session not found" to well past the CreateSessionAsync call)
-        var endIndex = Math.Min(sessionNotFoundIndex + 1500, source.Length);
-        var afterNotFound = source.Substring(sessionNotFoundIndex, endIndex - sessionNotFoundIndex);
+        // Extract the full config initializer block
+        var endIndex = Math.Min(freshConfigIndex + 800, source.Length);
+        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
 
-        // All critical SessionConfig fields must be present
-        var requiredFields = new[] { "Model", "WorkingDirectory", "McpServers", "SkillDirectories", "Tools", "OnPermissionRequest" };
-        foreach (var field in requiredFields)
+        // All critical SessionConfig property assignments must be present
+        var requiredAssignments = new[]
         {
-            Assert.Contains(field, afterNotFound);
+            "Model = ", "WorkingDirectory = ", "McpServers = ", "SkillDirectories = ",
+            "Tools = ", "SystemMessage = ", "OnPermissionRequest = "
+        };
+        foreach (var assignment in requiredAssignments)
+        {
+            Assert.Contains(assignment, configBlock);
         }
     }
 
