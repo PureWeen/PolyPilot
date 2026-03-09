@@ -135,32 +135,6 @@ public static class SettingsRegistry
             SearchKeywords = "save reconnect apply restart",
         });
 
-        // ── Copilot CLI ─────────────────────────────────────────────
-
-        list.Add(new SettingDescriptor
-        {
-            Id = "cli.source",
-            Label = "CLI Source",
-            Description = "Use the CLI bundled with the app or one installed on your system.",
-            Category = "Copilot CLI",
-            Type = SettingType.CardEnum,
-            Order = 10,
-            SearchKeywords = "cli source built-in system version binary copilot",
-            Options = new[]
-            {
-                new SettingOption("BuiltIn", "📦 Built-in"),
-                new SettingOption("System", "💻 System"),
-            },
-            GetValue = ctx => ctx.Settings.CliSource.ToString(),
-            SetValue = (ctx, v) =>
-            {
-                if (v is string s && Enum.TryParse<CliSourceMode>(s, out var src))
-                    ctx.Settings.CliSource = src;
-            },
-            IsVisible = ctx => ctx.Settings.Mode != ConnectionMode.Remote
-                            && ctx.Settings.Mode != ConnectionMode.Demo
-        });
-
         // ── UI ──────────────────────────────────────────────────────
 
         list.Add(new SettingDescriptor
@@ -372,6 +346,30 @@ public static class SettingsRegistry
         });
 
         // ── Developer ───────────────────────────────────────────────
+
+        list.Add(new SettingDescriptor
+        {
+            Id = "cli.source",
+            Label = "CLI Source",
+            Description = "Use the CLI bundled with the app or one installed on your system.",
+            Category = "Developer",
+            Type = SettingType.CardEnum,
+            Order = 5,
+            SearchKeywords = "cli source built-in system version binary copilot",
+            Options = new[]
+            {
+                new SettingOption("BuiltIn", "📦 Built-in"),
+                new SettingOption("System", "💻 System"),
+            },
+            GetValue = ctx => ctx.Settings.CliSource.ToString(),
+            SetValue = (ctx, v) =>
+            {
+                if (v is string s && Enum.TryParse<CliSourceMode>(s, out var src))
+                    ctx.Settings.CliSource = src;
+            },
+            IsVisible = ctx => ctx.Settings.Mode != ConnectionMode.Remote
+                            && ctx.Settings.Mode != ConnectionMode.Demo
+        });
 
         list.Add(new SettingDescriptor
         {
