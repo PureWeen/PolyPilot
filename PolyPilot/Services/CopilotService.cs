@@ -2540,6 +2540,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     var reconnectModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
                     var reconnectConfig = new ResumeSessionConfig();
                     reconnectConfig.Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
+                    // Preserve the custom delegation tool across reconnects so iteration 2+
+                    // doesn't lose the ability to dispatch workers via the task tool.
+                    if (_delegationFunctions.TryGetValue(sessionName, out var cachedDelegationFn))
+                        reconnectConfig.Tools.Add(cachedDelegationFn);
                     reconnectConfig.OnPermissionRequest = AutoApprovePermissions;
                     if (!string.IsNullOrEmpty(reconnectModel))
                         reconnectConfig.Model = reconnectModel;
@@ -2597,6 +2601,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                             Debug($"[RECONNECT] Fresh session config includes {freshMcpServers.Count} MCP server(s)");
                         if (freshSkillDirs != null)
                             Debug($"[RECONNECT] Fresh session config includes {freshSkillDirs.Count} skill dir(s)");
+                        if (_delegationFunctions.TryGetValue(sessionName, out var freshDelegationFn))
+                            freshConfig.Tools.Add(freshDelegationFn);
                         newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
                         state.Info.SessionId = newSession.SessionId;
                     }
@@ -2620,10 +2626,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     newState.IsMultiAgentSession = state.IsMultiAgentSession;
                     newSession.On(evt => HandleSessionEvent(newState, evt));
                     _sessions[sessionName] = newState;
-                    // Clear the tool-dispatch-configured flag so EnsureOrchestratorToolsAsync
-                    // re-runs with the new session. Without this, the flag stays set but the new
-                    // session only has ShowImageTool (no delegation function, no ExcludedTools).
-                    _toolDispatchConfigured.TryRemove(sessionName, out _);
+                    // If the delegation function was preserved in the reconnect config,
+                    // keep _toolDispatchConfigured set. Otherwise clear it so
+                    // EnsureOrchestratorToolsAsync re-runs on the next iteration.
+                    if (!_delegationFunctions.ContainsKey(sessionName))
+                        _toolDispatchConfigured.TryRemove(sessionName, out _);
                     state = newState;
 
                     // Increment generation AFTER registering the event handler so that any

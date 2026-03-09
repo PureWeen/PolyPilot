@@ -46,6 +46,10 @@ public partial class CopilotService
     // Per-orchestrator delegation context for tool-based worker dispatch.
     private readonly ConcurrentDictionary<string, WorkerDelegationContext> _delegationContexts = new();
 
+    // Cached delegation AIFunction per orchestrator — reused during reconnect so the
+    // new session gets the custom task tool without a full EnsureOrchestratorToolsAsync cycle.
+    private readonly ConcurrentDictionary<string, Microsoft.Extensions.AI.AIFunction> _delegationFunctions = new();
+
     // Orchestrator sessions configured with custom delegation tool (is_override=true).
     private readonly ConcurrentDictionary<string, byte> _toolDispatchConfigured = new();
 
@@ -1419,6 +1423,7 @@ public partial class CopilotService
         }
 
         var delegationFunction = WorkerDelegationTool.CreateFunction(context, ExecuteWrapper);
+        _delegationFunctions[orchestratorName] = delegationFunction;
 
         Debug($"[DISPATCH] Resuming orchestrator '{orchestratorName}' with custom delegation tool (is_override=true)");
 
