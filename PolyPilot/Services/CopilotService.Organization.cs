@@ -1372,10 +1372,18 @@ public partial class CopilotService
 
         // Wire up ActiveToolCallCount so the SDK's idle-detection doesn't fire
         // while our long-running worker callbacks are still in progress.
-        context.OnToolDispatchStart = () => Interlocked.Increment(ref state.ActiveToolCallCount);
+        // IMPORTANT: Look up the CURRENT state from _states at callback time, NOT the
+        // captured `state` variable — EnsureOrchestratorToolsAsync replaces the SessionState
+        // during ResumeSessionAsync, so the closure's `state` ref would be stale.
+        context.OnToolDispatchStart = () =>
+        {
+            if (_sessions.TryGetValue(orchestratorName, out var s))
+                Interlocked.Increment(ref s.ActiveToolCallCount);
+        };
         context.OnToolDispatchEnd = () =>
         {
-            Interlocked.Decrement(ref state.ActiveToolCallCount);
+            if (!_sessions.TryGetValue(orchestratorName, out var s)) return;
+            Interlocked.Decrement(ref s.ActiveToolCallCount);
             // The SDK (0.1.32) does NOT fire ToolExecutionCompleteEvent or SessionIdleEvent
             // after an is_override custom tool callback returns. The orchestrator session
             // goes dark — no events at all. Without this workaround, the orchestrator is stuck
@@ -1383,22 +1391,23 @@ public partial class CopilotService
             //
             // Fix: after a short grace period (let SDK attempt to continue), manually
             // trigger CompleteResponse if the orchestrator is still stuck in processing.
-            var endGen = Interlocked.Read(ref state.ProcessingGeneration);
+            var endGen = Interlocked.Read(ref s.ProcessingGeneration);
             _ = Task.Run(async () =>
             {
                 await Task.Delay(8_000); // give SDK 8s to fire SessionIdleEvent
-                if (!state.Info.IsProcessing) return; // SDK handled it — nothing to do
-                var curGen = Interlocked.Read(ref state.ProcessingGeneration);
+                if (!_sessions.TryGetValue(orchestratorName, out var cur)) return;
+                if (!cur.Info.IsProcessing) return; // SDK handled it — nothing to do
+                var curGen = Interlocked.Read(ref cur.ProcessingGeneration);
                 if (curGen != endGen) return; // a new turn started — don't interfere
                 Debug($"[DISPATCH] '{orchestratorName}' SDK did not fire SessionIdleEvent after tool callback. " +
-                      $"Manually completing response (gen={endGen}, activeTools={state.ActiveToolCallCount}).");
+                      $"Manually completing response (gen={endGen}, activeTools={cur.ActiveToolCallCount}).");
                 // Reset orphaned ActiveToolCallCount from SDK's unbalanced ToolExecutionStart
-                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                Interlocked.Exchange(ref cur.ActiveToolCallCount, 0);
                 // Dispatch CompleteResponse on the UI sync context (same pattern as SessionIdleEvent handler)
                 if (_syncContext != null)
-                    _syncContext.Post(_ => CompleteResponse(state, endGen), null);
+                    _syncContext.Post(_ => CompleteResponse(cur, endGen), null);
                 else
-                    CompleteResponse(state, endGen);
+                    CompleteResponse(cur, endGen);
             });
         };
 
