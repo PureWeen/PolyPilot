@@ -2383,6 +2383,29 @@ public partial class CopilotService
 
             var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct, originalPrompt: prompt);
 
+            // Post-send re-ensure: if a reconnect happened during SendPromptAndWaitAsync,
+            // it cleared _toolDispatchConfigured and the retry ran on a dead session (no events,
+            // watchdog timeout). Detect this and immediately recreate a clean session with tools,
+            // then retry the prompt. This avoids waiting 600s for the watchdog on each reconnect.
+            if (usingToolDispatch && !_toolDispatchConfigured.ContainsKey(orchestratorName))
+            {
+                Debug($"[DISPATCH] '{orchestratorName}' tools lost during SendPromptAndWaitAsync (reconnect occurred). Recreating clean session.");
+                await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, ct);
+                if (_toolDispatchConfigured.ContainsKey(orchestratorName))
+                {
+                    // Reset dispatch context for the retry
+                    if (_delegationContexts.TryGetValue(orchestratorName, out var retryCtx))
+                        retryCtx.Reset(prompt, workerNames, ct);
+                    planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct, originalPrompt: prompt);
+                }
+                else
+                {
+                    // Tool setup failed — fall back to text dispatch for this iteration
+                    Debug($"[DISPATCH] '{orchestratorName}' tool re-setup failed after reconnect. Falling back to text dispatch.");
+                    usingToolDispatch = false;
+                }
+            }
+
             // Tool-dispatch path: workers ran as tool calls during SendPromptAndWaitAsync.
             // Also handles the case where the model skipped tool calls (nudge + retry inline).
             if (usingToolDispatch && _delegationContexts.TryGetValue(orchestratorName, out var dispatchCtx))

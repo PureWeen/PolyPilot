@@ -2540,10 +2540,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     var reconnectModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
                     var reconnectConfig = new ResumeSessionConfig();
                     reconnectConfig.Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
-                    // Preserve the custom delegation tool across reconnects so iteration 2+
-                    // doesn't lose the ability to dispatch workers via the task tool.
-                    if (_delegationFunctions.TryGetValue(sessionName, out var cachedDelegationFn))
-                        reconnectConfig.Tools.Add(cachedDelegationFn);
+                    // NOTE: Do NOT include the delegation tool here. The server-side session
+                    // may be stuck in "tool executing" state after an is_override tool callback.
+                    // ResumeSessionAsync on such a session produces a dead session (no events).
+                    // Instead, let the reflection loop's re-ensure check create a clean session
+                    // via EnsureOrchestratorToolsAsync on the next iteration.
                     reconnectConfig.OnPermissionRequest = AutoApprovePermissions;
                     if (!string.IsNullOrEmpty(reconnectModel))
                         reconnectConfig.Model = reconnectModel;
@@ -2626,11 +2627,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     newState.IsMultiAgentSession = state.IsMultiAgentSession;
                     newSession.On(evt => HandleSessionEvent(newState, evt));
                     _sessions[sessionName] = newState;
-                    // If the delegation function was preserved in the reconnect config,
-                    // keep _toolDispatchConfigured set. Otherwise clear it so
-                    // EnsureOrchestratorToolsAsync re-runs on the next iteration.
-                    if (!_delegationFunctions.ContainsKey(sessionName))
-                        _toolDispatchConfigured.TryRemove(sessionName, out _);
+                    // Always clear the tool-dispatch flag so EnsureOrchestratorToolsAsync
+                    // creates a clean session on the next iteration. The reconnected session
+                    // may be stuck in "tool executing" state server-side and won't produce events.
+                    _toolDispatchConfigured.TryRemove(sessionName, out _);
                     state = newState;
 
                     // Increment generation AFTER registering the event handler so that any
