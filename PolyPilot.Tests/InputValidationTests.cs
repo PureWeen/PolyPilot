@@ -119,6 +119,11 @@ public class InputValidationTests
     [Fact]
     public void ValidateImagePath_SymlinkOutsideImagesDir_ReturnsNotAllowed()
     {
+        // Skip on Windows: Unix paths like /etc/passwd are relative on Windows,
+        // so symlink resolution yields a path inside the images dir, not outside.
+        if (OperatingSystem.IsWindows())
+            return;
+
         var imagesDir = ShowImageTool.GetImagesDir();
         Directory.CreateDirectory(imagesDir);
         var linkPath = Path.Combine(imagesDir, "evil-link.png");
@@ -144,6 +149,11 @@ public class InputValidationTests
     [Fact]
     public void ValidateImagePath_DirectorySymlinkBypass_ReturnsNotAllowed()
     {
+        // Skip on Windows: Unix paths like /etc are relative on Windows,
+        // so symlink resolution yields a path inside the images dir, not outside.
+        if (OperatingSystem.IsWindows())
+            return;
+
         var imagesDir = ShowImageTool.GetImagesDir();
         Directory.CreateDirectory(imagesDir);
         var symlinkDir = Path.Combine(imagesDir, "evil-subdir");

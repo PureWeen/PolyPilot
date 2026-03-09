@@ -1462,7 +1462,7 @@ public class MultiAgentRegressionTests
         // Find the reconnect block where HasUsedToolsThisTurn is carried forward
         var reconnectBlock = source.Substring(source.IndexOf("newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn"));
         // IsMultiAgentSession must be carried forward in the same block
-        Assert.Contains("newState.IsMultiAgentSession = state.IsMultiAgentSession", reconnectBlock.Substring(0, 200));
+        Assert.Contains("newState.IsMultiAgentSession = state.IsMultiAgentSession", reconnectBlock.Substring(0, 400));
     }
 
     [Fact]

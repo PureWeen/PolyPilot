@@ -1036,6 +1036,51 @@ public class ProcessingWatchdogTests
     }
 
     [Fact]
+    public void WatchdogTimeoutSelection_MultiAgentResumed_WithEvents_UsesToolTimeout()
+    {
+        // Multi-agent session that is resumed and has received events MUST use 600s timeout,
+        // NOT 180s. The resumed+events path takes precedence over multi-agent tier.
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: true, hasUsedTools: false, isMultiAgent: true);
+
+        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(600, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_MultiAgent_EventsOnly_UsesModerateTimeout()
+    {
+        // Edge case: multi-agent session that has received events but no tools used
+        // and is NOT resumed. The hasReceivedEvents flag does NOT affect tier 3.
+        // Should still use 180s because hasActiveTool=false and hasUsedTools=false.
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: true, hasUsedTools: false, isMultiAgent: true);
+
+        Assert.Equal(CopilotService.WatchdogMultiAgentNoToolTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(180, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_Transition_180sTo600s_WhenToolStarts()
+    {
+        // Documents the transition: when a tool starts (HasUsedToolsThisTurn goes true),
+        // multi-agent sessions transition from 180s to 600s.
+        var before = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true);
+        Assert.Equal(180, before);
+
+        // Tool starts → hasActiveTool goes true
+        var during = ComputeEffectiveTimeout(
+            hasActiveTool: true, isResumed: false, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true);
+        Assert.Equal(600, during);
+
+        // After tool completes → hasUsedTools stays true
+        var after = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: true, isMultiAgent: true);
+        Assert.Equal(600, after);
+    }
+
+    [Fact]
     public void HasUsedToolsThisTurn_ResetOnNewSend()
     {
         // SendPromptAsync resets HasUsedToolsThisTurn alongside ActiveToolCallCount
@@ -1292,6 +1337,9 @@ public class ProcessingWatchdogTests
     [InlineData(false, true,  false, false, true,  30)]    // Resumed+multiAgent, no events: quiescence wins
     [InlineData(false, false, false, true,  false, 600)]   // HasUsedTools: tool timeout
     [InlineData(true,  true,  true,  true,  true,  600)]   // All flags: tool timeout
+    [InlineData(false, true,  true,  false, true,  600)]   // Resumed+multiAgent+events: tool timeout (not 180s)
+    [InlineData(false, false, true,  false, true,  180)]   // Multi-agent+events, no tools: still 180s (events don't affect tier 3)
+    [InlineData(true,  false, false, true,  true,  600)]   // Multi-agent+activeTool+hasUsedTools: tool timeout
     public void WatchdogTimeoutSelection_ExhaustiveMatrix(
         bool hasActiveTool, bool isResumed, bool hasReceivedEvents,
         bool hasUsedTools, bool isMultiAgent, int expectedTimeout)
