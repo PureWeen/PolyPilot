@@ -177,4 +177,39 @@ public class ConnectionRecoveryTests
         var aggregate = new AggregateException("A Task's exception(s) were not observed", socketEx);
         Assert.True(CopilotService.IsConnectionError(aggregate));
     }
+
+    // ===== Regression: "Client not connected. Call StartAsync() first." =====
+    // This error is thrown by the SDK as InvalidOperationException when the
+    // underlying CopilotClient connection is lost. Without this detection,
+    // SendPromptAsync skips client recreation during reconnect, causing
+    // cascading failures in multi-agent orchestrator dispatch.
+
+    [Theory]
+    [InlineData("Client not connected. Call StartAsync() first.")]
+    [InlineData("Client not connected")]
+    [InlineData("Server not connected")]
+    public void IsConnectionError_DetectsNotConnectedErrors(string message)
+    {
+        var ex = new InvalidOperationException(message);
+        Assert.True(CopilotService.IsConnectionError(ex));
+    }
+
+    [Fact]
+    public void IsConnectionError_DetectsNotConnectedWrappedInAggregate()
+    {
+        // Simulate the exact exception chain from the bug report:
+        // AggregateException → InvalidOperationException("Client not connected...")
+        var inner = new InvalidOperationException("Client not connected. Call StartAsync() first.");
+        var aggregate = new AggregateException("One or more errors occurred.", inner);
+        Assert.True(CopilotService.IsConnectionError(aggregate));
+    }
+
+    [Fact]
+    public void IsConnectionError_DetectsNotConnectedAsInnerException()
+    {
+        // InvalidOperationException wrapping another InvalidOperationException
+        var inner = new InvalidOperationException("Client not connected. Call StartAsync() first.");
+        var outer = new InvalidOperationException("Send failed", inner);
+        Assert.True(CopilotService.IsConnectionError(outer));
+    }
 }
