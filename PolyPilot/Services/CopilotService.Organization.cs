@@ -1405,8 +1405,16 @@ public partial class CopilotService
                 if (curGen != endGen) return; // a new turn started — don't interfere
                 Debug($"[DISPATCH] '{orchestratorName}' SDK did not fire SessionIdleEvent after tool callback. " +
                       $"Manually completing response (gen={endGen}, activeTools={cur.ActiveToolCallCount}).");
-                // Reset orphaned ActiveToolCallCount from SDK's unbalanced ToolExecutionStart
-                Interlocked.Exchange(ref cur.ActiveToolCallCount, 0);
+                // Only reset ActiveToolCallCount if exactly 1 tool remains (ours).
+                // An unconditional reset to 0 would orphan any concurrent tool that
+                // started during the 8s grace period.
+                var prev = Interlocked.CompareExchange(ref cur.ActiveToolCallCount, 0, 1);
+                if (prev > 1)
+                {
+                    Debug($"[DISPATCH] '{orchestratorName}' skipping manual CompleteResponse — " +
+                          $"ActiveToolCallCount={prev}, other tools still in-flight.");
+                    return;
+                }
                 // Dispatch CompleteResponse on the UI sync context (same pattern as SessionIdleEvent handler)
                 if (_syncContext != null)
                     _syncContext.Post(_ => CompleteResponse(cur, endGen), null);
