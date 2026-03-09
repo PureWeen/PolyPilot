@@ -389,9 +389,13 @@ public partial class CopilotService : IAsyncDisposable
                 try
                 {
                     using var probe = new System.Net.Sockets.TcpClient();
-                    await probe.ConnectAsync("127.0.0.1", tunnel.LocalPort, ct);
+                    using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    probeCts.CancelAfter(TimeSpan.FromSeconds(3));
+                    await probe.ConnectAsync("127.0.0.1", tunnel.LocalPort, probeCts.Token);
                     portReachable = true;
                 }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                { /* per-probe timeout — treat as unreachable */ }
                 catch (OperationCanceledException) { throw; }
                 catch { /* TCP connect failed — remote end not listening */ }
 
