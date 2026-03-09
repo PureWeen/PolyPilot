@@ -830,193 +830,6 @@ else
                                     <div class="group-menu" @onclick:stopPropagation="true">
                                         @if (!csDisconnected)
                                         {
-                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForCodespace(gId); }">
-                                                ➕ New Session
-                                            </button>
-                                        }
-                                        @if (csState == CodespaceConnectionState.Connected)
-                                        {
-                                            var csNameConnected = group.CodespaceName!;
-                                            <button class="group-menu-item" @onclick="async () => { openGroupMenuId = null; await OpenCodespaceInBrowser(csNameConnected); }">
-                                                🌐 Open in Browser
-                                            </button>
-                                            <button class="group-menu-item" @onclick="async () => { openGroupMenuId = null; await StopCodespaceFromSidebar(gId); }">
-                                                ⏹ Stop Codespace
-                                            </button>
-                                        }
-                                        @if (csState == CodespaceConnectionState.WaitingForCopilot)
-                                        {
-                                            var csName = group.CodespaceName!;
-                                            var csPort = group.CodespacePort;
-                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; OpenVSCodeForCodespace(csName); }">
-                                                ⌨ Open VS Code (start copilot)
-                                            </button>
-                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; OpenCodespaceInBrowser(csName); }">
-                                                🌐 Open in Browser
-                                            </button>
-                                            <span class="group-menu-hint">Run: copilot --headless --port @csPort</span>
-                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; RetryCodespaceConnection(gId); }">
-                                                🔄 Retry Connection
-                                            </button>
-                                        }
-                                        @if (csState == CodespaceConnectionState.SetupRequired)
-                                        {
-                                            var csNameSetup = group.CodespaceName!;
-                                            @if (!string.IsNullOrEmpty(group.SetupMessage))
-                                            {
-                                                <span class="group-menu-hint setup-hint-title">@group.SetupMessage</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="group-menu-hint setup-hint-title">SSH not available. Configure dotfiles to enable codespace integration.</span>
-                                            }
-                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; OpenCodespaceInBrowser(csNameSetup); }">
-                                                🌐 Open in Browser
-                                            </button>
-                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; OpenDotfilesSettings(); }">
-                                                🔧 Set up dotfiles
-                                            </button>
-                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; RetryCodespaceConnection(gId); }">
-                                                🔄 Retry Connection
-                                            </button>
-                                        }
-                                        @if (csState == CodespaceConnectionState.CodespaceStopped || csState == CodespaceConnectionState.Reconnecting)
-                                        {
-                                            var csGId2 = group.Id;
-                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartCodespaceFromSidebar(csGId2); }">
-                                                ▶️ Start Codespace
-                                            </button>
-                                        }
-                                        <div class="group-menu-separator"></div>
-                                        <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartGroupRename(gId); }">
-                                            ✏️ Rename
-                                        </button>
-                                        <div class="group-menu-separator"></div>
-                                        <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
-                                            🗑 Remove from PolyPilot
-                                        </button>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                        }
-
-                        @if (!group.IsCollapsed || !showGroupHeaders)
-                        {
-                            @foreach (var session in groupSessions)
-                            {
-                                sessionIndex++;
-                                var idx = sessionIndex;
-                                var meta = CopilotService.GetSessionMeta(session.Name);
-                                var sName = session.Name;
-                                <SessionListItem Session="session"
-                                                 Meta="meta"
-                                                 IsActive="@(session.Name == CopilotService.ActiveSessionName)"
-                                                 IsCompleted="@completedSessions.Contains(session.Name)"
-                                                 IsDisabled="@csDisconnected"
-                                                 IsRenaming="@(renamingSession == session.Name)"
-                                                 IsMenuOpen="@(openMenuSession == session.Name)"
-                                                 ShortcutIndex="idx"
-                                                 Groups="CopilotService.Organization.Groups"
-                                                 UsageInfo="@(usageBySession.TryGetValue(session.Name, out var usg) ? usg : null)"
-                                                 OnSelect="() => SelectSession(sName)"
-                                                 OnClose="() => CloseSession(sName)"
-                                                 OnCloseWithOptions="(opts) => CloseSessionWithOptions(sName, opts.DeleteWorktree, opts.DeleteBranch)"
-                                                 OnPin="(pinned) => { CopilotService.PinSession(sName, pinned); }"
-                                                 OnMove="(groupId) => CopilotService.MoveSession(sName, groupId)"
-                                                 OnStartRename="() => StartRename(sName)"
-                                                 OnCommitRename="CommitRename"
-                                                 OnToggleMenu="() => ToggleSessionMenu(sName)"
-                                                 OnCloseMenu="() => { openMenuSession = null; }"
-                                                 OnReportBug="() => OpenBugReportForSession(sName)"
-                                                 OnFixWithCopilot="() => OpenFixItForSession(sName)"
-                                                 OnAnalyze="() => AnalyzeSessionEfficiency(sName)" />
-                            }
-                        }
-                    }
-                }
-
-                @if (CopilotService.CodespacesEnabled && codespaceGroups.Any())
-                {
-                    <div class="sidebar-divider"></div>
-                    <div class="section-header"><span class="section-header-label" title="Alpha feature — may have rough edges">☁️ Codespaces <span style="font-size:0.7em;opacity:0.6">α</span></span></div>
-                    @foreach (var (group, groupSessions) in codespaceGroups)
-                    {
-                        var csDisconnected = group.ConnectionState != CodespaceConnectionState.Connected;
-                        var csState = group.ConnectionState;
-                        var gId = group.Id;
-                        @if (showGroupHeaders)
-                        {
-                        <div class="group-header codespace-group @(group.IsCollapsed ? "collapsed" : "") @(csDisconnected ? "cs-group-disabled" : "")"
-                             title="GitHub Codespace: @group.CodespaceName"
-                             @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
-                            <span class="group-chevron">@(group.IsCollapsed ? "▶" : "▼")</span>
-                            <span class="group-repo-icon" title="GitHub Codespace">🖥️</span>
-                            @if (csState == CodespaceConnectionState.Connected)
-                            {
-                                <span class="codespace-state-dot connected" title="Connected">●</span>
-                            }
-                            else if (csState == CodespaceConnectionState.Reconnecting)
-                            {
-                                var attempts = group.ReconnectAttempts;
-                                <span class="codespace-state-dot reconnecting" title="Reconnecting... (attempt @attempts)">●</span>
-                            }
-                            else if (csState == CodespaceConnectionState.CodespaceStopped)
-                            {
-                                <span class="codespace-state-dot stopped" title="Codespace stopped">●</span>
-                                <button class="codespace-play-btn" title="Start codespace" @onclick:stopPropagation="true" @onclick="() => StartCodespaceFromSidebar(group.Id)">▶</button>
-                            }
-                            else if (csState == CodespaceConnectionState.StartingCodespace)
-                            {
-                                <span class="codespace-state-dot starting" title="Starting codespace...">⏳</span>
-                            }
-                            else if (csState == CodespaceConnectionState.WaitingForCopilot)
-                            {
-                                <span class="codespace-state-dot waiting" title="Copilot not running — click ⋯ menu to open VS Code or browser and run: copilot --headless">●</span>
-                            }
-                            else if (csState == CodespaceConnectionState.SetupRequired)
-                            {
-                                <span class="codespace-state-dot setup" title="Setup required — SSH not available. Click ⋯ for instructions.">●</span>
-                            }
-                            @if (renamingGroupId == group.Id)
-                            {
-                                var rgId = group.Id;
-                                <input type="text" class="group-rename-input" id="groupRenameInput"
-                                       value="@group.Name"
-                                       @onclick:stopPropagation="true"
-                                       @onblur="() => CommitGroupRename(rgId)"
-                                       @onkeyup="(e) => HandleGroupRenameKeyUp(e, rgId)" />
-                            }
-                            else
-                            {
-                                <div class="cs-group-label">
-                                    <span class="group-name">@group.Name</span>
-                                    <span class="cs-group-codespace-name" title="@group.CodespaceName">@group.CodespaceName</span>
-                                    @if (csState == CodespaceConnectionState.SetupRequired)
-                                    {
-                                        <span class="cs-inline-hint">🔧 @(group.SetupMessage ?? "SSH not available — open ⋯ menu")</span>
-                                    }
-                                    else if (csState == CodespaceConnectionState.WaitingForCopilot)
-                                    {
-                                        <span class="cs-inline-hint">Start copilot in codespace — open ⋯ menu</span>
-                                    }
-                                </div>
-                            }
-                            <span class="group-count">@groupSessions.Count</span>
-                            @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
-                            {
-                                <span class="group-busy-dot"></span>
-                            }
-                            <div class="group-menu-wrapper">
-                                <button class="group-more-btn" title="More actions"
-                                        @onclick="() => { openGroupMenuId = openGroupMenuId == gId ? null : gId; }"
-                                        @onclick:stopPropagation="true">…</button>
-                                @if (openGroupMenuId == group.Id)
-                                {
-                                    <div class="group-menu-overlay" @onclick="() => { openGroupMenuId = null; }" @onclick:stopPropagation="true"></div>
-                                    <div class="group-menu" @onclick:stopPropagation="true">
-                                        @if (!csDisconnected)
-                                        {
                                             <button class="group-menu-item" @onclick="async () => { openGroupMenuId = null; await QuickCreateSessionForCodespace(gId); }">
                                                 ➕ New Session
                                             </button>
@@ -1119,10 +932,12 @@ else
                                                  OnFixWithCopilot="() => OpenFixItForSession(sName)"
                                                  OnAnalyze="() => AnalyzeSessionEfficiency(sName)" />
                             }
-                            @if (!string.IsNullOrEmpty(codespaceCreateError))
+                            @if (!string.IsNullOrEmpty(_codespaceErrors.GetValueOrDefault(group.Id)))
                             {
-                                <div class="codespace-create-error" @onclick="() => codespaceCreateError = null" title="Click to dismiss">
-                                    ⚠️ @codespaceCreateError
+                                var dismissId = group.Id;
+                                var csError = _codespaceErrors[group.Id];
+                                <div class="codespace-create-error" @onclick="() => { _codespaceErrors.Remove(dismissId); StateHasChanged(); }" title="Click to dismiss">
+                                    ⚠️ @csError
                                 </div>
                             }
                         }
@@ -1198,7 +1013,7 @@ else
     private bool isCreating = false;
     private string newSessionName = "";
     private string? createError = null;
-    private string? codespaceCreateError = null;
+    private readonly Dictionary<string, string?> _codespaceErrors = new();
     private bool showPersistedSessions = false;
     private string? renamingSession = null;
     private string? renamingGroupId = null;
@@ -1545,11 +1360,11 @@ else
         var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         if (group?.ConnectionState != CodespaceConnectionState.Connected)
         {
-            codespaceCreateError = "Codespace is not connected yet. Wait for the green dot before creating a session.";
+            _codespaceErrors[groupId] = "Codespace is not connected yet. Wait for the green dot before creating a session.";
             return;
         }
         isCreating = true;
-        codespaceCreateError = null;
+        _codespaceErrors.Remove(groupId);
         try
         {
             var existingNames = CopilotService.Organization.Sessions
@@ -1570,7 +1385,7 @@ else
         }
         catch (Exception ex)
         {
-            codespaceCreateError = ex.Message;
+            _codespaceErrors[groupId] = ex.Message;
             Console.WriteLine($"Error creating codespace session: {ex}");
         }
         finally

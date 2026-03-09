@@ -392,6 +392,7 @@ public partial class CopilotService : IAsyncDisposable
                     await probe.ConnectAsync("127.0.0.1", tunnel.LocalPort, ct);
                     portReachable = true;
                 }
+                catch (OperationCanceledException) { throw; }
                 catch { /* TCP connect failed — remote end not listening */ }
 
                 if (portReachable)
