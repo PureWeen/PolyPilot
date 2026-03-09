@@ -213,7 +213,7 @@ public class ConnectionRecoveryTests
         Assert.True(CopilotService.IsConnectionError(outer));
     }
 
-    // ===== Regression: Stale client reference in SendPromptAsync reconnect (PR #321) =====
+    // ===== Regression: Stale client reference in SendPromptAsync reconnect (PR #325) =====
     // When SendPromptAsync detects a connection error, it recreates _client but the
     // local `client` variable (captured from GetClientForGroup before reconnection)
     // still pointed to the old disposed CopilotClient. Calls to
@@ -221,42 +221,47 @@ public class ConnectionRecoveryTests
     // causing "Client not connected. Call StartAsync() first." on reconnect.
     //
     // The fix adds `client = _client;` after successful client recreation.
-    // These tests verify the invariant that GetClientForGroup returns the
-    // *current* field value, so re-reading after recreation yields the new client.
+    // CopilotClient is a concrete SDK class (no ICopilotClient interface), so we
+    // cannot mock the actual reconnect path. Instead, structural source-code tests
+    // verify the fix is present and correctly ordered — following the same pattern
+    // used by MultiAgentRegressionTests for other reconnect invariants.
 
     [Fact]
-    public async Task GetClientForGroup_ReturnsCurrentClient_AfterReconnectClientIsNew()
+    public void SendPromptAsync_ReconnectPath_RefreshesLocalClientAfterRecreation()
     {
-        // Demonstrates the stale-reference bug pattern:
-        // 1. Capture client reference via GetClientForGroup
-        // 2. Service disposes and recreates _client (via ReconnectAsync)
-        // 3. GetClientForGroup now returns the NEW client
-        // Before the fix, the local variable was never refreshed.
-        var svc = CreateService();
-        _serverManager.IsServerRunning = true;
-        _serverManager.StartServerResult = true;
+        // STRUCTURAL REGRESSION GUARD: Verify that in the reconnect catch block of
+        // SendPromptAsync, the local `client` variable is refreshed after `_client`
+        // is recreated. Without this, ResumeSessionAsync/CreateSessionAsync operate
+        // on the old disposed CopilotClient, throwing "Client not connected".
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
-        // Initialize in Demo mode (no real server needed)
-        await svc.ReconnectAsync(new PolyPilot.Models.ConnectionSettings
-        {
-            Mode = PolyPilot.Models.ConnectionMode.Demo
-        });
+        // Find the reconnect block where _client is recreated
+        var recreateIndex = source.IndexOf("_client = CreateClient(connSettings);");
+        Assert.True(recreateIndex > 0, "Could not find _client = CreateClient(connSettings) in reconnect path");
 
-        Assert.True(svc.IsInitialized, "Service should be initialized in Demo mode");
+        // After client recreation and StartAsync, the local variable must be refreshed
+        var afterRecreate = source.Substring(recreateIndex, 400);
+        Assert.Contains("client = _client", afterRecreate);
 
-        // Simulate what the reconnect path does: re-initialize with fresh settings.
-        // After ReconnectAsync, GetClientForGroup should return the new _client.
-        await svc.ReconnectAsync(new PolyPilot.Models.ConnectionSettings
-        {
-            Mode = PolyPilot.Models.ConnectionMode.Demo
-        });
+        // The refresh must come BEFORE ResumeSessionAsync is called
+        var refreshPos = afterRecreate.IndexOf("client = _client");
+        var resumePos = source.IndexOf("client.ResumeSessionAsync", recreateIndex);
+        Assert.True(recreateIndex + refreshPos < resumePos,
+            "client = _client must appear before client.ResumeSessionAsync in reconnect path");
+    }
 
-        Assert.True(svc.IsInitialized, "Service should still be initialized after reconnect");
+    [Fact]
+    public void SendPromptAsync_ReconnectPath_UsesRefreshedClientForCreateSession()
+    {
+        // STRUCTURAL REGRESSION GUARD: The stale reference also affects the
+        // "Session not found" fallback where client.CreateSessionAsync is called.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
-        // Create a session to verify the new client is functional
-        var session = await svc.CreateSessionAsync("stale-ref-test");
-        Assert.NotNull(session);
-        Assert.Equal("stale-ref-test", session.Name);
+        var recreateIndex = source.IndexOf("_client = CreateClient(connSettings);");
+        var refreshIndex = source.IndexOf("client = _client", recreateIndex);
+        var createFallbackIndex = source.IndexOf("client.CreateSessionAsync(freshConfig", refreshIndex);
+        Assert.True(createFallbackIndex > refreshIndex,
+            "client.CreateSessionAsync (Session not found fallback) must be after client = _client refresh");
     }
 
     [Fact]
@@ -291,36 +296,11 @@ public class ConnectionRecoveryTests
         Assert.True(CopilotService.IsConnectionError(phase2), "Phase 2: client not connected should be detected");
     }
 
-    [Fact]
-    public async Task SendPromptAsync_DemoMode_ConnectionRecovery_SucceedsWithNewClient()
+    private static string GetRepoRoot()
     {
-        // End-to-end: verify that after a reconnect cycle, sending a prompt
-        // works because the service uses the fresh client (not stale reference).
-        var svc = CreateService();
-
-        await svc.ReconnectAsync(new PolyPilot.Models.ConnectionSettings
-        {
-            Mode = PolyPilot.Models.ConnectionMode.Demo
-        });
-
-        var session = await svc.CreateSessionAsync("recovery-test");
-        Assert.NotNull(session);
-
-        // Simulate reconnect (e.g., after connection loss)
-        await svc.ReconnectAsync(new PolyPilot.Models.ConnectionSettings
-        {
-            Mode = PolyPilot.Models.ConnectionMode.Demo
-        });
-
-        // Restore the session in the new connection
-        var restoredSession = await svc.CreateSessionAsync("recovery-test-2");
-        Assert.NotNull(restoredSession);
-
-        // Send a prompt to the new session — should work with new client
-        await svc.SendPromptAsync("recovery-test-2", "Hello after reconnect");
-
-        // Verify the session is functional (no stale reference error)
-        var sessions = svc.GetAllSessions();
-        Assert.Contains(sessions, s => s.Name == "recovery-test-2");
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return dir ?? throw new InvalidOperationException("Could not find repo root");
     }
 }
