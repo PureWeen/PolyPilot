@@ -2522,7 +2522,8 @@ Important conventions:
         // Resolve the actual CLI binary path from settings instead of assuming 'copilot' is on PATH
         var settings = ConnectionSettings.Load();
         var cliPath = CopilotService.ResolveCopilotCliPath(settings.CliSource);
-        if (string.IsNullOrEmpty(cliPath)) return;
+        if (string.IsNullOrEmpty(cliPath))
+            throw new InvalidOperationException("Copilot CLI binary not found. Check Settings → CLI Source.");
 
         if (OperatingSystem.IsWindows())
         {
