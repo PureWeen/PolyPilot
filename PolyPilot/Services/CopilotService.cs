@@ -638,10 +638,18 @@ public partial class CopilotService : IAsyncDisposable
         LoadOrganization();
 
         // Restore previous sessions (includes subscribing to untracked server sessions in Persistent mode)
-        IsRestoring = true;
-        OnStateChanged?.Invoke();
-        await RestorePreviousSessionsAsync(cancellationToken);
-        IsRestoring = false;
+        // Use try-finally to GUARANTEE IsRestoring is cleared even if restore throws.
+        // This is defense-in-depth alongside the finally block inside RestorePreviousSessionsAsync.
+        try
+        {
+            IsRestoring = true;
+            OnStateChanged?.Invoke();
+            await RestorePreviousSessionsAsync(cancellationToken);
+        }
+        finally
+        {
+            IsRestoring = false;
+        }
 
         // Start health check loop for any codespace groups (regardless of whether sessions were restored)
         if (CodespacesEnabled)
