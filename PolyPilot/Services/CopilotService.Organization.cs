@@ -176,7 +176,11 @@ public partial class CopilotService
     {
         try
         {
-            var json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true });
+            string json;
+            lock (_organizationLock)
+            {
+                json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true });
+            }
             WriteOrgFile(json);
         }
         catch (Exception ex)

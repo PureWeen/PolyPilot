@@ -13,7 +13,8 @@ public partial class CopilotService
     private void SaveActiveSessionsToDisk()
     {
         if (IsDemoMode || IsRestoring) return;
-        // Snapshot entries on caller's thread to avoid concurrent mutation during timer callback
+        // Snapshot session metas for thread-safe read (this may run on timer callback thread)
+        var sessionMetas = SnapshotSessionMetas();
         List<ActiveSessionEntry> entries;
         try
         {
@@ -25,7 +26,7 @@ public partial class CopilotService
                     DisplayName = s.Info.Name,
                     Model = s.Info.Model,
                     WorkingDirectory = s.Info.WorkingDirectory,
-                    GroupId = Organization.Sessions.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
+                    GroupId = sessionMetas.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
                         : null,
@@ -58,6 +59,7 @@ public partial class CopilotService
     private void SaveActiveSessionsToDiskCore()
     {
         if (IsDemoMode) return;
+        var sessionMetas = SnapshotSessionMetas();
 
         try
         {
@@ -69,7 +71,7 @@ public partial class CopilotService
                     DisplayName = s.Info.Name,
                     Model = s.Info.Model,
                     WorkingDirectory = s.Info.WorkingDirectory,
-                    GroupId = Organization.Sessions.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
+                    GroupId = sessionMetas.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
                         : null,

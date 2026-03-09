@@ -256,7 +256,29 @@ public partial class CopilotService : IAsyncDisposable
     public bool HolidayThemeDismissed { get; set; }
 
     // Session organization (groups, pinning, sorting)
+    // Organization.Sessions is a plain List<SessionMeta> — NOT thread-safe.
+    // All mutations MUST run on the UI thread. Off-thread reads (timer callbacks,
+    // health checks) MUST use SnapshotSessionMetas() to avoid enumeration races.
     public OrganizationState Organization { get; internal set; } = new();
+    private readonly object _organizationLock = new();
+
+    /// <summary>
+    /// Returns a thread-safe snapshot of Organization.Sessions for use from
+    /// non-UI threads (timer callbacks, background tasks, health checks).
+    /// </summary>
+    internal List<SessionMeta> SnapshotSessionMetas()
+    {
+        lock (_organizationLock) return Organization.Sessions.ToList();
+    }
+
+    /// <summary>
+    /// Returns a thread-safe snapshot of Organization.Groups for use from
+    /// non-UI threads (health checks, background tasks).
+    /// </summary>
+    internal List<SessionGroup> SnapshotGroups()
+    {
+        lock (_organizationLock) return Organization.Groups.ToList();
+    }
 
     public event Action? OnStateChanged;
     public void NotifyStateChanged() => OnStateChanged?.Invoke();

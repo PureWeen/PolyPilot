@@ -361,11 +361,8 @@ public partial class CopilotService : IAsyncDisposable
 
     private async Task RunCodespaceHealthCheckAsync(CodespaceService svc, CancellationToken ct)
     {
-        // Take a snapshot of codespace groups to avoid InvalidOperationException from
-        // concurrent modifications on the UI thread. List<T> is not thread-safe.
-        List<SessionGroup> codespaceGroups;
-        try { codespaceGroups = Organization.Groups.Where(g => g.IsCodespace).ToList(); }
-        catch (InvalidOperationException) { return; } // Collection modified during enumeration — retry next cycle
+        // Thread-safe snapshot — health check runs on background thread
+        var codespaceGroups = SnapshotGroups().Where(g => g.IsCodespace).ToList();
         if (codespaceGroups.Count == 0) return;
 
         foreach (var group in codespaceGroups)
@@ -559,7 +556,8 @@ public partial class CopilotService : IAsyncDisposable
     /// </summary>
     private void NotifyCodespaceConnected(SessionGroup group)
     {
-        var firstSession = Organization.Sessions.FirstOrDefault(m => m.GroupId == group.Id);
+        // Snapshot for thread safety — this runs on health check background thread
+        var firstSession = SnapshotSessionMetas().FirstOrDefault(m => m.GroupId == group.Id);
         if (firstSession != null && _sessions.TryGetValue(firstSession.SessionName, out var state))
         {
             InvokeOnUI(() =>
@@ -738,7 +736,8 @@ public partial class CopilotService : IAsyncDisposable
     {
         if (!_codespaceClients.TryGetValue(group.Id, out var client)) return;
 
-        var groupSessions = Organization.Sessions
+        // Snapshot for thread safety — this runs on health check background thread
+        var groupSessions = SnapshotSessionMetas()
             .Where(m => m.GroupId == group.Id)
             .ToList();
 
