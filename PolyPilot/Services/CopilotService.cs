@@ -2651,12 +2651,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // reconnected session — it's likely stuck in "tool executing" state
                     // server-side and won't produce events. Instead, complete immediately
                     // so the reflection loop's post-send re-ensure can create a clean session.
-                    if (_delegationFunctions.ContainsKey(sessionName))
+                    // BUT if a tool callback is still running (ActiveToolCallCount > 0),
+                    // don't complete — let the callback finish and handle completion naturally.
+                    if (_delegationFunctions.ContainsKey(sessionName) && state.ActiveToolCallCount <= 0)
                     {
                         Debug($"[RECONNECT] '{sessionName}' orchestrator with tool dispatch — skipping retry, loop will re-ensure tools.");
                         CancelProcessingWatchdog(state);
                         state.Info.IsProcessing = false;
                         state.ResponseCompletion.TrySetResult("");
+                    }
+                    else if (_delegationFunctions.ContainsKey(sessionName) && state.ActiveToolCallCount > 0)
+                    {
+                        Debug($"[RECONNECT] '{sessionName}' orchestrator with tool dispatch — tool callback still running (activeTools={state.ActiveToolCallCount}), waiting for it to complete.");
+                        // Don't retry or complete — the tool callback will finish and OnToolDispatchEnd
+                        // will trigger CompleteResponse via the escalating poll.
                     }
                     else
                     {
