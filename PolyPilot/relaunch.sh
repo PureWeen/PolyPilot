@@ -30,7 +30,9 @@ OLD_PIDS=$(ps -eo pid,comm | grep "PolyPilot" | grep -v grep | grep -v "PolyPilo
 echo "🔨 Building..."
 cd "$PROJECT_DIR"
 
-# -p:ValidateXcodeVersion=false handles Xcode minor version mismatches
+# -p:ValidateXcodeVersion=false bypasses the .NET SDK's Xcode version-string gate.
+# Safe for minor version skew (Apple ships Xcode faster than .NET certifies it).
+# A major Xcode incompatibility will still surface as a compile/link error.
 BUILD_OUTPUT=$(dotnet build PolyPilot.csproj -f net10.0-maccatalyst -p:ValidateXcodeVersion=false 2>&1)
 BUILD_EXIT_CODE=$?
 
