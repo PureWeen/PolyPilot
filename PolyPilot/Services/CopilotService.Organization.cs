@@ -1122,7 +1122,7 @@ public partial class CopilotService
                 }
 
                 if (_delegationContexts.TryGetValue(orchestratorName, out var contCtx))
-                    contCtx.Reset(prompt, workerNames, cancellationToken);
+                    contCtx.Reset(prompt, remaining, cancellationToken);
 
                 // Build continuation prompt with previous results
                 var prevSummary = string.Join("\n\n", allToolResults.Select(r =>
