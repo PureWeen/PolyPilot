@@ -1443,7 +1443,6 @@ public partial class CopilotService
         }
 
         var delegationFunction = WorkerDelegationTool.CreateFunction(context, ExecuteWrapper);
-        _delegationFunctions[orchestratorName] = delegationFunction;
 
         Debug($"[DISPATCH] Resuming orchestrator '{orchestratorName}' with custom delegation tool (is_override=true)");
 
@@ -1465,7 +1464,29 @@ public partial class CopilotService
                 OnPermissionRequest = AutoApprovePermissions,
             };
 
-            var newSession = await client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, ct);
+            GitHub.Copilot.SDK.CopilotSession newSession;
+            try
+            {
+                newSession = await client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, ct);
+            }
+            catch (Exception resumeEx) when (resumeEx.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase))
+            {
+                // Session expired server-side. Create a fresh session with delegation tools.
+                Debug($"[DISPATCH] Session '{orchestratorName}' expired, creating fresh session with delegation tool.");
+                var freshConfig = new GitHub.Copilot.SDK.SessionConfig
+                {
+                    Model = state.Info.Model ?? DefaultModel,
+                    WorkingDirectory = state.Info.WorkingDirectory,
+                    Tools = new List<Microsoft.Extensions.AI.AIFunction>
+                    {
+                        ShowImageTool.CreateFunction(),
+                        delegationFunction,
+                    },
+                    OnPermissionRequest = AutoApprovePermissions,
+                };
+                newSession = await client.CreateSessionAsync(freshConfig, ct);
+                state.Info.SessionId = newSession.SessionId;
+            }
 
             var newState = new SessionState
             {
@@ -1475,11 +1496,15 @@ public partial class CopilotService
             newSession.On(evt => HandleSessionEvent(newState, evt));
             _sessions[orchestratorName] = newState;
 
+            // Only store the delegation function AFTER successful session creation
+            // so the reconnect handler doesn't see a stale entry from a failed attempt.
+            _delegationFunctions[orchestratorName] = delegationFunction;
             _toolDispatchConfigured[orchestratorName] = 1;
             Debug($"[DISPATCH] Orchestrator '{orchestratorName}' configured with tool-dispatch");
         }
         catch (Exception ex)
         {
+            _delegationFunctions.TryRemove(orchestratorName, out _);
             Debug($"[DISPATCH] Failed to configure orchestrator '{orchestratorName}' with delegation tool: {ex.Message}. Falling back to @worker: text dispatch.");
         }
     }
