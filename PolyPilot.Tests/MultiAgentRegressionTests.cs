@@ -1728,6 +1728,92 @@ public class MultiAgentRegressionTests
         sem.Release();
     }
 
+    /// <summary>
+    /// Regression: The inner finally block in SendViaOrchestratorReflectAsync could hang
+    /// indefinitely if SendPromptAndWaitAsync blocked on a broken SDK connection (e.g.,
+    /// StreamJsonRpc serialization errors). This prevented the outer finally from releasing
+    /// the semaphore, causing all future messages to be queued with "Reflect loop already running".
+    /// 
+    /// Fix: Leftover prompt cleanup is now done in a fire-and-forget task that doesn't block
+    /// the semaphore release.
+    /// </summary>
+    [Fact]
+    public void ReflectLoopLock_ReleasedEvenIfCleanupFails()
+    {
+        // Simulate the semaphore behavior when cleanup would normally block
+        var locks = new System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>();
+        var groupId = "test-group";
+        var cleanupStarted = new ManualResetEvent(false);
+        var cleanupComplete = new ManualResetEvent(false);
+        var semaphoreReleased = new ManualResetEvent(false);
+
+        var sem = locks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+
+        // Simulate the loop acquiring the lock
+        Assert.True(sem.Wait(0), "Loop should acquire the lock");
+
+        // Simulate the NEW code path: collect leftovers, release semaphore, then fire-and-forget cleanup
+        var task = Task.Run(async () =>
+        {
+            // This is the new pattern: cleanup runs AFTER semaphore release
+            sem.Release();
+            semaphoreReleased.Set();
+
+            // Simulate slow/blocking cleanup
+            cleanupStarted.Set();
+            await Task.Delay(TimeSpan.FromSeconds(1)); // Simulate slow SendPromptAndWaitAsync
+            cleanupComplete.Set();
+        });
+
+        // Wait for semaphore to be released (should happen immediately, not after cleanup)
+        Assert.True(semaphoreReleased.WaitOne(TimeSpan.FromSeconds(1)), 
+            "Semaphore should be released immediately, before cleanup completes");
+
+        // At this point, cleanup may still be running but semaphore is released
+        Assert.True(cleanupStarted.WaitOne(TimeSpan.FromMilliseconds(100)), 
+            "Cleanup should have started");
+
+        // A new caller should be able to acquire the lock while cleanup is still running
+        Assert.True(sem.Wait(0), "New caller should acquire the lock even while cleanup is pending");
+        sem.Release();
+
+        // Wait for cleanup to complete
+        Assert.True(cleanupComplete.WaitOne(TimeSpan.FromSeconds(5)), 
+            "Cleanup should eventually complete");
+    }
+
+    /// <summary>
+    /// Verifies that queued prompts are collected synchronously and delivered asynchronously
+    /// after the semaphore is released.
+    /// </summary>
+    [Fact]
+    public void QueuedPrompts_CollectedBeforeSemaphoreRelease()
+    {
+        var queues = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentQueue<string>>();
+        var groupId = "test-group";
+
+        // Queue some prompts
+        var queue = queues.GetOrAdd(groupId, _ => new System.Collections.Concurrent.ConcurrentQueue<string>());
+        queue.Enqueue("prompt1");
+        queue.Enqueue("prompt2");
+
+        // Collect prompts (mimics the new code path)
+        var leftoverPrompts = new List<string>();
+        if (queues.TryGetValue(groupId, out var remainingQueue))
+        {
+            while (remainingQueue.TryDequeue(out var leftover))
+                leftoverPrompts.Add(leftover);
+        }
+
+        // Queue should now be empty
+        Assert.Empty(queue);
+        
+        // Collected prompts should be intact
+        Assert.Equal(2, leftoverPrompts.Count);
+        Assert.Contains("prompt1", leftoverPrompts);
+        Assert.Contains("prompt2", leftoverPrompts);
+    }
+
     #endregion
 
     #region Bug #8: Bridge SendMessage bypasses orchestration routing

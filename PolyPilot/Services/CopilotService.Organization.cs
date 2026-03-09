@@ -2329,31 +2329,48 @@ public partial class CopilotService
             reflectState.IsActive = false;
             reflectState.CompletedAt = DateTime.Now;
             ClearPendingOrchestration();
-            // Send any remaining queued prompts to the orchestrator before releasing the lock.
-            // These were acknowledged to the user ("📨 queued") but the loop is exiting —
-            // sending them ensures the model sees them rather than silently discarding.
+
+            // Collect any remaining queued prompts for best-effort delivery AFTER releasing the lock.
+            // This prevents holding the semaphore forever if SendAsync blocks on a broken connection.
+            // The prompts are fire-and-forget — if they fail, the user will see them in history anyway.
+            var leftoverPrompts = new List<string>();
             if (_reflectQueuedPrompts.TryGetValue(groupId, out var remainingQueue))
             {
                 while (remainingQueue.TryDequeue(out var leftover))
-                {
-                    try
-                    {
-                        Debug($"[DISPATCH] Sending leftover queued prompt on loop exit (len={leftover.Length})");
-                        await SendPromptAndWaitAsync(orchestratorName,
-                            $"[User sent a message — the reflection loop has completed]\n\n{leftover}", ct, originalPrompt: leftover);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug($"[DISPATCH] Failed to send leftover queued prompt: {ex.Message}");
-                    }
-                }
+                    leftoverPrompts.Add(leftover);
             }
+
             SaveOrganization();
             InvokeOnUI(() =>
             {
                 OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, reflectState.BuildCompletionSummary());
                 OnStateChanged?.Invoke();
             });
+
+            // Fire-and-forget: send leftover prompts after releasing the loop lock.
+            // Use a captured copy of orchestratorName to avoid closure issues.
+            var orchName = orchestratorName;
+            if (leftoverPrompts.Count > 0)
+            {
+                _ = Task.Run(async () =>
+                {
+                    foreach (var leftover in leftoverPrompts)
+                    {
+                        try
+                        {
+                            Debug($"[DISPATCH] Sending leftover queued prompt after loop exit (len={leftover.Length})");
+                            using var cleanupCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                            await SendPromptAndWaitAsync(orchName,
+                                $"[User sent a message — the reflection loop has completed]\n\n{leftover}",
+                                cleanupCts.Token, originalPrompt: leftover);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug($"[DISPATCH] Failed to send leftover queued prompt: {ex.Message}");
+                        }
+                    }
+                });
+            }
         }
 
         } // end loopLock guard
