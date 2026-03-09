@@ -2446,16 +2446,26 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     }
                     catch (Exception resumeEx) when (resumeEx.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase))
                     {
-                        // Session expired server-side (e.g., codespace restarted). Create a fresh session.
+                        // Session expired server-side (e.g., codespace restarted). Create a fresh session
+                        // with full config (MCP servers, skills, system message) matching CreateSessionAsync.
                         Debug($"Session '{sessionName}' expired on server, creating fresh session...");
                         OnActivity?.Invoke(sessionName, "🔄 Session expired, creating new session...");
+                        var freshSettings = _currentSettings ?? ConnectionSettings.Load();
+                        var freshMcpServers = LoadMcpServers(freshSettings.DisabledMcpServers, freshSettings.DisabledPlugins);
+                        var freshSkillDirs = LoadSkillDirectories(freshSettings.DisabledPlugins);
                         var freshConfig = new SessionConfig
                         {
                             Model = reconnectModel ?? DefaultModel,
                             WorkingDirectory = state.Info.WorkingDirectory,
+                            McpServers = freshMcpServers,
+                            SkillDirectories = freshSkillDirs,
                             Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
                             OnPermissionRequest = AutoApprovePermissions
                         };
+                        if (freshMcpServers != null)
+                            Debug($"[RECONNECT] Fresh session config includes {freshMcpServers.Count} MCP server(s)");
+                        if (freshSkillDirs != null)
+                            Debug($"[RECONNECT] Fresh session config includes {freshSkillDirs.Count} skill dir(s)");
                         newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
                         state.Info.SessionId = newSession.SessionId;
                     }

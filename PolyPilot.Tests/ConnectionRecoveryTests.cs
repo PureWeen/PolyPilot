@@ -264,6 +264,68 @@ public class ConnectionRecoveryTests
             "client.CreateSessionAsync (Session not found fallback) must be after client = _client refresh");
     }
 
+    // ===== Regression: Fresh session after "Session not found" must include MCP servers & skills =====
+    // When the JSON-RPC connection is lost and the server-side session has expired,
+    // SendPromptAsync falls back to creating a fresh session via CreateSessionAsync.
+    // Previously, the freshConfig was missing McpServers, SkillDirectories, and
+    // SystemMessage — causing "environment keeps going away" because MCP tools
+    // disappeared after reconnection.
+
+    [Fact]
+    public void SendPromptAsync_FreshSessionConfig_IncludesMcpServers()
+    {
+        // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must load
+        // McpServers so MCP tools survive reconnection.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        // Find the "Session not found" catch block
+        var sessionNotFoundIndex = source.IndexOf("Session not found", StringComparison.OrdinalIgnoreCase);
+        Assert.True(sessionNotFoundIndex > 0, "Could not find 'Session not found' catch block");
+
+        // The freshConfig must include McpServers
+        var afterNotFound = source.Substring(sessionNotFoundIndex, 800);
+        Assert.Contains("McpServers", afterNotFound);
+        Assert.Contains("LoadMcpServers", afterNotFound);
+    }
+
+    [Fact]
+    public void SendPromptAsync_FreshSessionConfig_IncludesSkillDirectories()
+    {
+        // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must load
+        // SkillDirectories so skill-based tools survive reconnection.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var sessionNotFoundIndex = source.IndexOf("Session not found", StringComparison.OrdinalIgnoreCase);
+        Assert.True(sessionNotFoundIndex > 0, "Could not find 'Session not found' catch block");
+
+        var afterNotFound = source.Substring(sessionNotFoundIndex, 800);
+        Assert.Contains("SkillDirectories", afterNotFound);
+        Assert.Contains("LoadSkillDirectories", afterNotFound);
+    }
+
+    [Fact]
+    public void SendPromptAsync_FreshSessionConfig_MatchesCreateSessionFields()
+    {
+        // STRUCTURAL REGRESSION GUARD: The freshConfig in the reconnect path must
+        // set the same critical fields as the original CreateSessionAsync config.
+        // This prevents "environment keeps going away" after connection loss.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var sessionNotFoundIndex = source.IndexOf("Session not found", StringComparison.OrdinalIgnoreCase);
+        Assert.True(sessionNotFoundIndex > 0);
+
+        // Extract the freshConfig block (from "Session not found" to well past the CreateSessionAsync call)
+        var endIndex = Math.Min(sessionNotFoundIndex + 1500, source.Length);
+        var afterNotFound = source.Substring(sessionNotFoundIndex, endIndex - sessionNotFoundIndex);
+
+        // All critical SessionConfig fields must be present
+        var requiredFields = new[] { "Model", "WorkingDirectory", "McpServers", "SkillDirectories", "Tools", "OnPermissionRequest" };
+        foreach (var field in requiredFields)
+        {
+            Assert.Contains(field, afterNotFound);
+        }
+    }
+
     [Fact]
     public void IsConnectionError_DetectsOrchestratorDispatchError()
     {
