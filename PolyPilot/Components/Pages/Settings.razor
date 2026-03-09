@@ -406,6 +406,27 @@
     </div>
     }
 
+    @{ var cliSettings = SettingsRegistry.ForCategory("Copilot CLI", settingsCtx).ToList(); }
+    @if (cliSettings.Any())
+    {
+    <div id="settings-cli" class="settings-group @(CategoryVisible("Copilot CLI") ? "" : "search-hidden")">
+        <h2 class="group-title">Copilot CLI</h2>
+        <div class="settings-section">
+            @foreach (var desc in cliSettings)
+            {
+                @if (SettingMatchesSearch(desc))
+                {
+                    <PolyPilot.Components.Settings.SettingEditor Descriptor="desc" Context="settingsCtx" OnChanged="OnSettingChanged" />
+                }
+            }
+            @if (cliSourceChanged)
+            {
+                <div class="cli-restart-hint">⟳ Restart the app to apply the change</div>
+            }
+        </div>
+    </div>
+    }
+
     @{ var uiSettings = SettingsRegistry.ForCategory("UI", settingsCtx).ToList(); }
     <div id="settings-ui" class="settings-group @(CategoryVisible("UI") ? "" : "search-hidden")">
         <h2 class="group-title">UI</h2>

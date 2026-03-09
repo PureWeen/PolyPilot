@@ -100,15 +100,30 @@ public class AgentSession : IAsyncDisposable
 
         History.Add(new ChatMessage("user", prompt, DateTime.Now));
 
-        await _session.SendAsync(new MessageOptions
+        try
         {
-            Prompt = prompt
-        }, cancellationToken);
+            // WORKAROUND: Pass CancellationToken.None to avoid SDK bug where StreamJsonRpc's
+            // StandardCancellationStrategy tries to serialize RequestId (not in SDK's JSON context).
+            // Cancellation is handled below via TCS registration.
+            // See: https://github.com/PureWeen/PolyPilot/issues/319
+            await _session.SendAsync(new MessageOptions
+            {
+                Prompt = prompt
+            }, CancellationToken.None);
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.Token.Register(() => _responseCompletion.TrySetCanceled());
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.Token.Register(() => _responseCompletion.TrySetCanceled());
 
-        return await _responseCompletion.Task;
+            return await _responseCompletion.Task;
+        }
+        catch
+        {
+            // Reset IsProcessing on any exception (transport error, connection dropped, etc.)
+            // to avoid permanently deadlocking the session. SessionIdleEvent/SessionErrorEvent
+            // handlers also reset this, but they require the event loop to be alive.
+            IsProcessing = false;
+            throw;
+        }
     }
 
     public void ClearHistory()

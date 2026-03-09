@@ -2348,7 +2348,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // Changing session.Model at runtime only updates the UI display.
             // To actually switch models, the session would need to be recreated.
             
-            await state.Session.SendAsync(messageOptions, cancellationToken);
+            // WORKAROUND: Pass CancellationToken.None to avoid SDK bug where StreamJsonRpc's
+            // StandardCancellationStrategy tries to serialize RequestId (not in SDK's JSON context).
+            // Cancellation is handled at the TCS level via ResponseCompletion.TrySetCanceled().
+            // NOTE: If SendAsync itself blocks (half-open TCP), watchdog completes TCS but we're
+            // stuck here. This is an edge case on mobile/codespace connections; true fix requires
+            // SDK-level timeout on the transport write.
+            // See: https://github.com/PureWeen/PolyPilot/issues/319
+            await state.Session.SendAsync(messageOptions, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -2492,7 +2499,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     {
                         Prompt = prompt
                     };
-                    await state.Session.SendAsync(retryOptions, cancellationToken);
+                    // WORKAROUND: Pass CancellationToken.None (same reason as primary send path).
+                    // Same watchdog limitation applies here.
+                    await state.Session.SendAsync(retryOptions, CancellationToken.None);
                     Debug($"[RECONNECT] '{sessionName}' SendAsync completed after reconnect — awaiting events");
                 }
                 catch (Exception retryEx)
@@ -2694,6 +2703,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             bool softSteerSucceeded = false;
             try
             {
+                // NOTE: No cancellationToken passed (implicitly CancellationToken.None).
+                // This is intentional — see issue #319 for the SDK RequestId serialization bug.
                 await state.Session.SendAsync(softSteerOptions);
                 softSteerSucceeded = true;
                 // Write to DB only after successful send to avoid orphaned entries on connection errors.
