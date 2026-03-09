@@ -1394,7 +1394,8 @@ public partial class CopilotService
                     ShowImageTool.CreateFunction(),
                     delegationFunction,
                 },
-                ExcludedTools = new List<string> { WorkerDelegationTool.ToolName },
+                // is_override=true on the custom task tool replaces the built-in;
+                // ExcludedTools not needed and may block our own tool.
                 OnPermissionRequest = AutoApprovePermissions,
             };
 
@@ -1421,6 +1422,30 @@ public partial class CopilotService
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         await EnsureSessionModelAsync(workerName, cancellationToken);
+
+        // If the worker is still processing a previous task (e.g., from a cancelled loop),
+        // wait for it to finish before dispatching the new task. Without this, a new reflect
+        // loop that starts while the old loop's workers are still running fails immediately
+        // with "Session is already processing a request".
+        if (_sessions.TryGetValue(workerName, out var workerState) && workerState.Info.IsProcessing)
+        {
+            Debug($"[DISPATCH] Worker '{workerName}' is busy — waiting for current task to complete.");
+            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            waitCts.CancelAfter(TimeSpan.FromMinutes(10));
+            try
+            {
+                var completion = workerState.ResponseCompletion;
+                if (completion != null)
+                    await completion.Task.WaitAsync(waitCts.Token);
+                // Brief pause to let IsProcessing and SendingFlag fully clear
+                await Task.Delay(200, cancellationToken);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Wait timed out — proceed and let SendPromptAsync handle it
+                Debug($"[DISPATCH] Worker '{workerName}' busy-wait timed out after 10 min — proceeding anyway.");
+            }
+        }
 
         // Use per-worker system prompt if set, otherwise generic.
         // Note: .github/copilot-instructions.md is auto-loaded by the SDK for each session's working directory,

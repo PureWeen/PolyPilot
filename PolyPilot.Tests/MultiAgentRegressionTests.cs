@@ -1941,6 +1941,32 @@ public class MultiAgentRegressionTests
     private record TestWorkerResult(string WorkerName, string Response, bool Success, TimeSpan Duration);
 
     /// <summary>
+    /// When a new dispatch starts and a worker is still processing (from a cancelled
+    /// previous loop), ExecuteWorkerAsync must wait for the worker to become free
+    /// rather than immediately throwing "Session is already processing a request".
+    /// Observed in production: new reflect loop dispatched worker-1 while the old
+    /// loop's worker-1 was still running tools, causing immediate FAILED at elapsed=0.0s.
+    /// </summary>
+    [Fact]
+    public void ExecuteWorkerAsync_WaitsForBusyWorker_BeforeDispatching()
+    {
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+
+        var methodIdx = source.IndexOf("private async Task<WorkerResult> ExecuteWorkerAsync");
+        Assert.True(methodIdx >= 0, "ExecuteWorkerAsync method not found");
+        var methodEnd = source.IndexOf("\n    private ", methodIdx + 1);
+        var methodBody = source.Substring(methodIdx, methodEnd - methodIdx);
+
+        // Must check if the worker is already busy before dispatching
+        Assert.Contains("workerState.Info.IsProcessing", methodBody);
+        // Must wait on the existing ResponseCompletion, not just throw
+        Assert.Contains("completion.Task.WaitAsync", methodBody);
+        // Must log the busy-wait for diagnostics
+        Assert.Contains("[DISPATCH] Worker", methodBody);
+        Assert.Contains("is busy", methodBody);
+    }
+
+    /// <summary>
     /// HIGH PRIORITY: Tests that a connection error during worker dispatch results in
     /// Success = false rather than crashing the orchestration loop.
     /// This validates INV-O1: Workers NEVER block orchestrator completion.
