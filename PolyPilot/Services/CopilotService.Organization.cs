@@ -1065,6 +1065,23 @@ public partial class CopilotService
         var planningPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group?.OrchestratorPrompt, group?.RoutingContext, useToolDispatch: usingToolDispatch);
         var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken, originalPrompt: prompt);
 
+        // Post-send re-ensure: if reconnect cleared tools, recreate clean session and retry.
+        if (usingToolDispatch && !_toolDispatchConfigured.ContainsKey(orchestratorName))
+        {
+            Debug($"[DISPATCH] '{orchestratorName}' tools lost during planning send (reconnect). Recreating clean session.");
+            await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, cancellationToken);
+            if (_toolDispatchConfigured.ContainsKey(orchestratorName))
+            {
+                if (_delegationContexts.TryGetValue(orchestratorName, out var retryCtx))
+                    retryCtx.Reset(prompt, workerNames, cancellationToken);
+                planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken, originalPrompt: prompt);
+            }
+            else
+            {
+                usingToolDispatch = false;
+            }
+        }
+
         // Tool-dispatch path: workers ran as tool calls during SendPromptAndWaitAsync.
         if (usingToolDispatch && _delegationContexts.TryGetValue(orchestratorName, out var dispatchCtx)
             && dispatchCtx.DispatchedResults.Count > 0)
@@ -1074,7 +1091,11 @@ public partial class CopilotService
                 .Select(r => new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration))
                 .ToList();
 
-            // Phase 4: Synthesize — send worker results back to orchestrator
+            // Phase 4: Synthesize — send worker results back to orchestrator.
+            // Clear delegation state before synthesis: this prompt doesn't use the task tool,
+            // so reconnect during synthesis should retry normally (not skip-retry).
+            _delegationFunctions.TryRemove(orchestratorName, out _);
+            _toolDispatchConfigured.TryRemove(orchestratorName, out _);
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
 
             var synthesisPrompt = BuildSynthesisPrompt(prompt, toolResults);
