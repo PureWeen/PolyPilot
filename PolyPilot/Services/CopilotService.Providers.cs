@@ -458,6 +458,32 @@ public partial class CopilotService
         _providers.TryGetValue(id, out var p) ? p : null;
 
     /// <summary>
+    /// Returns all provider actions available for the given session's provider, or empty if not a provider session.
+    /// Actions are returned with their provider reference for execution.
+    /// </summary>
+    public IReadOnlyList<(ISessionProvider Provider, ProviderAction Action)> GetProviderActionsForSession(string sessionName)
+    {
+        var provider = GetProviderForSession(sessionName);
+        if (provider == null) return [];
+        return provider.GetActions().Select(a => (provider, a)).ToList();
+    }
+
+    /// <summary>
+    /// Returns all provider actions across all registered providers.
+    /// Each action is prefixed with the provider's display name for disambiguation.
+    /// </summary>
+    public IReadOnlyList<(string ProviderId, ProviderAction Action)> GetAllProviderActions()
+    {
+        var result = new List<(string, ProviderAction)>();
+        foreach (var (id, provider) in _providers)
+        {
+            foreach (var action in provider.GetActions())
+                result.Add((id, action));
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Returns a human-readable display name for a provider session.
     /// Leader sessions show LeaderDisplayName, member sessions show the member's Name.
     /// Returns null for non-provider sessions.
