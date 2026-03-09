@@ -1409,8 +1409,23 @@ public partial class CopilotService : IAsyncDisposable
         if (!Guid.TryParse(sessionId, out _))
             throw new ArgumentException("Session ID must be a valid GUID.", nameof(sessionId));
 
+        // De-duplicate display name if already taken (persisted sessions may share
+        // the same title derived from their first message)
         if (_sessions.ContainsKey(displayName))
-            throw new InvalidOperationException($"Session '{displayName}' already exists.");
+        {
+            var baseName = displayName;
+            for (int i = 2; i <= 99; i++)
+            {
+                var candidate = $"{baseName} ({i})";
+                if (!_sessions.ContainsKey(candidate))
+                {
+                    displayName = candidate;
+                    break;
+                }
+            }
+            if (_sessions.ContainsKey(displayName))
+                throw new InvalidOperationException($"Session '{baseName}' already exists (too many duplicates).");
+        }
 
         // Load history: always parse events.jsonl as source of truth, then sync to DB
         List<ChatMessage> history = LoadHistoryFromDisk(sessionId);

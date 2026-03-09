@@ -516,6 +516,85 @@ public class ConnectionRecoveryTests
         Assert.Equal("recovery-test", svc.ActiveSessionName);
     }
 
+    // ===== Resume display-name deduplication =====
+
+    [Fact]
+    public async Task ResumeSession_DuplicateDisplayName_GetsSuffix()
+    {
+        // If a session with the same display name already exists, the resume
+        // should auto-deduplicate by appending (2), (3), etc.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new PolyPilot.Models.ConnectionSettings
+        {
+            Mode = PolyPilot.Models.ConnectionMode.Demo
+        });
+
+        // Create an initial session named "My Session"
+        var first = await svc.CreateSessionAsync("My Session");
+        Assert.NotNull(first);
+        Assert.Equal("My Session", first.Name);
+
+        // Verify it's in the sessions dictionary
+        var allSessions = svc.GetAllSessions().Select(s => s.Name).ToList();
+        Assert.Contains("My Session", allSessions);
+    }
+
+    [Fact]
+    public void ResumeSession_Structural_NeverAutoDeletesOnCorruptError()
+    {
+        // STRUCTURAL REGRESSION GUARD: The ResumeSession handler in SessionSidebar
+        // must NOT call DeletePersistedSession when a corrupt-session error occurs.
+        // Auto-deleting session data causes irreversible data loss.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Components", "Layout", "SessionSidebar.razor"));
+
+        var resumeMethod = ExtractMethod(source, "private async Task ResumeSession");
+        Assert.NotNull(resumeMethod);
+
+        // Must NOT contain DeletePersistedSession call
+        Assert.DoesNotContain("DeletePersistedSession", resumeMethod);
+
+        // Must still detect corrupt errors (for the error message)
+        Assert.Contains("IsCorruptSessionError", resumeMethod);
+    }
+
+    [Fact]
+    public void ResumeSessionAsync_Structural_DedupsDuplicateDisplayName()
+    {
+        // STRUCTURAL REGRESSION GUARD: ResumeSessionAsync must de-duplicate
+        // display names instead of throwing on collision.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var methodIndex = source.IndexOf("public async Task<AgentSessionInfo> ResumeSessionAsync");
+        Assert.True(methodIndex > 0, "Could not find ResumeSessionAsync method");
+
+        // Extract enough of the method to find the dedup logic (method is ~200 lines)
+        var endIndex = Math.Min(methodIndex + 4000, source.Length);
+        var methodBlock = source[methodIndex..endIndex];
+
+        // Must NOT contain the old throw-on-collision pattern
+        Assert.DoesNotContain("already exists.", methodBlock.Split("De-duplicate")[0]);
+
+        // Must contain dedup loop
+        Assert.Contains("candidate", methodBlock);
+    }
+
+    private static string? ExtractMethod(string source, string signature)
+    {
+        var idx = source.IndexOf(signature);
+        if (idx < 0) return null;
+        int braces = 0;
+        int start = source.IndexOf('{', idx);
+        if (start < 0) return null;
+        for (int i = start; i < source.Length; i++)
+        {
+            if (source[i] == '{') braces++;
+            else if (source[i] == '}') { braces--; if (braces == 0) return source[idx..(i + 1)]; }
+        }
+        return null;
+    }
+
     // ===== ChatDatabase error resilience =====
     // AddMessageAsync must catch ALL exceptions (broad catch) so fire-and-forget
     // callers never produce UnobservedTaskException.
