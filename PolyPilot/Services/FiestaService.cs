@@ -113,16 +113,20 @@ public class FiestaService : IDisposable
     }
 
     public void LinkWorker(string name, string hostname, string bridgeUrl, string token)
+        => LinkWorkerAndReturn(name, hostname, bridgeUrl, token);
+
+    private FiestaLinkedWorker? LinkWorkerAndReturn(string name, string hostname, string bridgeUrl, string token)
     {
         var normalizedUrl = NormalizeBridgeUrl(bridgeUrl);
         if (string.IsNullOrWhiteSpace(normalizedUrl) || string.IsNullOrWhiteSpace(token))
-            return;
+            return null;
 
         var workerName = string.IsNullOrWhiteSpace(name)
             ? (!string.IsNullOrWhiteSpace(hostname) ? hostname.Trim() : normalizedUrl)
             : name.Trim();
         var workerHostname = string.IsNullOrWhiteSpace(hostname) ? workerName : hostname.Trim();
 
+        FiestaLinkedWorker result;
         lock (_stateLock)
         {
             var existing = _linkedWorkers.FirstOrDefault(w =>
@@ -136,23 +140,27 @@ public class FiestaService : IDisposable
                 existing.BridgeUrl = normalizedUrl;
                 existing.Token = token.Trim();
                 existing.LinkedAt = DateTime.UtcNow;
+                result = existing;
             }
             else
             {
-                _linkedWorkers.Add(new FiestaLinkedWorker
+                var added = new FiestaLinkedWorker
                 {
                     Name = workerName,
                     Hostname = workerHostname,
                     BridgeUrl = normalizedUrl,
                     Token = token.Trim(),
                     LinkedAt = DateTime.UtcNow
-                });
+                };
+                _linkedWorkers.Add(added);
+                result = added;
             }
         }
 
         SaveState();
         UpdateLinkedWorkerPresence();
         OnStateChanged?.Invoke();
+        return result;
     }
 
     public void RemoveLinkedWorker(string workerId)
@@ -378,10 +386,9 @@ public class FiestaService : IDisposable
             throw new FormatException("Pairing string is missing a token.");
 
         var name = !string.IsNullOrWhiteSpace(parsed.Hostname) ? parsed.Hostname : "Unknown";
-        LinkWorker(name, name, parsed.Url, parsed.Token);
-
-        lock (_stateLock)
-            return CloneLinkedWorker(_linkedWorkers[^1]);
+        var linked = LinkWorkerAndReturn(name, name, parsed.Url, parsed.Token)
+            ?? throw new InvalidOperationException("Failed to link worker (invalid URL or token).");
+        return CloneLinkedWorker(linked);
     }
 
     // ---- Push-to-pair — Worker (incoming) side (Feature C) ----
