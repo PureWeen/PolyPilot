@@ -1109,16 +1109,12 @@ public partial class CopilotService
                 var remaining = workerNames.Where(w => !dispatched.Contains(w)).ToList();
                 Debug($"[DISPATCH] '{orchestratorName}' continuation iteration {dispatchIteration}: {remaining.Count} worker(s) remaining ({string.Join(", ", remaining)}).");
 
-                // Create a fresh session with tools for the next dispatch turn
+                // Create a fresh session with tools for the next dispatch turn.
+                // Must use forceCreate because server-side session is stuck after manual CompleteResponse.
                 _delegationFunctions.TryRemove(orchestratorName, out _);
                 _toolDispatchConfigured.TryRemove(orchestratorName, out _);
 
-                if (_sessions.TryGetValue(orchestratorName, out var contState))
-                {
-                    try { await contState.Session.DisposeAsync(); } catch { }
-                }
-
-                await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, cancellationToken);
+                await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, cancellationToken, forceCreate: true);
                 if (!_toolDispatchConfigured.ContainsKey(orchestratorName))
                 {
                     Debug($"[DISPATCH] '{orchestratorName}' failed to recreate session for continuation — ending dispatch loop.");
@@ -1143,11 +1139,7 @@ public partial class CopilotService
                 {
                     Debug($"[DISPATCH] '{orchestratorName}' tools lost during continuation — recreating.");
                     _delegationFunctions.TryRemove(orchestratorName, out _);
-                    if (_sessions.TryGetValue(orchestratorName, out var lostState))
-                    {
-                        try { await lostState.Session.DisposeAsync(); } catch { }
-                    }
-                    await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, cancellationToken);
+                    await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, cancellationToken, forceCreate: true);
                     if (_toolDispatchConfigured.ContainsKey(orchestratorName))
                     {
                         if (_delegationContexts.TryGetValue(orchestratorName, out var retryCtx2))
@@ -1487,7 +1479,8 @@ public partial class CopilotService
     private async Task EnsureOrchestratorToolsAsync(
         string orchestratorName,
         List<string> workerNames,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool forceCreate = false)
     {
         if (_toolDispatchConfigured.ContainsKey(orchestratorName))
             return;
@@ -1576,35 +1569,19 @@ public partial class CopilotService
 
         var delegationFunction = WorkerDelegationTool.CreateFunction(context, ExecuteWrapper);
 
-        Debug($"[DISPATCH] Resuming orchestrator '{orchestratorName}' with custom delegation tool (is_override=true)");
+        Debug($"[DISPATCH] {(forceCreate ? "Creating fresh" : "Resuming")} orchestrator '{orchestratorName}' with custom delegation tool (is_override=true)");
 
         try
         {
             try { await state.Session.DisposeAsync(); } catch { }
 
-            var resumeConfig = new GitHub.Copilot.SDK.ResumeSessionConfig
-            {
-                Model = state.Info.Model,
-                WorkingDirectory = state.Info.WorkingDirectory,
-                Tools = new List<Microsoft.Extensions.AI.AIFunction>
-                {
-                    ShowImageTool.CreateFunction(),
-                    delegationFunction,
-                },
-                // is_override=true on the custom task tool replaces the built-in;
-                // ExcludedTools not needed and may block our own tool.
-                OnPermissionRequest = AutoApprovePermissions,
-            };
-
             GitHub.Copilot.SDK.CopilotSession newSession;
-            try
+
+            if (forceCreate)
             {
-                newSession = await client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, ct);
-            }
-            catch (Exception resumeEx) when (resumeEx.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase))
-            {
-                // Session expired server-side. Create a fresh session with delegation tools.
-                Debug($"[DISPATCH] Session '{orchestratorName}' expired, creating fresh session with delegation tool.");
+                // After manual CompleteResponse, the server-side session is stuck in
+                // "tool executing" state. ResumeSessionAsync on it creates a dead session.
+                // Use CreateSessionAsync for a clean start (loses conversation history).
                 var freshConfig = new GitHub.Copilot.SDK.SessionConfig
                 {
                     Model = state.Info.Model ?? DefaultModel,
@@ -1618,6 +1595,45 @@ public partial class CopilotService
                 };
                 newSession = await client.CreateSessionAsync(freshConfig, ct);
                 state.Info.SessionId = newSession.SessionId;
+            }
+            else
+            {
+                var resumeConfig = new GitHub.Copilot.SDK.ResumeSessionConfig
+                {
+                    Model = state.Info.Model,
+                    WorkingDirectory = state.Info.WorkingDirectory,
+                    Tools = new List<Microsoft.Extensions.AI.AIFunction>
+                    {
+                        ShowImageTool.CreateFunction(),
+                        delegationFunction,
+                    },
+                    // is_override=true on the custom task tool replaces the built-in;
+                    // ExcludedTools not needed and may block our own tool.
+                    OnPermissionRequest = AutoApprovePermissions,
+                };
+
+                try
+                {
+                    newSession = await client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, ct);
+                }
+                catch (Exception resumeEx) when (resumeEx.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Session expired server-side. Create a fresh session with delegation tools.
+                    Debug($"[DISPATCH] Session '{orchestratorName}' expired, creating fresh session with delegation tool.");
+                    var freshConfig = new GitHub.Copilot.SDK.SessionConfig
+                    {
+                        Model = state.Info.Model ?? DefaultModel,
+                        WorkingDirectory = state.Info.WorkingDirectory,
+                        Tools = new List<Microsoft.Extensions.AI.AIFunction>
+                        {
+                            ShowImageTool.CreateFunction(),
+                            delegationFunction,
+                        },
+                        OnPermissionRequest = AutoApprovePermissions,
+                    };
+                    newSession = await client.CreateSessionAsync(freshConfig, ct);
+                    state.Info.SessionId = newSession.SessionId;
+                }
             }
 
             var newState = new SessionState
