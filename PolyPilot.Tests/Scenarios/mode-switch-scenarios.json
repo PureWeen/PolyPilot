@@ -1469,6 +1469,45 @@
           "note": "The session menu is visible after right-click"
         }
       ]
+    },
+    {
+      "id": "settings-code-blocks-use-theme-colors",
+      "name": "Code blocks in settings use theme-aware colors, not Bootstrap red",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "window.location.href = '/settings'; true",
+          "note": "Navigate to settings page"
+        },
+        {
+          "action": "wait",
+          "ms": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.settings-page') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Settings page loaded"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.section-desc code')).every(el => { const s = getComputedStyle(el); return s.color !== 'rgb(214, 51, 132)'; })",
+          "expect": {
+            "equals": true
+          },
+          "note": "No .section-desc code element should have Bootstrap's --bs-code-color (#d63384 = rgb(214,51,132))"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.section-desc code')).every(el => getComputedStyle(el).borderStyle !== 'none')",
+          "expect": {
+            "equals": true
+          },
+          "note": "Code elements in section-desc should have a visible border for contrast"
+        }
+      ]
     }
   ]
 }
