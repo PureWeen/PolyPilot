@@ -1092,10 +1092,41 @@ public partial class CopilotService
                 .ToList();
 
             // Phase 4: Synthesize — send worker results back to orchestrator.
-            // Clear delegation state before synthesis: this prompt doesn't use the task tool,
-            // so reconnect during synthesis should retry normally (not skip-retry).
+            // After tool dispatch with manual CompleteResponse, the server-side session is
+            // stuck in "tool executing" state. ResumeSessionAsync on it creates a dead session.
+            // Create a completely fresh session for synthesis (no tools needed).
             _delegationFunctions.TryRemove(orchestratorName, out _);
             _toolDispatchConfigured.TryRemove(orchestratorName, out _);
+            _delegationContexts.TryRemove(orchestratorName, out _);
+
+            if (_sessions.TryGetValue(orchestratorName, out var synthState))
+            {
+                Debug($"[DISPATCH] '{orchestratorName}' creating fresh session for synthesis (old session stuck after tool dispatch).");
+                try { await synthState.Session.DisposeAsync(); } catch { }
+
+                var orchestratorGroupId2 = GetSessionMeta(orchestratorName)?.GroupId;
+                GitHub.Copilot.SDK.CopilotClient synthClient;
+                try { synthClient = GetClientForGroup(orchestratorGroupId2); }
+                catch { synthClient = _client; }
+
+                var freshSynthConfig = new GitHub.Copilot.SDK.SessionConfig
+                {
+                    Model = synthState.Info.Model ?? DefaultModel,
+                    WorkingDirectory = synthState.Info.WorkingDirectory,
+                    OnPermissionRequest = AutoApprovePermissions,
+                };
+                var freshSession = await synthClient.CreateSessionAsync(freshSynthConfig, cancellationToken);
+                synthState.Info.SessionId = freshSession.SessionId;
+                var freshSynthState = new SessionState
+                {
+                    Session = freshSession,
+                    Info = synthState.Info,
+                };
+                freshSession.On(evt => HandleSessionEvent(freshSynthState, evt));
+                _sessions[orchestratorName] = freshSynthState;
+                Debug($"[DISPATCH] '{orchestratorName}' fresh synthesis session created (id={freshSession.SessionId}).");
+            }
+
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
 
             var synthesisPrompt = BuildSynthesisPrompt(prompt, toolResults);
