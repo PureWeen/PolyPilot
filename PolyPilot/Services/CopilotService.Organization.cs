@@ -46,7 +46,7 @@ public partial class CopilotService
     // Per-orchestrator delegation context for tool-based worker dispatch.
     private readonly ConcurrentDictionary<string, WorkerDelegationContext> _delegationContexts = new();
 
-    // Orchestrator sessions configured with ExcludedTools=["task"] + custom delegation tool.
+    // Orchestrator sessions configured with custom delegation tool (is_override=true).
     private readonly ConcurrentDictionary<string, byte> _toolDispatchConfigured = new();
 
     #region Session Organization (groups, pinning, sorting)
@@ -1370,6 +1370,11 @@ public partial class CopilotService
 
         var context = _delegationContexts.GetOrAdd(orchestratorName, _ => new WorkerDelegationContext());
 
+        // Wire up ActiveToolCallCount so the SDK's idle-detection doesn't fire
+        // while our long-running worker callbacks are still in progress.
+        context.OnToolDispatchStart = () => Interlocked.Increment(ref state.ActiveToolCallCount);
+        context.OnToolDispatchEnd = () => Interlocked.Decrement(ref state.ActiveToolCallCount);
+
         async Task<(bool, string?, string?, TimeSpan)> ExecuteWrapper(
             string worker, string task, string originalPrompt, CancellationToken workerCt)
         {
@@ -1379,7 +1384,7 @@ public partial class CopilotService
 
         var delegationFunction = WorkerDelegationTool.CreateFunction(context, ExecuteWrapper);
 
-        Debug($"[DISPATCH] Resuming orchestrator '{orchestratorName}' with ExcludedTools=[\"task\"] + custom delegation tool");
+        Debug($"[DISPATCH] Resuming orchestrator '{orchestratorName}' with custom delegation tool (is_override=true)");
 
         try
         {

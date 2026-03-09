@@ -20,6 +20,15 @@ internal sealed class WorkerDelegationContext
     public string OriginalPrompt { get; private set; } = "";
     public CancellationToken CancellationToken { get; private set; }
 
+    /// <summary>
+    /// Called when a tool dispatch starts to keep the orchestrator session's
+    /// ActiveToolCallCount > 0, preventing premature SessionIdleEvent completion.
+    /// </summary>
+    public Action? OnToolDispatchStart { get; set; }
+
+    /// <summary>Called when a tool dispatch completes to decrement ActiveToolCallCount.</summary>
+    public Action? OnToolDispatchEnd { get; set; }
+
     private readonly List<ToolDispatchedResult> _results = new();
 
     /// <summary>
@@ -112,6 +121,9 @@ internal static class WorkerDelegationTool
             if (worker == null)
                 return JsonSerializer.Serialize(new { error = "No workers are available in this multi-agent group" });
 
+            // Keep the orchestrator's ActiveToolCallCount elevated so the SDK
+            // doesn't fire SessionIdleEvent while this long-running callback runs.
+            _context.OnToolDispatchStart?.Invoke();
             var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
@@ -131,6 +143,10 @@ internal static class WorkerDelegationTool
                 sw.Stop();
                 _context.AddResult(new ToolDispatchedResult(worker, null, false, ex.Message, sw.Elapsed));
                 return JsonSerializer.Serialize(new { worker, error = ex.Message });
+            }
+            finally
+            {
+                _context.OnToolDispatchEnd?.Invoke();
             }
         }
     }
