@@ -1398,12 +1398,24 @@ public partial class CopilotService
             var endGen = Interlocked.Read(ref s.ProcessingGeneration);
             _ = Task.Run(async () =>
             {
-                await Task.Delay(8_000); // give SDK 8s to fire SessionIdleEvent
+                // Poll with escalating delays: 200ms, 400ms, 800ms, 1600ms (total ~3s).
+                // If the SDK fires events, IsProcessing becomes false and we bail early.
+                // This replaces a fixed 8s wait — the SDK either fires events within
+                // milliseconds or not at all, so we don't need a long grace period.
+                int[] delaysMs = [200, 400, 800, 1600];
+                foreach (var delay in delaysMs)
+                {
+                    await Task.Delay(delay);
+                    if (!_sessions.TryGetValue(orchestratorName, out var check)) return;
+                    if (!check.Info.IsProcessing) return; // SDK handled it
+                    if (Interlocked.Read(ref check.ProcessingGeneration) != endGen) return;
+                }
+
                 if (!_sessions.TryGetValue(orchestratorName, out var cur)) return;
                 if (!cur.Info.IsProcessing) return; // SDK handled it — nothing to do
                 var curGen = Interlocked.Read(ref cur.ProcessingGeneration);
                 if (curGen != endGen) return; // a new turn started — don't interfere
-                Debug($"[DISPATCH] '{orchestratorName}' SDK did not fire SessionIdleEvent after tool callback. " +
+                Debug($"[DISPATCH] '{orchestratorName}' SDK did not fire SessionIdleEvent after tool callback (~3s). " +
                       $"Manually completing response (gen={endGen}, activeTools={cur.ActiveToolCallCount}).");
                 // Only reset ActiveToolCallCount if exactly 1 tool remains (ours).
                 // An unconditional reset to 0 would orphan any concurrent tool that
