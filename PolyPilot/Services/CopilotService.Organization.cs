@@ -1246,6 +1246,7 @@ public partial class CopilotService
         {
             sb.AppendLine("Use the `task` tool to delegate work to your workers. Call it once per sub-task.");
             sb.AppendLine("Each `task` call dispatches one worker and returns its response.");
+            sb.AppendLine("IMPORTANT: Call `task` ONE AT A TIME — wait for each call to return before making the next one. Do NOT call `task` multiple times in parallel.");
             sb.AppendLine("You MUST call `task` at least once — do NOT attempt to do the work yourself.");
             sb.AppendLine();
             sb.AppendLine("After all `task` calls complete, synthesize the workers' results into a final response.");
@@ -1324,6 +1325,7 @@ public partial class CopilotService
         sb.AppendLine("## Your Task");
         sb.AppendLine("Use the `task` tool to delegate work to your workers. Call it once per sub-task.");
         sb.AppendLine("Each `task` call dispatches one worker and returns its response.");
+        sb.AppendLine("IMPORTANT: Call `task` ONE AT A TIME — wait for each call to return before making the next one. Do NOT call `task` multiple times in parallel.");
         sb.AppendLine("You MUST call `task` at least once — do NOT attempt to do the work yourself.");
         sb.AppendLine();
         sb.AppendLine("After all workers have completed (all `task` calls return), synthesize their results into a final response.");
