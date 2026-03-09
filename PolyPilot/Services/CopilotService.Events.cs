@@ -64,6 +64,9 @@ public partial class CopilotService
         ["SessionLifecycleEvent"] = EventVisibility.Ignore,
         ["HookStartEvent"] = EventVisibility.Ignore,
         ["HookEndEvent"] = EventVisibility.Ignore,
+
+        // External tool requests — classified explicitly to avoid "Unhandled" log spam
+        ["ExternalToolRequestedEvent"] = EventVisibility.TimelineOnly,
     };
 
     private static EventVisibility ClassifySessionEvent(SessionEvent evt)
@@ -1501,6 +1504,23 @@ public partial class CopilotService
                 // user doesn't have to click Stop. If events start flowing, HasReceivedEventsSinceResume
                 // goes true and we fall through to the normal timeout tiers.
                 var useResumeQuiescence = state.Info.IsResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
+
+                // Periodic mid-watchdog flush: if content has accumulated in CurrentResponse
+                // for longer than the check interval without being moved to History, flush it now.
+                // This ensures partial responses are visible in the chat even while IsProcessing=true
+                // (e.g., if TurnEnd→Idle fallback hasn't fired yet, or streaming stalled mid-response).
+                if (elapsed >= WatchdogCheckIntervalSeconds)
+                {
+                    InvokeOnUI(() =>
+                    {
+                        if (state.CurrentResponse.Length > 0)
+                        {
+                            Debug($"[WATCHDOG] '{sessionName}' periodic flush — CurrentResponse has content after {elapsed:F0}s of inactivity");
+                            FlushCurrentResponse(state);
+                            OnStateChanged?.Invoke();
+                        }
+                    });
+                }
 
                 var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgentSession;
                 var effectiveTimeout = useResumeQuiescence

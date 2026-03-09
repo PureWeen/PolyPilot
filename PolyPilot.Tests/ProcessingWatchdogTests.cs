@@ -2242,4 +2242,64 @@ public class ProcessingWatchdogTests
             dir = dir.Parent;
         return dir?.FullName ?? throw new InvalidOperationException("Could not find repo root");
     }
+
+    // ===== ExternalToolRequestedEvent in EventMatrix =====
+
+    [Fact]
+    public void ExternalToolRequestedEvent_IsInEventMatrix()
+    {
+        // ExternalToolRequestedEvent was arriving as "Unhandled" in logs, causing spam
+        // and incorrectly updating LastEventAtTicks. It must be explicitly classified.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        Assert.True(source.Contains("ExternalToolRequestedEvent"),
+            "ExternalToolRequestedEvent must be explicitly listed in SdkEventMatrix to prevent 'Unhandled' log spam");
+    }
+
+    [Fact]
+    public void ExternalToolRequestedEvent_ClassifiedAsTimelineOnly()
+    {
+        // Must be TimelineOnly — it doesn't need chat projection but should not suppress
+        // LastEventAtTicks updates (it does represent live activity on the session).
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var idx = source.IndexOf("ExternalToolRequestedEvent");
+        Assert.True(idx >= 0);
+        var context = source.Substring(idx, 80);
+        Assert.True(context.Contains("TimelineOnly"),
+            "ExternalToolRequestedEvent must be classified as TimelineOnly");
+    }
+
+    // ===== Periodic mid-watchdog flush =====
+
+    [Fact]
+    public void WatchdogPeriodicFlush_PresenceInSource()
+    {
+        // The watchdog must flush CurrentResponse to History periodically so partial
+        // responses are visible even while IsProcessing=true (e.g., stuck mid-stream).
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        // The flush must be inside the watchdog method
+        var watchdogBody = source.Substring(methodIdx, 6000);
+        Assert.True(watchdogBody.Contains("CurrentResponse.Length"),
+            "Watchdog must check CurrentResponse.Length for periodic flush");
+        Assert.True(watchdogBody.Contains("periodic flush") || watchdogBody.Contains("FlushCurrentResponse"),
+            "Watchdog must call FlushCurrentResponse for periodic flush of accumulated content");
+    }
+
+    [Fact]
+    public void WatchdogPeriodicFlush_RunsBeforeTimeoutCheck()
+    {
+        // The periodic flush must run BEFORE the elapsed >= effectiveTimeout check,
+        // so content is visible even before the session is declared stuck.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var flushIdx = source.IndexOf("periodic flush", methodIdx);
+        var elapsedCheckIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
+        Assert.True(flushIdx > 0, "Periodic flush comment must exist in RunProcessingWatchdogAsync");
+        Assert.True(flushIdx < elapsedCheckIdx,
+            "Periodic flush must appear BEFORE the elapsed >= effectiveTimeout kill check");
+    }
 }
