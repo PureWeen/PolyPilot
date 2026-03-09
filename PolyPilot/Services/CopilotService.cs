@@ -2410,6 +2410,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         {
                             _client = CreateClient(connSettings);
                             await _client.StartAsync(cancellationToken);
+                            client = _client; // Update local reference to the new client
                             Debug("Client recreated successfully");
                         }
                         catch (OperationCanceledException)
@@ -3214,6 +3215,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     }
 
     public IEnumerable<AgentSessionInfo> GetAllSessions() => _sessions.Values.Select(s => s.Info).Where(s => !s.IsHidden);
+    public IEnumerable<string> GetAllSessionNames() => _sessions.Keys;
 
     public int SessionCount => _sessions.Count;
 

@@ -499,6 +499,15 @@
     text-overflow: ellipsis;
 }
 
+.codespace-create-error {
+    font-size: 0.7rem;
+    color: var(--error, #e05252);
+    padding: 0.3rem 0.75rem;
+    cursor: pointer;
+    opacity: 0.9;
+    word-break: break-word;
+}
+
 @keyframes pulse-dot {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }

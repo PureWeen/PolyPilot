@@ -830,7 +830,7 @@ else
                                     <div class="group-menu" @onclick:stopPropagation="true">
                                         @if (!csDisconnected)
                                         {
-                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForCodespace(gId); }">
+                                            <button class="group-menu-item" @onclick="async () => { openGroupMenuId = null; await QuickCreateSessionForCodespace(gId); }">
                                                 ➕ New Session
                                             </button>
                                         }
@@ -932,6 +932,14 @@ else
                                                  OnFixWithCopilot="() => OpenFixItForSession(sName)"
                                                  OnAnalyze="() => AnalyzeSessionEfficiency(sName)" />
                             }
+                            @if (!string.IsNullOrEmpty(_codespaceErrors.GetValueOrDefault(group.Id)))
+                            {
+                                var dismissId = group.Id;
+                                var csError = _codespaceErrors[group.Id];
+                                <div class="codespace-create-error" @onclick="() => { _codespaceErrors.Remove(dismissId); StateHasChanged(); }" title="Click to dismiss">
+                                    ⚠️ @csError
+                                </div>
+                            }
                         }
                     }
                 }
@@ -1002,9 +1010,11 @@ else
 
     private string selectedModel = "claude-opus-4.6";
     private string sessionFilter = "";
+    private readonly HashSet<string> _creatingGroups = new();
     private bool isCreating = false;
     private string newSessionName = "";
     private string? createError = null;
+    private readonly Dictionary<string, string?> _codespaceErrors = new();
     private bool showPersistedSessions = false;
     private string? renamingSession = null;
     private string? renamingGroupId = null;
@@ -1347,21 +1357,18 @@ else
 
     private async Task QuickCreateSessionForCodespace(string groupId)
     {
-        if (isCreating) return;
+        if (_creatingGroups.Contains(groupId)) return;
         var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         if (group?.ConnectionState != CodespaceConnectionState.Connected)
         {
-            createError = "Codespace is not connected yet. Wait for the green dot before creating a session.";
+            _codespaceErrors[groupId] = "Codespace is not connected yet. Wait for the green dot before creating a session.";
             return;
         }
-        isCreating = true;
-        createError = null;
+        _creatingGroups.Add(groupId);
+        _codespaceErrors.Remove(groupId);
         try
         {
-            var existingNames = CopilotService.Organization.Sessions
-                .Where(m => m.GroupId == groupId)
-                .Select(m => m.SessionName)
-                .ToHashSet();
+            var existingNames = CopilotService.GetAllSessionNames().ToHashSet();
             var sessionName = "Main";
             if (existingNames.Contains(sessionName))
             {
@@ -1376,12 +1383,12 @@ else
         }
         catch (Exception ex)
         {
-            createError = ex.Message;
+            _codespaceErrors[groupId] = ex.Message;
             Console.WriteLine($"Error creating codespace session: {ex}");
         }
         finally
         {
-            isCreating = false;
+            _creatingGroups.Remove(groupId);
         }
     }
 
