@@ -423,12 +423,18 @@ public partial class CopilotService
                         }
                     }
                     
-                    IsRestoring = false;
                 }
             }
             catch (Exception ex)
             {
                 Debug($"Failed to load active sessions file: {ex.Message}");
+            }
+            finally
+            {
+                // CRITICAL: Always reset IsRestoring even on failure.
+                // If this stays true, the entire UI becomes unresponsive
+                // (Resume buttons disabled, session interactions blocked).
+                IsRestoring = false;
             }
         }
 
