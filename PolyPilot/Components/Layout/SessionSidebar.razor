@@ -1010,6 +1010,7 @@ else
 
     private string selectedModel = "claude-opus-4.6";
     private string sessionFilter = "";
+    private readonly HashSet<string> _creatingGroups = new();
     private bool isCreating = false;
     private string newSessionName = "";
     private string? createError = null;
@@ -1356,14 +1357,14 @@ else
 
     private async Task QuickCreateSessionForCodespace(string groupId)
     {
-        if (isCreating) return;
+        if (_creatingGroups.Contains(groupId)) return;
         var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         if (group?.ConnectionState != CodespaceConnectionState.Connected)
         {
             _codespaceErrors[groupId] = "Codespace is not connected yet. Wait for the green dot before creating a session.";
             return;
         }
-        isCreating = true;
+        _creatingGroups.Add(groupId);
         _codespaceErrors.Remove(groupId);
         try
         {
@@ -1390,7 +1391,7 @@ else
         }
         finally
         {
-            isCreating = false;
+            _creatingGroups.Remove(groupId);
         }
     }
 
