@@ -1083,18 +1083,100 @@ public partial class CopilotService
         }
 
         // Tool-dispatch path: workers ran as tool calls during SendPromptAndWaitAsync.
+        // Because the SDK only supports one is_override tool call per turn (manual CompleteResponse
+        // ends the turn), we loop: each iteration dispatches one worker, then we create a fresh
+        // session and send a continuation prompt until no more workers are dispatched.
         if (usingToolDispatch && _delegationContexts.TryGetValue(orchestratorName, out var dispatchCtx)
             && dispatchCtx.DispatchedResults.Count > 0)
         {
-            Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch: {dispatchCtx.DispatchedResults.Count} worker(s) completed via task tool.");
-            var toolResults = dispatchCtx.DispatchedResults
-                .Select(r => new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration))
-                .ToList();
+            var allToolResults = new List<WorkerResult>();
+            var dispatched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            const int maxDispatchIterations = 10; // safety cap
+            var dispatchIteration = 0;
 
-            // Phase 4: Synthesize — send worker results back to orchestrator.
-            // After tool dispatch with manual CompleteResponse, the server-side session is
-            // stuck in "tool executing" state. ResumeSessionAsync on it creates a dead session.
-            // Create a completely fresh session for synthesis (no tools needed).
+            // Collect results from the first dispatch turn
+            foreach (var r in dispatchCtx.DispatchedResults)
+            {
+                allToolResults.Add(new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration));
+                dispatched.Add(r.WorkerName);
+            }
+            Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch iteration {dispatchIteration}: {dispatchCtx.DispatchedResults.Count} worker(s) completed.");
+
+            // Continue dispatching until no new workers are dispatched or we hit the cap
+            while (dispatched.Count < workerNames.Count && dispatchIteration < maxDispatchIterations)
+            {
+                dispatchIteration++;
+                var remaining = workerNames.Where(w => !dispatched.Contains(w)).ToList();
+                Debug($"[DISPATCH] '{orchestratorName}' continuation iteration {dispatchIteration}: {remaining.Count} worker(s) remaining ({string.Join(", ", remaining)}).");
+
+                // Create a fresh session with tools for the next dispatch turn
+                _delegationFunctions.TryRemove(orchestratorName, out _);
+                _toolDispatchConfigured.TryRemove(orchestratorName, out _);
+
+                if (_sessions.TryGetValue(orchestratorName, out var contState))
+                {
+                    try { await contState.Session.DisposeAsync(); } catch { }
+                }
+
+                await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, cancellationToken);
+                if (!_toolDispatchConfigured.ContainsKey(orchestratorName))
+                {
+                    Debug($"[DISPATCH] '{orchestratorName}' failed to recreate session for continuation — ending dispatch loop.");
+                    break;
+                }
+
+                if (_delegationContexts.TryGetValue(orchestratorName, out var contCtx))
+                    contCtx.Reset(prompt, workerNames, cancellationToken);
+
+                // Build continuation prompt with previous results
+                var prevSummary = string.Join("\n\n", allToolResults.Select(r =>
+                    $"### {r.WorkerName} (completed)\n{(r.Success ? r.Response : $"ERROR: {r.Error}")}"));
+                var contPrompt = $"You are continuing to dispatch workers. You have already dispatched and received results from:\n{prevSummary}\n\n" +
+                    $"The following workers still need tasks: {string.Join(", ", remaining)}\n\n" +
+                    $"Original request: {prompt}\n\n" +
+                    "Use the `task` tool to dispatch the next worker. Call `task` ONE AT A TIME.";
+
+                var contResponse = await SendPromptAndWaitAsync(orchestratorName, contPrompt, cancellationToken, originalPrompt: prompt);
+
+                // Post-send re-ensure for continuation turns
+                if (!_toolDispatchConfigured.ContainsKey(orchestratorName))
+                {
+                    Debug($"[DISPATCH] '{orchestratorName}' tools lost during continuation — recreating.");
+                    _delegationFunctions.TryRemove(orchestratorName, out _);
+                    if (_sessions.TryGetValue(orchestratorName, out var lostState))
+                    {
+                        try { await lostState.Session.DisposeAsync(); } catch { }
+                    }
+                    await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, cancellationToken);
+                    if (_toolDispatchConfigured.ContainsKey(orchestratorName))
+                    {
+                        if (_delegationContexts.TryGetValue(orchestratorName, out var retryCtx2))
+                            retryCtx2.Reset(prompt, workerNames, cancellationToken);
+                        contResponse = await SendPromptAndWaitAsync(orchestratorName, contPrompt, cancellationToken, originalPrompt: prompt);
+                    }
+                }
+
+                // Collect new results
+                if (_delegationContexts.TryGetValue(orchestratorName, out var contResults) && contResults.DispatchedResults.Count > 0)
+                {
+                    foreach (var r in contResults.DispatchedResults)
+                    {
+                        allToolResults.Add(new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration));
+                        dispatched.Add(r.WorkerName);
+                    }
+                    Debug($"[DISPATCH] '{orchestratorName}' continuation iteration {dispatchIteration}: {contResults.DispatchedResults.Count} worker(s) completed. Total: {allToolResults.Count}.");
+                }
+                else
+                {
+                    // Model didn't dispatch any workers this turn — stop looping
+                    Debug($"[DISPATCH] '{orchestratorName}' continuation iteration {dispatchIteration}: no workers dispatched, ending loop.");
+                    break;
+                }
+            }
+
+            Debug($"[DISPATCH] '{orchestratorName}' dispatch loop complete: {allToolResults.Count} total worker(s).");
+
+            // Phase 4: Synthesize — create fresh session (no tools needed)
             _delegationFunctions.TryRemove(orchestratorName, out _);
             _toolDispatchConfigured.TryRemove(orchestratorName, out _);
             _delegationContexts.TryRemove(orchestratorName, out _);
@@ -1129,7 +1211,7 @@ public partial class CopilotService
 
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
 
-            var synthesisPrompt = BuildSynthesisPrompt(prompt, toolResults);
+            var synthesisPrompt = BuildSynthesisPrompt(prompt, allToolResults);
             await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken, originalPrompt: prompt);
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
             return;
