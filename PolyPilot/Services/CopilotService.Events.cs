@@ -526,6 +526,14 @@ public partial class CopilotService
             case SessionIdleEvent:
                 // Cancel the TurnEnd→Idle fallback — normal SessionIdleEvent arrived
                 CancelTurnEndFallback(state);
+                // Guard: if custom tools (e.g., task dispatch) are still active, the SDK
+                // fires SessionIdleEvent prematurely before the tool callback completes.
+                // Skip CompleteResponse — the tool's OnToolDispatchEnd will handle it.
+                if (Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0)
+                {
+                    Debug($"[IDLE] '{sessionName}' SessionIdleEvent skipped — ActiveToolCallCount={state.ActiveToolCallCount}, tools still in-flight");
+                    break;
+                }
                 try { CompleteReasoningMessages(state, sessionName); }
                 catch (Exception ex)
                 {

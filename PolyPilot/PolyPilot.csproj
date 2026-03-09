@@ -109,6 +109,18 @@
         </ItemGroup>
     </Target>
 
+    <!-- Skip copilot.exe copy when the output binary already exists.
+         Prevents build failures when a running copilot.exe process locks the file.
+         The download target still runs (it executes first via DependsOnTargets),
+         so the cache stays warm; only the file-copy to the output dir is skipped. -->
+    <Target Name="_SkipCopilotCopyIfOutputExists"
+            BeforeTargets="_CopyCopilotCliToOutput;_RegisterCopilotCliForCopy"
+            Condition="'$(CopilotSkipCliDownload)' != 'true'">
+        <PropertyGroup Condition="Exists('$(OutDir)runtimes\$(_CopilotRid)\native\$(_CopilotBinary)')">
+            <CopilotSkipCliDownload>true</CopilotSkipCliDownload>
+        </PropertyGroup>
+    </Target>
+
     <!-- Inject privacy keys into Mac Catalyst Info.plist (MAUI build strips NS*UsageDescription keys) -->
     <Target Name="InjectMacCatalystPrivacyKeys" AfterTargets="Build" Condition="$(TargetFramework.Contains('maccatalyst'))">
         <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSMicrophoneUsageDescription 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot; 2&gt;/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSMicrophoneUsageDescription string 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot;" />
