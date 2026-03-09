@@ -256,11 +256,15 @@ public partial class CopilotService : IAsyncDisposable
     public bool HolidayThemeDismissed { get; set; }
 
     // Session organization (groups, pinning, sorting)
-    // Organization.Sessions is a plain List<SessionMeta> — NOT thread-safe.
-    // All mutations MUST run on the UI thread. Off-thread reads (timer callbacks,
-    // health checks) MUST use SnapshotSessionMetas() to avoid enumeration races.
+    // Organization.Sessions and Organization.Groups are plain List<T> — NOT thread-safe.
+    // ALL reads and writes to these lists MUST hold _organizationLock when accessed from
+    // background threads. UI-thread code should use the locked helpers below so that
+    // background snapshot readers never see a torn list. Off-thread reads MUST use
+    // SnapshotSessionMetas() / SnapshotGroups().
     public OrganizationState Organization { get; internal set; } = new();
     private readonly object _organizationLock = new();
+
+    #region Organization lock: snapshot readers
 
     /// <summary>
     /// Returns a thread-safe snapshot of Organization.Sessions for use from
@@ -279,6 +283,48 @@ public partial class CopilotService : IAsyncDisposable
     {
         lock (_organizationLock) return Organization.Groups.ToList();
     }
+
+    #endregion
+
+    #region Organization lock: mutation helpers
+
+    /// <summary>Thread-safe: adds a SessionMeta to Organization.Sessions.</summary>
+    internal void AddSessionMeta(SessionMeta meta)
+    {
+        lock (_organizationLock) Organization.Sessions.Add(meta);
+    }
+
+    /// <summary>Thread-safe: removes all matching SessionMeta entries.</summary>
+    internal int RemoveSessionMetasWhere(Predicate<SessionMeta> match)
+    {
+        lock (_organizationLock) return Organization.Sessions.RemoveAll(match);
+    }
+
+    /// <summary>Thread-safe: removes a specific SessionMeta instance.</summary>
+    internal bool RemoveSessionMeta(SessionMeta meta)
+    {
+        lock (_organizationLock) return Organization.Sessions.Remove(meta);
+    }
+
+    /// <summary>Thread-safe: adds a SessionGroup to Organization.Groups.</summary>
+    internal void AddGroup(SessionGroup group)
+    {
+        lock (_organizationLock) Organization.Groups.Add(group);
+    }
+
+    /// <summary>Thread-safe: inserts a SessionGroup at the specified index.</summary>
+    internal void InsertGroup(int index, SessionGroup group)
+    {
+        lock (_organizationLock) Organization.Groups.Insert(index, group);
+    }
+
+    /// <summary>Thread-safe: removes all matching SessionGroup entries.</summary>
+    internal int RemoveGroupsWhere(Predicate<SessionGroup> match)
+    {
+        lock (_organizationLock) return Organization.Groups.RemoveAll(match);
+    }
+
+    #endregion
 
     public event Action? OnStateChanged;
     public void NotifyStateChanged() => OnStateChanged?.Invoke();
@@ -1401,7 +1447,7 @@ public partial class CopilotService : IAsyncDisposable
             _pendingRemoteSessions[displayName] = 0;
             _sessions[displayName] = new SessionState { Session = null!, Info = remoteInfo };
             if (!Organization.Sessions.Any(m => m.SessionName == displayName))
-                Organization.Sessions.Add(new SessionMeta { SessionName = displayName, GroupId = SessionGroup.DefaultId });
+                AddSessionMeta(new SessionMeta { SessionName = displayName, GroupId = SessionGroup.DefaultId });
             _activeSessionName = displayName;
             OnStateChanged?.Invoke();
             // Now send the bridge message — server may respond before this returns
@@ -1600,7 +1646,7 @@ public partial class CopilotService : IAsyncDisposable
             _sessions[name] = demoState;
             _activeSessionName ??= name;
             if (!Organization.Sessions.Any(m => m.SessionName == name))
-                Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
+                AddSessionMeta(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
             OnStateChanged?.Invoke();
             return demoInfo;
         }
@@ -1616,7 +1662,7 @@ public partial class CopilotService : IAsyncDisposable
             if (existingMeta != null)
                 existingMeta.IsPinned = false;
             else
-                Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
+                AddSessionMeta(new SessionMeta { SessionName = name, GroupId = SessionGroup.DefaultId });
             _activeSessionName = name;
             OnStateChanged?.Invoke();
             await _bridgeClient.CreateSessionAsync(name, model, workingDirectory, cancellationToken);
@@ -1737,7 +1783,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         _sessions[name] = state;
         _activeSessionName = name;
         if (!Organization.Sessions.Any(m => m.SessionName == name))
-            Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = groupId ?? SessionGroup.DefaultId });
+            AddSessionMeta(new SessionMeta { SessionName = name, GroupId = groupId ?? SessionGroup.DefaultId });
         OnStateChanged?.Invoke();
 
         CopilotSession copilotSession;
@@ -1748,7 +1794,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         catch (OperationCanceledException)
         {
             _sessions.TryRemove(name, out _);
-            Organization.Sessions.RemoveAll(m => m.SessionName == name);
+            RemoveSessionMetasWhere(m => m.SessionName == name);
             _activeSessionName = previousActiveSessionName;
             OnStateChanged?.Invoke();
             throw;
@@ -1764,7 +1810,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             if (isCodespaceSession)
             {
                 _sessions.TryRemove(name, out _);
-                Organization.Sessions.RemoveAll(m => m.SessionName == name);
+                RemoveSessionMetasWhere(m => m.SessionName == name);
                 _activeSessionName = previousActiveSessionName;
                 OnStateChanged?.Invoke();
                 throw new InvalidOperationException(
@@ -1785,7 +1831,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         _client = null;
                         IsInitialized = false;
                         _sessions.TryRemove(name, out _);
-                        Organization.Sessions.RemoveAll(m => m.SessionName == name);
+                        RemoveSessionMetasWhere(m => m.SessionName == name);
                         _activeSessionName = previousActiveSessionName;
                         OnStateChanged?.Invoke();
                         throw;
@@ -1810,7 +1856,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 _client = null;
                 IsInitialized = false;
                 _sessions.TryRemove(name, out _);
-                Organization.Sessions.RemoveAll(m => m.SessionName == name);
+                RemoveSessionMetasWhere(m => m.SessionName == name);
                 _activeSessionName = previousActiveSessionName;
                 OnStateChanged?.Invoke();
                 throw;
@@ -1822,7 +1868,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 _client = null;
                 IsInitialized = false;
                 _sessions.TryRemove(name, out _);
-                Organization.Sessions.RemoveAll(m => m.SessionName == name);
+                RemoveSessionMetasWhere(m => m.SessionName == name);
                 _activeSessionName = previousActiveSessionName;
                 OnStateChanged?.Invoke();
                 throw;
@@ -1836,7 +1882,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             catch (OperationCanceledException)
             {
                 _sessions.TryRemove(name, out _);
-                Organization.Sessions.RemoveAll(m => m.SessionName == name);
+                RemoveSessionMetasWhere(m => m.SessionName == name);
                 _activeSessionName = previousActiveSessionName;
                 OnStateChanged?.Invoke();
                 throw;
@@ -1847,7 +1893,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 _client = null;
                 IsInitialized = false;
                 _sessions.TryRemove(name, out _);
-                Organization.Sessions.RemoveAll(m => m.SessionName == name);
+                RemoveSessionMetasWhere(m => m.SessionName == name);
                 _activeSessionName = previousActiveSessionName;
                 OnStateChanged?.Invoke();
                 throw;
@@ -1857,7 +1903,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             // SDK creation failed — remove the optimistic placeholder and restore prior state
             _sessions.TryRemove(name, out _);
-            Organization.Sessions.RemoveAll(m => m.SessionName == name);
+            RemoveSessionMetasWhere(m => m.SessionName == name);
             _activeSessionName = previousActiveSessionName;
             OnStateChanged?.Invoke();
             throw;
@@ -1897,7 +1943,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         else if (!string.IsNullOrEmpty(groupId))
         {
             // Pre-create meta with the correct group so ReconcileOrganization places it there
-            Organization.Sessions.Add(new SessionMeta { SessionName = name, GroupId = groupId });
+            AddSessionMeta(new SessionMeta { SessionName = name, GroupId = groupId });
         }
 
         SaveActiveSessionsToDisk();
@@ -2015,7 +2061,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 if (!Organization.Sessions.Any(m => m.SessionName == remoteName))
                 {
                     var repoGroup = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId);
-                    Organization.Sessions.Add(new SessionMeta
+                    AddSessionMeta(new SessionMeta
                     {
                         SessionName = remoteName,
                         GroupId = repoGroup?.Id ?? SessionGroup.DefaultId
@@ -3198,7 +3244,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // trigger a second OnStateChanged, causing rapid render batch churn that crashes
         // Blazor with "r.parentNode.removeChild" on null (render batch ordering race).
         // Instead, directly remove from Organization.Sessions so the deletion persists across restarts.
-        Organization.Sessions.RemoveAll(m => m.SessionName == name);
+        RemoveSessionMetasWhere(m => m.SessionName == name);
         if (notifyUi)
             OnStateChanged?.Invoke();
         if (!IsRemoteMode)

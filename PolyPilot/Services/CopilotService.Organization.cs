@@ -59,7 +59,7 @@ public partial class CopilotService
             DefaultWorkerModel = workerModel,
             SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
         };
-        Organization.Groups.Add(group);
+        AddGroup(group);
 
         // 2. Create Orchestrator Session
         var orchName = $"{groupName}-Orchestrator";
@@ -102,7 +102,7 @@ public partial class CopilotService
         if (meta == null)
         {
             meta = new SessionMeta { SessionName = sessionName, GroupId = SessionGroup.DefaultId };
-            Organization.Sessions.Add(meta);
+            AddSessionMeta(meta);
         }
         return meta;
     }
@@ -132,7 +132,7 @@ public partial class CopilotService
         // Ensure default group always exists
         if (!Organization.Groups.Any(g => g.Id == SessionGroup.DefaultId))
         {
-            Organization.Groups.Insert(0, new SessionGroup
+            InsertGroup(0, new SessionGroup
             {
                 Id = SessionGroup.DefaultId,
                 Name = SessionGroup.DefaultName,
@@ -176,11 +176,19 @@ public partial class CopilotService
     {
         try
         {
-            string json;
+            // Snapshot under lock, serialize outside — keeps lock hold time minimal
+            OrganizationState snapshot;
             lock (_organizationLock)
             {
-                json = JsonSerializer.Serialize(Organization, new JsonSerializerOptions { WriteIndented = true });
+                snapshot = new OrganizationState
+                {
+                    Groups = Organization.Groups.ToList(),
+                    Sessions = Organization.Sessions.ToList(),
+                    SortMode = Organization.SortMode,
+                    DeletedRepoGroupRepoIds = new HashSet<string>(Organization.DeletedRepoGroupRepoIds)
+                };
             }
+            var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
             WriteOrgFile(json);
         }
         catch (Exception ex)
@@ -259,7 +267,7 @@ public partial class CopilotService
                     SessionName = name,
                     GroupId = SessionGroup.DefaultId
                 };
-                Organization.Sessions.Add(meta);
+                AddSessionMeta(meta);
                 changed = true;
             }
 
@@ -383,7 +391,7 @@ public partial class CopilotService
                 Debug($"ReconcileOrganization: pruning {toRemove.Count} sessions: {string.Join(", ", toRemove.Select(m => m.SessionName))}");
                 changed = true;
             }
-            Organization.Sessions.RemoveAll(m => !knownNames.Contains(m.SessionName) && !protectedNames.Contains(m.SessionName));
+            RemoveSessionMetasWhere(m => !knownNames.Contains(m.SessionName) && !protectedNames.Contains(m.SessionName));
         }
 
         if (changed) SaveOrganization();
@@ -410,7 +418,7 @@ public partial class CopilotService
         {
             // Session exists but wasn't reconciled yet — create meta on the fly
             meta = new SessionMeta { SessionName = sessionName, GroupId = groupId };
-            Organization.Sessions.Add(meta);
+            AddSessionMeta(meta);
         }
         else
         {
@@ -429,7 +437,7 @@ public partial class CopilotService
             Name = name,
             SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
         };
-        Organization.Groups.Add(group);
+        AddGroup(group);
         SaveOrganization();
         OnStateChanged?.Invoke();
         return group;
@@ -474,7 +482,7 @@ public partial class CopilotService
                 .Select(m => m.SessionName)
                 .ToList();
             // Remove org metadata first so UI updates immediately
-            Organization.Sessions.RemoveAll(m => sessionNames.Contains(m.SessionName));
+            RemoveSessionMetasWhere(m => sessionNames.Contains(m.SessionName));
             // Mark sessions as hidden so ReconcileOrganization won't re-add them
             // to the default group while CloseSessionAsync is still running
             foreach (var name in sessionNames)
@@ -533,7 +541,7 @@ public partial class CopilotService
         if (group?.RepoId != null && !isMultiAgent)
             Organization.DeletedRepoGroupRepoIds.Add(group.RepoId);
 
-        Organization.Groups.RemoveAll(g => g.Id == groupId);
+        RemoveGroupsWhere(g => g.Id == groupId);
 
 
         // Clean up codespace tunnel and client if applicable
@@ -751,7 +759,7 @@ public partial class CopilotService
             RepoId = repoId,
             SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
         };
-        Organization.Groups.Add(group);
+        AddGroup(group);
         SaveOrganization();
         OnStateChanged?.Invoke();
         return group;
@@ -777,7 +785,7 @@ public partial class CopilotService
             RepoId = repoId,
             SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
         };
-        Organization.Groups.Add(group);
+        AddGroup(group);
 
         if (sessionNames != null)
         {
