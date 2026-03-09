@@ -487,13 +487,15 @@
         <div class="settings-section @(SectionVisible("repository repo clone worktree storage root directory dev drive") ? "" : "search-hidden")">
             <h3>Repository Storage</h3>
             <p class="mode-hint">Root folder used for managed bare clones and worktrees.</p>
-            <div class="url-input">
-                <label>Storage Root:</label>
-                <input type="text" @bind="settings.RepositoryStorageRoot" placeholder="@RepoManager.GetEffectiveStorageRoot()" class="form-input wide" />
-            </div>
-            <div class="server-buttons">
-                <button class="start-btn" @onclick="BrowseRepositoryStorageRoot">Browse…</button>
-                <button class="stop-btn" @onclick="UseDefaultRepositoryStorageRoot">Use Default</button>
+            <div class="settings-field">
+                <label for="repository-storage-root">Storage Root</label>
+                <div class="settings-field-body">
+                    <input id="repository-storage-root" type="text" @bind="settings.RepositoryStorageRoot" placeholder="Default: @RepoManager.GetDefaultStorageRoot()" class="form-input wide" />
+                    <div class="settings-field-actions">
+                        <button class="start-btn" @onclick="BrowseRepositoryStorageRoot">Browse…</button>
+                        <button class="start-btn" @onclick="UseDefaultRepositoryStorageRoot">Use Default</button>
+                    </div>
+                </div>
             </div>
             @if (RepositoryStorageRootChanged)
             {
@@ -996,7 +998,7 @@
 
     private void UseDefaultRepositoryStorageRoot()
     {
-        settings.RepositoryStorageRoot = null;
+        settings.RepositoryStorageRoot = "";
     }
 
     private async Task RecloneAllRegisteredRepos()

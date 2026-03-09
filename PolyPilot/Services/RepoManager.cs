@@ -328,6 +328,11 @@ public class RepoManager
 
     public string GetEffectiveStorageRoot() => GetStorageRootDir();
 
+    /// <summary>
+    /// Returns the default storage root (ignoring any user-configured override).
+    /// </summary>
+    public static string GetDefaultStorageRoot() => GetBaseDir();
+
     private string GetDesiredBareClonePath(string repoId) => Path.Combine(ReposDir, $"{repoId}.git");
 
     private static bool PathsEqual(string left, string right)
