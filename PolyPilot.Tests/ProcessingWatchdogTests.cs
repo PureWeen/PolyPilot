@@ -2411,4 +2411,179 @@ public class ProcessingWatchdogTests
             "AssistantTurnStartEvent must be included in [EVT] logging so TurnStart " +
             "is visible in diagnostics (prevents invisible fallback cancellations)");
     }
+
+    // ===== Stale tool liveness check (fix for zombie ActiveToolCallCount) =====
+
+    [Fact]
+    public void WatchdogMaxStaleToolLivenessChecks_Constant_Exists()
+    {
+        // The constant must exist and be reasonable — at least 2 checks (30s) to avoid
+        // false positives, at most 10 checks (150s) to ensure recovery in reasonable time.
+        Assert.InRange(CopilotService.WatchdogMaxStaleToolLivenessChecks, 2, 10);
+    }
+
+    [Fact]
+    public void StaleToolLivenessChecks_ExistsInSessionState()
+    {
+        // StaleToolLivenessChecks must exist in SessionState to track consecutive
+        // "tool running + server alive" resets without any real events.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        Assert.True(source.Contains("StaleToolLivenessChecks"),
+            "StaleToolLivenessChecks field must exist in SessionState to track zombie tool detection");
+    }
+
+    [Fact]
+    public void StaleToolLivenessChecks_ResetWhenRealEventArrives()
+    {
+        // When a real SDK event arrives (not SessionUsageInfoEvent or AssistantUsageEvent),
+        // StaleToolLivenessChecks must be reset to 0 to prove the connection is alive.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        // Find the event handler where LastEventAtTicks is updated
+        var lastEventTicksIdx = source.IndexOf("LastEventAtTicks, DateTime.UtcNow.Ticks");
+        Assert.True(lastEventTicksIdx >= 0, "LastEventAtTicks update must exist in event handler");
+        // StaleToolLivenessChecks must be reset near the same location (within 500 chars to account for comment)
+        var contextStart = Math.Max(0, lastEventTicksIdx - 100);
+        var contextEnd = Math.Min(source.Length, lastEventTicksIdx + 500);
+        var context = source.Substring(contextStart, contextEnd - contextStart);
+        Assert.True(context.Contains("StaleToolLivenessChecks, 0"),
+            "StaleToolLivenessChecks must be reset to 0 when a real event arrives (proves connection alive)");
+    }
+
+    [Fact]
+    public void WatchdogDecision_ActiveTool_ServerAlive_IncrementsStaleCounter()
+    {
+        // When the watchdog sees "tool running + server alive", it must increment
+        // StaleToolLivenessChecks before deciding whether to reset the timer.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var elapsedIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
+        var methodEndIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        if (methodEndIdx < 0) methodEndIdx = source.Length;
+        var block = source.Substring(elapsedIdx, methodEndIdx - elapsedIdx);
+
+        // Find the server alive check
+        var serverAliveIdx = block.IndexOf("serverAlive");
+        Assert.True(serverAliveIdx >= 0, "serverAlive check must exist in timeout block");
+
+        // After server alive check, must increment stale counter before continue
+        var afterServerAlive = block.Substring(serverAliveIdx);
+        var incrementIdx = afterServerAlive.IndexOf("Increment(ref state.StaleToolLivenessChecks)");
+        Assert.True(incrementIdx >= 0,
+            "Must increment StaleToolLivenessChecks when server is alive to detect zombie state");
+    }
+
+    [Fact]
+    public void WatchdogDecision_StaleCounterExceedsLimit_StopsResettingTimer()
+    {
+        // When StaleToolLivenessChecks exceeds WatchdogMaxStaleToolLivenessChecks,
+        // the watchdog must stop resetting the timer and proceed to recovery.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var elapsedIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
+        var methodEndIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        if (methodEndIdx < 0) methodEndIdx = source.Length;
+        var block = source.Substring(elapsedIdx, methodEndIdx - elapsedIdx);
+
+        // Must compare stale counter to limit
+        Assert.True(block.Contains("WatchdogMaxStaleToolLivenessChecks"),
+            "Watchdog must compare stale counter to WatchdogMaxStaleToolLivenessChecks limit");
+
+        // When limit exceeded, must NOT continue — should fall through to recovery
+        var staleCheckIdx = block.IndexOf("staleChecks > WatchdogMaxStaleToolLivenessChecks");
+        Assert.True(staleCheckIdx >= 0,
+            "Watchdog must check if staleChecks exceeds limit to detect zombie connection");
+
+        // The 'continue' (timer reset) must be inside the else block, not after stale check
+        var afterStaleCheck = block.Substring(staleCheckIdx);
+        var elseIdx = afterStaleCheck.IndexOf("else");
+        var continueIdx = afterStaleCheck.IndexOf("continue;");
+        Assert.True(elseIdx > 0 && continueIdx > elseIdx,
+            "The 'continue' must be in the else branch (only reset timer if below stale limit)");
+    }
+
+    [Fact]
+    public void StaleToolLivenessChecks_ResetOnSendPrompt()
+    {
+        // SendPromptAsync must reset StaleToolLivenessChecks along with other tool state.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        // Find where ActiveToolCallCount is reset in SendPromptAsync (unique enough signature)
+        var sendPromptIdx = source.IndexOf("SendPromptAsync(string sessionName, string prompt");
+        Assert.True(sendPromptIdx >= 0, "SendPromptAsync must exist");
+        // Search within 8000 chars (method body) for the reset
+        var searchEnd = Math.Min(source.Length, sendPromptIdx + 8000);
+        var sendPromptBody = source.Substring(sendPromptIdx, searchEnd - sendPromptIdx);
+
+        // Must reset stale tool liveness checks
+        Assert.True(sendPromptBody.Contains("StaleToolLivenessChecks, 0"),
+            "SendPromptAsync must reset StaleToolLivenessChecks to 0 on new turn");
+    }
+
+    [Fact]
+    public void StaleToolLivenessChecks_ResetOnAbort()
+    {
+        // AbortSessionAsync must reset StaleToolLivenessChecks along with other tool state.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var abortIdx = source.IndexOf("public async Task AbortSessionAsync");
+        Assert.True(abortIdx >= 0, "AbortSessionAsync must exist");
+        var abortEnd = source.IndexOf("public async Task<bool> SteerSessionAsync", abortIdx);
+        if (abortEnd < 0) abortEnd = source.Length;
+        var abortBody = source.Substring(abortIdx, abortEnd - abortIdx);
+
+        Assert.True(abortBody.Contains("StaleToolLivenessChecks, 0"),
+            "AbortSessionAsync must reset StaleToolLivenessChecks to 0");
+    }
+
+    [Fact]
+    public void StaleToolLivenessChecks_ResetOnCompleteResponse()
+    {
+        // CompleteResponse must reset StaleToolLivenessChecks along with other tool state.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var completeIdx = source.IndexOf("private void CompleteResponse(SessionState state");
+        Assert.True(completeIdx >= 0, "CompleteResponse must exist");
+        // Search within 3000 chars for the body
+        var searchEnd = Math.Min(source.Length, completeIdx + 3000);
+        var completeBody = source.Substring(completeIdx, searchEnd - completeIdx);
+
+        Assert.True(completeBody.Contains("StaleToolLivenessChecks, 0"),
+            "CompleteResponse must reset StaleToolLivenessChecks to 0");
+    }
+
+    [Fact]
+    public void BugFix_ZombieActiveToolCount_RecoveredAfterStaleLimit()
+    {
+        // REGRESSION TEST for the bug where:
+        // 1. Tool starts → ActiveToolCallCount incremented
+        // 2. JSON-RPC connection dies → ToolExecutionCompleteEvent never arrives
+        // 3. ActiveToolCallCount stays > 0 (zombie)
+        // 4. Server TCP port check passes (server process alive)
+        // 5. Watchdog keeps resetting timer indefinitely
+        //
+        // Fix: After WatchdogMaxStaleToolLivenessChecks consecutive resets without
+        // any real events, stop trusting ActiveToolCallCount and recover.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+
+        // The fix introduces StaleToolLivenessChecks
+        Assert.True(source.Contains("StaleToolLivenessChecks"),
+            "StaleToolLivenessChecks must exist for zombie ActiveToolCallCount detection");
+
+        // The fix must increment counter on each "server alive" reset
+        Assert.True(source.Contains("Increment(ref state.StaleToolLivenessChecks)"),
+            "Must increment counter when resetting timer in server-alive case");
+
+        // The fix must check against limit before resetting timer
+        Assert.True(source.Contains("staleChecks > WatchdogMaxStaleToolLivenessChecks"),
+            "Must check if counter exceeds limit to detect zombie state");
+
+        // The fix must reset counter when real events arrive (check whole file)
+        Assert.True(source.Contains("Exchange(ref state.StaleToolLivenessChecks, 0)"),
+            "Must reset counter when real events arrive (proves connection alive)");
+    }
 }

@@ -440,6 +440,12 @@ public partial class CopilotService : IAsyncDisposable
         /// Cleared on CompleteResponse and SendPromptAsync.
         /// </summary>
         public ConcurrentDictionary<string, ChatMessage> PendingReasoningMessages { get; } = new();
+        /// <summary>
+        /// Counter for consecutive watchdog checks that reset the timer in the "tool running + server alive"
+        /// state without receiving any real events. Reset to 0 whenever a real event arrives.
+        /// Used to detect dead JSON-RPC connections that left ActiveToolCallCount > 0 as a zombie.
+        /// </summary>
+        public int StaleToolLivenessChecks;
     }
 
     private void Debug(string message)
@@ -2410,6 +2416,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+        Interlocked.Exchange(ref state.StaleToolLivenessChecks, 0); // Reset stale watchdog liveness counter
         // Cancel any pending TurnEnd→Idle fallback from the previous turn
         CancelTurnEndFallback(state);
         state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName); // Cache for watchdog (UI thread safe)
@@ -2678,6 +2685,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                     state.HasUsedToolsThisTurn = false;
                     Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                    Interlocked.Exchange(ref state.StaleToolLivenessChecks, 0);
                     state.Info.IsResumed = false;
                     state.Info.IsProcessing = false;
                     if (state.Info.ProcessingStartedAt is { } rcStarted)
@@ -2699,6 +2707,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                Interlocked.Exchange(ref state.StaleToolLivenessChecks, 0);
                 state.Info.IsResumed = false;
                 state.Info.IsProcessing = false;
                 if (state.Info.ProcessingStartedAt is { } saStarted)
@@ -2847,6 +2856,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+        Interlocked.Exchange(ref state.StaleToolLivenessChecks, 0);
         // Release send lock — allows a subsequent SteerSessionAsync to acquire it immediately
         Interlocked.Exchange(ref state.SendingFlag, 0);
         // Clear queued messages so they don't auto-send after abort
@@ -2951,6 +2961,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                Interlocked.Exchange(ref state.StaleToolLivenessChecks, 0);
                 state.Info.IsResumed = false;
                 Interlocked.Exchange(ref state.SendingFlag, 0);
                 // Clear IsProcessing BEFORE completing TCS (INV-O3)

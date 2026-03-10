@@ -221,6 +221,10 @@ public partial class CopilotService
         {
             Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
             state.Info.LastUpdatedAt = DateTime.Now;
+            // Real event arrived — reset the stale tool liveness counter. This proves the
+            // JSON-RPC connection is alive, so previous "tool running + server alive" resets
+            // were legitimate, not zombie state from a dead connection.
+            Interlocked.Exchange(ref state.StaleToolLivenessChecks, 0);
         }
         var sessionName = state.Info.Name;
         var isCurrentState = _sessions.TryGetValue(sessionName, out var current) && ReferenceEquals(current, state);
@@ -445,6 +449,8 @@ public partial class CopilotService
                 var phaseAdvancedToThinking = state.Info.ProcessingPhase < 2;
                 if (phaseAdvancedToThinking) state.Info.ProcessingPhase = 2; // Thinking
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                // Note: StaleToolLivenessChecks is reset by the real event handler (above) that
+                // updates LastEventAtTicks, so we don't need to reset it here explicitly.
                 Invoke(() =>
                 {
                     OnTurnStart?.Invoke(sessionName);
@@ -651,6 +657,7 @@ public partial class CopilotService
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                Interlocked.Exchange(ref state.StaleToolLivenessChecks, 0);
                 InvokeOnUI(() =>
                 {
                     OnError?.Invoke(sessionName, errMsg);
@@ -862,6 +869,7 @@ public partial class CopilotService
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+        Interlocked.Exchange(ref state.StaleToolLivenessChecks, 0);
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
         if (!string.IsNullOrWhiteSpace(response))
@@ -1398,6 +1406,12 @@ public partial class CopilotService
     /// no single turn should run longer than this. This is a safety net for scenarios where
     /// non-progress events (like repeated SessionUsageInfoEvent) keep arriving without a terminal event.</summary>
     internal const int WatchdogMaxProcessingTimeSeconds = 3600; // 60 minutes
+    /// <summary>Maximum number of consecutive watchdog checks that can reset the timer
+    /// in the "tool running + server alive" state without any real events arriving.
+    /// After this limit, the JSON-RPC connection is assumed dead (even if the server TCP port is alive)
+    /// and the session should be recovered. This prevents indefinite stuck sessions when the
+    /// connection dies mid-tool-execution but the server process remains running.</summary>
+    internal const int WatchdogMaxStaleToolLivenessChecks = 4; // ~60 seconds at 15s intervals
 
     /// <summary>
     /// Milliseconds to wait after AssistantTurnEndEvent before firing CompleteResponse
@@ -1586,10 +1600,25 @@ public partial class CopilotService
                             var serverAlive = _serverManager.IsServerRunning;
                             if (serverAlive)
                             {
-                                Debug($"[WATCHDOG] '{sessionName}' {elapsed:F0}s inactivity but tool is running and server is alive — resetting timer " +
-                                      $"(timeout={effectiveTimeout}s, totalProcessing={totalProcessingSeconds:F0}s)");
-                                Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
-                                continue; // keep waiting — don't kill
+                                // Increment the stale tool liveness counter. If no real events have arrived
+                                // to reset this counter, we may have a zombie ActiveToolCallCount from a dead
+                                // JSON-RPC connection (the server TCP port is alive, but our session's
+                                // connection died and ToolExecutionCompleteEvent will never arrive).
+                                var staleChecks = Interlocked.Increment(ref state.StaleToolLivenessChecks);
+                                if (staleChecks > WatchdogMaxStaleToolLivenessChecks)
+                                {
+                                    // Too many consecutive "server alive" checks without any real events.
+                                    // The JSON-RPC connection is likely dead. Proceed to recovery.
+                                    Debug($"[WATCHDOG] '{sessionName}' {staleChecks} consecutive stale liveness checks without events — " +
+                                          $"assuming dead JSON-RPC connection (server TCP port is alive but session connection likely died)");
+                                }
+                                else
+                                {
+                                    Debug($"[WATCHDOG] '{sessionName}' {elapsed:F0}s inactivity but tool is running and server is alive — resetting timer " +
+                                          $"(timeout={effectiveTimeout}s, totalProcessing={totalProcessingSeconds:F0}s, staleChecks={staleChecks}/{WatchdogMaxStaleToolLivenessChecks})");
+                                    Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                    continue; // keep waiting — don't kill
+                                }
                             }
                             Debug($"[WATCHDOG] '{sessionName}' tool running but server is not responding — killing stuck session " +
                                   $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
@@ -1644,6 +1673,7 @@ public partial class CopilotService
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                        Interlocked.Exchange(ref state.StaleToolLivenessChecks, 0);
                         // Cancel any pending TurnEnd→Idle fallback
                         CancelTurnEndFallback(state);
                         state.Info.IsResumed = false;
@@ -1710,6 +1740,7 @@ public partial class CopilotService
             state.HasUsedToolsThisTurn = false;
             Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+            Interlocked.Exchange(ref state.StaleToolLivenessChecks, 0);
             state.Info.ProcessingStartedAt = null;
             state.Info.ToolCallCount = 0;
             state.Info.ProcessingPhase = 0;
@@ -1839,6 +1870,7 @@ public partial class CopilotService
                 state.HasUsedToolsThisTurn = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                Interlocked.Exchange(ref state.StaleToolLivenessChecks, 0);
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ToolCallCount = 0;
                 state.Info.ProcessingPhase = 0;
