@@ -8,7 +8,7 @@ public class AgentSessionInfo
     public int MessageCount { get; set; }
     public bool IsProcessing { get; set; }
     public List<ChatMessage> History { get; } = new();
-    public List<string> MessageQueue { get; } = new();
+    public SynchronizedMessageQueue MessageQueue { get; } = new();
     
     public string? WorkingDirectory { get; set; }
     public string? GitBranch { get; set; }

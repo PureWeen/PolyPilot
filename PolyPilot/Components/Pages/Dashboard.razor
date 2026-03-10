@@ -3131,8 +3131,7 @@
     private void RemoveQueuedMessage(string sessionName, int index)
     {
         var session = sessions.FirstOrDefault(s => s.Name == sessionName);
-        if (session != null && index >= 0 && index < session.MessageQueue.Count)
-            session.MessageQueue.RemoveAt(index);
+        session?.MessageQueue.TryRemoveAt(index);
     }
 
     private async Task CopyToClipboard(string text)

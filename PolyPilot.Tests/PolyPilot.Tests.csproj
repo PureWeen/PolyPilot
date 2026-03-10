@@ -28,6 +28,7 @@
   <ItemGroup>
     <Compile Include="../PolyPilot/Models/ChatMessage.cs" Link="Shared/ChatMessage.cs" />
     <Compile Include="../PolyPilot/Models/AgentSessionInfo.cs" Link="Shared/AgentSessionInfo.cs" />
+    <Compile Include="../PolyPilot/Models/SynchronizedMessageQueue.cs" Link="Shared/SynchronizedMessageQueue.cs" />
     <Compile Include="../PolyPilot/Models/BridgeMessages.cs" Link="Shared/BridgeMessages.cs" />
     <Compile Include="../PolyPilot/Models/ConnectionSettings.cs" Link="Shared/ConnectionSettings.cs" />
     <Compile Include="../PolyPilot/Models/PlatformHelper.cs" Link="Shared/PlatformHelper.cs" />
