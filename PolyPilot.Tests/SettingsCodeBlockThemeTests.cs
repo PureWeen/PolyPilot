@@ -26,9 +26,32 @@ public class SettingsCodeBlockThemeTests
     private static string? ExtractCssBlock(string css, string selector)
     {
         var escaped = Regex.Escape(selector);
-        var pattern = new Regex(escaped + @"\s*\{([^}]*)\}", RegexOptions.Singleline);
-        var match = pattern.Match(css);
-        return match.Success ? match.Groups[1].Value : null;
+        var pattern = new Regex(escaped + @"\s*\{", RegexOptions.Singleline);
+        var matches = pattern.Matches(css);
+        if (matches.Count == 0)
+            return null;
+
+        var match = matches[matches.Count - 1];
+        var blockStart = match.Index + match.Length;
+        var depth = 1;
+
+        for (var i = blockStart; i < css.Length; i++)
+        {
+            if (css[i] == '{')
+            {
+                depth++;
+                continue;
+            }
+
+            if (css[i] != '}')
+                continue;
+
+            depth--;
+            if (depth == 0)
+                return css.Substring(blockStart, i - blockStart);
+        }
+
+        return null;
     }
 
     [Fact]
@@ -64,7 +87,7 @@ public class SettingsCodeBlockThemeTests
         var css = File.ReadAllText(SettingsCssPath);
         var block = ExtractCssBlock(css, ".tunnel-warning code");
         Assert.NotNull(block);
-        Assert.Contains("color:", block);
+        Assert.Contains("color: var(--accent-warning)", block);
     }
 
     [Fact]
@@ -73,7 +96,7 @@ public class SettingsCodeBlockThemeTests
         var css = File.ReadAllText(SettingsCssPath);
         var block = ExtractCssBlock(css, ".tunnel-url code");
         Assert.NotNull(block);
-        Assert.Contains("color:", block);
+        Assert.Contains("color: var(--accent-primary)", block);
     }
 
     [Fact]

@@ -640,7 +640,7 @@
     padding: 0.15rem 0.4rem;
     border-radius: 4px;
     font-family: monospace;
-    color: #fbbf24;
+    color: var(--accent-warning);
 }
 
 .tunnel-warning .hint {

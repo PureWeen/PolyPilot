@@ -1493,11 +1493,19 @@
         },
         {
           "action": "evaluate",
-          "script": "Array.from(document.querySelectorAll('.section-desc code')).every(el => { const s = getComputedStyle(el); return s.color !== 'rgb(214, 51, 132)'; })",
+          "script": "document.querySelectorAll('.section-desc code').length > 0",
           "expect": {
             "equals": true
           },
-          "note": "No .section-desc code element should have Bootstrap's --bs-code-color (#d63384 = rgb(214,51,132))"
+          "note": "Settings page should render at least one .section-desc code element"
+        },
+        {
+          "action": "evaluate",
+          "script": "(() => { const codes = Array.from(document.querySelectorAll('.section-desc code')); const probe = document.createElement('span'); probe.style.color = 'var(--text-bright)'; probe.style.position = 'absolute'; probe.style.visibility = 'hidden'; document.body.appendChild(probe); const expected = getComputedStyle(probe).color; probe.remove(); return codes.every(el => getComputedStyle(el).color === expected); })()",
+          "expect": {
+            "equals": true
+          },
+          "note": "All .section-desc code elements should resolve to the theme's --text-bright color"
         },
         {
           "action": "evaluate",
