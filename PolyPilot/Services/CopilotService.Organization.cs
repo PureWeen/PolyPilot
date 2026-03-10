@@ -1980,10 +1980,14 @@ public partial class CopilotService
         Debug($"[WorktreeStrategy] Creating {preset.WorkerModels.Length} workers with strategy={strategy}, repoId={repoId}");
         for (int i = 0; i < preset.WorkerModels.Length; i++)
         {
-            var workerName = $"{teamName}-worker-{i + 1}";
+            var workerName = preset.WorkerNames != null && i < preset.WorkerNames.Length
+                ? $"{teamName}-{preset.WorkerNames[i]}"
+                : $"{teamName}-worker-{i + 1}";
             { int suffix = 1;
               while (_sessions.ContainsKey(workerName) || Organization.Sessions.Any(s => s.SessionName == workerName))
-                  workerName = $"{teamName}-worker-{i + 1}-{suffix++}";
+                  workerName = preset.WorkerNames != null && i < preset.WorkerNames.Length
+                      ? $"{teamName}-{preset.WorkerNames[i]}-{suffix++}"
+                      : $"{teamName}-worker-{i + 1}-{suffix++}";
             }
             var workerModel = preset.WorkerModels[i];
             var workerWorkDir = workerWorkDirs[i] ?? orchWorkDir ?? workingDirectory;

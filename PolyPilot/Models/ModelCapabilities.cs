@@ -184,6 +184,12 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     /// </summary>
     public int? MaxReflectIterations { get; init; }
 
+    /// <summary>
+    /// Optional custom names for worker sessions, indexed to match WorkerModels.
+    /// When set, workers are named "{teamName}-{WorkerNames[i]}" instead of "{teamName}-worker-{i+1}".
+    /// </summary>
+    public string[]? WorkerNames { get; init; }
+
     private const string WorkerReviewPrompt = """
         You are a PR reviewer. When assigned a PR, follow this process:
 
@@ -350,6 +356,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
             "⚖️", MultiAgentMode.OrchestratorReflect,
             "claude-opus-4.6", new[] { "claude-sonnet-4.6", "claude-sonnet-4.6" })
         {
+            WorkerNames = new[] { "dotnet-validator", "anthropic-evaluator" },
             WorkerSystemPrompts = new[]
             {
                 """
