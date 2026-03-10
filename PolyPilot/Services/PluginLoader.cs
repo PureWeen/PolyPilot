@@ -66,7 +66,7 @@ public static class PluginLoader
                 }
 
                 var dirName = Path.GetFileName(dir);
-                var hash = ComputeDirectoryHash(dir);
+                var hash = ComputeDirectoryHash(Path.GetFullPath(dir));
 
                 plugins.Add(new DiscoveredPlugin
                 {
@@ -169,7 +169,7 @@ public static class PluginLoader
                 continue;
             }
 
-            var currentHash = ComputeDirectoryHash(Path.GetDirectoryName(fullPath) ?? pluginDir);
+            var currentHash = ComputeDirectoryHash(Path.GetFullPath(Path.GetDirectoryName(fullPath) ?? pluginDir));
             pluginLog.Info($"Hash check: stored={plugin.Hash?[..12]}... current={currentHash[..12]}...");
 
             if (!string.Equals(currentHash, plugin.Hash, StringComparison.OrdinalIgnoreCase))

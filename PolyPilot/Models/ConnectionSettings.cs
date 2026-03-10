@@ -299,24 +299,32 @@ public class ConnectionSettings
             var storedLan    = GetSecureStorageSync(LanTokenKey);
             var storedPass   = GetSecureStorageSync(ServerPasswordKey);
 
-            // Migrate any legacy plaintext values to SecureStorage on first run
+            // Migrate any legacy plaintext values to SecureStorage on first run.
+            // Only scrub the JSON field if the SecureStorage write succeeded.
+            bool migratedAny = false;
             if (string.IsNullOrEmpty(storedRemote) && !string.IsNullOrEmpty(legacyRemote))
-            { SetSecureStorageSync(RemoteTokenKey, legacyRemote); storedRemote = legacyRemote; }
+            {
+                if (SetSecureStorageSync(RemoteTokenKey, legacyRemote))
+                { storedRemote = legacyRemote; migratedAny = true; }
+            }
             if (string.IsNullOrEmpty(storedLan) && !string.IsNullOrEmpty(legacyLan))
-            { SetSecureStorageSync(LanTokenKey, legacyLan); storedLan = legacyLan; }
+            {
+                if (SetSecureStorageSync(LanTokenKey, legacyLan))
+                { storedLan = legacyLan; migratedAny = true; }
+            }
             if (string.IsNullOrEmpty(storedPass) && !string.IsNullOrEmpty(legacyPass))
-            { SetSecureStorageSync(ServerPasswordKey, legacyPass); storedPass = legacyPass; }
+            {
+                if (SetSecureStorageSync(ServerPasswordKey, legacyPass))
+                { storedPass = legacyPass; migratedAny = true; }
+            }
 
             _remoteToken = storedRemote;
             _lanToken    = storedLan;
             _serverPassword = storedPass;
             _secretsDirty = false;
 
-            // Scrub any legacy plaintext secrets from settings.json
-            var hadLegacySecrets = !string.IsNullOrEmpty(legacyRemote)
-                                || !string.IsNullOrEmpty(legacyLan)
-                                || !string.IsNullOrEmpty(legacyPass);
-            if (hadLegacySecrets)
+            // Scrub legacy plaintext secrets from settings.json only if migration succeeded
+            if (migratedAny)
                 Save();
         }
         catch { }
@@ -341,7 +349,7 @@ public class ConnectionSettings
         catch { return null; }
     }
 
-    private static void SetSecureStorageSync(string key, string? value)
+    private static bool SetSecureStorageSync(string key, string? value)
     {
         try
         {
@@ -350,8 +358,9 @@ public class ConnectionSettings
                 if (string.IsNullOrEmpty(value)) { SecureStorage.Default.Remove(key); return; }
                 await SecureStorage.Default.SetAsync(key, value);
             }).GetAwaiter().GetResult();
+            return true;
         }
-        catch { }
+        catch { return false; }
     }
 #endif
 }
