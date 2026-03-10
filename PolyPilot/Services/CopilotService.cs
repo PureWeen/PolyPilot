@@ -53,6 +53,9 @@ public partial class CopilotService : IAsyncDisposable
     private ConnectionSettings? _currentSettings;
     private string? _activeSessionName;
     private SynchronizationContext? _syncContext;
+    // Serializes the IsConnectionError reconnect path so concurrent workers
+    // don't destroy each other's freshly-created client (thundering herd fix).
+    private readonly SemaphoreSlim _clientReconnectLock = new(1, 1);
     
     private static readonly object _pathLock = new();
     private static string? _copilotBaseDir;
@@ -2493,47 +2496,67 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     if (client == null)
                         throw new InvalidOperationException("Client is not initialized");
 
-                    // If the underlying connection is broken, recreate the client first
+                    // If the underlying connection is broken, recreate the client first.
+                    // Serialize via _clientReconnectLock so concurrent workers don't each
+                    // dispose+recreate _client (thundering herd — only the first one reconnects).
                     if (IsConnectionError(ex))
                     {
-                        Debug("Connection error detected, recreating client before session reconnect...");
-                        var connSettings = _currentSettings ?? ConnectionSettings.Load();
-                        if (CurrentMode == ConnectionMode.Persistent &&
-                            !_serverManager.CheckServerRunning("127.0.0.1", connSettings.Port))
-                        {
-                            Debug("Persistent server not running, restarting...");
-                            var started = await _serverManager.StartServerAsync(connSettings.Port);
-                            if (!started)
-                            {
-                                Debug("Failed to restart persistent server");
-                                try { await _client.DisposeAsync(); } catch { }
-                                _client = null;
-                                IsInitialized = false;
-                                throw;
-                            }
-                        }
-                        try { await _client.DisposeAsync(); } catch { }
+                        Debug($"Connection error detected for '{sessionName}', acquiring reconnect lock...");
+                        await _clientReconnectLock.WaitAsync(cancellationToken);
                         try
                         {
-                            _client = CreateClient(connSettings);
-                            await _client.StartAsync(cancellationToken);
-                            client = _client; // Update local reference to the new client
-                            Debug("Client recreated successfully");
+                            // Double-check: another worker may have already reconnected while we waited.
+                            if (_client != null && !IsConnectionError(ex))
+                            {
+                                Debug($"Client already reconnected by another worker, skipping recreate for '{sessionName}'");
+                                client = _client;
+                            }
+                            else
+                            {
+                                Debug("Recreating client after connection error...");
+                                var connSettings = _currentSettings ?? ConnectionSettings.Load();
+                                if (CurrentMode == ConnectionMode.Persistent &&
+                                    !_serverManager.CheckServerRunning("127.0.0.1", connSettings.Port))
+                                {
+                                    Debug("Persistent server not running, restarting...");
+                                    var started = await _serverManager.StartServerAsync(connSettings.Port);
+                                    if (!started)
+                                    {
+                                        Debug("Failed to restart persistent server");
+                                        try { await _client.DisposeAsync(); } catch { }
+                                        _client = null;
+                                        IsInitialized = false;
+                                        throw;
+                                    }
+                                }
+                                try { await _client.DisposeAsync(); } catch { }
+                                try
+                                {
+                                    _client = CreateClient(connSettings);
+                                    await _client.StartAsync(cancellationToken);
+                                    client = _client;
+                                    Debug("Client recreated successfully");
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    try { if (_client != null) await _client.DisposeAsync(); } catch { }
+                                    _client = null;
+                                    IsInitialized = false;
+                                    throw;
+                                }
+                                catch (Exception clientEx)
+                                {
+                                    Debug($"Failed to recreate client: {clientEx.Message}");
+                                    try { if (_client != null) await _client.DisposeAsync(); } catch { }
+                                    _client = null;
+                                    IsInitialized = false;
+                                    throw;
+                                }
+                            }
                         }
-                        catch (OperationCanceledException)
+                        finally
                         {
-                            try { if (_client != null) await _client.DisposeAsync(); } catch { }
-                            _client = null;
-                            IsInitialized = false;
-                            throw;
-                        }
-                        catch (Exception clientEx)
-                        {
-                            Debug($"Failed to recreate client: {clientEx.Message}");
-                            try { if (_client != null) await _client.DisposeAsync(); } catch { }
-                            _client = null;
-                            IsInitialized = false;
-                            throw;
+                            _clientReconnectLock.Release();
                         }
                     }
 
