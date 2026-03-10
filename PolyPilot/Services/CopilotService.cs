@@ -445,6 +445,13 @@ public partial class CopilotService : IAsyncDisposable
         /// WatchdogMaxToolAliveResets to prevent infinite resets when the session's JSON-RPC
         /// connection is dead but the shared persistent server is still alive.</summary>
         public int WatchdogCaseAResets;
+        /// <summary>Timer that fires shortly after a tool starts to verify the connection is still alive.
+        /// If no tool completion event arrives within ToolHealthCheckIntervalMs, we do an active health
+        /// check to detect dead connections early (instead of waiting for the 600s watchdog timeout).</summary>
+        public Timer? ToolHealthCheckTimer;
+        /// <summary>Timestamp when the most recent tool started. Used by the tool health check to
+        /// determine if a tool has been running too long without any events.</summary>
+        public long ToolStartedAtTicks;
     }
 
     private void Debug(string message)
@@ -2636,6 +2643,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // orphaned old state can't pass generation checks on the new state.
                     Interlocked.Exchange(ref newState.ProcessingGeneration,
                         Interlocked.Read(ref state.ProcessingGeneration));
+                    // Reset tool tracking for the NEW connection. The old connection's
+                    // tool state is stale — no tools have run on this connection yet.
+                    // Without this, HasUsedToolsThisTurn=true from the dead connection
+                    // inflates the watchdog timeout from 120s to 600s, making stuck
+                    // sessions wait 5x longer than necessary to recover.
+                    newState.HasUsedToolsThisTurn = false;
                     Interlocked.Exchange(ref newState.ActiveToolCallCount, 0);
                     Interlocked.Exchange(ref newState.SuccessfulToolCountThisTurn, 0);
                     newState.IsMultiAgentSession = state.IsMultiAgentSession;

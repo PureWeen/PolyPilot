@@ -1641,6 +1641,23 @@ public partial class CopilotService
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Dispatching,
                 $"Re-dispatching {unstartedWorkers.Count} worker(s)"));
 
+            // BUG FIX: Clear stuck IsProcessing state on workers before re-dispatch.
+            // After an app restart, workers may have IsProcessing=true from a previous
+            // incomplete turn (e.g., tool.execution_start with no tool.execution_complete).
+            // This prevents SendPromptAsync from accepting new prompts. Clear it here
+            // so re-dispatch can actually send the prompt.
+            foreach (var workerName in unstartedWorkers)
+            {
+                if (_sessions.TryGetValue(workerName, out var workerState) && workerState.Info.IsProcessing)
+                {
+                    Debug($"[DISPATCH] Clearing stuck IsProcessing on '{workerName}' before re-dispatch");
+                    workerState.Info.IsProcessing = false;
+                    Interlocked.Exchange(ref workerState.ActiveToolCallCount, 0);
+                    Interlocked.Exchange(ref workerState.SendingFlag, 0);
+                    workerState.HasUsedToolsThisTurn = false;
+                }
+            }
+
             // Build a generic task from the original prompt for re-dispatched workers.
             // Materialize as an array so we can inspect individual task results even on partial failure.
             var redispatchTaskArray = unstartedWorkers

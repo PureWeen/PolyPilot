@@ -308,6 +308,9 @@ public partial class CopilotService
                 if (toolStart.Data == null) break;
                 Interlocked.Increment(ref state.ActiveToolCallCount);
                 state.HasUsedToolsThisTurn = true; // volatile field — no explicit barrier needed
+                // Record tool start time and schedule health check
+                Interlocked.Exchange(ref state.ToolStartedAtTicks, DateTime.UtcNow.Ticks);
+                ScheduleToolHealthCheck(state, sessionName);
                 if (state.Info.ProcessingPhase < 3)
                 {
                     state.Info.ProcessingPhase = 3; // Working
@@ -362,6 +365,8 @@ public partial class CopilotService
             case ToolExecutionCompleteEvent toolDone:
                 if (toolDone.Data == null) break;
                 Interlocked.Decrement(ref state.ActiveToolCallCount);
+                // Cancel the tool health check timer since tool completed normally
+                CancelToolHealthCheck(state);
                 Interlocked.Increment(ref state.Info._toolCallCount);
                 var completeCallId = toolDone.Data.ToolCallId ?? "";
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
@@ -1390,6 +1395,11 @@ public partial class CopilotService
     /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
     /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
     internal const int WatchdogToolExecutionTimeoutSeconds = 600;
+    /// <summary>After the first Case A reset (tool running + server alive but no events), switch to this
+    /// shorter timeout for subsequent checks. This accelerates dead connection detection while still
+    /// allowing the first 600s for legitimate long-running tools. Total max stuck time becomes
+    /// 600s + (WatchdogMaxToolAliveResets × 60s) ≈ 12 minutes instead of 40 minutes.</summary>
+    internal const int WatchdogToolEscalationTimeoutSeconds = 60;
     // Sessions that USED tools but have none actively running — the model may be
     // thinking between tool rounds, but 600s is too long for a likely-dead session.
     internal const int WatchdogUsedToolsIdleTimeoutSeconds = 180;
@@ -1408,8 +1418,16 @@ public partial class CopilotService
     /// session's transport-level connection is broken (ConnectionLostException). Without this cap,
     /// Case A resets LastEventAtTicks indefinitely, and ProcessingStartedAt resets on each app
     /// restart — so neither the inactivity nor the max-time safety net ever fires.
-    /// (3+1) resets × 600s effective timeout ≈ 40 minutes max of Case A resets.</summary>
-    internal const int WatchdogMaxToolAliveResets = 3;
+    /// With escalation timeout (60s after first reset), total max stuck time is:
+    /// 600s (first) + 2 × 60s (escalation) = 720s ≈ 12 minutes.</summary>
+    internal const int WatchdogMaxToolAliveResets = 2;
+
+    /// <summary>
+    /// Milliseconds after a tool starts to perform the first health check. If no events have
+    /// arrived since tool start, we verify the connection is still alive. This detects dead
+    /// connections within ~30s instead of waiting for the 600s watchdog timeout.
+    /// </summary>
+    internal const int ToolHealthCheckIntervalMs = 30_000;
 
     /// <summary>
     /// Milliseconds to wait after AssistantTurnEndEvent before firing CompleteResponse
@@ -1434,6 +1452,115 @@ public partial class CopilotService
             state.ProcessingWatchdog.Dispose();
             state.ProcessingWatchdog = null;
         }
+    }
+
+    /// <summary>
+    /// Cancels and disposes any pending tool health check timer.
+    /// </summary>
+    private static void CancelToolHealthCheck(SessionState state)
+    {
+        var prev = Interlocked.Exchange(ref state.ToolHealthCheckTimer, null);
+        prev?.Dispose();
+    }
+
+    /// <summary>
+    /// Schedules a tool health check to run after ToolHealthCheckIntervalMs.
+    /// If the tool completes before the timer fires, the timer is cancelled.
+    /// If the timer fires and no events have arrived since tool start, we check
+    /// if the connection is still alive and trigger recovery if it's dead.
+    /// </summary>
+    private void ScheduleToolHealthCheck(SessionState state, string sessionName)
+    {
+        // Cancel any previous health check timer
+        CancelToolHealthCheck(state);
+
+        // Skip in demo/remote mode where we can't probe the local server
+        if (IsDemoMode || IsRemoteMode) return;
+
+        var checkGeneration = Interlocked.Read(ref state.ProcessingGeneration);
+        var timer = new Timer(_ =>
+        {
+            try
+            {
+                // Verify we're still on the same turn
+                if (Interlocked.Read(ref state.ProcessingGeneration) != checkGeneration) return;
+                if (!state.Info.IsProcessing) return;
+
+                var activeTools = Volatile.Read(ref state.ActiveToolCallCount);
+                if (activeTools <= 0) return; // Tool completed normally
+
+                // Check if any events arrived since tool start
+                var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
+                var toolStartTicks = Interlocked.Read(ref state.ToolStartedAtTicks);
+                var eventsSinceToolStart = lastEventTicks > toolStartTicks;
+
+                if (eventsSinceToolStart)
+                {
+                    // Events are still flowing - tool is legitimately running
+                    // Schedule another check
+                    Debug($"[TOOL-HEALTH] '{sessionName}' events flowing — rescheduling health check");
+                    ScheduleToolHealthCheck(state, sessionName);
+                    return;
+                }
+
+                // No events since tool start. Check if server is alive.
+                var serverAlive = _serverManager.IsServerRunning;
+                if (!serverAlive)
+                {
+                    Debug($"[TOOL-HEALTH] '{sessionName}' server is DEAD — triggering immediate recovery");
+                    TriggerToolHealthRecovery(state, sessionName, "server not responding");
+                    return;
+                }
+
+                // Server TCP port is alive, but no events for 30s. The connection might be dead.
+                // Increment the stale check counter and check if we should recover.
+                var staleChecks = Interlocked.Increment(ref state.WatchdogCaseAResets);
+                if (staleChecks > WatchdogMaxToolAliveResets)
+                {
+                    Debug($"[TOOL-HEALTH] '{sessionName}' {staleChecks} stale health checks — assuming dead connection");
+                    TriggerToolHealthRecovery(state, sessionName, "no events after multiple health checks (connection likely dead)");
+                    return;
+                }
+
+                Debug($"[TOOL-HEALTH] '{sessionName}' no events for {ToolHealthCheckIntervalMs/1000}s, server alive — " +
+                      $"check {staleChecks}/{WatchdogMaxToolAliveResets}, scheduling another check");
+                ScheduleToolHealthCheck(state, sessionName);
+            }
+            catch (Exception ex)
+            {
+                Debug($"[TOOL-HEALTH] '{sessionName}' check failed: {ex.Message}");
+            }
+        }, null, ToolHealthCheckIntervalMs, Timeout.Infinite);
+
+        Interlocked.Exchange(ref state.ToolHealthCheckTimer, timer);
+    }
+
+    /// <summary>
+    /// Triggers recovery when tool health check detects a dead connection.
+    /// Clears the stuck processing state and notifies the user.
+    /// </summary>
+    private void TriggerToolHealthRecovery(SessionState state, string sessionName, string reason)
+    {
+        CancelToolHealthCheck(state);
+
+        var activeTools = Volatile.Read(ref state.ActiveToolCallCount);
+        Debug($"[TOOL-HEALTH] '{sessionName}' triggering recovery: {reason} (activeTools={activeTools})");
+
+        InvokeOnUI(() =>
+        {
+            if (!state.Info.IsProcessing) return;
+
+            OnError?.Invoke(sessionName, $"Tool execution stuck ({reason}). Session recovered automatically.");
+
+            // Clear the stuck state
+            state.Info.IsProcessing = false;
+            Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+            Interlocked.Exchange(ref state.SendingFlag, 0);
+            state.HasUsedToolsThisTurn = false;
+            state.ResponseCompletion?.TrySetResult(state.CurrentResponse.ToString());
+            FlushCurrentResponse(state);
+            OnStateChanged?.Invoke();
+        });
     }
 
     /// <summary>
@@ -1551,13 +1678,22 @@ public partial class CopilotService
 
                 var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence);
                 var useUsedToolsTimeout = !useToolTimeout && hasUsedTools && !hasActiveTool;
+                
+                // After the first Case A reset (tool running + server alive but no events arrived),
+                // switch to the escalation timeout. This allows the first 600s for legitimate long-running
+                // tools, but speeds up dead connection detection on subsequent checks.
+                var caseAResets = Volatile.Read(ref state.WatchdogCaseAResets);
+                var useEscalationTimeout = useToolTimeout && caseAResets > 0;
+                
                 var effectiveTimeout = useResumeQuiescence
                     ? WatchdogResumeQuiescenceTimeoutSeconds
-                    : useToolTimeout
-                        ? WatchdogToolExecutionTimeoutSeconds
-                        : useUsedToolsTimeout
-                            ? WatchdogUsedToolsIdleTimeoutSeconds
-                            : WatchdogInactivityTimeoutSeconds;
+                    : useEscalationTimeout
+                        ? WatchdogToolEscalationTimeoutSeconds
+                        : useToolTimeout
+                            ? WatchdogToolExecutionTimeoutSeconds
+                            : useUsedToolsTimeout
+                                ? WatchdogUsedToolsIdleTimeoutSeconds
+                                : WatchdogInactivityTimeoutSeconds;
 
                 // Safety net: check absolute max processing time, but only if events have also
                 // gone stale. If events are still flowing (elapsed < effectiveTimeout), the session
@@ -1614,8 +1750,10 @@ public partial class CopilotService
                                 }
                                 else
                                 {
+                                    // Next check will use escalation timeout (60s) since we've had at least one reset
+                                    var nextTimeout = WatchdogToolEscalationTimeoutSeconds;
                                     Debug($"[WATCHDOG] '{sessionName}' {elapsed:F0}s inactivity but tool is running and server is alive — resetting timer " +
-                                          $"(reset #{resets}/{WatchdogMaxToolAliveResets}, timeout={effectiveTimeout}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                          $"(reset #{resets}/{WatchdogMaxToolAliveResets}, nextTimeout={nextTimeout}s, totalProcessing={totalProcessingSeconds:F0}s)");
                                     Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
                                     continue; // keep waiting — don't kill
                                 }
