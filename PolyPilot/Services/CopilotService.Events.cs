@@ -1408,7 +1408,7 @@ public partial class CopilotService
     /// session's transport-level connection is broken (ConnectionLostException). Without this cap,
     /// Case A resets LastEventAtTicks indefinitely, and ProcessingStartedAt resets on each app
     /// restart — so neither the inactivity nor the max-time safety net ever fires.
-    /// 3 resets × 600s effective timeout ≈ 30 minutes max of Case A resets.</summary>
+    /// (3+1) resets × 600s effective timeout ≈ 40 minutes max of Case A resets.</summary>
     internal const int WatchdogMaxToolAliveResets = 3;
 
     /// <summary>
@@ -1609,8 +1609,8 @@ public partial class CopilotService
                                     // Too many consecutive resets with no real SDK events — the
                                     // session's JSON-RPC connection is likely dead even though the
                                     // shared persistent server is still alive. Fall through to kill.
-                                    Debug($"[WATCHDOG] '{sessionName}' Case A reset count {resets} exceeded max {WatchdogMaxToolAliveResets} " +
-                                          $"— session connection likely dead (elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                    Debug($"[WATCHDOG] '{sessionName}' Case A reset cap exceeded ({resets}/{WatchdogMaxToolAliveResets}) " +
+                                          $"— killing despite server alive (elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
                                 }
                                 else
                                 {
@@ -1620,8 +1620,11 @@ public partial class CopilotService
                                     continue; // keep waiting — don't kill
                                 }
                             }
-                            Debug($"[WATCHDOG] '{sessionName}' tool running but server is not responding — killing stuck session " +
-                                  $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                            else
+                            {
+                                Debug($"[WATCHDOG] '{sessionName}' tool running but server is not responding — killing stuck session " +
+                                      $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                            }
                         }
                         else if (!hasActiveTool && (hasUsedTools || (isMultiAgentSession && !IsDemoMode && !IsRemoteMode && _serverManager.IsServerRunning)))
                         {
