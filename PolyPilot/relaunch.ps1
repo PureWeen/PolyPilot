@@ -15,6 +15,37 @@ $ExeName = 'PolyPilot.exe'
 
 $MaxLaunchAttempts = 2
 $StabilitySeconds = 8
+$ServerPidFile = Join-Path $env:USERPROFILE '.polypilot\server.pid'
+$ServerPort = 4321
+
+# Check if the persistent copilot server is actually running.
+# If server.pid exists but the server is dead/not listening, clean up the stale file
+# so PolyPilot will auto-start a fresh server on launch.
+function Test-ServerListening {
+    param([int]$Port)
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $tcp.Connect("127.0.0.1", $Port)
+        $tcp.Close()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+if (Test-Path $ServerPidFile) {
+    $lines = Get-Content $ServerPidFile -ErrorAction SilentlyContinue
+    if ($lines -and $lines.Count -ge 2) {
+        $ServerPort = [int]$lines[1]
+    }
+    
+    if (-not (Test-ServerListening -Port $ServerPort)) {
+        Write-Host "[!] Stale server.pid detected (port $ServerPort not listening) — cleaning up"
+        Remove-Item $ServerPidFile -Force -ErrorAction SilentlyContinue
+    } else {
+        Write-Host "[OK] Persistent server running on port $ServerPort"
+    }
+}
 
 # Capture PIDs of currently running instances BEFORE build
 $OldPids = @(Get-Process -Name 'PolyPilot' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
