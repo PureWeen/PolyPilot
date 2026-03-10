@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using PolyPilot.Models;
 
@@ -240,18 +241,14 @@ public class WsBridgeServer : IDisposable
 
     /// <summary>
     /// Validate client token from X-Tunnel-Authorization header or query string.
-    /// If no AccessToken is configured, all connections are allowed (local-only mode).
-    /// Loopback connections are always allowed — they're either local or proxied
-    /// through the DevTunnel (which validates tokens at the tunnel layer).
+    /// If no AccessToken or ServerPassword is configured, all connections are allowed (local-only mode).
+    /// When a token or password is configured, all connections — including loopback — must authenticate.
+    /// DevTunnel proxied connections arrive via loopback and still carry the token in the header.
     /// </summary>
     private bool ValidateClientToken(HttpListenerRequest request)
     {
         // If neither token nor password is configured, allow all (local-only mode)
         if (string.IsNullOrEmpty(AccessToken) && string.IsNullOrEmpty(ServerPassword))
-            return true;
-
-        // Loopback connections are trusted — DevTunnel proxies appear as localhost
-        if (IsLoopbackRequest(request))
             return true;
 
         // Extract token from header or query string
@@ -268,13 +265,28 @@ public class WsBridgeServer : IDisposable
         if (string.IsNullOrEmpty(providedToken))
             return false;
 
-        // Accept if it matches either the tunnel access token or the server password
-        if (!string.IsNullOrEmpty(AccessToken) && string.Equals(providedToken, AccessToken, StringComparison.Ordinal))
+        // Accept if it matches either the tunnel access token or the server password.
+        // Use constant-time comparison to prevent timing side-channels.
+        if (!string.IsNullOrEmpty(AccessToken) && TokenEquals(providedToken, AccessToken))
             return true;
-        if (!string.IsNullOrEmpty(ServerPassword) && string.Equals(providedToken, ServerPassword, StringComparison.Ordinal))
+        if (!string.IsNullOrEmpty(ServerPassword) && TokenEquals(providedToken, ServerPassword))
             return true;
 
         return false;
+    }
+
+    private static bool TokenEquals(string provided, string expected)
+    {
+        var a = Encoding.UTF8.GetBytes(provided);
+        var b = Encoding.UTF8.GetBytes(expected);
+        // FixedTimeEquals requires same length; pad to avoid short-circuit on length mismatch
+        if (a.Length != b.Length)
+        {
+            // Still compare (and discard) to avoid branching on length
+            CryptographicOperations.FixedTimeEquals(a, a);
+            return false;
+        }
+        return CryptographicOperations.FixedTimeEquals(a, b);
     }
 
     private static bool IsLoopbackRequest(HttpListenerRequest request)

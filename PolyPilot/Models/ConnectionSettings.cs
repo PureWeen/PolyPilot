@@ -69,12 +69,43 @@ public class ConnectionSettings
     public int Port { get; set; } = 4321;
     public bool AutoStartServer { get; set; } = false;
     public string? RemoteUrl { get; set; }
+
+    // Secrets: stored in SecureStorage on iOS/Android/MacCatalyst; plain JSON on other desktop.
+#if IOS || ANDROID || MACCATALYST
+    private string? _remoteToken;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? RemoteToken
+    {
+        get => _remoteToken;
+        set { if (_remoteToken != value) { _remoteToken = value; _secretsDirty = true; } }
+    }
+
+    private string? _lanToken;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? LanToken
+    {
+        get => _lanToken;
+        set { if (_lanToken != value) { _lanToken = value; _secretsDirty = true; } }
+    }
+
+    private string? _serverPassword;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? ServerPassword
+    {
+        get => _serverPassword;
+        set { if (_serverPassword != value) { _serverPassword = value; _secretsDirty = true; } }
+    }
+
+    private bool _secretsDirty;
+#else
     public string? RemoteToken { get; set; }
-    public string? LanUrl { get; set; }
     public string? LanToken { get; set; }
+    public string? ServerPassword { get; set; }
+#endif
+
+    public string? LanUrl { get; set; }
     public string? TunnelId { get; set; }
     public bool AutoStartTunnel { get; set; } = false;
-    public string? ServerPassword { get; set; }
     public bool DirectSharingEnabled { get; set; } = false;
     public ChatLayout ChatLayout { get; set; } = ChatLayout.Default;
     public ChatStyle ChatStyle { get; set; } = ChatStyle.Normal;
@@ -158,12 +189,13 @@ public class ConnectionSettings
     public static ConnectionSettings Load()
     {
         ConnectionSettings settings;
+        string? rawJson = null;
         try
         {
             if (File.Exists(SettingsPath))
             {
-                var json = File.ReadAllText(SettingsPath);
-                settings = JsonSerializer.Deserialize<ConnectionSettings>(json) ?? DefaultSettings();
+                rawJson = File.ReadAllText(SettingsPath);
+                settings = JsonSerializer.Deserialize<ConnectionSettings>(rawJson) ?? DefaultSettings();
             }
             else
             {
@@ -182,6 +214,10 @@ public class ConnectionSettings
         // InternationalWomensDay is ephemeral — never persist it; revert to System on load
         if (settings.Theme == UiTheme.InternationalWomensDay)
             settings.Theme = UiTheme.System;
+
+#if IOS || ANDROID || MACCATALYST
+        settings.MigrateAndLoadMobileSecrets(rawJson);
+#endif
 
         return settings;
     }
@@ -224,9 +260,98 @@ public class ConnectionSettings
         {
             var dir = Path.GetDirectoryName(SettingsPath)!;
             Directory.CreateDirectory(dir);
+#if IOS || ANDROID || MACCATALYST
+            SaveMobileSecretsIfDirty();
             var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+#else
+            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+#endif
             File.WriteAllText(SettingsPath, json);
         }
         catch { }
     }
+
+#if IOS || ANDROID || MACCATALYST
+    private const string RemoteTokenKey = "polypilot.connection.remoteToken";
+    private const string LanTokenKey = "polypilot.connection.lanToken";
+    private const string ServerPasswordKey = "polypilot.connection.serverPassword";
+
+    private void MigrateAndLoadMobileSecrets(string? loadedJson)
+    {
+        try
+        {
+            // Check if the legacy JSON had secret values (before they were [JsonIgnore])
+            string? legacyRemote = null, legacyLan = null, legacyPass = null;
+            if (!string.IsNullOrEmpty(loadedJson))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(loadedJson);
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("RemoteToken", out var rt)) legacyRemote = rt.GetString();
+                    if (root.TryGetProperty("LanToken", out var lt)) legacyLan = lt.GetString();
+                    if (root.TryGetProperty("ServerPassword", out var sp)) legacyPass = sp.GetString();
+                }
+                catch { }
+            }
+
+            var storedRemote = GetSecureStorageSync(RemoteTokenKey);
+            var storedLan    = GetSecureStorageSync(LanTokenKey);
+            var storedPass   = GetSecureStorageSync(ServerPasswordKey);
+
+            // Migrate any legacy plaintext values to SecureStorage on first run
+            if (string.IsNullOrEmpty(storedRemote) && !string.IsNullOrEmpty(legacyRemote))
+            { SetSecureStorageSync(RemoteTokenKey, legacyRemote); storedRemote = legacyRemote; }
+            if (string.IsNullOrEmpty(storedLan) && !string.IsNullOrEmpty(legacyLan))
+            { SetSecureStorageSync(LanTokenKey, legacyLan); storedLan = legacyLan; }
+            if (string.IsNullOrEmpty(storedPass) && !string.IsNullOrEmpty(legacyPass))
+            { SetSecureStorageSync(ServerPasswordKey, legacyPass); storedPass = legacyPass; }
+
+            _remoteToken = storedRemote;
+            _lanToken    = storedLan;
+            _serverPassword = storedPass;
+            _secretsDirty = false;
+
+            // Scrub any legacy plaintext secrets from settings.json
+            var hadLegacySecrets = !string.IsNullOrEmpty(legacyRemote)
+                                || !string.IsNullOrEmpty(legacyLan)
+                                || !string.IsNullOrEmpty(legacyPass);
+            if (hadLegacySecrets)
+                Save();
+        }
+        catch { }
+    }
+
+    private void SaveMobileSecretsIfDirty()
+    {
+        if (!_secretsDirty) return;
+        try
+        {
+            SetSecureStorageSync(RemoteTokenKey, _remoteToken);
+            SetSecureStorageSync(LanTokenKey, _lanToken);
+            SetSecureStorageSync(ServerPasswordKey, _serverPassword);
+            _secretsDirty = false;
+        }
+        catch { }
+    }
+
+    private static string? GetSecureStorageSync(string key)
+    {
+        try { return Task.Run(() => SecureStorage.Default.GetAsync(key)).GetAwaiter().GetResult(); }
+        catch { return null; }
+    }
+
+    private static void SetSecureStorageSync(string key, string? value)
+    {
+        try
+        {
+            Task.Run(async () =>
+            {
+                if (string.IsNullOrEmpty(value)) { SecureStorage.Default.Remove(key); return; }
+                await SecureStorage.Default.SetAsync(key, value);
+            }).GetAwaiter().GetResult();
+        }
+        catch { }
+    }
+#endif
 }

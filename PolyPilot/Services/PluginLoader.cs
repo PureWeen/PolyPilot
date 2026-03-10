@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using PolyPilot.Models;
 using PolyPilot.Provider;
@@ -65,7 +66,7 @@ public static class PluginLoader
                 }
 
                 var dirName = Path.GetFileName(dir);
-                var hash = ComputeHash(entryDll);
+                var hash = ComputeDirectoryHash(dir);
 
                 plugins.Add(new DiscoveredPlugin
                 {
@@ -168,7 +169,7 @@ public static class PluginLoader
                 continue;
             }
 
-            var currentHash = ComputeHash(fullPath);
+            var currentHash = ComputeDirectoryHash(Path.GetDirectoryName(fullPath) ?? pluginDir);
             pluginLog.Info($"Hash check: stored={plugin.Hash?[..12]}... current={currentHash[..12]}...");
 
             if (!string.Equals(currentHash, plugin.Hash, StringComparison.OrdinalIgnoreCase))
@@ -231,6 +232,29 @@ public static class PluginLoader
         using var stream = File.OpenRead(filePath);
         var hashBytes = SHA256.HashData(stream);
         return Convert.ToHexStringLower(hashBytes);
+    }
+
+    /// <summary>
+    /// Computes a canonical hash covering all .dll files in the plugin directory,
+    /// sorted by filename. Includes each filename in the hash so renames are detected.
+    /// </summary>
+    internal static string ComputeDirectoryHash(string pluginDir)
+    {
+        var dllFiles = Directory.GetFiles(pluginDir, "*.dll")
+            .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var file in dllFiles)
+        {
+            hasher.AppendData(Encoding.UTF8.GetBytes(Path.GetFileName(file)));
+            using var stream = File.OpenRead(file);
+            var buffer = new byte[81920];
+            int read;
+            while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                hasher.AppendData(buffer, 0, read);
+        }
+        return Convert.ToHexStringLower(hasher.GetHashAndReset());
     }
 
     /// <summary>
