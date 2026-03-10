@@ -70,3 +70,49 @@
 - **Pattern**: This is a variant of mistake #5 ("Missing state initialization on
   session restore") — the restore path must independently initialize ALL state that
   `SendPromptAsync` initializes, because events/watchdog/dispatch all depend on it.
+
+## PR #332 — Rescue Stuck Chat Sessions (TurnEnd Fallback + Smart Watchdog)
+
+### Root Cause 1: TurnEnd fallback permanently disabled for tool-using sessions
+- **Symptom**: Messages stop streaming mid-response (appear stuck, need "prod" to continue).
+  More precisely: `SessionIdleEvent` is lost (SDK bug #299) and nothing else fires `CompleteResponse`.
+- **Root cause**: `HasUsedToolsThisTurn = true` caused the 4s `AssistantTurnEndEvent` fallback
+  to be **completely skipped** (not just delayed). For any session that ever used tools, the guard
+  permanently disabled recovery. The session then waited the full 600s watchdog timeout.
+- **Fix**: Use `ActiveToolCallCount > 0` to skip the 4s fallback (tools genuinely running).
+  When `ActiveToolCallCount == 0` but `HasUsedToolsThisTurn == true`, wait an additional 30s
+  (`TurnEndIdleToolFallbackAdditionalMs = 30_000`) then fire `CompleteResponse`. Total wait: 34s
+  instead of 600s. The `AssistantTurnStartEvent` CTS cancels the fallback if the LLM starts a new round.
+
+### Root Cause 2: Watchdog couldn't distinguish active tools from lost SDK events
+- **Symptom**: Sessions with long-running tools (builds, tests) killed after 600s even when
+  the tool finished successfully and the SDK dropped the terminal event.
+- **Root cause**: Watchdog timeout path only had one behavior: kill with error. It couldn't tell
+  "tool still running" from "tool done, lost SessionIdleEvent."
+- **Fix**: 3-way branch in `RunProcessingWatchdogAsync` at the timeout threshold:
+  - **Case A** (`hasActiveTool && !exceededMaxTime && !demo && !remote`):
+    Probe `_serverManager.IsServerRunning()` (TCP check). If alive → reset `LastEventAtTicks` + continue.
+    If dead → fall through to Case C (kill).
+  - **Case B** (`!hasActiveTool && HasUsedToolsThisTurn && !exceededMaxTime`):
+    Call `CompleteResponse(state, watchdogGen)` then `break`. Clean completion, no error message.
+    This is now **Path #4 that clears IsProcessing** (added to the table in SKILL.md).
+  - **Case C** (default): Kill with "⚠️ Session appears stuck" error (original behavior).
+
+### Additional fixes
+- **Periodic watchdog flush** — Every 15s, if `CurrentResponse` has content, flush to History.
+  Ensures user sees streaming content even when all SDK events stop (midway through long tool).
+  Uses `ProcessingGeneration` guard (captured before `InvokeOnUI`, validated inside lambda) to
+  prevent stale ticks from flushing new-turn content into the old turn.
+- **ExternalToolRequestedEvent** — Added to `SdkEventMatrix` as `TimelineOnly`. Was arriving as
+  "Unhandled" causing log spam without any functional impact.
+- **InvokeOnUI() in TurnEnd fallback Task.Run** — Switched from local `Invoke()` function to
+  class-level `InvokeOnUI()` for unambiguous intent in cross-thread closures (INV-13).
+- **44 behavioral safety tests** + 7 watchdog tests + 4 TurnEnd fallback tests = 55 new tests.
+  All use source-code assertions and reflection-based state inspection to verify invariants.
+
+### Key insight
+These two bugs affected EVERY agent session because: (a) agents always use tools, so
+`HasUsedToolsThisTurn` is always `true`, and (b) agent tasks frequently take >10 min (build,
+test, research). The bugs compounded: fallback disabled → 600s watchdog is only hope → watchdog
+kills after 600s → user loses the entire turn. PR #332 reduced worst-case stuck-session
+recovery from 600s to 34s for lost-event scenarios.

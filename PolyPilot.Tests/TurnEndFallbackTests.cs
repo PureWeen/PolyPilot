@@ -134,4 +134,82 @@ public class TurnEndFallbackTests
 
         Assert.False(fired, "Explicit IsCancellationRequested guard must prevent firing after cancel");
     }
+
+    // ===== Tool session extended fallback =====
+
+    [Fact]
+    public void TurnEndIdleToolFallbackAdditionalMs_IsReasonable()
+    {
+        // Must be long enough that a normal LLM inter-round pause (reasoning, >4s up to ~30s)
+        // won't trigger a premature CompleteResponse, but short enough to rescue a stuck session
+        // faster than the watchdog (600s).
+        Assert.InRange(CopilotService.TurnEndIdleToolFallbackAdditionalMs, 10_000, 120_000);
+        Assert.True(
+            CopilotService.TurnEndIdleToolFallbackAdditionalMs > CopilotService.TurnEndIdleFallbackMs,
+            "Tool session additional delay must be longer than the base 4s fallback");
+    }
+
+    [Fact]
+    public void TurnEndIdleToolFallback_TotalDelay_IsLessThanWatchdog()
+    {
+        // The combined fallback delay must be shorter than the watchdog tool timeout so
+        // we rescue stuck sessions before the watchdog fires the error message.
+        var totalMs = CopilotService.TurnEndIdleFallbackMs + CopilotService.TurnEndIdleToolFallbackAdditionalMs;
+        var watchdogMs = CopilotService.WatchdogToolExecutionTimeoutSeconds * 1000;
+        Assert.True(totalMs < watchdogMs,
+            $"Total fallback ({totalMs}ms) must be less than watchdog tool timeout ({watchdogMs}ms)");
+    }
+
+    [Fact]
+    public async Task ToolFallback_CancelledByTurnStart_DoesNotFire()
+    {
+        // Simulates: TurnEnd (tools used) starts timer -> TurnStart arrives -> cancels -> no fire
+        var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        bool completeResponseFired = false;
+
+        var fallbackTask = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(50, token); // accelerated base delay (mirrors other tests in this file)
+                if (token.IsCancellationRequested) return;
+                await Task.Delay(100, token); // accelerated extended delay
+                if (token.IsCancellationRequested) return;
+                completeResponseFired = true;
+            }
+            catch (OperationCanceledException) { }
+        });
+
+        await Task.Delay(50);
+        cts.Cancel();
+        cts.Dispose();
+        await fallbackTask;
+        Assert.False(completeResponseFired, "Fallback must not fire when cancelled by TurnStart");
+    }
+
+    [Fact]
+    public async Task ToolFallback_NoTurnStart_EventuallyFires()
+    {
+        // Simulates: TurnEnd (tools used) + no TurnStart + no SessionIdle -> fallback fires
+        var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        bool completeResponseFired = false;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(50, token); // accelerated base delay
+                if (token.IsCancellationRequested) return;
+                await Task.Delay(100, token); // accelerated extended delay
+                if (token.IsCancellationRequested) return;
+                completeResponseFired = true;
+            }
+            catch (OperationCanceledException) { }
+        });
+
+        await Task.Delay(400);
+        Assert.True(completeResponseFired, "Fallback must fire when no TurnStart or SessionIdle arrives");
+    }
 }

@@ -286,6 +286,21 @@ public partial class CopilotService
         s.Length <= max ? s : s[..max] + "…";
 
     /// <summary>
+    /// Observes a fire-and-forget <see cref="Task"/> so that any faulted exception
+    /// is logged instead of surfacing as <see cref="TaskScheduler.UnobservedTaskException"/>.
+    /// All ChatDatabase write-through calls use this wrapper.
+    /// </summary>
+    internal static void SafeFireAndForget(Task task, string context = "")
+    {
+        if (task.IsCompletedSuccessfully) return;
+        task.ContinueWith(static (t, state) =>
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[SafeFireAndForget] {state}: {t.Exception?.GetBaseException().Message}");
+        }, context, TaskContinuationOptions.OnlyOnFaulted);
+    }
+
+    /// <summary>
     /// Returns true if the exception indicates a broken connection
     /// (JSON-RPC lost, socket closed, transport error, etc.).
     /// Used by CreateSessionAsync retry logic and session restore.

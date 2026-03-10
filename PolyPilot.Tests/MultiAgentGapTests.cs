@@ -50,14 +50,13 @@ Task three.
     }
 
     [Fact]
-    public void ParseTaskAssignments_FuzzyMatch_FindsClosestWorker()
+    public void ParseTaskAssignments_ExactMatchOnly_RejectsSubstring()
     {
-        // "coder" is a substring of "coder-session" → fuzzy match
+        // With exact-match-only, "coder" does NOT match "coder-session"
         var response = "@worker:coder\nWrite the code.\n@end";
         var result = CopilotService.ParseTaskAssignments(response, new List<string> { "coder-session", "reviewer-session" });
 
-        Assert.Single(result);
-        Assert.Equal("coder-session", result[0].WorkerName);
+        Assert.Empty(result); // No exact match
     }
 
     [Fact]
@@ -280,6 +279,53 @@ Do task B.
         var result = CopilotService.ParseTaskAssignments(response, new List<string> { "team-worker-1" });
         Assert.Single(result);
         Assert.Equal("team-worker-1", result[0].WorkerName);
+    }
+
+    // --- JSON Parsing Tests ---
+
+    [Fact]
+    public void ParseTaskAssignments_JsonArray_ParsesCorrectly()
+    {
+        var response = """[{"worker":"alpha","task":"Do task A"},{"worker":"beta","task":"Do task B"}]""";
+        var result = CopilotService.ParseTaskAssignments(response, new List<string> { "alpha", "beta" });
+        Assert.Equal(2, result.Count);
+        Assert.Equal("alpha", result[0].WorkerName);
+        Assert.Equal("Do task A", result[0].Task);
+        Assert.Equal("beta", result[1].WorkerName);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_JsonInCodeFence_ParsesCorrectly()
+    {
+        var response = "```json\n[{\"worker\":\"alpha\",\"task\":\"Do task A\"}]\n```";
+        var result = CopilotService.ParseTaskAssignments(response, new List<string> { "alpha", "beta" });
+        Assert.Single(result);
+        Assert.Equal("alpha", result[0].WorkerName);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_JsonWithUnknownWorker_SkipsUnmatched()
+    {
+        var response = """[{"worker":"alpha","task":"Do A"},{"worker":"ghost","task":"Do G"}]""";
+        var result = CopilotService.ParseTaskAssignments(response, new List<string> { "alpha", "beta" });
+        Assert.Single(result);
+        Assert.Equal("alpha", result[0].WorkerName);
+    }
+
+    [Fact]
+    public void ParseTaskAssignments_MalformedJson_FallsBackToRegex()
+    {
+        var response = "[broken json\n@worker:alpha\nDo task A.\n@end";
+        var result = CopilotService.ParseTaskAssignments(response, new List<string> { "alpha" });
+        Assert.Single(result);
+        Assert.Equal("alpha", result[0].WorkerName);
+    }
+
+    [Fact]
+    public void TryParseJsonAssignments_EmptyArray_ReturnsEmpty()
+    {
+        var result = CopilotService.TryParseJsonAssignments("[]", new List<string> { "alpha" });
+        Assert.Empty(result);
     }
 
     // --- BuildDelegationNudgePrompt ---

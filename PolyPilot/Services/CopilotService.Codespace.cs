@@ -39,7 +39,8 @@ public partial class CopilotService : IAsyncDisposable
     {
         if (groupId != null)
         {
-            var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+            // Use snapshot for thread safety — may be called after an await continuation
+            var group = SnapshotGroups().FirstOrDefault(g => g.Id == groupId);
             if (group?.IsCodespace == true)
             {
                 if (_codespaceClients.TryGetValue(groupId, out var csClient))
@@ -158,7 +159,7 @@ public partial class CopilotService : IAsyncDisposable
                 setupGroup.ConnectionState = CodespaceConnectionState.SetupRequired;
 
                 if (existingGroup == null)
-                    Organization.Groups.Add(setupGroup);
+                    AddGroup(setupGroup);
                 InvalidateOrganizedSessionsCache();
                 SaveOrganization();
                 StartCodespaceHealthCheck();
@@ -194,7 +195,7 @@ public partial class CopilotService : IAsyncDisposable
 
                 _tunnelHandles[waitGroup.Id] = tunnel;
                 if (existingGroup == null)
-                    Organization.Groups.Add(waitGroup);
+                    AddGroup(waitGroup);
                 InvalidateOrganizedSessionsCache();
                 SaveOrganization();
                 StartCodespaceHealthCheck();
@@ -233,7 +234,7 @@ public partial class CopilotService : IAsyncDisposable
             // so the health check keeps retrying and the user sees the group in sidebar.
             group.ConnectionState = CodespaceConnectionState.WaitingForCopilot;
             if (existingGroup == null)
-                Organization.Groups.Add(group);
+                AddGroup(group);
             InvalidateOrganizedSessionsCache();
             SaveOrganization();
             StartCodespaceHealthCheck();
@@ -245,7 +246,7 @@ public partial class CopilotService : IAsyncDisposable
         _codespaceClients[group.Id] = client;
         group.ConnectionState = CodespaceConnectionState.Connected;
         if (existingGroup == null)
-            Organization.Groups.Add(group);
+            AddGroup(group);
         InvalidateOrganizedSessionsCache();
         SaveOrganization();
         StartCodespaceHealthCheck();
@@ -279,7 +280,7 @@ public partial class CopilotService : IAsyncDisposable
             CodespaceRepository = repository,
             ConnectionState = CodespaceConnectionState.StartingCodespace,
         };
-        Organization.Groups.Add(group);
+        AddGroup(group);
         InvalidateOrganizedSessionsCache();
         SaveOrganization();
         OnStateChanged?.Invoke();
@@ -295,14 +296,20 @@ public partial class CopilotService : IAsyncDisposable
             catch (Exception ex)
             {
                 Debug($"Background codespace start failed for '{codespaceName}': {ex.Message}");
-                // Re-fetch group — it may have been deleted while we were waiting
-                var g = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+                // Re-fetch group via snapshot — runs on background thread
+                var g = SnapshotGroups().FirstOrDefault(g => g.Id == groupId);
                 if (g == null) return; // Group was deleted, nothing to update
                 // Preserve more specific states set by StartAndReconnectCodespaceAsync
-                if (g.ConnectionState != CodespaceConnectionState.WaitingForCopilot
-                    && g.ConnectionState != CodespaceConnectionState.SetupRequired)
-                    g.ConnectionState = CodespaceConnectionState.CodespaceStopped;
-                InvokeOnUI(() => OnStateChanged?.Invoke());
+                InvokeOnUI(() =>
+                {
+                    // Re-read on UI thread for safe mutation
+                    var uiGroup = Organization.Groups.FirstOrDefault(gr => gr.Id == groupId);
+                    if (uiGroup == null) return;
+                    if (uiGroup.ConnectionState != CodespaceConnectionState.WaitingForCopilot
+                        && uiGroup.ConnectionState != CodespaceConnectionState.SetupRequired)
+                        uiGroup.ConnectionState = CodespaceConnectionState.CodespaceStopped;
+                    OnStateChanged?.Invoke();
+                });
             }
         });
 
@@ -320,7 +327,7 @@ public partial class CopilotService : IAsyncDisposable
         lock (_healthCheckLock)
         {
             if (_codespaceHealthCts != null) return;
-            if (!Organization.Groups.Any(g => g.IsCodespace)) return;
+            if (!SnapshotGroups().Any(g => g.IsCodespace)) return;
 
             _codespaceHealthCts = new CancellationTokenSource();
             var ct = _codespaceHealthCts.Token;
@@ -361,11 +368,8 @@ public partial class CopilotService : IAsyncDisposable
 
     private async Task RunCodespaceHealthCheckAsync(CodespaceService svc, CancellationToken ct)
     {
-        // Take a snapshot of codespace groups to avoid InvalidOperationException from
-        // concurrent modifications on the UI thread. List<T> is not thread-safe.
-        List<SessionGroup> codespaceGroups;
-        try { codespaceGroups = Organization.Groups.Where(g => g.IsCodespace).ToList(); }
-        catch (InvalidOperationException) { return; } // Collection modified during enumeration — retry next cycle
+        // Thread-safe snapshot — health check runs on background thread
+        var codespaceGroups = SnapshotGroups().Where(g => g.IsCodespace).ToList();
         if (codespaceGroups.Count == 0) return;
 
         foreach (var group in codespaceGroups)
@@ -559,7 +563,8 @@ public partial class CopilotService : IAsyncDisposable
     /// </summary>
     private void NotifyCodespaceConnected(SessionGroup group)
     {
-        var firstSession = Organization.Sessions.FirstOrDefault(m => m.GroupId == group.Id);
+        // Snapshot for thread safety — this runs on health check background thread
+        var firstSession = SnapshotSessionMetas().FirstOrDefault(m => m.GroupId == group.Id);
         if (firstSession != null && _sessions.TryGetValue(firstSession.SessionName, out var state))
         {
             InvokeOnUI(() =>
@@ -738,7 +743,8 @@ public partial class CopilotService : IAsyncDisposable
     {
         if (!_codespaceClients.TryGetValue(group.Id, out var client)) return;
 
-        var groupSessions = Organization.Sessions
+        // Snapshot for thread safety — this runs on health check background thread
+        var groupSessions = SnapshotSessionMetas()
             .Where(m => m.GroupId == group.Id)
             .ToList();
 

@@ -88,7 +88,7 @@ public partial class CopilotService
                 IsMultiAgent = false,
                 SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
             };
-            Organization.Groups.Add(group);
+            AddGroup(group);
         }
         else
         {
@@ -114,7 +114,7 @@ public partial class CopilotService
                     GroupId = groupId,
                     IsPinned = true
                 };
-                Organization.Sessions.Add(leaderMeta);
+                AddSessionMeta(leaderMeta);
             }
 
             _sessions[leaderName] = new SessionState
@@ -354,7 +354,7 @@ public partial class CopilotService
             _sessions.TryRemove(existing, out _);
             _sessionToProviderId.Remove(existing);
             var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == existing);
-            if (meta != null) Organization.Sessions.Remove(meta);
+            if (meta != null) RemoveSessionMeta(meta);
         }
 
         // Upsert member sessions
@@ -378,7 +378,7 @@ public partial class CopilotService
                         GroupId = groupId,
                         Role = MultiAgentRole.Worker
                     };
-                    Organization.Sessions.Add(meta);
+                    AddSessionMeta(meta);
                 }
 
                 _sessions[name] = new SessionState

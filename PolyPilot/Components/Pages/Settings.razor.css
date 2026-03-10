@@ -345,6 +345,12 @@
     border-color: var(--accent-primary);
 }
 
+.form-input::placeholder {
+    color: var(--text-secondary, #888);
+    opacity: 0.55;
+    font-style: italic;
+}
+
 .server-status {
     display: flex;
     align-items: center;
@@ -640,7 +646,7 @@
     padding: 0.15rem 0.4rem;
     border-radius: 4px;
     font-family: monospace;
-    color: #fbbf24;
+    color: var(--accent-warning);
 }
 
 .tunnel-warning .hint {
@@ -812,6 +818,35 @@
 .url-input label {
     color: var(--text-on-surface);
     white-space: nowrap;
+}
+
+.settings-field {
+    display: grid;
+    grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
+    gap: 0.75rem 1rem;
+    align-items: start;
+    margin-top: 0.75rem;
+}
+
+.settings-field > label {
+    color: var(--text-on-surface);
+    font-size: var(--type-body);
+    line-height: 1.4;
+    padding-top: 0.45rem;
+}
+
+.settings-field-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.settings-field-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.25rem;
 }
 
 .form-input.wide {
@@ -1084,6 +1119,16 @@
         font-size: var(--type-callout);
     }
 
+    .settings-field {
+        grid-template-columns: 1fr;
+        gap: 0.35rem;
+    }
+
+    .settings-field > label {
+        font-size: var(--type-callout);
+        padding-top: 0;
+    }
+
     .form-input {
         font-size: var(--type-callout);
         padding: 0.35rem 0.5rem;
@@ -1292,6 +1337,8 @@
 
 .section-desc code {
     background: var(--control-bg);
+    color: var(--text-bright);
+    border: 1px solid var(--border-subtle);
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
     font-size: inherit;

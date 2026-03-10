@@ -10,8 +10,8 @@ description: >
   (6) Adding diagnostic log tags, (7) Modifying session restore paths
   (RestoreSingleSessionAsync) that must initialize watchdog-dependent state,
   (8) Modifying ReconcileOrganization or any code that reads Organization.Sessions
-  during the IsRestoring window. Covers: 9 invariants from 8 PRs of fix cycles,
-  the 8 code paths that clear IsProcessing, and common regression patterns.
+  during the IsRestoring window. Covers: 13 invariants from 10 PRs of fix cycles,
+  the 9 code paths that clear IsProcessing, and common regression patterns.
 ---
 
 # Processing State Safety
@@ -32,18 +32,19 @@ Every code path that sets `IsProcessing = false` MUST also:
 11. Add a diagnostic log entry (`[COMPLETE]`, `[ERROR]`, `[ABORT]`, etc.)
 12. Run on UI thread (via `InvokeOnUI()` or already on UI thread)
 
-## The 8 Paths That Clear IsProcessing
+## The 9 Paths That Clear IsProcessing
 
 | # | Path | File | Thread | Notes |
 |---|------|------|--------|-------|
 | 1 | CompleteResponse | Events.cs | UI (via Invoke) | Normal completion |
 | 2 | SessionErrorEvent | Events.cs | Background → InvokeOnUI | SDK error |
-| 3 | Watchdog timeout | Events.cs | Timer → InvokeOnUI | No events for 120s/600s |
-| 4 | AbortSessionAsync (local) | CopilotService.cs | UI | User clicks Stop |
-| 5 | AbortSessionAsync (remote) | CopilotService.cs | UI | Mobile stop |
-| 6 | SendAsync reconnect failure | CopilotService.cs | UI | Prompt send failed after reconnect |
-| 7 | SendAsync initial failure | CopilotService.cs | UI | Prompt send failed |
-| 8 | Bridge OnTurnEnd | Bridge.cs | Background → InvokeOnUI | Remote mode turn complete |
+| 3 | Watchdog timeout (kill) | Events.cs | Timer → InvokeOnUI | No events for 120s/600s, server dead, or max time exceeded (Case C) |
+| 4 | Watchdog clean complete | Events.cs | Timer → InvokeOnUI | Tools done, lost terminal event → calls CompleteResponse (Case B, PR #332) |
+| 5 | AbortSessionAsync (local) | CopilotService.cs | UI | User clicks Stop |
+| 6 | AbortSessionAsync (remote) | CopilotService.cs | UI | Mobile stop |
+| 7 | SendAsync reconnect failure | CopilotService.cs | UI | Prompt send failed after reconnect |
+| 8 | SendAsync initial failure | CopilotService.cs | UI | Prompt send failed |
+| 9 | Bridge OnTurnEnd | Bridge.cs | Background → InvokeOnUI | Remote mode turn complete |
 
 ## Content Persistence Safety
 
@@ -61,7 +62,7 @@ that crash the app. The DB is a write-through cache; `events.jsonl` is the sourc
 and replays on session resume via `BulkInsertAsync`. DB write failures are self-healing.
 **NEVER narrow the ChatDatabase catch filters** — use `catch (Exception ex)` always.
 
-## 9 Invariants
+## 13 Invariants
 
 ### INV-1: Complete state cleanup
 Every IsProcessing=false path clears ALL fields. See checklist above.
@@ -108,12 +109,60 @@ When `ReconcileOrganization` hasn't run yet (during `IsRestoring` window),
 during this window must call `ReconcileOrganization(allowPruning: false)` first.
 This additive mode safely adds missing entries without pruning loading sessions.
 
+### INV-10: TurnEnd fallback must not be permanently suppressed (PR #332)
+The `AssistantTurnEndEvent` 4s fallback → `CompleteResponse` guards against
+premature firing during multi-tool sessions. **Do NOT** use `HasUsedToolsThisTurn`
+to skip this fallback entirely — that permanently disables recovery for all
+agent sessions and leaves them 100% dependent on `SessionIdleEvent`. If that
+event is dropped (SDK bug #299), the session sticks for 600s.
+
+**Correct approach**: Use `ActiveToolCallCount > 0` to skip the 4s fallback
+(tools are still running). If tools are done (`ActiveToolCallCount == 0`) but
+`HasUsedToolsThisTurn` is true, use an extended 30s delay
+(`TurnEndIdleToolFallbackAdditionalMs = 30_000`). The cancellation token from
+`AssistantTurnStartEvent` is the correct mechanism to prevent premature firing
+when the LLM does multi-round tool use.
+
+### INV-11: Watchdog must distinguish active tools from lost events (PR #332)
+Blindly waiting the full 600s tool timeout when `ActiveToolCallCount == 0`
+(tools finished) is wrong — the SDK may have silently dropped the terminal event
+(`SessionIdleEvent`). The watchdog timeout path must use a 3-way branch:
+
+- **Case A** (`hasActiveTool && server alive`): Probe `_serverManager.IsServerRunning()`
+  (TCP port check). If alive → reset `LastEventAtTicks` and continue. If dead → fall through to kill.
+- **Case B** (`!hasActiveTool && HasUsedToolsThisTurn && !exceededMaxTime`): Call
+  `CompleteResponse` cleanly (no error message) then `break`. Lost terminal event scenario.
+- **Case C** (default): Kill with "⚠️ Session appears stuck" error message. Max time
+  exceeded, server dead, or something genuinely wrong.
+
+This prevents the "10-minute kill" where tools ran successfully but the session
+was murdered because the SDK dropped the follow-up `SessionIdleEvent`.
+
+### INV-12: All background→UI dispatches must capture ProcessingGeneration (PR #332)
+Any code that posts work to the UI thread from a background thread (watchdog loop,
+`Task.Run`, timer callbacks) must:
+1. Capture `var gen = Interlocked.Read(ref state.ProcessingGeneration)` **before** the `InvokeOnUI` call
+2. Validate `if (Interlocked.Read(ref state.ProcessingGeneration) != gen) return;` **inside** the lambda
+
+Without this guard, a stale watchdog tick (racing with abort+resend) can flush
+content from a new turn into the old turn's history. Every Case B and Case C
+watchdog callback has this guard; the periodic flush callback must too.
+
+### INV-13: Use InvokeOnUI() (class method) in Task.Run closures (PR #332)
+The local `Invoke(Action)` function inside `HandleSessionEvent` (declared at
+line ~249) can have scoping ambiguity when captured by `Task.Run` closures.
+Use the class-level `InvokeOnUI()` method in all `Task.Run` and timer callbacks
+for explicit, unambiguous UI thread dispatch. The local `Invoke` works but the
+intent is less clear when reading cross-threaded code.
+
 ## Top 5 Recurring Mistakes
 
 1. **Incomplete cleanup** — modifying one IsProcessing path without
    updating ALL fields that must be cleared simultaneously.
-2. **ActiveToolCallCount as sole tool signal** — gets reset/skipped
-   in several paths; always check `HasUsedToolsThisTurn` too.
+2. **Suppressing the TurnEnd fallback for tool sessions** — using `HasUsedToolsThisTurn`
+   to skip the fallback entirely leaves agent sessions with zero recovery when
+   `SessionIdleEvent` is dropped. Use `ActiveToolCallCount` to guard and an
+   extended delay for the tool-used case. (PR #332)
 3. **Background thread mutations** — mutating IsProcessing or related
    state on SDK event threads instead of marshaling to UI thread.
 4. **Missing content flush on turn boundaries** — `FlushCurrentResponse`
@@ -128,7 +177,10 @@ This additive mode safely adds missing entries without pruning loading sessions.
    `IsMultiAgentSession` not being set during restore, causing the watchdog
    to use 120s instead of 600s for multi-agent workers.
 
+**Retired mistake (was #2):** *ActiveToolCallCount as sole tool signal* — still relevant per
+INV-5, but the more impactful version is #2 above (suppressing the fallback entirely).
+
 ## Regression History
 
-9 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164 → #276 → #284.
+10 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164 → #276 → #284 → #332.
 See `references/regression-history.md` for the full timeline with root causes.

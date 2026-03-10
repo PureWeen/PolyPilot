@@ -147,11 +147,20 @@ Mobile devices connect to a desktop instance via WebSocket bridge — run your a
 
 ## Getting Started
 
-### Prerequisites
+### Install with Homebrew (macOS)
+
+```bash
+brew tap PureWeen/tap
+brew install --cask polypilot
+```
+
+This installs the notarized PolyPilot.app and the GitHub Copilot CLI automatically.
+
+### Prerequisites (build from source)
 
 - **.NET 10 SDK** (Preview)
 - **.NET MAUI workload** — `dotnet workload install maui`
-- **GitHub Copilot CLI** — `npm install -g @github/copilot`
+- **GitHub Copilot CLI** — `brew install copilot-cli` or `npm install -g @github/copilot`
 - **GitHub Copilot subscription**
 
 ### Build & Run
