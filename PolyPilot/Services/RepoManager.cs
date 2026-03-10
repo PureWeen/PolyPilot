@@ -15,9 +15,10 @@ public class RepoManager
     private static string? _baseDirOverride;
     private static readonly object _pathLock = new();
     private static string? _stateFile;
+    private static string? _storageRoot;
     private static string StateFile { get { lock (_pathLock) return _stateFile ??= GetStateFile(); } }
-    private string ReposDir => Path.Combine(GetStorageRootDir(), "repos");
-    private string WorktreesDir => Path.Combine(GetStorageRootDir(), "worktrees");
+    private string ReposDir => Path.Combine(GetCachedStorageRoot(), "repos");
+    private string WorktreesDir => Path.Combine(GetCachedStorageRoot(), "worktrees");
 
     /// <summary>
     /// Redirect all RepoManager paths to a test directory.
@@ -29,6 +30,7 @@ public class RepoManager
         {
             _baseDirOverride = path;
             _stateFile = null;
+            _storageRoot = null;
         }
     }
 
@@ -85,6 +87,20 @@ public class RepoManager
         }
         catch { }
         return GetBaseDir();
+    }
+
+    private static string GetCachedStorageRoot()
+    {
+        lock (_pathLock)
+            return _storageRoot ??= GetStorageRootDir();
+    }
+
+    /// <summary>
+    /// Call when settings change (e.g., RepositoryStorageRoot) to pick up the new value.
+    /// </summary>
+    public static void InvalidateStorageRoot()
+    {
+        lock (_pathLock) _storageRoot = null;
     }
 
     public void Load()
@@ -326,7 +342,7 @@ public class RepoManager
         return input;
     }
 
-    public string GetEffectiveStorageRoot() => GetStorageRootDir();
+    public string GetEffectiveStorageRoot() => GetCachedStorageRoot();
 
     /// <summary>
     /// Returns the default storage root (ignoring any user-configured override).
@@ -358,7 +374,7 @@ public class RepoManager
             && Directory.Exists(targetBarePath))
             return;
 
-        BackfillWorktreeClonePaths(repo);
+        lock (_stateLock) BackfillWorktreeClonePaths(repo);
         Directory.CreateDirectory(ReposDir);
 
         if (Directory.Exists(targetBarePath))
@@ -381,8 +397,12 @@ public class RepoManager
             try { await RunGitAsync(targetBarePath, ct, "config", "core.longpaths", "true"); } catch { }
         }
 
-        repo.BareClonePath = targetBarePath;
-        Save();
+        lock (_stateLock)
+        {
+            repo.BareClonePath = targetBarePath;
+            BackfillWorktreeClonePaths(repo);
+            Save();
+        }
         OnStateChanged?.Invoke();
     }
 

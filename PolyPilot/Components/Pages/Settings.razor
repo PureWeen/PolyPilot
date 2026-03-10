@@ -1011,6 +1011,7 @@
         }
 
         settings.Save();
+        RepoManager.InvalidateStorageRoot();
         recloneBusy = true;
         recloneProgress = null;
         StateHasChanged();
@@ -1382,6 +1383,7 @@
             settings.RemoteUrl = ConnectionSettings.NormalizeRemoteUrl(settings.RemoteUrl);
 
         settings.Save();
+        RepoManager.InvalidateStorageRoot();
         ShowStatus("Settings saved. Reconnecting...", "", 0);
 
         try
