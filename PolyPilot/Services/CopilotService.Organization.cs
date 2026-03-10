@@ -1102,9 +1102,11 @@ public partial class CopilotService
 
             // If the model didn't call the task tool on the first turn (common — models often
             // plan/explain first), nudge it to use the tool before falling through to text-parsing.
+            // IMPORTANT: forceCreate creates a session with NO conversation history, so we must
+            // re-send the full planning prompt (not just the nudge) for the model to have context.
             if (dispatched.Count == 0)
             {
-                Debug($"[DISPATCH] '{orchestratorName}' first response had no tool dispatches. Sending tool-use nudge.");
+                Debug($"[DISPATCH] '{orchestratorName}' first response had no tool dispatches. Sending full planning prompt on fresh session.");
                 _delegationFunctions.TryRemove(orchestratorName, out _);
                 _toolDispatchConfigured.TryRemove(orchestratorName, out _);
                 await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, cancellationToken, forceCreate: true);
@@ -1112,9 +1114,12 @@ public partial class CopilotService
                 {
                     if (_delegationContexts.TryGetValue(orchestratorName, out var nudgeCtx))
                         nudgeCtx.ResetResults(prompt, workerNames, cancellationToken);
+                    // Re-send the full planning prompt — the fresh session has no history.
+                    // Append an explicit instruction to use the task tool.
+                    var retryPrompt = planningPrompt + "\n\nIMPORTANT: You MUST use the `task` tool to delegate work. Do NOT respond with plain text — call the `task` tool now.";
                     await SendPromptAndWaitAsync(orchestratorName,
-                        BuildToolDispatchNudgePrompt(workerNames), cancellationToken, originalPrompt: prompt);
-                    // Re-collect: nudge may have triggered tool calls
+                        retryPrompt, cancellationToken, originalPrompt: prompt);
+                    // Re-collect: retry may have triggered tool calls
                     if (_delegationContexts.TryGetValue(orchestratorName, out var nudgedCtx))
                     {
                         foreach (var r in nudgedCtx.DispatchedResults)
