@@ -199,6 +199,7 @@ else
 
     private Dictionary<string, (OrchestratorPhase Phase, string? Detail)> _groupPhases = new();
     private Timer? _diskSizeTimer;
+    private DotNetObjectReference<SessionSidebar>? _sidebarRef;
 
     private static string PhaseLabel(OrchestratorPhase phase, string? detail) => phase switch
     {
@@ -1202,6 +1203,16 @@ else
             _ = RepoManager.RefreshDiskSizesAsync();
             _diskSizeTimer = new Timer(_ => _ = RepoManager.RefreshDiskSizesAsync(),
                 null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+
+            // Register .NET reference so JS chooseOption can invoke provider slash commands
+            _sidebarRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("eval", "window.__sidebarRef = null;");
+            await JS.InvokeVoidAsync("__setSidebarRef", _sidebarRef);
+
+            // Push current provider commands into the autocomplete JS layer
+            var providerCmds = CopilotService.GetAllProviderCommandDtos();
+            if (providerCmds.Count > 0)
+                await JS.InvokeVoidAsync("updateProviderCommands", providerCmds);
         }
     }
 
@@ -2650,11 +2661,29 @@ Important conventions:
         }
     }
 
+    /// <summary>
+    /// Called from the JS slash-command autocomplete when the user selects a provider command.
+    /// Routes the action to the appropriate provider by ID without requiring an ISessionProvider reference.
+    /// </summary>
+    [Microsoft.JSInterop.JSInvokable]
+    public async Task ExecuteProviderSlashCommand(string providerId, string actionId)
+    {
+        try
+        {
+            await CopilotService.ExecuteProviderSlashCommandAsync(providerId, actionId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionSidebar] Provider slash command '{actionId}' failed: {ex.Message}");
+        }
+    }
+
     public void Dispose()
     {
         _autoCloseCts?.Cancel();
         _autoCloseCts?.Dispose();
         _diskSizeTimer?.Dispose();
+        _sidebarRef?.Dispose();
         CopilotService.OnStateChanged -= RefreshSessions;
         CopilotService.OnSessionComplete -= HandleSessionComplete;
         CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;

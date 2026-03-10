@@ -722,9 +722,11 @@
 
             window.updateProviderCommands = function(commands) {
                 PROVIDER_COMMANDS = (commands || []).map(function(c) {
-                    return { cmd: '/' + c.id, desc: c.tooltip || c.label, hasArgs: false, isProvider: true, providerId: c.providerId, label: c.label };
+                    return { cmd: '/' + c.id, desc: c.tooltip || c.label, hasArgs: false, isProvider: true, providerId: c.providerId, actionId: c.id, label: c.label };
                 });
             };
+
+            window.__setSidebarRef = function(ref) { window.__sidebarRef = ref; };
 
             function getAllCommands() {
                 return COMMANDS.concat(PROVIDER_COMMANDS);
@@ -859,6 +861,16 @@
                 var firstSpace = text.indexOf(' ');
                 var cmdEnd = firstSpace === -1 ? text.length : firstSpace;
                 var suffix = text.slice(cmdEnd);
+                if (option.isProvider) {
+                    // Provider slash command: invoke .NET handler instead of sending as chat text
+                    target.value = '';
+                    hideDropdown();
+                    target.dispatchEvent(new Event('input', { bubbles: true }));
+                    if (window.__sidebarRef) {
+                        window.__sidebarRef.invokeMethodAsync('ExecuteProviderSlashCommand', option.providerId, option.actionId);
+                    }
+                    return;
+                }
                 if (option.hasArgs) {
                     target.value = option.cmd + (suffix.length === 0 ? ' ' : (suffix.charAt(0) === ' ' ? '' : ' ')) + suffix;
                     var nextCursor = option.cmd.length + 1;
