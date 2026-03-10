@@ -41,14 +41,12 @@ public partial class CopilotService
     // causing worker results to be silently lost.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _reflectLoopLocks = new();
 
-    // Per-group semaphore to prevent concurrent orchestrator dispatches.
+    // Per-group semaphore to serialize orchestrator dispatches.
     // The bridge's send_message handler and event queue drain can both call
-    // SendToMultiAgentGroupAsync for the same group; this ensures only one runs.
-    // Per-group semaphore to prevent concurrent orchestrator dispatches.
-    // The bridge's send_message handler and event queue drain can both call
-    // SendToMultiAgentGroupAsync for the same group; this ensures only one runs.
-    // INVARIANT: A second concurrent dispatch is silently skipped (WaitAsync(0) returns false)
-    // and logged at Debug level. This prevents "Session already processing" errors.
+    // SendToMultiAgentGroupAsync for the same group; this ensures they run sequentially.
+    // Concurrent callers wait in line rather than running simultaneously, which prevents
+    // "Session already processing" errors from overlapping SendPromptAndWaitAsync calls.
+    // New user messages sent while a dispatch is in progress execute after the current one completes.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _groupDispatchLocks = new();
 
     // Queued user prompts received while a reflect loop is running.
@@ -933,13 +931,10 @@ public partial class CopilotService
         var members = GetMultiAgentGroupMembers(groupId);
         if (members.Count == 0) { Debug($"[DISPATCH] SendToMultiAgentGroupAsync: no members for group '{group.Name}'"); return; }
 
-        // Prevent concurrent dispatches to the same group (bridge + event queue drain race)
+        // Serialize dispatches to the same group (bridge + event queue drain race).
+        // Callers wait their turn rather than being dropped.
         var dispatchLock = _groupDispatchLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
-        if (!await dispatchLock.WaitAsync(0, cancellationToken))
-        {
-            Debug($"[DISPATCH] SendToMultiAgentGroupAsync: group '{group.Name}' dispatch already in progress, skipping");
-            return;
-        }
+        await dispatchLock.WaitAsync(cancellationToken);
 
         try
         {
