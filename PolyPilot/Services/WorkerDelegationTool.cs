@@ -53,7 +53,8 @@ internal sealed class WorkerDelegationContext
     public IReadOnlyDictionary<string, Task<ToolDispatchedResult>> PendingTasks =>
         new Dictionary<string, Task<ToolDispatchedResult>>(_pendingTasks);
 
-    /// <summary>Resets state for a new planning-prompt round. Does NOT clear pending tasks.</summary>
+    /// <summary>Resets state for a new planning-prompt round. Does NOT clear pending tasks.
+    /// Resets the round-robin index — use <see cref="ResetResults"/> to preserve round-robin state.</summary>
     public void Reset(string originalPrompt, IReadOnlyList<string> workerNames, CancellationToken ct)
     {
         OriginalPrompt = originalPrompt;
@@ -61,6 +62,18 @@ internal sealed class WorkerDelegationContext
         CancellationToken = ct;
         lock (_resultsLock) { _results.Clear(); }
         _roundRobinIndex = -1;
+    }
+
+    /// <summary>Clears dispatched results for a new iteration but preserves the round-robin index.
+    /// Use in OrchestratorReflect mode where each iteration dispatches one worker and the
+    /// round-robin must advance across iterations (worker-1 → worker-2 → worker-1).</summary>
+    public void ResetResults(string originalPrompt, IReadOnlyList<string> workerNames, CancellationToken ct)
+    {
+        OriginalPrompt = originalPrompt;
+        WorkerNames = workerNames;
+        CancellationToken = ct;
+        lock (_resultsLock) { _results.Clear(); }
+        // Deliberately does NOT reset _roundRobinIndex
     }
 
     /// <summary>Full reset including pending tasks (used when starting a completely new dispatch cycle).</summary>
@@ -108,15 +121,33 @@ internal sealed class WorkerDelegationContext
         _pendingTasks.Clear();
         return results;
     }
+
+    /// <summary>
+    /// Observes all pending tasks to prevent unobserved task exceptions.
+    /// Call this on cleanup/error paths where the dispatch loop exited before AwaitAllPendingAsync.
+    /// </summary>
+    internal void ObserveAllPending()
+    {
+        foreach (var (_, task) in _pendingTasks)
+        {
+            _ = task.ContinueWith(t =>
+            {
+                if (t.IsFaulted) _ = t.Exception; // observe to suppress UnobservedTaskException
+            }, TaskContinuationOptions.OnlyOnFaulted);
+        }
+        _pendingTasks.Clear();
+    }
 }
 
 /// <summary>One worker result produced via the task-tool interception path.</summary>
+/// <param name="Dispatched">True if this is a placeholder indicating the worker was dispatched (not yet completed).</param>
 internal sealed record ToolDispatchedResult(
     string WorkerName,
     string? Response,
     bool Success,
     string? Error,
-    TimeSpan Duration);
+    TimeSpan Duration,
+    bool Dispatched = false);
 
 /// <summary>
 /// Provides a custom "task" AIFunction for orchestrator sessions running in OrchestratorReflect mode.
@@ -191,8 +222,8 @@ internal static class WorkerDelegationTool
             });
 
             _context.AddPendingTask(worker, dispatchTask);
-            // Add a placeholder result so the dispatch loop knows this worker was dispatched
-            _context.AddResult(new ToolDispatchedResult(worker, null, true, null, TimeSpan.Zero));
+            // Add a placeholder result so the dispatch loop knows this worker was dispatched (not yet completed)
+            _context.AddResult(new ToolDispatchedResult(worker, null, false, null, TimeSpan.Zero, Dispatched: true));
 
             // Release the ActiveToolCallCount so CompleteResponse can fire quickly,
             // allowing the dispatch loop to continue to the next worker.

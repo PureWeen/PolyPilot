@@ -478,7 +478,7 @@ public partial class CopilotService
                             await Task.Delay(TurnEndIdleFallbackMs, fallbackToken);
                             if (fallbackToken.IsCancellationRequested) return;
                             // Guard: if tools are still active, a TurnStart is coming — skip.
-                            if (Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0)
+                            if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
                             {
                                 Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — tools still active");
                                 return;
@@ -495,7 +495,7 @@ public partial class CopilotService
                                 // Re-check: if a new tool started or TurnStart fired and cancelled
                                 // this token, we would have exited above. If still here, no new
                                 // activity arrived → SessionIdleEvent was lost → complete.
-                                if (Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0)
+                                if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
                                 {
                                     Debug($"[IDLE-FALLBACK] '{sessionName}' skipped after extended wait — tools still active");
                                     return;
@@ -529,7 +529,7 @@ public partial class CopilotService
                 // Guard: if custom tools (e.g., task dispatch) are still active, the SDK
                 // fires SessionIdleEvent prematurely before the tool callback completes.
                 // Skip CompleteResponse — the tool's OnToolDispatchEnd will handle it.
-                if (Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0)
+                if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
                 {
                     Debug($"[IDLE] '{sessionName}' SessionIdleEvent skipped — ActiveToolCallCount={state.ActiveToolCallCount}, tools still in-flight");
                     break;
@@ -1480,7 +1480,7 @@ public partial class CopilotService
 
                 var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
                 var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
-                var hasActiveTool = Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0;
+                var hasActiveTool = Volatile.Read(ref state.ActiveToolCallCount) > 0;
 
                 // After events have started flowing on a resumed session, clear IsResumed
                 // so the watchdog transitions from the long 600s timeout to the shorter 120s.

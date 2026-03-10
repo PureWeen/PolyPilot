@@ -116,7 +116,7 @@
     <Target Name="_SkipCopilotCopyIfOutputExists"
             BeforeTargets="_CopyCopilotCliToOutput;_RegisterCopilotCliForCopy"
             Condition="'$(CopilotSkipCliDownload)' != 'true'">
-        <PropertyGroup Condition="Exists('$(OutDir)runtimes\$(_CopilotRid)\native\$(_CopilotBinary)')">
+        <PropertyGroup Condition="Exists('$(OutDir)runtimes/$(_CopilotRid)/native/$(_CopilotBinary)')">
             <CopilotSkipCliDownload>true</CopilotSkipCliDownload>
         </PropertyGroup>
     </Target>

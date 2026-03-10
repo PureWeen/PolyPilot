@@ -2657,8 +2657,19 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     {
                         Debug($"[RECONNECT] '{sessionName}' orchestrator with tool dispatch — skipping retry, loop will re-ensure tools.");
                         CancelProcessingWatchdog(state);
+                        CancelTurnEndFallback(state);
+                        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                        state.HasUsedToolsThisTurn = false;
+                        Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                        state.Info.IsResumed = false;
+                        if (state.Info.ProcessingStartedAt is { } skipStarted)
+                            state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - skipStarted).TotalSeconds;
+                        state.Info.ProcessingStartedAt = null;
+                        state.Info.ToolCallCount = 0;
+                        state.Info.ProcessingPhase = 0;
                         state.Info.IsProcessing = false;
-                        state.ResponseCompletion.TrySetResult("");
+                        OnStateChanged?.Invoke();
+                        state.ResponseCompletion?.TrySetResult("");
                     }
                     else if (_delegationFunctions.ContainsKey(sessionName) && state.ActiveToolCallCount > 0)
                     {

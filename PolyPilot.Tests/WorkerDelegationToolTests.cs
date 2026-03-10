@@ -116,7 +116,7 @@ public class WorkerDelegationToolTests
         Assert.Contains("dispatched", resultStr);
         Assert.Contains("worker1", resultStr);
         Assert.Single(ctx.DispatchedResults); // Placeholder result recorded
-        Assert.True(ctx.DispatchedResults[0].Success);
+        Assert.True(ctx.DispatchedResults[0].Dispatched); // Marked as dispatched, not completed
 
         // Actual result is in PendingTasks — await it
         var pendingResults = await ctx.AwaitAllPendingAsync();
@@ -161,8 +161,8 @@ public class WorkerDelegationToolTests
 
         // Callback returns "dispatched" immediately (parallel dispatch)
         Assert.Contains("dispatched", resultStr);
-        Assert.Single(ctx.DispatchedResults); // Placeholder (success=true, worker was dispatched)
-
+        Assert.Single(ctx.DispatchedResults); // Placeholder (dispatched=true, worker was dispatched)
+        Assert.True(ctx.DispatchedResults[0].Dispatched);
         // Actual failure is in PendingTasks
         var pendingResults = await ctx.AwaitAllPendingAsync();
         Assert.Single(pendingResults);
@@ -213,5 +213,61 @@ public class WorkerDelegationToolTests
             ctx.AddResult(new ToolDispatchedResult($"w{i}", "ok", true, null, TimeSpan.Zero)))));
 
         Assert.Equal(100, ctx.DispatchedResults.Count);
+    }
+
+    [Fact]
+    public async Task Context_AwaitAllPendingAsync_HandlesThrowingTask()
+    {
+        // A worker task that throws (not returns failure) must be caught by AwaitAllPendingAsync.
+        var ctx = new WorkerDelegationContext();
+        ctx.FullReset("p", new List<string> { "good", "bad" }, CancellationToken.None);
+
+        ctx.AddPendingTask("good", Task.FromResult(
+            new ToolDispatchedResult("good", "done", true, null, TimeSpan.FromSeconds(1))));
+        ctx.AddPendingTask("bad", Task.FromException<ToolDispatchedResult>(
+            new InvalidOperationException("session exploded")));
+
+        var results = await ctx.AwaitAllPendingAsync();
+
+        Assert.Equal(2, results.Count);
+        var good = results.First(r => r.WorkerName == "good");
+        var bad = results.First(r => r.WorkerName == "bad");
+        Assert.True(good.Success);
+        Assert.False(bad.Success);
+        Assert.Contains("session exploded", bad.Error);
+    }
+
+    [Fact]
+    public void Context_ResetResults_PreservesRoundRobin()
+    {
+        // ResetResults should clear results but keep the round-robin index advancing.
+        var ctx = new WorkerDelegationContext();
+        ctx.Reset("p", new List<string> { "a", "b", "c" }, CancellationToken.None);
+
+        var first = ctx.GetNextWorker();  // index 0 → "a"
+        var second = ctx.GetNextWorker(); // index 1 → "b"
+
+        // ResetResults preserves round-robin (unlike Reset which resets to -1)
+        ctx.ResetResults("p2", new List<string> { "a", "b", "c" }, CancellationToken.None);
+
+        var third = ctx.GetNextWorker(); // index 2 → "c" (continues from where it left off)
+        Assert.Equal("a", first);
+        Assert.Equal("b", second);
+        Assert.Equal("c", third);
+    }
+
+    [Fact]
+    public void Context_ObserveAllPending_SuppressesExceptions()
+    {
+        var ctx = new WorkerDelegationContext();
+        ctx.FullReset("p", new List<string> { "w1" }, CancellationToken.None);
+
+        ctx.AddPendingTask("w1", Task.FromException<ToolDispatchedResult>(
+            new InvalidOperationException("boom")));
+
+        // Should not throw — just observes the exception and clears pending tasks
+        ctx.ObserveAllPending();
+
+        Assert.Empty(ctx.PendingTasks);
     }
 }

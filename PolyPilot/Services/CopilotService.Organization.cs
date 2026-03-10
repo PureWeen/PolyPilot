@@ -956,6 +956,10 @@ public partial class CopilotService
         catch (Exception ex)
         {
             Debug($"[DISPATCH] SendToMultiAgentGroupAsync FAILED: {ex.GetType().Name}: {ex.Message}");
+            // Observe any pending parallel tasks to prevent UnobservedTaskException
+            var orchName = GetOrchestratorSession(groupId);
+            if (orchName != null && _delegationContexts.TryGetValue(orchName, out var failCtx))
+                failCtx.ObserveAllPending();
             throw;
         }
     }
@@ -2547,7 +2551,13 @@ public partial class CopilotService
             if (usingToolDispatch)
             {
                 var delegCtx = _delegationContexts[orchestratorName];
-                delegCtx.Reset(prompt, workerNames, ct);
+                // Use ResetResults (not Reset) to preserve round-robin index across iterations.
+                // In OrchestratorReflect, each iteration dispatches one worker via the task tool,
+                // so the round-robin must advance (worker-1 → worker-2 → worker-1) not restart.
+                if (reflectState.CurrentIteration == 1)
+                    delegCtx.Reset(prompt, workerNames, ct); // First iteration: full reset
+                else
+                    delegCtx.ResetResults(prompt, workerNames, ct); // Subsequent: preserve round-robin
 
                 planPrompt = reflectState.CurrentIteration == 1
                     ? BuildOrchestratorReflectToolPrompt(prompt, workerNames, group.OrchestratorPrompt, group.RoutingContext)
@@ -2573,9 +2583,9 @@ public partial class CopilotService
                 await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, ct);
                 if (_toolDispatchConfigured.ContainsKey(orchestratorName))
                 {
-                    // Reset dispatch context for the retry
+                    // Reset dispatch context for the retry (preserve round-robin)
                     if (_delegationContexts.TryGetValue(orchestratorName, out var retryCtx))
-                        retryCtx.Reset(prompt, workerNames, ct);
+                        retryCtx.ResetResults(prompt, workerNames, ct);
                     planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct, originalPrompt: prompt);
                 }
                 else
@@ -2603,7 +2613,7 @@ public partial class CopilotService
                     }
                     Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch: model skipped task tool. ConsecutiveErrors={reflectState.ConsecutiveErrors}. Nudging.");
                     AddOrchestratorSystemMessage(orchestratorName, "⚠️ No `task` tool calls detected. Nudging orchestrator to use the tool...");
-                    dispatchCtx.Reset(prompt, workerNames, ct);
+                    dispatchCtx.ResetResults(prompt, workerNames, ct);
                     var nudgeResp = await SendPromptAndWaitAsync(orchestratorName,
                         BuildToolDispatchNudgePrompt(workerNames), ct, originalPrompt: prompt);
                     if (dispatchCtx.DispatchedResults.Count == 0)
@@ -2619,12 +2629,19 @@ public partial class CopilotService
                     reflectState.ConsecutiveErrors = 0;
                 }
 
-                Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch: {dispatchCtx.DispatchedResults.Count} worker(s) completed via task tool. Iteration={reflectState.CurrentIteration}");
-                var toolResults = dispatchCtx.DispatchedResults
-                    .Select(r => new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration))
-                    .ToArray();
+                Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch: {dispatchCtx.DispatchedResults.Count} worker(s) dispatched via task tool. Iteration={reflectState.CurrentIteration}");
 
-                foreach (var r in dispatchCtx.DispatchedResults)
+                // Await pending worker tasks — in OrchestratorReflect, workers run as parallel
+                // fire-and-forget tasks. We must collect actual results before evaluation.
+                var pendingResults = await dispatchCtx.AwaitAllPendingAsync();
+                var toolResults = pendingResults.Count > 0
+                    ? pendingResults.Select(r => new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration)).ToArray()
+                    : dispatchCtx.DispatchedResults
+                        .Select(r => new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration))
+                        .ToArray();
+                Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch: {toolResults.Length} worker(s) completed. Iteration={reflectState.CurrentIteration}");
+
+                foreach (var r in toolResults)
                 {
                     attemptedWorkers.Add(r.WorkerName);
                     if (r.Success) dispatchedWorkers.Add(r.WorkerName);
@@ -2636,7 +2653,24 @@ public partial class CopilotService
 
                 var allDispatched = workerNames.All(w => dispatchedWorkers.Contains(w));
 
-                if (planResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) && allDispatched)
+                // For tool dispatch, build a synthesis of actual worker results for evaluation.
+                // The planResponse from SendPromptAndWaitAsync is just the tool callback's short status
+                // (e.g., "done"), NOT the worker output. Use the real results for stall detection.
+                var synthesizedResponse = new System.Text.StringBuilder();
+                foreach (var r in toolResults)
+                {
+                    synthesizedResponse.AppendLine($"## {r.WorkerName} (success={r.Success}, {r.Duration.TotalSeconds:F1}s)");
+                    if (!string.IsNullOrEmpty(r.Response))
+                        synthesizedResponse.AppendLine(r.Response);
+                    else if (!string.IsNullOrEmpty(r.Error))
+                        synthesizedResponse.AppendLine($"Error: {r.Error}");
+                    else
+                        synthesizedResponse.AppendLine("(empty response)");
+                    synthesizedResponse.AppendLine();
+                }
+                var effectiveResponse = synthesizedResponse.ToString();
+
+                if (effectiveResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) && allDispatched)
                 {
                     reflectState.GoalMet = true;
                     reflectState.IsActive = false;
@@ -2644,7 +2678,7 @@ public partial class CopilotService
                     break;
                 }
 
-                if (planResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) && !allDispatched)
+                if (effectiveResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) && !allDispatched)
                 {
                     var missing = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
                     var detail = missing.Any(w => attemptedWorkers.Contains(w))
@@ -2655,13 +2689,13 @@ public partial class CopilotService
                 }
                 else
                 {
-                    reflectState.LastEvaluation = ExtractIterationEvaluation(planResponse);
-                    var selfScore = planResponse.Contains("[[NEEDS_ITERATION]]", StringComparison.OrdinalIgnoreCase) ? 0.4 : 0.7;
+                    reflectState.LastEvaluation = ExtractIterationEvaluation(effectiveResponse);
+                    var selfScore = effectiveResponse.Contains("[[NEEDS_ITERATION]]", StringComparison.OrdinalIgnoreCase) ? 0.4 : 0.7;
                     reflectState.RecordEvaluation(reflectState.CurrentIteration, selfScore,
                         reflectState.LastEvaluation ?? "", GetEffectiveModel(orchestratorName));
                 }
 
-                if (reflectState.CheckStall(planResponse))
+                if (reflectState.CheckStall(effectiveResponse))
                 {
                     reflectState.ConsecutiveStalls++;
                     if (reflectState.ConsecutiveStalls >= 2)
