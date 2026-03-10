@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using PolyPilot.Models;
 
@@ -211,6 +212,10 @@ public partial class DevTunnelService : IDisposable
             // Hook bridge to CopilotService for state sync
             _bridge.SetCopilotService(_copilot);
             _bridge.SetRepoManager(_repoManager);
+
+            // Set a temporary random token before starting the bridge so connections
+            // are rejected during the tunnel setup window (before the real token is issued).
+            _bridge.AccessToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
             // Start WebSocket bridge: WS on BridgePort for remote viewer clients
             _bridge.Start(BridgePort, copilotPort);
