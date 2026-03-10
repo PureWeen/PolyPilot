@@ -692,8 +692,9 @@ That covers the full task.";
     }
 
     [Fact]
-    public void ParseTaskAssignments_FuzzyMatchesWorkerNames()
+    public void ParseTaskAssignments_ExactMatchOnly_NoFuzzy()
     {
+        // With exact-match-only, "session" does NOT match "session-alpha"
         var response = @"@worker:session
 Do the work.
 @end";
@@ -701,8 +702,7 @@ Do the work.
         var workers = new List<string> { "session-alpha", "session-beta" };
         var assignments = CopilotService.ParseTaskAssignments(response, workers);
 
-        Assert.Single(assignments);
-        Assert.Equal("session-alpha", assignments[0].WorkerName);
+        Assert.Empty(assignments); // No exact match for "session"
     }
 
     [Fact]
