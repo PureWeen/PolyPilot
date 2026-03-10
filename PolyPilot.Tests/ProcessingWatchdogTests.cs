@@ -1090,16 +1090,20 @@ public class ProcessingWatchdogTests
     }
 
     [Fact]
-    public void HasUsedToolsThisTurn_VolatileConsistency()
+    public void HasUsedToolsThisTurn_IsDeclaredVolatile()
     {
-        // Verify that Volatile.Write/Read round-trips correctly
-        // (mirrors the cross-thread pattern: SDK thread writes, watchdog timer reads)
-        bool field = false;
-        Volatile.Write(ref field, true);
-        Assert.True(Volatile.Read(ref field));
-
-        Volatile.Write(ref field, false);
-        Assert.False(Volatile.Read(ref field));
+        // HasUsedToolsThisTurn is read by the watchdog timer thread and written by
+        // SDK background threads and the UI thread. The field must be declared volatile
+        // to ensure cross-thread visibility on ARM (iOS/Android).
+        var field = typeof(CopilotService)
+            .GetNestedType("SessionState", System.Reflection.BindingFlags.NonPublic)!
+            .GetField("HasUsedToolsThisTurn")!;
+        Assert.True((field.Attributes & System.Reflection.FieldAttributes.NotSerialized) != 0
+            || field.FieldType == typeof(bool),
+            "HasUsedToolsThisTurn must be a bool field");
+        // C# volatile modifier sets the IsVolatile required modifier on the field
+        Assert.True(field.GetRequiredCustomModifiers().Any(m => m == typeof(System.Runtime.CompilerServices.IsVolatile)),
+            "HasUsedToolsThisTurn must be declared volatile for ARM memory model safety");
     }
 
     // --- Multi-agent watchdog timeout ---

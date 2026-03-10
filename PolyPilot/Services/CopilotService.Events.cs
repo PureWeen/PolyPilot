@@ -307,7 +307,7 @@ public partial class CopilotService
             case ToolExecutionStartEvent toolStart:
                 if (toolStart.Data == null) break;
                 Interlocked.Increment(ref state.ActiveToolCallCount);
-                Volatile.Write(ref state.HasUsedToolsThisTurn, true);
+                state.HasUsedToolsThisTurn = true; // volatile field — no explicit barrier needed
                 if (state.Info.ProcessingPhase < 3)
                 {
                     state.Info.ProcessingPhase = 3; // Working
@@ -491,7 +491,7 @@ public partial class CopilotService
                             // Don't complete immediately — wait an additional period. If no new
                             // TurnStart arrives within that window, SessionIdleEvent was lost
                             // (SDK bug #299) and we must complete to unblock the session.
-                            if (Volatile.Read(ref state.HasUsedToolsThisTurn))
+                            if (state.HasUsedToolsThisTurn)
                             {
                                 await Task.Delay(TurnEndIdleToolFallbackAdditionalMs, fallbackToken);
                                 if (fallbackToken.IsCancellationRequested) return;
@@ -1497,7 +1497,7 @@ public partial class CopilotService
                 // resets it, but the model may still be reasoning about the next tool call.
                 // HasUsedToolsThisTurn persists across rounds and prevents premature downgrade.
                 if (state.Info.IsResumed && Volatile.Read(ref state.HasReceivedEventsSinceResume)
-                    && !hasActiveTool && !Volatile.Read(ref state.HasUsedToolsThisTurn))
+                    && !hasActiveTool && !state.HasUsedToolsThisTurn)
                 {
                     Debug($"[WATCHDOG] '{sessionName}' clearing IsResumed — events have arrived since resume with no tool activity");
                     InvokeOnUI(() => state.Info.IsResumed = false);
@@ -1519,7 +1519,7 @@ public partial class CopilotService
                 // instead of the 120s inactivity timeout.
                 var isMultiAgentSession = Volatile.Read(ref state.IsMultiAgentSession);
                 var hasReceivedEvents = Volatile.Read(ref state.HasReceivedEventsSinceResume);
-                var hasUsedTools = Volatile.Read(ref state.HasUsedToolsThisTurn);
+                var hasUsedTools = state.HasUsedToolsThisTurn;
 
                 // Resumed session that has received ZERO events since restart — the turn likely
                 // completed before the app restarted. Use a short 30s quiescence timeout so the

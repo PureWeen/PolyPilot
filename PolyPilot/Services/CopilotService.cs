@@ -409,7 +409,7 @@ public partial class CopilotService : IAsyncDisposable
         /// Unlike ActiveToolCallCount which resets on AssistantTurnStartEvent, this stays
         /// true until the response completes — so the watchdog uses the longer tool timeout
         /// even between tool rounds when the model is thinking.</summary>
-        public bool HasUsedToolsThisTurn;
+        public volatile bool HasUsedToolsThisTurn;
         /// <summary>
         /// Count of tools that completed successfully (no permission denial, no error) this turn.
         /// Used to gate auto-resend on recovery: if tools already succeeded, resend is skipped
@@ -1655,7 +1655,7 @@ public partial class CopilotService : IAsyncDisposable
             {
                 Volatile.Write(ref state.HasReceivedEventsSinceResume, true);
                 if (hadToolActivity)
-                    Volatile.Write(ref state.HasUsedToolsThisTurn, true);
+                    state.HasUsedToolsThisTurn = true;
                 Debug($"[RESTORE] '{displayName}' events.jsonl is fresh — bypassing quiescence " +
                       $"(hadToolActivity={hadToolActivity})");
             }
@@ -2637,12 +2637,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // orphaned old state can't pass generation checks on the new state.
                     Interlocked.Exchange(ref newState.ProcessingGeneration,
                         Interlocked.Read(ref state.ProcessingGeneration));
-                    // Reset tool tracking for the NEW connection. The old connection's
-                    // tool state is stale — no tools have run on this connection yet.
-                    // Without this, HasUsedToolsThisTurn=true from the dead connection
-                    // inflates the watchdog timeout from 120s to 600s, making stuck
-                    // sessions wait 5x longer than necessary to recover.
-                    newState.HasUsedToolsThisTurn = false;
                     Interlocked.Exchange(ref newState.ActiveToolCallCount, 0);
                     Interlocked.Exchange(ref newState.SuccessfulToolCountThisTurn, 0);
                     newState.IsMultiAgentSession = state.IsMultiAgentSession;
@@ -2668,7 +2662,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     
                     // Reset HasUsedToolsThisTurn so the retried turn starts with the default
                     // 120s watchdog tier instead of the inflated 600s from stale tool state.
-                    Volatile.Write(ref state.HasUsedToolsThisTurn, false);
+                    state.HasUsedToolsThisTurn = false;
 
                     // Start fresh watchdog for the new connection
                     StartProcessingWatchdog(state, sessionName);
@@ -2903,7 +2897,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             return;
         }
 
-        bool toolsActiveOrUsed = Volatile.Read(ref state.ActiveToolCallCount) > 0 || Volatile.Read(ref state.HasUsedToolsThisTurn);
+        bool toolsActiveOrUsed = Volatile.Read(ref state.ActiveToolCallCount) > 0 || state.HasUsedToolsThisTurn;
 
         // Soft steer is only available for real SDK sessions (not demo/remote which lack CopilotSession).
         if (state.Info.IsProcessing && toolsActiveOrUsed && !IsDemoMode && !IsRemoteMode && state.Session != null)
