@@ -2411,4 +2411,112 @@ public class ProcessingWatchdogTests
             "AssistantTurnStartEvent must be included in [EVT] logging so TurnStart " +
             "is visible in diagnostics (prevents invisible fallback cancellations)");
     }
+
+    // ===========================================================================
+    // Regression tests for: stuck session due to watchdog Case A infinite reset
+    // Bug: When a tool is active (ActiveToolCallCount > 0) and the persistent
+    // server is alive but the specific session's JSON-RPC connection is dead,
+    // Case A resets LastEventAtTicks indefinitely. ProcessingStartedAt resets
+    // on each app restart, so the 60-minute max time safety net never fires.
+    // Fix: Cap consecutive Case A resets via WatchdogMaxToolAliveResets.
+    // ===========================================================================
+
+    [Fact]
+    public void WatchdogMaxToolAliveResets_IsReasonable()
+    {
+        // Must allow at least 1 reset (legitimate long tool execution),
+        // but not infinite. Cap at a reasonable number so stuck sessions
+        // are killed in 30-60 minutes even with server alive.
+        Assert.InRange(CopilotService.WatchdogMaxToolAliveResets, 1, 10);
+    }
+
+    [Fact]
+    public void WatchdogMaxToolAliveResets_BoundsMaxStuckTime()
+    {
+        // Total stuck time from Case A resets = resets × tool timeout.
+        // This must be less than WatchdogMaxProcessingTimeSeconds (3600s)
+        // so the reset cap fires before the absolute max (which may be
+        // defeated by ProcessingStartedAt resetting on app restart).
+        var maxCaseAStuckSeconds = CopilotService.WatchdogMaxToolAliveResets
+            * CopilotService.WatchdogToolExecutionTimeoutSeconds;
+        Assert.True(maxCaseAStuckSeconds < CopilotService.WatchdogMaxProcessingTimeSeconds,
+            $"Case A max stuck time ({maxCaseAStuckSeconds}s) must be less than " +
+            $"absolute max ({CopilotService.WatchdogMaxProcessingTimeSeconds}s). " +
+            "The reset cap is the PRIMARY safety net since the absolute max resets on app restart.");
+    }
+
+    [Fact]
+    public void CaseA_ExceedingMaxResets_FallsThroughToKill_InSource()
+    {
+        // Verify the watchdog's Case A checks WatchdogMaxToolAliveResets and falls
+        // through when exceeded. This is the core fix for the stuck-session bug where
+        // a dead session's tool appears active but no events ever arrive.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        Assert.True(methodIdx >= 0, "RunProcessingWatchdogAsync must exist");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // Case A must reference WatchdogMaxToolAliveResets
+        Assert.True(watchdogBody.Contains("WatchdogMaxToolAliveResets"),
+            "Case A must check WatchdogMaxToolAliveResets to cap consecutive resets");
+        // Case A must increment WatchdogCaseAResets
+        Assert.True(watchdogBody.Contains("WatchdogCaseAResets"),
+            "Case A must track reset count via state.WatchdogCaseAResets");
+    }
+
+    [Fact]
+    public void CaseA_ResetCounter_ClearedOnRealEvents_InSource()
+    {
+        // When real SDK events arrive (not usage/metrics), the Case A reset counter
+        // must be cleared. This proves the session's connection is alive, so future
+        // Case A resets should be fresh (not counting against the cap).
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var handlerIdx = source.IndexOf("private void HandleSessionEvent");
+        Assert.True(handlerIdx >= 0, "HandleSessionEvent must exist");
+        // Find the block that resets LastEventAtTicks (only for real events)
+        var lastEventResetIdx = source.IndexOf("LastEventAtTicks", handlerIdx);
+        Assert.True(lastEventResetIdx >= 0, "HandleSessionEvent must update LastEventAtTicks");
+        // The counter reset must be near the LastEventAtTicks reset (within ~300 chars)
+        var nearbyBlock = source.Substring(lastEventResetIdx, Math.Min(300, source.Length - lastEventResetIdx));
+        Assert.True(nearbyBlock.Contains("WatchdogCaseAResets"),
+            "WatchdogCaseAResets must be reset near LastEventAtTicks in HandleSessionEvent " +
+            "to clear the counter when real SDK events prove the connection is alive");
+    }
+
+    [Fact]
+    public void CaseA_ResetCounter_ClearedOnWatchdogStart_InSource()
+    {
+        // StartProcessingWatchdog must reset WatchdogCaseAResets to 0 so each new
+        // watchdog instance starts with a clean reset counter.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var startIdx = source.IndexOf("private void StartProcessingWatchdog");
+        Assert.True(startIdx >= 0, "StartProcessingWatchdog must exist");
+        var methodEnd = source.IndexOf("_ = RunProcessingWatchdogAsync", startIdx);
+        var methodBody = source.Substring(startIdx, methodEnd - startIdx);
+        Assert.True(methodBody.Contains("WatchdogCaseAResets"),
+            "StartProcessingWatchdog must reset WatchdogCaseAResets to 0");
+    }
+
+    [Fact]
+    public void ExceededMaxTime_TrueWhenProcessingStartedAtNull_InSource()
+    {
+        // Defensive: if ProcessingStartedAt is null while IsProcessing is true,
+        // exceededMaxTime must be true. Without this, Case A can reset forever
+        // because totalProcessingSeconds=0 makes exceededMaxTime always false.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        Assert.True(methodIdx >= 0, "RunProcessingWatchdogAsync must exist");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // The exceededMaxTime calculation must handle null ProcessingStartedAt
+        Assert.True(watchdogBody.Contains("!startedAt.HasValue"),
+            "exceededMaxTime must be true when ProcessingStartedAt is null " +
+            "(defensive guard against Case A infinite reset)");
+    }
 }

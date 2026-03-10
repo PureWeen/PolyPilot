@@ -408,6 +408,11 @@ public partial class CopilotService : IAsyncDisposable
         /// Cleared on CompleteResponse and SendPromptAsync.
         /// </summary>
         public ConcurrentDictionary<string, ChatMessage> PendingReasoningMessages { get; } = new();
+        /// <summary>Number of consecutive times the watchdog's Case A (tool active + server alive)
+        /// has reset the inactivity timer without any real SDK events arriving. Capped by
+        /// WatchdogMaxToolAliveResets to prevent infinite resets when the session's JSON-RPC
+        /// connection is dead but the shared persistent server is still alive.</summary>
+        public int WatchdogCaseAResets;
     }
 
     private void Debug(string message)

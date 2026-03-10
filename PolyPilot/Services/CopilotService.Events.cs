@@ -220,6 +220,9 @@ public partial class CopilotService
         if (evt is not SessionUsageInfoEvent and not AssistantUsageEvent)
         {
             Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+            // Real event arrived — reset the Case A reset counter. This proves the session's
+            // JSON-RPC connection is alive, so future Case A resets are legitimate.
+            Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
             state.Info.LastUpdatedAt = DateTime.Now;
         }
         var sessionName = state.Info.Name;
@@ -1399,6 +1402,15 @@ public partial class CopilotService
     /// non-progress events (like repeated SessionUsageInfoEvent) keep arriving without a terminal event.</summary>
     internal const int WatchdogMaxProcessingTimeSeconds = 3600; // 60 minutes
 
+    /// <summary>Maximum number of consecutive Case A resets (tool active + server alive) before
+    /// the watchdog assumes the session's JSON-RPC connection is dead and kills it anyway.
+    /// The persistent server may still be alive serving other sessions while this specific
+    /// session's transport-level connection is broken (ConnectionLostException). Without this cap,
+    /// Case A resets LastEventAtTicks indefinitely, and ProcessingStartedAt resets on each app
+    /// restart — so neither the inactivity nor the max-time safety net ever fires.
+    /// 3 resets × 600s effective timeout ≈ 30 minutes max of Case A resets.</summary>
+    internal const int WatchdogMaxToolAliveResets = 3;
+
     /// <summary>
     /// Milliseconds to wait after AssistantTurnEndEvent before firing CompleteResponse
     /// as a fallback, in case SessionIdleEvent never arrives (SDK bug #299).
@@ -1458,6 +1470,7 @@ public partial class CopilotService
         // timeout to fire on the first watchdog check for any file > ~15s old.
         // This is the exact regression pattern from PR #148 (short timeout killing active sessions).
         Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+        Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
         state.ProcessingWatchdog = new CancellationTokenSource();
         var ct = state.ProcessingWatchdog.Token;
         _ = RunProcessingWatchdogAsync(state, sessionName, ct);
@@ -1559,7 +1572,11 @@ public partial class CopilotService
 
                 if (elapsed >= effectiveTimeout)
                 {
-                    var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds;
+                    // Defensive: if ProcessingStartedAt is null while IsProcessing is true,
+                    // something is already wrong — treat as exceeded max time so Case A
+                    // can't reset the timer indefinitely.
+                    var exceededMaxTime = !startedAt.HasValue
+                        || totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds;
 
                     // Before killing, check what state we're actually in:
                     //
@@ -1586,10 +1603,22 @@ public partial class CopilotService
                             var serverAlive = _serverManager.IsServerRunning;
                             if (serverAlive)
                             {
-                                Debug($"[WATCHDOG] '{sessionName}' {elapsed:F0}s inactivity but tool is running and server is alive — resetting timer " +
-                                      $"(timeout={effectiveTimeout}s, totalProcessing={totalProcessingSeconds:F0}s)");
-                                Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
-                                continue; // keep waiting — don't kill
+                                var resets = Interlocked.Increment(ref state.WatchdogCaseAResets);
+                                if (resets > WatchdogMaxToolAliveResets)
+                                {
+                                    // Too many consecutive resets with no real SDK events — the
+                                    // session's JSON-RPC connection is likely dead even though the
+                                    // shared persistent server is still alive. Fall through to kill.
+                                    Debug($"[WATCHDOG] '{sessionName}' Case A reset count {resets} exceeded max {WatchdogMaxToolAliveResets} " +
+                                          $"— session connection likely dead (elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                }
+                                else
+                                {
+                                    Debug($"[WATCHDOG] '{sessionName}' {elapsed:F0}s inactivity but tool is running and server is alive — resetting timer " +
+                                          $"(reset #{resets}/{WatchdogMaxToolAliveResets}, timeout={effectiveTimeout}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                    Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                    continue; // keep waiting — don't kill
+                                }
                             }
                             Debug($"[WATCHDOG] '{sessionName}' tool running but server is not responding — killing stuck session " +
                                   $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
