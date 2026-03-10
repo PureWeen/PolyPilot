@@ -49,7 +49,7 @@ public partial class CopilotService
         _bridgeClient.OnStateChanged += () =>
         {
             SyncRemoteSessions();
-            InvokeOnUI(() => OnStateChanged?.Invoke());
+            NotifyStateChangedCoalesced();
         };
         _bridgeClient.OnReposListReceived += payload =>
         {

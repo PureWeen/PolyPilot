@@ -95,14 +95,13 @@ public class ServerManager : IServerManager
             SavePidFile(process.Id, port);
             Console.WriteLine($"[ServerManager] Started copilot server PID {process.Id} on port {port}");
 
-            // Detach stdout/stderr readers so they don't hold the process
+            // Detach stdout/stderr readers; dispose process handle when streams close.
+            // The server process itself keeps running — we only release the OS handle.
             _ = Task.Run(async () =>
             {
                 try { while (await process.StandardOutput.ReadLineAsync() != null) { } } catch { }
-            });
-            _ = Task.Run(async () =>
-            {
                 try { while (await process.StandardError.ReadLineAsync() != null) { } } catch { }
+                process.Dispose();
             });
 
             // Wait for server to become available
@@ -140,6 +139,7 @@ public class ServerManager : IServerManager
             {
                 var process = Process.GetProcessById(pid.Value);
                 process.Kill();
+                process.Dispose();
                 Console.WriteLine($"[ServerManager] Killed server PID {pid}");
             }
             catch (Exception ex)

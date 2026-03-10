@@ -308,7 +308,7 @@ public partial class CopilotService
                 if (state.Info.ProcessingPhase < 3)
                 {
                     state.Info.ProcessingPhase = 3; // Working
-                    Invoke(() => OnStateChanged?.Invoke());
+                    NotifyStateChangedCoalesced();
                 }
                 var startToolName = toolStart.Data.ToolName ?? "unknown";
                 var startCallId = toolStart.Data.ToolCallId ?? "";
@@ -419,7 +419,7 @@ public partial class CopilotService
                 Invoke(() =>
                 {
                     if (isPermissionDenial)
-                        OnStateChanged?.Invoke();
+                        NotifyStateChangedCoalesced();
                     OnToolCompleted?.Invoke(sessionName, completeCallId, resultStr, !hasError);
                     OnActivity?.Invoke(sessionName, hasError ? "❌ Tool failed" : "✅ Tool completed");
                 });
@@ -449,7 +449,7 @@ public partial class CopilotService
                 {
                     OnTurnStart?.Invoke(sessionName);
                     OnActivity?.Invoke(sessionName, "🤔 Thinking...");
-                    if (phaseAdvancedToThinking) OnStateChanged?.Invoke();
+                    if (phaseAdvancedToThinking) NotifyStateChangedCoalesced();
                 });
                 break;
 

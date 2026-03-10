@@ -279,8 +279,9 @@ public partial class DevTunnelService : IDisposable
         if (_hostProcess != null && !_hostProcess.HasExited)
         {
             try { _hostProcess.Kill(entireProcessTree: true); } catch { }
-            _hostProcess = null;
         }
+        _hostProcess?.Dispose();
+        _hostProcess = null;
 
         var hostArgs = _tunnelId != null
             ? $"host {_tunnelId}"
@@ -458,6 +459,7 @@ public partial class DevTunnelService : IDisposable
                 _hostProcess.Kill(entireProcessTree: true);
                 Console.WriteLine("[DevTunnel] Host process killed");
             }
+            _hostProcess?.Dispose();
         }
         catch (Exception ex)
         {
