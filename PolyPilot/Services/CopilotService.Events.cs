@@ -478,7 +478,7 @@ public partial class CopilotService
                             await Task.Delay(TurnEndIdleFallbackMs, fallbackToken);
                             if (fallbackToken.IsCancellationRequested) return;
                             // Guard: if tools are still active, a TurnStart is coming — skip.
-                            if (Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0)
+                            if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
                             {
                                 Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — tools still active");
                                 return;
@@ -495,7 +495,7 @@ public partial class CopilotService
                                 // Re-check: if a new tool started or TurnStart fired and cancelled
                                 // this token, we would have exited above. If still here, no new
                                 // activity arrived → SessionIdleEvent was lost → complete.
-                                if (Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0)
+                                if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
                                 {
                                     Debug($"[IDLE-FALLBACK] '{sessionName}' skipped after extended wait — tools still active");
                                     return;
@@ -1387,6 +1387,9 @@ public partial class CopilotService
     /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
     /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
     internal const int WatchdogToolExecutionTimeoutSeconds = 600;
+    // Sessions that USED tools but have none actively running — the model may be
+    // thinking between tool rounds, but 600s is too long for a likely-dead session.
+    internal const int WatchdogUsedToolsIdleTimeoutSeconds = 180;
     /// <summary>If a resumed session receives zero SDK events for this many seconds, it was likely already
     /// finished when the app restarted. Short enough that users don't have to click Stop, long enough
     /// for the SDK to start streaming if the turn is genuinely still active.</summary>
@@ -1472,7 +1475,7 @@ public partial class CopilotService
 
                 var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
                 var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
-                var hasActiveTool = Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0;
+                var hasActiveTool = Volatile.Read(ref state.ActiveToolCallCount) > 0;
 
                 // After events have started flowing on a resumed session, clear IsResumed
                 // so the watchdog transitions from the long 600s timeout to the shorter 120s.
@@ -1533,12 +1536,15 @@ public partial class CopilotService
                     });
                 }
 
-                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools;
+                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence);
+                var useUsedToolsTimeout = !useToolTimeout && hasUsedTools && !hasActiveTool;
                 var effectiveTimeout = useResumeQuiescence
                     ? WatchdogResumeQuiescenceTimeoutSeconds
                     : useToolTimeout
                         ? WatchdogToolExecutionTimeoutSeconds
-                        : WatchdogInactivityTimeoutSeconds;
+                        : useUsedToolsTimeout
+                            ? WatchdogUsedToolsIdleTimeoutSeconds
+                            : WatchdogInactivityTimeoutSeconds;
 
                 // Safety net: check absolute max processing time, but only if events have also
                 // gone stale. If events are still flowing (elapsed < effectiveTimeout), the session
