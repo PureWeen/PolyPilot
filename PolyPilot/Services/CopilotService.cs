@@ -2580,46 +2580,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         // with full config (MCP servers, skills, system message) matching CreateSessionAsync.
                         Debug($"Session '{sessionName}' expired on server, creating fresh session...");
                         OnActivity?.Invoke(sessionName, "🔄 Session expired, creating new session...");
-                        var freshSettings = _currentSettings ?? ConnectionSettings.Load();
-                        var freshMcpServers = LoadMcpServers(freshSettings.DisabledMcpServers, freshSettings.DisabledPlugins);
-                        var freshSkillDirs = LoadSkillDirectories(freshSettings.DisabledPlugins);
-                        // Rebuild system message with the same conditional logic as CreateSessionAsync
-                        var freshSystemContent = new StringBuilder();
-                        var freshDir = state.Info.WorkingDirectory;
-                        if (string.Equals(freshDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
-                        {
-                            var relaunchCmd = OperatingSystem.IsWindows()
-                                ? $"powershell -ExecutionPolicy Bypass -File \"{Path.Combine(ProjectDir, "relaunch.ps1")}\""
-                                : $"bash {Path.Combine(ProjectDir, "relaunch.sh")}";
-                            freshSystemContent.AppendLine($@"
-CRITICAL BUILD INSTRUCTION: You are running inside the PolyPilot MAUI application.
-When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and relaunch by running:
-
-    {relaunchCmd}
-
-This script builds the app, launches a new instance, waits for it to start, then kills the old one.
-NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
-ALWAYS run the relaunch script as the final step after making changes to this project.
-");
-                        }
-                        var freshConfig = new SessionConfig
-                        {
-                            Model = reconnectModel ?? DefaultModel,
-                            WorkingDirectory = freshDir,
-                            McpServers = freshMcpServers,
-                            SkillDirectories = freshSkillDirs,
-                            Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
-                            SystemMessage = new SystemMessageConfig
-                            {
-                                Mode = SystemMessageMode.Append,
-                                Content = freshSystemContent.ToString()
-                            },
-                            OnPermissionRequest = AutoApprovePermissions
-                        };
-                        if (freshMcpServers != null)
-                            Debug($"[RECONNECT] Fresh session config includes {freshMcpServers.Count} MCP server(s)");
-                        if (freshSkillDirs != null)
-                            Debug($"[RECONNECT] Fresh session config includes {freshSkillDirs.Count} skill dir(s)");
+                        var freshConfig = BuildFreshSessionConfig(state);
                         newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
                         state.Info.SessionId = newSession.SessionId;
                     }
@@ -2656,6 +2617,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     state.PendingReasoningMessages.Clear();
                     Debug($"[RECONNECT] '{sessionName}' reset processing state: gen={Interlocked.Read(ref state.ProcessingGeneration)}");
                     
+                    // Reset HasUsedToolsThisTurn so the retried turn starts with the default
+                    // 120s watchdog tier instead of the inflated 600s from stale tool state.
+                    Volatile.Write(ref state.HasUsedToolsThisTurn, false);
+
                     // Start fresh watchdog for the new connection
                     StartProcessingWatchdog(state, sessionName);
                     
@@ -2729,6 +2694,56 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Interlocked.Exchange(ref state.SendingFlag, 0);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Build a fresh SessionConfig with MCP servers, skill directories, and system message.
+    /// Mirrors the reconnect handler's "Session not found" path to ensure revived/fresh sessions
+    /// have full external tool access.
+    /// </summary>
+    private SessionConfig BuildFreshSessionConfig(SessionState state, List<Microsoft.Extensions.AI.AIFunction>? tools = null)
+    {
+        var settings = _currentSettings ?? ConnectionSettings.Load();
+        var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+        var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
+        var systemContent = new StringBuilder();
+        var workDir = state.Info.WorkingDirectory;
+        if (string.Equals(workDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
+        {
+            var relaunchCmd = OperatingSystem.IsWindows()
+                ? $"powershell -ExecutionPolicy Bypass -File \"{Path.Combine(ProjectDir, "relaunch.ps1")}\""
+                : $"bash {Path.Combine(ProjectDir, "relaunch.sh")}";
+            systemContent.AppendLine($@"
+CRITICAL BUILD INSTRUCTION: You are running inside the PolyPilot MAUI application.
+When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and relaunch by running:
+
+    {relaunchCmd}
+
+This script builds the app, launches a new instance, waits for it to start, then kills the old one.
+NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
+ALWAYS run the relaunch script as the final step after making changes to this project.
+");
+        }
+        var finalTools = tools ?? new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
+        var config = new SessionConfig
+        {
+            Model = Models.ModelHelper.NormalizeToSlug(state.Info.Model) ?? DefaultModel,
+            WorkingDirectory = workDir,
+            McpServers = mcpServers,
+            SkillDirectories = skillDirs,
+            Tools = finalTools,
+            SystemMessage = new SystemMessageConfig
+            {
+                Mode = SystemMessageMode.Append,
+                Content = systemContent.ToString()
+            },
+            OnPermissionRequest = AutoApprovePermissions
+        };
+        if (mcpServers != null)
+            Debug($"[FRESH-CONFIG] Includes {mcpServers.Count} MCP server(s)");
+        if (skillDirs != null)
+            Debug($"[FRESH-CONFIG] Includes {skillDirs.Count} skill dir(s)");
+        return config;
     }
 
     public async Task AbortSessionAsync(string sessionName, bool markAsInterrupted = false)

@@ -842,12 +842,18 @@ public class ChatExperienceSafetyTests
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
+        // After extraction to BuildFreshSessionConfig, verify the reconnect path calls the helper
         var sessionNotFoundIdx = source.IndexOf("Session not found", StringComparison.OrdinalIgnoreCase);
         Assert.True(sessionNotFoundIdx > 0);
+        var afterNotFound = source.Substring(sessionNotFoundIdx, Math.Min(1000, source.Length - sessionNotFoundIdx));
+        Assert.Contains("BuildFreshSessionConfig", afterNotFound);
 
-        var afterNotFound = source.Substring(sessionNotFoundIdx, Math.Min(2000, source.Length - sessionNotFoundIdx));
-        Assert.Contains("McpServers", afterNotFound);
-        Assert.Contains("SkillDirectories", afterNotFound);
+        // And verify the helper itself includes MCP and Skills
+        var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
+        Assert.True(helperIdx > 0);
+        var helperBlock = source.Substring(helperIdx, Math.Min(2000, source.Length - helperIdx));
+        Assert.Contains("McpServers", helperBlock);
+        Assert.Contains("SkillDirectories", helperBlock);
     }
 
     // =========================================================================

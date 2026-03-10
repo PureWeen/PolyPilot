@@ -276,16 +276,20 @@ public class ConnectionRecoveryTests
     {
         // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must assign
         // McpServers in the freshConfig so MCP tools survive reconnection.
+        // After extraction to BuildFreshSessionConfig helper, verify the helper contains it.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
-        // Anchor on the freshConfig initializer inside the "Session not found" reconnect path
-        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
-        Assert.True(freshConfigIndex > 0, "Could not find freshConfig in reconnect path");
+        // Verify the reconnect path calls the helper
+        var sessionNotFoundIdx = source.IndexOf("Session not found", StringComparison.OrdinalIgnoreCase);
+        Assert.True(sessionNotFoundIdx > 0, "Could not find 'Session not found' in reconnect path");
+        var afterNotFound = source.Substring(sessionNotFoundIdx, Math.Min(1000, source.Length - sessionNotFoundIdx));
+        Assert.Contains("BuildFreshSessionConfig", afterNotFound);
 
-        // Extract the config block (generously sized to cover all fields)
-        var endIndex = Math.Min(freshConfigIndex + 600, source.Length);
-        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
-        Assert.Contains("McpServers = ", configBlock);
+        // Verify the helper body includes McpServers
+        var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
+        Assert.True(helperIdx > 0, "Could not find BuildFreshSessionConfig helper");
+        var helperBlock = source.Substring(helperIdx, Math.Min(2000, source.Length - helperIdx));
+        Assert.Contains("McpServers = ", helperBlock);
     }
 
     [Fact]
@@ -295,12 +299,10 @@ public class ConnectionRecoveryTests
         // SkillDirectories in the freshConfig so skills survive reconnection.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
-        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
-        Assert.True(freshConfigIndex > 0, "Could not find freshConfig in reconnect path");
-
-        var endIndex = Math.Min(freshConfigIndex + 600, source.Length);
-        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
-        Assert.Contains("SkillDirectories = ", configBlock);
+        var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
+        Assert.True(helperIdx > 0, "Could not find BuildFreshSessionConfig helper");
+        var helperBlock = source.Substring(helperIdx, Math.Min(2000, source.Length - helperIdx));
+        Assert.Contains("SkillDirectories = ", helperBlock);
     }
 
     [Fact]
@@ -310,31 +312,25 @@ public class ConnectionRecoveryTests
         // SystemMessage so the session retains its system prompt after reconnection.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
-        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
-        Assert.True(freshConfigIndex > 0, "Could not find freshConfig in reconnect path");
-
-        var endIndex = Math.Min(freshConfigIndex + 600, source.Length);
-        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
-        Assert.Contains("SystemMessage = ", configBlock);
-        Assert.Contains("SystemMessageMode.Append", configBlock);
+        var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
+        Assert.True(helperIdx > 0, "Could not find BuildFreshSessionConfig helper");
+        var helperBlock = source.Substring(helperIdx, Math.Min(2000, source.Length - helperIdx));
+        Assert.Contains("SystemMessage = ", helperBlock);
+        Assert.Contains("SystemMessageMode.Append", helperBlock);
     }
 
     [Fact]
     public void SendPromptAsync_FreshSessionConfig_MatchesCreateSessionFields()
     {
-        // STRUCTURAL REGRESSION GUARD: The freshConfig in the reconnect path must
+        // STRUCTURAL REGRESSION GUARD: The BuildFreshSessionConfig helper must
         // set the same critical fields as the original CreateSessionAsync config.
-        // This prevents "environment keeps going away" after connection loss.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
-        var freshConfigIndex = source.IndexOf("freshConfig = new SessionConfig");
-        Assert.True(freshConfigIndex > 0);
+        var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
+        Assert.True(helperIdx > 0);
 
-        // Extract the full config initializer block
-        var endIndex = Math.Min(freshConfigIndex + 800, source.Length);
-        var configBlock = source.Substring(freshConfigIndex, endIndex - freshConfigIndex);
+        var helperBlock = source.Substring(helperIdx, Math.Min(2000, source.Length - helperIdx));
 
-        // All critical SessionConfig property assignments must be present
         var requiredAssignments = new[]
         {
             "Model = ", "WorkingDirectory = ", "McpServers = ", "SkillDirectories = ",
@@ -342,7 +338,7 @@ public class ConnectionRecoveryTests
         };
         foreach (var assignment in requiredAssignments)
         {
-            Assert.Contains(assignment, configBlock);
+            Assert.Contains(assignment, helperBlock);
         }
     }
 

@@ -1044,34 +1044,79 @@ public partial class CopilotService
         var planningPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group?.OrchestratorPrompt, group?.RoutingContext);
         var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken, originalPrompt: prompt);
 
-        // Phase 2: Parse task assignments from orchestrator response
-        var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
-        Debug($"[DISPATCH] '{orchestratorName}' plan parsed: {rawAssignments.Count} raw assignments from {workerNames.Count} workers. Response length={planResponse.Length}");
-        // Deduplicate: merge multiple tasks for the same worker into one prompt
-        var assignments = rawAssignments
-            .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
-            .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
-            .ToList();
-        if (assignments.Count == 0)
+        // Phase 2: Parse task assignments from orchestrator response, with retry loop.
+        // Uses conversation history (no fresh sessions) so the model remembers what it already assigned.
+        var allAssignments = new List<TaskAssignment>();
+        var dispatchedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        const int maxDispatchIterations = 3;
+
+        for (int dispatchIter = 0; dispatchIter < maxDispatchIterations; dispatchIter++)
         {
-            // Send a nudge prompt to force delegation before giving up
-            Debug($"[DISPATCH] No assignments parsed (length={planResponse.Length}). Sending delegation nudge. Workers: {string.Join(", ", workerNames)}");
-            var nudgePrompt = BuildDelegationNudgePrompt(workerNames);
-            var nudgeResponse = await SendPromptAndWaitAsync(orchestratorName, nudgePrompt, cancellationToken, originalPrompt: prompt);
-            rawAssignments = ParseTaskAssignments(nudgeResponse, workerNames);
-            Debug($"[DISPATCH] '{orchestratorName}' nudge parsed: {rawAssignments.Count} raw assignments. Response length={nudgeResponse.Length}");
-            assignments = rawAssignments
+            string responseToParse;
+            if (dispatchIter == 0)
+            {
+                // First iteration: parse the initial planning response
+                responseToParse = planResponse;
+            }
+            else
+            {
+                // Subsequent iterations: nudge with context about who's already dispatched
+                var remaining = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
+                if (remaining.Count == 0) break;
+
+                var nudgeSb = new System.Text.StringBuilder();
+                nudgeSb.AppendLine($"You dispatched {dispatchedWorkers.Count} worker(s): {string.Join(", ", dispatchedWorkers)}");
+                nudgeSb.AppendLine($"{remaining.Count} worker(s) remain: {string.Join(", ", remaining)}");
+                nudgeSb.AppendLine();
+                nudgeSb.AppendLine("You MUST dispatch at least one more worker. Each worker MUST receive a DIFFERENT sub-task from what you already assigned.");
+                nudgeSb.AppendLine("Use @worker:name...@end format.");
+                responseToParse = await SendPromptAndWaitAsync(orchestratorName, nudgeSb.ToString(), cancellationToken, originalPrompt: prompt);
+            }
+
+            var rawAssignments = ParseTaskAssignments(responseToParse, workerNames);
+            Debug($"[DISPATCH] '{orchestratorName}' iteration {dispatchIter}: {rawAssignments.Count} raw assignments. Response length={responseToParse.Length}");
+
+            // Deduplicate: merge multiple tasks for the same worker
+            var iterAssignments = rawAssignments
                 .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
                 .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
+                .Where(a => !dispatchedWorkers.Contains(a.WorkerName)) // skip already-dispatched
                 .ToList();
-            if (assignments.Count == 0)
+
+            if (iterAssignments.Count == 0 && dispatchIter == 0)
             {
-                Debug($"[DISPATCH] Nudge also produced no assignments. Workers: {string.Join(", ", workerNames)}");
-                AddOrchestratorSystemMessage(orchestratorName, "ℹ️ Orchestrator handled the request directly (no tasks delegated to workers).");
-                InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
-                return;
+                // First pass produced nothing — send a single nudge (backwards compat)
+                Debug($"[DISPATCH] No assignments parsed. Sending delegation nudge.");
+                var nudgePrompt = BuildDelegationNudgePrompt(workerNames);
+                var nudgeResponse = await SendPromptAndWaitAsync(orchestratorName, nudgePrompt, cancellationToken, originalPrompt: prompt);
+                iterAssignments = ParseTaskAssignments(nudgeResponse, workerNames)
+                    .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
+                    .ToList();
+                Debug($"[DISPATCH] Nudge parsed: {iterAssignments.Count} assignments.");
             }
+
+            if (iterAssignments.Count == 0)
+            {
+                if (allAssignments.Count == 0)
+                {
+                    Debug($"[DISPATCH] No assignments after iteration {dispatchIter}. Orchestrator handled directly.");
+                    AddOrchestratorSystemMessage(orchestratorName, "ℹ️ Orchestrator handled the request directly (no tasks delegated to workers).");
+                    InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
+                    return;
+                }
+                break; // Have some assignments, proceed to dispatch
+            }
+
+            allAssignments.AddRange(iterAssignments);
+            foreach (var a in iterAssignments)
+                dispatchedWorkers.Add(a.WorkerName);
+
+            // If all workers are assigned or this is the last iteration, stop
+            if (dispatchedWorkers.Count >= workerNames.Count) break;
         }
+
+        var assignments = allAssignments;
 
         // Phase 3: Dispatch tasks to workers in parallel
         Debug($"[DISPATCH] Dispatching {assignments.Count} tasks: {string.Join(", ", assignments.Select(a => a.WorkerName))}");
@@ -1155,6 +1200,10 @@ public partial class CopilotService
         {
             sb.AppendLine("Break the request into tasks and assign them to workers. You may also do some coordination work yourself (e.g., verifying results, running commands).");
         }
+        sb.AppendLine();
+        sb.AppendLine("IMPORTANT: Each worker MUST receive a DIFFERENT sub-task. Do NOT assign the same work to two workers.");
+        sb.AppendLine("If the request has fewer sub-tasks than workers, only assign to the workers you need.");
+        sb.AppendLine();
         sb.AppendLine("Use this exact format for each assignment:");
         sb.AppendLine();
         sb.AppendLine("@worker:worker-name");
@@ -1193,27 +1242,62 @@ public partial class CopilotService
 
     internal static List<TaskAssignment> ParseTaskAssignments(string orchestratorResponse, List<string> availableWorkers)
     {
+        // Try JSON parsing first — more reliable than regex
+        var jsonAssignments = TryParseJsonAssignments(orchestratorResponse, availableWorkers);
+        if (jsonAssignments.Count > 0)
+            return jsonAssignments;
+
+        // Fall back to @worker:name...@end regex parsing
         var assignments = new List<TaskAssignment>();
         var pattern = @"@worker:([^\n]+?)\s*\n([\s\S]*?)(?:@end|(?=@worker:)|$)";
 
         foreach (Match match in Regex.Matches(orchestratorResponse, pattern, RegexOptions.IgnoreCase))
         {
-            var workerName = match.Groups[1].Value.Trim();
+            var workerName = match.Groups[1].Value.Trim().Trim('`', '\'', '"');
             var task = match.Groups[2].Value.Trim();
             if (string.IsNullOrEmpty(task)) continue;
 
-            // Resolve worker name: exact match, then fuzzy
+            // Exact match only — no fuzzy bidirectional Contains (caused misroutes)
             var resolved = availableWorkers.FirstOrDefault(w =>
                 w.Equals(workerName, StringComparison.OrdinalIgnoreCase));
-            if (resolved == null)
-            {
-                resolved = availableWorkers.FirstOrDefault(w =>
-                    w.Contains(workerName, StringComparison.OrdinalIgnoreCase) ||
-                    workerName.Contains(w, StringComparison.OrdinalIgnoreCase));
-            }
             if (resolved != null)
                 assignments.Add(new TaskAssignment(resolved, task));
         }
+        return assignments;
+    }
+
+    /// <summary>
+    /// Try to parse orchestrator response as JSON array of worker assignments.
+    /// Accepts: [{"worker":"name","task":"..."},...] with optional markdown code fences.
+    /// </summary>
+    internal static List<TaskAssignment> TryParseJsonAssignments(string response, List<string> availableWorkers)
+    {
+        var assignments = new List<TaskAssignment>();
+        try
+        {
+            // Strip markdown code fences if present
+            var json = response.Trim();
+            var fenceMatch = Regex.Match(json, @"```(?:json)?\s*\n?([\s\S]*?)\n?```", RegexOptions.IgnoreCase);
+            if (fenceMatch.Success)
+                json = fenceMatch.Groups[1].Value.Trim();
+
+            // Must start with [ to be a JSON array
+            if (!json.StartsWith("[")) return assignments;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            foreach (var element in doc.RootElement.EnumerateArray())
+            {
+                var workerName = element.TryGetProperty("worker", out var w) ? w.GetString() : null;
+                var task = element.TryGetProperty("task", out var t) ? t.GetString() : null;
+                if (string.IsNullOrEmpty(workerName) || string.IsNullOrEmpty(task)) continue;
+
+                var resolved = availableWorkers.FirstOrDefault(wk =>
+                    wk.Equals(workerName, StringComparison.OrdinalIgnoreCase));
+                if (resolved != null)
+                    assignments.Add(new TaskAssignment(resolved, task));
+            }
+        }
+        catch { /* Not valid JSON — fall through to regex */ }
         return assignments;
     }
 
@@ -1253,7 +1337,32 @@ public partial class CopilotService
         {
             Debug($"[DISPATCH] Worker '{workerName}' starting (prompt len={workerPrompt.Length})");
             var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
-            Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response.Length}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
+
+            // Worker revival: empty response means the session died (e.g., dead SSE stream
+            // after reconnect). Create a fresh session and retry once.
+            if (string.IsNullOrWhiteSpace(response))
+            {
+                Debug($"[DISPATCH] Worker '{workerName}' returned empty — attempting fresh session revival");
+                if (_sessions.TryGetValue(workerName, out var deadState))
+                {
+                    try { await deadState.Session.DisposeAsync(); } catch { }
+
+                    var workerMeta = GetSessionMeta(workerName);
+                    var client = GetClientForGroup(workerMeta?.GroupId);
+                    if (client != null)
+                    {
+                        var freshConfig = BuildFreshSessionConfig(deadState);
+                        var freshSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
+                        deadState.Info.SessionId = freshSession.SessionId;
+                        var freshState = new SessionState { Session = freshSession, Info = deadState.Info };
+                        _sessions[workerName] = freshState;
+                        Debug($"[DISPATCH] Worker '{workerName}' revived with fresh session '{freshSession.SessionId}'");
+                        response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
+                    }
+                }
+            }
+
+            Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response?.Length ?? 0}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
             return new WorkerResult(workerName, response, true, null, sw.Elapsed);
         }
         catch (Exception ex)
@@ -1270,6 +1379,13 @@ public partial class CopilotService
         // object, orphaning the old TCS and causing a 10-minute hang.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromMinutes(10));
+        // Wire CTS to ResponseCompletion TCS so the 10-minute timeout actually cancels the await.
+        // Must look up from _sessions dict (not captured ref) since reconnect replaces state.
+        await using var ctsReg = cts.Token.Register(() =>
+        {
+            if (_sessions.TryGetValue(sessionName, out var s))
+                s.ResponseCompletion?.TrySetCanceled();
+        });
         return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token, originalPrompt: originalPrompt);
     }
 
