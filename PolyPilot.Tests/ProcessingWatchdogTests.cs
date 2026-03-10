@@ -2524,4 +2524,67 @@ public class ProcessingWatchdogTests
             "exceededMaxTime must be true when ProcessingStartedAt is null " +
             "(defensive guard against Case A infinite reset)");
     }
+
+    // ===========================================================================
+    // Regression tests for: reconnect path inherits stale tool state
+    // Bug: After reconnect, HasUsedToolsThisTurn=true from the dead connection
+    // inflates the watchdog timeout from 120s to 600s. ProcessingStartedAt is
+    // not reset, so the max-time safety net measures from the original send.
+    // Fix: Reset tool tracking and ProcessingStartedAt in the reconnect block.
+    // ===========================================================================
+
+    [Fact]
+    public void ReconnectPath_ResetsHasUsedToolsThisTurn_InSource()
+    {
+        // After reconnect, HasUsedToolsThisTurn must be false so the new connection
+        // uses the 120s inactivity timeout, not the 600s tool timeout inherited from
+        // the dead connection. Without this, reconnected sessions wait 5x longer.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var reconnectIdx = source.IndexOf("[RECONNECT] '{sessionName}' replacing state");
+        Assert.True(reconnectIdx >= 0, "Reconnect block must exist");
+        // Find StartProcessingWatchdog in the reconnect block (marks the end of state setup)
+        var watchdogIdx = source.IndexOf("StartProcessingWatchdog(state, sessionName)", reconnectIdx);
+        Assert.True(watchdogIdx >= 0, "StartProcessingWatchdog must be called in reconnect block");
+        var reconnectBlock = source.Substring(reconnectIdx, watchdogIdx - reconnectIdx);
+
+        // HasUsedToolsThisTurn must be set to false (not carried from old state)
+        Assert.True(reconnectBlock.Contains("HasUsedToolsThisTurn = false"),
+            "Reconnect block must reset HasUsedToolsThisTurn to false for the new connection. " +
+            "Carrying over true from the dead connection inflates the timeout from 120s to 600s.");
+    }
+
+    [Fact]
+    public void ReconnectPath_ResetsProcessingStartedAt_InSource()
+    {
+        // After reconnect, ProcessingStartedAt must be reset to DateTime.UtcNow
+        // so the watchdog's max-time safety net measures from the reconnect time,
+        // not the original send time.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var reconnectIdx = source.IndexOf("[RECONNECT] '{sessionName}' replacing state");
+        Assert.True(reconnectIdx >= 0, "Reconnect block must exist");
+        var watchdogIdx = source.IndexOf("StartProcessingWatchdog(state, sessionName)", reconnectIdx);
+        var reconnectBlock = source.Substring(reconnectIdx, watchdogIdx - reconnectIdx);
+
+        Assert.True(reconnectBlock.Contains("ProcessingStartedAt = DateTime.UtcNow"),
+            "Reconnect block must reset ProcessingStartedAt to DateTime.UtcNow. " +
+            "Without this, the 60-min max-time safety net measures from the original send.");
+    }
+
+    [Fact]
+    public void ReconnectPath_ResetsActiveToolCallCount_InSource()
+    {
+        // After reconnect, ActiveToolCallCount must be 0. No tools have started
+        // on the new connection. A stale count > 0 would trigger Case A resets.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var reconnectIdx = source.IndexOf("[RECONNECT] '{sessionName}' replacing state");
+        Assert.True(reconnectIdx >= 0, "Reconnect block must exist");
+        var watchdogIdx = source.IndexOf("StartProcessingWatchdog(state, sessionName)", reconnectIdx);
+        var reconnectBlock = source.Substring(reconnectIdx, watchdogIdx - reconnectIdx);
+
+        Assert.True(reconnectBlock.Contains("ActiveToolCallCount") && reconnectBlock.Contains("0"),
+            "Reconnect block must reset ActiveToolCallCount to 0 for the new connection.");
+    }
 }
