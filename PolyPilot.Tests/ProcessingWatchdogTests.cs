@@ -895,7 +895,10 @@ public class ProcessingWatchdogTests
     private static int ComputeEffectiveTimeout(bool hasActiveTool, bool isResumed, bool hasReceivedEvents, bool hasUsedTools, bool isMultiAgent = false)
     {
         var useResumeQuiescence = isResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
-        var useToolTimeout = hasActiveTool || (isResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgent;
+        // NOTE: isMultiAgent no longer extends the timeout (PR #332 fix).
+        // Workers actively streaming have tiny elapsed values (delta events reset the timer).
+        // Only tool execution silence (hasActiveTool or hasUsedTools) warrants 600s.
+        var useToolTimeout = hasActiveTool || (isResumed && !useResumeQuiescence) || hasUsedTools;
         return useResumeQuiescence
             ? CopilotService.WatchdogResumeQuiescenceTimeoutSeconds
             : useToolTimeout
@@ -973,14 +976,18 @@ public class ProcessingWatchdogTests
     }
 
     [Fact]
-    public void WatchdogTimeoutSelection_MultiAgent_UsesToolTimeout()
+    public void WatchdogTimeoutSelection_MultiAgent_NoTools_UsesInactivityTimeout()
     {
-        // Multi-agent sessions use longer tool timeout even without tool activity
+        // Multi-agent sessions without tool use now use the 120s inactivity timeout.
+        // The old 600s blanket for isMultiAgent caused stuck-session UX bugs when the SDK
+        // dropped terminal events (sdk bug #299 variant): users waited up to 600s when
+        // workers that do active text generation (delta events flowing) are NOT at risk of
+        // the 120s timeout because deltas keep elapsed small.
         var effectiveTimeout = ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true);
 
-        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
-        Assert.Equal(600, effectiveTimeout);
+        Assert.Equal(CopilotService.WatchdogInactivityTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(120, effectiveTimeout);
     }
 
     [Fact]
@@ -1201,7 +1208,8 @@ public class ProcessingWatchdogTests
             hasActiveTool: true, isResumed: false, hasReceivedEvents: false, hasUsedTools: false));
         Assert.Equal(600, ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: true));
-        Assert.Equal(600, ComputeEffectiveTimeout(
+        // Multi-agent without tools now uses 120s (not 600s) — see WatchdogTimeoutSelection_MultiAgent_NoTools_UsesInactivityTimeout
+        Assert.Equal(120, ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false, isMultiAgent: true));
     }
 
@@ -1238,7 +1246,7 @@ public class ProcessingWatchdogTests
     [InlineData(false, true,  true,  false, false, 600)]   // Resumed, events: tool timeout
     [InlineData(true,  true,  false, false, false, 600)]   // Resumed, active tool: tool timeout
     [InlineData(false, true,  false, true,  false, 600)]   // Resumed, used tools: tool timeout
-    [InlineData(false, false, false, false, true,  600)]   // Multi-agent: tool timeout
+    [InlineData(false, false, false, false, true,  120)]   // Multi-agent no-tools: inactivity (PR #332 fix)
     [InlineData(false, true,  false, false, true,  30)]    // Resumed+multiAgent, no events: quiescence wins
     [InlineData(false, false, false, true,  false, 600)]   // HasUsedTools: tool timeout
     [InlineData(true,  true,  true,  true,  true,  600)]   // All flags: tool timeout
@@ -1817,14 +1825,22 @@ public class ProcessingWatchdogTests
     // --- PR #195 regression: multi-agent workers killed at 120s ---
 
     [Fact]
-    public void Regression_PR195_MultiAgentWorkers_Use600s()
+    public void Regression_PR195_MultiAgentWorkers_DeltasKeepElapsedSmall()
     {
-        // Multi-agent workers doing text-heavy tasks (PR reviews, no tools)
-        // were killed at 120s inactivity. Fix: isMultiAgent flag → 600s.
+        // PR #195 concern: multi-agent workers doing text-heavy tasks (PR reviews, no tools)
+        // were killed at 120s. The fix was: isMultiAgent → 600s. But that was wrong reasoning.
+        //
+        // The CORRECT insight (PR #332): workers generating text stream DELTA EVENTS continuously.
+        // Each delta resets LastEventAtTicks, keeping elapsed tiny. The 120s timeout cannot fire
+        // during active generation. It can only fire when the session goes SILENT, which means
+        // either stuck (good to clean up) or done with terminal events dropped (Case B).
+        //
+        // Multi-agent without tools → 120s timeout (inactivity). This is intentional.
         var timeout = ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: true,
             hasUsedTools: false, isMultiAgent: true);
-        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, timeout);
+        Assert.Equal(CopilotService.WatchdogInactivityTimeoutSeconds, timeout);
+        Assert.Equal(120, timeout);
     }
 
     // --- PR #211 regression: quiescence must not kill active sessions ---
@@ -2330,5 +2346,69 @@ public class ProcessingWatchdogTests
         Assert.True(flushIdx > 0, "Periodic flush comment must exist in RunProcessingWatchdogAsync");
         Assert.True(flushIdx < elapsedCheckIdx,
             "Periodic flush must appear BEFORE the elapsed >= effectiveTimeout kill check");
+    }
+
+    // ===== Multi-agent no-tool session stuck-session recovery (PR #332 fix) =====
+
+    [Fact]
+    public void WatchdogDecision_MultiAgent_NoTools_CaseBIncludesMultiAgent_InSource()
+    {
+        // Case B must handle multi-agent sessions without tool use.
+        // This covers the scenario where an orchestrator/worker receives AssistantTurnStartEvent
+        // (cancels the 4s TurnEnd fallback), then the SDK drops the terminal events for the
+        // follow-on sub-turn. Without this, the 120s watchdog fires Case C (error kill) instead
+        // of Case B (clean complete), showing an unnecessary error message.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        Assert.True(watchdogBody.Contains("isMultiAgentSession"),
+            "Case B must reference isMultiAgentSession to handle multi-agent no-tool sessions");
+        // Find the inline "Case B:" comment that's directly in the else-if block
+        var caseBInlineIdx = watchdogBody.IndexOf("Case B:");
+        Assert.True(caseBInlineIdx >= 0, "Inline 'Case B:' comment must exist in watchdog block");
+        // Look back ~200 chars to find the else if condition containing isMultiAgentSession
+        var conditionStart = Math.Max(0, caseBInlineIdx - 200);
+        var conditionBlock = watchdogBody.Substring(conditionStart, 400);
+        Assert.True(conditionBlock.Contains("isMultiAgentSession"),
+            "Case B condition must include isMultiAgentSession for multi-agent no-tool recovery");
+    }
+
+    [Fact]
+    public void MultiAgent_NoTools_UseInactivityTimeout_NotToolTimeout()
+    {
+        // Multi-agent sessions without tool use must use 120s inactivity timeout, NOT 600s.
+        // Workers generating text stream deltas continuously — elapsed stays small during
+        // generation. The 120s timeout only fires when the session goes SILENT.
+        // When silent: either done with lost terminal event (Case B clean complete) or
+        // genuinely stuck (Case C error kill).
+        // This prevents the 600s stuck-session UX bug: sdk drops TurnEnd/Idle after
+        // TurnStart cancels the 4s fallback → user waits 600s instead of 120s.
+        var timeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false,
+            hasUsedTools: false, isMultiAgent: true);
+        Assert.Equal(120, timeout); // Must be inactivity (120s), not tool timeout (600s)
+        Assert.True(timeout < CopilotService.WatchdogToolExecutionTimeoutSeconds,
+            "Multi-agent without tools must use shorter inactivity timeout (120s), not 600s");
+    }
+
+    [Fact]
+    public void AssistantTurnStartEvent_LoggedInEvtDiagnostics_InSource()
+    {
+        // AssistantTurnStartEvent MUST be included in the [EVT] log filter.
+        // Without this, when TurnStart cancels the TurnEnd fallback silently,
+        // event-diagnostics.log shows a gap with no explanation — making stuck-session
+        // forensics impossible (root cause of the PR #332 debug session bug).
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var evtLogIdx = source.IndexOf("[EVT]");
+        Assert.True(evtLogIdx >= 0, "[EVT] log must exist in event handler");
+        // The EVT filter block must include AssistantTurnStartEvent
+        var filterContext = source.Substring(Math.Max(0, evtLogIdx - 200), 400);
+        Assert.True(filterContext.Contains("AssistantTurnStartEvent"),
+            "AssistantTurnStartEvent must be included in [EVT] logging so TurnStart " +
+            "is visible in diagnostics (prevents invisible fallback cancellations)");
     }
 }

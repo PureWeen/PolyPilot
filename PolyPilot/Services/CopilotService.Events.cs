@@ -225,8 +225,10 @@ public partial class CopilotService
         var sessionName = state.Info.Name;
         var isCurrentState = _sessions.TryGetValue(sessionName, out var current) && ReferenceEquals(current, state);
 
-        // Log critical lifecycle events and detect orphaned handlers
-        if (evt is SessionIdleEvent or AssistantTurnEndEvent or SessionErrorEvent)
+        // Log all critical lifecycle events, including TurnStart. TurnStart cancels the
+        // TurnEnd→Idle fallback; without logging it, stuck-session forensics cannot see the
+        // sub-turn boundary that caused the fallback to be silently cancelled.
+        if (evt is SessionIdleEvent or AssistantTurnEndEvent or SessionErrorEvent or AssistantTurnStartEvent)
         {
             Debug($"[EVT] '{sessionName}' received {evt.GetType().Name} " +
                   $"(IsProcessing={state.Info.IsProcessing}, isCurrentState={isCurrentState}, " +
@@ -1490,11 +1492,15 @@ public partial class CopilotService
                 //    have 2-3 min gaps between events while the model reasons), OR
                 // 3. Tools have been executed this turn (HasUsedToolsThisTurn) — even between
                 //    tool rounds when ActiveToolCallCount is 0, the model may spend minutes
-                //    thinking about what tool to call next, OR
-                // 4. Session is in a multi-agent group — workers doing text-heavy tasks
-                //    (e.g., PR reviews) can take 2-4 min without tool calls. The orchestration
-                //    loop has its own 10-minute CancelAfter timeout per worker. Cached at
-                //    send time on UI thread to avoid cross-thread List<T> access.
+                //    thinking about what tool to call next.
+                //
+                // NOTE: isMultiAgentSession alone does NOT extend the timeout.
+                // Workers actively streaming text (e.g., PR reviews) generate delta events
+                // continuously, so elapsed stays small regardless of timeout tier. The 600s
+                // timeout is only needed for actual tool execution silence. Using 600s for
+                // pure reasoning sub-turns (no tools) caused stuck-session UX bugs when the
+                // SDK dropped terminal events (sdk bug #299 variant): user had to wait 600s
+                // instead of the 120s inactivity timeout.
                 var isMultiAgentSession = Volatile.Read(ref state.IsMultiAgentSession);
                 var hasReceivedEvents = Volatile.Read(ref state.HasReceivedEventsSinceResume);
                 var hasUsedTools = Volatile.Read(ref state.HasUsedToolsThisTurn);
@@ -1527,7 +1533,7 @@ public partial class CopilotService
                     });
                 }
 
-                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgentSession;
+                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools;
                 var effectiveTimeout = useResumeQuiescence
                     ? WatchdogResumeQuiescenceTimeoutSeconds
                     : useToolTimeout
@@ -1582,9 +1588,14 @@ public partial class CopilotService
                             Debug($"[WATCHDOG] '{sessionName}' tool running but server is not responding — killing stuck session " +
                                   $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
                         }
-                        else if (!hasActiveTool && hasUsedTools)
+                        else if (!hasActiveTool && (hasUsedTools || (isMultiAgentSession && !IsDemoMode && !IsRemoteMode && _serverManager.IsServerRunning)))
                         {
-                            // Case B: tool finished, no active tools, SessionIdleEvent lost — complete cleanly
+                            // Case B: tools finished (or multi-agent session with server alive) and
+                            // terminal event was lost — complete cleanly without an error message.
+                            // For tool-using sessions: tool finished, SessionIdleEvent lost (sdk bug #299).
+                            // For multi-agent no-tool sessions: LLM finished generating, SDK dropped
+                            // both AssistantTurnEndEvent and SessionIdleEvent. Server liveness check
+                            // confirms the session completed normally, not a server crash.
                             var watchdogGen = Interlocked.Read(ref state.ProcessingGeneration);
                             Debug($"[WATCHDOG] '{sessionName}' tool finished but SessionIdleEvent never arrived — completing cleanly " +
                                   $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
