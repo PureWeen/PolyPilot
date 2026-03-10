@@ -2506,7 +2506,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         try
                         {
                             // Double-check: another worker may have already reconnected while we waited.
-                            if (_client != null && !IsConnectionError(ex))
+                            // Compare references — if _client changed, someone else already recreated it.
+                            if (!ReferenceEquals(_client, client))
                             {
                                 Debug($"Client already reconnected by another worker, skipping recreate for '{sessionName}'");
                                 client = _client;

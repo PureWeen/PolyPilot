@@ -29,6 +29,9 @@ public partial class CopilotService
 {
     public event Action<string, OrchestratorPhase, string?>? OnOrchestratorPhaseChanged; // groupId, phase, detail
 
+    /// <summary>Maximum time a single worker is allowed to run before being cancelled.</summary>
+    private static readonly TimeSpan WorkerExecutionTimeout = TimeSpan.FromMinutes(10);
+
     // Per-session semaphores to prevent concurrent model switches during rapid dispatch
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _modelSwitchLocks = new();
 
@@ -41,6 +44,11 @@ public partial class CopilotService
     // Per-group semaphore to prevent concurrent orchestrator dispatches.
     // The bridge's send_message handler and event queue drain can both call
     // SendToMultiAgentGroupAsync for the same group; this ensures only one runs.
+    // Per-group semaphore to prevent concurrent orchestrator dispatches.
+    // The bridge's send_message handler and event queue drain can both call
+    // SendToMultiAgentGroupAsync for the same group; this ensures only one runs.
+    // INVARIANT: A second concurrent dispatch is silently skipped (WaitAsync(0) returns false)
+    // and logged at Debug level. This prevents "Session already processing" errors.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _groupDispatchLocks = new();
 
     // Queued user prompts received while a reflect loop is running.
@@ -1094,11 +1102,7 @@ public partial class CopilotService
             Debug($"[DISPATCH] '{orchestratorName}' iteration {dispatchIter}: {rawAssignments.Count} raw assignments. Response length={responseToParse.Length}");
 
             // Deduplicate: merge multiple tasks for the same worker
-            var iterAssignments = rawAssignments
-                .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
-                .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
-                .Where(a => !dispatchedWorkers.Contains(a.WorkerName)) // skip already-dispatched
-                .ToList();
+            var iterAssignments = DeduplicateAssignments(rawAssignments, dispatchedWorkers);
 
             if (iterAssignments.Count == 0 && dispatchIter == 0)
             {
@@ -1106,10 +1110,7 @@ public partial class CopilotService
                 Debug($"[DISPATCH] No assignments parsed. Sending delegation nudge.");
                 var nudgePrompt = BuildDelegationNudgePrompt(workerNames);
                 var nudgeResponse = await SendPromptAndWaitAsync(orchestratorName, nudgePrompt, cancellationToken, originalPrompt: prompt);
-                iterAssignments = ParseTaskAssignments(nudgeResponse, workerNames)
-                    .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
-                    .ToList();
+                iterAssignments = DeduplicateAssignments(ParseTaskAssignments(nudgeResponse, workerNames), dispatchedWorkers);
                 Debug($"[DISPATCH] Nudge parsed: {iterAssignments.Count} assignments.");
             }
 
@@ -1236,6 +1237,19 @@ public partial class CopilotService
 
     internal record TaskAssignment(string WorkerName, string Task);
 
+    /// <summary>Deduplicate raw assignments by merging tasks for the same worker.</summary>
+    private static List<TaskAssignment> DeduplicateAssignments(
+        List<TaskAssignment> raw,
+        HashSet<string>? excludeWorkers = null)
+    {
+        var query = raw
+            .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))));
+        if (excludeWorkers != null)
+            query = query.Where(a => !excludeWorkers.Contains(a.WorkerName));
+        return query.ToList();
+    }
+
     /// <summary>
     /// Builds a delegation nudge prompt with explicit format example.
     /// The multiline format is required because ParseTaskAssignments' regex
@@ -1300,7 +1314,7 @@ public partial class CopilotService
                 json = fenceMatch.Groups[1].Value.Trim();
 
             // Must start with [ to be a JSON array
-            if (!json.StartsWith("[")) return assignments;
+            if (!json.StartsWith("[", StringComparison.Ordinal)) return assignments;
 
             using var doc = System.Text.Json.JsonDocument.Parse(json);
             foreach (var element in doc.RootElement.EnumerateArray())
@@ -1315,7 +1329,7 @@ public partial class CopilotService
                     assignments.Add(new TaskAssignment(resolved, task));
             }
         }
-        catch { /* Not valid JSON — fall through to regex */ }
+        catch (System.Text.Json.JsonException) { /* Not valid JSON — fall through to regex */ }
         return assignments;
     }
 
@@ -1396,7 +1410,7 @@ public partial class CopilotService
         // Do NOT capture state and await its TCS separately: reconnection replaces the state
         // object, orphaning the old TCS and causing a 10-minute hang.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(TimeSpan.FromMinutes(10));
+        cts.CancelAfter(WorkerExecutionTimeout);
         // Wire CTS to ResponseCompletion TCS so the 10-minute timeout actually cancels the await.
         // Must look up from _sessions dict (not captured ref) since reconnect replaces state.
         await using var ctsReg = cts.Token.Register(() =>
@@ -2207,10 +2221,7 @@ public partial class CopilotService
             var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct, originalPrompt: prompt);
             var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
             Debug($"[DISPATCH] '{orchestratorName}' reflect plan parsed: {rawAssignments.Count} raw assignments from {workerNames.Count} workers. Iteration={reflectState.CurrentIteration}, Response length={planResponse.Length}");
-            var assignments = rawAssignments
-                .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
-                .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
-                .ToList();
+            var assignments = DeduplicateAssignments(rawAssignments);
 
             if (assignments.Count == 0)
             {
@@ -2227,10 +2238,7 @@ public partial class CopilotService
                     Debug($"[DISPATCH] '{orchestratorName}' nudge parsed: {nudgeAssignments.Count} raw assignments. Response length={nudgeResponse.Length}");
                     if (nudgeAssignments.Count > 0)
                     {
-                        assignments = nudgeAssignments
-                            .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
-                            .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
-                            .ToList();
+                        assignments = DeduplicateAssignments(nudgeAssignments);
                         // Fall through to dispatch below
                     }
                     else
@@ -2262,10 +2270,7 @@ public partial class CopilotService
             // Merge any @worker assignments from queued prompt responses
             if (queuedAssignments.Count > 0)
             {
-                var extra = queuedAssignments
-                    .GroupBy(a => a.WorkerName, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => new TaskAssignment(g.Key, string.Join("\n\n---\n\n", g.Select(a => a.Task))))
-                    .ToList();
+                var extra = DeduplicateAssignments(queuedAssignments);
                 foreach (var a in extra)
                 {
                     var existing = assignments.FirstOrDefault(x => string.Equals(x.WorkerName, a.WorkerName, StringComparison.OrdinalIgnoreCase));
