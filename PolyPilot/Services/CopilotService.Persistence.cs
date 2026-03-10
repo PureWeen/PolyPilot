@@ -13,7 +13,8 @@ public partial class CopilotService
     private void SaveActiveSessionsToDisk()
     {
         if (IsDemoMode || IsRestoring) return;
-        // Snapshot entries on caller's thread to avoid concurrent mutation during timer callback
+        // Snapshot session metas for thread-safe read (this may run on timer callback thread)
+        var sessionMetas = SnapshotSessionMetas();
         List<ActiveSessionEntry> entries;
         try
         {
@@ -25,7 +26,7 @@ public partial class CopilotService
                     DisplayName = s.Info.Name,
                     Model = s.Info.Model,
                     WorkingDirectory = s.Info.WorkingDirectory,
-                    GroupId = Organization.Sessions.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
+                    GroupId = sessionMetas.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
                         : null,
@@ -58,6 +59,7 @@ public partial class CopilotService
     private void SaveActiveSessionsToDiskCore()
     {
         if (IsDemoMode) return;
+        var sessionMetas = SnapshotSessionMetas();
 
         try
         {
@@ -69,7 +71,7 @@ public partial class CopilotService
                     DisplayName = s.Info.Name,
                     Model = s.Info.Model,
                     WorkingDirectory = s.Info.WorkingDirectory,
-                    GroupId = Organization.Sessions.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
+                    GroupId = sessionMetas.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
                         : null,
@@ -288,18 +290,22 @@ public partial class CopilotService
                     Debug($"Restoring {entries.Count} previous sessions...");
                     IsRestoring = true;
 
+                    // Snapshot groups once for thread safety — bridge/SDK events can
+                    // call AddGroup/RemoveGroupsWhere concurrently during restore.
+                    var restoreGroups = SnapshotGroups();
+
                     // Mark all codespace groups as Reconnecting — health check will connect them in background.
                     // We do NOT block app startup with slow SSH calls here.
                     // When CodespacesEnabled is off, groups stay in memory but are inert (UI hidden, health check off).
                     if (CodespacesEnabled)
                     {
-                        foreach (var group in Organization.Groups.Where(g => g.IsCodespace))
+                        foreach (var group in restoreGroups.Where(g => g.IsCodespace))
                             group.ConnectionState = CodespaceConnectionState.Reconnecting;
                     }
 
                     // Collect evaluator session names referenced by active reflection cycles
                     var activeEvaluators = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var g in Organization.Groups)
+                    foreach (var g in restoreGroups)
                     {
                         if (g.ReflectionState?.IsActive == true && !string.IsNullOrEmpty(g.ReflectionState.EvaluatorSessionName))
                             activeEvaluators.Add(g.ReflectionState.EvaluatorSessionName);
@@ -342,7 +348,7 @@ public partial class CopilotService
                             // Health check will resume them after the codespace tunnel is established.
                             // When toggle is off, skip entirely — don't create null-session placeholders.
                             var isCodespaceSession = !string.IsNullOrEmpty(entry.GroupId) &&
-                                Organization.Groups.Any(g => g.Id == entry.GroupId && g.IsCodespace);
+                                restoreGroups.Any(g => g.Id == entry.GroupId && g.IsCodespace);
                             if (isCodespaceSession)
                             {
                                 if (!CodespacesEnabled)
@@ -356,7 +362,7 @@ public partial class CopilotService
 
                                 // Use the codespace working directory (/workspaces/{repo}) instead of the
                                 // persisted local Mac path which doesn't exist inside the codespace.
-                                var csGroup = Organization.Groups.FirstOrDefault(g => g.Id == entry.GroupId);
+                                var csGroup = restoreGroups.FirstOrDefault(g => g.Id == entry.GroupId);
                                 var csWorkDir = csGroup?.CodespaceWorkingDirectory ?? entry.WorkingDirectory;
 
                                 var info = new AgentSessionInfo

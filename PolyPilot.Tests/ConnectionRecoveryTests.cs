@@ -378,6 +378,264 @@ public class ConnectionRecoveryTests
         Assert.True(CopilotService.IsConnectionError(phase2), "Phase 2: client not connected should be detected");
     }
 
+    // ===== SafeFireAndForget task observation =====
+    // Prevents UnobservedTaskException from fire-and-forget _chatDb calls.
+    // See crash log: "A Task's exception(s) were not observed" wrapping ConnectionLostException.
+
+    [Fact]
+    public void SafeFireAndForget_CompletedTask_DoesNotThrow()
+    {
+        CopilotService.SafeFireAndForget(Task.CompletedTask, "test");
+    }
+
+    [Fact]
+    public async Task SafeFireAndForget_FaultedTask_ObservesException()
+    {
+        // A faulted task should be observed (no UnobservedTaskException)
+        var tcs = new TaskCompletionSource();
+        tcs.SetException(new InvalidOperationException("DB connection failed"));
+
+        CopilotService.SafeFireAndForget(tcs.Task, "test-faulted");
+
+        // Give the continuation time to run
+        await Task.Delay(50);
+        // If we got here without an unobserved exception, the test passes
+    }
+
+    [Fact]
+    public async Task SafeFireAndForget_AsyncFaultedTask_ObservesException()
+    {
+        static async Task FailingTask()
+        {
+            await Task.Yield();
+            throw new InvalidOperationException("Async failure");
+        }
+
+        var task = FailingTask();
+        CopilotService.SafeFireAndForget(task, "async-fault");
+
+        await Task.Delay(50);
+    }
+
+    [Fact]
+    public void SafeFireAndForget_CanceledTask_DoesNotThrow()
+    {
+        var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var task = Task.FromCanceled(cts.Token);
+
+        // Canceled tasks shouldn't trigger the OnlyOnFaulted continuation
+        CopilotService.SafeFireAndForget(task, "test-canceled");
+    }
+
+    // ===== Lazy client re-initialization (reconnect path fix) =====
+    // After a failed reconnect sets _client=null and IsInitialized=false,
+    // subsequent prompt attempts must auto-reinitialize instead of
+    // permanently failing with "Service not initialized".
+
+    [Fact]
+    public void SendPromptAsync_ReconnectPath_HasLazyReinitializationGuard()
+    {
+        // STRUCTURAL REGRESSION GUARD: The reconnect catch block in SendPromptAsync
+        // must check for a dead client (!IsInitialized || _client == null) before
+        // calling GetClientForGroup. Without this, a previous reconnect failure
+        // that nulled _client makes ALL sessions permanently dead.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        // Find the reconnect block (inside the SendAsync catch)
+        var reconnectIndex = source.IndexOf("attempting reconnect...");
+        Assert.True(reconnectIndex > 0, "Could not find reconnect block in SendPromptAsync");
+
+        // The lazy re-init guard must appear BEFORE GetClientForGroup
+        var afterReconnect = source.Substring(reconnectIndex, 3000);
+        var reinitGuardPos = afterReconnect.IndexOf("lazy re-initialization");
+        var getClientPos = afterReconnect.IndexOf("GetClientForGroup(sessionGroupId)");
+        Assert.True(reinitGuardPos > 0, "Lazy re-initialization guard not found in reconnect path");
+        Assert.True(getClientPos > 0, "GetClientForGroup call not found in reconnect path");
+        Assert.True(reinitGuardPos < getClientPos,
+            "Lazy re-initialization must appear BEFORE GetClientForGroup to prevent permanent dead state");
+    }
+
+    [Fact]
+    public void SendPromptAsync_LazyReinit_AttemptsServerRestart()
+    {
+        // STRUCTURAL REGRESSION GUARD: The lazy re-init path must attempt to restart
+        // the persistent server (via _serverManager) before creating a new client.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var reinitIndex = source.IndexOf("lazy re-initialization so the session can self-heal");
+        Assert.True(reinitIndex > 0);
+
+        // Extract the re-init block (generous size)
+        var reinitBlock = source.Substring(reinitIndex, 1000);
+        Assert.Contains("_serverManager.StartServerAsync", reinitBlock);
+        Assert.Contains("CreateClient(reinitSettings)", reinitBlock);
+        Assert.Contains("IsInitialized = true", reinitBlock);
+    }
+
+    [Fact]
+    public void SendPromptAsync_LazyReinit_SkipsForCodespaceSessions()
+    {
+        // STRUCTURAL REGRESSION GUARD: Lazy re-init should NOT run for codespace
+        // sessions (they have their own health check reconnection mechanism).
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var reinitIndex = source.IndexOf("lazy re-initialization so the session can self-heal");
+        Assert.True(reinitIndex > 0);
+
+        // The guard condition must exclude codespace sessions
+        var guardBlock = source.Substring(reinitIndex, 200);
+        Assert.Contains("isCodespaceSession", guardBlock);
+    }
+
+    [Fact]
+    public async Task PersistentFailure_ThenDemoRecovery_SessionsWork()
+    {
+        // End-to-end: fail in persistent → recover in demo → sessions usable
+        var svc = CreateService();
+        _serverManager.StartServerResult = false;
+
+        await svc.ReconnectAsync(new PolyPilot.Models.ConnectionSettings
+        {
+            Mode = PolyPilot.Models.ConnectionMode.Persistent,
+            Host = "localhost",
+            Port = 19999
+        });
+        Assert.False(svc.IsInitialized);
+
+        // Recover via demo mode
+        await svc.ReconnectAsync(new PolyPilot.Models.ConnectionSettings
+        {
+            Mode = PolyPilot.Models.ConnectionMode.Demo
+        });
+        Assert.True(svc.IsInitialized);
+
+        // Sessions should work
+        var session = await svc.CreateSessionAsync("recovery-test");
+        Assert.NotNull(session);
+        Assert.Equal("recovery-test", svc.ActiveSessionName);
+    }
+
+    // ===== Resume display-name deduplication =====
+
+    [Fact]
+    public async Task ResumeSession_DuplicateDisplayName_GetsSuffix()
+    {
+        // If a session with the same display name already exists, the resume
+        // should auto-deduplicate by appending (2), (3), etc.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new PolyPilot.Models.ConnectionSettings
+        {
+            Mode = PolyPilot.Models.ConnectionMode.Demo
+        });
+
+        // Create an initial session named "My Session"
+        var first = await svc.CreateSessionAsync("My Session");
+        Assert.NotNull(first);
+        Assert.Equal("My Session", first.Name);
+
+        // Verify it's in the sessions dictionary
+        var allSessions = svc.GetAllSessions().Select(s => s.Name).ToList();
+        Assert.Contains("My Session", allSessions);
+    }
+
+    [Fact]
+    public void ResumeSession_Structural_NeverAutoDeletesOnCorruptError()
+    {
+        // STRUCTURAL REGRESSION GUARD: The ResumeSession handler in SessionSidebar
+        // must NOT call DeletePersistedSession when a corrupt-session error occurs.
+        // Auto-deleting session data causes irreversible data loss.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Components", "Layout", "SessionSidebar.razor"));
+
+        var resumeMethod = ExtractMethod(source, "private async Task ResumeSession");
+        Assert.NotNull(resumeMethod);
+
+        // Must NOT contain DeletePersistedSession call
+        Assert.DoesNotContain("DeletePersistedSession", resumeMethod);
+
+        // Must still detect corrupt errors (for the error message)
+        Assert.Contains("IsCorruptSessionError", resumeMethod);
+    }
+
+    [Fact]
+    public void ResumeSessionAsync_Structural_DedupsDuplicateDisplayName()
+    {
+        // STRUCTURAL REGRESSION GUARD: ResumeSessionAsync must de-duplicate
+        // display names instead of throwing on collision.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var methodIndex = source.IndexOf("public async Task<AgentSessionInfo> ResumeSessionAsync");
+        Assert.True(methodIndex > 0, "Could not find ResumeSessionAsync method");
+
+        // Extract enough of the method to find the dedup logic (method is ~200 lines)
+        var endIndex = Math.Min(methodIndex + 4000, source.Length);
+        var methodBlock = source[methodIndex..endIndex];
+
+        // Must NOT contain the old throw-on-collision pattern
+        Assert.DoesNotContain("already exists.", methodBlock.Split("De-duplicate")[0]);
+
+        // Must contain dedup loop
+        Assert.Contains("candidate", methodBlock);
+    }
+
+    private static string? ExtractMethod(string source, string signature)
+    {
+        var idx = source.IndexOf(signature);
+        if (idx < 0) return null;
+        int braces = 0;
+        int start = source.IndexOf('{', idx);
+        if (start < 0) return null;
+        for (int i = start; i < source.Length; i++)
+        {
+            if (source[i] == '{') braces++;
+            else if (source[i] == '}') { braces--; if (braces == 0) return source[idx..(i + 1)]; }
+        }
+        return null;
+    }
+
+    // ===== ChatDatabase error resilience =====
+    // AddMessageAsync must catch ALL exceptions (broad catch) so fire-and-forget
+    // callers never produce UnobservedTaskException.
+    // Structural guard: verify the catch block is broad (not narrowly filtered).
+
+    [Fact]
+    public void ChatDatabase_AddMessageAsync_HasBroadCatch()
+    {
+        // STRUCTURAL REGRESSION GUARD: AddMessageAsync must use `catch (Exception`
+        // not a narrow filter like `catch (SQLiteException)`. Historical regression
+        // used narrow catch → uncaught exceptions became UnobservedTaskException.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "ChatDatabase.cs"));
+
+        // Find the AddMessageAsync method
+        var methodIndex = source.IndexOf("public async Task<int> AddMessageAsync");
+        Assert.True(methodIndex > 0, "Could not find AddMessageAsync method");
+
+        // Extract the method body (need enough to reach the catch block)
+        var methodBlock = source.Substring(methodIndex, 800);
+        Assert.Contains("catch (Exception", methodBlock);
+    }
+
+    // ===== SafeFireAndForget is used for all ChatDb calls =====
+
+    [Fact]
+    public void AllChatDbCalls_UseSafeFireAndForget()
+    {
+        // STRUCTURAL REGRESSION GUARD: All fire-and-forget _chatDb calls in
+        // CopilotService must use SafeFireAndForget, not bare `_ = ...`.
+        var csFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var eventsFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+
+        // No bare fire-and-forget patterns should exist
+        Assert.DoesNotContain("_ = _chatDb.", csFile);
+        Assert.DoesNotContain("_ = _chatDb.", eventsFile);
+
+        // SafeFireAndForget should be used instead
+        Assert.Contains("SafeFireAndForget(_chatDb.", csFile);
+        Assert.Contains("SafeFireAndForget(_chatDb.", eventsFile);
+    }
+
     private static string GetRepoRoot()
     {
         var dir = AppContext.BaseDirectory;

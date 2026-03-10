@@ -64,6 +64,9 @@ public partial class CopilotService
         ["SessionLifecycleEvent"] = EventVisibility.Ignore,
         ["HookStartEvent"] = EventVisibility.Ignore,
         ["HookEndEvent"] = EventVisibility.Ignore,
+
+        // External tool requests — classified explicitly to avoid "Unhandled" log spam
+        ["ExternalToolRequestedEvent"] = EventVisibility.TimelineOnly,
     };
 
     private static EventVisibility ClassifySessionEvent(SessionEvent evt)
@@ -169,9 +172,9 @@ public partial class CopilotService
         if (!string.IsNullOrEmpty(state.Info.SessionId))
         {
             if (isNew)
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, reasoningMsg);
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, reasoningMsg), "AddMessageAsync");
             else
-                _ = _chatDb.UpdateReasoningContentAsync(state.Info.SessionId, normalizedReasoningId, reasoningMsg.Content, false);
+                SafeFireAndForget(_chatDb.UpdateReasoningContentAsync(state.Info.SessionId, normalizedReasoningId, reasoningMsg.Content, false), "UpdateReasoningContentAsync");
         }
 
         InvokeOnUI(() => OnReasoningReceived?.Invoke(sessionName, normalizedReasoningId, content));
@@ -194,7 +197,7 @@ public partial class CopilotService
             {
                 completedIds.Add(msg.ReasoningId);
                 if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.UpdateReasoningContentAsync(state.Info.SessionId, msg.ReasoningId, msg.Content, true);
+                    SafeFireAndForget(_chatDb.UpdateReasoningContentAsync(state.Info.SessionId, msg.ReasoningId, msg.Content, true), "UpdateReasoningContentAsync");
             }
         }
 
@@ -222,8 +225,10 @@ public partial class CopilotService
         var sessionName = state.Info.Name;
         var isCurrentState = _sessions.TryGetValue(sessionName, out var current) && ReferenceEquals(current, state);
 
-        // Log critical lifecycle events and detect orphaned handlers
-        if (evt is SessionIdleEvent or AssistantTurnEndEvent or SessionErrorEvent)
+        // Log all critical lifecycle events, including TurnStart. TurnStart cancels the
+        // TurnEnd→Idle fallback; without logging it, stuck-session forensics cannot see the
+        // sub-turn boundary that caused the fallback to be silently cancelled.
+        if (evt is SessionIdleEvent or AssistantTurnEndEvent or SessionErrorEvent or AssistantTurnStartEvent)
         {
             Debug($"[EVT] '{sessionName}' received {evt.GetType().Name} " +
                   $"(IsProcessing={state.Info.IsProcessing}, isCurrentState={isCurrentState}, " +
@@ -480,15 +485,27 @@ public partial class CopilotService
                             }
                             // Guard: if tools were used this turn, the LLM may still be reasoning
                             // between tool rounds (TurnEnd → thinking → TurnStart, >4s).
-                            // HasUsedToolsThisTurn stays true across all sub-turns and is only
-                            // cleared at CompleteResponse/abort.
+                            // Don't complete immediately — wait an additional period. If no new
+                            // TurnStart arrives within that window, SessionIdleEvent was lost
+                            // (SDK bug #299) and we must complete to unblock the session.
                             if (Volatile.Read(ref state.HasUsedToolsThisTurn))
                             {
-                                Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — tools were used this turn, TurnStart likely coming");
+                                await Task.Delay(TurnEndIdleToolFallbackAdditionalMs, fallbackToken);
+                                if (fallbackToken.IsCancellationRequested) return;
+                                // Re-check: if a new tool started or TurnStart fired and cancelled
+                                // this token, we would have exited above. If still here, no new
+                                // activity arrived → SessionIdleEvent was lost → complete.
+                                if (Interlocked.CompareExchange(ref state.ActiveToolCallCount, 0, 0) > 0)
+                                {
+                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped after extended wait — tools still active");
+                                    return;
+                                }
+                                Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs + TurnEndIdleToolFallbackAdditionalMs}ms after TurnEnd (tools used) — firing CompleteResponse");
+                                InvokeOnUI(() => CompleteResponse(state, turnEndGen));
                                 return;
                             }
                             Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs}ms after TurnEnd — firing CompleteResponse");
-                            Invoke(() => CompleteResponse(state, turnEndGen));
+                            InvokeOnUI(() => CompleteResponse(state, turnEndGen));
                         }
                         catch (OperationCanceledException) { /* expected on cancellation */ }
                         catch (Exception ex) { Debug($"[IDLE-FALLBACK] '{sessionName}' unexpected error: {ex}"); }
@@ -780,7 +797,7 @@ public partial class CopilotService
         state.Info.MessageCount = state.Info.History.Count;
         
         if (!string.IsNullOrEmpty(state.Info.SessionId))
-            _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+            SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, msg), "AddMessageAsync");
         
         // Track code suggestions from accumulated response segment
         _usageStats?.TrackCodeSuggestion(text);
@@ -858,7 +875,7 @@ public partial class CopilotService
 
             // Write-through to DB
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, msg);
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, msg), "AddMessageAsync");
             
             // Track code suggestions from final response segment
             _usageStats?.TrackCodeSuggestion(response);
@@ -1202,7 +1219,7 @@ public partial class CopilotService
             state.Info.History.Add(stallWarning);
             state.Info.MessageCount = state.Info.History.Count;
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, stallWarning);
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, stallWarning), "AddMessageAsync");
         }
 
         if (shouldContinue)
@@ -1218,7 +1235,7 @@ public partial class CopilotService
                     state.Info.History.Add(ctxWarning);
                     state.Info.MessageCount = state.Info.History.Count;
                     if (!string.IsNullOrEmpty(state.Info.SessionId))
-                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
+                        SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning), "AddMessageAsync");
                 }
                 else if (ctxPct > 0.7)
                 {
@@ -1226,7 +1243,7 @@ public partial class CopilotService
                     state.Info.History.Add(ctxWarning);
                     state.Info.MessageCount = state.Info.History.Count;
                     if (!string.IsNullOrEmpty(state.Info.SessionId))
-                        _ = _chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning);
+                        SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, ctxWarning), "AddMessageAsync");
                 }
             }
 
@@ -1247,7 +1264,7 @@ public partial class CopilotService
             state.Info.History.Add(reflectionMsg);
             state.Info.MessageCount = state.Info.History.Count;
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, reflectionMsg);
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, reflectionMsg), "AddMessageAsync");
 
             // Show evaluator feedback in chat if available
             if (!string.IsNullOrEmpty(evaluatorFeedback))
@@ -1256,7 +1273,7 @@ public partial class CopilotService
                 state.Info.History.Add(feedbackMsg);
                 state.Info.MessageCount = state.Info.History.Count;
                 if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, feedbackMsg);
+                    SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, feedbackMsg), "AddMessageAsync");
             }
 
             // Keep queue FIFO so user steering messages queued during this turn run first.
@@ -1329,7 +1346,7 @@ public partial class CopilotService
                 state.Info.History.Add(passMsg);
                 state.Info.MessageCount = state.Info.History.Count;
                 if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, passMsg);
+                    SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, passMsg), "AddMessageAsync");
             }
             else if (!string.IsNullOrEmpty(evaluatorFeedback))
             {
@@ -1337,14 +1354,14 @@ public partial class CopilotService
                 state.Info.History.Add(feedbackMsg);
                 state.Info.MessageCount = state.Info.History.Count;
                 if (!string.IsNullOrEmpty(state.Info.SessionId))
-                    _ = _chatDb.AddMessageAsync(state.Info.SessionId, feedbackMsg);
+                    SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, feedbackMsg), "AddMessageAsync");
             }
 
             var completionMsg = ChatMessage.SystemMessage(cycle.BuildCompletionSummary());
             state.Info.History.Add(completionMsg);
             state.Info.MessageCount = state.Info.History.Count;
             if (!string.IsNullOrEmpty(state.Info.SessionId))
-                _ = _chatDb.AddMessageAsync(state.Info.SessionId, completionMsg);
+                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, completionMsg), "AddMessageAsync");
 
             // Clean up evaluator session
             if (!string.IsNullOrEmpty(cycle.EvaluatorSessionName))
@@ -1384,6 +1401,15 @@ public partial class CopilotService
     /// as a fallback, in case SessionIdleEvent never arrives (SDK bug #299).
     /// </summary>
     internal const int TurnEndIdleFallbackMs = 4000;
+
+    /// <summary>
+    /// Additional milliseconds to wait after the initial TurnEnd fallback when tools were used
+    /// this turn. After the base 4s wait we know there are no active tools, but the LLM may
+    /// be reasoning between rounds (TurnEnd → TurnStart gap can exceed 4s). If no TurnStart
+    /// arrives within this additional window, SessionIdleEvent was likely lost — fire CompleteResponse.
+    /// Total wait for tool sessions = TurnEndIdleFallbackMs + TurnEndIdleToolFallbackAdditionalMs = 34s.
+    /// </summary>
+    internal const int TurnEndIdleToolFallbackAdditionalMs = 30_000;
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
@@ -1466,11 +1492,15 @@ public partial class CopilotService
                 //    have 2-3 min gaps between events while the model reasons), OR
                 // 3. Tools have been executed this turn (HasUsedToolsThisTurn) — even between
                 //    tool rounds when ActiveToolCallCount is 0, the model may spend minutes
-                //    thinking about what tool to call next, OR
-                // 4. Session is in a multi-agent group — workers doing text-heavy tasks
-                //    (e.g., PR reviews) can take 2-4 min without tool calls. The orchestration
-                //    loop has its own 10-minute CancelAfter timeout per worker. Cached at
-                //    send time on UI thread to avoid cross-thread List<T> access.
+                //    thinking about what tool to call next.
+                //
+                // NOTE: isMultiAgentSession alone does NOT extend the timeout.
+                // Workers actively streaming text (e.g., PR reviews) generate delta events
+                // continuously, so elapsed stays small regardless of timeout tier. The 600s
+                // timeout is only needed for actual tool execution silence. Using 600s for
+                // pure reasoning sub-turns (no tools) caused stuck-session UX bugs when the
+                // SDK dropped terminal events (sdk bug #299 variant): user had to wait 600s
+                // instead of the 120s inactivity timeout.
                 var isMultiAgentSession = Volatile.Read(ref state.IsMultiAgentSession);
                 var hasReceivedEvents = Volatile.Read(ref state.HasReceivedEventsSinceResume);
                 var hasUsedTools = Volatile.Read(ref state.HasUsedToolsThisTurn);
@@ -1481,7 +1511,29 @@ public partial class CopilotService
                 // goes true and we fall through to the normal timeout tiers.
                 var useResumeQuiescence = state.Info.IsResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
 
-                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgentSession;
+                // Periodic mid-watchdog flush: if content has accumulated in CurrentResponse
+                // for longer than the check interval without being moved to History, flush it now.
+                // This ensures partial responses are visible in the chat even while IsProcessing=true
+                // (e.g., if TurnEnd→Idle fallback hasn't fired yet, or streaming stalled mid-response).
+                if (elapsed >= WatchdogCheckIntervalSeconds)
+                {
+                    // Capture generation before InvokeOnUI — if the user aborts + resends between
+                    // this check and the UI dispatch, the generation changes and we must not flush
+                    // new-turn content into the old turn's history.
+                    var flushGen = Interlocked.Read(ref state.ProcessingGeneration);
+                    InvokeOnUI(() =>
+                    {
+                        if (Interlocked.Read(ref state.ProcessingGeneration) != flushGen) return;
+                        if (state.CurrentResponse.Length > 0)
+                        {
+                            Debug($"[WATCHDOG] '{sessionName}' periodic flush — CurrentResponse has content after {elapsed:F0}s of inactivity");
+                            FlushCurrentResponse(state);
+                            OnStateChanged?.Invoke();
+                        }
+                    });
+                }
+
+                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools;
                 var effectiveTimeout = useResumeQuiescence
                     ? WatchdogResumeQuiescenceTimeoutSeconds
                     : useToolTimeout
@@ -1502,6 +1554,61 @@ public partial class CopilotService
                 if (elapsed >= effectiveTimeout)
                 {
                     var exceededMaxTime = totalProcessingSeconds >= WatchdogMaxProcessingTimeSeconds;
+
+                    // Before killing, check what state we're actually in:
+                    //
+                    // Case A — Tool actively running (ActiveToolCallCount > 0):
+                    //   The SDK only fires events at tool start/complete; a long build or test run
+                    //   produces zero events while executing. Use server TCP liveness to decide:
+                    //   - Server alive → tool is running, reset inactivity timer and keep waiting
+                    //   - Server dead → no events will ever arrive, kill with error
+                    //   (Skipped for demo/remote where we can't probe the local TCP port)
+                    //
+                    // Case B — No active tool (ActiveToolCallCount = 0) and tools were used:
+                    //   Tool has finished. The LLM has finished (AssistantTurnEndEvent fired).
+                    //   SessionIdleEvent was lost (SDK bug #299 or network hiccup).
+                    //   The 34s fallback should have caught this, but if not, complete cleanly.
+                    //   No error message — the response IS complete, we just missed the terminal event.
+                    //
+                    // Case C — Max time exceeded OR server dead / demo / remote:
+                    //   Kill with error (genuine zombie session).
+                    if (!exceededMaxTime)
+                    {
+                        if (hasActiveTool && !IsDemoMode && !IsRemoteMode)
+                        {
+                            // Case A: check server TCP port
+                            var serverAlive = _serverManager.IsServerRunning;
+                            if (serverAlive)
+                            {
+                                Debug($"[WATCHDOG] '{sessionName}' {elapsed:F0}s inactivity but tool is running and server is alive — resetting timer " +
+                                      $"(timeout={effectiveTimeout}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                continue; // keep waiting — don't kill
+                            }
+                            Debug($"[WATCHDOG] '{sessionName}' tool running but server is not responding — killing stuck session " +
+                                  $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                        }
+                        else if (!hasActiveTool && (hasUsedTools || (isMultiAgentSession && !IsDemoMode && !IsRemoteMode && _serverManager.IsServerRunning)))
+                        {
+                            // Case B: tools finished (or multi-agent session with server alive) and
+                            // terminal event was lost — complete cleanly without an error message.
+                            // For tool-using sessions: tool finished, SessionIdleEvent lost (sdk bug #299).
+                            // For multi-agent no-tool sessions: LLM finished generating, SDK dropped
+                            // both AssistantTurnEndEvent and SessionIdleEvent. Server liveness check
+                            // confirms the session completed normally, not a server crash.
+                            var watchdogGen = Interlocked.Read(ref state.ProcessingGeneration);
+                            Debug($"[WATCHDOG] '{sessionName}' tool finished but SessionIdleEvent never arrived — completing cleanly " +
+                                  $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                            InvokeOnUI(() =>
+                            {
+                                if (!state.Info.IsProcessing) return;
+                                if (Interlocked.Read(ref state.ProcessingGeneration) != watchdogGen) return;
+                                CompleteResponse(state, watchdogGen);
+                            });
+                            break;
+                        }
+                    }
+
                     var timeoutDisplay = exceededMaxTime
                         ? $"{WatchdogMaxProcessingTimeSeconds / 60} minute(s) total processing time"
                         : effectiveTimeout >= 60

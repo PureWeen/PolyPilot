@@ -728,3 +728,22 @@ jobs:
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
+
+      - name: Compute Mac SHA256
+        id: mac_sha
+        run: |
+          SHA256=$(shasum -a 256 ./release/PolyPilot.zip | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
+      - name: Update Homebrew tap
+        if: "!contains(github.ref, '-') && secrets.HOMEBREW_TAP_TOKEN != ''"
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          MAC_SHA256="${{ steps.mac_sha.outputs.sha256 }}"
+          gh api repos/PureWeen/homebrew-tap/dispatches \
+            --method POST --input - <<EOF
+          {"event_type":"release-published","client_payload":{"version":"$VERSION","mac_sha256":"$MAC_SHA256"}}
+          EOF
