@@ -1620,7 +1620,7 @@ else
             // Show an actionable error instead and let the user decide whether to delete.
             if (IsCorruptSessionError(ex.Message))
             {
-                resumeError = "Session data appears corrupted. You can delete it manually from ~/.copilot/session-state if needed.";
+                resumeError = "Session is locked — likely in use by a Copilot CLI terminal session. Close the CLI session first, or delete the session data from ~/.copilot/session-state if it's stale.";
             }
             else
             {
