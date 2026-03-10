@@ -284,7 +284,17 @@ public partial class CopilotService
             try
             {
                 var json = await File.ReadAllTextAsync(ActiveSessionsFile, cancellationToken);
-                var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
+                List<ActiveSessionEntry>? entries = null;
+                try
+                {
+                    entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
+                }
+                catch (JsonException jsonEx)
+                {
+                    Debug($"active-sessions.json is malformed, starting fresh: {jsonEx.Message}");
+                }
+                // Filter out entries with missing required fields
+                entries = entries?.Where(e => !string.IsNullOrWhiteSpace(e.SessionId) && !string.IsNullOrWhiteSpace(e.DisplayName)).ToList();
                 if (entries != null && entries.Count > 0)
                 {
                     Debug($"Restoring {entries.Count} previous sessions...");

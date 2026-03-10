@@ -32,6 +32,37 @@ public partial class CopilotService
         return null;
     }
 
+    /// <summary>
+    /// Normalize a working directory: treat empty/whitespace as null, verify the directory exists.
+    /// Falls back to the user's home directory if the path is missing or invalid.
+    /// </summary>
+    internal static string? NormalizeWorkingDirectory(string? workingDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(workingDirectory))
+            return null;
+        // If the directory exists, use it as-is
+        if (Directory.Exists(workingDirectory))
+            return workingDirectory;
+        // Path doesn't exist — return null so callers can try other fallbacks
+        return null;
+    }
+
+    /// <summary>
+    /// Get a fallback working directory when no valid one can be determined from the session.
+    /// Uses the user's home directory, falling back to temp if that fails.
+    /// </summary>
+    internal static string GetFallbackWorkingDirectory()
+    {
+        try
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrEmpty(home) && Directory.Exists(home))
+                return home;
+        }
+        catch { }
+        return Path.GetTempPath();
+    }
+
     private string? GetSessionWorkingDirectory(string sessionId)
     {
         try
@@ -228,6 +259,16 @@ public partial class CopilotService
         if (string.IsNullOrEmpty(sessionId)) return new();
         var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
         return ParseEventLogFile(eventsFile);
+    }
+
+    /// <summary>
+    /// Get the path to a session's events.jsonl file for Change Map analysis.
+    /// </summary>
+    public string? GetSessionEventsPath(string? sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId)) return null;
+        var path = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        return File.Exists(path) ? path : null;
     }
 
     /// <summary>

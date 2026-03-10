@@ -1435,7 +1435,9 @@ public partial class CopilotService : IAsyncDisposable
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
         {
-            var remoteWorkingDirectory = workingDirectory ?? GetSessionWorkingDirectory(sessionId);
+            var remoteWorkingDirectory = NormalizeWorkingDirectory(workingDirectory)
+                ?? NormalizeWorkingDirectory(GetSessionWorkingDirectory(sessionId))
+                ?? GetFallbackWorkingDirectory();
             var remoteInfo = new AgentSessionInfo
             {
                 Name = displayName,
@@ -1504,7 +1506,8 @@ public partial class CopilotService : IAsyncDisposable
             await _chatDb.BulkInsertAsync(sessionId, history);
         }
 
-        var resumeWorkingDirectory = workingDirectory ?? GetSessionWorkingDirectory(sessionId);
+        var resumeWorkingDirectory = NormalizeWorkingDirectory(workingDirectory)
+            ?? NormalizeWorkingDirectory(GetSessionWorkingDirectory(sessionId));
 
         // Override for codespace sessions — the local worktree path doesn't exist inside
         // the codespace; use /workspaces/{repo} instead.
@@ -1514,6 +1517,9 @@ public partial class CopilotService : IAsyncDisposable
             if (csGroup?.IsCodespace == true && csGroup.CodespaceWorkingDirectory != null)
                 resumeWorkingDirectory = csGroup.CodespaceWorkingDirectory;
         }
+
+        // Fall back to user's home directory if no valid cwd could be determined
+        resumeWorkingDirectory ??= GetFallbackWorkingDirectory();
 
         // Resume the session using the SDK — pass model and working directory so backend context is preserved
         var resumeModel = Models.ModelHelper.NormalizeToSlug(model ?? GetSessionModelFromDisk(sessionId) ?? DefaultModel);
@@ -1729,16 +1735,18 @@ public partial class CopilotService : IAsyncDisposable
                 sessionDir = csGroup.CodespaceWorkingDirectory;
         }
 
-        // Build system message with critical relaunch instructions
-        // Note: The CLI automatically loads .github/copilot-instructions.md from the working directory,
-        // so we only inject the dynamic relaunch warning here (not the full instructions file).
+        // Build system message with critical relaunch instructions.
+        // Always inject when running from the source tree — scratch sessions (null cwd) and
+        // sessions in other directories still need the absolute path to relaunch.sh.
         var systemContent = new StringBuilder();
-        // Only include relaunch instructions when targeting the PolyPilot directory
-        if (string.Equals(sessionDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
+        var relaunchScript = OperatingSystem.IsWindows()
+            ? Path.Combine(ProjectDir, "relaunch.ps1")
+            : Path.Combine(ProjectDir, "relaunch.sh");
+        if (File.Exists(relaunchScript))
         {
             var relaunchCmd = OperatingSystem.IsWindows()
-                ? $"powershell -ExecutionPolicy Bypass -File \"{Path.Combine(ProjectDir, "relaunch.ps1")}\""
-                : $"bash {Path.Combine(ProjectDir, "relaunch.sh")}";
+                ? $"powershell -ExecutionPolicy Bypass -File \"{relaunchScript}\""
+                : $"bash {relaunchScript}";
             systemContent.AppendLine($@"
 CRITICAL BUILD INSTRUCTION: You are running inside the PolyPilot MAUI application.
 When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and relaunch by running:
@@ -1748,6 +1756,7 @@ When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and re
 This script builds the app, launches a new instance, waits for it to start, then kills the old one.
 NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
 ALWAYS run the relaunch script as the final step after making changes to this project.
+When the user asks you to 'relaunch' or 'restart', ALWAYS use the command above.
 ");
         }
 
