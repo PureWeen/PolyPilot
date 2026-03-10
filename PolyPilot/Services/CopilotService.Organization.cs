@@ -38,6 +38,11 @@ public partial class CopilotService
     // causing worker results to be silently lost.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _reflectLoopLocks = new();
 
+    // Per-group semaphore to prevent concurrent orchestrator dispatches.
+    // The bridge's send_message handler and event queue drain can both call
+    // SendToMultiAgentGroupAsync for the same group; this ensures only one runs.
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _groupDispatchLocks = new();
+
     // Queued user prompts received while a reflect loop is running.
     // Drained at the start of each loop iteration and sent to the orchestrator
     // so the model sees them in its conversation context.
@@ -920,10 +925,18 @@ public partial class CopilotService
         var members = GetMultiAgentGroupMembers(groupId);
         if (members.Count == 0) { Debug($"[DISPATCH] SendToMultiAgentGroupAsync: no members for group '{group.Name}'"); return; }
 
-        Debug($"[DISPATCH] SendToMultiAgentGroupAsync: group='{group.Name}', mode={group.OrchestratorMode}, members={members.Count}");
+        // Prevent concurrent dispatches to the same group (bridge + event queue drain race)
+        var dispatchLock = _groupDispatchLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
+        if (!await dispatchLock.WaitAsync(0, cancellationToken))
+        {
+            Debug($"[DISPATCH] SendToMultiAgentGroupAsync: group '{group.Name}' dispatch already in progress, skipping");
+            return;
+        }
 
         try
         {
+            Debug($"[DISPATCH] SendToMultiAgentGroupAsync: group='{group.Name}', mode={group.OrchestratorMode}, members={members.Count}");
+
             switch (group.OrchestratorMode)
             {
                 case MultiAgentMode.Broadcast:
@@ -947,6 +960,10 @@ public partial class CopilotService
         {
             Debug($"[DISPATCH] SendToMultiAgentGroupAsync FAILED: {ex.GetType().Name}: {ex.Message}");
             throw;
+        }
+        finally
+        {
+            dispatchLock.Release();
         }
     }
 
@@ -1068,8 +1085,8 @@ public partial class CopilotService
                 nudgeSb.AppendLine($"You dispatched {dispatchedWorkers.Count} worker(s): {string.Join(", ", dispatchedWorkers)}");
                 nudgeSb.AppendLine($"{remaining.Count} worker(s) remain: {string.Join(", ", remaining)}");
                 nudgeSb.AppendLine();
-                nudgeSb.AppendLine("You MUST dispatch at least one more worker. Each worker MUST receive a DIFFERENT sub-task from what you already assigned.");
-                nudgeSb.AppendLine("Use @worker:name...@end format.");
+                nudgeSb.AppendLine($"Dispatch ALL {remaining.Count} remaining workers NOW. Each MUST receive a DIFFERENT sub-task.");
+                nudgeSb.AppendLine("Produce one @worker:name...@end block for EACH remaining worker in this single response.");
                 responseToParse = await SendPromptAndWaitAsync(orchestratorName, nudgeSb.ToString(), cancellationToken, originalPrompt: prompt);
             }
 
@@ -1210,7 +1227,8 @@ public partial class CopilotService
         sb.AppendLine("Detailed task description for this worker.");
         sb.AppendLine("@end");
         sb.AppendLine();
-        sb.AppendLine("You may include brief analysis before the @worker blocks, but you MUST produce at least one @worker block.");
+        sb.AppendLine($"CRITICAL: Assign ALL workers that have relevant work IN THIS SINGLE RESPONSE. You have {workerNames.Count} workers — produce multiple @worker blocks now, not one at a time.");
+        sb.AppendLine("You may include brief analysis before the @worker blocks, but every response MUST contain @worker blocks for all workers you intend to use.");
         if (dispatcherOnly)
             sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
         return sb.ToString();
