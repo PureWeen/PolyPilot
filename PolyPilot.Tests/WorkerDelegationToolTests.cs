@@ -238,6 +238,30 @@ public class WorkerDelegationToolTests
     }
 
     [Fact]
+    public async Task Context_AwaitAllPendingAsync_TimesOutDeadWorker()
+    {
+        // A worker task that never completes (dead reconnect session) must be timed out,
+        // not block forever. Uses a short timeout for test speed.
+        var ctx = new WorkerDelegationContext();
+        ctx.FullReset("p", new List<string> { "alive", "dead" }, CancellationToken.None);
+
+        ctx.AddPendingTask("alive", Task.FromResult(
+            new ToolDispatchedResult("alive", "done", true, null, TimeSpan.FromSeconds(1))));
+        // Simulate a dead worker — task that never completes
+        var neverCompletes = new TaskCompletionSource<ToolDispatchedResult>();
+        ctx.AddPendingTask("dead", neverCompletes.Task);
+
+        var results = await ctx.AwaitAllPendingAsync(perWorkerTimeout: TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal(2, results.Count);
+        var alive = results.First(r => r.WorkerName == "alive");
+        var dead = results.First(r => r.WorkerName == "dead");
+        Assert.True(alive.Success);
+        Assert.False(dead.Success);
+        Assert.Contains("timed out", dead.Error);
+    }
+
+    [Fact]
     public void Context_ResetResults_PreservesRoundRobin()
     {
         // ResetResults should clear results but keep the round-robin index advancing.

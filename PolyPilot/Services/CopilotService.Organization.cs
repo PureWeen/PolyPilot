@@ -1762,6 +1762,19 @@ public partial class CopilotService
         {
             Debug($"[DISPATCH] Worker '{workerName}' starting (prompt len={workerPrompt.Length})");
             var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
+
+            // Revival: if the response is empty (dead session after reconnect), try sending
+            // a "please continue" steering message. The session may still be alive server-side
+            // — the SDK just lost the event stream. A new SendAsync can kick it back into action.
+            if (string.IsNullOrEmpty(response) && !cancellationToken.IsCancellationRequested)
+            {
+                Debug($"[DISPATCH] Worker '{workerName}' returned empty response — attempting revival via steering message.");
+                // Brief pause to let any stale state settle
+                await Task.Delay(500, cancellationToken);
+                response = await SendPromptAndWaitAsync(workerName, "Your previous response was lost due to a connection issue. Please continue with your assigned task.", cancellationToken, originalPrompt: originalPrompt);
+                Debug($"[DISPATCH] Worker '{workerName}' revival {(string.IsNullOrEmpty(response) ? "failed (still empty)" : $"succeeded (response len={response.Length})")}");
+            }
+
             Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response.Length}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
             return new WorkerResult(workerName, response, true, null, sw.Elapsed);
         }

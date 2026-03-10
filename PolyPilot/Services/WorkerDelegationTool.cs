@@ -103,15 +103,26 @@ internal sealed class WorkerDelegationContext
     /// <summary>
     /// Awaits all pending worker tasks and returns their results.
     /// Call this after the dispatch loop completes to collect parallel results.
+    /// Uses a per-worker timeout to prevent a single dead worker from blocking forever.
     /// </summary>
-    internal async Task<List<ToolDispatchedResult>> AwaitAllPendingAsync()
+    internal async Task<List<ToolDispatchedResult>> AwaitAllPendingAsync(TimeSpan? perWorkerTimeout = null)
     {
+        var timeout = perWorkerTimeout ?? TimeSpan.FromMinutes(5);
         var results = new List<ToolDispatchedResult>();
         foreach (var (name, task) in _pendingTasks)
         {
             try
             {
-                results.Add(await task);
+                var completed = await Task.WhenAny(task, Task.Delay(timeout));
+                if (completed == task)
+                {
+                    results.Add(await task);
+                }
+                else
+                {
+                    results.Add(new ToolDispatchedResult(name, null, false,
+                        $"Worker '{name}' timed out after {timeout.TotalSeconds:F0}s (dead session after reconnect?)", timeout));
+                }
             }
             catch (Exception ex)
             {
