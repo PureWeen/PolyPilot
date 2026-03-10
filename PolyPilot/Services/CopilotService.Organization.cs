@@ -1768,16 +1768,72 @@ public partial class CopilotService
             Debug($"[DISPATCH] Worker '{workerName}' starting (prompt len={workerPrompt.Length})");
             var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
 
-            // Revival: if the response is empty (dead session after reconnect), try sending
-            // a "please continue" steering message. The session may still be alive server-side
-            // — the SDK just lost the event stream. A new SendAsync can kick it back into action.
+            // Revival: if the response is empty (dead session after reconnect), create a
+            // fresh session and replay the prompt. The old session's SSE stream is dead at
+            // the SDK level — steering messages to it will also fail. A fresh CreateSessionAsync
+            // gives us a new server-side session with a working event stream.
+            // This mirrors the state-replacement pattern in the reconnect handler (CopilotService.cs ~line 2641).
             if (string.IsNullOrEmpty(response) && !cancellationToken.IsCancellationRequested)
             {
-                Debug($"[DISPATCH] Worker '{workerName}' returned empty response — attempting revival via steering message.");
-                // Brief pause to let any stale state settle
-                await Task.Delay(500, cancellationToken);
-                response = await SendPromptAndWaitAsync(workerName, "Your previous response was lost due to a connection issue. Please continue with your assigned task.", cancellationToken, originalPrompt: originalPrompt);
-                Debug($"[DISPATCH] Worker '{workerName}' revival {(string.IsNullOrEmpty(response) ? "failed (still empty)" : $"succeeded (response len={response.Length})")}");
+                Debug($"[DISPATCH] Worker '{workerName}' returned empty response — attempting revival via fresh session.");
+                try
+                {
+                    if (_sessions.TryGetValue(workerName, out var deadState))
+                    {
+                        var client = GetClientForGroup(GetSessionMeta(workerName)?.GroupId);
+                        if (client != null)
+                        {
+                            // Cancel stale watchdog/fallback timers on the dead state
+                            CancelProcessingWatchdog(deadState);
+                            CancelTurnEndFallback(deadState);
+
+                            // Dispose the dead session
+                            try { await deadState.Session.DisposeAsync(); } catch { }
+
+                            // Create a fresh SDK session
+                            var freshConfig = new GitHub.Copilot.SDK.SessionConfig
+                            {
+                                Model = deadState.Info.Model ?? DefaultModel,
+                                WorkingDirectory = deadState.Info.WorkingDirectory,
+                                Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
+                                OnPermissionRequest = AutoApprovePermissions,
+                            };
+                            var freshSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
+                            deadState.Info.SessionId = freshSession.SessionId;
+
+                            // Build new state with all fields carried forward from the dead state
+                            // (same pattern as the reconnect handler at CopilotService.cs ~line 2641)
+                            var freshState = new SessionState
+                            {
+                                Session = freshSession,
+                                Info = deadState.Info,
+                            };
+                            freshState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                            Interlocked.Exchange(ref freshState.ProcessingGeneration,
+                                Interlocked.Read(ref deadState.ProcessingGeneration));
+                            freshState.HasUsedToolsThisTurn = deadState.HasUsedToolsThisTurn;
+                            Interlocked.Exchange(ref freshState.SuccessfulToolCountThisTurn, Volatile.Read(ref deadState.SuccessfulToolCountThisTurn));
+                            freshState.IsMultiAgentSession = deadState.IsMultiAgentSession;
+                            freshSession.On(evt => HandleSessionEvent(freshState, evt));
+                            _sessions[workerName] = freshState;
+
+                            // Increment generation so stale callbacks from the dead session are rejected
+                            Interlocked.Increment(ref freshState.ProcessingGeneration);
+                            freshState.Info.IsProcessing = false; // reset before SendPromptAndWaitAsync sets it
+                            freshState.CurrentResponse.Clear();
+                            freshState.FlushedResponse.Clear();
+                            freshState.PendingReasoningMessages.Clear();
+
+                            Debug($"[DISPATCH] Worker '{workerName}' fresh session created (id={freshSession.SessionId}). Replaying prompt...");
+                            response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
+                            Debug($"[DISPATCH] Worker '{workerName}' revival {(string.IsNullOrEmpty(response) ? "failed (still empty)" : $"succeeded (response len={response.Length})")}");
+                        }
+                    }
+                }
+                catch (Exception revivalEx)
+                {
+                    Debug($"[DISPATCH] Worker '{workerName}' revival error: {revivalEx.Message}");
+                }
             }
 
             Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response.Length}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
