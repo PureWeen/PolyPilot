@@ -313,13 +313,15 @@ public class WorkerDelegationToolTests
         // Results are cleared but pending tasks survive
         Assert.Empty(ctx.DispatchedResults);
         Assert.Single(ctx.PendingTasks);
-        Assert.True(ctx.PendingTasks.ContainsKey("w1"));
+        // Key includes dispatch counter suffix (e.g., "w1#1"), but task is present
+        Assert.True(ctx.PendingTasks.Keys.Any(k => k.StartsWith("w1")));
     }
 
     [Fact]
-    public void Context_Reset_PreservesPendingTasks()
+    public void Context_Reset_ClearsPendingTasks()
     {
-        // Reset (non-Full) also preserves pending tasks — only FullReset clears them.
+        // Reset clears pending tasks to prevent stale tasks from a previous interrupted
+        // dispatch from contaminating new iterations. Only FullReset also resets the dispatch counter.
         var ctx = new WorkerDelegationContext();
         ctx.FullReset("p", new List<string> { "w1", "w2" }, CancellationToken.None);
 
@@ -329,7 +331,7 @@ public class WorkerDelegationToolTests
         ctx.Reset("p2", new List<string> { "w2" }, CancellationToken.None);
 
         Assert.Empty(ctx.DispatchedResults);
-        Assert.Single(ctx.PendingTasks); // pending tasks survive Reset
+        Assert.Empty(ctx.PendingTasks); // Reset clears pending tasks
     }
 
     [Fact]

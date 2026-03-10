@@ -1647,6 +1647,64 @@ public partial class CopilotService : IAsyncDisposable
         return info;
     }
 
+    /// <summary>
+    /// Builds a SessionConfig for fresh session creation with full MCP/skills/system-message config.
+    /// Mirrors the reconnect handler's expired-session config. Use this everywhere a fresh SessionConfig
+    /// is constructed (orchestrator forceCreate, session-not-found, worker revival, synthesis) to avoid
+    /// the 5-site omission bug where fresh sessions lost all external tool access.
+    /// </summary>
+    private SessionConfig BuildFreshSessionConfig(SessionState state, List<Microsoft.Extensions.AI.AIFunction>? additionalTools = null)
+    {
+        var freshSettings = _currentSettings ?? ConnectionSettings.Load();
+        var mcpServers = LoadMcpServers(freshSettings.DisabledMcpServers, freshSettings.DisabledPlugins);
+        var skillDirs = LoadSkillDirectories(freshSettings.DisabledPlugins);
+
+        var systemContent = new StringBuilder();
+        var workDir = state.Info.WorkingDirectory;
+        if (string.Equals(workDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
+        {
+            var relaunchCmd = OperatingSystem.IsWindows()
+                ? $"powershell -ExecutionPolicy Bypass -File \"{Path.Combine(ProjectDir, "relaunch.ps1")}\""
+                : $"bash {Path.Combine(ProjectDir, "relaunch.sh")}";
+            systemContent.AppendLine($@"
+CRITICAL BUILD INSTRUCTION: You are running inside the PolyPilot MAUI application.
+When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and relaunch by running:
+
+    {relaunchCmd}
+
+This script builds the app, launches a new instance, waits for it to start, then kills the old one.
+NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
+ALWAYS run the relaunch script as the final step after making changes to this project.
+");
+        }
+
+        var tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
+        if (additionalTools != null)
+            tools.AddRange(additionalTools);
+
+        var config = new SessionConfig
+        {
+            Model = state.Info.Model ?? DefaultModel,
+            WorkingDirectory = workDir,
+            McpServers = mcpServers,
+            SkillDirectories = skillDirs,
+            Tools = tools,
+            SystemMessage = new SystemMessageConfig
+            {
+                Mode = SystemMessageMode.Append,
+                Content = systemContent.ToString()
+            },
+            OnPermissionRequest = AutoApprovePermissions,
+        };
+
+        if (mcpServers != null)
+            Debug($"[CONFIG] Fresh session config includes {mcpServers.Count} MCP server(s)");
+        if (skillDirs != null)
+            Debug($"[CONFIG] Fresh session config includes {skillDirs.Count} skill dir(s)");
+
+        return config;
+    }
+
     /// <summary>Auto-approve all tool permission requests. Without this, worker sessions
     /// (which have no interactive user) get "Permission denied" on every tool call.</summary>
     private static Task<PermissionRequestResult> AutoApprovePermissions(PermissionRequest request, PermissionInvocation invocation)
@@ -2588,46 +2646,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         // with full config (MCP servers, skills, system message) matching CreateSessionAsync.
                         Debug($"Session '{sessionName}' expired on server, creating fresh session...");
                         OnActivity?.Invoke(sessionName, "🔄 Session expired, creating new session...");
-                        var freshSettings = _currentSettings ?? ConnectionSettings.Load();
-                        var freshMcpServers = LoadMcpServers(freshSettings.DisabledMcpServers, freshSettings.DisabledPlugins);
-                        var freshSkillDirs = LoadSkillDirectories(freshSettings.DisabledPlugins);
-                        // Rebuild system message with the same conditional logic as CreateSessionAsync
-                        var freshSystemContent = new StringBuilder();
-                        var freshDir = state.Info.WorkingDirectory;
-                        if (string.Equals(freshDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
-                        {
-                            var relaunchCmd = OperatingSystem.IsWindows()
-                                ? $"powershell -ExecutionPolicy Bypass -File \"{Path.Combine(ProjectDir, "relaunch.ps1")}\""
-                                : $"bash {Path.Combine(ProjectDir, "relaunch.sh")}";
-                            freshSystemContent.AppendLine($@"
-CRITICAL BUILD INSTRUCTION: You are running inside the PolyPilot MAUI application.
-When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and relaunch by running:
-
-    {relaunchCmd}
-
-This script builds the app, launches a new instance, waits for it to start, then kills the old one.
-NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
-ALWAYS run the relaunch script as the final step after making changes to this project.
-");
-                        }
-                        var freshConfig = new SessionConfig
-                        {
-                            Model = reconnectModel ?? DefaultModel,
-                            WorkingDirectory = freshDir,
-                            McpServers = freshMcpServers,
-                            SkillDirectories = freshSkillDirs,
-                            Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
-                            SystemMessage = new SystemMessageConfig
-                            {
-                                Mode = SystemMessageMode.Append,
-                                Content = freshSystemContent.ToString()
-                            },
-                            OnPermissionRequest = AutoApprovePermissions
-                        };
-                        if (freshMcpServers != null)
-                            Debug($"[RECONNECT] Fresh session config includes {freshMcpServers.Count} MCP server(s)");
-                        if (freshSkillDirs != null)
-                            Debug($"[RECONNECT] Fresh session config includes {freshSkillDirs.Count} skill dir(s)");
+                        var freshConfig = BuildFreshSessionConfig(state);
                         if (_delegationFunctions.TryGetValue(sessionName, out var freshDelegationFn))
                             freshConfig.Tools.Add(freshDelegationFn);
                         newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
@@ -2681,9 +2700,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // don't complete — let the callback finish and handle completion naturally.
                     if (_delegationFunctions.ContainsKey(sessionName) && state.ActiveToolCallCount <= 0)
                     {
-                        Debug($"[RECONNECT] '{sessionName}' orchestrator with tool dispatch — skipping retry, loop will re-ensure tools.");
+                        Debug($"[RECONNECT-SKIP] '{sessionName}' orchestrator with tool dispatch — skipping retry, loop will re-ensure tools.");
                         CancelProcessingWatchdog(state);
                         CancelTurnEndFallback(state);
+                        FlushCurrentResponse(state);
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -2693,9 +2713,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         state.Info.ProcessingStartedAt = null;
                         state.Info.ToolCallCount = 0;
                         state.Info.ProcessingPhase = 0;
+                        state.Info.ClearPermissionDenials();
                         state.Info.IsProcessing = false;
-                        OnStateChanged?.Invoke();
+                        Interlocked.Exchange(ref state.SendingFlag, 0);
                         state.ResponseCompletion?.TrySetResult("");
+                        var skipName = sessionName;
+                        InvokeOnUI(() =>
+                        {
+                            OnSessionComplete?.Invoke(skipName, "[ReconnectSkip] orchestrator tool-dispatch skip");
+                            OnStateChanged?.Invoke();
+                        });
                     }
                     else if (_delegationFunctions.ContainsKey(sessionName) && state.ActiveToolCallCount > 0)
                     {
@@ -2712,6 +2739,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         };
                         // WORKAROUND: Pass CancellationToken.None (same reason as primary send path).
                         // Same watchdog limitation applies here.
+                        // Reset tool-usage state so the reconnected session starts with the
+                        // base inactivity timeout (120s), not the inflated 600s tier.
+                        state.HasUsedToolsThisTurn = false;
+                        Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                         await state.Session.SendAsync(retryOptions, CancellationToken.None);
                         Debug($"[RECONNECT] '{sessionName}' SendAsync completed after reconnect — awaiting events");
                     }
@@ -3349,6 +3380,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             _queuedImagePaths.TryRemove(name, out _);
         }
         _queuedAgentModes.TryRemove(name, out _);
+
+        // Clean up delegation state (tool-dispatch orchestration)
+        _delegationFunctions.TryRemove(name, out _);
+        _delegationContexts.TryRemove(name, out _);
+        _toolDispatchConfigured.TryRemove(name, out _);
 
         // Clean up per-session model switch lock
         if (_modelSwitchLocks.TryRemove(name, out var sem))

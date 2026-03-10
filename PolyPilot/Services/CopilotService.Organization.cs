@@ -1159,14 +1159,18 @@ public partial class CopilotService
                 if (_delegationContexts.TryGetValue(orchestratorName, out var contCtx))
                     contCtx.Reset(prompt, remaining, cancellationToken);
 
-                // Continuation prompt — lightweight, no full results (workers still running)
-                var contPrompt = $"You are continuing to dispatch workers. You have already dispatched: {string.Join(", ", dispatched)}. " +
+                // Continuation prompt — include full planning context since fresh session has no history.
+                // The lightweight prompt caused the model to stop dispatching (no knowledge of worker roles
+                // or routing context) and assign identical tasks to multiple workers.
+                var contPrompt = planningPrompt +
+                    $"\n\n## Dispatch Status\n" +
+                    $"You have already dispatched work to these workers: {string.Join(", ", dispatched)}.\n" +
                     $"Workers are running in parallel — results will be collected after all dispatching is complete.\n\n" +
-                    $"The following workers are available (but you do NOT need to use all of them): {string.Join(", ", remaining)}\n\n" +
-                    $"Original request: {prompt}\n\n" +
-                    "IMPORTANT: Only dispatch another worker if the original request requires MORE work beyond what has already been assigned. " +
-                    "If all requested work has been assigned to previous workers, do NOT dispatch more — simply confirm dispatching is complete.\n\n" +
-                    "If you do need to dispatch, use the `task` tool ONE AT A TIME.";
+                    $"The following workers still need tasks: {string.Join(", ", remaining)}\n\n" +
+                    $"IMPORTANT:\n" +
+                    $"- You MUST dispatch at least one more worker from the remaining list.\n" +
+                    $"- Each `task` call MUST have a DIFFERENT sub-task. Do NOT assign the same work that was already given to {string.Join(", ", dispatched)}.\n" +
+                    $"- Use the `task` tool ONE AT A TIME.";
 
                 var contResponse = await SendPromptAndWaitAsync(orchestratorName, contPrompt, cancellationToken, originalPrompt: prompt);
 
@@ -1226,14 +1230,9 @@ public partial class CopilotService
                 var orchestratorGroupId2 = GetSessionMeta(orchestratorName)?.GroupId;
                 GitHub.Copilot.SDK.CopilotClient synthClient;
                 try { synthClient = GetClientForGroup(orchestratorGroupId2); }
-                catch { synthClient = _client; }
+                catch { synthClient = _client ?? throw new InvalidOperationException("No Copilot client available for synthesis session — both group client and default client are null."); }
 
-                var freshSynthConfig = new GitHub.Copilot.SDK.SessionConfig
-                {
-                    Model = synthState.Info.Model ?? DefaultModel,
-                    WorkingDirectory = synthState.Info.WorkingDirectory,
-                    OnPermissionRequest = AutoApprovePermissions,
-                };
+                var freshSynthConfig = BuildFreshSessionConfig(synthState);
                 var freshSession = await synthClient.CreateSessionAsync(freshSynthConfig, cancellationToken);
                 synthState.Info.SessionId = freshSession.SessionId;
                 var freshSynthState = new SessionState
@@ -1373,6 +1372,7 @@ public partial class CopilotService
             sb.AppendLine("Use the `task` tool to delegate work to your workers. Call it once per sub-task.");
             sb.AppendLine("Each `task` call dispatches one worker that runs in parallel with the others.");
             sb.AppendLine("IMPORTANT: Call `task` ONE AT A TIME — the system handles parallelism automatically. Do NOT call `task` multiple times in a single response.");
+            sb.AppendLine("Each task MUST be a DIFFERENT sub-task — do NOT assign the same work to multiple workers.");
             sb.AppendLine("You MUST call `task` at least once — do NOT attempt to do the work yourself.");
             sb.AppendLine();
             sb.AppendLine("After dispatching, the system will collect all worker results in parallel and ask you to synthesize them.");
@@ -1605,10 +1605,7 @@ public partial class CopilotService
                 // of truth, and at this point all our callbacks have returned.
                 Interlocked.Exchange(ref cur.ActiveToolCallCount, 0);
                 // Dispatch CompleteResponse on the UI sync context (same pattern as SessionIdleEvent handler)
-                if (_syncContext != null)
-                    _syncContext.Post(_ => CompleteResponse(cur, endGen), null);
-                else
-                    CompleteResponse(cur, endGen);
+                InvokeOnUI(() => CompleteResponse(cur, endGen));
             });
         };
 
@@ -1625,6 +1622,10 @@ public partial class CopilotService
 
         try
         {
+            // Cancel stale watchdog/fallback timers before disposing the old session —
+            // they share Info and could mutate the new state's IsProcessing if left running.
+            CancelProcessingWatchdog(state);
+            CancelTurnEndFallback(state);
             try { await state.Session.DisposeAsync(); } catch { }
 
             GitHub.Copilot.SDK.CopilotSession newSession;
@@ -1634,17 +1635,7 @@ public partial class CopilotService
                 // After manual CompleteResponse, the server-side session is stuck in
                 // "tool executing" state. ResumeSessionAsync on it creates a dead session.
                 // Use CreateSessionAsync for a clean start (loses conversation history).
-                var freshConfig = new GitHub.Copilot.SDK.SessionConfig
-                {
-                    Model = state.Info.Model ?? DefaultModel,
-                    WorkingDirectory = state.Info.WorkingDirectory,
-                    Tools = new List<Microsoft.Extensions.AI.AIFunction>
-                    {
-                        ShowImageTool.CreateFunction(),
-                        delegationFunction,
-                    },
-                    OnPermissionRequest = AutoApprovePermissions,
-                };
+                var freshConfig = BuildFreshSessionConfig(state, new List<Microsoft.Extensions.AI.AIFunction> { delegationFunction });
                 newSession = await client.CreateSessionAsync(freshConfig, ct);
                 state.Info.SessionId = newSession.SessionId;
             }
@@ -1672,17 +1663,7 @@ public partial class CopilotService
                 {
                     // Session expired server-side. Create a fresh session with delegation tools.
                     Debug($"[DISPATCH] Session '{orchestratorName}' expired, creating fresh session with delegation tool.");
-                    var freshConfig = new GitHub.Copilot.SDK.SessionConfig
-                    {
-                        Model = state.Info.Model ?? DefaultModel,
-                        WorkingDirectory = state.Info.WorkingDirectory,
-                        Tools = new List<Microsoft.Extensions.AI.AIFunction>
-                        {
-                            ShowImageTool.CreateFunction(),
-                            delegationFunction,
-                        },
-                        OnPermissionRequest = AutoApprovePermissions,
-                    };
+                    var freshConfig = BuildFreshSessionConfig(state, new List<Microsoft.Extensions.AI.AIFunction> { delegationFunction });
                     newSession = await client.CreateSessionAsync(freshConfig, ct);
                     state.Info.SessionId = newSession.SessionId;
                 }
@@ -1790,14 +1771,8 @@ public partial class CopilotService
                             // Dispose the dead session
                             try { await deadState.Session.DisposeAsync(); } catch { }
 
-                            // Create a fresh SDK session
-                            var freshConfig = new GitHub.Copilot.SDK.SessionConfig
-                            {
-                                Model = deadState.Info.Model ?? DefaultModel,
-                                WorkingDirectory = deadState.Info.WorkingDirectory,
-                                Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
-                                OnPermissionRequest = AutoApprovePermissions,
-                            };
+                            // Create a fresh SDK session with full MCP/skills/system-message config
+                            var freshConfig = BuildFreshSessionConfig(deadState);
                             var freshSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
                             deadState.Info.SessionId = freshSession.SessionId;
 
@@ -1853,7 +1828,23 @@ public partial class CopilotService
         // object, orphaning the old TCS and causing a 10-minute hang.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromMinutes(10));
-        return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token, originalPrompt: originalPrompt);
+        // Wire the timeout to the ResponseCompletion TCS so cancellation actually interrupts the
+        // await inside SendPromptAsync. Without this, the CTS fires but nobody observes it — the
+        // await on ResponseCompletion.Task hangs until the watchdog fires (up to 600s).
+        // Look up state from _sessions (not captured ref) since reconnect replaces the state object.
+        var ctsReg = cts.Token.Register(() =>
+        {
+            if (_sessions.TryGetValue(sessionName, out var s))
+                s.ResponseCompletion?.TrySetCanceled();
+        });
+        try
+        {
+            return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token, originalPrompt: originalPrompt);
+        }
+        finally
+        {
+            await ctsReg.DisposeAsync();
+        }
     }
 
     private string BuildSynthesisPrompt(string originalPrompt, List<WorkerResult> results)
@@ -3098,6 +3089,11 @@ public partial class CopilotService
             reflectState.IsActive = false;
             reflectState.CompletedAt = DateTime.Now;
             ClearPendingOrchestration();
+            // Clean up delegation state to prevent stale entries from causing reconnect
+            // shortcut path to silently discard prompts on subsequent sessions.
+            _delegationFunctions.TryRemove(orchestratorName, out _);
+            _delegationContexts.TryRemove(orchestratorName, out _);
+            _toolDispatchConfigured.TryRemove(orchestratorName, out _);
             // Send any remaining queued prompts to the orchestrator before releasing the lock.
             // These were acknowledged to the user ("📨 queued") but the loop is exiting —
             // sending them ensures the model sees them rather than silently discarding.

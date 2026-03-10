@@ -1392,6 +1392,11 @@ public partial class CopilotService
     internal const int WatchdogCheckIntervalSeconds = 15;
     /// <summary>If no SDK events arrive for this many seconds (and no tool is running), the session is considered stuck.</summary>
     internal const int WatchdogInactivityTimeoutSeconds = 120;
+    /// <summary>If no SDK events arrive for this many seconds after tools were used but none are currently active,
+    /// the session is considered stuck. Shorter than full tool execution timeout because the session is idle
+    /// (no tool in-flight), but longer than the base inactivity timeout since tool-using sessions may have
+    /// longer gaps between rounds.</summary>
+    internal const int WatchdogUsedToolsIdleTimeoutSeconds = 180;
     /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
     /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
     internal const int WatchdogToolExecutionTimeoutSeconds = 600;
@@ -1541,12 +1546,13 @@ public partial class CopilotService
                     });
                 }
 
-                var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence) || hasUsedTools;
                 var effectiveTimeout = useResumeQuiescence
                     ? WatchdogResumeQuiescenceTimeoutSeconds
-                    : useToolTimeout
-                        ? WatchdogToolExecutionTimeoutSeconds
-                        : WatchdogInactivityTimeoutSeconds;
+                    : hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence)
+                        ? WatchdogToolExecutionTimeoutSeconds  // 600s — tool actively running or resumed session
+                        : hasUsedTools
+                            ? WatchdogUsedToolsIdleTimeoutSeconds  // 180s — used tools but none active now (likely dead)
+                            : WatchdogInactivityTimeoutSeconds;  // 120s — no tool activity at all
 
                 // Safety net: check absolute max processing time, but only if events have also
                 // gone stale. If events are still flowing (elapsed < effectiveTimeout), the session

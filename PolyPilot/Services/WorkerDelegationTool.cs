@@ -36,8 +36,11 @@ internal sealed class WorkerDelegationContext
     /// Pending worker tasks that were dispatched but not yet completed.
     /// Used for parallel dispatch: callbacks fire workers and return immediately,
     /// then the dispatch loop awaits all pending tasks after dispatching is done.
+    /// Keyed by "{workerName}#{dispatchIndex}" to allow the same worker to be dispatched
+    /// multiple times without overwriting earlier tasks (e.g., round-robin wrap-around).
     /// </summary>
     private readonly ConcurrentDictionary<string, Task<ToolDispatchedResult>> _pendingTasks = new();
+    private int _dispatchCounter;
 
     /// <summary>
     /// Returns a thread-safe snapshot of results recorded so far.
@@ -53,7 +56,8 @@ internal sealed class WorkerDelegationContext
     public IReadOnlyDictionary<string, Task<ToolDispatchedResult>> PendingTasks =>
         new Dictionary<string, Task<ToolDispatchedResult>>(_pendingTasks);
 
-    /// <summary>Resets state for a new planning-prompt round. Does NOT clear pending tasks.
+    /// <summary>Resets state for a new planning-prompt round. Clears pending tasks to prevent
+    /// stale tasks from a previous interrupted dispatch from contaminating new iterations.
     /// Resets the round-robin index — use <see cref="ResetResults"/> to preserve round-robin state.</summary>
     public void Reset(string originalPrompt, IReadOnlyList<string> workerNames, CancellationToken ct)
     {
@@ -61,6 +65,7 @@ internal sealed class WorkerDelegationContext
         WorkerNames = workerNames;
         CancellationToken = ct;
         lock (_resultsLock) { _results.Clear(); }
+        _pendingTasks.Clear();
         _roundRobinIndex = -1;
     }
 
@@ -76,11 +81,11 @@ internal sealed class WorkerDelegationContext
         // Deliberately does NOT reset _roundRobinIndex
     }
 
-    /// <summary>Full reset including pending tasks (used when starting a completely new dispatch cycle).</summary>
+    /// <summary>Full reset including dispatch counter (used when starting a completely new dispatch cycle).</summary>
     public void FullReset(string originalPrompt, IReadOnlyList<string> workerNames, CancellationToken ct)
     {
         Reset(originalPrompt, workerNames, ct);
-        _pendingTasks.Clear();
+        Interlocked.Exchange(ref _dispatchCounter, 0);
     }
 
     public string? GetNextWorker()
@@ -97,7 +102,8 @@ internal sealed class WorkerDelegationContext
 
     internal void AddPendingTask(string workerName, Task<ToolDispatchedResult> task)
     {
-        _pendingTasks[workerName] = task;
+        var key = $"{workerName}#{Interlocked.Increment(ref _dispatchCounter)}";
+        _pendingTasks[key] = task;
     }
 
     /// <summary>
@@ -109,8 +115,10 @@ internal sealed class WorkerDelegationContext
     {
         var timeout = perWorkerTimeout ?? TimeSpan.FromMinutes(5);
         var results = new List<ToolDispatchedResult>();
-        foreach (var (name, task) in _pendingTasks)
+        foreach (var (key, task) in _pendingTasks)
         {
+            // Keys are "{workerName}#{counter}" — extract the original worker name
+            var workerName = key.Contains('#') ? key[..key.LastIndexOf('#')] : key;
             try
             {
                 var completed = await Task.WhenAny(task, Task.Delay(timeout));
@@ -120,13 +128,13 @@ internal sealed class WorkerDelegationContext
                 }
                 else
                 {
-                    results.Add(new ToolDispatchedResult(name, null, false,
-                        $"Worker '{name}' timed out after {timeout.TotalSeconds:F0}s (dead session after reconnect?)", timeout));
+                    results.Add(new ToolDispatchedResult(workerName, null, false,
+                        $"Worker '{workerName}' timed out after {timeout.TotalSeconds:F0}s (dead session after reconnect?)", timeout));
                 }
             }
             catch (Exception ex)
             {
-                results.Add(new ToolDispatchedResult(name, null, false, ex.Message, TimeSpan.Zero));
+                results.Add(new ToolDispatchedResult(workerName, null, false, ex.Message, TimeSpan.Zero));
             }
         }
         _pendingTasks.Clear();

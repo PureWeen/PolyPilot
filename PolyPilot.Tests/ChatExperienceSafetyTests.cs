@@ -846,8 +846,10 @@ public class ChatExperienceSafetyTests
         Assert.True(sessionNotFoundIdx > 0);
 
         var afterNotFound = source.Substring(sessionNotFoundIdx, Math.Min(2000, source.Length - sessionNotFoundIdx));
-        Assert.Contains("McpServers", afterNotFound);
-        Assert.Contains("SkillDirectories", afterNotFound);
+        // After extracting BuildFreshSessionConfig helper, the reconnect path calls the helper
+        // instead of inlining McpServers/SkillDirectories. Verify the helper is called here
+        // and that it contains MCP/Skills (checked via helper body elsewhere).
+        Assert.Contains("BuildFreshSessionConfig", afterNotFound);
     }
 
     // =========================================================================
