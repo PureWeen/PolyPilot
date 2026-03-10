@@ -994,28 +994,38 @@ public class WsBridgeIntegrationTests : IDisposable
     public async Task Connect_WithAccessTokenSet_NoToken_LoopbackIsRejected()
     {
         _server.AccessToken = "test-secret-token-12345";
-        await InitDemoMode();
+        try
+        {
+            await InitDemoMode();
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        // Connect without providing the token — loopback no longer bypasses auth when token is configured
-        await Assert.ThrowsAnyAsync<Exception>(() => ConnectClientAsync(cts.Token));
-
-        _server.AccessToken = null;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            // Connect without providing the token — loopback no longer bypasses auth when token is configured
+            await Assert.ThrowsAnyAsync<Exception>(() => ConnectClientAsync(cts.Token));
+        }
+        finally
+        {
+            _server.AccessToken = null;
+        }
     }
 
     [Fact]
     public async Task Connect_WithAccessTokenSet_CorrectToken_Works()
     {
         _server.AccessToken = "test-secret-token-12345";
-        await InitDemoMode();
+        try
+        {
+            await InitDemoMode();
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        var client = new WsBridgeClient();
-        await client.ConnectAsync($"ws://localhost:{_port}/", "test-secret-token-12345", cts.Token);
-        Assert.True(client.IsConnected);
-        client.Stop();
-
-        _server.AccessToken = null;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var client = new WsBridgeClient();
+            await client.ConnectAsync($"ws://localhost:{_port}/", "test-secret-token-12345", cts.Token);
+            Assert.True(client.IsConnected);
+            client.Stop();
+        }
+        finally
+        {
+            _server.AccessToken = null;
+        }
     }
 
     // ========== SWITCH SESSION BROADCAST ==========

@@ -240,10 +240,11 @@ public class WsBridgeServer : IDisposable
     }
 
     /// <summary>
-    /// Validate client token from X-Tunnel-Authorization header or query string.
+    /// Validate client token from request headers or query string.
     /// If no AccessToken or ServerPassword is configured, all connections are allowed (local-only mode).
     /// When a token or password is configured, all connections — including loopback — must authenticate.
-    /// DevTunnel proxied connections arrive via loopback and still carry the token in the header.
+    /// DevTunnel strips X-Tunnel-Authorization before proxying to localhost, so clients also send
+    /// the token in X-Bridge-Authorization which DevTunnel passes through unchanged.
     /// </summary>
     private bool ValidateClientToken(HttpListenerRequest request)
     {
@@ -251,14 +252,24 @@ public class WsBridgeServer : IDisposable
         if (string.IsNullOrEmpty(AccessToken) && string.IsNullOrEmpty(ServerPassword))
             return true;
 
-        // Extract token from header or query string
+        // Extract token: prefer X-Bridge-Authorization (survives DevTunnel proxying),
+        // fall back to X-Tunnel-Authorization (direct connections), then query string.
         string? providedToken = null;
-        var authHeader = request.Headers["X-Tunnel-Authorization"];
-        if (!string.IsNullOrEmpty(authHeader))
+
+        var bridgeHeader = request.Headers["X-Bridge-Authorization"];
+        if (!string.IsNullOrEmpty(bridgeHeader))
         {
-            providedToken = authHeader.StartsWith("tunnel ", StringComparison.OrdinalIgnoreCase)
-                ? authHeader["tunnel ".Length..].Trim()
-                : authHeader.Trim();
+            providedToken = bridgeHeader.Trim();
+        }
+        else
+        {
+            var authHeader = request.Headers["X-Tunnel-Authorization"];
+            if (!string.IsNullOrEmpty(authHeader))
+            {
+                providedToken = authHeader.StartsWith("tunnel ", StringComparison.OrdinalIgnoreCase)
+                    ? authHeader["tunnel ".Length..].Trim()
+                    : authHeader.Trim();
+            }
         }
         providedToken ??= request.QueryString["token"];
 
@@ -277,15 +288,10 @@ public class WsBridgeServer : IDisposable
 
     private static bool TokenEquals(string provided, string expected)
     {
-        var a = Encoding.UTF8.GetBytes(provided);
-        var b = Encoding.UTF8.GetBytes(expected);
-        // FixedTimeEquals requires same length; pad to avoid short-circuit on length mismatch
-        if (a.Length != b.Length)
-        {
-            // Still compare (and discard) to avoid branching on length
-            CryptographicOperations.FixedTimeEquals(a, a);
-            return false;
-        }
+        // Hash both sides to a fixed 32-byte output so comparison time is
+        // independent of input length (avoids length oracle timing leak).
+        var a = SHA256.HashData(Encoding.UTF8.GetBytes(provided));
+        var b = SHA256.HashData(Encoding.UTF8.GetBytes(expected));
         return CryptographicOperations.FixedTimeEquals(a, b);
     }
 
