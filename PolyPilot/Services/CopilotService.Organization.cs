@@ -1090,8 +1090,7 @@ public partial class CopilotService
         // ends the turn), we loop: each iteration dispatches one worker (non-blocking — workers run
         // in parallel), then we create a fresh session and send a continuation prompt.
         // After all workers are dispatched, we await all pending tasks simultaneously.
-        if (usingToolDispatch && _delegationContexts.TryGetValue(orchestratorName, out var dispatchCtx)
-            && dispatchCtx.DispatchedResults.Count > 0)
+        if (usingToolDispatch && _delegationContexts.TryGetValue(orchestratorName, out var dispatchCtx))
         {
             var dispatched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             const int maxDispatchIterations = 10; // safety cap
@@ -1100,8 +1099,38 @@ public partial class CopilotService
             // Collect dispatched worker names from the first turn (workers are running in parallel)
             foreach (var r in dispatchCtx.DispatchedResults)
                 dispatched.Add(r.WorkerName);
-            Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch iteration {dispatchIteration}: {dispatchCtx.DispatchedResults.Count} worker(s) dispatched (running in parallel).");
 
+            // If the model didn't call the task tool on the first turn (common — models often
+            // plan/explain first), nudge it to use the tool before falling through to text-parsing.
+            if (dispatched.Count == 0)
+            {
+                Debug($"[DISPATCH] '{orchestratorName}' first response had no tool dispatches. Sending tool-use nudge.");
+                _delegationFunctions.TryRemove(orchestratorName, out _);
+                _toolDispatchConfigured.TryRemove(orchestratorName, out _);
+                await EnsureOrchestratorToolsAsync(orchestratorName, workerNames, cancellationToken, forceCreate: true);
+                if (_toolDispatchConfigured.ContainsKey(orchestratorName))
+                {
+                    if (_delegationContexts.TryGetValue(orchestratorName, out var nudgeCtx))
+                        nudgeCtx.ResetResults(prompt, workerNames, cancellationToken);
+                    await SendPromptAndWaitAsync(orchestratorName,
+                        BuildToolDispatchNudgePrompt(workerNames), cancellationToken, originalPrompt: prompt);
+                    // Re-collect: nudge may have triggered tool calls
+                    if (_delegationContexts.TryGetValue(orchestratorName, out var nudgedCtx))
+                    {
+                        foreach (var r in nudgedCtx.DispatchedResults)
+                            dispatched.Add(r.WorkerName);
+                    }
+                }
+                if (dispatched.Count == 0)
+                    Debug($"[DISPATCH] '{orchestratorName}' nudge also produced no tool calls. Falling through to text-parsing.");
+            }
+            else
+            {
+                Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch iteration {dispatchIteration}: {dispatched.Count} worker(s) dispatched (running in parallel).");
+            }
+
+            if (dispatched.Count > 0)
+            {
             // Continue dispatching until no new workers are dispatched or we hit the cap.
             // Each iteration is fast (~3s) because callbacks return immediately.
             while (dispatched.Count < workerNames.Count && dispatchIteration < maxDispatchIterations)
@@ -1218,6 +1247,13 @@ public partial class CopilotService
             await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken, originalPrompt: prompt);
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
             return;
+            } // end if (dispatched.Count > 0)
+
+            // Tool-dispatch was configured but no workers dispatched even after nudge.
+            // Clean up pending tasks and fall through to text-parsing fallback.
+            Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch: model never called task tool. Falling through to text-parsing.");
+            if (_delegationContexts.TryGetValue(orchestratorName, out var fallbackCleanup))
+                fallbackCleanup.ObserveAllPending();
         }
 
         // Fallback: text-parsing path via @worker: blocks
