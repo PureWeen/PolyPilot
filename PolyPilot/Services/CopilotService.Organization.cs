@@ -1059,8 +1059,7 @@ public partial class CopilotService
         if (usingToolDispatch)
         {
             var delegCtx = _delegationContexts[orchestratorName];
-            delegCtx.Reset(prompt, workerNames, cancellationToken);
-        }
+            delegCtx.FullReset(prompt, workerNames, cancellationToken);        }
 
         var planningPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group?.OrchestratorPrompt, group?.RoutingContext, useToolDispatch: usingToolDispatch);
         var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken, originalPrompt: prompt);
@@ -1082,27 +1081,25 @@ public partial class CopilotService
             }
         }
 
-        // Tool-dispatch path: workers ran as tool calls during SendPromptAndWaitAsync.
+        // Tool-dispatch path: workers dispatched as tool calls during SendPromptAndWaitAsync.
         // Because the SDK only supports one is_override tool call per turn (manual CompleteResponse
-        // ends the turn), we loop: each iteration dispatches one worker, then we create a fresh
-        // session and send a continuation prompt until no more workers are dispatched.
+        // ends the turn), we loop: each iteration dispatches one worker (non-blocking — workers run
+        // in parallel), then we create a fresh session and send a continuation prompt.
+        // After all workers are dispatched, we await all pending tasks simultaneously.
         if (usingToolDispatch && _delegationContexts.TryGetValue(orchestratorName, out var dispatchCtx)
             && dispatchCtx.DispatchedResults.Count > 0)
         {
-            var allToolResults = new List<WorkerResult>();
             var dispatched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             const int maxDispatchIterations = 10; // safety cap
             var dispatchIteration = 0;
 
-            // Collect results from the first dispatch turn
+            // Collect dispatched worker names from the first turn (workers are running in parallel)
             foreach (var r in dispatchCtx.DispatchedResults)
-            {
-                allToolResults.Add(new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration));
                 dispatched.Add(r.WorkerName);
-            }
-            Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch iteration {dispatchIteration}: {dispatchCtx.DispatchedResults.Count} worker(s) completed.");
+            Debug($"[DISPATCH] '{orchestratorName}' tool-dispatch iteration {dispatchIteration}: {dispatchCtx.DispatchedResults.Count} worker(s) dispatched (running in parallel).");
 
-            // Continue dispatching until no new workers are dispatched or we hit the cap
+            // Continue dispatching until no new workers are dispatched or we hit the cap.
+            // Each iteration is fast (~3s) because callbacks return immediately.
             while (dispatched.Count < workerNames.Count && dispatchIteration < maxDispatchIterations)
             {
                 dispatchIteration++;
@@ -1124,14 +1121,13 @@ public partial class CopilotService
                 if (_delegationContexts.TryGetValue(orchestratorName, out var contCtx))
                     contCtx.Reset(prompt, remaining, cancellationToken);
 
-                // Build continuation prompt with previous results
-                var prevSummary = string.Join("\n\n", allToolResults.Select(r =>
-                    $"### {r.WorkerName} (completed)\n{(r.Success ? r.Response : $"ERROR: {r.Error}")}"));
-                var contPrompt = $"You are continuing to dispatch workers. You have already dispatched and received results from:\n{prevSummary}\n\n" +
+                // Continuation prompt — lightweight, no full results (workers still running)
+                var contPrompt = $"You are continuing to dispatch workers. You have already dispatched: {string.Join(", ", dispatched)}. " +
+                    $"Workers are running in parallel — results will be collected after all dispatching is complete.\n\n" +
                     $"The following workers are available (but you do NOT need to use all of them): {string.Join(", ", remaining)}\n\n" +
                     $"Original request: {prompt}\n\n" +
-                    "IMPORTANT: Only dispatch another worker if the original request requires MORE work beyond what has already been completed above. " +
-                    "If all requested work is done, do NOT dispatch more workers — simply respond with your final answer or synthesis.\n\n" +
+                    "IMPORTANT: Only dispatch another worker if the original request requires MORE work beyond what has already been assigned. " +
+                    "If all requested work has been assigned to previous workers, do NOT dispatch more — simply confirm dispatching is complete.\n\n" +
                     "If you do need to dispatch, use the `task` tool ONE AT A TIME.";
 
                 var contResponse = await SendPromptAndWaitAsync(orchestratorName, contPrompt, cancellationToken, originalPrompt: prompt);
@@ -1150,15 +1146,12 @@ public partial class CopilotService
                     }
                 }
 
-                // Collect new results
+                // Collect newly dispatched worker names
                 if (_delegationContexts.TryGetValue(orchestratorName, out var contResults) && contResults.DispatchedResults.Count > 0)
                 {
                     foreach (var r in contResults.DispatchedResults)
-                    {
-                        allToolResults.Add(new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration));
                         dispatched.Add(r.WorkerName);
-                    }
-                    Debug($"[DISPATCH] '{orchestratorName}' continuation iteration {dispatchIteration}: {contResults.DispatchedResults.Count} worker(s) completed. Total: {allToolResults.Count}.");
+                    Debug($"[DISPATCH] '{orchestratorName}' continuation iteration {dispatchIteration}: {contResults.DispatchedResults.Count} worker(s) dispatched. Total: {dispatched.Count}.");
                 }
                 else
                 {
@@ -1168,7 +1161,19 @@ public partial class CopilotService
                 }
             }
 
-            Debug($"[DISPATCH] '{orchestratorName}' dispatch loop complete: {allToolResults.Count} total worker(s).");
+            Debug($"[DISPATCH] '{orchestratorName}' dispatch loop complete: {dispatched.Count} worker(s) dispatched. Awaiting parallel completion...");
+
+            // Await all pending worker tasks — they've been running in parallel this whole time.
+            // Collect pending tasks from all contexts (each continuation iteration may have a different context).
+            var allToolResults = new List<WorkerResult>();
+            if (_delegationContexts.TryGetValue(orchestratorName, out var finalCtx))
+            {
+                var pendingResults = await finalCtx.AwaitAllPendingAsync();
+                foreach (var r in pendingResults)
+                    allToolResults.Add(new WorkerResult(r.WorkerName, r.Response, r.Success, r.Error, r.Duration));
+            }
+
+            Debug($"[DISPATCH] '{orchestratorName}' all {allToolResults.Count} worker(s) completed.");
 
             // Phase 4: Synthesize — create fresh session (no tools needed)
             _delegationFunctions.TryRemove(orchestratorName, out _);
@@ -1321,11 +1326,11 @@ public partial class CopilotService
         if (useToolDispatch)
         {
             sb.AppendLine("Use the `task` tool to delegate work to your workers. Call it once per sub-task.");
-            sb.AppendLine("Each `task` call dispatches one worker and returns its response.");
-            sb.AppendLine("IMPORTANT: Call `task` ONE AT A TIME — wait for each call to return before making the next one. Do NOT call `task` multiple times in parallel.");
+            sb.AppendLine("Each `task` call dispatches one worker that runs in parallel with the others.");
+            sb.AppendLine("IMPORTANT: Call `task` ONE AT A TIME — the system handles parallelism automatically. Do NOT call `task` multiple times in a single response.");
             sb.AppendLine("You MUST call `task` at least once — do NOT attempt to do the work yourself.");
             sb.AppendLine();
-            sb.AppendLine("After all `task` calls complete, synthesize the workers' results into a final response.");
+            sb.AppendLine("After dispatching, the system will collect all worker results in parallel and ask you to synthesize them.");
         }
         else if (dispatcherOnly)
         {
@@ -1400,8 +1405,8 @@ public partial class CopilotService
         sb.AppendLine();
         sb.AppendLine("## Your Task");
         sb.AppendLine("Use the `task` tool to delegate work to your workers. Call it once per sub-task.");
-        sb.AppendLine("Each `task` call dispatches one worker and returns its response.");
-        sb.AppendLine("IMPORTANT: Call `task` ONE AT A TIME — wait for each call to return before making the next one. Do NOT call `task` multiple times in parallel.");
+        sb.AppendLine("Each `task` call dispatches one worker that runs in parallel with the others.");
+        sb.AppendLine("IMPORTANT: Call `task` ONE AT A TIME — the system handles parallelism automatically. Do NOT call `task` multiple times in a single response.");
         sb.AppendLine("You MUST call `task` at least once — do NOT attempt to do the work yourself.");
         sb.AppendLine();
         sb.AppendLine("After all workers have completed (all `task` calls return), synthesize their results into a final response.");

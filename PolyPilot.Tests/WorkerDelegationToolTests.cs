@@ -94,7 +94,7 @@ public class WorkerDelegationToolTests
     public async Task Tool_Invoke_DispatchesToWorkerAndRecordsResult()
     {
         var ctx = new WorkerDelegationContext();
-        ctx.Reset("original", new List<string> { "worker1" }, CancellationToken.None);
+        ctx.FullReset("original", new List<string> { "worker1" }, CancellationToken.None);
 
         var called = false;
         Task<(bool, string?, string?, TimeSpan)> Execute(string w, string task, string orig, CancellationToken ct)
@@ -112,10 +112,18 @@ public class WorkerDelegationToolTests
         var result = await fn.InvokeAsync(args);
         var resultStr = result?.ToString() ?? "";
 
-        Assert.True(called);
+        // Callback returns immediately with "dispatched" status (parallel dispatch)
+        Assert.Contains("dispatched", resultStr);
         Assert.Contains("worker1", resultStr);
-        Assert.Single(ctx.DispatchedResults);
+        Assert.Single(ctx.DispatchedResults); // Placeholder result recorded
         Assert.True(ctx.DispatchedResults[0].Success);
+
+        // Actual result is in PendingTasks — await it
+        var pendingResults = await ctx.AwaitAllPendingAsync();
+        Assert.True(called);
+        Assert.Single(pendingResults);
+        Assert.True(pendingResults[0].Success);
+        Assert.Equal("done", pendingResults[0].Response);
     }
 
     [Fact]
@@ -141,7 +149,7 @@ public class WorkerDelegationToolTests
     public async Task Tool_Invoke_WorkerFailure_RecordsFailure()
     {
         var ctx = new WorkerDelegationContext();
-        ctx.Reset("orig", new List<string> { "w1" }, CancellationToken.None);
+        ctx.FullReset("orig", new List<string> { "w1" }, CancellationToken.None);
 
         Task<(bool, string?, string?, TimeSpan)> Execute(string w, string task, string orig, CancellationToken ct)
             => Task.FromResult<(bool, string?, string?, TimeSpan)>((false, null, "worker crashed", TimeSpan.Zero));
@@ -151,10 +159,15 @@ public class WorkerDelegationToolTests
         var result = await fn.InvokeAsync(args);
         var resultStr = result?.ToString() ?? "";
 
-        Assert.Contains("error", resultStr);
-        Assert.Single(ctx.DispatchedResults);
-        Assert.False(ctx.DispatchedResults[0].Success);
-        Assert.Equal("worker crashed", ctx.DispatchedResults[0].Error);
+        // Callback returns "dispatched" immediately (parallel dispatch)
+        Assert.Contains("dispatched", resultStr);
+        Assert.Single(ctx.DispatchedResults); // Placeholder (success=true, worker was dispatched)
+
+        // Actual failure is in PendingTasks
+        var pendingResults = await ctx.AwaitAllPendingAsync();
+        Assert.Single(pendingResults);
+        Assert.False(pendingResults[0].Success);
+        Assert.Equal("worker crashed", pendingResults[0].Error);
     }
 
     [Fact]
