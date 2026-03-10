@@ -499,11 +499,11 @@ public partial class CopilotService
                                     return;
                                 }
                                 Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs + TurnEndIdleToolFallbackAdditionalMs}ms after TurnEnd (tools used) — firing CompleteResponse");
-                                Invoke(() => CompleteResponse(state, turnEndGen));
+                                InvokeOnUI(() => CompleteResponse(state, turnEndGen));
                                 return;
                             }
                             Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs}ms after TurnEnd — firing CompleteResponse");
-                            Invoke(() => CompleteResponse(state, turnEndGen));
+                            InvokeOnUI(() => CompleteResponse(state, turnEndGen));
                         }
                         catch (OperationCanceledException) { /* expected on cancellation */ }
                         catch (Exception ex) { Debug($"[IDLE-FALLBACK] '{sessionName}' unexpected error: {ex}"); }
@@ -1511,8 +1511,13 @@ public partial class CopilotService
                 // (e.g., if TurnEnd→Idle fallback hasn't fired yet, or streaming stalled mid-response).
                 if (elapsed >= WatchdogCheckIntervalSeconds)
                 {
+                    // Capture generation before InvokeOnUI — if the user aborts + resends between
+                    // this check and the UI dispatch, the generation changes and we must not flush
+                    // new-turn content into the old turn's history.
+                    var flushGen = Interlocked.Read(ref state.ProcessingGeneration);
                     InvokeOnUI(() =>
                     {
+                        if (Interlocked.Read(ref state.ProcessingGeneration) != flushGen) return;
                         if (state.CurrentResponse.Length > 0)
                         {
                             Debug($"[WATCHDOG] '{sessionName}' periodic flush — CurrentResponse has content after {elapsed:F0}s of inactivity");

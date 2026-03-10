@@ -42,6 +42,11 @@ public class ChatExperienceSafetyTests
     private CopilotService CreateService() =>
         new CopilotService(_chatDb, _serverManager, _bridgeClient, _repoManager, _serviceProvider, _demoService);
 
+    // These helpers use string-based reflection to access private members. Renaming any private
+    // member silently breaks tests at runtime rather than compile time.
+    // TODO: Consider adding [assembly: InternalsVisibleTo("PolyPilot.Tests")] to PolyPilot.csproj
+    //       for compile-time safety on internal members.
+
     /// <summary>Gets the private SessionState object from CopilotService._sessions dictionary.</summary>
     private static object GetSessionState(CopilotService svc, string sessionName)
     {

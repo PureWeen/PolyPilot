@@ -2166,7 +2166,10 @@ public class ProcessingWatchdogTests
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var elapsedIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
-        var block = source.Substring(elapsedIdx, 3500);
+        // Find the end of the method dynamically (next top-level member after RunProcessingWatchdogAsync)
+        var methodEndIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        if (methodEndIdx < 0) methodEndIdx = source.Length;
+        var block = source.Substring(elapsedIdx, methodEndIdx - elapsedIdx);
 
         // Must check hasActiveTool before deciding server liveness path
         Assert.True(block.Contains("hasActiveTool"),
@@ -2197,7 +2200,9 @@ public class ProcessingWatchdogTests
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var elapsedIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
-        var block = source.Substring(elapsedIdx, 8000);
+        var methodEndIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        if (methodEndIdx < 0) methodEndIdx = source.Length;
+        var block = source.Substring(elapsedIdx, methodEndIdx - elapsedIdx);
 
         // Must have both conditions
         Assert.True(block.Contains("hasUsedTools"),
@@ -2213,6 +2218,11 @@ public class ProcessingWatchdogTests
         var stuckMsgIdx = block.IndexOf("Session appears stuck");
         Assert.True(stuckMsgIdx > completeResponseIdx,
             "The 'appears stuck' error message must come AFTER CompleteResponse, in a separate branch");
+
+        // Case B must exit the block (break/return) before falling through to Case C error path
+        var breakIdx = block.IndexOf("break;", completeResponseIdx);
+        Assert.True(breakIdx > 0 && breakIdx < stuckMsgIdx,
+            "Case B must have a 'break;' before Case C to prevent fallthrough to the error kill path");
     }
 
     [Fact]
@@ -2224,7 +2234,9 @@ public class ProcessingWatchdogTests
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var elapsedIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
-        var block = source.Substring(elapsedIdx, 8000);
+        var methodEndIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        if (methodEndIdx < 0) methodEndIdx = source.Length;
+        var block = source.Substring(elapsedIdx, methodEndIdx - elapsedIdx);
 
         // exceededMaxTime must gate the liveness/clean-complete paths
         var exceededIdx = block.IndexOf("exceededMaxTime");
@@ -2233,6 +2245,23 @@ public class ProcessingWatchdogTests
             "Both exceededMaxTime and IsServerRunning must be present");
         Assert.True(exceededIdx < serverRunningIdx,
             "exceededMaxTime check must appear before the server liveness bypass — max time always kills");
+    }
+
+    [Fact]
+    public void WatchdogPeriodicFlush_HasGenerationGuard()
+    {
+        // The periodic flush must capture ProcessingGeneration before InvokeOnUI and
+        // validate it inside the lambda — preventing stale watchdog ticks from flushing
+        // new-turn content into old-turn history if the user aborts + resends.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var flushCommentIdx = source.IndexOf("Periodic mid-watchdog flush", methodIdx);
+        Assert.True(flushCommentIdx > 0, "Periodic flush comment must exist in RunProcessingWatchdogAsync");
+        // Capture 1000 chars around the flush block to verify generation guard
+        var flushBlock = source.Substring(flushCommentIdx, 1000);
+        Assert.True(flushBlock.Contains("ProcessingGeneration"),
+            "Periodic flush block must read ProcessingGeneration before InvokeOnUI (race condition guard)");
     }
 
     private static string GetRepoRoot()
@@ -2296,7 +2325,7 @@ public class ProcessingWatchdogTests
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
-        var flushIdx = source.IndexOf("periodic flush", methodIdx);
+        var flushIdx = source.IndexOf("Periodic mid-watchdog flush", methodIdx);
         var elapsedCheckIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
         Assert.True(flushIdx > 0, "Periodic flush comment must exist in RunProcessingWatchdogAsync");
         Assert.True(flushIdx < elapsedCheckIdx,

@@ -172,7 +172,7 @@ public class TurnEndFallbackTests
         {
             try
             {
-                await Task.Delay(CopilotService.TurnEndIdleFallbackMs, token);
+                await Task.Delay(50, token); // accelerated base delay (mirrors other tests in this file)
                 if (token.IsCancellationRequested) return;
                 await Task.Delay(100, token); // accelerated extended delay
                 if (token.IsCancellationRequested) return;
