@@ -205,6 +205,7 @@ public partial class CopilotService : IAsyncDisposable
         _serviceProvider = serviceProvider;
         _demoService = demoService;
         _codespaceService = codespaceService ?? new CodespaceService();
+        _stateChangedCoalesceTimer = new Timer(FireCoalescedStateChanged, null, Timeout.Infinite, Timeout.Infinite);
         try { _usageStats = serviceProvider?.GetService(typeof(UsageStatsService)) as UsageStatsService; } catch { }
     }
 
@@ -331,6 +332,37 @@ public partial class CopilotService : IAsyncDisposable
 
     public event Action? OnStateChanged;
     public void NotifyStateChanged() => OnStateChanged?.Invoke();
+
+    /// <summary>
+    /// Coalesced state change notification. Batches rapid-fire events (tool starts,
+    /// phase changes, turn starts) into a single OnStateChanged callback within the
+    /// coalesce window. Use this for high-frequency, non-critical state updates.
+    /// Critical events (completion, errors, session switches) should still call
+    /// OnStateChanged?.Invoke() directly for immediate UI response.
+    /// </summary>
+    private Timer? _stateChangedCoalesceTimer;
+    private const int StateChangedCoalesceMs = 150;
+    private int _stateChangedPending; // 0 = idle, 1 = pending
+
+    internal void NotifyStateChangedCoalesced()
+    {
+        // Mark as pending — if already pending, the timer will fire and pick it up
+        if (Interlocked.CompareExchange(ref _stateChangedPending, 1, 0) == 0)
+        {
+            try
+            {
+                _stateChangedCoalesceTimer?.Change(StateChangedCoalesceMs, Timeout.Infinite);
+            }
+            catch (ObjectDisposedException) { }
+        }
+    }
+
+    private void FireCoalescedStateChanged(object? _)
+    {
+        Interlocked.Exchange(ref _stateChangedPending, 0);
+        InvokeOnUI(() => OnStateChanged?.Invoke());
+    }
+
     public event Action<string, string>? OnContentReceived; // sessionName, content
     public event Action<string, string>? OnError; // sessionName, error
     public event Action<string, string>? OnSessionComplete; // sessionName, summary
@@ -3410,7 +3442,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         _saveUiStateDebounce?.Dispose();
         _saveUiStateDebounce = null;
         FlushUiState();
-        
+
+        _stateChangedCoalesceTimer?.Dispose();
+        _stateChangedCoalesceTimer = null;
+
         foreach (var state in _sessions.Values)
         {
             CancelProcessingWatchdog(state);
