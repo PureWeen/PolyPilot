@@ -2433,11 +2433,16 @@ public class ProcessingWatchdogTests
     [Fact]
     public void WatchdogMaxToolAliveResets_BoundsMaxStuckTime()
     {
-        // Total stuck time from Case A resets = resets × tool timeout.
+        // The reset counter is incremented BEFORE the comparison:
+        //   var resets = Interlocked.Increment(ref state.WatchdogCaseAResets);
+        //   if (resets > WatchdogMaxToolAliveResets) { /* fall through */ }
+        // So the cap fires on the (N+1)th trigger. Actual max stuck time
+        // = (WatchdogMaxToolAliveResets + 1) × tool timeout (one initial
+        // timeout to enter the block, then N resets before exceeding the cap).
         // This must be less than WatchdogMaxProcessingTimeSeconds (3600s)
         // so the reset cap fires before the absolute max (which may be
         // defeated by ProcessingStartedAt resetting on app restart).
-        var maxCaseAStuckSeconds = CopilotService.WatchdogMaxToolAliveResets
+        var maxCaseAStuckSeconds = (CopilotService.WatchdogMaxToolAliveResets + 1)
             * CopilotService.WatchdogToolExecutionTimeoutSeconds;
         Assert.True(maxCaseAStuckSeconds < CopilotService.WatchdogMaxProcessingTimeSeconds,
             $"Case A max stuck time ({maxCaseAStuckSeconds}s) must be less than " +
