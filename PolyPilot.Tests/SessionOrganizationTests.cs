@@ -1370,13 +1370,13 @@ public class GroupPresetTests
     {
         var skillValidator = GroupPreset.BuiltIn.FirstOrDefault(p => p.Name == "Skill Validator");
         Assert.NotNull(skillValidator);
-        Assert.Equal(2, skillValidator!.WorkerModels.Length);
+        Assert.Equal(3, skillValidator!.WorkerModels.Length);
         Assert.Equal(MultiAgentMode.OrchestratorReflect, skillValidator.Mode);
         Assert.Equal("⚖️", skillValidator.Emoji);
         Assert.NotNull(skillValidator.SharedContext);
         Assert.NotNull(skillValidator.RoutingContext);
         Assert.NotNull(skillValidator.WorkerSystemPrompts);
-        Assert.Equal(2, skillValidator.WorkerSystemPrompts!.Length);
+        Assert.Equal(3, skillValidator.WorkerSystemPrompts!.Length);
         Assert.All(skillValidator.WorkerSystemPrompts, p => Assert.False(string.IsNullOrWhiteSpace(p)));
         Assert.NotNull(skillValidator.MaxReflectIterations);
     }
