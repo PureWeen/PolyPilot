@@ -1402,6 +1402,20 @@ public partial class CopilotService
                     }
                 }
 
+                // Fallback: if response is still empty, try extracting from chat history.
+                // The SDK may have streamed content via delta events that ended up in history
+                // even though FlushedResponse/CurrentResponse were empty (e.g., watchdog completion).
+                if (string.IsNullOrWhiteSpace(response) && _sessions.TryGetValue(workerName, out var histState))
+                {
+                    var lastAssistant = histState.Info.History
+                        .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content));
+                    if (lastAssistant != null)
+                    {
+                        response = lastAssistant.Content;
+                        Debug($"[DISPATCH] Worker '{workerName}' recovered {response!.Length} chars from chat history");
+                    }
+                }
+
                 Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response?.Length ?? 0}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
                 return new WorkerResult(workerName, response, true, null, sw.Elapsed);
             }
@@ -2418,13 +2432,16 @@ public partial class CopilotService
                 var evaluatorModel = GetEffectiveModel(evaluatorName);
                 var trend = reflectState.RecordEvaluation(reflectState.CurrentIteration, score, rationale, evaluatorModel);
 
-                // Check if evaluator says complete — but only if all workers have participated successfully
+                // Check if evaluator says complete
+                var allWorkersAttempted = workerNames.All(w => attemptedWorkers.Contains(w));
                 if ((evalResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase) || score >= 0.9)
-                    && allWorkersDispatched)
+                    && (allWorkersDispatched || allWorkersAttempted))
                 {
+                    var partial = !allWorkersDispatched && allWorkersAttempted;
                     reflectState.GoalMet = true;
                     reflectState.IsActive = false;
-                    AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.BuildCompletionSummary()} (score: {score:F1})");
+                    var suffix = partial ? " (some workers failed but all were attempted)" : "";
+                    AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.BuildCompletionSummary()} (score: {score:F1}){suffix}");
                     break;
                 }
 
@@ -2435,7 +2452,7 @@ public partial class CopilotService
                     var neverDispatched = missing.Where(w => !attemptedWorkers.Contains(w)).ToList();
                     var detail = neverDispatched.Count > 0
                         ? $"Not yet dispatched: {string.Join(", ", neverDispatched)}."
-                        : $"Dispatched but failed: {string.Join(", ", failedButAttempted)}. Retry or address errors.";
+                        : $"Dispatched but failed: {string.Join(", ", failedButAttempted)}. Will retry next iteration.";
                     Debug($"Reflection: overriding completion — {detail}");
                     reflectState.LastEvaluation = $"{detail} Dispatch to the remaining workers before completing.";
                     AddOrchestratorSystemMessage(orchestratorName, $"🔄 Overriding completion — {detail}");
@@ -2452,18 +2469,21 @@ public partial class CopilotService
             {
                 synthesisResponse = await SendPromptAndWaitAsync(orchestratorName, synthEvalPrompt, ct, originalPrompt: prompt);
 
-                // Check completion sentinel — but only if all workers have participated successfully
+                // Check completion sentinel
+                var allWorkersAttempted = workerNames.All(w => attemptedWorkers.Contains(w));
                 if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase)
-                    && allWorkersDispatched)
+                    && (allWorkersDispatched || allWorkersAttempted))
                 {
+                    var partial = !allWorkersDispatched && allWorkersAttempted;
                     reflectState.GoalMet = true;
                     reflectState.IsActive = false;
-                    AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.BuildCompletionSummary()}");
+                    var suffix = partial ? " (some workers failed but all were attempted)" : "";
+                    AddOrchestratorSystemMessage(orchestratorName, $"✅ {reflectState.BuildCompletionSummary()}{suffix}");
                     break;
                 }
 
                 if (synthesisResponse.Contains("[[GROUP_REFLECT_COMPLETE]]", StringComparison.OrdinalIgnoreCase)
-                    && !allWorkersDispatched)
+                    && !allWorkersAttempted)
                 {
                     // Override premature completion — not all workers have participated
                     var missing = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
