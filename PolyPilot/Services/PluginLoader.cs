@@ -247,12 +247,15 @@ public static class PluginLoader
         using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (var file in dllFiles)
         {
+            // Include filename with a null-byte separator so "ab"+"cd" and "abc"+"d" hash differently
             hasher.AppendData(Encoding.UTF8.GetBytes(Path.GetFileName(file)));
+            hasher.AppendData([0]);
             using var stream = File.OpenRead(file);
             var buffer = new byte[81920];
             int read;
             while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
                 hasher.AppendData(buffer, 0, read);
+            hasher.AppendData([0]);
         }
         return Convert.ToHexStringLower(hasher.GetHashAndReset());
     }

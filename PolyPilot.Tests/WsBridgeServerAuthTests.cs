@@ -254,23 +254,29 @@ public class WsBridgeServerAuthTests
     }
 
     [Fact]
-    public async Task WsBridgeServer_HttpProbe_AllowsLoopback_WhenTokenRequired()
+    public async Task WsBridgeServer_HttpProbe_RequiresToken_WhenTokenConfigured()
     {
-        // Verifies loopback requests still pass auth after the fix
-        // (DevTunnel proxies appear as loopback → must remain trusted)
+        // Verifies that the HTTP probe endpoint requires auth even from loopback when a token is set
         var port = GetFreePort();
         using var server = new WsBridgeServer();
         server.AccessToken = "some-secret-token";
         server.Start(port, 0);
-        await Task.Delay(100); // Let accept loop start
+        await Task.Delay(100);
 
         try
         {
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
-            var response = await client.GetAsync($"http://localhost:{port}/");
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            var body = await response.Content.ReadAsStringAsync();
-            Assert.Equal("WsBridge OK", body);
+
+            // No token → rejected
+            var rejected = await client.GetAsync($"http://localhost:{port}/");
+            Assert.Equal(HttpStatusCode.Unauthorized, rejected.StatusCode);
+
+            // Correct token via X-Bridge-Authorization → accepted
+            var request = new HttpRequestMessage(HttpMethod.Get, $"http://localhost:{port}/");
+            request.Headers.Add("X-Bridge-Authorization", "some-secret-token");
+            var accepted = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+            Assert.Equal("WsBridge OK", await accepted.Content.ReadAsStringAsync());
         }
         finally
         {

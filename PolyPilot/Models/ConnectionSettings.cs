@@ -299,23 +299,24 @@ public class ConnectionSettings
             var storedLan    = GetSecureStorageSync(LanTokenKey);
             var storedPass   = GetSecureStorageSync(ServerPasswordKey);
 
-            // Migrate any legacy plaintext values to SecureStorage on first run.
-            // Only scrub the JSON field if the SecureStorage write succeeded.
-            bool migratedAny = false;
+            // Migrate legacy plaintext values to SecureStorage on first run.
+            // Per-field tracking: only scrub a field from JSON after confirming its write succeeded,
+            // so a partial Keychain failure (full, locked, missing entitlements) cannot lose tokens.
+            bool migratedRemote = false, migratedLan = false, migratedPass = false;
             if (string.IsNullOrEmpty(storedRemote) && !string.IsNullOrEmpty(legacyRemote))
             {
                 if (SetSecureStorageSync(RemoteTokenKey, legacyRemote))
-                { storedRemote = legacyRemote; migratedAny = true; }
+                { storedRemote = legacyRemote; migratedRemote = true; }
             }
             if (string.IsNullOrEmpty(storedLan) && !string.IsNullOrEmpty(legacyLan))
             {
                 if (SetSecureStorageSync(LanTokenKey, legacyLan))
-                { storedLan = legacyLan; migratedAny = true; }
+                { storedLan = legacyLan; migratedLan = true; }
             }
             if (string.IsNullOrEmpty(storedPass) && !string.IsNullOrEmpty(legacyPass))
             {
                 if (SetSecureStorageSync(ServerPasswordKey, legacyPass))
-                { storedPass = legacyPass; migratedAny = true; }
+                { storedPass = legacyPass; migratedPass = true; }
             }
 
             _remoteToken = storedRemote;
@@ -323,8 +324,15 @@ public class ConnectionSettings
             _serverPassword = storedPass;
             _secretsDirty = false;
 
-            // Scrub legacy plaintext secrets from settings.json only if migration succeeded
-            if (migratedAny)
+            // Only scrub legacy JSON if every field that existed was successfully migrated.
+            // If any write failed, leave the JSON untouched so migration retries next launch.
+            bool allSucceeded = (string.IsNullOrEmpty(legacyRemote) || migratedRemote)
+                             && (string.IsNullOrEmpty(legacyLan)    || migratedLan)
+                             && (string.IsNullOrEmpty(legacyPass)   || migratedPass);
+            bool anyAttempted = !string.IsNullOrEmpty(legacyRemote)
+                             || !string.IsNullOrEmpty(legacyLan)
+                             || !string.IsNullOrEmpty(legacyPass);
+            if (anyAttempted && allSucceeded)
                 Save();
         }
         catch { }
@@ -335,10 +343,11 @@ public class ConnectionSettings
         if (!_secretsDirty) return;
         try
         {
-            SetSecureStorageSync(RemoteTokenKey, _remoteToken);
-            SetSecureStorageSync(LanTokenKey, _lanToken);
-            SetSecureStorageSync(ServerPasswordKey, _serverPassword);
-            _secretsDirty = false;
+            bool ok = SetSecureStorageSync(RemoteTokenKey, _remoteToken)
+                    & SetSecureStorageSync(LanTokenKey, _lanToken)
+                    & SetSecureStorageSync(ServerPasswordKey, _serverPassword);
+            // Only clear dirty flag if all writes succeeded; leave true to retry on next save
+            if (ok) _secretsDirty = false;
         }
         catch { }
     }
