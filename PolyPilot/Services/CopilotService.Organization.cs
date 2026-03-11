@@ -1168,6 +1168,9 @@ public partial class CopilotService
             }
             var results = await Task.WhenAll(workerTasks);
 
+            // After early dispatch, the orchestrator may still be doing tool work.
+            await WaitForSessionIdleAsync(orchestratorName, cancellationToken);
+
             // Phase 4: Synthesize — send worker results back to orchestrator
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, null));
 
@@ -1346,6 +1349,33 @@ public partial class CopilotService
     }
 
     private record WorkerResult(string WorkerName, string? Response, bool Success, string? Error, TimeSpan Duration);
+
+    /// <summary>
+    /// Wait for a session to finish processing (go idle). Used after early dispatch
+    /// resolves the orchestrator's TCS while it's still doing tool work — we must
+    /// wait for it to go idle before sending the next prompt (synthesis).
+    /// </summary>
+    private async Task WaitForSessionIdleAsync(string sessionName, CancellationToken ct, int timeoutSeconds = 300)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state))
+            return;
+        if (!state.Info.IsProcessing)
+            return;
+
+        Debug($"[DISPATCH] Waiting for '{sessionName}' to go idle before sending next prompt...");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (state.Info.IsProcessing && !ct.IsCancellationRequested && sw.Elapsed.TotalSeconds < timeoutSeconds)
+        {
+            await Task.Delay(500, ct);
+        }
+        if (state.Info.IsProcessing)
+        {
+            Debug($"[DISPATCH] '{sessionName}' still processing after {sw.Elapsed.TotalSeconds:F1}s — aborting to allow synthesis");
+            await AbortSessionAsync(sessionName);
+            await Task.Delay(500, ct); // Give abort a moment to clear state
+        }
+        Debug($"[DISPATCH] '{sessionName}' now idle after {sw.Elapsed.TotalSeconds:F1}s");
+    }
 
     private async Task<WorkerResult> ExecuteWorkerAsync(string workerName, string task, string originalPrompt, CancellationToken cancellationToken)
     {
@@ -2425,6 +2455,10 @@ public partial class CopilotService
                 attemptedWorkers.Add(a.WorkerName);
             foreach (var r in results.Where(r => r.Success))
                 dispatchedWorkers.Add(r.WorkerName);
+
+            // After early dispatch, the orchestrator may still be doing tool work.
+            // Wait for it to go idle before sending the synthesis prompt.
+            await WaitForSessionIdleAsync(orchestratorName, ct);
 
             // Phase 4: Synthesize + Evaluate
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Synthesizing, iterDetail));

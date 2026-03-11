@@ -1,0 +1,153 @@
+scenarios:
+  - name: "New IsProcessing=false path needs full cleanup checklist"
+    prompt: |
+      I need to add a new code path in CopilotService that clears IsProcessing when a
+      network timeout is detected. Can you write the code for this? The path should be
+      in a Task.Run callback that runs on a timer. Make sure it's correct.
+    assertions:
+      - type: "output_contains"
+        value: "FlushCurrentResponse"
+      - type: "output_contains"
+        value: "InvokeOnUI"
+      - type: "output_contains"
+        value: "ProcessingGeneration"
+      - type: "output_matches"
+        pattern: "IsResumed|HasUsedToolsThisTurn|ActiveToolCallCount"
+      - type: "output_matches"
+        pattern: "ProcessingPhase|ProcessingStartedAt|ToolCallCount|SendingFlag"
+    rubric:
+      - "Agent includes all or nearly all of the 13-item cleanup checklist (IsResumed, HasUsedToolsThisTurn, ActiveToolCallCount, ProcessingStartedAt, ToolCallCount, ProcessingPhase, SendingFlag, ClearPermissionDenials, FlushCurrentResponse, OnSessionComplete, diagnostic log)"
+      - "Agent uses InvokeOnUI() class method (not local Invoke) for the background→UI dispatch"
+      - "Agent captures ProcessingGeneration before the InvokeOnUI call and validates it inside the lambda (generation guard pattern)"
+      - "Agent adds a diagnostic log entry with an appropriate tag like [ERROR] or [TIMEOUT]"
+    timeout: 120
+
+  - name: "Debugging a session stuck showing Thinking... forever"
+    prompt: |
+      A user reports that a session is stuck showing "Thinking..." indefinitely. 
+      The session used some tools earlier but nothing happened for several minutes.
+      How do I diagnose and fix this?
+    assertions:
+      - type: "output_contains"
+        value: "event-diagnostics.log"
+      - type: "output_contains"
+        value: "[SEND]"
+      - type: "output_matches"
+        pattern: "(?i)(watchdog|120s|600s|WATCHDOG)"
+      - type: "output_not_contains"
+        value: "restart the app"
+        # Should suggest specific diagnostic steps, not generic advice
+    rubric:
+      - "Agent directs the user to check event-diagnostics.log and explains what tags to look for ([SEND], [IDLE], [COMPLETE], [WATCHDOG])"
+      - "Agent explains the watchdog timeout tiers (120s inactivity, 600s tool/resume) and which case likely applies given tools were used"
+      - "Agent mentions the nuclear option (AbortSessionAsync / Stop button) as a fallback"
+    timeout: 120
+
+  - name: "Unrelated UI styling task should not trigger processing-state concepts"
+    prompt: |
+      I want to update the CSS for the session list items in SessionListItem.razor to
+      add a subtle hover animation. Can you help me write the CSS?
+    assertions:
+      - type: "output_not_contains"
+        value: "IsProcessing"
+      - type: "output_not_contains"
+        value: "FlushCurrentResponse"
+      - type: "output_not_contains"
+        value: "InvokeOnUI"
+      - type: "output_not_contains"
+        value: "ProcessingGeneration"
+    rubric:
+      - "Agent focuses purely on CSS/styling and does not inject unrelated processing-state safety guidance"
+      - "Response is concise and on-topic for a CSS change"
+    timeout: 60
+
+  - name: "TurnEnd fallback regression - avoid suppressing with HasUsedToolsThisTurn"
+    prompt: |
+      The AssistantTurnEndEvent fallback is firing too early during multi-tool agent
+      sessions and completing the response prematurely. I want to fix this by checking
+      if HasUsedToolsThisTurn is true and skipping the fallback entirely in that case.
+      Can you implement this fix?
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(do not|don't|should not|shouldn't|wrong|dangerous|avoid|warn|mistake)"
+      - type: "output_contains"
+        value: "ActiveToolCallCount"
+      - type: "output_matches"
+        pattern: "(?i)(30s|30_000|extended|delay|TurnEndIdleToolFallbackAdditionalMs)"
+    rubric:
+      - "Agent explicitly warns against using HasUsedToolsThisTurn to skip the fallback entirely, explaining that it leaves agent sessions with no recovery if SessionIdleEvent is dropped"
+      - "Agent proposes the correct approach: use ActiveToolCallCount > 0 to skip the 4s fallback, with an extended 30s delay when tools were used but ActiveToolCallCount is 0"
+      - "Agent references the cancellation token from AssistantTurnStartEvent as the mechanism to prevent premature firing in multi-round tool use"
+    timeout: 120
+
+  - name: "Session restore must initialize watchdog-dependent state"
+    prompt: |
+      I'm adding a new boolean flag IsHighPrioritySession to AgentSessionInfo. It needs
+      to affect the watchdog timeout — when true, use a longer 900s timeout instead of
+      600s. I've added it to SendPromptAsync. Is there anything else I need to update?
+    assertions:
+      - type: "output_contains"
+        value: "RestoreSingleSessionAsync"
+      - type: "output_matches"
+        pattern: "(?i)(restore|restart|resume)"
+      - type: "output_matches"
+        pattern: "(?i)(before.*watchdog|StartProcessingWatchdog|watchdog.*depend)"
+    rubric:
+      - "Agent identifies that the restore path (RestoreSingleSessionAsync) must also initialize the new flag, not just SendPromptAsync"
+      - "Agent explains that state must be set BEFORE StartProcessingWatchdog is called, and the restore path is independent of the send path"
+      - "Agent may reference the IsMultiAgentSession precedent (PR #284) where the same mistake was made"
+    timeout: 120
+
+  - name: "ChatDatabase catch filter narrowing - prevent regression"
+    prompt: |
+      The ChatDatabase is swallowing too many exceptions. I want to narrow the catch
+      filter from `catch (Exception ex)` to `catch (SqliteException ex)` so we only
+      catch database-specific errors. Can you update the AddMessageAsync callers?
+    assertions:
+      - type: "output_not_contains"
+        value: "SqliteException"
+        # Should NOT recommend narrowing to SqliteException
+      - type: "output_contains"
+        value: "unobserved"
+      - type: "output_matches"
+        pattern: "(?i)(fire.and.forget|task exception|crash|source of truth|events\\.jsonl)"
+    rubric:
+      - "Agent explicitly warns against narrowing the catch filter, explaining that fire-and-forget tasks with narrow catches produce unobserved task exceptions that crash the app"
+      - "Agent explains that events.jsonl is the source of truth and DB write failures are self-healing via BulkInsertAsync on resume — broad catch is intentional"
+    timeout: 120
+
+  - name: "Background thread IsProcessing mutation without UI marshaling"
+    prompt: |
+      I'm adding a new SDK event handler for SessionReconnectEvent in
+      CopilotService.Events.cs. When we get this event, I need to clear the
+      processing state. Here's what I have inside HandleSessionEvent which runs
+      on a background thread:
+
+      ```csharp
+      case "session.reconnect":
+          state.Info.IsProcessing = false;
+          state.Info.IsResumed = false;
+          state.Info.HasUsedToolsThisTurn = false;
+          state.Info.ActiveToolCallCount = 0;
+          OnStateChanged?.Invoke();
+          break;
+      ```
+
+      Does this look correct?
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(InvokeOnUI|UI thread|main thread|marshal|dispatch|synchronization)"
+      - type: "output_matches"
+        pattern: "(?i)(background.*thread|thread.*safe|cross.*thread)"
+      - type: "output_matches"
+        pattern: "ProcessingGeneration|generation.*guard"
+      - type: "output_matches"
+        pattern: "FlushCurrentResponse|flush"
+      - type: "output_matches"
+        pattern: "(?i)(ProcessingPhase|ProcessingStartedAt|ToolCallCount|SendingFlag|missing|incomplete)"
+    rubric:
+      - "Agent identifies the critical thread safety violation: IsProcessing and companion fields must not be mutated directly on a background SDK event thread"
+      - "Agent recommends wrapping the state mutations in InvokeOnUI() to marshal to the UI thread"
+      - "Agent points out missing companion fields beyond the ones listed (ProcessingPhase, ProcessingStartedAt, ToolCallCount, SendingFlag, ClearPermissionDenials)"
+      - "Agent mentions the ProcessingGeneration guard pattern and the need for FlushCurrentResponse before clearing IsProcessing"
+    timeout: 120
