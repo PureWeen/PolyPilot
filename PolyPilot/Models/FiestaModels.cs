@@ -98,5 +98,8 @@ internal class PendingPairRequest
     public string RemoteIp { get; set; } = "";
     public WebSocket Socket { get; set; } = null!;
     public TaskCompletionSource<bool> CompletionSource { get; set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    /// <summary>Resolved by the winner after its SendAsync completes, so HandleIncomingPairHandshakeAsync
+    /// can wait for the send to finish before returning (which lets the caller close the socket safely).</summary>
+    public TaskCompletionSource SendComplete { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public DateTime ExpiresAt { get; set; }
 }
