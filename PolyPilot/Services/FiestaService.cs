@@ -486,13 +486,13 @@ public class FiestaService : IDisposable
                     Token = token,
                     WorkerName = Environment.MachineName
                 }), CancellationToken.None);
+            tcs.TrySetResult(true);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[Fiesta] Failed to send pair approval: {ex.Message}");
+            tcs.TrySetResult(false);
         }
-
-        tcs.TrySetResult(true);
     }
 
     public void DenyPairRequest(string requestId)
@@ -556,8 +556,12 @@ public class FiestaService : IDisposable
             if (resp == null || !resp.Approved)
                 return PairRequestResult.Denied;
 
+            // Guard: an approval without connection details is a malformed response
+            if (string.IsNullOrWhiteSpace(resp.BridgeUrl) || string.IsNullOrWhiteSpace(resp.Token))
+                return PairRequestResult.Unreachable;
+
             var workerName = !string.IsNullOrWhiteSpace(resp.WorkerName) ? resp.WorkerName : worker.Hostname;
-            LinkWorker(workerName, worker.Hostname, resp.BridgeUrl!, resp.Token!);
+            LinkWorker(workerName, worker.Hostname, resp.BridgeUrl, resp.Token);
             return PairRequestResult.Approved;
         }
         catch (WebSocketException) { return PairRequestResult.Unreachable; }
@@ -1124,12 +1128,20 @@ public class FiestaService : IDisposable
     private static bool IsVirtualAdapterIp(string ip) =>
         ip.StartsWith("172.17.", StringComparison.Ordinal) ||  // Docker default bridge
         ip.StartsWith("172.18.", StringComparison.Ordinal);    // Docker custom networks
+    // Note: 172.16-31 is RFC-1918 but IsRfc1918_172 distinguishes real from Docker in scoring
+
+    private static bool IsRfc1918_172(string ip)
+    {
+        var parts = ip.Split('.');
+        return parts.Length >= 2 && int.TryParse(parts[1], out var oct) && oct >= 16 && oct <= 31;
+    }
 
     private static int ScoreNetworkInterface(NetworkInterfaceType type, string ip)
     {
         // Prefer RFC-1918 private ranges (real LAN) vs others
         bool isPrivateLan = ip.StartsWith("192.168.", StringComparison.Ordinal)
-                         || ip.StartsWith("10.", StringComparison.Ordinal);
+                         || ip.StartsWith("10.", StringComparison.Ordinal)
+                         || (ip.StartsWith("172.", StringComparison.Ordinal) && IsRfc1918_172(ip));
 
         return type switch
         {
