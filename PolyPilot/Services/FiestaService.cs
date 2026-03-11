@@ -424,9 +424,17 @@ public class FiestaService : IDisposable
         {
             if (_pendingPairRequests.Count >= 1)
             {
-                // Already handling a pair request — deny immediately
-                _ = SendAsync(ws, BridgeMessage.Create(BridgeMessageTypes.FiestaPairResponse,
-                    new FiestaPairResponsePayload { RequestId = req.RequestId, Approved = false }), ct);
+                // Already handling a pair request — deny immediately.
+                // Await the send so the message is delivered before the socket is dropped.
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await SendAsync(ws, BridgeMessage.Create(BridgeMessageTypes.FiestaPairResponse,
+                            new FiestaPairResponsePayload { RequestId = req.RequestId, Approved = false }), ct);
+                    }
+                    catch { }
+                });
                 return;
             }
             _pendingPairRequests[req.RequestId] = pending;
@@ -445,13 +453,18 @@ public class FiestaService : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // Timed out — auto-deny
-            try
+            // Timed out — auto-deny. Claim via TrySetResult first so we don't race with
+            // ApprovePairRequestAsync (only the winner of TrySetResult sends).
+            if (tcs.TrySetResult(false))
             {
-                await SendAsync(ws, BridgeMessage.Create(BridgeMessageTypes.FiestaPairResponse,
-                    new FiestaPairResponsePayload { RequestId = req.RequestId, Approved = false }), CancellationToken.None);
+                try
+                {
+                    await SendAsync(ws, BridgeMessage.Create(BridgeMessageTypes.FiestaPairResponse,
+                        new FiestaPairResponsePayload { RequestId = req.RequestId, Approved = false }), CancellationToken.None);
+                }
+                catch { }
             }
-            catch { }
+            // else: Approve already won the race — skip sending a deny
         }
         finally
         {
@@ -460,19 +473,24 @@ public class FiestaService : IDisposable
         }
     }
 
-    public async Task ApprovePairRequestAsync(string requestId)
+    public async Task<bool> ApprovePairRequestAsync(string requestId)
     {
         PendingPairRequest? pending;
         TaskCompletionSource<bool>? tcs;
         lock (_stateLock)
         {
-            if (!_pendingPairRequests.TryGetValue(requestId, out pending)) return;
+            if (!_pendingPairRequests.TryGetValue(requestId, out pending)) return false;
             tcs = pending.CompletionSource;
         }
 
         var token = EnsureServerPassword();
         var localIp = GetPrimaryLocalIpAddress() ?? "localhost";
         var bridgeUrl = $"http://{localIp}:{_bridgeServer.BridgePort}";
+
+        // Atomically claim ownership. If the timeout already fired (TrySetResult(false) won),
+        // skip sending — the WebSocket may already be closed.
+        if (!tcs.TrySetResult(true))
+            return false; // timeout already won, don't attempt a concurrent send
 
         try
         {
@@ -486,16 +504,16 @@ public class FiestaService : IDisposable
                     Token = token,
                     WorkerName = Environment.MachineName
                 }), CancellationToken.None);
-            tcs.TrySetResult(true);
+            return true;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[Fiesta] Failed to send pair approval: {ex.Message}");
-            tcs.TrySetResult(false);
+            return false;
         }
     }
 
-    public void DenyPairRequest(string requestId)
+    public async Task DenyPairRequestAsync(string requestId)
     {
         PendingPairRequest? pending;
         TaskCompletionSource<bool>? tcs;
@@ -505,17 +523,25 @@ public class FiestaService : IDisposable
             tcs = pending.CompletionSource;
         }
 
+        // Atomically claim ownership — if approve already won, skip sending.
+        if (!tcs.TrySetResult(false))
+            return; // approve already won, don't race on the socket
+
+        // Send before anything unblocks HandleIncomingPairHandshakeAsync.
         try
         {
-            _ = SendAsync(pending.Socket, BridgeMessage.Create(
+            await SendAsync(pending.Socket, BridgeMessage.Create(
                 BridgeMessageTypes.FiestaPairResponse,
                 new FiestaPairResponsePayload { RequestId = requestId, Approved = false }),
                 CancellationToken.None);
         }
         catch { }
-
-        tcs.TrySetResult(false);
+        // TCS was already resolved above — HandleIncomingPairHandshakeAsync's await unblocks here.
     }
+
+    // Keep a synchronous shim for callers that can't await (e.g., Blazor @onclick non-async)
+    public void DenyPairRequest(string requestId) =>
+        _ = DenyPairRequestAsync(requestId);
 
     // ---- Push-to-pair — Host (outgoing) side (Feature C) ----
 

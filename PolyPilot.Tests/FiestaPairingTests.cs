@@ -100,10 +100,10 @@ public class FiestaPairingTests : IDisposable
         Assert.Throws<FormatException>(() => _fiesta.ParseAndLinkPairingString(s));
     }
 
-    // ---- Test 2: ApprovePairRequestAsync TCS result on SendAsync failure ----
+    // ---- Test 2: ApprovePairRequestAsync return value + TCS behavior ----
 
     [Fact]
-    public async Task ApprovePairRequestAsync_SendFails_TcsResultIsFalse()
+    public async Task ApprovePairRequestAsync_SendFails_ReturnsFalse()
     {
         const string requestId = "req-test-001";
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -126,18 +126,20 @@ public class FiestaPairingTests : IDisposable
         var dict = (Dictionary<string, PendingPairRequest>)dictField.GetValue(_fiesta)!;
         lock (dict) dict[requestId] = pending;
 
-        await _fiesta.ApprovePairRequestAsync(requestId);
+        var result = await _fiesta.ApprovePairRequestAsync(requestId);
 
-        // The TCS should be resolved false because SendAsync threw
+        // Method returns false because SendAsync threw (approval message not delivered)
+        Assert.False(result);
+        // TCS is claimed true (approve won ownership) before the send attempt
         Assert.True(tcs.Task.IsCompleted);
-        Assert.False(await tcs.Task);
+        Assert.True(await tcs.Task);
     }
 
     [Fact]
-    public async Task ApprovePairRequestAsync_UnknownRequestId_DoesNotThrow()
+    public async Task ApprovePairRequestAsync_UnknownRequestId_ReturnsFalse()
     {
-        // Should silently return if the request id is not found
-        await _fiesta.ApprovePairRequestAsync("nonexistent-id");
+        var result = await _fiesta.ApprovePairRequestAsync("nonexistent-id");
+        Assert.False(result);
     }
 
     // ---- Test 3: RequestPairAsync with Approved=true but null BridgeUrl ----
@@ -215,7 +217,108 @@ public class FiestaPairingTests : IDisposable
         await serverTask;
     }
 
+    // ---- Test 4: Concurrent approve + deny race — only one send occurs ----
+
+    [Fact]
+    public async Task ApprovePairRequestAsync_ConcurrentWithDeny_OnlyOneWins()
+    {
+        const string requestId = "req-race-001";
+        var countingSocket = new CountingSendWebSocket(onSendAsync: (_, _) => Task.CompletedTask);
+
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = new PendingPairRequest
+        {
+            RequestId = requestId,
+            HostName = "race-host",
+            HostInstanceId = "race-id",
+            RemoteIp = "127.0.0.1",
+            Socket = countingSocket,
+            CompletionSource = tcs,
+            ExpiresAt = DateTime.UtcNow.AddSeconds(60)
+        };
+
+        var dictField = typeof(FiestaService).GetField("_pendingPairRequests", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var dict = (Dictionary<string, PendingPairRequest>)dictField.GetValue(_fiesta)!;
+        lock (dict) dict[requestId] = pending;
+
+        // Race approve and deny concurrently — exactly one TrySetResult wins
+        var approveTask = _fiesta.ApprovePairRequestAsync(requestId);
+        var denyTask = _fiesta.DenyPairRequestAsync(requestId);
+        await Task.WhenAll(approveTask, denyTask);
+
+        // Exactly one send should have occurred (the winner sends, the loser skips)
+        Assert.Equal(1, countingSocket.SendCount);
+        // TCS should be resolved exactly once
+        Assert.True(tcs.Task.IsCompleted);
+        // The winner's result should match the TCS value
+        var approveWon = await approveTask;
+        Assert.Equal(approveWon, await tcs.Task);
+    }
+
+    // ---- Test 5: DenyPairRequestAsync sends exactly once, TCS resolves false ----
+
+    [Fact]
+    public async Task DenyPairRequestAsync_SendsOnce_TcsIsFalse()
+    {
+        const string requestId = "req-deny-order-001";
+        var countingSocket = new CountingSendWebSocket(onSendAsync: (_, _) => Task.CompletedTask);
+
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = new PendingPairRequest
+        {
+            RequestId = requestId,
+            HostName = "deny-host",
+            HostInstanceId = "deny-id",
+            RemoteIp = "127.0.0.1",
+            Socket = countingSocket,
+            CompletionSource = tcs,
+            ExpiresAt = DateTime.UtcNow.AddSeconds(60)
+        };
+
+        var dictField = typeof(FiestaService).GetField("_pendingPairRequests", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var dict = (Dictionary<string, PendingPairRequest>)dictField.GetValue(_fiesta)!;
+        lock (dict) dict[requestId] = pending;
+
+        await _fiesta.DenyPairRequestAsync(requestId);
+
+        // Deny claimed TCS first (approve never tried)
+        Assert.True(tcs.Task.IsCompleted);
+        Assert.False(await tcs.Task);
+        Assert.Equal(1, countingSocket.SendCount);
+    }
+
     // ---- Helpers: fake WebSocket implementations ----
+
+    /// <summary>
+    /// A WebSocket that counts calls to SendAsync and optionally delegates to a custom action.
+    /// </summary>
+    private sealed class CountingSendWebSocket : WebSocket
+    {
+        private readonly Func<ArraySegment<byte>, CancellationToken, Task> _onSendAsync;
+        public int SendCount;
+
+        public CountingSendWebSocket(Func<ArraySegment<byte>, CancellationToken, Task> onSendAsync)
+            => _onSendAsync = onSendAsync;
+
+        public override WebSocketState State => WebSocketState.Open;
+        public override WebSocketCloseStatus? CloseStatus => null;
+        public override string? CloseStatusDescription => null;
+        public override string? SubProtocol => null;
+
+        public override void Abort() { }
+        public override Task CloseAsync(WebSocketCloseStatus c, string? d, CancellationToken ct) => Task.CompletedTask;
+        public override Task CloseOutputAsync(WebSocketCloseStatus c, string? d, CancellationToken ct) => Task.CompletedTask;
+        public override Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken ct)
+            => Task.FromResult(new WebSocketReceiveResult(0, WebSocketMessageType.Close, true));
+
+        public override async Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType type, bool end, CancellationToken ct)
+        {
+            Interlocked.Increment(ref SendCount);
+            await _onSendAsync(buffer, ct);
+        }
+
+        public override void Dispose() { }
+    }
 
     /// <summary>
     /// A WebSocket that passes the State == Open guard but throws on SendAsync,
