@@ -10,7 +10,8 @@
 $ErrorActionPreference = 'Stop'
 
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$BuildDir = Join-Path $ProjectDir 'bin\Debug\net10.0-windows10.0.19041.0\win-x64'
+$Configuration = 'Debug'
+$Framework = 'net10.0-windows10.0.19041.0'
 $ExeName = 'PolyPilot.exe'
 
 $MaxLaunchAttempts = 2
@@ -65,7 +66,7 @@ if ($OldPids.Count -gt 0) {
 Write-Host "[*] Building..."
 Set-Location $ProjectDir
 
-$BuildOutput = dotnet build PolyPilot.csproj -f net10.0-windows10.0.19041.0 2>&1 | Out-String
+$BuildOutput = dotnet build PolyPilot.csproj -f $Framework -c $Configuration 2>&1 | Out-String
 $BuildExitCode = $LASTEXITCODE
 
 if ($BuildExitCode -ne 0) {
@@ -84,6 +85,15 @@ if ($BuildExitCode -ne 0) {
 
 # Build succeeded, show brief success message
 $BuildOutput -split "`n" | Select-Object -Last 3 | Write-Host
+
+# Detect the runtime identifier from the build output directory
+$RidDir = Get-ChildItem -Path (Join-Path $ProjectDir "bin\$Configuration\$Framework") -Directory | Select-Object -First 1 -ExpandProperty Name
+if (-not $RidDir) {
+    Write-Host "[X] Could not detect runtime identifier in build output"
+    exit 1
+}
+$BuildDir = Join-Path $ProjectDir "bin\$Configuration\$Framework\$RidDir"
+Write-Host "[OK] Build output: $BuildDir"
 
 for ($Attempt = 1; $Attempt -le $MaxLaunchAttempts; $Attempt++) {
     Write-Host "[>] Launching new instance (attempt $Attempt/$MaxLaunchAttempts)..."
