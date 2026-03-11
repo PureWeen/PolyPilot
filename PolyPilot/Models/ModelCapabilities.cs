@@ -361,11 +361,19 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 ```bash
                 if [ ! -x /tmp/skill-validator ]; then
                   echo "Downloading skill-validator..."
+                  ARCH=$(uname -m)
+                  case "$(uname -s)-${ARCH}" in
+                    Darwin-arm64) PATTERN='skill-validator-osx-arm64.tar.gz' ;;
+                    Darwin-x86_64) PATTERN='skill-validator-osx-x64.tar.gz' ;;
+                    Linux-aarch64) PATTERN='skill-validator-linux-arm64.tar.gz' ;;
+                    Linux-x86_64) PATTERN='skill-validator-linux-x64.tar.gz' ;;
+                    *) echo "Unsupported platform: $(uname -s)-${ARCH}"; exit 1 ;;
+                  esac
                   cd /tmp && gh release download skill-validator-nightly \
                     --repo dotnet/skills \
-                    --pattern 'skill-validator-osx-arm64.tar.gz' \
+                    --pattern "$PATTERN" \
                     --clobber && \
-                  tar xzf skill-validator-osx-arm64.tar.gz 2>/dev/null
+                  tar xzf "$PATTERN"
                 fi
                 /tmp/skill-validator --help | head -5
                 ```

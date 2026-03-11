@@ -1375,6 +1375,7 @@ public partial class CopilotService
         var workerPrompt = $"{identity}{worktreeNote}\n\nYour response will be collected and synthesized with other workers' responses.\n\n{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
 
         const int maxRetries = 2;
+        var dispatchTime = DateTime.UtcNow;
         for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
             try
@@ -1411,8 +1412,9 @@ public partial class CopilotService
                 // even though FlushedResponse/CurrentResponse were empty (e.g., watchdog completion).
                 if (string.IsNullOrWhiteSpace(response) && _sessions.TryGetValue(workerName, out var histState))
                 {
-                    var lastAssistant = histState.Info.History
-                        .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content));
+                    var lastAssistant = histState.Info.History.ToArray()
+                        .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
+                            && m.Timestamp >= dispatchTime);
                     if (lastAssistant != null)
                     {
                         response = lastAssistant.Content;
@@ -2613,7 +2615,7 @@ public partial class CopilotService
         if (leftoverPrompts.Count > 0)
         {
             var orchName = orchestratorName;
-            _ = Task.Run(async () =>
+            SafeFireAndForget(Task.Run(async () =>
             {
                 foreach (var leftover in leftoverPrompts)
                 {
@@ -2630,7 +2632,7 @@ public partial class CopilotService
                         Debug($"[DISPATCH] Failed to send leftover queued prompt: {ex.Message}");
                     }
                 }
-            });
+            }), "leftover-prompt-delivery");
         }
     }
 
