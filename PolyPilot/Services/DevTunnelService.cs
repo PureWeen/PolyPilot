@@ -19,6 +19,7 @@ public partial class DevTunnelService : IDisposable
     private readonly WsBridgeServer _bridge;
     private readonly CopilotService _copilot;
     private readonly RepoManager _repoManager;
+    private readonly AuditLogService? _auditLog;
     private Process? _hostProcess;
     private string? _tunnelUrl;
     private string? _tunnelId;
@@ -28,11 +29,12 @@ public partial class DevTunnelService : IDisposable
 
     public const int BridgePort = 4322;
 
-    public DevTunnelService(WsBridgeServer bridge, CopilotService copilot, RepoManager repoManager)
+    public DevTunnelService(WsBridgeServer bridge, CopilotService copilot, RepoManager repoManager, AuditLogService? auditLog = null)
     {
         _bridge = bridge;
         _copilot = copilot;
         _repoManager = repoManager;
+        _auditLog = auditLog;
     }
 
     public TunnelState State => _state;
@@ -263,12 +265,14 @@ public partial class DevTunnelService : IDisposable
                 _bridge.AccessToken = _accessToken;
 
             SetState(TunnelState.Running);
+            _ = _auditLog?.LogDevtunnelConnectionEstablished(null, _tunnelId, _tunnelUrl, 0);
             return true;
         }
         catch (Exception ex)
         {
             Stop();
             SetError($"Host error: {ex.Message}");
+            _ = _auditLog?.LogDevtunnelConnectionFailed(null, _tunnelId, ex.Message);
             return false;
         }
     }
@@ -437,6 +441,7 @@ public partial class DevTunnelService : IDisposable
                 token = lines.Length > 0 ? lines[^1].Trim() : "";
             }
             Console.WriteLine($"[DevTunnel] Access token issued ({token.Length} chars)");
+            _ = _auditLog?.LogDevtunnelTokenAcquired(null, _tunnelId, token.Length);
             return string.IsNullOrEmpty(token) ? null : token;
         }
         catch (Exception ex)
@@ -452,6 +457,7 @@ public partial class DevTunnelService : IDisposable
     public void Stop()
     {
         SetState(TunnelState.Stopping);
+        _ = _auditLog?.LogSessionClosed(null, 0, cleanClose: true, closeReason: "DevTunnel stopped");
         try
         {
             if (_hostProcess != null && !_hostProcess.HasExited)

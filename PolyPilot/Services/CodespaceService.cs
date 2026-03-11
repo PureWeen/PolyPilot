@@ -13,6 +13,18 @@ namespace PolyPilot.Services;
 public partial class CodespaceService
 {
     /// <summary>
+    /// Optional audit logger — injected via DI, null in tests or when audit logging is disabled.
+    /// </summary>
+    internal AuditLogService? AuditLog { get; set; }
+
+    public CodespaceService() { }
+
+    public CodespaceService(AuditLogService auditLog)
+    {
+        AuditLog = auditLog;
+    }
+
+    /// <summary>
     /// Holds a running tunnel process (SSH or port-forward) and the local port it forwards.
     /// </summary>
     public sealed class TunnelHandle : IAsyncDisposable
@@ -54,7 +66,8 @@ public partial class CodespaceService
     {
         var localPort = FindFreePort();
 
-        // `gh cs ports forward <remote>:<local>` uses GitHub's codespace networking
+        // Audit: log connection attempt before any network activity
+        _ = AuditLog?.LogCodespaceConnectionInitiated(codespaceName, null, remotePort);
         // and does NOT require an SSH server to be installed in the container.
         var psi = new ProcessStartInfo
         {
@@ -91,7 +104,10 @@ public partial class CodespaceService
             }
 
             if (await IsCopilotListeningAsync(localPort))
+            {
+                _ = AuditLog?.LogSshHandshakeSuccess(codespaceName, null, localPort, isSshTunnel: false);
                 return (handle, copilotReady: true);
+            }
 
             await Task.Delay(500);
         }
@@ -105,6 +121,7 @@ public partial class CodespaceService
 
         // Timed out — kill process and throw
         await handle.DisposeAsync();
+        _ = AuditLog?.LogSshHandshakeFailure(codespaceName, null, "Timeout waiting for copilot");
         throw new TimeoutException($"Timed out waiting for copilot --headless in codespace '{codespaceName}' (port {remotePort}). Run 'copilot --headless --port {remotePort}' in the codespace terminal and retry.");
     }
 
@@ -268,6 +285,7 @@ public partial class CodespaceService
         }
 
         Console.WriteLine($"[CodespaceService] SSH tunnel established: localhost:{localPort} → {codespaceName}:{remotePort}");
+        _ = AuditLog?.LogSshHandshakeSuccess(codespaceName, null, localPort, isSshTunnel: true);
         return handle;
     }
 

@@ -29,6 +29,7 @@
     <Compile Include="../PolyPilot/Models/ChatMessage.cs" Link="Shared/ChatMessage.cs" />
     <Compile Include="../PolyPilot/Models/AgentSessionInfo.cs" Link="Shared/AgentSessionInfo.cs" />
     <Compile Include="../PolyPilot/Models/SynchronizedMessageQueue.cs" Link="Shared/SynchronizedMessageQueue.cs" />
+    <Compile Include="../PolyPilot/Models/AuditLogEntry.cs" Link="Shared/AuditLogEntry.cs" />
     <Compile Include="../PolyPilot/Models/BridgeMessages.cs" Link="Shared/BridgeMessages.cs" />
     <Compile Include="../PolyPilot/Models/ConnectionSettings.cs" Link="Shared/ConnectionSettings.cs" />
     <Compile Include="../PolyPilot/Models/PlatformHelper.cs" Link="Shared/PlatformHelper.cs" />
@@ -63,6 +64,7 @@
     <Compile Include="../PolyPilot/Services/CodespaceService.cs" Link="Shared/CodespaceService.cs" />
     <Compile Include="../PolyPilot/Services/CodespaceService.Diagnostics.cs" Link="Shared/CodespaceService.Diagnostics.cs" />
     <Compile Include="../PolyPilot/Services/CodespaceService.Lifecycle.cs" Link="Shared/CodespaceService.Lifecycle.cs" />
+    <Compile Include="../PolyPilot/Services/AuditLogService.cs" Link="Shared/AuditLogService.cs" />
     <Compile Include="../PolyPilot/Services/ShowImageTool.cs" Link="Shared/ShowImageTool.cs" />
     <Compile Include="../PolyPilot/Services/WsBridgeServer.cs" Link="Shared/WsBridgeServer.cs" />
     <Compile Include="../PolyPilot/Services/WsBridgeClient.cs" Link="Shared/WsBridgeClient.cs" />
