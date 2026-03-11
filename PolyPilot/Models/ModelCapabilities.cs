@@ -502,7 +502,24 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 - Be concrete: quote specific lines from SKILL.md when critiquing
                 - Focus on prompt quality, not empirical test results
                 - Suggest specific rewrites, not vague advice like "be clearer"
-                """,
+
+                ## Optional: Live Trigger Testing with Claude Code
+                If `claude` CLI is available, test trigger accuracy with non-interactive prompts:
+                ```bash
+                # Check availability first
+                which claude 2>/dev/null && claude --version 2>&1
+                ```
+                If available and authenticated, run:
+                ```bash
+                # Positive test — should trigger the skill
+                claude -p "<prompt that should trigger>" --output-format text 2>&1 | head -50
+                # Negative test — should NOT trigger the skill  
+                claude -p "<unrelated prompt>" --output-format text 2>&1 | head -50
+                ```
+                If `claude` returns auth errors ("does not have access", "login again"), skip live
+                testing and note: "Claude Code CLI not authenticated — trigger testing skipped."
+                Do NOT retry auth failures. Fall back to manual analysis.
+                """
             },
             SharedContext = """
                 ## Skill Evaluation Standards

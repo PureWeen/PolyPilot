@@ -5,12 +5,13 @@ description: >
   abort/error paths, or CompleteResponse in CopilotService. Use when: (1) Adding or
   modifying code paths that set IsProcessing=false, (2) Touching HandleSessionEvent,
   CompleteResponse, AbortSessionAsync, or the processing watchdog, (3) Adding new
-  SDK event handlers, (4) Debugging stuck sessions showing "Thinking..." forever,
-  (5) Modifying IsResumed, HasUsedToolsThisTurn, or ActiveToolCallCount,
+  SDK event handlers, (4) Debugging stuck sessions showing "Thinking..." forever
+  or spinner stuck, (5) Modifying IsResumed, HasUsedToolsThisTurn, or ActiveToolCallCount,
   (6) Adding diagnostic log tags, (7) Modifying session restore paths
   (RestoreSingleSessionAsync) that must initialize watchdog-dependent state,
   (8) Modifying ReconcileOrganization or any code that reads Organization.Sessions
-  during the IsRestoring window. Covers: 13 invariants from 10 PRs of fix cycles,
+  during the IsRestoring window, (9) Session appears hung or unresponsive after tool use.
+  Covers: 13 invariants from 10 PRs of fix cycles,
   the 9 code paths that clear IsProcessing, and common regression patterns.
 ---
 
@@ -31,6 +32,7 @@ Every code path that sets `IsProcessing = false` MUST also:
 10. Fire `OnSessionComplete` (unblocks orchestrator loops waiting for completion)
 11. Add a diagnostic log entry (`[COMPLETE]`, `[ERROR]`, `[ABORT]`, etc.)
 12. Run on UI thread (via `InvokeOnUI()` or already on UI thread)
+13. After changes, run `ProcessingWatchdogTests.cs` to catch regressions
 
 ## The 9 Paths That Clear IsProcessing
 
@@ -74,6 +76,17 @@ ALL IsProcessing mutations go through UI thread via `InvokeOnUI()`.
 Use generation guard before clearing IsProcessing. `SyncContext.Post` is
 async — new `SendPromptAsync` can race between `Post()` and callback.
 
+```csharp
+// Capture BEFORE posting to UI thread
+var gen = Interlocked.Read(ref state.ProcessingGeneration);
+InvokeOnUI(() =>
+{
+    // Validate INSIDE the callback — abort if a new turn started
+    if (Interlocked.Read(ref state.ProcessingGeneration) != gen) return;
+    // Safe to clear IsProcessing here
+});
+```
+
 ### INV-4: No hardcoded short timeouts
 NEVER add hardcoded short timeouts for session resume. The watchdog
 (120s/600s) with tiered approach is the correct mechanism.
@@ -88,9 +101,11 @@ Cleared on ALL termination paths. Extends watchdog to 600s.
 Clearing guarded on `!hasActiveTool && !HasUsedToolsThisTurn`.
 
 ### INV-7: Volatile for cross-thread fields
-`HasUsedToolsThisTurn`, `HasReceivedEventsSinceResume` should use
-`Volatile.Write`/`Volatile.Read`. ARM weak memory model issue.
-(Currently partial — resets use plain assignment.)
+When adding NEW cross-thread boolean/int flags, use `Volatile.Write`/`Volatile.Read`
+for ARM weak memory model correctness. Existing fields `HasUsedToolsThisTurn` and
+`HasReceivedEventsSinceResume` use plain assignment (pre-existing inconsistency —
+tracked separately, do not fix inline). Do NOT introduce additional plain-assignment
+cross-thread fields without a tracking comment explaining the gap.
 
 ### INV-8: No InvokeAsync in HandleComplete
 `HandleComplete` is already on UI thread. `InvokeAsync` defers execution
@@ -179,6 +194,34 @@ intent is less clear when reading cross-threaded code.
 
 **Retired mistake (was #2):** *ActiveToolCallCount as sole tool signal* — still relevant per
 INV-5, but the more impactful version is #2 above (suppressing the fallback entirely).
+
+## Diagnosing a Stuck Session
+
+When a session shows "Thinking..." indefinitely:
+
+1. **Check the diagnostic log** — `~/.polypilot/event-diagnostics.log`
+   ```bash
+   grep 'SESSION_NAME' ~/.polypilot/event-diagnostics.log | tail -20
+   ```
+   Look for the last `[SEND]` (turn started) and whether `[IDLE]` or `[COMPLETE]` followed.
+
+2. **Check if the watchdog is running** — look for `[WATCHDOG]` entries after the `[SEND]`.
+   If none appear, the watchdog wasn't started (see INV-9 for restore path issues).
+
+3. **Check `IsProcessing` state** — via MauiDevFlow CDP:
+   ```bash
+   maui-devflow cdp Runtime evaluate "document.querySelector('.processing-indicator')?.textContent"
+   ```
+
+4. **Common stuck patterns:**
+   | Symptom | Likely Cause | Fix |
+   |---------|-------------|-----|
+   | `[SEND]` then silence | SDK never responded, watchdog will catch at 120s | Wait or abort |
+   | `[EVT] TurnEnd` but no `[IDLE]` | Zero-idle SDK bug | Watchdog catches at 30s fallback (INV-10) |
+   | `[COMPLETE]` fired but spinner persists | UI thread not notified | Check INV-2, INV-8 |
+   | `[WATCHDOG]` clears but re-sticks | New turn started before watchdog callback ran | Check INV-3 generation guard |
+
+5. **Nuclear option** — user clicks Stop (AbortSessionAsync, path #5/#6).
 
 ## Regression History
 
