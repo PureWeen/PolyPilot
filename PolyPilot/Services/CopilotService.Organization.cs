@@ -2416,12 +2416,24 @@ public partial class CopilotService
                 else
                 {
                     // Later iterations: orchestrator decided no more work needed —
-                    // but only declare GoalMet if no queued prompts produced @worker blocks
-                    if (queuedAssignments.Count == 0)
+                    // but only declare GoalMet if all workers have been dispatched
+                    var allDispatched = workerNames.All(w => dispatchedWorkers.Contains(w));
+                    var allAttempted = workerNames.All(w => attemptedWorkers.Contains(w));
+                    if (queuedAssignments.Count == 0 && (allDispatched || allAttempted))
                     {
                         reflectState.GoalMet = true;
                         AddOrchestratorSystemMessage(orchestratorName, $"✅ Orchestrator completed without delegation (iteration {reflectState.CurrentIteration}).");
                         break;
+                    }
+                    if (!allDispatched && queuedAssignments.Count == 0)
+                    {
+                        // Not all workers dispatched — force dispatch remaining workers
+                        var remaining = workerNames.Where(w => !dispatchedWorkers.Contains(w) && !attemptedWorkers.Contains(w)).ToList();
+                        Debug($"[DISPATCH] Iteration {reflectState.CurrentIteration}: 0 assignments but {remaining.Count} workers never dispatched — forcing: {string.Join(", ", remaining)}");
+                        AddOrchestratorSystemMessage(orchestratorName,
+                            $"⚡ Forcing dispatch to {remaining.Count} remaining worker(s): {string.Join(", ", remaining)}");
+                        assignments = remaining.Select(w => new TaskAssignment(w, prompt)).ToList();
+                        // Fall through to dispatch below
                     }
                     // Fall through to merge and dispatch queued work
                 }

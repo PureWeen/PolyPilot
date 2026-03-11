@@ -179,6 +179,34 @@ scenarios:
       - "Agent recommends adding a diagnostic log entry with an appropriate tag"
     timeout: 120
 
+  - name: "No hardcoded short timeout for session resume (INV-4)"
+    prompt: |
+      After a session is restored, we want to quickly detect if the turn was already
+      complete so the spinner doesn't hang. Can I add a 5-second sleep after
+      RestoreSingleSessionAsync and then clear IsProcessing if no events arrived?
+      Something like:
+      ```csharp
+      await Task.Delay(5000);
+      if (state.Info.IsProcessing && !state.Info.HasReceivedEventsSinceResume)
+          await CompleteResponseAsync(state);
+      ```
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(do not|don't|avoid|should not|wrong|dangerous|warn|problem|incorrect)"
+      - type: "output_matches"
+        pattern: "(?i)(watchdog|120s|600s|tiered|timeout.tier)"
+      - type: "output_matches"
+        # Should reference IsResumed or resume quiescence mechanism
+        pattern: "(?i)(IsResumed|resume.quiescence|30s|quiescence)"
+      - type: "output_not_contains"
+        value: "Task.Delay"
+        # Should not approve or refine the Task.Delay approach
+    rubric:
+      - "Agent warns against hardcoded short timeouts for session resume, explaining that legitimate multi-agent or tool-heavy resumes need the full watchdog timeout window"
+      - "Agent directs the developer to the existing watchdog mechanism (IsResumed flag + 600s extended timeout, or 30s resume-quiescence path) as the correct solution"
+      - "Agent explains that the 5s Task.Delay would prematurely kill sessions that are genuinely still processing after an app restart"
+    timeout: 120
+
   - name: "Watchdog timeout should use 3-way branch not a flat 600s wait"
     prompt: |
       I'm simplifying the watchdog timeout logic. Currently it has complicated case
@@ -221,4 +249,28 @@ scenarios:
       - "Agent warns about using plain bool for cross-thread access and recommends Volatile.Write/Volatile.Read for ARM correctness (INV-7)"
       - "Agent notes the existing inconsistency (HasUsedToolsThisTurn uses plain assignment) and advises not to repeat it — either use Volatile or add a tracking comment explaining the gap"
       - "Agent identifies that both SendPromptAsync and RestoreSingleSessionAsync need to initialize the new field (INV-9 dual-path requirement)"
+    timeout: 120
+
+  - name: "No InvokeAsync inside HandleComplete - use synchronous completion (INV-8)"
+    prompt: |
+      I'm modifying HandleComplete in CopilotService to notify the UI after finalizing
+      a response. I want to call `await InvokeAsync(StateHasChanged)` inside the method
+      to trigger a Blazor render refresh. HandleComplete is called via Invoke() from the
+      SDK event handler. Is this pattern correct?
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(do not|don't|avoid|should not|wrong|problem|stale|deferred)"
+      - type: "output_matches"
+        # Should explain why InvokeAsync defers execution
+        pattern: "(?i)(defer|async.*defer|already.*UI|UI.*thread|synchronous|stale.*render)"
+      - type: "output_matches"
+        # Should mention StateHasChanged or OnStateChanged as the correct approach
+        pattern: "(?i)(StateHasChanged|OnStateChanged|direct.*call|synchronous)"
+      - type: "output_not_contains"
+        value: "await InvokeAsync"
+        # Should not recommend InvokeAsync inside HandleComplete
+    rubric:
+      - "Agent warns against using InvokeAsync inside HandleComplete, explaining it defers execution and causes stale renders because HandleComplete already runs on the UI thread"
+      - "Agent explains that HandleComplete is dispatched via Invoke() (synchronous), so it is already on the UI thread and can call StateHasChanged or OnStateChanged directly"
+      - "Agent proposes the correct synchronous approach that avoids the deferred render issue"
     timeout: 120
