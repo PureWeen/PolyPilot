@@ -29,8 +29,10 @@ public partial class CopilotService
 {
     public event Action<string, OrchestratorPhase, string?>? OnOrchestratorPhaseChanged; // groupId, phase, detail
 
-    /// <summary>Maximum time a single worker is allowed to run before being cancelled.</summary>
-    private static readonly TimeSpan WorkerExecutionTimeout = TimeSpan.FromMinutes(10);
+    /// <summary>Maximum time a single worker is allowed to run before being cancelled.
+    /// Set high (60 min) because the smart watchdog (events.jsonl freshness) handles dead
+    /// session detection in ~90s. This is only an absolute backstop.</summary>
+    private static readonly TimeSpan WorkerExecutionTimeout = TimeSpan.FromMinutes(60);
 
     // Per-session semaphores to prevent concurrent model switches during rapid dispatch
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _modelSwitchLocks = new();
