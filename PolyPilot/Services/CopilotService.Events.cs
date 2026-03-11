@@ -2201,7 +2201,7 @@ public partial class CopilotService
             var captureDir = ZeroIdleCaptureDir;
             Directory.CreateDirectory(captureDir);
 
-            var sessionId = state.Info.SessionId;
+            var sessionId = state.Info.SessionId ?? "unknown";
             var now = DateTime.UtcNow;
             var turnEndAge = state.TurnEndReceivedAtTicks > 0
                 ? (now - new DateTime(state.TurnEndReceivedAtTicks, DateTimeKind.Utc)).TotalSeconds
@@ -2236,7 +2236,7 @@ public partial class CopilotService
                     ["session_id"] = sessionId,
                     ["session_name"] = sessionName,
                     ["model"] = state.Info.Model,
-                    ["history_size"] = state.Info.History.Count,
+                    ["history_size"] = state.Info.MessageCount,
                     ["is_multi_agent"] = state.IsMultiAgentSession,
                 },
                 ["processing_state"] = new Dictionary<string, object?>
