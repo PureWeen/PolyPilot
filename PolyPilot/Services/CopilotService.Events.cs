@@ -2203,8 +2203,9 @@ public partial class CopilotService
 
             var sessionId = state.Info.SessionId ?? "unknown";
             var now = DateTime.UtcNow;
-            var turnEndAge = state.TurnEndReceivedAtTicks > 0
-                ? (now - new DateTime(state.TurnEndReceivedAtTicks, DateTimeKind.Utc)).TotalSeconds
+            var turnEndTicks = Interlocked.Read(ref state.TurnEndReceivedAtTicks);
+            var turnEndAge = turnEndTicks > 0
+                ? (now - new DateTime(turnEndTicks, DateTimeKind.Utc)).TotalSeconds
                 : -1;
             var lastEventAge = (now - new DateTime(Interlocked.Read(ref state.LastEventAtTicks), DateTimeKind.Utc)).TotalSeconds;
 
