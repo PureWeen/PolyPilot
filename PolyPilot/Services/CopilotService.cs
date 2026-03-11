@@ -2011,10 +2011,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         // Drain any messages queued while IsCreating was true.
         // The user may have typed and sent a message before SDK creation finished.
-        if (state.Info.MessageQueue.Count > 0)
+        var nextPrompt = state.Info.MessageQueue.TryDequeue();
+        if (nextPrompt != null)
         {
-            var nextPrompt = state.Info.MessageQueue[0];
-            state.Info.MessageQueue.RemoveAt(0);
             List<string>? nextImagePaths = null;
             lock (_imageQueueLock)
             {
@@ -3012,7 +3011,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
 
-        state.Info.MessageQueue.Add(prompt);
+        var queueCount = state.Info.MessageQueue.AddAndGetCount(prompt);
         
         // Track image paths alongside the queued message
         if (imagePaths != null && imagePaths.Count > 0)
@@ -3020,7 +3019,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             lock (_imageQueueLock)
             {
                 var queue = _queuedImagePaths.GetOrAdd(sessionName, _ => new List<List<string>>());
-                while (queue.Count < state.Info.MessageQueue.Count - 1)
+                while (queue.Count < queueCount - 1)
                     queue.Add(new List<string>());
                 queue.Add(imagePaths);
             }
@@ -3032,7 +3031,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             lock (_imageQueueLock)
             {
                 var modes = _queuedAgentModes.GetOrAdd(sessionName, _ => new List<string?>());
-                while (modes.Count < state.Info.MessageQueue.Count - 1)
+                while (modes.Count < queueCount - 1)
                     modes.Add(null);
                 modes.Add(agentMode);
             }
@@ -3084,9 +3083,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!_sessions.TryGetValue(sessionName, out var state))
             return;
         
-        if (index >= 0 && index < state.Info.MessageQueue.Count)
+        if (state.Info.MessageQueue.TryRemoveAt(index))
         {
-            state.Info.MessageQueue.RemoveAt(index);
             // Keep queued image paths in sync
             lock (_imageQueueLock)
             {

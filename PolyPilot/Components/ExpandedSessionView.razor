@@ -186,17 +186,20 @@
         {
             <div class="intent-pill">💭 @Intent</div>
         }
-        @if (Session.MessageQueue.Any())
+        @{
+            var queueSnapshot = Session.MessageQueue.Snapshot();
+        }
+        @if (queueSnapshot.Count > 0)
         {
             <div class="message-queue">
                 <div class="queue-header">
-                    <span>📋 Queued (@Session.MessageQueue.Count)</span>
+                    <span>📋 Queued (@queueSnapshot.Count)</span>
                     <button class="queue-clear-btn" @onclick="() => OnClearQueue.InvokeAsync(Session.Name)">Clear</button>
                 </div>
-                @for (var i = 0; i < Session.MessageQueue.Count; i++)
+                @for (var i = 0; i < queueSnapshot.Count; i++)
                 {
                     var index = i;
-                    var msg = Session.MessageQueue[i];
+                    var msg = queueSnapshot[i];
                     <div class="queue-item">
                         <span class="queue-index">@(index + 1)</span>
                         <span class="queue-text">@Truncate(msg, 80)</span>

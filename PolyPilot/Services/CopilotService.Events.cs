@@ -966,10 +966,9 @@ public partial class CopilotService
 
         // Auto-dispatch next queued message — send immediately on the current
         // synchronization context to prevent other actors from racing for the session.
-        if (state.Info.MessageQueue.Count > 0)
+        var nextPrompt = state.Info.MessageQueue.TryDequeue();
+        if (nextPrompt != null)
         {
-            var nextPrompt = state.Info.MessageQueue[0];
-            state.Info.MessageQueue.RemoveAt(0);
             // Retrieve any queued image paths for this message
             List<string>? nextImagePaths = null;
             lock (_imageQueueLock)
@@ -1285,56 +1284,57 @@ public partial class CopilotService
 
             // If the session is idle (evaluator ran asynchronously after CompleteResponse),
             // dispatch the queued message immediately.
-            if (!state.Info.IsProcessing && state.Info.MessageQueue.Count > 0)
+            if (!state.Info.IsProcessing)
             {
-                var nextPrompt = state.Info.MessageQueue[0];
-                state.Info.MessageQueue.RemoveAt(0);
-
-                // Consume any queued agent mode to keep alignment
-                string? nextAgentMode2 = null;
-                lock (_imageQueueLock)
+                var nextPrompt2 = state.Info.MessageQueue.TryDequeue();
+                if (nextPrompt2 != null)
                 {
-                    if (_queuedAgentModes.TryGetValue(state.Info.Name, out var modeQueue2) && modeQueue2.Count > 0)
+                    // Consume any queued agent mode to keep alignment
+                    string? nextAgentMode2 = null;
+                    lock (_imageQueueLock)
                     {
-                        nextAgentMode2 = modeQueue2[0];
-                        modeQueue2.RemoveAt(0);
-                        if (modeQueue2.Count == 0)
-                            _queuedAgentModes.TryRemove(state.Info.Name, out _);
-                    }
-                }
-
-                var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
-                                  ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt);
-
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await Task.Delay(100);
-                        if (_syncContext != null)
+                        if (_queuedAgentModes.TryGetValue(state.Info.Name, out var modeQueue2) && modeQueue2.Count > 0)
                         {
-                            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                            _syncContext.Post(async _ =>
-                            {
-                                try
-                                {
-                                    await SendPromptAsync(state.Info.Name, nextPrompt, skipHistoryMessage: skipHistory, agentMode: nextAgentMode2);
-                                    tcs.TrySetResult();
-                                }
-                                catch (Exception ex)
-                                {
-                                    Debug($"Error dispatching evaluator follow-up: {ex.Message}");
-                                    tcs.TrySetException(ex);
-                                }
-                            }, null);
-                            await tcs.Task;
+                            nextAgentMode2 = modeQueue2[0];
+                            modeQueue2.RemoveAt(0);
+                            if (modeQueue2.Count == 0)
+                                _queuedAgentModes.TryRemove(state.Info.Name, out _);
                         }
                     }
-                    catch (Exception ex)
+
+                    var skipHistory = state.Info.ReflectionCycle is { IsActive: true } &&
+                                      ReflectionCycle.IsReflectionFollowUpPrompt(nextPrompt2);
+
+                    _ = Task.Run(async () =>
                     {
-                        Debug($"Error dispatching queued message after evaluation: {ex.Message}");
-                    }
-                });
+                        try
+                        {
+                            await Task.Delay(100);
+                            if (_syncContext != null)
+                            {
+                                var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                                _syncContext.Post(async _ =>
+                                {
+                                    try
+                                    {
+                                        await SendPromptAsync(state.Info.Name, nextPrompt2, skipHistoryMessage: skipHistory, agentMode: nextAgentMode2);
+                                        tcs.TrySetResult();
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Debug($"Error dispatching evaluator follow-up: {ex.Message}");
+                                        tcs.TrySetException(ex);
+                                    }
+                                }, null);
+                                await tcs.Task;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug($"Error dispatching queued message after evaluation: {ex.Message}");
+                        }
+                    });
+                }
             }
         }
         else if (!cycle.IsActive)
