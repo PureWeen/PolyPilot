@@ -51,7 +51,7 @@ public partial class CopilotService : IAsyncDisposable
     // Cached dotfiles status — checked once when first SetupRequired state is encountered
     private CodespaceService.DotfilesStatus? _dotfilesStatus;
     private ConnectionSettings? _currentSettings;
-    private string? _activeSessionName;
+    private volatile string? _activeSessionName;
     private SynchronizationContext? _syncContext;
     // Serializes the IsConnectionError reconnect path so concurrent workers
     // don't destroy each other's freshly-created client (thundering herd fix).
