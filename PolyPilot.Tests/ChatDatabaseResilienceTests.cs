@@ -261,12 +261,15 @@ public class ChatDatabaseResilienceTests : IDisposable
             _ = db.UpdateToolCompleteAsync("session-1", "tool-1", "result", true);
             _ = db.UpdateReasoningContentAsync("session-1", "reason-1", "content", true);
 
-            // Give tasks time to complete and finalize
+            // Give tasks time to complete and finalize — multiple GC cycles
+            // needed to reliably trigger UnobservedTaskException under load
+            await Task.Delay(500);
+            for (int i = 0; i < 3; i++)
+            {
+                GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+                GC.WaitForPendingFinalizers();
+            }
             await Task.Delay(200);
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-            await Task.Delay(100);
 
             Assert.False(unobservedException,
                 "Fire-and-forget ChatDatabase calls must not produce unobserved task exceptions");
