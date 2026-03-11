@@ -449,6 +449,12 @@ public partial class CopilotService : IAsyncDisposable
         /// Used for diagnostic logging: when the next TurnEnd re-arms the fallback, the log shows
         /// the self-healing loop in action (TurnEnd → TurnStart cancel → TurnEnd re-arm).</summary>
         public volatile bool FallbackCanceledByTurnStart;
+        /// <summary>When true, FlushCurrentResponse checks accumulated FlushedResponse for
+        /// @worker:...@end blocks after each sub-turn. If found, resolves ResponseCompletion
+        /// early so orchestrator dispatch can proceed without waiting for the model to finish
+        /// all its tool rounds. This prevents the orchestrator from doing all the work itself
+        /// when it has tool access and ignores "dispatcher only" instructions.</summary>
+        public bool EarlyDispatchOnWorkerBlocks;
         /// <summary>Timer that fires shortly after a tool starts to verify the connection is still alive.
         /// If no tool completion event arrives within ToolHealthCheckIntervalMs, we do an active health
         /// check to detect dead connections early (instead of waiting for the 600s watchdog timeout).</summary>

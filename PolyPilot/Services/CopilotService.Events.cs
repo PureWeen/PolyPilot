@@ -828,6 +828,25 @@ public partial class CopilotService
         
         state.CurrentResponse.Clear();
         state.HasReceivedDeltasThisTurn = false;
+        
+        // Early dispatch: if the orchestrator wrote @worker blocks in an intermediate sub-turn,
+        // resolve the TCS now so ParseTaskAssignments can run immediately. Without this, the
+        // orchestrator continues doing tool work itself for minutes before dispatch happens.
+        if (state.EarlyDispatchOnWorkerBlocks && state.ResponseCompletion != null)
+        {
+            var flushed = state.FlushedResponse.ToString();
+            if (System.Text.RegularExpressions.Regex.IsMatch(flushed, @"@worker:.+?\n[\s\S]+?@end", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                Debug($"[DISPATCH] Early dispatch: @worker blocks detected in flushed text ({flushed.Length} chars) for '{state.Info.Name}'");
+                state.EarlyDispatchOnWorkerBlocks = false; // One-shot
+                // Build the full response the same way CompleteResponse does
+                var remaining = state.CurrentResponse.ToString();
+                var fullResponse = string.IsNullOrEmpty(remaining) ? flushed : flushed + "\n\n" + remaining;
+                state.FlushedResponse.Clear();
+                state.CurrentResponse.Clear();
+                state.ResponseCompletion.TrySetResult(fullResponse);
+            }
+        }
     }
 
     /// <summary>

@@ -1066,6 +1066,9 @@ public partial class CopilotService
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Planning, null));
 
         var planningPrompt = BuildOrchestratorPlanningPrompt(prompt, workerNames, group?.OrchestratorPrompt, group?.RoutingContext);
+        // Enable early dispatch for the non-reflect orchestrator flow too
+        if (_sessions.TryGetValue(orchestratorName, out var orchPlanning))
+            orchPlanning.EarlyDispatchOnWorkerBlocks = true;
         var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken, originalPrompt: prompt);
 
         // Phase 2: Parse task assignments from orchestrator response, with retry loop.
@@ -2318,6 +2321,12 @@ public partial class CopilotService
                 planPrompt = BuildReplanPrompt(reflectState.LastEvaluation ?? "Continue iterating.", workerNames, prompt, group.RoutingContext);
             }
 
+            // Enable early dispatch: if the orchestrator writes @worker blocks in an intermediate
+            // sub-turn (before finishing all tool rounds), FlushCurrentResponse will resolve the
+            // TCS immediately. This prevents the orchestrator from doing all the work itself.
+            if (_sessions.TryGetValue(orchestratorName, out var orchState))
+                orchState.EarlyDispatchOnWorkerBlocks = true;
+
             var planResponse = await SendPromptAndWaitAsync(orchestratorName, planPrompt, ct, originalPrompt: prompt);
             var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
             Debug($"[DISPATCH] '{orchestratorName}' reflect plan parsed: {rawAssignments.Count} raw assignments from {workerNames.Count} workers. Iteration={reflectState.CurrentIteration}, Response length={planResponse.Length}");
@@ -2333,6 +2342,9 @@ public partial class CopilotService
                     AddOrchestratorSystemMessage(orchestratorName,
                         "⚠️ No @worker assignments parsed from orchestrator response. Retrying...");
                     var nudgePrompt = BuildDelegationNudgePrompt(workerNames);
+                    // Re-enable early dispatch for the nudge attempt too
+                    if (_sessions.TryGetValue(orchestratorName, out var nudgeState))
+                        nudgeState.EarlyDispatchOnWorkerBlocks = true;
                     var nudgeResponse = await SendPromptAndWaitAsync(orchestratorName, nudgePrompt, ct, originalPrompt: prompt);
                     var nudgeAssignments = ParseTaskAssignments(nudgeResponse, workerNames);
                     Debug($"[DISPATCH] '{orchestratorName}' nudge parsed: {nudgeAssignments.Count} raw assignments. Response length={nudgeResponse.Length}");
