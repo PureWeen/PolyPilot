@@ -449,6 +449,7 @@ public partial class CopilotService
             case AssistantTurnStartEvent:
                 // Cancel any pending TurnEnd→Idle fallback — another agent round is starting
                 CancelTurnEndFallback(state);
+                state.FallbackCanceledByTurnStart = true;
                 state.HasReceivedDeltasThisTurn = false;
                 var phaseAdvancedToThinking = state.Info.ProcessingPhase < 2;
                 if (phaseAdvancedToThinking) state.Info.ProcessingPhase = 2; // Thinking
@@ -469,7 +470,14 @@ public partial class CopilotService
                 }
                 // Schedule a delayed CompleteResponse in case SessionIdleEvent never arrives (SDK bug #299).
                 // Cancelled by AssistantTurnStartEvent (another round starting) or SessionIdleEvent (normal path).
+                // If TurnStart previously canceled the fallback, this re-arms it — creating the
+                // self-healing loop: TurnEnd → TurnStart cancel → TurnEnd re-arm → fallback fires.
                 {
+                    if (state.FallbackCanceledByTurnStart)
+                    {
+                        Debug($"[TURNEND-FALLBACK] '{sessionName}' re-arming fallback timer (was canceled by TurnStart)");
+                        state.FallbackCanceledByTurnStart = false;
+                    }
                     var turnEndGen = Interlocked.Read(ref state.ProcessingGeneration);
                     var idleFallbackCts = new CancellationTokenSource();
                     // Capture token BEFORE publishing so CancelTurnEndFallback on another thread
@@ -869,6 +877,7 @@ public partial class CopilotService
         CancelTurnEndFallback(state);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
+        state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
@@ -1735,27 +1744,58 @@ public partial class CopilotService
                     {
                         if (hasActiveTool && !IsDemoMode && !IsRemoteMode)
                         {
-                            // Case A: check server TCP port
+                            // Case A: check server TCP port + events.jsonl freshness
                             var serverAlive = _serverManager.IsServerRunning;
                             if (serverAlive)
                             {
-                                var resets = Interlocked.Increment(ref state.WatchdogCaseAResets);
-                                if (resets > WatchdogMaxToolAliveResets)
+                                // Check if the CLI is actively writing events for this session.
+                                // events.jsonl is written by the CLI process, not our app.
+                                // If recently modified → tool is actively running → wait indefinitely.
+                                // If stale → connection is likely dead → kill immediately.
+                                var eventsFileActive = false;
+                                try
                                 {
-                                    // Too many consecutive resets with no real SDK events — the
-                                    // session's JSON-RPC connection is likely dead even though the
-                                    // shared persistent server is still alive. Fall through to kill.
-                                    Debug($"[WATCHDOG] '{sessionName}' Case A reset cap exceeded ({resets}/{WatchdogMaxToolAliveResets}) " +
-                                          $"— killing despite server alive (elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                    var sessionId = state.Info.SessionId;
+                                    if (!string.IsNullOrEmpty(sessionId))
+                                    {
+                                        var eventsPath = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+                                        if (File.Exists(eventsPath))
+                                        {
+                                            var lastWrite = File.GetLastWriteTimeUtc(eventsPath);
+                                            var fileAge = (DateTime.UtcNow - lastWrite).TotalSeconds;
+                                            eventsFileActive = fileAge < 60; // modified within last 60s
+                                        }
+                                    }
+                                }
+                                catch { /* filesystem errors → fall through to reset-cap logic */ }
+
+                                if (eventsFileActive)
+                                {
+                                    // Events file is fresh — tool is actively running. Wait indefinitely.
+                                    Debug($"[WATCHDOG] '{sessionName}' tool is running and events.jsonl is fresh — waiting indefinitely " +
+                                          $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                    Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                    Interlocked.Exchange(ref state.WatchdogCaseAResets, 0); // reset counter since tool is active
+                                    continue;
                                 }
                                 else
                                 {
-                                    // Next check will use escalation timeout (60s) since we've had at least one reset
-                                    var nextTimeout = WatchdogToolEscalationTimeoutSeconds;
-                                    Debug($"[WATCHDOG] '{sessionName}' {elapsed:F0}s inactivity but tool is running and server is alive — resetting timer " +
-                                          $"(reset #{resets}/{WatchdogMaxToolAliveResets}, nextTimeout={nextTimeout}s, totalProcessing={totalProcessingSeconds:F0}s)");
-                                    Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
-                                    continue; // keep waiting — don't kill
+                                    // Events file is stale or missing — connection is likely dead.
+                                    // Use the reset-cap as a safety buffer (1 more cycle to confirm).
+                                    var resets = Interlocked.Increment(ref state.WatchdogCaseAResets);
+                                    if (resets > 1) // Only need 1 confirmation cycle since we have file evidence
+                                    {
+                                        Debug($"[WATCHDOG] '{sessionName}' events.jsonl stale and reset count {resets} > 1 " +
+                                              $"— killing despite server alive (elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                        // fall through to kill
+                                    }
+                                    else
+                                    {
+                                        Debug($"[WATCHDOG] '{sessionName}' events.jsonl stale but giving 1 more cycle " +
+                                              $"(reset #{resets}, elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                        continue;
+                                    }
                                 }
                             }
                             else

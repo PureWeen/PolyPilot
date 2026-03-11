@@ -445,6 +445,10 @@ public partial class CopilotService : IAsyncDisposable
         /// WatchdogMaxToolAliveResets to prevent infinite resets when the session's JSON-RPC
         /// connection is dead but the shared persistent server is still alive.</summary>
         public int WatchdogCaseAResets;
+        /// <summary>True if the TurnEnd→Idle fallback was canceled by an AssistantTurnStartEvent.
+        /// Used for diagnostic logging: when the next TurnEnd re-arms the fallback, the log shows
+        /// the self-healing loop in action (TurnEnd → TurnStart cancel → TurnEnd re-arm).</summary>
+        public volatile bool FallbackCanceledByTurnStart;
         /// <summary>Timer that fires shortly after a tool starts to verify the connection is still alive.
         /// If no tool completion event arrives within ToolHealthCheckIntervalMs, we do an active health
         /// check to detect dead connections early (instead of waiting for the 600s watchdog timeout).</summary>
@@ -2420,6 +2424,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ClearPermissionDenials();
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
+        state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
         // Cancel any pending TurnEnd→Idle fallback from the previous turn
         CancelTurnEndFallback(state);

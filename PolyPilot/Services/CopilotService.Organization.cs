@@ -1151,8 +1151,14 @@ public partial class CopilotService
         {
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, null));
 
-            var workerTasks = assignments.Select(a =>
-                ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
+            Debug($"[DISPATCH] Staggering {assignments.Count} workers with 1s delay");
+            var workerTasks = new List<Task<WorkerResult>>();
+            foreach (var a in assignments)
+            {
+                workerTasks.Add(ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
+                if (workerTasks.Count < assignments.Count)
+                    await Task.Delay(1000, cancellationToken);
+            }
             var results = await Task.WhenAll(workerTasks);
 
             // Phase 4: Synthesize — send worker results back to orchestrator
@@ -1360,43 +1366,55 @@ public partial class CopilotService
 
         var workerPrompt = $"{identity}{worktreeNote}\n\nYour response will be collected and synthesized with other workers' responses.\n\n{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
 
-        try
+        const int maxRetries = 2;
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            Debug($"[DISPATCH] Worker '{workerName}' starting (prompt len={workerPrompt.Length})");
-            var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
-
-            // Worker revival: empty response means the session died (e.g., dead SSE stream
-            // after reconnect). Create a fresh session and retry once.
-            if (string.IsNullOrWhiteSpace(response))
+            try
             {
-                Debug($"[DISPATCH] Worker '{workerName}' returned empty — attempting fresh session revival");
-                if (_sessions.TryGetValue(workerName, out var deadState))
-                {
-                    try { await deadState.Session.DisposeAsync(); } catch { }
+                Debug($"[DISPATCH] Worker '{workerName}' starting (prompt len={workerPrompt.Length}, attempt={attempt})");
+                var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
 
-                    var workerMeta = GetSessionMeta(workerName);
-                    var client = GetClientForGroup(workerMeta?.GroupId);
-                    if (client != null)
+                // Worker revival: empty response means the session died (e.g., dead SSE stream
+                // after reconnect). Create a fresh session and retry once.
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    Debug($"[DISPATCH] Worker '{workerName}' returned empty — attempting fresh session revival");
+                    if (_sessions.TryGetValue(workerName, out var deadState))
                     {
-                        var freshConfig = BuildFreshSessionConfig(deadState);
-                        var freshSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
-                        deadState.Info.SessionId = freshSession.SessionId;
-                        var freshState = new SessionState { Session = freshSession, Info = deadState.Info };
-                        _sessions[workerName] = freshState;
-                        Debug($"[DISPATCH] Worker '{workerName}' revived with fresh session '{freshSession.SessionId}'");
-                        response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
+                        try { await deadState.Session.DisposeAsync(); } catch { }
+
+                        var workerMeta = GetSessionMeta(workerName);
+                        var client = GetClientForGroup(workerMeta?.GroupId);
+                        if (client != null)
+                        {
+                            var freshConfig = BuildFreshSessionConfig(deadState);
+                            var freshSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
+                            deadState.Info.SessionId = freshSession.SessionId;
+                            var freshState = new SessionState { Session = freshSession, Info = deadState.Info };
+                            _sessions[workerName] = freshState;
+                            Debug($"[DISPATCH] Worker '{workerName}' revived with fresh session '{freshSession.SessionId}'");
+                            response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
+                        }
                     }
                 }
-            }
 
-            Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response?.Length ?? 0}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
-            return new WorkerResult(workerName, response, true, null, sw.Elapsed);
+                Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response?.Length ?? 0}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
+                return new WorkerResult(workerName, response, true, null, sw.Elapsed);
+            }
+            catch (Exception ex) when (attempt < maxRetries && IsConnectionError(ex))
+            {
+                Debug($"[DISPATCH] Worker '{workerName}' attempt {attempt} failed with {ex.GetType().Name} — retrying in 2s");
+                await Task.Delay(2000, cancellationToken);
+                continue;
+            }
+            catch (Exception ex)
+            {
+                Debug($"[DISPATCH] Worker '{workerName}' FAILED: {ex.GetType().Name}: {ex.Message} (elapsed={sw.Elapsed.TotalSeconds:F1}s)");
+                return new WorkerResult(workerName, null, false, ex.Message, sw.Elapsed);
+            }
         }
-        catch (Exception ex)
-        {
-            Debug($"[DISPATCH] Worker '{workerName}' FAILED: {ex.GetType().Name}: {ex.Message} (elapsed={sw.Elapsed.TotalSeconds:F1}s)");
-            return new WorkerResult(workerName, null, false, ex.Message, sw.Elapsed);
-        }
+        // Should never reach here, but just in case
+        return new WorkerResult(workerName, null, false, "Max retries exceeded", sw.Elapsed);
     }
 
     private async Task<string> SendPromptAndWaitAsync(string sessionName, string prompt, CancellationToken cancellationToken, string? originalPrompt = null)
