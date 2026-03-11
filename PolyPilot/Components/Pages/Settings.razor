@@ -1386,13 +1386,16 @@
 
     private async Task ApproveFiestaPairRequest(string requestId)
     {
-        await FiestaService.ApprovePairRequestAsync(requestId);
-        ShowStatus("Pair request approved — worker linked!", "success", 2500);
+        var success = await FiestaService.ApprovePairRequestAsync(requestId);
+        if (success)
+            ShowStatus("Pair request approved — worker linked!", "success", 2500);
+        else
+            ShowStatus("Failed to send approval — worker may not have received credentials.", "error", 3000);
     }
 
-    private void DenyFiestaPairRequest(string requestId)
+    private async Task DenyFiestaPairRequest(string requestId)
     {
-        FiestaService.DenyPairRequest(requestId);
+        await FiestaService.DenyPairRequestAsync(requestId);
         ShowStatus("Pair request denied.", "error", 2000);
     }
 
