@@ -128,6 +128,9 @@ public static class MauiProgram
 		PluginLoader.LoadEnabledProviders(builder.Services, pluginSettings.Plugins.Enabled);
 #endif
 
+		// Startup cleanup: purge old zero-idle captures (keep last 100)
+		try { CopilotService.PurgeOldCaptures(); } catch { }
+
 		return builder.Build();
 	}
 

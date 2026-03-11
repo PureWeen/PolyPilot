@@ -89,6 +89,11 @@ public class ConnectionSettings
     public bool EnableSessionNotifications { get; set; } = false;
     public bool MuteWorkerNotifications { get; set; } = false;
     public bool CodespacesEnabled { get; set; } = false;
+    /// <summary>
+    /// When true, logs every SDK event type to event-diagnostics.log (not just lifecycle events).
+    /// Useful for investigating zero-idle sessions (#299) — reveals the exact last event before silence.
+    /// </summary>
+    public bool EnableVerboseEventTracing { get; set; } = false;
 
     /// <summary>
     /// Normalizes a remote URL by ensuring it has an http(s):// scheme.

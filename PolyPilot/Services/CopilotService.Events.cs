@@ -225,6 +225,9 @@ public partial class CopilotService
             Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
             state.Info.LastUpdatedAt = DateTime.Now;
         }
+        // Count every event for zero-idle diagnostics (#299)
+        Interlocked.Increment(ref state.EventCountThisTurn);
+
         var sessionName = state.Info.Name;
         var isCurrentState = _sessions.TryGetValue(sessionName, out var current) && ReferenceEquals(current, state);
 
@@ -236,6 +239,13 @@ public partial class CopilotService
             Debug($"[EVT] '{sessionName}' received {evt.GetType().Name} " +
                   $"(IsProcessing={state.Info.IsProcessing}, isCurrentState={isCurrentState}, " +
                   $"thread={Environment.CurrentManagedThreadId})");
+        }
+        // Verbose event tracing: log ALL event types when enabled (for zero-idle investigation #299).
+        // This reveals the exact last event before silence — was it ToolExecutionComplete? AssistantMessage?
+        else if (_currentSettings?.EnableVerboseEventTracing == true)
+        {
+            Debug($"[EVT-TRACE] '{sessionName}' {evt.GetType().Name} " +
+                  $"(eventCount={state.EventCountThisTurn}, thread={Environment.CurrentManagedThreadId})");
         }
 
         // Warn if receiving events on an orphaned (replaced) state object.
@@ -463,6 +473,7 @@ public partial class CopilotService
                 break;
 
             case AssistantTurnEndEvent:
+                Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, DateTime.UtcNow.Ticks);
                 try { CompleteReasoningMessages(state, sessionName); }
                 catch (Exception ex)
                 {
@@ -517,10 +528,12 @@ public partial class CopilotService
                                     return;
                                 }
                                 Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs + TurnEndIdleToolFallbackAdditionalMs}ms after TurnEnd (tools used) — firing CompleteResponse");
+                                CaptureZeroIdleDiagnostics(state, sessionName, toolsUsed: true);
                                 InvokeOnUI(() => CompleteResponse(state, turnEndGen));
                                 return;
                             }
                             Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs}ms after TurnEnd — firing CompleteResponse");
+                            CaptureZeroIdleDiagnostics(state, sessionName, toolsUsed: false);
                             InvokeOnUI(() => CompleteResponse(state, turnEndGen));
                         }
                         catch (OperationCanceledException) { /* expected on cancellation */ }
@@ -882,6 +895,8 @@ public partial class CopilotService
         state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
         Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+        Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+        Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
         if (!string.IsNullOrWhiteSpace(response))
@@ -2154,6 +2169,141 @@ public partial class CopilotService
         if (_sessions.TryGetValue(sessionName, out var state))
         {
             await TryRecoverPermissionAsync(state, sessionName);
+        }
+    }
+
+    // ── Zero-idle capture diagnostics (#299) ────────────────────────────────
+
+    private static string? _zeroIdleCaptureDir;
+    private static string ZeroIdleCaptureDir
+    {
+        get
+        {
+            lock (_pathLock)
+                return _zeroIdleCaptureDir ??= Path.Combine(PolyPilotBaseDir, "zero-idle-captures");
+        }
+    }
+
+    // For testing: override the capture directory
+    internal static void SetCaptureDirForTesting(string dir) => _zeroIdleCaptureDir = dir;
+    internal static void ResetCaptureDir() => _zeroIdleCaptureDir = null;
+
+    /// <summary>
+    /// Writes a diagnostic capture file when the TurnEnd→Idle fallback fires,
+    /// meaning SessionIdleEvent was not received (SDK bug #299).
+    /// Includes session state snapshot, event counts, and last events from events.jsonl.
+    /// Never throws — capture failures are swallowed to Console.Error.
+    /// </summary>
+    private void CaptureZeroIdleDiagnostics(SessionState state, string sessionName, bool toolsUsed)
+    {
+        try
+        {
+            var captureDir = ZeroIdleCaptureDir;
+            Directory.CreateDirectory(captureDir);
+
+            var sessionId = state.Info.SessionId;
+            var now = DateTime.UtcNow;
+            var turnEndAge = state.TurnEndReceivedAtTicks > 0
+                ? (now - new DateTime(state.TurnEndReceivedAtTicks, DateTimeKind.Utc)).TotalSeconds
+                : -1;
+            var lastEventAge = (now - new DateTime(Interlocked.Read(ref state.LastEventAtTicks), DateTimeKind.Utc)).TotalSeconds;
+
+            // Read last 50 events from events.jsonl
+            var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+            var recentEvents = new List<object>();
+            try
+            {
+                if (File.Exists(eventsFile))
+                {
+                    var allEvents = ParseEventLogFile(eventsFile);
+                    var tail = allEvents.Count > 50 ? allEvents.GetRange(allEvents.Count - 50, 50) : allEvents;
+                    foreach (var (ts, type, detail) in tail)
+                        recentEvents.Add(new { timestamp = ts, type, detail });
+                }
+            }
+            catch { /* best-effort */ }
+
+            // Count concurrent sessions
+            var totalSessions = _sessions.Count;
+            var processingSessions = _sessions.Values.Count(s => s.Info.IsProcessing);
+
+            var capture = new Dictionary<string, object?>
+            {
+                ["capture_timestamp"] = now.ToString("O"),
+                ["trigger"] = "IDLE_FALLBACK",
+                ["session"] = new Dictionary<string, object?>
+                {
+                    ["session_id"] = sessionId,
+                    ["session_name"] = sessionName,
+                    ["model"] = state.Info.Model,
+                    ["history_size"] = state.Info.History.Count,
+                    ["is_multi_agent"] = state.IsMultiAgentSession,
+                },
+                ["processing_state"] = new Dictionary<string, object?>
+                {
+                    ["is_processing"] = state.Info.IsProcessing,
+                    ["processing_phase"] = state.Info.ProcessingPhase,
+                    ["active_tool_call_count"] = Volatile.Read(ref state.ActiveToolCallCount),
+                    ["has_used_tools_this_turn"] = state.HasUsedToolsThisTurn,
+                    ["successful_tool_count"] = state.SuccessfulToolCountThisTurn,
+                    ["event_count_this_turn"] = Volatile.Read(ref state.EventCountThisTurn),
+                    ["processing_generation"] = Interlocked.Read(ref state.ProcessingGeneration),
+                    ["has_received_deltas"] = state.HasReceivedDeltasThisTurn,
+                },
+                ["timing"] = new Dictionary<string, object?>
+                {
+                    ["turn_end_age_seconds"] = Math.Round(turnEndAge, 2),
+                    ["last_event_age_seconds"] = Math.Round(lastEventAge, 2),
+                    ["fallback_tools_used"] = toolsUsed,
+                    ["fallback_wait_ms"] = toolsUsed
+                        ? TurnEndIdleFallbackMs + TurnEndIdleToolFallbackAdditionalMs
+                        : TurnEndIdleFallbackMs,
+                },
+                ["concurrency"] = new Dictionary<string, object?>
+                {
+                    ["total_sessions"] = totalSessions,
+                    ["processing_sessions"] = processingSessions,
+                },
+                ["events_jsonl_tail"] = recentEvents,
+            };
+
+            var json = System.Text.Json.JsonSerializer.Serialize(capture,
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            var fileName = $"capture_{now:yyyy-MM-ddTHH-mm-ss}_{sessionId[..Math.Min(8, sessionId.Length)]}.json";
+            File.WriteAllText(Path.Combine(captureDir, fileName), json);
+
+            Debug($"[ZERO-IDLE] '{sessionName}' capture written: {fileName} " +
+                  $"(events={state.EventCountThisTurn}, historySize={state.Info.History.Count}, " +
+                  $"turnEndAge={turnEndAge:F1}s, tools={toolsUsed})");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[ZeroIdleCapture] Failed to write capture: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Deletes old zero-idle capture files, keeping the most recent 100.
+    /// Called once on startup. Never throws.
+    /// </summary>
+    internal static void PurgeOldCaptures(int keepCount = 100)
+    {
+        try
+        {
+            var dir = ZeroIdleCaptureDir;
+            if (!Directory.Exists(dir)) return;
+            var files = Directory.GetFiles(dir, "capture_*.json")
+                .OrderByDescending(f => f)
+                .Skip(keepCount)
+                .ToList();
+            foreach (var file in files)
+            {
+                try { File.Delete(file); } catch { }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[ZeroIdleCapture] Failed to purge old captures: {ex.Message}");
         }
     }
 }

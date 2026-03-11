@@ -148,6 +148,7 @@ public partial class CopilotService : IAsyncDisposable
             _copilotBaseDir = null;
             _sessionStatePath = null;
             _pendingOrchestrationFile = null;
+            _zeroIdleCaptureDir = null;
         }
     }
 
@@ -457,6 +458,13 @@ public partial class CopilotService : IAsyncDisposable
         /// <summary>Timestamp when the most recent tool started. Used by the tool health check to
         /// determine if a tool has been running too long without any events.</summary>
         public long ToolStartedAtTicks;
+        /// <summary>Count of SDK events received during the current processing turn.
+        /// Incremented in HandleSessionEvent, reset in SendPromptAsync and CompleteResponse.
+        /// Used by zero-idle capture to quantify how much activity occurred before silence.</summary>
+        public int EventCountThisTurn;
+        /// <summary>Timestamp (UTC ticks) when AssistantTurnEndEvent was received.
+        /// Used by zero-idle capture to measure fallback wait duration.</summary>
+        public long TurnEndReceivedAtTicks;
     }
 
     private void Debug(string message)
@@ -471,7 +479,7 @@ public partial class CopilotService : IAsyncDisposable
             message.StartsWith("[COMPLETE") || message.StartsWith("[SEND") ||
             message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
             message.StartsWith("[DISPATCH") || message.StartsWith("[WATCHDOG") ||
-            message.StartsWith("[HEALTH") ||
+            message.StartsWith("[HEALTH") || message.StartsWith("[ZERO-IDLE") ||
             message.Contains("watchdog"))
         {
             try
@@ -2428,6 +2436,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+        Interlocked.Exchange(ref state.EventCountThisTurn, 0); // Reset event counter for zero-idle capture
+        Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
         // Cancel any pending TurnEnd→Idle fallback from the previous turn
         CancelTurnEndFallback(state);
         state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName); // Cache for watchdog (UI thread safe)

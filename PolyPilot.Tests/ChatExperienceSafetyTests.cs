@@ -842,7 +842,7 @@ public class ChatExperienceSafetyTests
         Assert.True(crIdx > 0);
 
         // Within CompleteResponse, SendingFlag must be cleared (may be 80+ lines into method)
-        var afterCR = source.Substring(crIdx, Math.Min(5000, source.Length - crIdx));
+        var afterCR = source.Substring(crIdx, Math.Min(6000, source.Length - crIdx));
         Assert.Contains("SendingFlag", afterCR);
     }
 
