@@ -266,9 +266,17 @@ public partial class DevTunnelService : IDisposable
             // Issue a connect-scoped access token
             _accessToken = await IssueAccessTokenAsync();
             if (_accessToken == null)
-                Console.WriteLine("[DevTunnel] Warning: could not issue access token — clients may not be able to connect");
+            {
+                // Could not issue a real token — clear the random placeholder so the bridge
+                // reverts to unauthenticated local-only mode rather than being permanently
+                // locked with an opaque token no client can ever know.
+                _bridge.AccessToken = null;
+                Console.WriteLine("[DevTunnel] Warning: could not issue access token — bridge running in local-only mode");
+            }
             else
+            {
                 _bridge.AccessToken = _accessToken;
+            }
 
             SetState(TunnelState.Running);
             hostStopwatch.Stop();
