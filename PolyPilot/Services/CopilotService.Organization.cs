@@ -2255,6 +2255,7 @@ public partial class CopilotService
             return;
         }
 
+        var leftoverPrompts = new List<string>();
         try
         {
 
@@ -2579,25 +2580,16 @@ public partial class CopilotService
             reflectState.IsActive = false;
             reflectState.CompletedAt = DateTime.Now;
             ClearPendingOrchestration();
-            // Send any remaining queued prompts to the orchestrator before releasing the lock.
-            // These were acknowledged to the user ("📨 queued") but the loop is exiting —
-            // sending them ensures the model sees them rather than silently discarding.
+            // Collect leftover queued prompts synchronously for best-effort delivery
+            // AFTER releasing the semaphore. This prevents holding the semaphore forever
+            // if SendPromptAndWaitAsync blocks on a broken SDK connection (e.g., StreamJsonRpc
+            // serialization errors during cancellation). See PR #323.
             if (_reflectQueuedPrompts.TryGetValue(groupId, out var remainingQueue))
             {
                 while (remainingQueue.TryDequeue(out var leftover))
-                {
-                    try
-                    {
-                        Debug($"[DISPATCH] Sending leftover queued prompt on loop exit (len={leftover.Length})");
-                        await SendPromptAndWaitAsync(orchestratorName,
-                            $"[User sent a message — the reflection loop has completed]\n\n{leftover}", ct, originalPrompt: leftover);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug($"[DISPATCH] Failed to send leftover queued prompt: {ex.Message}");
-                    }
-                }
+                    leftoverPrompts.Add(leftover);
             }
+
             SaveOrganization();
             InvokeOnUI(() =>
             {
@@ -2610,6 +2602,31 @@ public partial class CopilotService
         finally
         {
             loopLock.Release();
+        }
+
+        // Fire-and-forget: deliver leftover prompts after semaphore is released.
+        // If delivery fails (broken connection), prompts are still visible in chat history.
+        if (leftoverPrompts.Count > 0)
+        {
+            var orchName = orchestratorName;
+            _ = Task.Run(async () =>
+            {
+                foreach (var leftover in leftoverPrompts)
+                {
+                    try
+                    {
+                        Debug($"[DISPATCH] Sending leftover queued prompt after loop exit (len={leftover.Length})");
+                        using var cleanupCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                        await SendPromptAndWaitAsync(orchName,
+                            $"[User sent a message — the reflection loop has completed]\n\n{leftover}",
+                            cleanupCts.Token, originalPrompt: leftover);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug($"[DISPATCH] Failed to send leftover queued prompt: {ex.Message}");
+                    }
+                }
+            });
         }
     }
 
