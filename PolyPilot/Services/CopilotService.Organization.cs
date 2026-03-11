@@ -1218,6 +1218,7 @@ public partial class CopilotService
         {
             sb.AppendLine("You are a DISPATCHER ONLY. You do NOT have tools. You CANNOT write code, read files, or run commands yourself.");
             sb.AppendLine("Your ONLY job is to write @worker/@end blocks that assign work to your workers.");
+            sb.AppendLine("⚠️ This is a NEW request. Even if your conversation history shows previous work on a similar topic, you MUST delegate FRESH tasks to your workers. Previous results may be stale.");
         }
         else
         {
@@ -1263,7 +1264,10 @@ public partial class CopilotService
     internal static string BuildDelegationNudgePrompt(List<string> workerNames)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Your previous response did not contain any @worker delegation blocks. You MUST delegate work to your workers.");
+        sb.AppendLine("⚠️ CRITICAL: Your previous response did not contain any @worker delegation blocks.");
+        sb.AppendLine();
+        sb.AppendLine("You are a DISPATCHER. You CANNOT do the work yourself. Even if you believe the work is already done from a previous conversation, you MUST delegate FRESH work to your workers NOW.");
+        sb.AppendLine("Any previous results are STALE — the user is requesting a NEW evaluation. Ignore prior results and dispatch fresh tasks.");
         sb.AppendLine();
         sb.AppendLine($"Available workers ({workerNames.Count}): {string.Join(", ", workerNames)}");
         sb.AppendLine();
@@ -1273,7 +1277,7 @@ public partial class CopilotService
         sb.AppendLine("Describe the task here on a separate line.");
         sb.AppendLine("@end");
         sb.AppendLine();
-        sb.AppendLine("Do NOT do the work yourself. Output @worker blocks now.");
+        sb.AppendLine("Produce @worker blocks for ALL workers now. Do NOT explain, do NOT summarize previous work, ONLY output @worker blocks.");
         return sb.ToString();
     }
 
@@ -2337,14 +2341,14 @@ public partial class CopilotService
                     }
                     else
                     {
-                        reflectState.ConsecutiveErrors++;
-                        if (reflectState.ConsecutiveErrors >= 3)
-                        {
-                            reflectState.IsStalled = true;
-                            reflectState.IsCancelled = true;
-                            break;
-                        }
-                        continue;
+                        // Nudge also failed — the orchestrator refuses to delegate (likely due to
+                        // stale history from a previous run). Force delegation by creating synthetic
+                        // @worker blocks that assign the original prompt to each worker.
+                        Debug($"[DISPATCH] Nudge failed, forcing delegation to all {workerNames.Count} workers");
+                        AddOrchestratorSystemMessage(orchestratorName,
+                            $"⚡ Orchestrator refused to delegate after nudge. Forcing dispatch to all {workerNames.Count} workers.");
+                        assignments = workerNames.Select(w => new TaskAssignment(w, prompt)).ToList();
+                        // Fall through to dispatch below
                     }
                 }
                 else
@@ -2691,6 +2695,7 @@ public partial class CopilotService
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("You are a DISPATCHER ONLY. You do NOT have tools. You CANNOT write code, read files, or run commands yourself.");
         sb.AppendLine("Your ONLY job is to write @worker/@end blocks that assign work to your workers.");
+        sb.AppendLine("Even if previous conversation history shows completed work, you MUST dispatch FRESH tasks now.");
         sb.AppendLine();
         sb.AppendLine("## Previous Iteration Evaluation");
         sb.AppendLine(lastEvaluation);
