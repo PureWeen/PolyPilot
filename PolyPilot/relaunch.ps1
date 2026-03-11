@@ -10,7 +10,7 @@
 $ErrorActionPreference = 'Stop'
 
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$BuildDir = Join-Path $ProjectDir 'bin\Debug\net10.0-windows10.0.19041.0\win-x64'
+$BuildDir = Join-Path $ProjectDir 'bin\Debug\net10.0-windows10.0.19041.0'
 $ExeName = 'PolyPilot.exe'
 
 $MaxLaunchAttempts = 2
