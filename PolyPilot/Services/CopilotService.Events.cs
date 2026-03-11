@@ -308,6 +308,9 @@ public partial class CopilotService
                 if (toolStart.Data == null) break;
                 Interlocked.Increment(ref state.ActiveToolCallCount);
                 state.HasUsedToolsThisTurn = true; // volatile field — no explicit barrier needed
+                // Record tool start time and schedule health check
+                Interlocked.Exchange(ref state.ToolStartedAtTicks, DateTime.UtcNow.Ticks);
+                ScheduleToolHealthCheck(state, sessionName);
                 if (state.Info.ProcessingPhase < 3)
                 {
                     state.Info.ProcessingPhase = 3; // Working
@@ -362,6 +365,8 @@ public partial class CopilotService
             case ToolExecutionCompleteEvent toolDone:
                 if (toolDone.Data == null) break;
                 Interlocked.Decrement(ref state.ActiveToolCallCount);
+                // Cancel the tool health check timer since tool completed normally
+                CancelToolHealthCheck(state);
                 Interlocked.Increment(ref state.Info._toolCallCount);
                 var completeCallId = toolDone.Data.ToolCallId ?? "";
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
@@ -444,6 +449,7 @@ public partial class CopilotService
             case AssistantTurnStartEvent:
                 // Cancel any pending TurnEnd→Idle fallback — another agent round is starting
                 CancelTurnEndFallback(state);
+                state.FallbackCanceledByTurnStart = true;
                 state.HasReceivedDeltasThisTurn = false;
                 var phaseAdvancedToThinking = state.Info.ProcessingPhase < 2;
                 if (phaseAdvancedToThinking) state.Info.ProcessingPhase = 2; // Thinking
@@ -464,7 +470,14 @@ public partial class CopilotService
                 }
                 // Schedule a delayed CompleteResponse in case SessionIdleEvent never arrives (SDK bug #299).
                 // Cancelled by AssistantTurnStartEvent (another round starting) or SessionIdleEvent (normal path).
+                // If TurnStart previously canceled the fallback, this re-arms it — creating the
+                // self-healing loop: TurnEnd → TurnStart cancel → TurnEnd re-arm → fallback fires.
                 {
+                    if (state.FallbackCanceledByTurnStart)
+                    {
+                        Debug($"[TURNEND-FALLBACK] '{sessionName}' re-arming fallback timer (was canceled by TurnStart)");
+                        state.FallbackCanceledByTurnStart = false;
+                    }
                     var turnEndGen = Interlocked.Read(ref state.ProcessingGeneration);
                     var idleFallbackCts = new CancellationTokenSource();
                     // Capture token BEFORE publishing so CancelTurnEndFallback on another thread
@@ -651,6 +664,7 @@ public partial class CopilotService
                 var errMsg = Models.ErrorMessageHelper.HumanizeMessage(err.Data?.Message ?? "Unknown error");
                 CancelProcessingWatchdog(state);
                 CancelTurnEndFallback(state);
+                CancelToolHealthCheck(state);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -862,9 +876,12 @@ public partial class CopilotService
         CancelProcessingWatchdog(state);
         // Also cancel any pending TurnEnd→Idle fallback — CompleteResponse is now executing
         CancelTurnEndFallback(state);
+        CancelToolHealthCheck(state);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
+        state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+        Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
         if (!string.IsNullOrWhiteSpace(response))
@@ -1390,6 +1407,11 @@ public partial class CopilotService
     /// <summary>If no SDK events arrive for this many seconds while a tool is actively executing, the session is considered stuck.
     /// This is much longer because legitimate tool executions (e.g., running UI tests, long builds) can take many minutes.</summary>
     internal const int WatchdogToolExecutionTimeoutSeconds = 600;
+    /// <summary>After the first Case A reset (tool running + server alive but no events), switch to this
+    /// shorter timeout for subsequent checks. This accelerates dead connection detection while still
+    /// allowing the first 600s for legitimate long-running tools. Total max stuck time becomes
+    /// 600s + (WatchdogMaxToolAliveResets × 60s) ≈ 12 minutes instead of 40 minutes.</summary>
+    internal const int WatchdogToolEscalationTimeoutSeconds = 60;
     // Sessions that USED tools but have none actively running — the model may be
     // thinking between tool rounds, but 600s is too long for a likely-dead session.
     internal const int WatchdogUsedToolsIdleTimeoutSeconds = 180;
@@ -1408,8 +1430,16 @@ public partial class CopilotService
     /// session's transport-level connection is broken (ConnectionLostException). Without this cap,
     /// Case A resets LastEventAtTicks indefinitely, and ProcessingStartedAt resets on each app
     /// restart — so neither the inactivity nor the max-time safety net ever fires.
-    /// (3+1) resets × 600s effective timeout ≈ 40 minutes max of Case A resets.</summary>
-    internal const int WatchdogMaxToolAliveResets = 3;
+    /// With escalation timeout (60s after first reset), total max stuck time is:
+    /// 600s (first) + 2 × 60s (escalation) = 720s ≈ 12 minutes.</summary>
+    internal const int WatchdogMaxToolAliveResets = 2;
+
+    /// <summary>
+    /// Milliseconds after a tool starts to perform the first health check. If no events have
+    /// arrived since tool start, we verify the connection is still alive. This detects dead
+    /// connections within ~30s instead of waiting for the 600s watchdog timeout.
+    /// </summary>
+    internal const int ToolHealthCheckIntervalMs = 30_000;
 
     /// <summary>
     /// Milliseconds to wait after AssistantTurnEndEvent before firing CompleteResponse
@@ -1434,6 +1464,144 @@ public partial class CopilotService
             state.ProcessingWatchdog.Dispose();
             state.ProcessingWatchdog = null;
         }
+    }
+
+    /// <summary>
+    /// Cancels and disposes any pending tool health check timer.
+    /// </summary>
+    private static void CancelToolHealthCheck(SessionState state)
+    {
+        var prev = Interlocked.Exchange(ref state.ToolHealthCheckTimer, null);
+        prev?.Dispose();
+    }
+
+    /// <summary>
+    /// Schedules a tool health check to run after ToolHealthCheckIntervalMs.
+    /// If the tool completes before the timer fires, the timer is cancelled.
+    /// If the timer fires and no events have arrived since tool start, we check
+    /// if the connection is still alive and trigger recovery if it's dead.
+    /// </summary>
+    private void ScheduleToolHealthCheck(SessionState state, string sessionName)
+    {
+        // Skip in demo/remote mode where we can't probe the local server
+        if (IsDemoMode || IsRemoteMode) return;
+
+        var checkGeneration = Interlocked.Read(ref state.ProcessingGeneration);
+        var timer = new Timer(_ =>
+        {
+            try
+            {
+                // Verify we're still on the same turn
+                if (Interlocked.Read(ref state.ProcessingGeneration) != checkGeneration) return;
+                if (!state.Info.IsProcessing) return;
+
+                var activeTools = Volatile.Read(ref state.ActiveToolCallCount);
+                if (activeTools <= 0) return; // Tool completed normally
+
+                // Check if any events arrived since tool start
+                var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
+                var toolStartTicks = Interlocked.Read(ref state.ToolStartedAtTicks);
+                var eventsSinceToolStart = lastEventTicks > toolStartTicks;
+
+                if (eventsSinceToolStart)
+                {
+                    // Events are still flowing - tool is legitimately running
+                    // Schedule another check
+                    Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+                    Debug($"[TOOL-HEALTH] '{sessionName}' events flowing — rescheduling health check");
+                    ScheduleToolHealthCheck(state, sessionName);
+                    return;
+                }
+
+                // No events since tool start. Check if server is alive.
+                var serverAlive = _serverManager.IsServerRunning;
+                if (!serverAlive)
+                {
+                    Debug($"[TOOL-HEALTH] '{sessionName}' server is DEAD — triggering immediate recovery");
+                    TriggerToolHealthRecovery(state, sessionName, "server not responding");
+                    return;
+                }
+
+                // Server TCP port is alive, but no events for 30s. The connection might be dead.
+                // Increment the stale check counter and check if we should recover.
+                var staleChecks = Interlocked.Increment(ref state.ToolHealthStaleChecks);
+                if (staleChecks > WatchdogMaxToolAliveResets)
+                {
+                    Debug($"[TOOL-HEALTH] '{sessionName}' {staleChecks} stale health checks — assuming dead connection");
+                    TriggerToolHealthRecovery(state, sessionName, "no events after multiple health checks (connection likely dead)");
+                    return;
+                }
+
+                Debug($"[TOOL-HEALTH] '{sessionName}' no events for {ToolHealthCheckIntervalMs/1000}s, server alive — " +
+                      $"check {staleChecks}/{WatchdogMaxToolAliveResets}, scheduling another check");
+                ScheduleToolHealthCheck(state, sessionName);
+            }
+            catch (Exception ex)
+            {
+                Debug($"[TOOL-HEALTH] '{sessionName}' check failed: {ex.Message}");
+            }
+        }, null, Timeout.Infinite, Timeout.Infinite); // Don't start yet — store first to avoid race
+
+        var prev = Interlocked.Exchange(ref state.ToolHealthCheckTimer, timer);
+        prev?.Dispose();
+        timer.Change(ToolHealthCheckIntervalMs, Timeout.Infinite); // Now start
+    }
+
+    /// <summary>
+    /// Triggers recovery when tool health check detects a dead connection.
+    /// Clears the stuck processing state and notifies the user.
+    /// </summary>
+    private void TriggerToolHealthRecovery(SessionState state, string sessionName, string reason)
+    {
+        CancelToolHealthCheck(state);
+        CancelProcessingWatchdog(state);
+        CancelTurnEndFallback(state);
+
+        var activeTools = Volatile.Read(ref state.ActiveToolCallCount);
+        Debug($"[TOOL-HEALTH] '{sessionName}' triggering recovery: {reason} (activeTools={activeTools})");
+
+        InvokeOnUI(() =>
+        {
+            if (!state.Info.IsProcessing) return;
+
+            OnError?.Invoke(sessionName, $"Tool execution stuck ({reason}). Session recovered automatically.");
+
+            // Full cleanup mirroring CompleteResponse — missing fields here caused stuck sessions
+            Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+            state.HasUsedToolsThisTurn = false;
+            state.FallbackCanceledByTurnStart = false;
+            Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+            Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
+            Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+
+            // Build full response: flushed mid-turn text + remaining current text
+            var response = state.CurrentResponse.ToString();
+            var fullResponse = state.FlushedResponse.Length > 0
+                ? (string.IsNullOrEmpty(response)
+                    ? state.FlushedResponse.ToString()
+                    : state.FlushedResponse + "\n\n" + response)
+                : response;
+
+            state.CurrentResponse.Clear();
+            state.FlushedResponse.Clear();
+            state.PendingReasoningMessages.Clear();
+
+            state.Info.IsProcessing = false;
+            state.Info.IsResumed = false;
+            Interlocked.Exchange(ref state.SendingFlag, 0);
+            state.Info.ProcessingStartedAt = null;
+            state.Info.ToolCallCount = 0;
+            state.Info.ProcessingPhase = 0;
+            state.Info.ClearPermissionDenials();
+
+            state.ResponseCompletion?.TrySetResult(fullResponse);
+
+            Debug($"[TOOL-HEALTH-COMPLETE] '{sessionName}' recovery finished (responseLen={fullResponse.Length})");
+
+            var summary = fullResponse.Length > 0 ? (fullResponse.Length > 100 ? fullResponse[..100] + "..." : fullResponse) : "";
+            OnSessionComplete?.Invoke(sessionName, summary);
+            OnStateChanged?.Invoke();
+        });
     }
 
     /// <summary>
@@ -1551,13 +1719,22 @@ public partial class CopilotService
 
                 var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence);
                 var useUsedToolsTimeout = !useToolTimeout && hasUsedTools && !hasActiveTool;
+                
+                // After the first Case A reset (tool running + server alive but no events arrived),
+                // switch to the escalation timeout. This allows the first 600s for legitimate long-running
+                // tools, but speeds up dead connection detection on subsequent checks.
+                var caseAResets = Volatile.Read(ref state.WatchdogCaseAResets);
+                var useEscalationTimeout = useToolTimeout && caseAResets > 0;
+                
                 var effectiveTimeout = useResumeQuiescence
                     ? WatchdogResumeQuiescenceTimeoutSeconds
-                    : useToolTimeout
-                        ? WatchdogToolExecutionTimeoutSeconds
-                        : useUsedToolsTimeout
-                            ? WatchdogUsedToolsIdleTimeoutSeconds
-                            : WatchdogInactivityTimeoutSeconds;
+                    : useEscalationTimeout
+                        ? WatchdogToolEscalationTimeoutSeconds
+                        : useToolTimeout
+                            ? WatchdogToolExecutionTimeoutSeconds
+                            : useUsedToolsTimeout
+                                ? WatchdogUsedToolsIdleTimeoutSeconds
+                                : WatchdogInactivityTimeoutSeconds;
 
                 // Safety net: check absolute max processing time, but only if events have also
                 // gone stale. If events are still flowing (elapsed < effectiveTimeout), the session
@@ -1599,25 +1776,58 @@ public partial class CopilotService
                     {
                         if (hasActiveTool && !IsDemoMode && !IsRemoteMode)
                         {
-                            // Case A: check server TCP port
+                            // Case A: check server TCP port + events.jsonl freshness
                             var serverAlive = _serverManager.IsServerRunning;
                             if (serverAlive)
                             {
-                                var resets = Interlocked.Increment(ref state.WatchdogCaseAResets);
-                                if (resets > WatchdogMaxToolAliveResets)
+                                // Check if the CLI is actively writing events for this session.
+                                // events.jsonl is written by the CLI process, not our app.
+                                // If recently modified → tool is actively running → wait indefinitely.
+                                // If stale → connection is likely dead → kill immediately.
+                                var eventsFileActive = false;
+                                try
                                 {
-                                    // Too many consecutive resets with no real SDK events — the
-                                    // session's JSON-RPC connection is likely dead even though the
-                                    // shared persistent server is still alive. Fall through to kill.
-                                    Debug($"[WATCHDOG] '{sessionName}' Case A reset cap exceeded ({resets}/{WatchdogMaxToolAliveResets}) " +
-                                          $"— killing despite server alive (elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                    var sessionId = state.Info.SessionId;
+                                    if (!string.IsNullOrEmpty(sessionId))
+                                    {
+                                        var eventsPath = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+                                        if (File.Exists(eventsPath))
+                                        {
+                                            var lastWrite = File.GetLastWriteTimeUtc(eventsPath);
+                                            var fileAge = (DateTime.UtcNow - lastWrite).TotalSeconds;
+                                            eventsFileActive = fileAge < 60; // modified within last 60s
+                                        }
+                                    }
+                                }
+                                catch { /* filesystem errors → fall through to reset-cap logic */ }
+
+                                if (eventsFileActive)
+                                {
+                                    // Events file is fresh — tool is actively running. Wait indefinitely.
+                                    Debug($"[WATCHDOG] '{sessionName}' tool is running and events.jsonl is fresh — waiting indefinitely " +
+                                          $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                    Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                    Interlocked.Exchange(ref state.WatchdogCaseAResets, 0); // reset counter since tool is active
+                                    continue;
                                 }
                                 else
                                 {
-                                    Debug($"[WATCHDOG] '{sessionName}' {elapsed:F0}s inactivity but tool is running and server is alive — resetting timer " +
-                                          $"(reset #{resets}/{WatchdogMaxToolAliveResets}, timeout={effectiveTimeout}s, totalProcessing={totalProcessingSeconds:F0}s)");
-                                    Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
-                                    continue; // keep waiting — don't kill
+                                    // Events file is stale or missing — connection is likely dead.
+                                    // Use the reset-cap as a safety buffer (1 more cycle to confirm).
+                                    var resets = Interlocked.Increment(ref state.WatchdogCaseAResets);
+                                    if (resets > 1) // Only need 1 confirmation cycle since we have file evidence
+                                    {
+                                        Debug($"[WATCHDOG] '{sessionName}' events.jsonl stale and reset count {resets} > 1 " +
+                                              $"— killing despite server alive (elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                        // fall through to kill
+                                    }
+                                    else
+                                    {
+                                        Debug($"[WATCHDOG] '{sessionName}' events.jsonl stale but giving 1 more cycle " +
+                                              $"(reset #{resets}, elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                        continue;
+                                    }
                                 }
                             }
                             else
@@ -1673,6 +1883,7 @@ public partial class CopilotService
                             return;
                         }
                         CancelProcessingWatchdog(state);
+                        CancelToolHealthCheck(state);
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -1810,6 +2021,7 @@ public partial class CopilotService
             // Cancel old watchdog AND TurnEnd fallback BEFORE creating new state
             CancelProcessingWatchdog(state);
             CancelTurnEndFallback(state);
+            CancelToolHealthCheck(state);
 
             // Bug B fix: Cancel the old ResponseCompletion TCS so the original
             // SendPromptAsync awaiter doesn't hang forever.

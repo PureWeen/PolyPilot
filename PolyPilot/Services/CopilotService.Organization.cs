@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using PolyPilot.Models;
@@ -29,8 +30,11 @@ public partial class CopilotService
 {
     public event Action<string, OrchestratorPhase, string?>? OnOrchestratorPhaseChanged; // groupId, phase, detail
 
-    /// <summary>Maximum time a single worker is allowed to run before being cancelled.</summary>
-    private static readonly TimeSpan WorkerExecutionTimeout = TimeSpan.FromMinutes(10);
+    /// <summary>Maximum time a single worker is allowed to run before being cancelled.
+    /// Set high (60 min) because the smart watchdog (events.jsonl freshness) handles dead
+    /// session detection in ~90s. This is only an absolute backstop.</summary>
+    private static readonly TimeSpan WorkerExecutionTimeout = TimeSpan.FromMinutes(60);
+    private static readonly TimeSpan WorkerExecutionTimeoutRemote = TimeSpan.FromMinutes(10);
 
     // Per-session semaphores to prevent concurrent model switches during rapid dispatch
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _modelSwitchLocks = new();
@@ -1151,8 +1155,14 @@ public partial class CopilotService
         {
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, null));
 
-            var workerTasks = assignments.Select(a =>
-                ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
+            Debug($"[DISPATCH] Staggering {assignments.Count} workers with 1s delay");
+            var workerTasks = new List<Task<WorkerResult>>();
+            foreach (var a in assignments)
+            {
+                workerTasks.Add(ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, cancellationToken));
+                if (workerTasks.Count < assignments.Count)
+                    await Task.Delay(1000, cancellationToken);
+            }
             var results = await Task.WhenAll(workerTasks);
 
             // Phase 4: Synthesize — send worker results back to orchestrator
@@ -1360,43 +1370,54 @@ public partial class CopilotService
 
         var workerPrompt = $"{identity}{worktreeNote}\n\nYour response will be collected and synthesized with other workers' responses.\n\n{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
 
-        try
+        const int maxRetries = 2;
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            Debug($"[DISPATCH] Worker '{workerName}' starting (prompt len={workerPrompt.Length})");
-            var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
-
-            // Worker revival: empty response means the session died (e.g., dead SSE stream
-            // after reconnect). Create a fresh session and retry once.
-            if (string.IsNullOrWhiteSpace(response))
+            try
             {
-                Debug($"[DISPATCH] Worker '{workerName}' returned empty — attempting fresh session revival");
-                if (_sessions.TryGetValue(workerName, out var deadState))
-                {
-                    try { await deadState.Session.DisposeAsync(); } catch { }
+                Debug($"[DISPATCH] Worker '{workerName}' starting (prompt len={workerPrompt.Length}, attempt={attempt})");
+                var response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
 
-                    var workerMeta = GetSessionMeta(workerName);
-                    var client = GetClientForGroup(workerMeta?.GroupId);
-                    if (client != null)
+                // Worker revival: empty response means the session died (e.g., dead SSE stream
+                // after reconnect). Create a fresh session and retry once.
+                if (string.IsNullOrWhiteSpace(response))
+                {
+                    Debug($"[DISPATCH] Worker '{workerName}' returned empty — attempting fresh session revival");
+                    if (_sessions.TryGetValue(workerName, out var deadState))
                     {
-                        var freshConfig = BuildFreshSessionConfig(deadState);
-                        var freshSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
-                        deadState.Info.SessionId = freshSession.SessionId;
-                        var freshState = new SessionState { Session = freshSession, Info = deadState.Info };
-                        _sessions[workerName] = freshState;
-                        Debug($"[DISPATCH] Worker '{workerName}' revived with fresh session '{freshSession.SessionId}'");
-                        response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
+                        try { await deadState.Session.DisposeAsync(); } catch { }
+
+                        var workerMeta = GetSessionMeta(workerName);
+                        var client = GetClientForGroup(workerMeta?.GroupId);
+                        if (client != null)
+                        {
+                            var freshConfig = BuildFreshSessionConfig(deadState);
+                            var freshSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
+                            deadState.Info.SessionId = freshSession.SessionId;
+                            var freshState = new SessionState { Session = freshSession, Info = deadState.Info };
+                            _sessions[workerName] = freshState;
+                            Debug($"[DISPATCH] Worker '{workerName}' revived with fresh session '{freshSession.SessionId}'");
+                            response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
+                        }
                     }
                 }
-            }
 
-            Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response?.Length ?? 0}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
-            return new WorkerResult(workerName, response, true, null, sw.Elapsed);
+                Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response?.Length ?? 0}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
+                return new WorkerResult(workerName, response, true, null, sw.Elapsed);
+            }
+            catch (Exception ex) when (attempt < maxRetries && IsConnectionError(ex))
+            {
+                Debug($"[DISPATCH] Worker '{workerName}' attempt {attempt} failed with {ex.GetType().Name} — retrying in 2s");
+                await Task.Delay(2000, cancellationToken);
+                continue;
+            }
+            catch (Exception ex)
+            {
+                Debug($"[DISPATCH] Worker '{workerName}' FAILED: {ex.GetType().Name}: {ex.Message} (elapsed={sw.Elapsed.TotalSeconds:F1}s)");
+                return new WorkerResult(workerName, null, false, ex.Message, sw.Elapsed);
+            }
         }
-        catch (Exception ex)
-        {
-            Debug($"[DISPATCH] Worker '{workerName}' FAILED: {ex.GetType().Name}: {ex.Message} (elapsed={sw.Elapsed.TotalSeconds:F1}s)");
-            return new WorkerResult(workerName, null, false, ex.Message, sw.Elapsed);
-        }
+        throw new UnreachableException(); // for loop always returns or continues
     }
 
     private async Task<string> SendPromptAndWaitAsync(string sessionName, string prompt, CancellationToken cancellationToken, string? originalPrompt = null)
@@ -1405,7 +1426,7 @@ public partial class CopilotService
         // Do NOT capture state and await its TCS separately: reconnection replaces the state
         // object, orphaning the old TCS and causing a 10-minute hang.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(WorkerExecutionTimeout);
+        cts.CancelAfter(IsDemoMode || IsRemoteMode ? WorkerExecutionTimeoutRemote : WorkerExecutionTimeout);
         // Wire CTS to ResponseCompletion TCS so the 10-minute timeout actually cancels the await.
         // Must look up from _sessions dict (not captured ref) since reconnect replaces state.
         await using var ctsReg = cts.Token.Register(() =>
@@ -1640,6 +1661,69 @@ public partial class CopilotService
                 $"🔄 Re-dispatching {unstartedWorkers.Count} worker(s) that never started: {string.Join(", ", unstartedWorkers)}");
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Dispatching,
                 $"Re-dispatching {unstartedWorkers.Count} worker(s)"));
+
+            // BUG FIX: Clear stuck IsProcessing state on workers before re-dispatch.
+            // After an app restart, workers may have IsProcessing=true from a previous
+            // incomplete turn (e.g., tool.execution_start with no tool.execution_complete).
+            // This prevents SendPromptAsync from accepting new prompts. Clear it here
+            // so re-dispatch can actually send the prompt.
+            foreach (var workerName in unstartedWorkers)
+            {
+                if (_sessions.TryGetValue(workerName, out var workerState) && workerState.Info.IsProcessing)
+                {
+                    Debug($"[DISPATCH] Clearing stuck IsProcessing on '{workerName}' before re-dispatch");
+                    // Cancel timers first (thread-safe — use Interlocked internally)
+                    CancelProcessingWatchdog(workerState);
+                    CancelTurnEndFallback(workerState);
+                    CancelToolHealthCheck(workerState);
+
+                    // Must run on UI thread per INV-2; use TCS to synchronize
+                    var tcs = new TaskCompletionSource<bool>();
+                    InvokeOnUI(() =>
+                    {
+                        try
+                        {
+                            if (!workerState.Info.IsProcessing) { tcs.TrySetResult(true); return; }
+
+                            // Full cleanup mirroring CompleteResponse / tool-health recovery
+                            Interlocked.Exchange(ref workerState.ActiveToolCallCount, 0);
+                            Interlocked.Exchange(ref workerState.SendingFlag, 0);
+                            Interlocked.Exchange(ref workerState.SuccessfulToolCountThisTurn, 0);
+                            Interlocked.Exchange(ref workerState.WatchdogCaseAResets, 0);
+                            workerState.HasUsedToolsThisTurn = false;
+                            workerState.FallbackCanceledByTurnStart = false;
+                            workerState.Info.IsResumed = false;
+                            workerState.Info.ProcessingStartedAt = null;
+                            workerState.Info.ToolCallCount = 0;
+                            workerState.Info.ProcessingPhase = 0;
+                            workerState.Info.ClearPermissionDenials();
+
+                            var response = workerState.CurrentResponse.ToString();
+                            var fullResponse = workerState.FlushedResponse.Length > 0
+                                ? (string.IsNullOrEmpty(response)
+                                    ? workerState.FlushedResponse.ToString()
+                                    : workerState.FlushedResponse + "\n\n" + response)
+                                : response;
+
+                            workerState.CurrentResponse.Clear();
+                            workerState.FlushedResponse.Clear();
+                            workerState.PendingReasoningMessages.Clear();
+                            workerState.Info.IsProcessing = false;
+
+                            workerState.ResponseCompletion?.TrySetResult(fullResponse);
+                            var summary = fullResponse.Length > 0 ? (fullResponse.Length > 100 ? fullResponse[..100] + "..." : fullResponse) : "";
+                            OnSessionComplete?.Invoke(workerName, summary);
+                            OnStateChanged?.Invoke();
+                            tcs.TrySetResult(true);
+                        }
+                        catch (Exception ex)
+                        {
+                            tcs.TrySetException(ex);
+                        }
+                    });
+                    await tcs.Task;
+                }
+            }
 
             // Build a generic task from the original prompt for re-dispatched workers.
             // Materialize as an array so we can inspect individual task results even on partial failure.

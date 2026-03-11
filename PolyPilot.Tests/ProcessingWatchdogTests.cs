@@ -2457,9 +2457,10 @@ public class ProcessingWatchdogTests
     [Fact]
     public void CaseA_ExceedingMaxResets_FallsThroughToKill_InSource()
     {
-        // Verify the watchdog's Case A checks WatchdogMaxToolAliveResets and falls
-        // through when exceeded. This is the core fix for the stuck-session bug where
-        // a dead session's tool appears active but no events ever arrive.
+        // Verify the watchdog's Case A uses events.jsonl freshness checks and falls
+        // through when the file is stale and the confirmation cycle is exceeded.
+        // This is the core fix for the stuck-session bug where a dead session's tool
+        // appears active but no events ever arrive.
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
@@ -2467,10 +2468,10 @@ public class ProcessingWatchdogTests
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
         var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
 
-        // Case A must reference WatchdogMaxToolAliveResets
-        Assert.True(watchdogBody.Contains("WatchdogMaxToolAliveResets"),
-            "Case A must check WatchdogMaxToolAliveResets to cap consecutive resets");
-        // Case A must increment WatchdogCaseAResets
+        // Case A must check events.jsonl freshness
+        Assert.True(watchdogBody.Contains("events.jsonl"),
+            "Case A must check events.jsonl freshness to distinguish active tools from dead connections");
+        // Case A must increment WatchdogCaseAResets for confirmation cycles
         Assert.True(watchdogBody.Contains("WatchdogCaseAResets"),
             "Case A must track reset count via state.WatchdogCaseAResets");
     }
