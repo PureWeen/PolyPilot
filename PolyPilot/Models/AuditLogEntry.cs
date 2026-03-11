@@ -23,11 +23,7 @@ public class AuditLogEntry
 
     public string ToJsonLine()
     {
-        return JsonSerializer.Serialize(this, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        });
+        return JsonSerializer.Serialize(this, AuditLogJsonContext.Default.AuditLogEntry);
     }
 }
 
@@ -49,8 +45,15 @@ public static class AuditEventTypes
     public const string SessionError = "SESSION_ERROR";
 }
 
-// Source-generated JSON context for trimmer-safe serialization
+// Source-generated JSON context for trimmer-safe serialization.
+// Must include all value types that appear in Details dictionary.
 [JsonSerializable(typeof(AuditLogEntry))]
+[JsonSerializable(typeof(int))]
+[JsonSerializable(typeof(long))]
+[JsonSerializable(typeof(double))]
+[JsonSerializable(typeof(bool))]
+[JsonSerializable(typeof(string))]
+[JsonSerializable(typeof(Dictionary<string, object?>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
