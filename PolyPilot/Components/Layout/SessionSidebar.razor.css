@@ -255,6 +255,9 @@
     user-select: none;
 }
 .unpinned-toggle:hover { background: var(--hover-bg); }
+.unpinned-toggle.worker-toggle {
+    padding-left: 1.6rem;
+}
 
 .unpinned-chevron {
     font-size: 0.55rem;

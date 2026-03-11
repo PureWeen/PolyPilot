@@ -330,11 +330,7 @@ else
                             </button>
                         }
                     }
-                    <div class="preset-divider">or create empty team:</div>
-                    <input type="text" class="new-group-input" id="newGroupInput"
-                           placeholder="Custom team name..."
-                           @onblur="CommitNewGroup"
-                           @onkeydown="HandleNewGroupKeyDown" />
+                    @* Ad-hoc creation removed — users must select a preset *@
                 </div>
             }
             else
@@ -681,6 +677,89 @@ else
                                 </div>
                             }
                         }
+                        @if (group.IsMultiAgent)
+                        {
+                            @* Multi-agent: orchestrator first, then workers as children.
+                               GetFilteredSessions (pin-based splitting) is intentionally skipped here —
+                               workers are presented as a collapsible unit under the orchestrator rather than
+                               individually pin-filtered. The UnpinnedCollapsed flag drives the worker toggle. *@
+                            var orchName = CopilotService.GetOrchestratorSession(group.Id);
+                            var orchSession = orchName != null ? groupSessions.FirstOrDefault(s => s.Name == orchName) : null;
+                            if (orchSession != null)
+                            {
+                                sessionIndex++;
+                                var orchIdx = sessionIndex;
+                                var orchMeta = CopilotService.GetSessionMeta(orchSession.Name);
+                                var orchSName = orchSession.Name;
+                                <SessionListItem Session="orchSession"
+                                                 Meta="orchMeta"
+                                                 IsActive="@(orchSession.Name == CopilotService.ActiveSessionName)"
+                                                 IsCompleted="@completedSessions.Contains(orchSession.Name)"
+                                                 IsDisabled="@(group.IsCodespace && group.ConnectionState != CodespaceConnectionState.Connected)"
+                                                 IsRenaming="@(renamingSession == orchSession.Name)"
+                                                 IsMenuOpen="@(openMenuSession == orchSession.Name)"
+                                                 ShortcutIndex="orchIdx"
+                                                 Groups="CopilotService.Organization.Groups"
+                                                 UsageInfo="@(usageBySession.TryGetValue(orchSession.Name, out var orchUsg) ? orchUsg : null)"
+                                                 OnSelect="() => SelectSession(orchSName)"
+                                                 OnClose="() => CloseSession(orchSName)"
+                                                 OnCloseWithOptions="(opts) => CloseSessionWithOptions(orchSName, opts.DeleteWorktree, opts.DeleteBranch)"
+                                                 OnPin="(pinned) => { CopilotService.PinSession(orchSName, pinned); }"
+                                                 OnMove="(groupId) => CopilotService.MoveSession(orchSName, groupId)"
+                                                 OnStartRename="() => StartRename(orchSName)"
+                                                 OnCommitRename="CommitRename"
+                                                 OnToggleMenu="() => ToggleSessionMenu(orchSName)"
+                                                 OnCloseMenu="() => { openMenuSession = null; }"
+                                                 OnReportBug="() => OpenBugReportForSession(orchSName)"
+                                                 OnFixWithCopilot="() => OpenFixItForSession(orchSName)"
+                                                 OnAnalyze="() => AnalyzeSessionEfficiency(orchSName)" />
+                            }
+                            var workerSessions = groupSessions.Where(s => s.Name != orchName).ToList();
+                            var workerCount = workerSessions.Count;
+                            if (workerCount > 0)
+                            {
+                                var wToggleGroupId = group.Id;
+                                <div class="unpinned-toggle worker-toggle" @onclick="() => CopilotService.ToggleUnpinnedCollapsed(wToggleGroupId)" @onclick:stopPropagation="true">
+                                    <span class="unpinned-chevron">@(group.UnpinnedCollapsed ? "▶" : "▼")</span>
+                                    <span class="unpinned-label">👷 @workerCount @(workerCount != 1 ? "workers" : "worker")</span>
+                                </div>
+                                @if (!group.UnpinnedCollapsed)
+                                {
+                                    @foreach (var session in workerSessions)
+                                    {
+                                        sessionIndex++;
+                                        var wIdx = sessionIndex;
+                                        var wMeta = CopilotService.GetSessionMeta(session.Name);
+                                        var wSName = session.Name;
+                                        <SessionListItem Session="session"
+                                                         Meta="wMeta"
+                                                         IsActive="@(session.Name == CopilotService.ActiveSessionName)"
+                                                         IsCompleted="@completedSessions.Contains(session.Name)"
+                                                         IsDisabled="@(group.IsCodespace && group.ConnectionState != CodespaceConnectionState.Connected)"
+                                                         IsWorkerChild="true"
+                                                         IsRenaming="@(renamingSession == session.Name)"
+                                                         IsMenuOpen="@(openMenuSession == session.Name)"
+                                                         ShortcutIndex="wIdx"
+                                                         Groups="CopilotService.Organization.Groups"
+                                                         UsageInfo="@(usageBySession.TryGetValue(session.Name, out var wUsg) ? wUsg : null)"
+                                                         OnSelect="() => SelectSession(wSName)"
+                                                         OnClose="() => CloseSession(wSName)"
+                                                         OnCloseWithOptions="(opts) => CloseSessionWithOptions(wSName, opts.DeleteWorktree, opts.DeleteBranch)"
+                                                         OnPin="(pinned) => { CopilotService.PinSession(wSName, pinned); }"
+                                                         OnMove="(groupId) => CopilotService.MoveSession(wSName, groupId)"
+                                                         OnStartRename="() => StartRename(wSName)"
+                                                         OnCommitRename="CommitRename"
+                                                         OnToggleMenu="() => ToggleSessionMenu(wSName)"
+                                                         OnCloseMenu="() => { openMenuSession = null; }"
+                                                         OnReportBug="() => OpenBugReportForSession(wSName)"
+                                                         OnFixWithCopilot="() => OpenFixItForSession(wSName)"
+                                                         OnAnalyze="() => AnalyzeSessionEfficiency(wSName)" />
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
                         @foreach (var session in GetFilteredSessions(groupSessions, group, true))
                         {
                             sessionIndex++;
@@ -746,6 +825,7 @@ else
                                              OnReportBug="() => OpenBugReportForSession(sName)"
                                              OnFixWithCopilot="() => OpenFixItForSession(sName)"
                                              OnAnalyze="() => AnalyzeSessionEfficiency(sName)" />
+                        }
                         }
                     }
                 }
