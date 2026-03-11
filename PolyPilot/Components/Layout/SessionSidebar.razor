@@ -1209,10 +1209,9 @@ else
             await JS.InvokeVoidAsync("eval", "window.__sidebarRef = null;");
             await JS.InvokeVoidAsync("__setSidebarRef", _sidebarRef);
 
-            // Push current provider commands into the autocomplete JS layer
+            // Push current provider commands into the autocomplete JS layer (send even if empty)
             var providerCmds = CopilotService.GetAllProviderCommandDtos();
-            if (providerCmds.Count > 0)
-                await JS.InvokeVoidAsync("updateProviderCommands", providerCmds);
+            await JS.InvokeVoidAsync("updateProviderCommands", providerCmds);
         }
     }
 
@@ -1234,13 +1233,14 @@ else
             if (!_sidebarRefreshPending)
             {
                 _sidebarRefreshPending = true;
-                _ = Task.Delay(500).ContinueWith(_ => InvokeAsync(() => {
+                _ = Task.Delay(500).ContinueWith(_ => InvokeAsync(async () => {
                     _sidebarRefreshPending = false;
                     _lastSidebarRefresh = DateTime.UtcNow;
                     sessions = CopilotService.GetAllSessions().ToList();
                     if (CopilotService.IsRemoteMode)
                         persistedSessions = CopilotService.GetPersistedSessions().ToList();
                     StateHasChanged();
+                    try { await JS.InvokeVoidAsync("updateProviderCommands", CopilotService.GetAllProviderCommandDtos()); } catch { }
                 }));
             }
             return;
@@ -1251,7 +1251,11 @@ else
         // so refresh them on state change. On desktop, skip — it scans all session directories.
         if (CopilotService.IsRemoteMode)
             persistedSessions = CopilotService.GetPersistedSessions().ToList();
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            try { await JS.InvokeVoidAsync("updateProviderCommands", CopilotService.GetAllProviderCommandDtos()); } catch { }
+        });
     }
 
     private void OnRepoStateChanged() => InvokeAsync(StateHasChanged);
@@ -2683,6 +2687,9 @@ Important conventions:
         _autoCloseCts?.Cancel();
         _autoCloseCts?.Dispose();
         _diskSizeTimer?.Dispose();
+        // Null out JS reference before disposing to prevent ObjectDisposedException
+        // if JS invokes the stale reference during teardown
+        try { _ = JS.InvokeVoidAsync("eval", "window.__sidebarRef = null;"); } catch { }
         _sidebarRef?.Dispose();
         CopilotService.OnStateChanged -= RefreshSessions;
         CopilotService.OnSessionComplete -= HandleSessionComplete;

@@ -867,7 +867,7 @@
                     hideDropdown();
                     target.dispatchEvent(new Event('input', { bubbles: true }));
                     if (window.__sidebarRef) {
-                        window.__sidebarRef.invokeMethodAsync('ExecuteProviderSlashCommand', option.providerId, option.actionId);
+                        window.__sidebarRef.invokeMethodAsync('ExecuteProviderSlashCommand', option.providerId, option.actionId).catch(console.error);
                     }
                     return;
                 }
