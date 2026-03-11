@@ -196,6 +196,7 @@ public partial class DevTunnelService : IDisposable
 
         SetState(TunnelState.Starting);
         _tunnelUrl = null;
+        var hostStopwatch = Stopwatch.StartNew();
 
         // Load saved tunnel ID for reuse (keeps same URL across restarts)
         var settings = ConnectionSettings.Load();
@@ -237,7 +238,7 @@ public partial class DevTunnelService : IDisposable
             if (!success)
             {
                 var lastError = _errorMessage;
-                Stop();
+                Stop(cleanClose: false);
                 // Stop() clears _errorMessage via SetState(NotStarted).
                 // Restore the error (or a generic fallback) so the user sees what went wrong.
                 SetError(lastError ?? "DevTunnel failed to start");
@@ -265,12 +266,13 @@ public partial class DevTunnelService : IDisposable
                 _bridge.AccessToken = _accessToken;
 
             SetState(TunnelState.Running);
-            _ = _auditLog?.LogDevtunnelConnectionEstablished(null, _tunnelId, _tunnelUrl, 0);
+            hostStopwatch.Stop();
+            _ = _auditLog?.LogDevtunnelConnectionEstablished(null, _tunnelId, _tunnelUrl, hostStopwatch.ElapsedMilliseconds);
             return true;
         }
         catch (Exception ex)
         {
-            Stop();
+            Stop(cleanClose: false);
             SetError($"Host error: {ex.Message}");
             _ = _auditLog?.LogDevtunnelConnectionFailed(null, _tunnelId, ex.Message);
             return false;
@@ -454,10 +456,10 @@ public partial class DevTunnelService : IDisposable
     /// <summary>
     /// Stop the hosted tunnel
     /// </summary>
-    public void Stop()
+    public void Stop(bool cleanClose = true)
     {
         SetState(TunnelState.Stopping);
-        _ = _auditLog?.LogSessionClosed(null, 0, cleanClose: true, closeReason: "DevTunnel stopped");
+        _ = _auditLog?.LogSessionClosed(null, 0, cleanClose, cleanClose ? "DevTunnel stopped" : "DevTunnel stopped after error");
         try
         {
             if (_hostProcess != null && !_hostProcess.HasExited)

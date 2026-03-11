@@ -41,6 +41,7 @@ public static class AuditEventTypes
     public const string CodespaceSshHandshakeFailure = "CODESPACE_SSH_HANDSHAKE_FAILURE";
     public const string CopilotHeadlessStart = "COPILOT_HEADLESS_START";
     public const string CopilotHeadlessFailure = "COPILOT_HEADLESS_FAILURE";
+    public const string CopilotHeadlessIndeterminate = "COPILOT_HEADLESS_INDETERMINATE";
     public const string DevtunnelTokenAcquired = "DEVTUNNEL_TOKEN_ACQUIRED";
     public const string DevtunnelConnectionEstablished = "DEVTUNNEL_CONNECTION_ESTABLISHED";
     public const string DevtunnelConnectionFailed = "DEVTUNNEL_CONNECTION_FAILED";

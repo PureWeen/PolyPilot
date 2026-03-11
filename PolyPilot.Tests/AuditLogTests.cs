@@ -132,6 +132,18 @@ public class AuditLogTests : IDisposable
         Assert.Equal("SSH", entry.Details["error_category"]?.ToString());
     }
 
+    [Fact]
+    public async Task LogCopilotHeadlessIndeterminate_WritesCorrectFields()
+    {
+        await _auditLog.LogCopilotHeadlessIndeterminate("cs-1", "sess-3", "FAILED");
+
+        var entry = await ReadLastEntry();
+        Assert.Equal("COPILOT_HEADLESS_INDETERMINATE", entry.EventType);
+        Assert.Equal("cs-1", entry.Details["codespace_name"]?.ToString());
+        Assert.Equal("FAILED", entry.Details["probe_result"]?.ToString());
+        Assert.Equal("tunnel_probe", entry.Details["determined_by"]?.ToString());
+    }
+
     // ── Sanitization ────────────────────────────────────────────────────────
 
     [Fact]
@@ -241,19 +253,29 @@ public class AuditLogTests : IDisposable
     [Fact]
     public void PurgeOldLogs_DeletesOldFiles()
     {
-        // Create a "old" file with backdated creation time
+        // Create an "old" file with a date >30 days ago in the filename
         var oldFile = Path.Combine(_testDir, "audit_2024-01-01.jsonl");
         File.WriteAllText(oldFile, "{\"event_type\":\"OLD\"}\n");
-        File.SetCreationTimeUtc(oldFile, DateTime.UtcNow.AddDays(-31));
 
-        // Create a "recent" file
+        // Create a "recent" file with a future date in the filename
         var recentFile = Path.Combine(_testDir, "audit_2099-01-01.jsonl");
         File.WriteAllText(recentFile, "{\"event_type\":\"RECENT\"}\n");
 
         _auditLog.PurgeOldLogs();
 
-        Assert.False(File.Exists(oldFile), "Old file should be deleted");
+        Assert.False(File.Exists(oldFile), "Old file should be deleted (filename date > 30 days)");
         Assert.True(File.Exists(recentFile), "Recent file should be kept");
+    }
+
+    [Fact]
+    public void PurgeOldLogs_IgnoresFilesWithUnparsableNames()
+    {
+        var oddFile = Path.Combine(_testDir, "audit_not-a-date.jsonl");
+        File.WriteAllText(oddFile, "{\"event_type\":\"ODD\"}\n");
+
+        _auditLog.PurgeOldLogs();
+
+        Assert.True(File.Exists(oddFile), "Files with unparsable names should be kept");
     }
 
     // ── AuditLogEntry serialization ─────────────────────────────────────────
@@ -282,6 +304,7 @@ public class AuditLogTests : IDisposable
         Assert.Equal("CODESPACE_SSH_HANDSHAKE_FAILURE", AuditEventTypes.CodespaceSshHandshakeFailure);
         Assert.Equal("COPILOT_HEADLESS_START", AuditEventTypes.CopilotHeadlessStart);
         Assert.Equal("COPILOT_HEADLESS_FAILURE", AuditEventTypes.CopilotHeadlessFailure);
+        Assert.Equal("COPILOT_HEADLESS_INDETERMINATE", AuditEventTypes.CopilotHeadlessIndeterminate);
         Assert.Equal("DEVTUNNEL_TOKEN_ACQUIRED", AuditEventTypes.DevtunnelTokenAcquired);
         Assert.Equal("DEVTUNNEL_CONNECTION_ESTABLISHED", AuditEventTypes.DevtunnelConnectionEstablished);
         Assert.Equal("DEVTUNNEL_CONNECTION_FAILED", AuditEventTypes.DevtunnelConnectionFailed);

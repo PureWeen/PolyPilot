@@ -109,8 +109,17 @@ public sealed class AuditLogService : IDisposable
             {
                 try
                 {
-                    if (File.GetCreationTimeUtc(file) < cutoff)
+                    // Parse date from filename (audit_YYYY-MM-DD.jsonl) instead of
+                    // filesystem timestamps — GetCreationTimeUtc is unreliable on Linux
+                    // where it falls back to mtime (always "now" for appended files).
+                    var name = Path.GetFileNameWithoutExtension(file);
+                    if (name.Length >= 16 // "audit_YYYY-MM-DD"
+                        && DateTime.TryParseExact(name[6..], "yyyy-MM-dd", null,
+                            System.Globalization.DateTimeStyles.None, out var fileDate)
+                        && fileDate < cutoff.Date)
+                    {
                         File.Delete(file);
+                    }
                 }
                 catch { /* best-effort cleanup */ }
             }
@@ -233,6 +242,23 @@ public sealed class AuditLogService : IDisposable
             {
                 ["codespace_name"] = codespaceName,
                 ["error_message"] = SanitizeErrorMessage(errorMessage)
+            }
+        });
+    }
+
+    // Event 5b: Copilot headless status indeterminate (SSH worked, but startup
+    // probe was inconclusive — tunnel probe will determine actual status)
+    public Task LogCopilotHeadlessIndeterminate(string codespaceName, string? sessionId, string probeResult)
+    {
+        return WriteEntryAsync(new AuditLogEntry
+        {
+            EventType = AuditEventTypes.CopilotHeadlessIndeterminate,
+            SessionId = sessionId,
+            Details = new()
+            {
+                ["codespace_name"] = codespaceName,
+                ["probe_result"] = probeResult,
+                ["determined_by"] = "tunnel_probe"
             }
         });
     }

@@ -195,7 +195,7 @@ public partial class CodespaceService
         }
 
         Console.WriteLine($"[CodespaceService] Copilot may have failed to start in '{codespaceName}': {result?.Trim()}");
-        _ = AuditLog?.LogCopilotHeadlessFailure(codespaceName, null, result?.Trim() ?? "Unknown failure");
+        _ = AuditLog?.LogCopilotHeadlessIndeterminate(codespaceName, null, result?.Trim() ?? "Unknown");
         return true; // Still return true (SSH worked) — let the tunnel probe determine if it's listening
     }
 
