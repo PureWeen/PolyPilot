@@ -788,6 +788,7 @@ public partial class CopilotService : IAsyncDisposable
                 state.Info.WorkingDirectory = codespaceWorkDir;
 
                 CancelProcessingWatchdog(state);
+                CancelToolHealthCheck(state);
                 var newState = new SessionState
                 {
                     Session = newSession,

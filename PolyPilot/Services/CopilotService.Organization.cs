@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using PolyPilot.Models;
@@ -33,6 +34,7 @@ public partial class CopilotService
     /// Set high (60 min) because the smart watchdog (events.jsonl freshness) handles dead
     /// session detection in ~90s. This is only an absolute backstop.</summary>
     private static readonly TimeSpan WorkerExecutionTimeout = TimeSpan.FromMinutes(60);
+    private static readonly TimeSpan WorkerExecutionTimeoutRemote = TimeSpan.FromMinutes(10);
 
     // Per-session semaphores to prevent concurrent model switches during rapid dispatch
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _modelSwitchLocks = new();
@@ -1415,8 +1417,7 @@ public partial class CopilotService
                 return new WorkerResult(workerName, null, false, ex.Message, sw.Elapsed);
             }
         }
-        // Should never reach here, but just in case
-        return new WorkerResult(workerName, null, false, "Max retries exceeded", sw.Elapsed);
+        throw new UnreachableException(); // for loop always returns or continues
     }
 
     private async Task<string> SendPromptAndWaitAsync(string sessionName, string prompt, CancellationToken cancellationToken, string? originalPrompt = null)
@@ -1425,7 +1426,7 @@ public partial class CopilotService
         // Do NOT capture state and await its TCS separately: reconnection replaces the state
         // object, orphaning the old TCS and causing a 10-minute hang.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(WorkerExecutionTimeout);
+        cts.CancelAfter(IsDemoMode || IsRemoteMode ? WorkerExecutionTimeoutRemote : WorkerExecutionTimeout);
         // Wire CTS to ResponseCompletion TCS so the 10-minute timeout actually cancels the await.
         // Must look up from _sessions dict (not captured ref) since reconnect replaces state.
         await using var ctsReg = cts.Token.Register(() =>
@@ -1671,10 +1672,56 @@ public partial class CopilotService
                 if (_sessions.TryGetValue(workerName, out var workerState) && workerState.Info.IsProcessing)
                 {
                     Debug($"[DISPATCH] Clearing stuck IsProcessing on '{workerName}' before re-dispatch");
-                    workerState.Info.IsProcessing = false;
-                    Interlocked.Exchange(ref workerState.ActiveToolCallCount, 0);
-                    Interlocked.Exchange(ref workerState.SendingFlag, 0);
-                    workerState.HasUsedToolsThisTurn = false;
+                    // Cancel timers first (thread-safe — use Interlocked internally)
+                    CancelProcessingWatchdog(workerState);
+                    CancelTurnEndFallback(workerState);
+                    CancelToolHealthCheck(workerState);
+
+                    // Must run on UI thread per INV-2; use TCS to synchronize
+                    var tcs = new TaskCompletionSource<bool>();
+                    InvokeOnUI(() =>
+                    {
+                        try
+                        {
+                            if (!workerState.Info.IsProcessing) { tcs.TrySetResult(true); return; }
+
+                            // Full cleanup mirroring CompleteResponse / tool-health recovery
+                            Interlocked.Exchange(ref workerState.ActiveToolCallCount, 0);
+                            Interlocked.Exchange(ref workerState.SendingFlag, 0);
+                            Interlocked.Exchange(ref workerState.SuccessfulToolCountThisTurn, 0);
+                            Interlocked.Exchange(ref workerState.WatchdogCaseAResets, 0);
+                            workerState.HasUsedToolsThisTurn = false;
+                            workerState.FallbackCanceledByTurnStart = false;
+                            workerState.Info.IsResumed = false;
+                            workerState.Info.ProcessingStartedAt = null;
+                            workerState.Info.ToolCallCount = 0;
+                            workerState.Info.ProcessingPhase = 0;
+                            workerState.Info.ClearPermissionDenials();
+
+                            var response = workerState.CurrentResponse.ToString();
+                            var fullResponse = workerState.FlushedResponse.Length > 0
+                                ? (string.IsNullOrEmpty(response)
+                                    ? workerState.FlushedResponse.ToString()
+                                    : workerState.FlushedResponse + "\n\n" + response)
+                                : response;
+
+                            workerState.CurrentResponse.Clear();
+                            workerState.FlushedResponse.Clear();
+                            workerState.PendingReasoningMessages.Clear();
+                            workerState.Info.IsProcessing = false;
+
+                            workerState.ResponseCompletion?.TrySetResult(fullResponse);
+                            var summary = fullResponse.Length > 0 ? (fullResponse.Length > 100 ? fullResponse[..100] + "..." : fullResponse) : "";
+                            OnSessionComplete?.Invoke(workerName, summary);
+                            OnStateChanged?.Invoke();
+                            tcs.TrySetResult(true);
+                        }
+                        catch (Exception ex)
+                        {
+                            tcs.TrySetException(ex);
+                        }
+                    });
+                    await tcs.Task;
                 }
             }
 

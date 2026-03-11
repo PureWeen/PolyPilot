@@ -664,6 +664,7 @@ public partial class CopilotService
                 var errMsg = Models.ErrorMessageHelper.HumanizeMessage(err.Data?.Message ?? "Unknown error");
                 CancelProcessingWatchdog(state);
                 CancelTurnEndFallback(state);
+                CancelToolHealthCheck(state);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -875,10 +876,12 @@ public partial class CopilotService
         CancelProcessingWatchdog(state);
         // Also cancel any pending TurnEnd→Idle fallback — CompleteResponse is now executing
         CancelTurnEndFallback(state);
+        CancelToolHealthCheck(state);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+        Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
         if (!string.IsNullOrWhiteSpace(response))
@@ -1480,9 +1483,6 @@ public partial class CopilotService
     /// </summary>
     private void ScheduleToolHealthCheck(SessionState state, string sessionName)
     {
-        // Cancel any previous health check timer
-        CancelToolHealthCheck(state);
-
         // Skip in demo/remote mode where we can't probe the local server
         if (IsDemoMode || IsRemoteMode) return;
 
@@ -1507,6 +1507,7 @@ public partial class CopilotService
                 {
                     // Events are still flowing - tool is legitimately running
                     // Schedule another check
+                    Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
                     Debug($"[TOOL-HEALTH] '{sessionName}' events flowing — rescheduling health check");
                     ScheduleToolHealthCheck(state, sessionName);
                     return;
@@ -1523,7 +1524,7 @@ public partial class CopilotService
 
                 // Server TCP port is alive, but no events for 30s. The connection might be dead.
                 // Increment the stale check counter and check if we should recover.
-                var staleChecks = Interlocked.Increment(ref state.WatchdogCaseAResets);
+                var staleChecks = Interlocked.Increment(ref state.ToolHealthStaleChecks);
                 if (staleChecks > WatchdogMaxToolAliveResets)
                 {
                     Debug($"[TOOL-HEALTH] '{sessionName}' {staleChecks} stale health checks — assuming dead connection");
@@ -1539,9 +1540,11 @@ public partial class CopilotService
             {
                 Debug($"[TOOL-HEALTH] '{sessionName}' check failed: {ex.Message}");
             }
-        }, null, ToolHealthCheckIntervalMs, Timeout.Infinite);
+        }, null, Timeout.Infinite, Timeout.Infinite); // Don't start yet — store first to avoid race
 
-        Interlocked.Exchange(ref state.ToolHealthCheckTimer, timer);
+        var prev = Interlocked.Exchange(ref state.ToolHealthCheckTimer, timer);
+        prev?.Dispose();
+        timer.Change(ToolHealthCheckIntervalMs, Timeout.Infinite); // Now start
     }
 
     /// <summary>
@@ -1551,6 +1554,8 @@ public partial class CopilotService
     private void TriggerToolHealthRecovery(SessionState state, string sessionName, string reason)
     {
         CancelToolHealthCheck(state);
+        CancelProcessingWatchdog(state);
+        CancelTurnEndFallback(state);
 
         var activeTools = Volatile.Read(ref state.ActiveToolCallCount);
         Debug($"[TOOL-HEALTH] '{sessionName}' triggering recovery: {reason} (activeTools={activeTools})");
@@ -1561,13 +1566,40 @@ public partial class CopilotService
 
             OnError?.Invoke(sessionName, $"Tool execution stuck ({reason}). Session recovered automatically.");
 
-            // Clear the stuck state
-            state.Info.IsProcessing = false;
+            // Full cleanup mirroring CompleteResponse — missing fields here caused stuck sessions
             Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-            Interlocked.Exchange(ref state.SendingFlag, 0);
             state.HasUsedToolsThisTurn = false;
-            state.ResponseCompletion?.TrySetResult(state.CurrentResponse.ToString());
-            FlushCurrentResponse(state);
+            state.FallbackCanceledByTurnStart = false;
+            Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+            Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
+            Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+
+            // Build full response: flushed mid-turn text + remaining current text
+            var response = state.CurrentResponse.ToString();
+            var fullResponse = state.FlushedResponse.Length > 0
+                ? (string.IsNullOrEmpty(response)
+                    ? state.FlushedResponse.ToString()
+                    : state.FlushedResponse + "\n\n" + response)
+                : response;
+
+            state.CurrentResponse.Clear();
+            state.FlushedResponse.Clear();
+            state.PendingReasoningMessages.Clear();
+
+            state.Info.IsProcessing = false;
+            state.Info.IsResumed = false;
+            Interlocked.Exchange(ref state.SendingFlag, 0);
+            state.Info.ProcessingStartedAt = null;
+            state.Info.ToolCallCount = 0;
+            state.Info.ProcessingPhase = 0;
+            state.Info.ClearPermissionDenials();
+
+            state.ResponseCompletion?.TrySetResult(fullResponse);
+
+            Debug($"[TOOL-HEALTH-COMPLETE] '{sessionName}' recovery finished (responseLen={fullResponse.Length})");
+
+            var summary = fullResponse.Length > 0 ? (fullResponse.Length > 100 ? fullResponse[..100] + "..." : fullResponse) : "";
+            OnSessionComplete?.Invoke(sessionName, summary);
             OnStateChanged?.Invoke();
         });
     }
@@ -1851,6 +1883,7 @@ public partial class CopilotService
                             return;
                         }
                         CancelProcessingWatchdog(state);
+                        CancelToolHealthCheck(state);
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -1988,6 +2021,7 @@ public partial class CopilotService
             // Cancel old watchdog AND TurnEnd fallback BEFORE creating new state
             CancelProcessingWatchdog(state);
             CancelTurnEndFallback(state);
+            CancelToolHealthCheck(state);
 
             // Bug B fix: Cancel the old ResponseCompletion TCS so the original
             // SendPromptAsync awaiter doesn't hang forever.
