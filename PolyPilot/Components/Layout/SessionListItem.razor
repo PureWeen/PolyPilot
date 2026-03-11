@@ -15,6 +15,7 @@
                    IsCompleted ? "completed" :
                    Session.IsProcessing ? "busy" : "";
     if (IsDisabled) cssClass += " cs-disconnected";
+    if (IsWorkerChild) cssClass += " worker-child";
     // Prefer SDK-reported context window; fall back to accumulated totals
     var hasContextWindow = Session.ContextCurrentTokens > 0 && Session.ContextTokenLimit > 0;
     var totalTokens = Session.TotalInputTokens + Session.TotalOutputTokens;
@@ -160,19 +161,6 @@
                 @if (currentGroup is { IsMultiAgent: true })
                 {
                     <div class="menu-separator"></div>
-                    @if (Meta?.Role == MultiAgentRole.Orchestrator)
-                    {
-                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionRole(Session.Name, MultiAgentRole.Worker); }">
-                            👷 Set as Worker
-                        </button>
-                    }
-                    else
-                    {
-                        <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetSessionRole(Session.Name, MultiAgentRole.Orchestrator); }">
-                            🎯 Set as Orchestrator
-                        </button>
-                    }
-                    <div class="menu-separator"></div>
                     <span class="menu-item submenu-label">🧠 Model</span>
                     <div class="model-picker-inline" @onclick:stopPropagation="true">
                         <select value="@(Meta?.PreferredModel ?? "")" @onchange="OnPreferredModelChanged">
@@ -249,6 +237,7 @@
     [Parameter] public int ShortcutIndex { get; set; }
     [Parameter] public List<SessionGroup>? Groups { get; set; }
     [Parameter] public SessionUsageInfo? UsageInfo { get; set; }
+    [Parameter] public bool IsWorkerChild { get; set; }
 
     [Parameter] public EventCallback OnSelect { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }

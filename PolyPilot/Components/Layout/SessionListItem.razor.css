@@ -426,3 +426,16 @@
     pointer-events: none;
     cursor: default;
 }
+
+/* Worker child: indented under orchestrator */
+.session-item.worker-child {
+    margin-left: 16px;
+    padding-left: 8px;
+    border-left: 2px solid var(--control-border);
+    font-size: 0.85em;
+    opacity: 0.85;
+}
+.session-item.worker-child .session-name-text::before {
+    content: "👷 ";
+    font-size: 0.85em;
+}
