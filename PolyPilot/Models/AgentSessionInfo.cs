@@ -155,4 +155,13 @@ public class AgentSessionInfo
     /// immediately (optimistic add) but cannot accept prompts until creation completes.
     /// </summary>
     public bool IsCreating { get; set; }
+
+    /// <summary>
+    /// Number of consecutive watchdog timeouts without a successful turn completion.
+    /// Incremented in the watchdog kill path (Case C); reset to 0 in CompleteResponse.
+    /// When >= 3, the session is in a repeated-stuck cycle — the watchdog skips adding
+    /// system messages to History (preventing unbounded history growth) and shows
+    /// a stronger warning suggesting the user start a new session.
+    /// </summary>
+    public int ConsecutiveStuckCount { get; set; }
 }
