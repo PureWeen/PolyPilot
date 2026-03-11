@@ -1354,6 +1354,8 @@ public partial class CopilotService
     /// Wait for a session to finish processing (go idle). Used after early dispatch
     /// resolves the orchestrator's TCS while it's still doing tool work — we must
     /// wait for it to go idle before sending the next prompt (synthesis).
+    /// Uses a short inactivity threshold: if no SDK events for 60s, the session is
+    /// likely stuck in a "zero-idle" state and will be aborted.
     /// </summary>
     private async Task WaitForSessionIdleAsync(string sessionName, CancellationToken ct, int timeoutSeconds = 300)
     {
@@ -1364,15 +1366,28 @@ public partial class CopilotService
 
         Debug($"[DISPATCH] Waiting for '{sessionName}' to go idle before sending next prompt...");
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        const int inactivityThresholdSeconds = 60;
+
         while (state.Info.IsProcessing && !ct.IsCancellationRequested && sw.Elapsed.TotalSeconds < timeoutSeconds)
         {
-            await Task.Delay(500, ct);
+            // Check if the session has been quiet (no SDK events) for the inactivity threshold.
+            // This catches the "zero-idle" bug where the SDK never emits SessionIdleEvent.
+            var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
+            var secondsSinceLastEvent = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
+            if (secondsSinceLastEvent >= inactivityThresholdSeconds)
+            {
+                Debug($"[DISPATCH] '{sessionName}' no SDK events for {secondsSinceLastEvent:F0}s — aborting to proceed with synthesis");
+                await AbortSessionAsync(sessionName);
+                await Task.Delay(500, ct);
+                break;
+            }
+            await Task.Delay(1000, ct);
         }
         if (state.Info.IsProcessing)
         {
             Debug($"[DISPATCH] '{sessionName}' still processing after {sw.Elapsed.TotalSeconds:F1}s — aborting to allow synthesis");
             await AbortSessionAsync(sessionName);
-            await Task.Delay(500, ct); // Give abort a moment to clear state
+            await Task.Delay(500, ct);
         }
         Debug($"[DISPATCH] '{sessionName}' now idle after {sw.Elapsed.TotalSeconds:F1}s");
     }

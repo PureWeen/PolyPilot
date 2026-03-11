@@ -15,10 +15,16 @@ scenarios:
         pattern: "IsResumed|HasUsedToolsThisTurn|ActiveToolCallCount"
       - type: "output_matches"
         pattern: "ProcessingPhase|ProcessingStartedAt|ToolCallCount|SendingFlag"
+      - type: "output_matches"
+        # OnSessionComplete unblocks orchestrator loops — must be in every cleanup path
+        pattern: "OnSessionComplete|ClearPermissionDenials"
+      - type: "output_matches"
+        # Must include a diagnostic log tag for debugging stuck sessions
+        pattern: "\\[ERROR\\]|\\[TIMEOUT\\]|\\[NETWORK\\]|diagnostic.log"
     rubric:
       - "Agent includes all or nearly all of the 13-item cleanup checklist (IsResumed, HasUsedToolsThisTurn, ActiveToolCallCount, ProcessingStartedAt, ToolCallCount, ProcessingPhase, SendingFlag, ClearPermissionDenials, FlushCurrentResponse, OnSessionComplete, diagnostic log)"
-      - "Agent uses InvokeOnUI() class method (not local Invoke) for the background→UI dispatch"
-      - "Agent captures ProcessingGeneration before the InvokeOnUI call and validates it inside the lambda (generation guard pattern)"
+      - "Agent uses InvokeOnUI() class method (not local Invoke) for the background→UI dispatch per INV-13"
+      - "Agent captures ProcessingGeneration before the InvokeOnUI call and validates it inside the lambda (generation guard pattern per INV-3 and INV-12)"
       - "Agent adds a diagnostic log entry with an appropriate tag like [ERROR] or [TIMEOUT]"
     timeout: 120
 
@@ -34,12 +40,16 @@ scenarios:
         value: "[SEND]"
       - type: "output_matches"
         pattern: "(?i)(watchdog|120s|600s|WATCHDOG)"
+      - type: "output_matches"
+        # Should reference specific diagnostic tags, not just generic "check the logs"
+        pattern: "\\[IDLE\\]|\\[COMPLETE\\]|\\[WATCHDOG\\]|\\[EVT\\]"
       - type: "output_not_contains"
         value: "restart the app"
         # Should suggest specific diagnostic steps, not generic advice
     rubric:
       - "Agent directs the user to check event-diagnostics.log and explains what tags to look for ([SEND], [IDLE], [COMPLETE], [WATCHDOG])"
       - "Agent explains the watchdog timeout tiers (120s inactivity, 600s tool/resume) and which case likely applies given tools were used"
+      - "Agent references the stuck-session diagnostic table: [SEND] then silence, [EVT] TurnEnd but no [IDLE], [COMPLETE] fired but spinner persists, etc."
       - "Agent mentions the nuclear option (AbortSessionAsync / Stop button) as a fallback"
     timeout: 120
 
@@ -56,6 +66,8 @@ scenarios:
         value: "InvokeOnUI"
       - type: "output_not_contains"
         value: "ProcessingGeneration"
+      - type: "output_not_contains"
+        value: "watchdog"
     rubric:
       - "Agent focuses purely on CSS/styling and does not inject unrelated processing-state safety guidance"
       - "Response is concise and on-topic for a CSS change"
@@ -73,9 +85,12 @@ scenarios:
       - type: "output_contains"
         value: "ActiveToolCallCount"
       - type: "output_matches"
-        pattern: "(?i)(30s|30_000|extended|delay|TurnEndIdleToolFallbackAdditionalMs)"
+        pattern: "(?i)(30s|30.000|30_000|extended|delay|TurnEndIdleToolFallbackAdditionalMs)"
+      - type: "output_matches"
+        # Must reference the cancellation mechanism, not just the delay
+        pattern: "(?i)(cancel|CancellationToken|AssistantTurnStartEvent|CTS)"
     rubric:
-      - "Agent explicitly warns against using HasUsedToolsThisTurn to skip the fallback entirely, explaining that it leaves agent sessions with no recovery if SessionIdleEvent is dropped"
+      - "Agent explicitly warns against using HasUsedToolsThisTurn to skip the fallback entirely, explaining that it leaves agent sessions with no recovery if SessionIdleEvent is dropped (SDK bug #299)"
       - "Agent proposes the correct approach: use ActiveToolCallCount > 0 to skip the 4s fallback, with an extended 30s delay when tools were used but ActiveToolCallCount is 0"
       - "Agent references the cancellation token from AssistantTurnStartEvent as the mechanism to prevent premature firing in multi-round tool use"
     timeout: 120
@@ -92,10 +107,13 @@ scenarios:
         pattern: "(?i)(restore|restart|resume)"
       - type: "output_matches"
         pattern: "(?i)(before.*watchdog|StartProcessingWatchdog|watchdog.*depend)"
+      - type: "output_matches"
+        # Should mention the precedent or dual-path pattern
+        pattern: "(?i)(IsMultiAgentSession|both.*path|two.*path|dual|separate.*path)"
     rubric:
       - "Agent identifies that the restore path (RestoreSingleSessionAsync) must also initialize the new flag, not just SendPromptAsync"
       - "Agent explains that state must be set BEFORE StartProcessingWatchdog is called, and the restore path is independent of the send path"
-      - "Agent may reference the IsMultiAgentSession precedent (PR #284) where the same mistake was made"
+      - "Agent references the IsMultiAgentSession precedent (PR #284) where the same mistake caused premature watchdog kills"
     timeout: 120
 
   - name: "ChatDatabase catch filter narrowing - prevent regression"
@@ -107,13 +125,17 @@ scenarios:
       - type: "output_not_contains"
         value: "SqliteException"
         # Should NOT recommend narrowing to SqliteException
-      - type: "output_contains"
-        value: "unobserved"
       - type: "output_matches"
-        pattern: "(?i)(fire.and.forget|task exception|crash|source of truth|events\\.jsonl)"
+        pattern: "(?i)(unobserved|crash|AggregateException|ObjectDisposedException)"
+      - type: "output_matches"
+        pattern: "(?i)(fire.and.forget|task exception|source of truth|events\\.jsonl)"
+      - type: "output_matches"
+        # Should explain self-healing via BulkInsertAsync
+        pattern: "(?i)(self.heal|BulkInsert|replay|restart|write.through)"
     rubric:
       - "Agent explicitly warns against narrowing the catch filter, explaining that fire-and-forget tasks with narrow catches produce unobserved task exceptions that crash the app"
       - "Agent explains that events.jsonl is the source of truth and DB write failures are self-healing via BulkInsertAsync on resume — broad catch is intentional"
+      - "Agent may reference PR #276 where this exact narrowing caused crashes in production"
     timeout: 120
 
   - name: "Background thread IsProcessing mutation without UI marshaling"
@@ -144,10 +166,59 @@ scenarios:
       - type: "output_matches"
         pattern: "FlushCurrentResponse|flush"
       - type: "output_matches"
+        # Must identify the missing companion fields from the 13-item checklist
         pattern: "(?i)(ProcessingPhase|ProcessingStartedAt|ToolCallCount|SendingFlag|missing|incomplete)"
+      - type: "output_matches"
+        # Must mention diagnostic log entry or OnSessionComplete
+        pattern: "(?i)(diagnostic.*log|\\[RECONNECT\\]|OnSessionComplete|ClearPermissionDenials)"
     rubric:
       - "Agent identifies the critical thread safety violation: IsProcessing and companion fields must not be mutated directly on a background SDK event thread"
       - "Agent recommends wrapping the state mutations in InvokeOnUI() to marshal to the UI thread"
-      - "Agent points out missing companion fields beyond the ones listed (ProcessingPhase, ProcessingStartedAt, ToolCallCount, SendingFlag, ClearPermissionDenials)"
+      - "Agent points out missing companion fields beyond the ones listed (ProcessingPhase, ProcessingStartedAt, ToolCallCount, SendingFlag, ClearPermissionDenials, OnSessionComplete)"
       - "Agent mentions the ProcessingGeneration guard pattern and the need for FlushCurrentResponse before clearing IsProcessing"
+      - "Agent recommends adding a diagnostic log entry with an appropriate tag"
+    timeout: 120
+
+  - name: "Watchdog timeout should use 3-way branch not a flat 600s wait"
+    prompt: |
+      I'm simplifying the watchdog timeout logic. Currently it has complicated case
+      branches. I want to replace it with a single check: if ActiveToolCallCount > 0
+      OR HasUsedToolsThisTurn, wait the full 600s before declaring the session stuck
+      and killing it. Otherwise use 120s. Is this safe?
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(do not|don't|should not|shouldn't|wrong|dangerous|problem|issue|warn)"
+      - type: "output_matches"
+        pattern: "(?i)(SessionIdleEvent|dropped|lost.*event|event.*dropped|zero.idle|terminal event)"
+      - type: "output_matches"
+        pattern: "(?i)(Case B|CompleteResponse.*clean|cleanly.*complete|tools.*done|!hasActiveTool)"
+      - type: "output_not_contains"
+        value: "that's fine"
+    rubric:
+      - "Agent warns against the flat 600s wait and explains that tools may have finished (ActiveToolCallCount==0, HasUsedToolsThisTurn==true) but the SDK dropped SessionIdleEvent — leading to a 10-minute kill of a successfully-completed session"
+      - "Agent describes the correct 3-way branch: Case A (active tools + server alive → reset timer), Case B (tools done, used tools → call CompleteResponse cleanly), Case C (default kill with error message)"
+      - "Agent explains that Case B calls CompleteResponse cleanly without an error message, preserving the session's output"
+    timeout: 120
+
+  - name: "Edge case - adding cross-thread boolean without Volatile (INV-7)"
+    prompt: |
+      I'm adding a new boolean flag `IsWaitingForUserInput` to AgentSessionInfo that gets
+      set to true from an SDK event handler (background thread) and read by the watchdog
+      timer. I'll just use a regular bool property like the existing HasUsedToolsThisTurn.
+      Should I also clear it in the IsProcessing cleanup paths?
+    assertions:
+      - type: "output_matches"
+        # Must mention Volatile or memory model concern
+        pattern: "(?i)(Volatile\\.Write|Volatile\\.Read|volatile|memory.model|ARM|thread.safe)"
+      - type: "output_matches"
+        # Must address the cleanup question positively
+        pattern: "(?i)(yes|clear|cleanup|checklist|IsProcessing.*path)"
+      - type: "output_matches"
+        # Should mention the existing inconsistency or tracking comment requirement
+        pattern: "(?i)(HasUsedToolsThisTurn|plain.assignment|inconsisten|tracking.comment|pre.existing)"
+    rubric:
+      - "Agent answers yes to the cleanup question — new fields read by the watchdog must be cleared on all IsProcessing=false paths"
+      - "Agent warns about using plain bool for cross-thread access and recommends Volatile.Write/Volatile.Read for ARM correctness (INV-7)"
+      - "Agent notes the existing inconsistency (HasUsedToolsThisTurn uses plain assignment) and advises not to repeat it — either use Volatile or add a tracking comment explaining the gap"
+      - "Agent identifies that both SendPromptAsync and RestoreSingleSessionAsync need to initialize the new field (INV-9 dual-path requirement)"
     timeout: 120
