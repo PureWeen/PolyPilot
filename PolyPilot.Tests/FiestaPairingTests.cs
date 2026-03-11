@@ -23,6 +23,9 @@ public class FiestaPairingTests : IDisposable
     public FiestaPairingTests()
     {
         _bridgeServer = new WsBridgeServer();
+        // Pre-set the server password so EnsureServerPassword() never falls through to
+        // ConnectionSettings.Load()/Save(), which would touch the real ~/.polypilot/settings.json.
+        _bridgeServer.ServerPassword = "test-token-isolation";
         _copilot = new CopilotService(
             new StubChatDatabase(),
             new StubServerManager(),

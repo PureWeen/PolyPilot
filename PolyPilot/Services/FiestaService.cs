@@ -420,25 +420,32 @@ public class FiestaService : IDisposable
 
         // Capture the TCS before releasing the lock
         TaskCompletionSource<bool> tcs;
+        bool isDuplicate;
         lock (_stateLock)
         {
-            if (_pendingPairRequests.Count >= 1)
+            isDuplicate = _pendingPairRequests.Count >= 1;
+            if (!isDuplicate)
             {
-                // Already handling a pair request — deny immediately.
-                // Await the send so the message is delivered before the socket is dropped.
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await SendAsync(ws, BridgeMessage.Create(BridgeMessageTypes.FiestaPairResponse,
-                            new FiestaPairResponsePayload { RequestId = req.RequestId, Approved = false }), ct);
-                    }
-                    catch { }
-                });
-                return;
+                _pendingPairRequests[req.RequestId] = pending;
+                tcs = pending.CompletionSource;
             }
-            _pendingPairRequests[req.RequestId] = pending;
-            tcs = pending.CompletionSource;
+            else
+            {
+                tcs = null!; // won't be used
+            }
+        }
+
+        if (isDuplicate)
+        {
+            // Already handling a pair request — deny inline so the send completes
+            // before this method returns and the caller closes the socket.
+            try
+            {
+                await SendAsync(ws, BridgeMessage.Create(BridgeMessageTypes.FiestaPairResponse,
+                    new FiestaPairResponsePayload { RequestId = req.RequestId, Approved = false }), ct);
+            }
+            catch { }
+            return;
         }
 
         OnPairRequested?.Invoke(req.RequestId, req.HostName, remoteIp);
@@ -450,6 +457,9 @@ public class FiestaService : IDisposable
         try
         {
             await tcs.Task.WaitAsync(expiryCts.Token);
+            // Winner's send is in-flight — wait for it to complete before returning so the
+            // caller's finally (socket close) doesn't race the outgoing message.
+            await pending.SendComplete.Task.WaitAsync(TimeSpan.FromSeconds(5));
         }
         catch (OperationCanceledException)
         {
@@ -463,8 +473,16 @@ public class FiestaService : IDisposable
                         new FiestaPairResponsePayload { RequestId = req.RequestId, Approved = false }), CancellationToken.None);
                 }
                 catch { }
+                finally
+                {
+                    pending.SendComplete.TrySetResult();
+                }
             }
-            // else: Approve already won the race — skip sending a deny
+            else
+            {
+                // Approve already won — wait for its send to finish before closing socket
+                try { await pending.SendComplete.Task.WaitAsync(TimeSpan.FromSeconds(5)); } catch { }
+            }
         }
         finally
         {
@@ -511,6 +529,12 @@ public class FiestaService : IDisposable
             Console.WriteLine($"[Fiesta] Failed to send pair approval: {ex.Message}");
             return false;
         }
+        finally
+        {
+            // Signal that our send is complete so HandleIncomingPairHandshakeAsync
+            // can safely return (allowing the caller to close the socket).
+            pending.SendComplete.TrySetResult();
+        }
     }
 
     public async Task DenyPairRequestAsync(string requestId)
@@ -527,7 +551,6 @@ public class FiestaService : IDisposable
         if (!tcs.TrySetResult(false))
             return; // approve already won, don't race on the socket
 
-        // Send before anything unblocks HandleIncomingPairHandshakeAsync.
         try
         {
             await SendAsync(pending.Socket, BridgeMessage.Create(
@@ -536,7 +559,11 @@ public class FiestaService : IDisposable
                 CancellationToken.None);
         }
         catch { }
-        // TCS was already resolved above — HandleIncomingPairHandshakeAsync's await unblocks here.
+        finally
+        {
+            // Signal send complete so HandleIncomingPairHandshakeAsync can safely return.
+            pending.SendComplete.TrySetResult();
+        }
     }
 
     // Keep a synchronous shim for callers that can't await (e.g., Blazor @onclick non-async)
@@ -605,6 +632,7 @@ public class FiestaService : IDisposable
             var result = await ws.ReceiveAsync(buffer, ct);
             if (result.MessageType == WebSocketMessageType.Close) return null;
             sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+            if (sb.Length > 256 * 1024) return null; // guard against unbounded frames on unauthenticated /pair path
             if (result.EndOfMessage) break;
         }
         return BridgeMessage.Deserialize(sb.ToString());
