@@ -449,4 +449,99 @@ public class SessionPersistenceTests
         Assert.Single(result);
         Assert.Equal("regular-session", result[0].SessionId);
     }
+
+    // --- Restore fallback: structural regression guards ---
+    // These verify the fallback path in RestorePreviousSessionsAsync preserves
+    // history and usage stats when creating a fresh session (PR #225 regression).
+
+    [Fact]
+    public void RestoreFallback_LoadsHistoryFromOldSession()
+    {
+        // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback in
+        // RestorePreviousSessionsAsync must call LoadHistoryFromDisk(entry.SessionId)
+        // before CreateSessionAsync so conversation history is recovered.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
+        Assert.True(fallbackIdx > 0, "Could not find fallback path in RestorePreviousSessionsAsync");
+
+        // LoadHistoryFromDisk must appear BEFORE CreateSessionAsync in the fallback block
+        var beforeFallback = source.Substring(
+            Math.Max(0, fallbackIdx - 500),
+            Math.Min(500, fallbackIdx));
+        Assert.Contains("LoadHistoryFromDisk", beforeFallback);
+    }
+
+    [Fact]
+    public void RestoreFallback_InjectsHistoryIntoRecreatedSession()
+    {
+        // STRUCTURAL REGRESSION GUARD: After CreateSessionAsync, the fallback must
+        // inject the recovered history into the new session's Info.History.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
+        Assert.True(fallbackIdx > 0);
+
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(1500, source.Length - fallbackIdx));
+        Assert.Contains("History.Add", afterFallback);
+        Assert.Contains("MessageCount", afterFallback);
+        Assert.Contains("LastReadMessageCount", afterFallback);
+    }
+
+    [Fact]
+    public void RestoreFallback_RestoresUsageStats()
+    {
+        // STRUCTURAL REGRESSION GUARD: The fallback must call RestoreUsageStats(entry)
+        // to preserve token counts, CreatedAt, and other stats from the old session.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
+        Assert.True(fallbackIdx > 0);
+
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(2500, source.Length - fallbackIdx));
+        Assert.Contains("RestoreUsageStats", afterFallback);
+    }
+
+    [Fact]
+    public void RestoreFallback_SyncsHistoryToDatabase()
+    {
+        // STRUCTURAL REGRESSION GUARD: The fallback must sync recovered history
+        // to the chat database under the new session ID so it persists.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
+        Assert.True(fallbackIdx > 0);
+
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(1500, source.Length - fallbackIdx));
+        Assert.Contains("BulkInsertAsync", afterFallback);
+    }
+
+    [Fact]
+    public void RestoreFallback_AddsReconnectionIndicator()
+    {
+        // STRUCTURAL REGRESSION GUARD: The fallback must add a system message
+        // indicating the session was recreated with recovered history, so the
+        // user knows the session state was reconstructed.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
+        Assert.True(fallbackIdx > 0);
+
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(1500, source.Length - fallbackIdx));
+        Assert.Contains("Session recreated", afterFallback);
+        Assert.Contains("SystemMessage", afterFallback);
+    }
+
+    private static string GetRepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return dir ?? throw new InvalidOperationException("Could not find repo root");
+    }
 }

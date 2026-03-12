@@ -395,15 +395,38 @@ public partial class CopilotService
                             // "corrupted" / "session file" errors mean the events.jsonl is locked or
                             // unreadable (e.g., another copilot process owns the session).
                             // Fall back to creating a fresh session so multi-agent workers don't vanish.
+                            // Load history from the old session's events.jsonl so messages aren't lost.
                             if (ex.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase) ||
                                 ex.Message.Contains("corrupt", StringComparison.OrdinalIgnoreCase) ||
                                 ex.Message.Contains("session file", StringComparison.OrdinalIgnoreCase))
                             {
                                 try
                                 {
-                                    Debug($"Falling back to CreateSessionAsync for '{entry.DisplayName}'");
+                                    // Recover history from the old session before creating a new one
+                                    var oldHistory = LoadHistoryFromDisk(entry.SessionId);
+                                    Debug($"Falling back to CreateSessionAsync for '{entry.DisplayName}' (recovered {oldHistory.Count} messages from old session)");
+
                                     await CreateSessionAsync(entry.DisplayName, entry.Model, entry.WorkingDirectory, cancellationToken, entry.GroupId);
-                                    Debug($"Recreated session: {entry.DisplayName}");
+
+                                    // Inject recovered history into the newly created session
+                                    if (_sessions.TryGetValue(entry.DisplayName, out var recreatedState) && oldHistory.Count > 0)
+                                    {
+                                        foreach (var msg in oldHistory)
+                                            recreatedState.Info.History.Add(msg);
+                                        recreatedState.Info.MessageCount = recreatedState.Info.History.Count;
+                                        recreatedState.Info.LastReadMessageCount = recreatedState.Info.History.Count;
+
+                                        // Sync recovered history to DB under the new session ID
+                                        if (recreatedState.Info.SessionId != null)
+                                            SafeFireAndForget(_chatDb.BulkInsertAsync(recreatedState.Info.SessionId, oldHistory));
+
+                                        recreatedState.Info.History.Add(ChatMessage.SystemMessage("🔄 Session recreated — conversation history recovered from previous session."));
+                                    }
+
+                                    // Restore usage stats (token counts, CreatedAt, etc.)
+                                    RestoreUsageStats(entry);
+
+                                    Debug($"Recreated session with {oldHistory.Count} recovered messages: {entry.DisplayName}");
                                     continue;
                                 }
                                 catch (Exception createEx)
