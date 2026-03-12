@@ -68,4 +68,56 @@ public class PermissionDenialDetectionTests
     {
         Assert.False(CopilotService.IsPermissionDenialText(text));
     }
+
+    // ===== ExtractErrorMessage =====
+
+    [Fact]
+    public void ExtractErrorMessage_Null_ReturnsNull()
+    {
+        Assert.Null(CopilotService.ExtractErrorMessage(null));
+    }
+
+    [Fact]
+    public void ExtractErrorMessage_ObjectWithMessageAndCode_ReturnsCombined()
+    {
+        var error = new { Message = "Permission denied", Code = "denied" };
+        var result = CopilotService.ExtractErrorMessage(error);
+        Assert.Contains("Permission denied", result);
+        Assert.Contains("denied", result);
+    }
+
+    [Fact]
+    public void ExtractErrorMessage_ObjectWithMessageOnly_ReturnsMessage()
+    {
+        var error = new { Message = "Something went wrong" };
+        var result = CopilotService.ExtractErrorMessage(error);
+        Assert.Equal("Something went wrong", result);
+    }
+
+    [Fact]
+    public void ExtractErrorMessage_ObjectWithNoProperties_ReturnsToString()
+    {
+        var error = "plain string error";
+        var result = CopilotService.ExtractErrorMessage(error);
+        Assert.Equal("plain string error", result);
+    }
+
+    [Fact]
+    public void ExtractErrorMessage_SdkStyle_PermissionDenial_IsDetectedByIsPermissionDenialText()
+    {
+        // Simulates the real SDK ToolExecutionCompleteDataError object
+        var error = new { Message = "Permission denied and could not request permission from user", Code = "denied" };
+        var errorStr = CopilotService.ExtractErrorMessage(error);
+        Assert.True(CopilotService.IsPermissionDenialText(errorStr),
+            $"Expected permission denial detection for: '{errorStr}'");
+    }
+
+    [Fact]
+    public void ExtractErrorMessage_SdkTypeNameString_WouldNotBeDetected()
+    {
+        // This is what the OLD code produced — verifies the bug existed
+        var fakeTypeName = "GitHub.Copilot.SDK.ToolExecutionCompleteDataError";
+        Assert.False(CopilotService.IsPermissionDenialText(fakeTypeName),
+            "SDK type name should NOT match permission denial patterns");
+    }
 }

@@ -383,8 +383,18 @@ public partial class CopilotService
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
                 var resultStr = FormatToolResult(toolDone.Data!.Result);
                 var hasError = toolDone.Data.Error != null;
-                var errorStr = toolDone.Data.Error?.ToString();
+                // Extract the error message from the structured Error object.
+                // Error is a ToolExecutionCompleteDataError with Message/Code properties
+                // — its default ToString() returns the type name, not the message text.
+                var errorStr = ExtractErrorMessage(toolDone.Data.Error);
                 var isPermissionDenial = IsPermissionDenialText(resultStr) || IsPermissionDenialText(errorStr);
+
+                // Black-box log every permission denial for post-mortem analysis
+                if (isPermissionDenial)
+                {
+                    Debug($"[PERMISSION-DENY] '{sessionName}' tool='{completeToolName}' error='{errorStr?.Substring(0, Math.Min(errorStr?.Length ?? 0, 150))}' " +
+                          $"(denials={state.Info.PermissionDenialCount + 1}, isMultiAgent={state.IsMultiAgentSession})");
+                }
 
                 // Track permission denials via sliding window (3 of last 5 tool results)
                 // This handles cases where an occasional OK tool resets a strict consecutive counter
@@ -393,15 +403,21 @@ public partial class CopilotService
                     var denialCount = state.Info.RecordToolResult(isPermissionDenial);
                     if (!isPermissionDenial && !hasError)
                         Interlocked.Increment(ref state.SuccessfulToolCountThisTurn);
-                    if (isPermissionDenial && denialCount == 3)
+                    if (isPermissionDenial && denialCount >= 3)
                     {
-                        Invoke(() =>
+                        // Trigger recovery on first threshold crossing (denialCount == 3),
+                        // not on subsequent denials that stay at 3+ in the window
+                        if (denialCount == 3)
                         {
-                            state.Info.History.Add(ChatMessage.SystemMessage(
-                                "⚠️ Permission errors detected. Attempting to reconnect session..."));
-                            OnStateChanged?.Invoke();
-                            _ = TryRecoverPermissionAsync(state, sessionName);
-                        });
+                            Debug($"[PERMISSION-RECOVER-TRIGGER] '{sessionName}' threshold reached ({denialCount}/5 denials)");
+                            Invoke(() =>
+                            {
+                                state.Info.History.Add(ChatMessage.SystemMessage(
+                                    "⚠️ Permission errors detected. Attempting to reconnect session..."));
+                                OnStateChanged?.Invoke();
+                                _ = TryRecoverPermissionAsync(state, sessionName);
+                            });
+                        }
                     }
                 }
 
@@ -431,7 +447,8 @@ public partial class CopilotService
                     {
                         histToolMsg.IsComplete = true;
                         histToolMsg.IsSuccess = !hasError;
-                        histToolMsg.Content = resultStr;
+                        // If resultStr is empty but there's an error message, show the error
+                        histToolMsg.Content = string.IsNullOrEmpty(resultStr) && hasError ? errorStr ?? "" : resultStr;
                     }
                 }
 
@@ -1658,6 +1675,37 @@ public partial class CopilotService
         return text.Contains("Permission denied", StringComparison.OrdinalIgnoreCase)
             || text.Contains("denied-no-approval-rule", StringComparison.OrdinalIgnoreCase)
             || text.Contains("could not request permission", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Extracts a human-readable error message from a ToolExecutionCompleteData.Error object.
+    /// The SDK's ToolExecutionCompleteDataError type has Message/Code properties but does NOT
+    /// override ToString() — calling ToString() returns the type name, not the message.
+    /// This method reads the Message and Code properties via reflection to get the actual text.
+    /// </summary>
+    internal static string? ExtractErrorMessage(object? error)
+    {
+        if (error == null) return null;
+        try
+        {
+            // Try to read the Message property (primary error text)
+            var msgProp = error.GetType().GetProperty("Message");
+            var message = msgProp?.GetValue(error)?.ToString();
+            // Also read Code for additional context
+            var codeProp = error.GetType().GetProperty("Code");
+            var code = codeProp?.GetValue(error)?.ToString();
+            if (!string.IsNullOrEmpty(message) && !string.IsNullOrEmpty(code))
+                return $"{message} (code: {code})";
+            if (!string.IsNullOrEmpty(message))
+                return message;
+            if (!string.IsNullOrEmpty(code))
+                return code;
+        }
+        catch
+        {
+            // Reflection failed — fall through to ToString()
+        }
+        return error.ToString();
     }
 
     private void StartProcessingWatchdog(SessionState state, string sessionName)

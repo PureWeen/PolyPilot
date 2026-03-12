@@ -296,9 +296,22 @@ public class WsBridgeServer : IDisposable
             _clientSendLocks[clientId] = new SemaphoreSlim(1, 1);
             Console.WriteLine($"[WsBridge] Client {clientId} connected ({_clients.Count} total)");
 
-            // Send initial state
+            // Send initial state — if the server is still restoring sessions, wait so the
+            // client doesn't see sessions with MessageCount=0 (History hasn't loaded from
+            // events.jsonl yet). Cap the wait to avoid blocking the connection indefinitely.
             if (_copilot != null)
             {
+                if (_copilot.IsRestoring)
+                {
+                    Console.WriteLine($"[WsBridge] Client {clientId} connected while server is restoring — waiting for restore to complete");
+                    var restoreDeadline = DateTime.UtcNow.AddSeconds(30);
+                    while (_copilot.IsRestoring && DateTime.UtcNow < restoreDeadline && !ct.IsCancellationRequested)
+                        await Task.Delay(200, ct);
+                    if (!_copilot.IsRestoring)
+                        Console.WriteLine($"[WsBridge] Restore complete — sending session list to client {clientId}");
+                    else
+                        Console.WriteLine($"[WsBridge] Restore still running after 30s — sending partial session list to client {clientId}");
+                }
                 await SendToClientAsync(clientId, ws,
                     BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
                 await SendToClientAsync(clientId, ws,
