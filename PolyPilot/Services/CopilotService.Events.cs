@@ -387,7 +387,11 @@ public partial class CopilotService
                 // Error is a ToolExecutionCompleteDataError with Message/Code properties
                 // — its default ToString() returns the type name, not the message text.
                 var errorStr = ExtractErrorMessage(toolDone.Data.Error);
-                var isPermissionDenial = IsPermissionDenialText(resultStr) || IsPermissionDenialText(errorStr);
+                // Only check resultStr for permission text when there IS an error.
+                // Successful tool results can contain source code that mentions "Permission denied"
+                // (e.g., reading our own permission detection code) — false positive.
+                var isPermissionDenial = IsPermissionDenialText(errorStr)
+                    || (hasError && IsPermissionDenialText(resultStr));
 
                 // Black-box log every permission denial for post-mortem analysis
                 if (isPermissionDenial)
