@@ -1533,6 +1533,44 @@ public partial class CopilotService
                             Debug($"[DISPATCH] Worker '{workerName}' recovered {response.Length} chars from {toolOutputs.Count} tool output(s)");
                         }
                     }
+
+                    // Third try: dead event stream recovery. When the SDK event callback stops
+                    // firing (common after session revival), History is empty but events.jsonl
+                    // has the full response written by the server process. Parse it directly.
+                    if (string.IsNullOrWhiteSpace(response))
+                    {
+                        var sessionId = histState.Info.SessionId;
+                        if (!string.IsNullOrEmpty(sessionId))
+                        {
+                            try
+                            {
+                                var diskHistory = LoadHistoryFromDisk(sessionId);
+                                var lastDiskAssistant = diskHistory
+                                    .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
+                                        && m.MessageType == ChatMessageType.Assistant);
+                                if (lastDiskAssistant != null)
+                                {
+                                    response = lastDiskAssistant.Content;
+                                    Debug($"[DISPATCH] Worker '{workerName}' recovered {response!.Length} chars from events.jsonl (dead event stream fallback)");
+
+                                    // Also backfill the in-memory history so it's visible in the UI
+                                    if (histState.Info.History.Count == 0)
+                                    {
+                                        InvokeOnUI(() =>
+                                        {
+                                            histState.Info.History.AddRange(diskHistory);
+                                            histState.Info.MessageCount = histState.Info.History.Count;
+                                            OnStateChanged?.Invoke();
+                                        });
+                                    }
+                                }
+                            }
+                            catch (Exception diskEx)
+                            {
+                                Debug($"[DISPATCH] Worker '{workerName}' events.jsonl fallback failed: {diskEx.Message}");
+                            }
+                        }
+                    }
                 }
 
                 Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response?.Length ?? 0}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
@@ -1770,17 +1808,48 @@ public partial class CopilotService
                 results.Add(new WorkerResult(workerName, lastAssistant.Content, true, null,
                     TimeSpan.FromSeconds((DateTime.UtcNow - pending.StartedAt).TotalSeconds)));
             }
-            else if (session.IsProcessing)
-            {
-                results.Add(new WorkerResult(workerName, null, false, "Still processing (timed out)", TimeSpan.Zero));
-            }
             else
             {
-                // Worker is idle with no response after dispatch — likely never started
-                // (e.g., TaskCanceledException killed the dispatch before the worker ran).
-                // Track these so we can re-dispatch them.
-                unstartedWorkers.Add(workerName);
-                results.Add(new WorkerResult(workerName, null, false, "No response found after restart", TimeSpan.Zero));
+                // Dead event stream fallback: in-memory history may be empty if the SDK event
+                // callback stopped firing. Try reading events.jsonl directly from disk.
+                string? diskResponse = null;
+                if (!session.IsProcessing)
+                {
+                    try
+                    {
+                        var diskHistory = LoadHistoryFromDisk(session.SessionId);
+                        var lastDiskAssistant = diskHistory
+                            .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
+                                && m.MessageType == ChatMessageType.Assistant);
+                        if (lastDiskAssistant != null)
+                        {
+                            diskResponse = lastDiskAssistant.Content;
+                            Debug($"[DISPATCH] Worker '{workerName}' recovered {diskResponse!.Length} chars from events.jsonl (resume fallback)");
+                        }
+                    }
+                    catch (Exception diskEx)
+                    {
+                        Debug($"[DISPATCH] Worker '{workerName}' events.jsonl resume fallback failed: {diskEx.Message}");
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(diskResponse))
+                {
+                    results.Add(new WorkerResult(workerName, diskResponse, true, null,
+                        TimeSpan.FromSeconds((DateTime.UtcNow - pending.StartedAt).TotalSeconds)));
+                }
+                else if (session.IsProcessing)
+                {
+                    results.Add(new WorkerResult(workerName, null, false, "Still processing (timed out)", TimeSpan.Zero));
+                }
+                else
+                {
+                    // Worker is idle with no response after dispatch — likely never started
+                    // (e.g., TaskCanceledException killed the dispatch before the worker ran).
+                    // Track these so we can re-dispatch them.
+                    unstartedWorkers.Add(workerName);
+                    results.Add(new WorkerResult(workerName, null, false, "No response found after restart", TimeSpan.Zero));
+                }
             }
         }
 
