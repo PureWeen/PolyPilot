@@ -1424,6 +1424,40 @@ public partial class CopilotService
 
         const int maxRetries = 2;
         var dispatchTime = DateTime.UtcNow;
+
+        // Pre-dispatch: if worker is still processing from a previous run (e.g., restored
+        // mid-processing after app relaunch), wait for it to become idle. The watchdog will
+        // clear IsProcessing within 30-120s for restored sessions.
+        if (_sessions.TryGetValue(workerName, out var preState) && preState.Info.IsProcessing)
+        {
+            Debug($"[DISPATCH] Worker '{workerName}' is still processing from previous run — waiting up to 150s");
+            var waitStart = DateTime.UtcNow;
+            while (preState.Info.IsProcessing && (DateTime.UtcNow - waitStart).TotalSeconds < 150)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await Task.Delay(2000, cancellationToken);
+            }
+            if (preState.Info.IsProcessing)
+            {
+                Debug($"[DISPATCH] Worker '{workerName}' still processing after 150s wait — force-completing");
+                InvokeOnUI(() =>
+                {
+                    preState.Info.IsProcessing = false;
+                    preState.Info.ProcessingPhase = 0;
+                    preState.Info.ProcessingStartedAt = null;
+                    preState.HasUsedToolsThisTurn = false;
+                    Interlocked.Exchange(ref preState.ActiveToolCallCount, 0);
+                    Interlocked.Exchange(ref preState.SendingFlag, 0);
+                    OnStateChanged?.Invoke();
+                });
+                await Task.Delay(100, cancellationToken); // let UI thread process
+            }
+            else
+            {
+                Debug($"[DISPATCH] Worker '{workerName}' became idle after {(DateTime.UtcNow - waitStart).TotalSeconds:F1}s — proceeding with dispatch");
+            }
+        }
+
         for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
             try
@@ -1888,6 +1922,11 @@ public partial class CopilotService
         try
         {
             var synthesisPrompt = BuildSynthesisPrompt(pending.OriginalPrompt, results);
+
+            // Wait for orchestrator to go idle if it's still processing (e.g., planning phase
+            // response still streaming when workers complete and we try to send synthesis).
+            await WaitForSessionIdleAsync(pending.OrchestratorName, ct);
+
             await SendPromptAsync(pending.OrchestratorName, synthesisPrompt, cancellationToken: ct, originalPrompt: pending.OriginalPrompt);
             Debug($"[DISPATCH] Resume synthesis sent to '{pending.OrchestratorName}'");
         }
