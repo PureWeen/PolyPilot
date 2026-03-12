@@ -116,10 +116,14 @@ public partial class CopilotService
                             sessionId =>
                             {
                                 var dir = Path.Combine(SessionStatePath, sessionId);
-                                // Require events.jsonl, not just the directory.
-                                // The SDK creates empty directories during ResumeSessionAsync
-                                // even when the session is recreated with a new ID.
-                                return File.Exists(Path.Combine(dir, "events.jsonl"));
+                                if (!Directory.Exists(dir)) return false;
+                                // Accept if events.jsonl exists (session has been used)
+                                if (File.Exists(Path.Combine(dir, "events.jsonl"))) return true;
+                                // Also accept recently-created directories (new sessions
+                                // that haven't received their first event yet). Ghost
+                                // directories from old reconnects will be stale.
+                                try { return (DateTime.UtcNow - Directory.GetCreationTimeUtc(dir)).TotalMinutes < 5; }
+                                catch { return false; }
                             });
                     }
                 }
@@ -155,9 +159,9 @@ public partial class CopilotService
     {
         var merged = new List<ActiveSessionEntry>(active);
         var activeIds = new HashSet<string>(active.Select(e => e.SessionId), StringComparer.OrdinalIgnoreCase);
-        // Track display names already in the merged list to prevent ghost duplicates.
-        // Without this, a session that reconnected (new ID) accumulates old entries
-        // because the old IDs pass the session-ID check but share the same display name.
+        // Track active display names only.
+        // This stops persisted entries from shadowing active sessions after reconnect.
+        // Persisted entries may still share names with each other.
         var activeNames = new HashSet<string>(active.Select(e => e.DisplayName), StringComparer.OrdinalIgnoreCase);
 
         foreach (var existing in persisted)
@@ -170,7 +174,6 @@ public partial class CopilotService
 
             merged.Add(existing);
             activeIds.Add(existing.SessionId);
-            activeNames.Add(existing.DisplayName);
         }
 
         return merged;
@@ -349,16 +352,6 @@ public partial class CopilotService
                                 continue;
                             }
                             
-                            // Check the session still exists on disk with actual event data.
-                            // Empty directories (created by SDK during ResumeSessionAsync for
-                            // sessions that were later reconnected with a new ID) are skipped.
-                            var sessionDir = Path.Combine(SessionStatePath, entry.SessionId);
-                            if (!File.Exists(Path.Combine(sessionDir, "events.jsonl")))
-                            {
-                                Debug($"Skipping '{entry.DisplayName}' — no events.jsonl in: {sessionDir}");
-                                continue;
-                            }
-
                             // Codespace sessions: create placeholder state (client not yet connected).
                             // Health check will resume them after the codespace tunnel is established.
                             // When toggle is off, skip entirely — don't create null-session placeholders.
@@ -426,10 +419,39 @@ public partial class CopilotService
                                     // Inject recovered history into the newly created session
                                     if (_sessions.TryGetValue(entry.DisplayName, out var recreatedState) && oldHistory.Count > 0)
                                     {
+                                        // Copy the old events.jsonl to the new session directory so history
+                                        // survives future restarts (LoadHistoryFromDisk reads events.jsonl).
+                                        if (recreatedState.Info.SessionId != null && recreatedState.Info.SessionId != entry.SessionId)
+                                        {
+                                            try
+                                            {
+                                                var oldEvents = Path.Combine(SessionStatePath, entry.SessionId, "events.jsonl");
+                                                var newEventsDir = Path.Combine(SessionStatePath, recreatedState.Info.SessionId);
+                                                var newEvents = Path.Combine(newEventsDir, "events.jsonl");
+                                                if (File.Exists(oldEvents) && !File.Exists(newEvents))
+                                                {
+                                                    Directory.CreateDirectory(newEventsDir);
+                                                    File.Copy(oldEvents, newEvents);
+                                                    Debug($"Copied events.jsonl from {entry.SessionId} to {recreatedState.Info.SessionId}");
+                                                }
+                                            }
+                                            catch (Exception copyEx)
+                                            {
+                                                Debug($"Failed to copy events.jsonl: {copyEx.Message}");
+                                            }
+                                        }
+
                                         foreach (var msg in oldHistory)
                                             recreatedState.Info.History.Add(msg);
                                         recreatedState.Info.MessageCount = recreatedState.Info.History.Count;
                                         recreatedState.Info.LastReadMessageCount = recreatedState.Info.History.Count;
+
+                                        // Normalize stale incomplete entries (same as ResumeSessionAsync)
+                                        foreach (var msg in recreatedState.Info.History.Where(m =>
+                                            (m.MessageType == ChatMessageType.ToolCall || m.MessageType == ChatMessageType.Reasoning) && !m.IsComplete))
+                                        {
+                                            msg.IsComplete = true;
+                                        }
 
                                         // Sync recovered history to DB under the new session ID
                                         if (recreatedState.Info.SessionId != null)

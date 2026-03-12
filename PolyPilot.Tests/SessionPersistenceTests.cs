@@ -221,10 +221,11 @@ public class SessionPersistenceTests
     }
 
     [Fact]
-    public void Merge_MultipleGhostEntriesSameDisplayName_OnlyOneKept()
+    public void Merge_PersistedEntriesWithSameDisplayName_AllKeptWhenNoActiveNameConflict()
     {
-        // Simulates the "28 MEssagePierce entries" bug: multiple persisted entries
-        // with different session IDs but the same display name. Only one should survive.
+        // Persisted entries should only be deduped against active session names.
+        // Legitimate persisted sessions that share a display name are restored and
+        // collision renaming is handled later in the restore flow.
         var active = new List<ActiveSessionEntry>();
         var persisted = new List<ActiveSessionEntry>
         {
@@ -237,10 +238,11 @@ public class SessionPersistenceTests
 
         var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
-        Assert.Equal(2, result.Count);
-        // First MEssagePierce entry wins, others are deduped
-        Assert.Single(result, e => e.DisplayName == "MEssagePierce");
-        Assert.Equal("ghost-1", result.First(e => e.DisplayName == "MEssagePierce").SessionId);
+        Assert.Equal(4, result.Count);
+        Assert.Equal(3, result.Count(e => e.DisplayName == "MEssagePierce"));
+        Assert.Contains(result, e => e.SessionId == "ghost-1");
+        Assert.Contains(result, e => e.SessionId == "ghost-2");
+        Assert.Contains(result, e => e.SessionId == "ghost-3");
         Assert.Single(result, e => e.DisplayName == "OtherSession");
     }
 
@@ -539,7 +541,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(1500, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
         Assert.Contains("History.Add", afterFallback);
         Assert.Contains("MessageCount", afterFallback);
         Assert.Contains("LastReadMessageCount", afterFallback);
@@ -556,7 +558,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(2500, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
         Assert.Contains("RestoreUsageStats", afterFallback);
     }
 
@@ -571,8 +573,43 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(1500, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
         Assert.Contains("BulkInsertAsync", afterFallback);
+    }
+
+    [Fact]
+    public void RestoreFallback_CopiesEventsJsonlToNewSessionDirectory()
+    {
+        // STRUCTURAL REGRESSION GUARD: The fallback must copy the old
+        // events.jsonl into the recreated session directory so a later restart
+        // can reload history from the new session ID.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
+        Assert.True(fallbackIdx > 0);
+
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
+        Assert.Contains("events.jsonl", afterFallback);
+        Assert.Contains("File.Copy(oldEvents, newEvents)", afterFallback);
+        Assert.Contains("Copied events.jsonl", afterFallback);
+    }
+
+    [Fact]
+    public void RestoreFallback_NormalizesIncompleteToolAndReasoningEntries()
+    {
+        // STRUCTURAL REGRESSION GUARD: The fallback must mark stale incomplete
+        // tool-call and reasoning entries complete, matching ResumeSessionAsync.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
+        Assert.True(fallbackIdx > 0);
+
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
+        Assert.Contains("ChatMessageType.ToolCall", afterFallback);
+        Assert.Contains("ChatMessageType.Reasoning", afterFallback);
+        Assert.Contains("msg.IsComplete = true", afterFallback);
     }
 
     [Fact]
@@ -587,7 +624,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(1500, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
         Assert.Contains("Session recreated", afterFallback);
         Assert.Contains("SystemMessage", afterFallback);
     }
@@ -623,39 +660,219 @@ public class SessionPersistenceTests
         Assert.Contains("SaveActiveSessionsToDisk()", afterAssign);
     }
 
-    // --- Restore: events.jsonl existence check ---
+    // --- Restore/save: events.jsonl handling ---
 
     [Fact]
-    public void Restore_SkipsSessionsWithoutEventsJsonl()
+    public void Restore_DoesNotSkipSessionsBeforeFallbackCanHandleMissingEvents()
     {
-        // STRUCTURAL REGRESSION GUARD: The restore loop must check for events.jsonl
-        // existence, not just directory existence. Empty directories (created by SDK
-        // during ResumeSessionAsync) should be skipped to prevent ghost sessions.
+        // STRUCTURAL REGRESSION GUARD: RestorePreviousSessionsAsync must not
+        // short-circuit on missing events.jsonl before the existing fallback path
+        // can recreate legitimate never-used sessions.
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
 
         var restoreIdx = source.IndexOf("RestorePreviousSessionsAsync", StringComparison.Ordinal);
         Assert.True(restoreIdx > 0);
 
-        var restoreBlock = source.Substring(restoreIdx, Math.Min(5000, source.Length - restoreIdx));
-        // Must check events.jsonl, not just Directory.Exists
-        Assert.Contains("events.jsonl", restoreBlock);
+        Assert.DoesNotContain("Skipping '{entry.DisplayName}' — no events.jsonl", source);
+        Assert.Contains("Session not found", source);
     }
 
     [Fact]
-    public void SaveActiveSessionsToDisk_ChecksEventsJsonlNotJustDirectory()
+    public void SaveActiveSessionsToDisk_AcceptsEventsOrRecentDirectories()
     {
         // STRUCTURAL REGRESSION GUARD: The sessionDirExists callback in
-        // WriteActiveSessionsFile/SaveActiveSessionsToDisk must check for
-        // events.jsonl file existence, not just the directory.
+        // WriteActiveSessionsFile/SaveActiveSessionsToDisk must keep used sessions
+        // via events.jsonl and also preserve newly created directories briefly.
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
 
         var mergeCallIdx = source.IndexOf("MergeSessionEntries(entries", StringComparison.Ordinal);
         Assert.True(mergeCallIdx > 0);
 
-        // The callback passed to MergeSessionEntries must reference events.jsonl
-        var mergeCall = source.Substring(mergeCallIdx, Math.Min(500, source.Length - mergeCallIdx));
+        var mergeCall = source.Substring(mergeCallIdx, Math.Min(1000, source.Length - mergeCallIdx));
+        Assert.Contains("Directory.Exists(dir)", mergeCall);
         Assert.Contains("events.jsonl", mergeCall);
+        Assert.Contains("Directory.GetCreationTimeUtc", mergeCall);
+        Assert.Contains("TotalMinutes < 5", mergeCall);
+    }
+
+    // --- Behavioral tests: sessionDirExists with real filesystem ---
+    // These verify the actual directory/events.jsonl logic that the WriteActiveSessionsFile
+    // callback implements, using real temp directories instead of source-text assertions.
+
+    [Fact]
+    public void Merge_WithEventsJsonl_SessionKept()
+    {
+        // A persisted session whose directory has events.jsonl should survive merge.
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            var sessionDir = Path.Combine(tempBase, "sess-good");
+            Directory.CreateDirectory(sessionDir);
+            File.WriteAllText(Path.Combine(sessionDir, "events.jsonl"), "{}");
+
+            var active = new List<ActiveSessionEntry>();
+            var persisted = new List<ActiveSessionEntry> { Entry("sess-good", "Good") };
+            var closed = new HashSet<string>();
+
+            Func<string, bool> dirExists = id =>
+            {
+                var dir = Path.Combine(tempBase, id);
+                if (!Directory.Exists(dir)) return false;
+                if (File.Exists(Path.Combine(dir, "events.jsonl"))) return true;
+                try { return (DateTime.UtcNow - Directory.GetCreationTimeUtc(dir)).TotalMinutes < 5; }
+                catch { return false; }
+            };
+
+            var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), dirExists);
+            Assert.Single(result);
+            Assert.Equal("sess-good", result[0].SessionId);
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    [Fact]
+    public void Merge_WithEmptyDir_RecentlyCreated_SessionKept()
+    {
+        // A session directory without events.jsonl but created recently (< 5 min)
+        // should be kept — it's a brand-new session that hasn't received events yet.
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            var sessionDir = Path.Combine(tempBase, "sess-new");
+            Directory.CreateDirectory(sessionDir);
+            // No events.jsonl — simulates a just-created session
+
+            var active = new List<ActiveSessionEntry>();
+            var persisted = new List<ActiveSessionEntry> { Entry("sess-new", "New") };
+            var closed = new HashSet<string>();
+
+            Func<string, bool> dirExists = id =>
+            {
+                var dir = Path.Combine(tempBase, id);
+                if (!Directory.Exists(dir)) return false;
+                if (File.Exists(Path.Combine(dir, "events.jsonl"))) return true;
+                try { return (DateTime.UtcNow - Directory.GetCreationTimeUtc(dir)).TotalMinutes < 5; }
+                catch { return false; }
+            };
+
+            var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), dirExists);
+            Assert.Single(result);
+            Assert.Equal("sess-new", result[0].SessionId);
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    [Fact]
+    public void Merge_WithEmptyDir_NoEvents_GhostDropped()
+    {
+        // A session directory without events.jsonl that is NOT recently created
+        // should be dropped — it's a ghost from a reconnected session.
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            var sessionDir = Path.Combine(tempBase, "sess-ghost");
+            Directory.CreateDirectory(sessionDir);
+            // Backdate the directory creation time to simulate a stale ghost
+            Directory.SetCreationTimeUtc(sessionDir, DateTime.UtcNow.AddHours(-1));
+
+            var active = new List<ActiveSessionEntry>();
+            var persisted = new List<ActiveSessionEntry> { Entry("sess-ghost", "Ghost") };
+            var closed = new HashSet<string>();
+
+            Func<string, bool> dirExists = id =>
+            {
+                var dir = Path.Combine(tempBase, id);
+                if (!Directory.Exists(dir)) return false;
+                if (File.Exists(Path.Combine(dir, "events.jsonl"))) return true;
+                try { return (DateTime.UtcNow - Directory.GetCreationTimeUtc(dir)).TotalMinutes < 5; }
+                catch { return false; }
+            };
+
+            var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), dirExists);
+            Assert.Empty(result);
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    [Fact]
+    public void Merge_NoDirectory_SessionDropped()
+    {
+        // A persisted session with no directory at all should be dropped.
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempBase);
+        try
+        {
+            var active = new List<ActiveSessionEntry>();
+            var persisted = new List<ActiveSessionEntry> { Entry("nonexistent", "Gone") };
+            var closed = new HashSet<string>();
+
+            Func<string, bool> dirExists = id =>
+            {
+                var dir = Path.Combine(tempBase, id);
+                if (!Directory.Exists(dir)) return false;
+                if (File.Exists(Path.Combine(dir, "events.jsonl"))) return true;
+                try { return (DateTime.UtcNow - Directory.GetCreationTimeUtc(dir)).TotalMinutes < 5; }
+                catch { return false; }
+            };
+
+            var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), dirExists);
+            Assert.Empty(result);
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    [Fact]
+    public void Merge_MixedSessions_OnlyValidOnesKept()
+    {
+        // End-to-end scenario: mix of valid, ghost, and missing sessions.
+        // Only sessions with events.jsonl or recently-created dirs should survive.
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            // Session with events.jsonl — kept
+            var goodDir = Path.Combine(tempBase, "good");
+            Directory.CreateDirectory(goodDir);
+            File.WriteAllText(Path.Combine(goodDir, "events.jsonl"), "{}");
+
+            // New session (no events, recent dir) — kept
+            var newDir = Path.Combine(tempBase, "brand-new");
+            Directory.CreateDirectory(newDir);
+
+            // Ghost session (empty dir, old) — dropped
+            var ghostDir = Path.Combine(tempBase, "ghost");
+            Directory.CreateDirectory(ghostDir);
+            Directory.SetCreationTimeUtc(ghostDir, DateTime.UtcNow.AddHours(-2));
+
+            // "missing" — no directory at all — dropped
+
+            var active = new List<ActiveSessionEntry>();
+            var persisted = new List<ActiveSessionEntry>
+            {
+                Entry("good", "Good"),
+                Entry("brand-new", "BrandNew"),
+                Entry("ghost", "Ghost"),
+                Entry("missing", "Missing"),
+            };
+            var closed = new HashSet<string>();
+
+            Func<string, bool> dirExists = id =>
+            {
+                var dir = Path.Combine(tempBase, id);
+                if (!Directory.Exists(dir)) return false;
+                if (File.Exists(Path.Combine(dir, "events.jsonl"))) return true;
+                try { return (DateTime.UtcNow - Directory.GetCreationTimeUtc(dir)).TotalMinutes < 5; }
+                catch { return false; }
+            };
+
+            var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), dirExists);
+            Assert.Equal(2, result.Count);
+            Assert.Contains(result, e => e.SessionId == "good");
+            Assert.Contains(result, e => e.SessionId == "brand-new");
+            Assert.DoesNotContain(result, e => e.SessionId == "ghost");
+            Assert.DoesNotContain(result, e => e.SessionId == "missing");
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
     }
 }
