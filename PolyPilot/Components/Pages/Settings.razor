@@ -550,14 +550,14 @@
                             <strong>@plugin.Name</strong>
                             @if (!string.IsNullOrEmpty(plugin.Version))
                             {
-                                <span style="font-size:0.8em; color:var(--text-secondary); margin-left:6px;">v@plugin.Version</span>
+                                <span style="font-size:var(--type-caption1); color:var(--text-secondary); margin-left:6px;">v@plugin.Version</span>
                             }
                         </div>
                         @if (!string.IsNullOrEmpty(plugin.Description))
                         {
-                            <div style="font-size:0.9em; margin:4px 0;">@plugin.Description</div>
+                            <div style="font-size:var(--type-callout); margin:4px 0;">@plugin.Description</div>
                         }
-                        <div class="plugin-details" style="font-size:0.85em; color:var(--text-secondary); margin:4px 0;">
+                        <div class="plugin-details" style="font-size:var(--type-footnote); color:var(--text-secondary); margin:4px 0;">
                             <div>📦 @plugin.DirectoryName / @plugin.FileName</div>
                             <div>🔒 SHA-256: @plugin.Hash[..Math.Min(16, plugin.Hash.Length)]…</div>
                             @if (enabled != null && !hashChanged)
@@ -583,7 +583,7 @@
                 }
             }
 
-            <p class="section-desc" style="margin-top:12px; font-size:0.8em; color:var(--text-tertiary);">
+            <p class="section-desc" style="margin-top:12px; font-size:var(--type-footnote); color:var(--text-tertiary);">
                 ℹ️ Enabling a plugin loads its code into PolyPilot. Only enable plugins you trust. A restart is required after enabling or disabling plugins.
             </p>
         </div>

@@ -45,7 +45,7 @@
     background: none;
     color: var(--text-dim);
     cursor: pointer;
-    font-size: var(--type-caption1);
+    font-size: var(--type-callout);
     font-weight: 500;
     text-align: center;
     transition: all 0.15s;
@@ -71,7 +71,7 @@
     border-radius: 6px;
     background: var(--control-bg);
     color: var(--text-primary);
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     cursor: pointer;
 }
 
@@ -81,7 +81,7 @@
 }
 
 .ns-repo-label {
-    font-size: var(--type-footnote);
+    font-size: var(--type-callout);
     color: var(--text-secondary);
     padding: 0.15rem 0;
 }
@@ -102,7 +102,7 @@
     background: none;
     color: var(--text-dim);
     cursor: pointer;
-    font-size: var(--type-caption2);
+    font-size: var(--type-callout);
     font-weight: 500;
     text-align: center;
     transition: all 0.15s;
@@ -131,7 +131,7 @@
     border-radius: 6px;
     background: var(--control-bg);
     color: var(--text-primary);
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     box-sizing: border-box;
     transition: border-color 0.15s;
 }
@@ -146,7 +146,7 @@
 }
 
 .ns-hint {
-    font-size: var(--type-caption2);
+    font-size: var(--type-callout);
     color: var(--text-dim);
     padding: 0.2rem 0;
     font-style: italic;
@@ -180,7 +180,7 @@
     border-radius: 6px;
     background: var(--control-bg);
     color: var(--text-primary);
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     font-family: inherit;
     resize: vertical;
     min-height: 2.2rem;
@@ -211,7 +211,7 @@
     border-radius: 6px;
     color: var(--text-primary);
     cursor: pointer;
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
 }
 
 .ns-dir-browse:hover {
@@ -245,7 +245,7 @@
     background: none;
     color: var(--text-dim);
     cursor: pointer;
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     transition: all 0.15s;
 }
 
@@ -261,7 +261,7 @@
     background: var(--accent-primary);
     color: #fff;
     cursor: pointer;
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     font-weight: 600;
     transition: all 0.15s;
 }
@@ -278,7 +278,7 @@
 
 .ns-error {
     color: #ff6b6b;
-    font-size: var(--type-caption2);
+    font-size: var(--type-callout);
     padding: 0.1rem 0;
     display: flex;
     align-items: flex-start;
@@ -292,7 +292,7 @@
     border: none;
     color: #ff6b6b;
     cursor: pointer;
-    font-size: 0.75rem;
+    font-size: var(--type-body);
     padding: 0;
     opacity: 0.7;
     flex-shrink: 0;
@@ -361,7 +361,7 @@
     background: none;
     color: var(--text-dim);
     cursor: pointer;
-    font-size: var(--type-caption2);
+    font-size: var(--type-callout);
     font-weight: 500;
     white-space: nowrap;
     transition: all 0.15s;
@@ -381,7 +381,7 @@
     background: none;
     color: var(--success, #4ade80);
     cursor: pointer;
-    font-size: var(--type-caption2);
+    font-size: var(--type-callout);
     font-weight: 500;
     white-space: nowrap;
     transition: all 0.15s;

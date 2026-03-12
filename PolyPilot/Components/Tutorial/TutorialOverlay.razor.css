@@ -41,7 +41,7 @@
 }
 
 .tutorial-chapter-badge {
-    font-size: 0.75rem;
+    font-size: var(--type-caption1);
     color: var(--text-secondary);
     font-weight: 500;
 }
@@ -51,7 +51,7 @@
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: var(--type-body);
     padding: 2px 6px;
     border-radius: 4px;
     line-height: 1;
@@ -63,14 +63,14 @@
 }
 
 .tutorial-step-title {
-    font-size: 0.95rem;
+    font-size: var(--type-body);
     font-weight: 600;
     color: var(--text-bright);
     margin: 0 0 6px;
 }
 
 .tutorial-step-desc {
-    font-size: 0.82rem;
+    font-size: var(--type-callout);
     color: var(--text-secondary);
     line-height: 1.5;
     margin: 0 0 14px;
@@ -83,7 +83,7 @@
 }
 
 .tutorial-step-counter {
-    font-size: 0.72rem;
+    font-size: var(--type-footnote);
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
 }
@@ -96,7 +96,7 @@
 .tutorial-btn {
     padding: 5px 14px;
     border-radius: 6px;
-    font-size: 0.78rem;
+    font-size: var(--type-body);
     font-weight: 500;
     cursor: pointer;
     border: none;

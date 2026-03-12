@@ -81,7 +81,7 @@ else
                     <button class="header-icon-btn" title="Statistics" @onclick="ToggleStatisticsPopup"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></button>
                 </div>
             </div>
-            <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")" style="font-size:0.8rem">
+            <p class="status @(CopilotService.IsInitialized ? "connected" : "disconnected")" style="font-size:var(--type-callout)">
                 @if (CopilotService.IsInitialized)
                 {
                     <text>● @CopilotService.CurrentMode</text>
@@ -271,8 +271,8 @@ else
                            placeholder="Team name (optional — uses preset name)"
                            style="margin: 4px 8px;" />
                     <div style="margin: 6px 8px; padding: 6px 8px; background: var(--bg-secondary); border-radius: 6px; border: 1px solid var(--control-border);">
-                        <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">🌿 Worktree Isolation</div>
-                        <select class="sort-select" style="width: 100%; font-size: 12px; padding: 4px 6px;" @onchange="OnStrategyChanged">
+                        <div style="font-size: var(--type-caption2); font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">🌿 Worktree Isolation</div>
+                        <select class="sort-select" style="width: 100%; font-size: var(--type-caption1); padding: 4px 6px;" @onchange="OnStrategyChanged">
                             <option value="" selected="@(selectedStrategy == null)">📋 Preset default</option>
                             <option value="FullyIsolated" selected="@(selectedStrategy == WorktreeStrategy.FullyIsolated)">🔒 Each agent gets own worktree</option>
                             <option value="OrchestratorIsolated" selected="@(selectedStrategy == WorktreeStrategy.OrchestratorIsolated)">🔀 Manager isolated, workers share</option>
@@ -752,7 +752,7 @@ else
                 @if (CopilotService.CodespacesEnabled && codespaceGroups.Any())
                 {
                     <div class="sidebar-divider"></div>
-                    <div class="section-header"><span class="section-header-label" title="Alpha feature — may have rough edges">☁️ Codespaces <span style="font-size:0.7em;opacity:0.6">α</span></span></div>
+                    <div class="section-header"><span class="section-header-label" title="Alpha feature — may have rough edges">☁️ Codespaces <span style="font-size:var(--type-caption1);opacity:0.6">α</span></span></div>
                     @foreach (var (group, groupSessions) in codespaceGroups)
                     {
                         var csDisconnected = group.ConnectionState != CodespaceConnectionState.Connected;

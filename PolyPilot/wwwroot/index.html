@@ -499,7 +499,7 @@
                     item.textContent = '@' + option;
                     item.style.cssText =
                         'display:block;width:100%;text-align:left;border:none;border-radius:6px;padding:6px 8px;' +
-                        'font-size:12px;cursor:pointer;line-height:1.25;' +
+                        'font-size:var(--type-caption1);cursor:pointer;line-height:1.25;' +
                         (idx === state.selectedIndex
                             ? 'background:var(--hover-bg,#313244);color:var(--text-primary,#cdd6f4);'
                             : 'background:transparent;color:var(--text-secondary,#bac2de);');
@@ -805,7 +805,7 @@
                 d.style.cssText =
                     'position:fixed;z-index:10020;display:none;min-width:300px;max-width:420px;max-height:360px;overflow-y:auto;' +
                     'background:var(--bg-tertiary,#1e1e2e);border:1px solid var(--control-border,#45475a);border-radius:8px;' +
-                    'box-shadow:0 8px 24px rgba(0,0,0,0.35);padding:6px;font-size:0.9rem;box-sizing:border-box;';
+                    'box-shadow:0 8px 24px rgba(0,0,0,0.35);padding:6px;font-size:var(--type-body);box-sizing:border-box;';
                 document.body.appendChild(d);
                 d.addEventListener('mousedown', function(e) { if (e.target === d) e.preventDefault(); });
                 state.dropdown = d;
@@ -903,7 +903,7 @@
                         item.innerHTML =
                             '<div><span style="font-weight:600;color:var(--text-primary,#cdd6f4);">' +
                             window.escapeHtml(option.cmd) + '</span>' + usageHtml + '</div>' +
-                            '<div style="color:var(--text-secondary,#bac2de);font-weight:400;font-size:0.8rem;margin-top:2px;">' +
+                            '<div style="color:var(--text-secondary,#bac2de);font-weight:400;font-size:var(--type-callout);margin-top:2px;">' +
                             window.escapeHtml(option.desc) + '</div>';
                         item.style.cssText =
                             'display:block;width:100%;text-align:left;border:none;border-radius:6px;padding:8px 10px;' +

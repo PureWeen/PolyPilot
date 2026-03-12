@@ -7,10 +7,13 @@
     --type-headline: 0.85rem;     /* 17px — emphasized body text (use font-weight:600) */
     --type-body: 0.85rem;         /* 17px — primary content */
     --type-callout: 0.8rem;       /* 16px — secondary content, labels */
-    --type-subhead: 0.75rem;      /* 15px — tertiary content */
     --type-footnote: 0.65rem;     /* 13px — timestamps, metadata */
     --type-caption1: 0.6rem;      /* 12px — badges, small labels */
     --type-caption2: 0.55rem;     /* 11px — minimum readable size */
+
+    /* Font stacks — reference these instead of repeating font lists */
+    --font-base: -apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --font-mono: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
 
     /* Theme colors — PolyPilot Dark (default) */
     --bg-primary: #0f0f23;
@@ -415,7 +418,6 @@
         --type-headline: 0.8rem;
         --type-body: 0.8rem;
         --type-callout: 0.75rem;
-        --type-subhead: 0.7rem;
         --type-footnote: 0.6rem;
         --type-caption1: 0.55rem;
         --type-caption2: 0.5rem;
@@ -428,7 +430,6 @@
         --type-body: 0.95rem;
         --type-headline: 0.95rem;
         --type-callout: 0.85rem;
-        --type-subhead: 0.8rem;
         --type-footnote: 0.75rem;
         --type-caption1: 0.65rem;
         --type-caption2: 0.6rem;
@@ -436,7 +437,7 @@
 }
 
 html, body {
-    font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-family: var(--font-base);
     font-size: var(--app-font-size, 20px);
     color: var(--text-primary);
     background: var(--bg-primary);
@@ -466,7 +467,7 @@ html, body {
 /* Expanded chat title — global override to prevent truncation */
 .expanded-card .chat-header-top h2 {
     margin: 0 !important;
-    font-size: 1.2rem !important;
+    font-size: var(--type-title2) !important;
     width: 100% !important;
     max-width: none !important;
     white-space: normal !important;
@@ -678,7 +679,7 @@ h1:focus {
     border-radius: 50%;
     background: rgba(255,255,255,0.15);
     color: #fff;
-    font-size: 1.25rem;
+    font-size: var(--type-title2);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -704,13 +705,13 @@ h1:focus {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 8px;
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     color: var(--accent-purple);
     font-weight: 600;
 }
 
 .reflection-body {
-    font-size: var(--type-callout);
+    font-size: var(--type-body);
     color: var(--text-primary);
     margin-bottom: 8px;
 }
@@ -748,7 +749,7 @@ h1:focus {
     color: #c4b5fd;
     padding: 2px 6px;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: var(--type-caption2);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
@@ -812,7 +813,7 @@ h1:focus {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     color: var(--text-secondary);
     cursor: pointer;
     padding: 0.25rem 0;
@@ -839,10 +840,10 @@ h1:focus {
     background: none;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
 }
 
-.js-close-dialog-cancel:hover {
+.js-close-dialog-cancel:hover{
     color: var(--text-primary);
     background: var(--hover-bg);
 }
@@ -854,7 +855,7 @@ h1:focus {
     background: var(--accent-error);
     color: var(--text-bright);
     cursor: pointer;
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     font-weight: 600;
 }
 
@@ -891,7 +892,7 @@ h1:focus {
 
 .skills-popup-header {
     padding: 8px 14px;
-    font-size: 13px;
+    font-size: var(--type-body);
     color: var(--text-muted);
     border-bottom: 1px solid var(--border-subtle);
     font-weight: 600;
@@ -914,16 +915,16 @@ h1:focus {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 15px;
+    font-size: var(--type-body);
 }
 
-.skills-popup-row-name {
+.skills-popup-row-name{
     color: var(--text-bright);
     font-weight: 600;
 }
 
 .skills-popup-row-source {
-    font-size: 11px;
+    font-size: var(--type-caption2);
     color: var(--text-muted);
     background: var(--bg-input);
     padding: 2px 8px;
@@ -933,7 +934,7 @@ h1:focus {
 }
 
 .skills-popup-row-desc {
-    font-size: 13px;
+    font-size: var(--type-callout);
     color: var(--text-secondary);
     margin-top: 3px;
     line-height: 1.4;
@@ -941,8 +942,8 @@ h1:focus {
 
 .skills-popup-log-row {
     padding: 3px 14px;
-    font-size: 12px;
-    font-family: monospace;
+    font-size: var(--type-caption1);
+    font-family: var(--font-mono);
     border-bottom: 1px solid var(--border-subtle);
     white-space: nowrap;
     overflow: hidden;

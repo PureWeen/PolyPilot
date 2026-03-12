@@ -813,7 +813,7 @@
                     h.appendChild(ht);
                     var newBtn = document.createElement('button');
                     newBtn.textContent = '+ New';
-                    newBtn.style.cssText = 'background:var(--bg-tertiary);border:none;color:var(--text-bright);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:12px';
+                    newBtn.style.cssText = 'background:var(--bg-tertiary);border:none;color:var(--text-bright);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:var(--type-caption1)';
                     newBtn.onmouseover = function(){{ this.style.background='var(--control-border)'; }};
                     newBtn.onmouseout = function(){{ this.style.background='var(--bg-tertiary)'; }};
                     newBtn.onclick = function(e){{ e.stopPropagation(); renderForm('','','','new'); }};
@@ -845,7 +845,7 @@
                                 var editBtn = document.createElement('button');
                                 editBtn.textContent = '\u270F\uFE0F';
                                 editBtn.title = 'Edit prompt';
-                                editBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.7';
+                                editBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:var(--type-callout);padding:2px 4px;opacity:0.7';
                                 editBtn.onmouseover = function(){{ this.style.opacity='1'; }};
                                 editBtn.onmouseout = function(){{ this.style.opacity='0.7'; }};
                                 editBtn.onclick = function(e){{ e.stopPropagation(); renderForm(p.name, p.description, p.content, 'edit'); }};
@@ -853,7 +853,7 @@
                                 var delBtn = document.createElement('button');
                                 delBtn.textContent = '\uD83D\uDDD1\uFE0F';
                                 delBtn.title = 'Delete prompt';
-                                delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.7';
+                                delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:var(--type-callout);padding:2px 4px;opacity:0.7';
                                 delBtn.onmouseover = function(){{ this.style.opacity='1'; }};
                                 delBtn.onmouseout = function(){{ this.style.opacity='0.7'; }};
                                 delBtn.onclick = function(e){{
@@ -889,13 +889,13 @@
                 function renderForm(name, desc, content, mode) {{
                     popup.innerHTML = '';
                     var h = document.createElement('div');
-                    h.style.cssText = 'padding:8px 14px;font-size:13px;color:var(--text-muted);border-bottom:1px solid var(--border-subtle);font-weight:600';
+                    h.style.cssText = 'padding:8px 14px;font-size:var(--type-footnote);color:var(--text-muted);border-bottom:1px solid var(--border-subtle);font-weight:600';
                     h.textContent = mode === 'edit' ? 'Edit Prompt' : 'New Prompt';
                     popup.appendChild(h);
                     var form = document.createElement('div');
                     form.style.cssText = 'padding:10px 14px';
-                    var mkLabel = function(text) {{ var l = document.createElement('div'); l.style.cssText = 'font-size:12px;color:var(--text-muted);margin-bottom:4px;margin-top:8px'; l.textContent = text; return l; }};
-                    var mkInput = function(val, ph) {{ var i = document.createElement('input'); i.style.cssText = 'width:100%;background:var(--bg-tertiary);border:1px solid var(--control-border);border-radius:4px;padding:6px 8px;color:var(--text-bright);font-size:14px;box-sizing:border-box'; i.value = val||''; i.placeholder = ph; return i; }};
+                    var mkLabel = function(text) {{ var l = document.createElement('div'); l.style.cssText = 'font-size:var(--type-caption1);color:var(--text-muted);margin-bottom:4px;margin-top:8px'; l.textContent = text; return l; }};
+                    var mkInput = function(val, ph) {{ var i = document.createElement('input'); i.style.cssText = 'width:100%;background:var(--bg-tertiary);border:1px solid var(--control-border);border-radius:4px;padding:6px 8px;color:var(--text-bright);font-size:var(--type-callout);box-sizing:border-box'; i.value = val||''; i.placeholder = ph; return i; }};
                     form.appendChild(mkLabel('Name'));
                     var nameInput = mkInput(name, 'Prompt name');
                     if(mode === 'edit') {{ nameInput.readOnly = true; nameInput.style.opacity = '0.6'; }}
@@ -905,7 +905,7 @@
                     form.appendChild(descInput);
                     form.appendChild(mkLabel('Content'));
                     var contentArea = document.createElement('textarea');
-                    contentArea.style.cssText = 'width:100%;background:var(--bg-tertiary);border:1px solid var(--control-border);border-radius:4px;padding:6px 8px;color:var(--text-bright);font-size:14px;min-height:100px;resize:vertical;box-sizing:border-box;font-family:inherit';
+                    contentArea.style.cssText = 'width:100%;background:var(--bg-tertiary);border:1px solid var(--control-border);border-radius:4px;padding:6px 8px;color:var(--text-bright);font-size:var(--type-callout);min-height:100px;resize:vertical;box-sizing:border-box;font-family:inherit';
                     contentArea.value = content||'';
                     contentArea.placeholder = 'Prompt content...';
                     form.appendChild(contentArea);
@@ -913,12 +913,12 @@
                     btns.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:12px;padding-bottom:4px';
                     var cancelBtn = document.createElement('button');
                     cancelBtn.textContent = 'Cancel';
-                    cancelBtn.style.cssText = 'background:var(--bg-tertiary);border:none;color:var(--text-bright);padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px';
+                    cancelBtn.style.cssText = 'background:var(--bg-tertiary);border:none;color:var(--text-bright);padding:6px 14px;border-radius:4px;cursor:pointer;font-size:var(--type-footnote)';
                     cancelBtn.onclick = function(){{ renderList(); }};
                     btns.appendChild(cancelBtn);
                     var saveBtn = document.createElement('button');
                     saveBtn.textContent = 'Save';
-                    saveBtn.style.cssText = 'background:var(--accent-primary);border:none;color:var(--bg-primary);padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600';
+                    saveBtn.style.cssText = 'background:var(--accent-primary);border:none;color:var(--bg-primary);padding:6px 14px;border-radius:4px;cursor:pointer;font-size:var(--type-footnote);font-weight:600';
                     saveBtn.onclick = function(){{
                         var n = nameInput.value.trim();
                         var c = contentArea.value.trim();

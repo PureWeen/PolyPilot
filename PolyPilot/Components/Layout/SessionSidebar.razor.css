@@ -125,7 +125,7 @@
     padding: 0.3rem 0.5rem !important;
     background: var(--control-bg) !important;
     border: 1px solid var(--control-border) !important;
-    font-size: var(--type-subhead) !important;
+    font-size: var(--type-callout) !important;
     font-weight: normal !important;
 }
 
@@ -257,7 +257,7 @@
 .unpinned-toggle:hover { background: var(--hover-bg); }
 
 .unpinned-chevron {
-    font-size: 0.55rem;
+    font-size: var(--type-caption2);
     color: var(--text-muted);
     width: 0.7rem;
     text-align: center;
@@ -397,9 +397,9 @@
 .group-menu-hint {
     display: block;
     padding: 0.15rem 0.5rem 0.3rem;
-    font-size: 0.6rem;
+    font-size: var(--type-caption1);
     color: var(--text-dim);
-    font-family: monospace;
+    font-family: var(--font-mono);
 }
 .group-menu-hint.setup-hint-title {
     font-family: inherit;
@@ -413,7 +413,7 @@
     align-items: center;
     gap: 0.25rem;
     margin-left: auto;
-    font-size: 0.65rem;
+    font-size: var(--type-footnote);
 }
 
 .repo-remove-label {
@@ -424,7 +424,7 @@
     all: unset;
     padding: 0.1rem 0.35rem;
     border-radius: 3px;
-    font-size: 0.65rem;
+    font-size: var(--type-body);
     cursor: pointer;
     background: var(--control-bg);
     color: var(--text-primary);
@@ -441,13 +441,13 @@
 }
 
 .group-repo-icon {
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     opacity: 0.5;
     margin-right: 0.15rem;
 }
 
 .codespace-state-dot {
-    font-size: 0.55rem;
+    font-size: var(--type-caption2);
     margin-right: 0.15rem;
 }
 .codespace-state-dot.connected { color: var(--success, #4ade80); }
@@ -461,7 +461,7 @@
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 0.6rem;
+    font-size: var(--type-caption1);
     padding: 0 0.15rem;
     color: var(--success, #4ade80);
     opacity: 0.8;
@@ -482,7 +482,7 @@
     line-height: 1.2;
 }
 .cs-group-codespace-name {
-    font-size: 0.6rem;
+    font-size: var(--type-caption1);
     color: var(--text-tertiary, #6c7086);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -490,7 +490,7 @@
     line-height: 1.1;
 }
 .cs-inline-hint {
-    font-size: 0.55rem;
+    font-size: var(--type-caption2);
     color: var(--warning, #facc15);
     opacity: 0.8;
     line-height: 1.1;
@@ -500,7 +500,7 @@
 }
 
 .codespace-create-error {
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     color: var(--error, #e05252);
     padding: 0.3rem 0.75rem;
     cursor: pointer;
@@ -525,7 +525,7 @@
 
 /* Orchestrator phase indicator */
 .phase-indicator {
-    font-size: 0.75rem;
+    font-size: var(--type-callout);
     color: var(--accent-primary);
     animation: phase-pulse 2s ease-in-out infinite;
 }
@@ -562,7 +562,7 @@
     cursor: pointer;
     padding: 0.15rem 0.3rem;
     border-radius: 4px;
-    font-size: 0.7rem;
+    font-size: var(--type-body);
 }
 .reflect-stop-btn:hover, .reflect-pause-btn:hover {
     background: var(--control-bg);
@@ -575,7 +575,7 @@
     border-radius: 5px;
     background: var(--control-bg);
     color: var(--text-primary);
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     -webkit-appearance: none;
     appearance: none;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a0b4cc' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
@@ -608,7 +608,7 @@
     border-radius: 4px;
     background: var(--control-bg);
     color: var(--text-primary);
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     text-align: center;
 }
 
@@ -626,7 +626,7 @@
     border-radius: 5px;
     background: var(--control-bg);
     color: var(--text-primary);
-    font-size: var(--type-caption1);
+    font-size: var(--type-body);
     font-family: inherit;
     resize: vertical;
     max-height: 80px;
@@ -649,7 +649,7 @@
     background: var(--accent-primary);
     color: #fff;
     cursor: pointer;
-    font-size: var(--type-caption1);
+    font-size: var(--type-body);
     line-height: 1;
     flex-shrink: 0;
 }
@@ -685,7 +685,7 @@
     border-radius: 4px;
     background: var(--bg-primary);
     color: var(--text-primary);
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     box-sizing: border-box;
 }
 
@@ -699,7 +699,7 @@
     all: unset;
     padding: 0.25rem 0.5rem;
     border-radius: 4px;
-    font-size: var(--type-caption1);
+    font-size: var(--type-body);
     cursor: pointer;
 }
 
@@ -723,7 +723,7 @@
 
 .repo-progress {
     color: var(--text-secondary);
-    font-size: 0.65rem;
+    font-size: var(--type-footnote);
     margin-top: 0.25rem;
     font-family: var(--font-mono, monospace);
     white-space: nowrap;
@@ -749,7 +749,7 @@
 }
 
 .pin-badge {
-    font-size: 0.65rem;
+    font-size: var(--type-footnote);
     cursor: pointer;
     margin-right: 0.15rem;
 }
@@ -869,7 +869,7 @@
 }
 
 .open-badge {
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     color: #00c35b;
     white-space: nowrap;
     flex-shrink: 0;
@@ -925,7 +925,7 @@
 }
 
 .persisted-name {
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-base);
     font-size: var(--type-body);
     white-space: nowrap;
     overflow: hidden;
@@ -983,7 +983,7 @@
 .processing {
     color: #fbbf24;
     animation: pulse 1s infinite;
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     white-space: nowrap;
 }
 
@@ -1130,7 +1130,7 @@
 }
 
 .resume-error {
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     color: var(--accent-primary);
     line-height: 1.3;
     text-align: center;
@@ -1256,7 +1256,7 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.3rem 0.75rem;
-    font-size: 0.72rem;
+    font-size: var(--type-footnote);
 }
 .info-label { color: var(--text-muted); white-space: nowrap; }
 .info-value { color: var(--text-primary); }
@@ -1346,7 +1346,7 @@
     border-radius: 6px;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     font-weight: 600;
     padding: 0.25rem 0.5rem;
     line-height: 1;
@@ -1523,7 +1523,7 @@
     border: 1px solid transparent;
     border-radius: 8px;
     color: var(--text-secondary);
-    font-size: 0.75rem;
+    font-size: var(--type-callout);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
 }
@@ -1546,7 +1546,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     font-weight: 600;
     color: var(--text-primary);
 }
@@ -1561,7 +1561,7 @@
     border: 1px solid var(--control-border);
     border-radius: 6px;
     color: var(--text-primary);
-    font-size: 0.75rem;
+    font-size: var(--type-callout);
     font-family: inherit;
     box-sizing: border-box;
 }
@@ -1573,7 +1573,7 @@
     border: 1px solid var(--control-border);
     border-radius: 6px;
     color: var(--text-primary);
-    font-size: 0.75rem;
+    font-size: var(--type-callout);
     font-family: inherit;
     box-sizing: border-box;
     -webkit-appearance: none;
@@ -1596,7 +1596,7 @@
 }
 
 .bug-report-details {
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     color: var(--text-secondary);
 }
 .bug-report-details summary {
@@ -1606,7 +1606,7 @@
 .bug-report-debug {
     max-height: 100px;
     overflow: auto;
-    font-size: 0.65rem;
+    font-size: var(--type-footnote);
     background: var(--bg-primary);
     padding: 0.3rem;
     border-radius: 4px;
@@ -1623,7 +1623,7 @@
 }
 
 .bug-report-status {
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     flex: 1;
 }
 .bug-report-status.success { color: #4ade80; }
@@ -1635,7 +1635,7 @@
     border: none;
     border-radius: 6px;
     color: #fff;
-    font-size: 0.75rem;
+    font-size: var(--type-callout);
     cursor: pointer;
     flex-shrink: 0;
 }
@@ -1668,7 +1668,7 @@
 .worktree-cancel-btn {
     all: unset;
     cursor: pointer;
-    font-size: 0.7rem;
+    font-size: var(--type-body);
     color: var(--text-dim);
     padding: 0.1rem 0.3rem;
     border-radius: 3px;
@@ -1719,7 +1719,7 @@
 }
 .preset-item:hover { background: var(--control-bg); }
 
-.preset-emoji { font-size: 0.9rem; flex-shrink: 0; }
+.preset-emoji { font-size: var(--type-callout); flex-shrink: 0; }
 
 .preset-name {
     color: var(--text-primary);
@@ -1752,7 +1752,7 @@
 .preset-delete-btn {
     all: unset;
     cursor: pointer;
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     padding: 0.15rem 0.25rem;
     border-radius: 4px;
     opacity: 0.4;
@@ -1764,7 +1764,7 @@
 }
 
 .preset-badge {
-    font-size: 0.65rem;
+    font-size: var(--type-footnote);
     flex-shrink: 0;
     opacity: 0.7;
 }
@@ -1806,7 +1806,7 @@
 
 .save-preset-btn {
     all: unset;
-    font-size: var(--type-caption1);
+    font-size: var(--type-body);
     color: var(--text-dim);
     cursor: pointer;
     padding: 0.2rem 0;
@@ -1848,7 +1848,7 @@
     flex-wrap: wrap;
 }
 .quick-branch-icon {
-    font-size: 0.85rem;
+    font-size: var(--type-body);
     color: var(--text-secondary);
     flex-shrink: 0;
 }
@@ -1856,7 +1856,7 @@
     flex: 1;
     min-width: 80px;
     padding: 3px 6px;
-    font-size: 0.78rem;
+    font-size: var(--type-callout);
     border: 1px solid var(--control-border);
     border-radius: 4px;
     background: var(--panel-bg);
@@ -1872,7 +1872,7 @@
     border: none;
     border-radius: 3px;
     cursor: pointer;
-    font-size: 0.78rem;
+    font-size: var(--type-callout);
     background: var(--control-border);
     color: var(--text-primary);
     flex-shrink: 0;
@@ -1881,12 +1881,12 @@
 .quick-branch-cancel-btn:hover { background: var(--accent-primary); color: #fff; }
 .quick-branch-go-btn:disabled { opacity: 0.4; cursor: default; }
 .quick-branch-spinner {
-    font-size: 0.85rem;
+    font-size: var(--type-body);
     animation: spin 1s linear infinite;
 }
 .quick-branch-error {
     width: 100%;
-    font-size: 0.72rem;
+    font-size: var(--type-footnote);
     color: var(--accent-primary);
     padding: 2px 0 0;
 }

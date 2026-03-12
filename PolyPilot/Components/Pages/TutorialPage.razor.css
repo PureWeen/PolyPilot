@@ -9,14 +9,14 @@
 }
 
 .tutorial-page-header h1 {
-    font-size: 1.5rem;
+    font-size: var(--type-large-title);
     font-weight: 700;
     color: var(--text-bright);
     margin: 0 0 4px;
 }
 
 .tutorial-page-subtitle {
-    font-size: 0.85rem;
+    font-size: var(--type-body);
     color: var(--text-secondary);
     margin: 0 0 16px;
 }
@@ -28,7 +28,7 @@
 
 .tutorial-start-all {
     padding: 8px 20px;
-    font-size: 0.85rem;
+    font-size: var(--type-body);
 }
 
 .tutorial-chapters-grid {
@@ -64,21 +64,21 @@
 }
 
 .chapter-card-body h3 {
-    font-size: 0.88rem;
+    font-size: var(--type-body);
     font-weight: 600;
     color: var(--text-bright);
     margin: 0 0 2px;
 }
 
 .chapter-card-body p {
-    font-size: 0.76rem;
+    font-size: var(--type-callout);
     color: var(--text-secondary);
     margin: 0 0 4px;
     line-height: 1.4;
 }
 
 .chapter-step-count {
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     color: var(--text-muted);
 }
 
@@ -92,7 +92,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.72rem;
+    font-size: var(--type-footnote);
     font-weight: 700;
     margin-top: 2px;
 }
@@ -101,7 +101,7 @@
 .tutorial-btn {
     padding: 5px 14px;
     border-radius: 6px;
-    font-size: 0.78rem;
+    font-size: var(--type-body);
     font-weight: 500;
     cursor: pointer;
     border: none;

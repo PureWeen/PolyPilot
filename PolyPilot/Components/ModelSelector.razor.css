@@ -14,7 +14,7 @@
     border-radius: 6px;
     background: var(--control-bg);
     color: var(--text-primary);
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -104,7 +104,7 @@
 @media (max-width: 640px) {
     .model-selector-display {
         padding: 0.35rem 0.4rem;
-        font-size: var(--type-callout);
+        font-size: var(--type-body);
     }
 
     .model-selector-dropdown {

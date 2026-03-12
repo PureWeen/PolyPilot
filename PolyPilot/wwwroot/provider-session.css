@@ -26,7 +26,7 @@
     border-radius: 4px;
     padding: 4px 8px;
     cursor: pointer;
-    font-size: 0.85em;
+    font-size: var(--type-body);
     margin: 2px;
     transition: background-color 0.2s;
 }
@@ -60,7 +60,7 @@
 }
 
 .plugin-status {
-    font-size: 1em;
+    font-size: var(--type-body);
 }
 
 .plugin-details {
@@ -77,7 +77,7 @@
     border-radius: 5px;
     background: rgba(59, 130, 246, 0.15);
     color: var(--accent-primary, #89b4fa);
-    font-size: 0.8em;
+    font-size: var(--type-body);
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -105,7 +105,7 @@
     border-radius: 6px;
     background: rgba(59, 130, 246, 0.2);
     color: var(--accent-primary, #89b4fa);
-    font-size: 0.85em;
+    font-size: var(--type-body);
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;

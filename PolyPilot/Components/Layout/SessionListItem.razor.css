@@ -92,7 +92,7 @@
 }
 
 .pin-badge {
-    font-size: 0.65rem;
+    font-size: var(--type-footnote);
     cursor: pointer;
     margin-right: 0.15rem;
 }
@@ -112,13 +112,13 @@
 .processing {
     color: #fbbf24;
     animation: pulse 1s infinite;
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     white-space: nowrap;
 }
 
 .permission-warn-icon {
     margin-left: 2px;
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     cursor: default;
 }
 
@@ -176,7 +176,7 @@
     display: block;
     width: 100%;
     padding: 0.35rem 0.65rem;
-    font-size: var(--type-callout);
+    font-size: var(--type-body);
     color: var(--text-on-surface);
     cursor: pointer;
     white-space: nowrap;
@@ -216,7 +216,7 @@
     border-radius: 4px;
     background: var(--control-bg);
     color: var(--text-primary);
-    font-size: var(--type-title3);
+    font-size: var(--type-body);
     font-weight: 500;
     font-family: inherit;
     outline: none;
@@ -245,7 +245,7 @@
 }
 
 .context-bar-label {
-    font-size: 0.65rem;
+    font-size: var(--type-footnote);
     color: var(--text-dim);
     white-space: nowrap;
     flex-shrink: 0;
@@ -273,21 +273,21 @@
     border-radius: 9px;
     background: var(--accent-primary, #7c5cfc);
     color: #fff;
-    font-size: 11px;
+    font-size: var(--type-caption2);
     font-weight: 600;
     margin-left: 6px;
     flex-shrink: 0;
 }
 
 .role-badge {
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     margin-left: 4px;
     flex-shrink: 0;
 }
 
 .model-override {
     color: #fbbf24;
-    font-size: 0.65rem;
+    font-size: var(--type-footnote);
     margin-left: 2px;
 }
 
@@ -302,7 +302,7 @@
     border-radius: 5px;
     background: var(--control-bg);
     color: var(--text-primary);
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     font-family: inherit;
     cursor: pointer;
     outline: none;
@@ -371,7 +371,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     color: var(--text-secondary);
     cursor: pointer;
     padding: 0.25rem 0;
@@ -398,7 +398,7 @@
     background: none;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
 }
 
 .close-dialog-cancel:hover {
@@ -413,7 +413,7 @@
     background: #ff6b6b;
     color: #fff;
     cursor: pointer;
-    font-size: var(--type-footnote);
+    font-size: var(--type-body);
     font-weight: 600;
 }
 

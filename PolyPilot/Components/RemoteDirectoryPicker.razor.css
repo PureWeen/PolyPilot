@@ -38,7 +38,7 @@
     background: none;
     border: none;
     color: var(--text-dim);
-    font-size: 1.2rem;
+    font-size: var(--type-title2);
     cursor: pointer;
     padding: 0.2rem 0.4rem;
 }
@@ -91,7 +91,7 @@
     background: none;
     border: none;
     color: var(--text-primary);
-    font-size: var(--type-callout);
+    font-size: var(--type-body);
     cursor: pointer;
     text-align: left;
 }
@@ -106,7 +106,7 @@
 
 .dir-icon {
     flex-shrink: 0;
-    font-size: 1rem;
+    font-size: var(--type-title3);
 }
 
 .dir-name {
@@ -174,7 +174,7 @@
     background: transparent;
     color: var(--text-primary);
     cursor: pointer;
-    font-size: var(--type-callout);
+    font-size: var(--type-body);
 }
 
 .dir-select-btn {
@@ -184,7 +184,7 @@
     background: var(--accent-primary);
     color: #fff;
     cursor: pointer;
-    font-size: var(--type-callout);
+    font-size: var(--type-body);
 }
 
 .dir-select-btn:disabled {

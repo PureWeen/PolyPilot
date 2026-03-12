@@ -33,7 +33,7 @@
 
 .stats-popup-header h3 {
     margin: 0;
-    font-size: 1.1rem;
+    font-size: var(--type-title2);
     color: var(--text-primary, #e0e0e0);
 }
 
@@ -41,7 +41,7 @@
     background: none;
     border: none;
     color: var(--text-dim, #888);
-    font-size: 1.1rem;
+    font-size: var(--type-title2);
     cursor: pointer;
     padding: 0.2rem 0.4rem;
     border-radius: 4px;
@@ -54,7 +54,7 @@
 }
 
 .stats-desc {
-    font-size: 0.85rem;
+    font-size: var(--type-body);
     color: var(--text-dim, #888);
     margin: 0 0 1rem 0;
 }
@@ -75,7 +75,7 @@
 }
 
 .stat-value {
-    font-size: 1.4rem;
+    font-size: var(--type-title1);
     font-weight: 600;
     color: var(--accent-primary, #7c5cfc);
     margin-bottom: 0.2rem;
@@ -83,7 +83,7 @@
 }
 
 .stat-label {
-    font-size: 0.75rem;
+    font-size: var(--type-body);
     color: var(--text-dim, #888);
 }
 
@@ -96,11 +96,11 @@
 }
 
 .stats-date {
-    font-size: 0.75rem;
+    font-size: var(--type-footnote);
     color: var(--text-dim, #888);
 }
 
 .stats-empty {
     color: var(--text-dim, #888);
-    font-size: 0.9rem;
+    font-size: var(--type-callout);
 }

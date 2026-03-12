@@ -32,7 +32,7 @@
 .chat-message-list.compact ::deep .chat-msg-role {
     font-weight: 600;
     flex-shrink: 0;
-    font-size: 10px;
+    font-size: var(--type-caption2);
     padding: 0.05rem 0.25rem;
     border-radius: 3px;
     align-self: flex-start;
@@ -66,7 +66,7 @@
 .chat-message-list.compact ::deep .chat-msg.reasoning .chat-msg-text,
 .chat-message-list.compact ::deep .chat-msg.reflection .chat-msg-text {
     color: var(--text-muted);
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
 }
 
 .chat-message-list.compact ::deep .chat-msg.reflection {
@@ -123,13 +123,13 @@
 
 ::deep .orchestration-prompt-details {
     margin-top: 0.5rem;
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
 }
 
 ::deep .orchestration-prompt-details summary {
     cursor: pointer;
     color: rgba(255, 255, 255, 0.45);
-    font-size: 0.75rem;
+    font-size: var(--type-callout);
     user-select: none;
 }
 
@@ -143,7 +143,7 @@
     background: rgba(255, 255, 255, 0.04);
     border-radius: 6px;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    font-size: 0.75rem;
+    font-size: var(--type-callout);
     color: rgba(255, 255, 255, 0.55);
     white-space: pre-wrap;
     word-break: break-word;
@@ -184,7 +184,7 @@
     width: 36px;
     height: 36px;
     overflow: hidden;
-    font-size: 16px;
+    font-size: var(--type-callout);
 }
 
 .chat-message-list.full ::deep .chat-msg.user .chat-msg-avatar .user-avatar-img {
@@ -233,7 +233,7 @@
 }
 
 .chat-message-list.full ::deep .chat-msg-time {
-    font-size: 16px;
+    font-size: var(--type-callout);
     color: var(--text-muted);
     margin-top: 0.1rem;
     opacity: 0.8;
@@ -248,7 +248,7 @@
 }
 
 .chat-message-list.full ::deep .system-text {
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     color: var(--text-muted);
     font-style: italic;
     text-align: center;
@@ -282,7 +282,7 @@
 }
 
 .chat-message-list.full ::deep .shell-output-text {
-    font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-size: var(--type-footnote);
     color: var(--text-bright);
     background: rgba(0, 0, 0, 0.3);
@@ -456,8 +456,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
-    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
-    font-size: var(--type-subhead);
+    font-family: var(--font-mono);
+    font-size: var(--type-callout);
 }
 
 /* Head-truncate: show tail of path with ellipsis on the left */
@@ -490,7 +490,7 @@
 }
 
 ::deep .action-input pre {
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     color: var(--text-primary);
     white-space: pre-wrap;
     word-break: break-word;
@@ -507,7 +507,7 @@
     background: rgba(0, 0, 0, 0.1);
     border-top: 1px solid var(--control-bg);
     cursor: pointer;
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     color: var(--text-muted);
     transition: background 0.15s;
 }
@@ -545,16 +545,16 @@
 }
 
 ::deep .action-full-input pre {
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     color: var(--text-bright);
     white-space: pre-wrap;
     word-break: break-all;
     margin: 0;
-    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-family: var(--font-mono);
 }
 
 ::deep .action-output pre {
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     color: var(--text-secondary);
     white-space: pre-wrap;
     word-break: break-word;
@@ -615,7 +615,7 @@
 }
 
 ::deep .action-expanded-input pre {
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     color: var(--text-primary);
     white-space: pre-wrap;
     word-break: break-word;
@@ -639,7 +639,7 @@
 }
 
 ::deep .action-expanded-result pre {
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     color: var(--text-secondary);
     white-space: pre-wrap;
     word-break: break-word;
@@ -780,7 +780,7 @@
 }
 
 ::deep .user-image-name {
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
@@ -933,7 +933,7 @@
     justify-content: flex-start;
 }
 .chat-message-list.full.style-minimal ::deep .system-text {
-    font-size: var(--type-subhead);
+    font-size: var(--type-callout);
     text-align: center;
     padding: 0.2rem 0.5rem;
     opacity: 0.7;
@@ -943,7 +943,7 @@
     font-style: normal;
 }
 .chat-message-list.full.style-minimal ::deep .chat-msg-time {
-    font-size: 16px;
+    font-size: var(--type-callout);
     opacity: 0.8;
 }
 
@@ -962,14 +962,14 @@
 }
 ::deep .image-bubble .image-bubble-caption {
     padding: 0.4rem 0.6rem;
-    font-size: 0.85em;
+    font-size: var(--type-body);
     color: var(--text-muted);
     line-height: 1.4;
 }
 ::deep .image-bubble .image-bubble-content.loading {
     padding: 1rem;
     color: var(--text-muted);
-    font-size: 0.9em;
+    font-size: var(--type-callout);
 }
 @media (max-width: 640px) {
     ::deep .image-bubble .image-bubble-content {
@@ -988,7 +988,7 @@
     border: 1px solid rgba(255, 170, 0, 0.3);
     border-radius: 8px;
     color: #ffaa00;
-    font-size: 0.85rem;
+    font-size: var(--type-body);
 }
 
 .reconnect-btn {
@@ -998,7 +998,7 @@
     border-radius: 4px;
     color: #ffaa00;
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: var(--type-body);
     white-space: nowrap;
 }
 
