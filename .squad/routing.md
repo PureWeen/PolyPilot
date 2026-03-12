@@ -87,14 +87,9 @@ Dispatch 5 parallel sub-agent reviews with the updated diff (include previous fi
 
 Use `gh pr diff <N>` — **never** check out the branch for review-only tasks.
 
-Dispatch 5 parallel reviews:
-- claude-opus-4.6
-- claude-opus-4.6
-- claude-sonnet-4.6
-- gemini-3-pro-preview
-- gpt-5.3-codex
+**IMPORTANT: Assign each PR to exactly ONE reviewer worker.** Do NOT spread a single PR review across multiple workers. One worker reviews one PR — that worker handles multi-model consensus internally.
 
-Synthesize with 2+ model consensus filter.
+If multiple PRs need reviewing, assign one PR per worker (up to the number of available workers).
 
 ---
 
