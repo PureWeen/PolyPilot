@@ -32,6 +32,7 @@ public partial class CodespaceService
         public int LocalPort { get; }
         public bool IsSshTunnel { get; }
         private readonly Process _process;
+        private volatile bool _disposed;
 
         internal TunnelHandle(int localPort, Process process, bool isSshTunnel = false)
         {
@@ -40,18 +41,19 @@ public partial class CodespaceService
             IsSshTunnel = isSshTunnel;
         }
 
-        public bool IsAlive => !_process.HasExited;
+        public bool IsAlive => !_disposed && !ProcessHelper.SafeHasExited(_process);
 
         public async ValueTask DisposeAsync()
         {
+            _disposed = true;
             try
             {
-                if (!_process.HasExited)
+                if (!ProcessHelper.SafeHasExited(_process))
                     _process.Kill(entireProcessTree: true);
                 await _process.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(3));
             }
             catch { }
-            _process.Dispose();
+            try { _process.Dispose(); } catch { }
         }
     }
     /// <summary>
