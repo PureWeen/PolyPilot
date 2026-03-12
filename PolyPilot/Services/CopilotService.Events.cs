@@ -392,7 +392,11 @@ public partial class CopilotService
                 // Black-box log every permission denial for post-mortem analysis
                 if (isPermissionDenial)
                 {
-                    Debug($"[PERMISSION-DENY] '{sessionName}' tool='{completeToolName}' error='{errorStr?.Substring(0, Math.Min(errorStr?.Length ?? 0, 150))}' " +
+                    var errorPreview = errorStr?.Length > 150 ? errorStr[..150] : errorStr;
+                    var resultPreview = resultStr?.Length > 150 ? resultStr[..150] : resultStr;
+                    Debug($"[PERMISSION-DENY] '{sessionName}' tool='{completeToolName}' " +
+                          $"error='{errorPreview}' result='{resultPreview}' hasError={hasError} " +
+                          $"errorType={toolDone.Data.Error?.GetType().Name} " +
                           $"(denials={state.Info.PermissionDenialCount + 1}, isMultiAgent={state.IsMultiAgentSession})");
                 }
 
