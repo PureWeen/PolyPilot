@@ -499,6 +499,7 @@ public partial class CopilotService
                     Debug($"SyncRemoteSessions: Syncing {messages.Count} messages for '{name}'");
                     s.Info.History.Clear();
                     s.Info.History.AddRange(messages);
+                    s.Info.MessageCount = s.Info.History.Count;
                 }
             }
         }
