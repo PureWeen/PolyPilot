@@ -240,44 +240,31 @@ public class ChatDatabaseResilienceTests : IDisposable
         // AddMessageAsync with a broken DB must NOT produce unobserved task exceptions.
         // Before the fix, AggregateException from SQLite async internals would escape
         // the narrow catch filter and become unobserved.
-        var unobservedException = false;
-        void handler(object? s, UnobservedTaskExceptionEventArgs e)
-        {
-            unobservedException = true;
-            e.SetObserved();
-        }
+        //
+        // Two-pronged verification:
+        // 1. Await the tasks — they must complete without throwing (internal catch)
+        // 2. Verify faulted tasks don't exist (no unobserved exception source)
+        ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
+        var db = new ChatDatabase();
+        db.ResetConnection();
 
-        TaskScheduler.UnobservedTaskException += handler;
-        try
-        {
-            ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
-            var db = new ChatDatabase();
-            db.ResetConnection();
+        var msg = ChatMessage.UserMessage("test");
 
-            var msg = ChatMessage.UserMessage("test");
+        // Fire-and-forget — same pattern as CopilotService.Events.cs
+        var t1 = db.AddMessageAsync("session-1", msg);
+        var t2 = db.UpdateToolCompleteAsync("session-1", "tool-1", "result", true);
+        var t3 = db.UpdateReasoningContentAsync("session-1", "reason-1", "content", true);
 
-            // Fire-and-forget — same pattern as CopilotService.Events.cs
-            _ = db.AddMessageAsync("session-1", msg);
-            _ = db.UpdateToolCompleteAsync("session-1", "tool-1", "result", true);
-            _ = db.UpdateReasoningContentAsync("session-1", "reason-1", "content", true);
+        // All tasks should complete without throwing — internal catch handles errors
+        await Task.WhenAll(t1, t2, t3);
 
-            // Give tasks time to complete and finalize — multiple GC cycles
-            // needed to reliably trigger UnobservedTaskException under load
-            await Task.Delay(500);
-            for (int i = 0; i < 3; i++)
-            {
-                GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-                GC.WaitForPendingFinalizers();
-            }
-            await Task.Delay(200);
+        // Verify none faulted (faulted tasks are the source of unobserved exceptions)
+        Assert.False(t1.IsFaulted, "AddMessageAsync should catch internally, not fault");
+        Assert.False(t2.IsFaulted, "UpdateToolCompleteAsync should catch internally, not fault");
+        Assert.False(t3.IsFaulted, "UpdateReasoningContentAsync should catch internally, not fault");
 
-            Assert.False(unobservedException,
-                "Fire-and-forget ChatDatabase calls must not produce unobserved task exceptions");
-        }
-        finally
-        {
-            TaskScheduler.UnobservedTaskException -= handler;
-        }
+        // AddMessageAsync returns -1 on error (not an exception)
+        Assert.Equal(-1, t1.Result);
     }
 
     // -----------------------------------------------------------------------
