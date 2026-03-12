@@ -558,7 +558,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
         Assert.Contains("RestoreUsageStats", afterFallback);
     }
 
@@ -573,7 +573,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
         Assert.Contains("BulkInsertAsync", afterFallback);
     }
 
@@ -589,9 +589,9 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
         Assert.Contains("events.jsonl", afterFallback);
-        Assert.Contains("File.Copy(oldEvents, newEvents)", afterFallback);
+        Assert.Contains("Sanitized copy: only write lines that parse as valid JSON", afterFallback);
         Assert.Contains("Copied events.jsonl", afterFallback);
     }
 
@@ -606,7 +606,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
         Assert.Contains("ChatMessageType.ToolCall", afterFallback);
         Assert.Contains("ChatMessageType.Reasoning", afterFallback);
         Assert.Contains("msg.IsComplete = true", afterFallback);
@@ -624,7 +624,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
         Assert.Contains("Session recreated", afterFallback);
         Assert.Contains("SystemMessage", afterFallback);
     }
@@ -872,6 +872,124 @@ public class SessionPersistenceTests
             Assert.Contains(result, e => e.SessionId == "brand-new");
             Assert.DoesNotContain(result, e => e.SessionId == "ghost");
             Assert.DoesNotContain(result, e => e.SessionId == "missing");
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    // --- Null DisplayName guard ---
+
+    [Fact]
+    public void Merge_NullDisplayNameInActive_DoesNotThrow()
+    {
+        var active = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "a1", DisplayName = null!, Model = "m", WorkingDirectory = "/w" },
+            Entry("a2", "Session2"),
+        };
+        var persisted = new List<ActiveSessionEntry> { Entry("p1", "Persisted1") };
+        var closed = new HashSet<string>();
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
+        Assert.Equal(3, result.Count);
+    }
+
+    [Fact]
+    public void Merge_NullDisplayNameInPersisted_DoesNotThrow()
+    {
+        var active = new List<ActiveSessionEntry> { Entry("a1", "Session1") };
+        var persisted = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "p1", DisplayName = null!, Model = "m", WorkingDirectory = "/w" },
+        };
+        var closed = new HashSet<string>();
+
+        // Null display name should not crash; entry kept if dir exists
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
+        Assert.Equal(2, result.Count);
+    }
+
+    // --- Sanitized events.jsonl copy ---
+
+    [Fact]
+    public void WriteActiveSessionsFile_SanitizedCopy_Concept()
+    {
+        // Validates that corrupt JSON lines are detectable via JsonDocument.Parse,
+        // which is the same mechanism used in the sanitized copy during fallback.
+        var validLine = "{\"type\":\"user.message\",\"data\":{\"content\":\"hello\"}}";
+        var corruptLine = "{\"type\":\"user.message\",\"data\":{\"content\":\"broken";
+        var emptyLine = "";
+
+        var lines = new[] { validLine, corruptLine, emptyLine };
+        var validLines = new List<string>();
+        int skipped = 0;
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(line);
+                validLines.Add(line);
+            }
+            catch (System.Text.Json.JsonException) { skipped++; }
+        }
+
+        Assert.Single(validLines);
+        Assert.Equal(validLine, validLines[0]);
+        Assert.Equal(1, skipped);
+    }
+
+    [Fact]
+    public void SanitizedCopy_WritesOnlyValidJsonLines()
+    {
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-sanitize-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempBase);
+            var sourceDir = Path.Combine(tempBase, "old-session");
+            var destDir = Path.Combine(tempBase, "new-session");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(destDir);
+
+            var sourcePath = Path.Combine(sourceDir, "events.jsonl");
+            var destPath = Path.Combine(destDir, "events.jsonl");
+
+            // Write a mix of valid, corrupt, and empty lines
+            var lines = new[]
+            {
+                "{\"type\":\"session.start\",\"data\":{}}",
+                "THIS IS CORRUPT",
+                "{\"type\":\"user.message\",\"data\":{\"content\":\"hello\"}}",
+                "",
+                "{\"type\":\"assistant.message\",\"data\":{\"content\":\"world\"}",  // missing closing brace
+                "{\"type\":\"tool.execution_start\",\"data\":{\"toolName\":\"grep\"}}",
+            };
+            File.WriteAllLines(sourcePath, lines);
+
+            // Replicate the sanitized copy logic from CopilotService.Persistence.cs
+            int validCount = 0, skippedCount = 0;
+            using (var writer = new StreamWriter(destPath))
+            {
+                foreach (var line in File.ReadLines(sourcePath))
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(line);
+                        writer.WriteLine(line);
+                        validCount++;
+                    }
+                    catch (System.Text.Json.JsonException) { skippedCount++; }
+                }
+            }
+
+            Assert.Equal(3, validCount);   // session.start, user.message, tool.execution_start
+            Assert.Equal(2, skippedCount); // "THIS IS CORRUPT" and truncated assistant.message
+
+            var writtenLines = File.ReadAllLines(destPath).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+            Assert.Equal(3, writtenLines.Length);
+            Assert.Contains("session.start", writtenLines[0]);
+            Assert.Contains("user.message", writtenLines[1]);
+            Assert.Contains("tool.execution_start", writtenLines[2]);
         }
         finally { try { Directory.Delete(tempBase, true); } catch { } }
     }

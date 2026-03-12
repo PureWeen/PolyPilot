@@ -162,7 +162,7 @@ public partial class CopilotService
         // Track active display names only.
         // This stops persisted entries from shadowing active sessions after reconnect.
         // Persisted entries may still share names with each other.
-        var activeNames = new HashSet<string>(active.Select(e => e.DisplayName), StringComparer.OrdinalIgnoreCase);
+        var activeNames = new HashSet<string>(active.Select(e => e.DisplayName).Where(n => n != null), StringComparer.OrdinalIgnoreCase);
 
         foreach (var existing in persisted)
         {
@@ -431,8 +431,32 @@ public partial class CopilotService
                                                 if (File.Exists(oldEvents) && !File.Exists(newEvents))
                                                 {
                                                     Directory.CreateDirectory(newEventsDir);
-                                                    File.Copy(oldEvents, newEvents);
-                                                    Debug($"Copied events.jsonl from {entry.SessionId} to {recreatedState.Info.SessionId}");
+                                                    // Sanitized copy: only write lines that parse as valid JSON.
+                                                    // If ResumeSessionAsync failed due to corrupt events.jsonl,
+                                                    // a raw File.Copy would propagate corruption and cause a
+                                                    // retry loop on every restart.
+                                                    int validLines = 0, skippedLines = 0;
+                                                    using (var writer = new StreamWriter(newEvents))
+                                                    {
+                                                        foreach (var line in File.ReadLines(oldEvents))
+                                                        {
+                                                            if (string.IsNullOrWhiteSpace(line)) continue;
+                                                            try
+                                                            {
+                                                                using var doc = JsonDocument.Parse(line);
+                                                                writer.WriteLine(line);
+                                                                validLines++;
+                                                            }
+                                                            catch (JsonException)
+                                                            {
+                                                                skippedLines++;
+                                                            }
+                                                        }
+                                                    }
+                                                    if (skippedLines > 0)
+                                                        Debug($"Sanitized events.jsonl copy from {entry.SessionId} to {recreatedState.Info.SessionId}: {validLines} valid, {skippedLines} corrupt lines skipped");
+                                                    else
+                                                        Debug($"Copied events.jsonl from {entry.SessionId} to {recreatedState.Info.SessionId}: {validLines} lines");
                                                 }
                                             }
                                             catch (Exception copyEx)
