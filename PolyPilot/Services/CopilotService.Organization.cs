@@ -1071,70 +1071,51 @@ public partial class CopilotService
             orchPlanning.EarlyDispatchOnWorkerBlocks = true;
         var planResponse = await SendPromptAndWaitAsync(orchestratorName, planningPrompt, cancellationToken, originalPrompt: prompt);
 
-        // Phase 2: Parse task assignments from orchestrator response, with retry loop.
-        // Uses conversation history (no fresh sessions) so the model remembers what it already assigned.
+        // Phase 2: Parse task assignments from orchestrator response.
+        // If the orchestrator assigns fewer workers than available, respect that decision —
+        // not every request needs all workers (e.g., "post a comment on PR #341" only needs
+        // the worker that reviewed that PR). Only nudge when ZERO assignments (format failure).
         var allAssignments = new List<TaskAssignment>();
         var dispatchedWorkers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        const int maxDispatchIterations = 3;
 
-        for (int dispatchIter = 0; dispatchIter < maxDispatchIterations; dispatchIter++)
+        var rawAssignments = ParseTaskAssignments(planResponse, workerNames);
+        Debug($"[DISPATCH] '{orchestratorName}' iteration 0: {rawAssignments.Count} raw assignments. Response length={planResponse.Length}");
+
+        var iterAssignments = DeduplicateAssignments(rawAssignments, dispatchedWorkers);
+
+        if (iterAssignments.Count == 0)
         {
-            string responseToParse;
-            if (dispatchIter == 0)
-            {
-                // First iteration: parse the initial planning response
-                responseToParse = planResponse;
-            }
-            else
-            {
-                // Subsequent iterations: nudge with context about who's already dispatched
-                var remaining = workerNames.Where(w => !dispatchedWorkers.Contains(w)).ToList();
-                if (remaining.Count == 0) break;
-
-                var nudgeSb = new System.Text.StringBuilder();
-                nudgeSb.AppendLine($"You dispatched {dispatchedWorkers.Count} worker(s): {string.Join(", ", dispatchedWorkers)}");
-                nudgeSb.AppendLine($"{remaining.Count} worker(s) remain: {string.Join(", ", remaining)}");
-                nudgeSb.AppendLine();
-                nudgeSb.AppendLine($"Dispatch ALL {remaining.Count} remaining workers NOW. Each MUST receive a DIFFERENT sub-task.");
-                nudgeSb.AppendLine("Produce one @worker:name...@end block for EACH remaining worker in this single response.");
-                responseToParse = await SendPromptAndWaitAsync(orchestratorName, nudgeSb.ToString(), cancellationToken, originalPrompt: prompt);
-            }
-
-            var rawAssignments = ParseTaskAssignments(responseToParse, workerNames);
-            Debug($"[DISPATCH] '{orchestratorName}' iteration {dispatchIter}: {rawAssignments.Count} raw assignments. Response length={responseToParse.Length}");
-
-            // Deduplicate: merge multiple tasks for the same worker
-            var iterAssignments = DeduplicateAssignments(rawAssignments, dispatchedWorkers);
-
-            if (iterAssignments.Count == 0 && dispatchIter == 0)
-            {
-                // First pass produced nothing — send a single nudge (backwards compat)
-                Debug($"[DISPATCH] No assignments parsed. Sending delegation nudge.");
-                var nudgePrompt = BuildDelegationNudgePrompt(workerNames);
-                var nudgeResponse = await SendPromptAndWaitAsync(orchestratorName, nudgePrompt, cancellationToken, originalPrompt: prompt);
-                iterAssignments = DeduplicateAssignments(ParseTaskAssignments(nudgeResponse, workerNames), dispatchedWorkers);
-                Debug($"[DISPATCH] Nudge parsed: {iterAssignments.Count} assignments.");
-            }
+            // First pass produced nothing — send a single nudge (format failure recovery)
+            Debug($"[DISPATCH] No assignments parsed. Sending delegation nudge.");
+            var nudgePrompt = BuildDelegationNudgePrompt(workerNames);
+            var nudgeResponse = await SendPromptAndWaitAsync(orchestratorName, nudgePrompt, cancellationToken, originalPrompt: prompt);
+            iterAssignments = DeduplicateAssignments(ParseTaskAssignments(nudgeResponse, workerNames), dispatchedWorkers);
+            Debug($"[DISPATCH] Nudge parsed: {iterAssignments.Count} assignments.");
 
             if (iterAssignments.Count == 0)
             {
-                if (allAssignments.Count == 0)
+                // Still nothing after nudge — force a second nudge reminding it MUST delegate
+                Debug($"[DISPATCH] No assignments after nudge. Sending final delegation reminder.");
+                var finalNudge = "You MUST delegate this task to at least one worker using @worker:name...@end blocks. You cannot do it yourself. Pick the most relevant worker and assign the task now.";
+                var finalResponse = await SendPromptAndWaitAsync(orchestratorName, finalNudge, cancellationToken, originalPrompt: prompt);
+                iterAssignments = DeduplicateAssignments(ParseTaskAssignments(finalResponse, workerNames), dispatchedWorkers);
+                Debug($"[DISPATCH] Final nudge parsed: {iterAssignments.Count} assignments.");
+
+                if (iterAssignments.Count == 0)
                 {
-                    Debug($"[DISPATCH] No assignments after iteration {dispatchIter}. Orchestrator handled directly.");
-                    AddOrchestratorSystemMessage(orchestratorName, "ℹ️ Orchestrator handled the request directly (no tasks delegated to workers).");
+                    Debug($"[DISPATCH] No assignments after all nudges. Cannot proceed without delegation.");
+                    AddOrchestratorSystemMessage(orchestratorName, "⚠️ Failed to delegate — orchestrator did not produce any @worker assignments after multiple attempts.");
                     InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
                     return;
                 }
-                break; // Have some assignments, proceed to dispatch
             }
-
-            allAssignments.AddRange(iterAssignments);
-            foreach (var a in iterAssignments)
-                dispatchedWorkers.Add(a.WorkerName);
-
-            // If all workers are assigned or this is the last iteration, stop
-            if (dispatchedWorkers.Count >= workerNames.Count) break;
         }
+
+        allAssignments.AddRange(iterAssignments);
+        foreach (var a in iterAssignments)
+            dispatchedWorkers.Add(a.WorkerName);
+
+        Debug($"[DISPATCH] Orchestrator assigned {dispatchedWorkers.Count}/{workerNames.Count} workers. Respecting partial assignment.");
 
         var assignments = allAssignments;
 
@@ -1228,7 +1209,8 @@ public partial class CopilotService
         }
         else
         {
-            sb.AppendLine("Break the request into tasks and assign them to workers. You may also do some coordination work yourself (e.g., verifying results, running commands).");
+            sb.AppendLine("You are a DISPATCHER. Break the request into tasks and assign them to workers via @worker blocks.");
+            sb.AppendLine("You MUST always delegate work to workers. Do NOT attempt to do the work yourself.");
         }
         sb.AppendLine();
         sb.AppendLine("IMPORTANT: Each worker MUST receive a DIFFERENT sub-task. Do NOT assign the same work to two workers.");
@@ -1240,10 +1222,11 @@ public partial class CopilotService
         sb.AppendLine("Detailed task description for this worker.");
         sb.AppendLine("@end");
         sb.AppendLine();
-        sb.AppendLine($"CRITICAL: Assign ALL workers that have relevant work IN THIS SINGLE RESPONSE. You have {workerNames.Count} workers — produce multiple @worker blocks now, not one at a time.");
+        sb.AppendLine($"IMPORTANT: Assign ALL workers that have relevant work IN THIS SINGLE RESPONSE — produce multiple @worker blocks now, not one at a time.");
+        sb.AppendLine("However, only assign workers that have RELEVANT work to do. If the task only needs one worker (e.g., a follow-up on a specific PR), assign just that one worker — the one with the right context.");
+        sb.AppendLine("Each worker retains conversation history from previous turns, so prefer the worker who already worked on the relevant topic.");
         sb.AppendLine("You may include brief analysis before the @worker blocks, but every response MUST contain @worker blocks for all workers you intend to use.");
-        if (dispatcherOnly)
-            sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
+        sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
         return sb.ToString();
     }
 
