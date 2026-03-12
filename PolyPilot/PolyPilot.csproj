@@ -81,8 +81,8 @@
         <PackageReference Include="Microsoft.Maui.Essentials.AI" Version="10.0.50-ci.main.26157.2" />
         <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
         <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
-        <PackageReference Include="QRCoder" Version="*" />
-        <PackageReference Include="ZXing.Net.Maui.Controls" Version="*" />
+        <PackageReference Include="QRCoder" Version="1.6.0" />
+        <PackageReference Include="ZXing.Net.Maui.Controls" Version="0.4.0" />
         <PackageReference Include="Redth.MauiDevFlow.Agent" Version="0.23.1" />
         <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.23.1" />
     </ItemGroup>

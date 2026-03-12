@@ -808,7 +808,7 @@
         try
         {
             // Try JSON format first: { "url": "...", "token": "...", "lanUrl": "...", "lanToken": "..." }
-            var doc = System.Text.Json.JsonDocument.Parse(result);
+            using var doc = System.Text.Json.JsonDocument.Parse(result);
             if (doc.RootElement.TryGetProperty("url", out var urlProp))
                 mobileRemoteUrl = urlProp.GetString() ?? "";
             if (doc.RootElement.TryGetProperty("token", out var tokenProp))
