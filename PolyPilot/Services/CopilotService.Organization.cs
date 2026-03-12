@@ -1789,6 +1789,7 @@ public partial class CopilotService
                             Interlocked.Exchange(ref workerState.SendingFlag, 0);
                             Interlocked.Exchange(ref workerState.SuccessfulToolCountThisTurn, 0);
                             Interlocked.Exchange(ref workerState.WatchdogCaseAResets, 0);
+                            Interlocked.Exchange(ref workerState.WatchdogCaseBResets, 0);
                             workerState.HasUsedToolsThisTurn = false;
                             workerState.FallbackCanceledByTurnStart = false;
                             workerState.Info.IsResumed = false;

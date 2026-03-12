@@ -446,6 +446,10 @@ public partial class CopilotService : IAsyncDisposable
         /// WatchdogMaxToolAliveResets to prevent infinite resets when the session's JSON-RPC
         /// connection is dead but the shared persistent server is still alive.</summary>
         public int WatchdogCaseAResets;
+        /// <summary>Number of consecutive times Case B (tool finished, events.jsonl still fresh)
+        /// deferred completion. Capped by WatchdogMaxCaseBResets to prevent infinite deferrals
+        /// when events.jsonl was written during the turn but the CLI has actually finished.</summary>
+        public int WatchdogCaseBResets;
         /// <summary>True if the TurnEnd→Idle fallback was canceled by an AssistantTurnStartEvent.
         /// Used for diagnostic logging: when the next TurnEnd re-arms the fallback, the log shows
         /// the self-healing loop in action (TurnEnd → TurnStart cancel → TurnEnd re-arm).</summary>

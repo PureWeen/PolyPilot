@@ -223,6 +223,7 @@ public partial class CopilotService
             // Real event arrived — reset the Case A reset counter. This proves the session's
             // JSON-RPC connection is alive, so future Case A resets are legitimate.
             Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
+            Interlocked.Exchange(ref state.WatchdogCaseBResets, 0);
             state.Info.LastUpdatedAt = DateTime.Now;
         }
         // Count every event for zero-idle diagnostics (#299)
@@ -1455,6 +1456,14 @@ public partial class CopilotService
     /// 600s (first) + 2 × 60s (escalation) = 720s ≈ 12 minutes.</summary>
     internal const int WatchdogMaxToolAliveResets = 2;
 
+    /// <summary>Maximum number of consecutive Case B deferrals (tool finished, events.jsonl fresh)
+    /// before completing anyway. Unlike Case A (dead connection), Case B sessions are genuinely
+    /// active but ActiveToolCallCount drops to 0 between tool rounds. A generous cap allows
+    /// long-running tools (e.g., skill-validator) while preventing infinite deferrals when the
+    /// CLI finishes but SessionIdleEvent is lost. At 15s check intervals, 40 deferrals ≈ 10 min
+    /// of additional time beyond the initial 120s inactivity timeout.</summary>
+    internal const int WatchdogMaxCaseBResets = 40;
+
     /// <summary>
     /// Milliseconds after a tool starts to perform the first health check. If no events have
     /// arrived since tool start, we verify the connection is still alive. This detects dead
@@ -1660,6 +1669,7 @@ public partial class CopilotService
         // This is the exact regression pattern from PR #148 (short timeout killing active sessions).
         Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
+        Interlocked.Exchange(ref state.WatchdogCaseBResets, 0);
         state.ProcessingWatchdog = new CancellationTokenSource();
         var ct = state.ProcessingWatchdog.Token;
         _ = RunProcessingWatchdogAsync(state, sessionName, ct);
@@ -1871,11 +1881,13 @@ public partial class CopilotService
                             // the session is alive — don't complete prematurely.
                             if (!IsDemoMode && !IsRemoteMode && startedAt.HasValue)
                             {
-                                // Compare events.jsonl modification time to when this turn started.
-                                // The CLI writes events.jsonl independently from our SDK handler —
-                                // during long tool execution, our handler sees zero events but the
-                                // CLI may still be writing. A fixed 60s window is too tight because
-                                // tools can run silently for minutes between event writes.
+                                // Compare events.jsonl modification time to when this turn started
+                                // AND check that it was modified recently (within 5 min). The CLI
+                                // writes events.jsonl independently from our SDK handler — during
+                                // long tool execution, our handler sees zero events but the CLI may
+                                // still be writing. We need BOTH checks because:
+                                // - "after turn start" alone stays true forever once any event is written
+                                // - "recent" alone could match stale files from a previous turn
                                 var caseBEventsActive = false;
                                 try
                                 {
@@ -1886,9 +1898,10 @@ public partial class CopilotService
                                         if (File.Exists(ep))
                                         {
                                             var lastWrite = File.GetLastWriteTimeUtc(ep);
-                                            // If the file was modified AFTER this turn started,
-                                            // the CLI is producing events — session is alive.
-                                            caseBEventsActive = lastWrite > startedAt.Value;
+                                            var age = (DateTime.UtcNow - lastWrite).TotalSeconds;
+                                            // File must be: (1) written after this turn started AND
+                                            // (2) written within last 5 minutes (CLI is still active)
+                                            caseBEventsActive = lastWrite > startedAt.Value && age < 300;
                                         }
                                     }
                                 }
@@ -1896,10 +1909,16 @@ public partial class CopilotService
 
                                 if (caseBEventsActive)
                                 {
-                                    Debug($"[WATCHDOG] '{sessionName}' Case B deferred — events.jsonl modified since turn start, session still active " +
+                                    var caseBResets = Interlocked.Increment(ref state.WatchdogCaseBResets);
+                                    if (caseBResets <= WatchdogMaxCaseBResets)
+                                    {
+                                        Debug($"[WATCHDOG] '{sessionName}' Case B deferred — events.jsonl modified since turn start, session still active " +
+                                              $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s, deferral={caseBResets}/{WatchdogMaxCaseBResets})");
+                                        Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                        continue;
+                                    }
+                                    Debug($"[WATCHDOG] '{sessionName}' Case B deferral cap reached ({caseBResets}/{WatchdogMaxCaseBResets}) — completing despite fresh events.jsonl " +
                                           $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
-                                    Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
-                                    continue;
                                 }
                             }
 
