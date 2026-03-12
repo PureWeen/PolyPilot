@@ -10,6 +10,9 @@ public class QrScannerService
 
     public Task<string?> ScanAsync()
     {
+        if (_tcs != null && !_tcs.Task.IsCompleted)
+            return _tcs.Task;
+
         _tcs = new TaskCompletionSource<string?>();
 
         MainThread.BeginInvokeOnMainThread(async () =>
