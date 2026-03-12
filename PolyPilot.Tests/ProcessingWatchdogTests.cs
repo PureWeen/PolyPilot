@@ -1090,16 +1090,20 @@ public class ProcessingWatchdogTests
     }
 
     [Fact]
-    public void HasUsedToolsThisTurn_VolatileConsistency()
+    public void HasUsedToolsThisTurn_IsDeclaredVolatile()
     {
-        // Verify that Volatile.Write/Read round-trips correctly
-        // (mirrors the cross-thread pattern: SDK thread writes, watchdog timer reads)
-        bool field = false;
-        Volatile.Write(ref field, true);
-        Assert.True(Volatile.Read(ref field));
-
-        Volatile.Write(ref field, false);
-        Assert.False(Volatile.Read(ref field));
+        // HasUsedToolsThisTurn is read by the watchdog timer thread and written by
+        // SDK background threads and the UI thread. The field must be declared volatile
+        // to ensure cross-thread visibility on ARM (iOS/Android).
+        var field = typeof(CopilotService)
+            .GetNestedType("SessionState", System.Reflection.BindingFlags.NonPublic)!
+            .GetField("HasUsedToolsThisTurn")!;
+        Assert.True((field.Attributes & System.Reflection.FieldAttributes.NotSerialized) != 0
+            || field.FieldType == typeof(bool),
+            "HasUsedToolsThisTurn must be a bool field");
+        // C# volatile modifier sets the IsVolatile required modifier on the field
+        Assert.True(field.GetRequiredCustomModifiers().Any(m => m == typeof(System.Runtime.CompilerServices.IsVolatile)),
+            "HasUsedToolsThisTurn must be declared volatile for ARM memory model safety");
     }
 
     // --- Multi-agent watchdog timeout ---
@@ -2410,5 +2414,182 @@ public class ProcessingWatchdogTests
         Assert.True(filterContext.Contains("AssistantTurnStartEvent"),
             "AssistantTurnStartEvent must be included in [EVT] logging so TurnStart " +
             "is visible in diagnostics (prevents invisible fallback cancellations)");
+    }
+
+    // ===========================================================================
+    // Regression tests for: stuck session due to watchdog Case A infinite reset
+    // Bug: When a tool is active (ActiveToolCallCount > 0) and the persistent
+    // server is alive but the specific session's JSON-RPC connection is dead,
+    // Case A resets LastEventAtTicks indefinitely. ProcessingStartedAt resets
+    // on each app restart, so the 60-minute max time safety net never fires.
+    // Fix: Cap consecutive Case A resets via WatchdogMaxToolAliveResets.
+    // ===========================================================================
+
+    [Fact]
+    public void WatchdogMaxToolAliveResets_IsReasonable()
+    {
+        // Must allow at least 1 reset (legitimate long tool execution),
+        // but not infinite. Cap at a reasonable number so stuck sessions
+        // are killed in 30-60 minutes even with server alive.
+        Assert.InRange(CopilotService.WatchdogMaxToolAliveResets, 1, 10);
+    }
+
+    [Fact]
+    public void WatchdogMaxToolAliveResets_BoundsMaxStuckTime()
+    {
+        // The reset counter is incremented BEFORE the comparison:
+        //   var resets = Interlocked.Increment(ref state.WatchdogCaseAResets);
+        //   if (resets > WatchdogMaxToolAliveResets) { /* fall through */ }
+        // So the cap fires on the (N+1)th trigger. Actual max stuck time
+        // = (WatchdogMaxToolAliveResets + 1) × tool timeout (one initial
+        // timeout to enter the block, then N resets before exceeding the cap).
+        // This must be less than WatchdogMaxProcessingTimeSeconds (3600s)
+        // so the reset cap fires before the absolute max (which may be
+        // defeated by ProcessingStartedAt resetting on app restart).
+        var maxCaseAStuckSeconds = (CopilotService.WatchdogMaxToolAliveResets + 1)
+            * CopilotService.WatchdogToolExecutionTimeoutSeconds;
+        Assert.True(maxCaseAStuckSeconds < CopilotService.WatchdogMaxProcessingTimeSeconds,
+            $"Case A max stuck time ({maxCaseAStuckSeconds}s) must be less than " +
+            $"absolute max ({CopilotService.WatchdogMaxProcessingTimeSeconds}s). " +
+            "The reset cap is the PRIMARY safety net since the absolute max resets on app restart.");
+    }
+
+    [Fact]
+    public void CaseA_ExceedingMaxResets_FallsThroughToKill_InSource()
+    {
+        // Verify the watchdog's Case A uses events.jsonl freshness checks and falls
+        // through when the file is stale and the confirmation cycle is exceeded.
+        // This is the core fix for the stuck-session bug where a dead session's tool
+        // appears active but no events ever arrive.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        Assert.True(methodIdx >= 0, "RunProcessingWatchdogAsync must exist");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // Case A must check events.jsonl freshness
+        Assert.True(watchdogBody.Contains("events.jsonl"),
+            "Case A must check events.jsonl freshness to distinguish active tools from dead connections");
+        // Case A must increment WatchdogCaseAResets for confirmation cycles
+        Assert.True(watchdogBody.Contains("WatchdogCaseAResets"),
+            "Case A must track reset count via state.WatchdogCaseAResets");
+    }
+
+    [Fact]
+    public void CaseA_ResetCounter_ClearedOnRealEvents_InSource()
+    {
+        // When real SDK events arrive (not usage/metrics), the Case A reset counter
+        // must be cleared. This proves the session's connection is alive, so future
+        // Case A resets should be fresh (not counting against the cap).
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var handlerIdx = source.IndexOf("private void HandleSessionEvent");
+        Assert.True(handlerIdx >= 0, "HandleSessionEvent must exist");
+        // Find the block that resets LastEventAtTicks (only for real events)
+        var lastEventResetIdx = source.IndexOf("LastEventAtTicks", handlerIdx);
+        Assert.True(lastEventResetIdx >= 0, "HandleSessionEvent must update LastEventAtTicks");
+        // The counter reset must be near the LastEventAtTicks reset (within ~300 chars)
+        var nearbyBlock = source.Substring(lastEventResetIdx, Math.Min(300, source.Length - lastEventResetIdx));
+        Assert.True(nearbyBlock.Contains("WatchdogCaseAResets"),
+            "WatchdogCaseAResets must be reset near LastEventAtTicks in HandleSessionEvent " +
+            "to clear the counter when real SDK events prove the connection is alive");
+    }
+
+    [Fact]
+    public void CaseA_ResetCounter_ClearedOnWatchdogStart_InSource()
+    {
+        // StartProcessingWatchdog must reset WatchdogCaseAResets to 0 so each new
+        // watchdog instance starts with a clean reset counter.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var startIdx = source.IndexOf("private void StartProcessingWatchdog");
+        Assert.True(startIdx >= 0, "StartProcessingWatchdog must exist");
+        var methodEnd = source.IndexOf("_ = RunProcessingWatchdogAsync", startIdx);
+        var methodBody = source.Substring(startIdx, methodEnd - startIdx);
+        Assert.True(methodBody.Contains("WatchdogCaseAResets"),
+            "StartProcessingWatchdog must reset WatchdogCaseAResets to 0");
+    }
+
+    [Fact]
+    public void ExceededMaxTime_TrueWhenProcessingStartedAtNull_InSource()
+    {
+        // Defensive: if ProcessingStartedAt is null while IsProcessing is true,
+        // exceededMaxTime must be true. Without this, Case A can reset forever
+        // because totalProcessingSeconds=0 makes exceededMaxTime always false.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        Assert.True(methodIdx >= 0, "RunProcessingWatchdogAsync must exist");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // The exceededMaxTime calculation must handle null ProcessingStartedAt
+        Assert.True(watchdogBody.Contains("!startedAt.HasValue"),
+            "exceededMaxTime must be true when ProcessingStartedAt is null " +
+            "(defensive guard against Case A infinite reset)");
+    }
+
+    // ===========================================================================
+    // Regression tests for: reconnect path inherits stale tool state
+    // Bug: After reconnect, HasUsedToolsThisTurn=true from the dead connection
+    // inflates the watchdog timeout from 120s to 600s. ProcessingStartedAt is
+    // not reset, so the max-time safety net measures from the original send.
+    // Fix: Reset tool tracking and ProcessingStartedAt in the reconnect block.
+    // ===========================================================================
+
+    [Fact]
+    public void ReconnectPath_ResetsHasUsedToolsThisTurn_InSource()
+    {
+        // After reconnect, HasUsedToolsThisTurn must be false so the new connection
+        // uses the 120s inactivity timeout, not the 600s tool timeout inherited from
+        // the dead connection. Without this, reconnected sessions wait 5x longer.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var reconnectIdx = source.IndexOf("[RECONNECT] '{sessionName}' replacing state");
+        Assert.True(reconnectIdx >= 0, "Reconnect block must exist");
+        // Find StartProcessingWatchdog in the reconnect block (marks the end of state setup)
+        var watchdogIdx = source.IndexOf("StartProcessingWatchdog(state, sessionName)", reconnectIdx);
+        Assert.True(watchdogIdx >= 0, "StartProcessingWatchdog must be called in reconnect block");
+        var reconnectBlock = source.Substring(reconnectIdx, watchdogIdx - reconnectIdx);
+
+        // HasUsedToolsThisTurn must be set to false (not carried from old state)
+        Assert.True(reconnectBlock.Contains("HasUsedToolsThisTurn = false"),
+            "Reconnect block must reset HasUsedToolsThisTurn to false for the new connection. " +
+            "Carrying over true from the dead connection inflates the timeout from 120s to 600s.");
+    }
+
+    [Fact]
+    public void ReconnectPath_ResetsProcessingStartedAt_InSource()
+    {
+        // After reconnect, ProcessingStartedAt must be reset to DateTime.UtcNow
+        // so the watchdog's max-time safety net measures from the reconnect time,
+        // not the original send time.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var reconnectIdx = source.IndexOf("[RECONNECT] '{sessionName}' replacing state");
+        Assert.True(reconnectIdx >= 0, "Reconnect block must exist");
+        var watchdogIdx = source.IndexOf("StartProcessingWatchdog(state, sessionName)", reconnectIdx);
+        var reconnectBlock = source.Substring(reconnectIdx, watchdogIdx - reconnectIdx);
+
+        Assert.True(reconnectBlock.Contains("ProcessingStartedAt = DateTime.UtcNow"),
+            "Reconnect block must reset ProcessingStartedAt to DateTime.UtcNow. " +
+            "Without this, the 60-min max-time safety net measures from the original send.");
+    }
+
+    [Fact]
+    public void ReconnectPath_ResetsActiveToolCallCount_InSource()
+    {
+        // After reconnect, ActiveToolCallCount must be 0. No tools have started
+        // on the new connection. A stale count > 0 would trigger Case A resets.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var reconnectIdx = source.IndexOf("[RECONNECT] '{sessionName}' replacing state");
+        Assert.True(reconnectIdx >= 0, "Reconnect block must exist");
+        var watchdogIdx = source.IndexOf("StartProcessingWatchdog(state, sessionName)", reconnectIdx);
+        var reconnectBlock = source.Substring(reconnectIdx, watchdogIdx - reconnectIdx);
+
+        Assert.True(reconnectBlock.Contains("ActiveToolCallCount") && reconnectBlock.Contains("0"),
+            "Reconnect block must reset ActiveToolCallCount to 0 for the new connection.");
     }
 }

@@ -1,3 +1,7 @@
+param(
+    [string]$Configuration = 'Debug'
+)
+
 # Builds PolyPilot, launches a new instance, waits for it to be ready,
 # then kills the old instance(s) for a seamless handoff.
 #
@@ -10,11 +14,42 @@
 $ErrorActionPreference = 'Stop'
 
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$BuildDir = Join-Path $ProjectDir 'bin\Debug\net10.0-windows10.0.19041.0\win-x64'
+$Framework = 'net10.0-windows10.0.19041.0'
 $ExeName = 'PolyPilot.exe'
 
 $MaxLaunchAttempts = 2
 $StabilitySeconds = 8
+$ServerPidFile = Join-Path $env:USERPROFILE '.polypilot\server.pid'
+$ServerPort = 4321
+
+# Check if the persistent copilot server is actually running.
+# If server.pid exists but the server is dead/not listening, clean up the stale file
+# so PolyPilot will auto-start a fresh server on launch.
+function Test-ServerListening {
+    param([int]$Port)
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $tcp.Connect("127.0.0.1", $Port)
+        $tcp.Close()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+if (Test-Path $ServerPidFile) {
+    $lines = Get-Content $ServerPidFile -ErrorAction SilentlyContinue
+    if ($lines -and $lines.Count -ge 2) {
+        $ServerPort = [int]$lines[1]
+    }
+    
+    if (-not (Test-ServerListening -Port $ServerPort)) {
+        Write-Host "[!] Stale server.pid detected (port $ServerPort not listening) — cleaning up"
+        Remove-Item $ServerPidFile -Force -ErrorAction SilentlyContinue
+    } else {
+        Write-Host "[OK] Persistent server running on port $ServerPort"
+    }
+}
 
 # Capture PIDs of currently running instances BEFORE build
 $OldPids = @(Get-Process -Name 'PolyPilot' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
@@ -34,7 +69,7 @@ if ($OldPids.Count -gt 0) {
 Write-Host "[*] Building..."
 Set-Location $ProjectDir
 
-$BuildOutput = dotnet build PolyPilot.csproj -f net10.0-windows10.0.19041.0 2>&1 | Out-String
+$BuildOutput = dotnet build PolyPilot.csproj -f $Framework -c $Configuration 2>&1 | Out-String
 $BuildExitCode = $LASTEXITCODE
 
 if ($BuildExitCode -ne 0) {
@@ -53,6 +88,18 @@ if ($BuildExitCode -ne 0) {
 
 # Build succeeded, show brief success message
 $BuildOutput -split "`n" | Select-Object -Last 3 | Write-Host
+
+# Detect the runtime identifier by finding the subdirectory containing the exe
+$FrameworkDir = Join-Path $ProjectDir 'bin' $Configuration $Framework
+$RidDir = Get-ChildItem -Path $FrameworkDir -Directory |
+    Where-Object { Test-Path (Join-Path $_.FullName $ExeName) } |
+    Select-Object -First 1 -ExpandProperty Name
+if (-not $RidDir) {
+    Write-Host "[X] Could not detect runtime identifier in build output"
+    exit 1
+}
+$BuildDir = Join-Path $FrameworkDir $RidDir
+Write-Host "[OK] Build output: $BuildDir"
 
 for ($Attempt = 1; $Attempt -le $MaxLaunchAttempts; $Attempt++) {
     Write-Host "[>] Launching new instance (attempt $Attempt/$MaxLaunchAttempts)..."

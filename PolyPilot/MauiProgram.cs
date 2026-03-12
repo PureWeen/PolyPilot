@@ -101,6 +101,9 @@ public static class MauiProgram
 		builder.Services.AddSingleton<WsBridgeServer>();
 		builder.Services.AddSingleton<TailscaleService>();
 		builder.Services.AddSingleton<CodespaceService>();
+		builder.Services.AddSingleton<AuditLogService>();
+		// Purge audit logs older than 30 days at startup (best-effort, never throws)
+		try { new AuditLogService().PurgeOldLogs(); } catch { }
 		builder.Services.AddSingleton<WsBridgeClient>();
 		builder.Services.AddSingleton<IWsBridgeClient>(sp => sp.GetRequiredService<WsBridgeClient>());
 		builder.Services.AddSingleton<FiestaService>();
@@ -127,6 +130,9 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IProviderHostContext>(new ProviderHostContext(pluginSettings));
 		PluginLoader.LoadEnabledProviders(builder.Services, pluginSettings.Plugins.Enabled);
 #endif
+
+		// Startup cleanup: purge old zero-idle captures (keep last 100)
+		try { CopilotService.PurgeOldCaptures(); } catch { }
 
 		return builder.Build();
 	}

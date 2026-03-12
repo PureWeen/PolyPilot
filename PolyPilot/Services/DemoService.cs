@@ -10,7 +10,7 @@ namespace PolyPilot.Services;
 public class DemoService : IDemoService
 {
     private readonly ConcurrentDictionary<string, AgentSessionInfo> _sessions = new();
-    private string? _activeSessionName;
+    private volatile string? _activeSessionName;
     private int _sessionCounter;
 
     public event Action? OnStateChanged;

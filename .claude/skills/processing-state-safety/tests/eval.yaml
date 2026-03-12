@@ -1,0 +1,276 @@
+scenarios:
+  - name: "New IsProcessing=false path needs full cleanup checklist"
+    prompt: |
+      I need to add a new code path in CopilotService that clears IsProcessing when a
+      network timeout is detected. Can you write the code for this? The path should be
+      in a Task.Run callback that runs on a timer. Make sure it's correct.
+    assertions:
+      - type: "output_contains"
+        value: "FlushCurrentResponse"
+      - type: "output_contains"
+        value: "InvokeOnUI"
+      - type: "output_contains"
+        value: "ProcessingGeneration"
+      - type: "output_matches"
+        pattern: "IsResumed|HasUsedToolsThisTurn|ActiveToolCallCount"
+      - type: "output_matches"
+        pattern: "ProcessingPhase|ProcessingStartedAt|ToolCallCount|SendingFlag"
+      - type: "output_matches"
+        # OnSessionComplete unblocks orchestrator loops — must be in every cleanup path
+        pattern: "OnSessionComplete|ClearPermissionDenials"
+      - type: "output_matches"
+        # Must include a diagnostic log tag for debugging stuck sessions
+        pattern: "\\[ERROR\\]|\\[TIMEOUT\\]|\\[NETWORK\\]|diagnostic.log"
+    rubric:
+      - "Agent includes all or nearly all of the 13-item cleanup checklist (IsResumed, HasUsedToolsThisTurn, ActiveToolCallCount, ProcessingStartedAt, ToolCallCount, ProcessingPhase, SendingFlag, ClearPermissionDenials, FlushCurrentResponse, OnSessionComplete, diagnostic log)"
+      - "Agent uses InvokeOnUI() class method (not local Invoke) for the background→UI dispatch per INV-13"
+      - "Agent captures ProcessingGeneration before the InvokeOnUI call and validates it inside the lambda (generation guard pattern per INV-3 and INV-12)"
+      - "Agent adds a diagnostic log entry with an appropriate tag like [ERROR] or [TIMEOUT]"
+    timeout: 120
+
+  - name: "Debugging a session stuck showing Thinking... forever"
+    prompt: |
+      A user reports that a session is stuck showing "Thinking..." indefinitely. 
+      The session used some tools earlier but nothing happened for several minutes.
+      How do I diagnose and fix this?
+    assertions:
+      - type: "output_contains"
+        value: "event-diagnostics.log"
+      - type: "output_contains"
+        value: "[SEND]"
+      - type: "output_matches"
+        pattern: "(?i)(watchdog|120s|600s|WATCHDOG)"
+      - type: "output_matches"
+        # Should reference specific diagnostic tags, not just generic "check the logs"
+        pattern: "\\[IDLE\\]|\\[COMPLETE\\]|\\[WATCHDOG\\]|\\[EVT\\]"
+      - type: "output_not_contains"
+        value: "restart the app"
+        # Should suggest specific diagnostic steps, not generic advice
+    rubric:
+      - "Agent directs the user to check event-diagnostics.log and explains what tags to look for ([SEND], [IDLE], [COMPLETE], [WATCHDOG])"
+      - "Agent explains the watchdog timeout tiers (120s inactivity, 600s tool/resume) and which case likely applies given tools were used"
+      - "Agent references the stuck-session diagnostic table: [SEND] then silence, [EVT] TurnEnd but no [IDLE], [COMPLETE] fired but spinner persists, etc."
+      - "Agent mentions the nuclear option (AbortSessionAsync / Stop button) as a fallback"
+    timeout: 120
+
+  - name: "Unrelated UI styling task should not trigger processing-state concepts"
+    prompt: |
+      I want to update the CSS for the session list items in SessionListItem.razor to
+      add a subtle hover animation. Can you help me write the CSS?
+    assertions:
+      - type: "output_not_contains"
+        value: "IsProcessing"
+      - type: "output_not_contains"
+        value: "FlushCurrentResponse"
+      - type: "output_not_contains"
+        value: "InvokeOnUI"
+      - type: "output_not_contains"
+        value: "ProcessingGeneration"
+      - type: "output_not_contains"
+        value: "watchdog"
+    rubric:
+      - "Agent focuses purely on CSS/styling and does not inject unrelated processing-state safety guidance"
+      - "Response is concise and on-topic for a CSS change"
+    timeout: 60
+
+  - name: "TurnEnd fallback regression - avoid suppressing with HasUsedToolsThisTurn"
+    prompt: |
+      The AssistantTurnEndEvent fallback is firing too early during multi-tool agent
+      sessions and completing the response prematurely. I want to fix this by checking
+      if HasUsedToolsThisTurn is true and skipping the fallback entirely in that case.
+      Can you implement this fix?
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(do not|don't|should not|shouldn't|wrong|dangerous|avoid|warn|mistake)"
+      - type: "output_contains"
+        value: "ActiveToolCallCount"
+      - type: "output_matches"
+        pattern: "(?i)(30s|30.000|30_000|extended|delay|TurnEndIdleToolFallbackAdditionalMs)"
+      - type: "output_matches"
+        # Must reference the cancellation mechanism, not just the delay
+        pattern: "(?i)(cancel|CancellationToken|AssistantTurnStartEvent|CTS)"
+    rubric:
+      - "Agent explicitly warns against using HasUsedToolsThisTurn to skip the fallback entirely, explaining that it leaves agent sessions with no recovery if SessionIdleEvent is dropped (SDK bug #299)"
+      - "Agent proposes the correct approach: use ActiveToolCallCount > 0 to skip the 4s fallback, with an extended 30s delay when tools were used but ActiveToolCallCount is 0"
+      - "Agent references the cancellation token from AssistantTurnStartEvent as the mechanism to prevent premature firing in multi-round tool use"
+    timeout: 120
+
+  - name: "Session restore must initialize watchdog-dependent state"
+    prompt: |
+      I'm adding a new boolean flag IsHighPrioritySession to AgentSessionInfo. It needs
+      to affect the watchdog timeout — when true, use a longer 900s timeout instead of
+      600s. I've added it to SendPromptAsync. Is there anything else I need to update?
+    assertions:
+      - type: "output_contains"
+        value: "RestoreSingleSessionAsync"
+      - type: "output_matches"
+        pattern: "(?i)(restore|restart|resume)"
+      - type: "output_matches"
+        pattern: "(?i)(before.*watchdog|StartProcessingWatchdog|watchdog.*depend)"
+      - type: "output_matches"
+        # Should mention the precedent or dual-path pattern
+        pattern: "(?i)(IsMultiAgentSession|both.*path|two.*path|dual|separate.*path)"
+    rubric:
+      - "Agent identifies that the restore path (RestoreSingleSessionAsync) must also initialize the new flag, not just SendPromptAsync"
+      - "Agent explains that state must be set BEFORE StartProcessingWatchdog is called, and the restore path is independent of the send path"
+      - "Agent references the IsMultiAgentSession precedent (PR #284) where the same mistake caused premature watchdog kills"
+    timeout: 120
+
+  - name: "ChatDatabase catch filter narrowing - prevent regression"
+    prompt: |
+      The ChatDatabase is swallowing too many exceptions. I want to narrow the catch
+      filter from `catch (Exception ex)` to `catch (SqliteException ex)` so we only
+      catch database-specific errors. Can you update the AddMessageAsync callers?
+    assertions:
+      - type: "output_not_contains"
+        value: "SqliteException"
+        # Should NOT recommend narrowing to SqliteException
+      - type: "output_matches"
+        pattern: "(?i)(unobserved|crash|AggregateException|ObjectDisposedException)"
+      - type: "output_matches"
+        pattern: "(?i)(fire.and.forget|task exception|source of truth|events\\.jsonl)"
+      - type: "output_matches"
+        # Should explain self-healing via BulkInsertAsync
+        pattern: "(?i)(self.heal|BulkInsert|replay|restart|write.through)"
+    rubric:
+      - "Agent explicitly warns against narrowing the catch filter, explaining that fire-and-forget tasks with narrow catches produce unobserved task exceptions that crash the app"
+      - "Agent explains that events.jsonl is the source of truth and DB write failures are self-healing via BulkInsertAsync on resume — broad catch is intentional"
+      - "Agent may reference PR #276 where this exact narrowing caused crashes in production"
+    timeout: 120
+
+  - name: "Background thread IsProcessing mutation without UI marshaling"
+    prompt: |
+      I'm adding a new SDK event handler for SessionReconnectEvent in
+      CopilotService.Events.cs. When we get this event, I need to clear the
+      processing state. Here's what I have inside HandleSessionEvent which runs
+      on a background thread:
+
+      ```csharp
+      case "session.reconnect":
+          state.Info.IsProcessing = false;
+          state.Info.IsResumed = false;
+          state.Info.HasUsedToolsThisTurn = false;
+          state.Info.ActiveToolCallCount = 0;
+          OnStateChanged?.Invoke();
+          break;
+      ```
+
+      Does this look correct?
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(InvokeOnUI|UI thread|main thread|marshal|dispatch|synchronization)"
+      - type: "output_matches"
+        pattern: "(?i)(background.*thread|thread.*safe|cross.*thread)"
+      - type: "output_matches"
+        pattern: "ProcessingGeneration|generation.*guard"
+      - type: "output_matches"
+        pattern: "FlushCurrentResponse|flush"
+      - type: "output_matches"
+        # Must identify the missing companion fields from the 13-item checklist
+        pattern: "(?i)(ProcessingPhase|ProcessingStartedAt|ToolCallCount|SendingFlag|missing|incomplete)"
+      - type: "output_matches"
+        # Must mention diagnostic log entry or OnSessionComplete
+        pattern: "(?i)(diagnostic.*log|\\[RECONNECT\\]|OnSessionComplete|ClearPermissionDenials)"
+    rubric:
+      - "Agent identifies the critical thread safety violation: IsProcessing and companion fields must not be mutated directly on a background SDK event thread"
+      - "Agent recommends wrapping the state mutations in InvokeOnUI() to marshal to the UI thread"
+      - "Agent points out missing companion fields beyond the ones listed (ProcessingPhase, ProcessingStartedAt, ToolCallCount, SendingFlag, ClearPermissionDenials, OnSessionComplete)"
+      - "Agent mentions the ProcessingGeneration guard pattern and the need for FlushCurrentResponse before clearing IsProcessing"
+      - "Agent recommends adding a diagnostic log entry with an appropriate tag"
+    timeout: 120
+
+  - name: "No hardcoded short timeout for session resume (INV-4)"
+    prompt: |
+      After a session is restored, we want to quickly detect if the turn was already
+      complete so the spinner doesn't hang. Can I add a 5-second sleep after
+      RestoreSingleSessionAsync and then clear IsProcessing if no events arrived?
+      Something like:
+      ```csharp
+      await Task.Delay(5000);
+      if (state.Info.IsProcessing && !state.Info.HasReceivedEventsSinceResume)
+          await CompleteResponseAsync(state);
+      ```
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(do not|don't|avoid|should not|wrong|dangerous|warn|problem|incorrect)"
+      - type: "output_matches"
+        pattern: "(?i)(watchdog|120s|600s|tiered|timeout.tier)"
+      - type: "output_matches"
+        # Should reference IsResumed or resume quiescence mechanism
+        pattern: "(?i)(IsResumed|resume.quiescence|30s|quiescence)"
+      - type: "output_not_contains"
+        value: "Task.Delay"
+        # Should not approve or refine the Task.Delay approach
+    rubric:
+      - "Agent warns against hardcoded short timeouts for session resume, explaining that legitimate multi-agent or tool-heavy resumes need the full watchdog timeout window"
+      - "Agent directs the developer to the existing watchdog mechanism (IsResumed flag + 600s extended timeout, or 30s resume-quiescence path) as the correct solution"
+      - "Agent explains that the 5s Task.Delay would prematurely kill sessions that are genuinely still processing after an app restart"
+    timeout: 120
+
+  - name: "Watchdog timeout should use 3-way branch not a flat 600s wait"
+    prompt: |
+      I'm simplifying the watchdog timeout logic. Currently it has complicated case
+      branches. I want to replace it with a single check: if ActiveToolCallCount > 0
+      OR HasUsedToolsThisTurn, wait the full 600s before declaring the session stuck
+      and killing it. Otherwise use 120s. Is this safe?
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(do not|don't|should not|shouldn't|wrong|dangerous|problem|issue|warn)"
+      - type: "output_matches"
+        pattern: "(?i)(SessionIdleEvent|dropped|lost.*event|event.*dropped|zero.idle|terminal event)"
+      - type: "output_matches"
+        pattern: "(?i)(Case B|CompleteResponse.*clean|cleanly.*complete|tools.*done|!hasActiveTool)"
+      - type: "output_not_contains"
+        value: "that's fine"
+    rubric:
+      - "Agent warns against the flat 600s wait and explains that tools may have finished (ActiveToolCallCount==0, HasUsedToolsThisTurn==true) but the SDK dropped SessionIdleEvent — leading to a 10-minute kill of a successfully-completed session"
+      - "Agent describes the correct 3-way branch: Case A (active tools + server alive → reset timer), Case B (tools done, used tools → call CompleteResponse cleanly), Case C (default kill with error message)"
+      - "Agent explains that Case B calls CompleteResponse cleanly without an error message, preserving the session's output"
+    timeout: 120
+
+  - name: "Edge case - adding cross-thread boolean without Volatile (INV-7)"
+    prompt: |
+      I'm adding a new boolean flag `IsWaitingForUserInput` to AgentSessionInfo that gets
+      set to true from an SDK event handler (background thread) and read by the watchdog
+      timer. I'll just use a regular bool property like the existing HasUsedToolsThisTurn.
+      Should I also clear it in the IsProcessing cleanup paths?
+    assertions:
+      - type: "output_matches"
+        # Must mention Volatile or memory model concern
+        pattern: "(?i)(Volatile\\.Write|Volatile\\.Read|volatile|memory.model|ARM|thread.safe)"
+      - type: "output_matches"
+        # Must address the cleanup question positively
+        pattern: "(?i)(yes|clear|cleanup|checklist|IsProcessing.*path)"
+      - type: "output_matches"
+        # Should mention the existing inconsistency or tracking comment requirement
+        pattern: "(?i)(HasUsedToolsThisTurn|plain.assignment|inconsisten|tracking.comment|pre.existing)"
+    rubric:
+      - "Agent answers yes to the cleanup question — new fields read by the watchdog must be cleared on all IsProcessing=false paths"
+      - "Agent warns about using plain bool for cross-thread access and recommends Volatile.Write/Volatile.Read for ARM correctness (INV-7)"
+      - "Agent notes the existing inconsistency (HasUsedToolsThisTurn uses plain assignment) and advises not to repeat it — either use Volatile or add a tracking comment explaining the gap"
+      - "Agent identifies that both SendPromptAsync and RestoreSingleSessionAsync need to initialize the new field (INV-9 dual-path requirement)"
+    timeout: 120
+
+  - name: "No InvokeAsync inside HandleComplete - use synchronous completion (INV-8)"
+    prompt: |
+      I'm modifying HandleComplete in CopilotService to notify the UI after finalizing
+      a response. I want to call `await InvokeAsync(StateHasChanged)` inside the method
+      to trigger a Blazor render refresh. HandleComplete is called via Invoke() from the
+      SDK event handler. Is this pattern correct?
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(do not|don't|avoid|should not|wrong|problem|stale|deferred)"
+      - type: "output_matches"
+        # Should explain why InvokeAsync defers execution
+        pattern: "(?i)(defer|async.*defer|already.*UI|UI.*thread|synchronous|stale.*render)"
+      - type: "output_matches"
+        # Should mention StateHasChanged or OnStateChanged as the correct approach
+        pattern: "(?i)(StateHasChanged|OnStateChanged|direct.*call|synchronous)"
+      - type: "output_not_contains"
+        value: "await InvokeAsync"
+        # Should not recommend InvokeAsync inside HandleComplete
+    rubric:
+      - "Agent warns against using InvokeAsync inside HandleComplete, explaining it defers execution and causes stale renders because HandleComplete already runs on the UI thread"
+      - "Agent explains that HandleComplete is dispatched via Invoke() (synchronous), so it is already on the UI thread and can call StateHasChanged or OnStateChanged directly"
+      - "Agent proposes the correct synchronous approach that avoids the deferred render issue"
+    timeout: 120

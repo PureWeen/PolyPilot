@@ -1,14 +1,19 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
 using PolyPilot.Models;
 using PolyPilot.Provider;
 
 namespace PolyPilot.Services;
 
+/// <summary>DTO for serializing provider actions to JS with named properties.
+/// ValueTuple serializes as Item1/Item2; this record uses camelCase-friendly names.</summary>
+public record ProviderCommandDto(string ProviderId, string Id, string Label, string? Tooltip);
+
 public partial class CopilotService
 {
     // ── Provider State ──────────────────────────────────────
-    private readonly Dictionary<string, ISessionProvider> _providers = new();
-    private readonly Dictionary<string, string> _sessionToProviderId = new();
+    private readonly ConcurrentDictionary<string, ISessionProvider> _providers = new();
+    private readonly ConcurrentDictionary<string, string> _sessionToProviderId = new();
 
     /// <summary>
     /// Resolves all ISessionProvider instances from DI, registers them into the session model,
@@ -352,7 +357,7 @@ public partial class CopilotService
             .ToList())
         {
             _sessions.TryRemove(existing, out _);
-            _sessionToProviderId.Remove(existing);
+            _sessionToProviderId.TryRemove(existing, out _);
             var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == existing);
             if (meta != null) RemoveSessionMeta(meta);
         }
@@ -456,6 +461,54 @@ public partial class CopilotService
     public ISessionProvider? GetProviderForSession(string sessionName) =>
         _sessionToProviderId.TryGetValue(sessionName, out var id) &&
         _providers.TryGetValue(id, out var p) ? p : null;
+
+    /// <summary>
+    /// Returns all provider actions available for the given session's provider, or empty if not a provider session.
+    /// Actions are returned with their provider reference for execution.
+    /// </summary>
+    public IReadOnlyList<(ISessionProvider Provider, ProviderAction Action)> GetProviderActionsForSession(string sessionName)
+    {
+        var provider = GetProviderForSession(sessionName);
+        if (provider == null) return [];
+        return provider.GetActions().Select(a => (provider, a)).ToList();
+    }
+
+    /// <summary>
+    /// Returns all provider actions across all registered providers.
+    /// Each action is prefixed with the provider's display name for disambiguation.
+    /// </summary>
+    public IReadOnlyList<(string ProviderId, ProviderAction Action)> GetAllProviderActions()
+    {
+        var result = new List<(string, ProviderAction)>();
+        foreach (var (id, provider) in _providers)
+        {
+            foreach (var action in provider.GetActions())
+                result.Add((id, action));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Returns all provider actions as DTOs suitable for JSON serialization to JS.
+    /// Uses named properties (ProviderId, Id, Label, Tooltip) instead of ValueTuple Item1/Item2.
+    /// </summary>
+    public IReadOnlyList<ProviderCommandDto> GetAllProviderCommandDtos()
+    {
+        var result = new List<ProviderCommandDto>();
+        foreach (var (id, provider) in _providers)
+            foreach (var action in provider.GetActions())
+                result.Add(new ProviderCommandDto(id, action.Id, action.Label, action.Tooltip));
+        return result;
+    }
+
+    /// <summary>
+    /// Executes a provider action looked up by provider ID. Called from the JS slash-command bridge.
+    /// </summary>
+    public async Task ExecuteProviderSlashCommandAsync(string providerId, string actionId)
+    {
+        if (_providers.TryGetValue(providerId, out var provider))
+            await ExecuteProviderActionAsync(provider, actionId);
+    }
 
     /// <summary>
     /// Returns a human-readable display name for a provider session.

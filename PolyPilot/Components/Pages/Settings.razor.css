@@ -646,7 +646,7 @@
     padding: 0.15rem 0.4rem;
     border-radius: 4px;
     font-family: var(--font-mono);
-    color: #fbbf24;
+    color: var(--accent-warning);
 }
 
 .tunnel-warning .hint {
@@ -1337,6 +1337,8 @@
 
 .section-desc code {
     background: var(--control-bg);
+    color: var(--text-bright);
+    border: 1px solid var(--border-subtle);
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
     font-size: inherit;

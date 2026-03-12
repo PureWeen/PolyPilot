@@ -718,6 +718,20 @@
                 { cmd: '/version', desc: 'Show version info', hasArgs: false }
             ];
 
+            var PROVIDER_COMMANDS = [];
+
+            window.updateProviderCommands = function(commands) {
+                PROVIDER_COMMANDS = (commands || []).map(function(c) {
+                    return { cmd: '/' + c.id, desc: c.tooltip || c.label, hasArgs: false, isProvider: true, providerId: c.providerId, actionId: c.id, label: c.label };
+                });
+            };
+
+            window.__setSidebarRef = function(ref) { window.__sidebarRef = ref; };
+
+            function getAllCommands() {
+                return COMMANDS.concat(PROVIDER_COMMANDS);
+            }
+
             var state = { dropdown: null, target: null, options: [], selectedIndex: 0 };
             var USAGE_BY_CMD = {};
             COMMANDS.forEach(function(c) { if (c.usage) USAGE_BY_CMD[c.cmd] = c.usage; });
@@ -740,7 +754,7 @@
                 if (!match) {
                     var m = text.trimEnd().match(/^(\/[\w-]+)\s*$/);
                     if (!m) { removeGhost(el); return; }
-                    match = COMMANDS.find(function(c) { return c.cmd === m[1].toLowerCase() && c.usage; });
+                    match = getAllCommands().find(function(c) { return c.cmd === m[1].toLowerCase() && c.usage; });
                     if (!match) { removeGhost(el); return; }
                 }
                 if (!match.usage) { removeGhost(el); return; }
@@ -787,7 +801,7 @@
                     return { query: text.slice(0, cursor).slice(1).toLowerCase(), mode: 'filter' };
                 }
                 var cmdPart = text.slice(0, spaceIdx).toLowerCase();
-                if (COMMANDS.some(function(c) { return c.cmd === cmdPart; })) {
+                if (getAllCommands().some(function(c) { return c.cmd === cmdPart; })) {
                     return { query: cmdPart.slice(1), mode: 'locked' };
                 }
                 var cursor2 = (el && typeof el.selectionStart === 'number') ? el.selectionStart : text.length;
@@ -847,6 +861,16 @@
                 var firstSpace = text.indexOf(' ');
                 var cmdEnd = firstSpace === -1 ? text.length : firstSpace;
                 var suffix = text.slice(cmdEnd);
+                if (option.isProvider) {
+                    // Provider slash command: invoke .NET handler instead of sending as chat text
+                    target.value = '';
+                    hideDropdown();
+                    target.dispatchEvent(new Event('input', { bubbles: true }));
+                    if (window.__sidebarRef) {
+                        window.__sidebarRef.invokeMethodAsync('ExecuteProviderSlashCommand', option.providerId, option.actionId).catch(console.error);
+                    }
+                    return;
+                }
                 if (option.hasArgs) {
                     target.value = option.cmd + (suffix.length === 0 ? ' ' : (suffix.charAt(0) === ' ' ? '' : ' ')) + suffix;
                     var nextCursor = option.cmd.length + 1;
@@ -924,8 +948,8 @@
                 if (!context) { hideDropdown(); return; }
                 var q = context.query;
                 var filtered = context.mode === 'locked'
-                    ? COMMANDS.filter(function(c) { return c.cmd.slice(1) === q; })
-                    : COMMANDS.filter(function(c) { return c.cmd.slice(1).indexOf(q) === 0; });
+                    ? getAllCommands().filter(function(c) { return c.cmd.slice(1) === q; })
+                    : getAllCommands().filter(function(c) { return c.cmd.slice(1).indexOf(q) === 0; });
                 if (filtered.length === 0) { hideDropdown(); return; }
                 state.target = el;
                 state.options = filtered;

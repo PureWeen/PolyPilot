@@ -51,8 +51,11 @@ public partial class CopilotService : IAsyncDisposable
     // Cached dotfiles status — checked once when first SetupRequired state is encountered
     private CodespaceService.DotfilesStatus? _dotfilesStatus;
     private ConnectionSettings? _currentSettings;
-    private string? _activeSessionName;
+    private volatile string? _activeSessionName;
     private SynchronizationContext? _syncContext;
+    // Serializes the IsConnectionError reconnect path so concurrent workers
+    // don't destroy each other's freshly-created client (thundering herd fix).
+    private readonly SemaphoreSlim _clientReconnectLock = new(1, 1);
     
     private static readonly object _pathLock = new();
     private static string? _copilotBaseDir;
@@ -145,6 +148,7 @@ public partial class CopilotService : IAsyncDisposable
             _copilotBaseDir = null;
             _sessionStatePath = null;
             _pendingOrchestrationFile = null;
+            _zeroIdleCaptureDir = null;
         }
     }
 
@@ -202,6 +206,7 @@ public partial class CopilotService : IAsyncDisposable
         _serviceProvider = serviceProvider;
         _demoService = demoService;
         _codespaceService = codespaceService ?? new CodespaceService();
+        _stateChangedCoalesceTimer = new Timer(FireCoalescedStateChanged, null, Timeout.Infinite, Timeout.Infinite);
         try { _usageStats = serviceProvider?.GetService(typeof(UsageStatsService)) as UsageStatsService; } catch { }
     }
 
@@ -328,6 +333,37 @@ public partial class CopilotService : IAsyncDisposable
 
     public event Action? OnStateChanged;
     public void NotifyStateChanged() => OnStateChanged?.Invoke();
+
+    /// <summary>
+    /// Coalesced state change notification. Batches rapid-fire events (tool starts,
+    /// phase changes, turn starts) into a single OnStateChanged callback within the
+    /// coalesce window. Use this for high-frequency, non-critical state updates.
+    /// Critical events (completion, errors, session switches) should still call
+    /// OnStateChanged?.Invoke() directly for immediate UI response.
+    /// </summary>
+    private Timer? _stateChangedCoalesceTimer;
+    private const int StateChangedCoalesceMs = 150;
+    private int _stateChangedPending; // 0 = idle, 1 = pending
+
+    internal void NotifyStateChangedCoalesced()
+    {
+        // Mark as pending — if already pending, the timer will fire and pick it up
+        if (Interlocked.CompareExchange(ref _stateChangedPending, 1, 0) == 0)
+        {
+            try
+            {
+                _stateChangedCoalesceTimer?.Change(StateChangedCoalesceMs, Timeout.Infinite);
+            }
+            catch (ObjectDisposedException) { }
+        }
+    }
+
+    private void FireCoalescedStateChanged(object? _)
+    {
+        Interlocked.Exchange(ref _stateChangedPending, 0);
+        InvokeOnUI(() => OnStateChanged?.Invoke());
+    }
+
     public event Action<string, string>? OnContentReceived; // sessionName, content
     public event Action<string, string>? OnError; // sessionName, error
     public event Action<string, string>? OnSessionComplete; // sessionName, summary
@@ -374,7 +410,7 @@ public partial class CopilotService : IAsyncDisposable
         /// Unlike ActiveToolCallCount which resets on AssistantTurnStartEvent, this stays
         /// true until the response completes — so the watchdog uses the longer tool timeout
         /// even between tool rounds when the model is thinking.</summary>
-        public bool HasUsedToolsThisTurn;
+        public volatile bool HasUsedToolsThisTurn;
         /// <summary>
         /// Count of tools that completed successfully (no permission denial, no error) this turn.
         /// Used to gate auto-resend on recovery: if tools already succeeded, resend is skipped
@@ -405,6 +441,36 @@ public partial class CopilotService : IAsyncDisposable
         /// Cleared on CompleteResponse and SendPromptAsync.
         /// </summary>
         public ConcurrentDictionary<string, ChatMessage> PendingReasoningMessages { get; } = new();
+        /// <summary>Number of consecutive times the watchdog's Case A (tool active + server alive)
+        /// has reset the inactivity timer without any real SDK events arriving. Capped by
+        /// WatchdogMaxToolAliveResets to prevent infinite resets when the session's JSON-RPC
+        /// connection is dead but the shared persistent server is still alive.</summary>
+        public int WatchdogCaseAResets;
+        /// <summary>True if the TurnEnd→Idle fallback was canceled by an AssistantTurnStartEvent.
+        /// Used for diagnostic logging: when the next TurnEnd re-arms the fallback, the log shows
+        /// the self-healing loop in action (TurnEnd → TurnStart cancel → TurnEnd re-arm).</summary>
+        public volatile bool FallbackCanceledByTurnStart;
+        /// <summary>When true, FlushCurrentResponse checks accumulated FlushedResponse for
+        /// @worker:...@end blocks after each sub-turn. If found, resolves ResponseCompletion
+        /// early so orchestrator dispatch can proceed without waiting for the model to finish
+        /// all its tool rounds. This prevents the orchestrator from doing all the work itself
+        /// when it has tool access and ignores "dispatcher only" instructions.</summary>
+        public bool EarlyDispatchOnWorkerBlocks;
+        /// <summary>Timer that fires shortly after a tool starts to verify the connection is still alive.
+        /// If no tool completion event arrives within ToolHealthCheckIntervalMs, we do an active health
+        /// check to detect dead connections early (instead of waiting for the 600s watchdog timeout).</summary>
+        public Timer? ToolHealthCheckTimer;
+        public int ToolHealthStaleChecks; // Separate from WatchdogCaseAResets — health check's own stale counter
+        /// <summary>Timestamp when the most recent tool started. Used by the tool health check to
+        /// determine if a tool has been running too long without any events.</summary>
+        public long ToolStartedAtTicks;
+        /// <summary>Count of SDK events received during the current processing turn.
+        /// Incremented in HandleSessionEvent, reset in SendPromptAsync and CompleteResponse.
+        /// Used by zero-idle capture to quantify how much activity occurred before silence.</summary>
+        public int EventCountThisTurn;
+        /// <summary>Timestamp (UTC ticks) when AssistantTurnEndEvent was received.
+        /// Used by zero-idle capture to measure fallback wait duration.</summary>
+        public long TurnEndReceivedAtTicks;
     }
 
     private void Debug(string message)
@@ -419,7 +485,7 @@ public partial class CopilotService : IAsyncDisposable
             message.StartsWith("[COMPLETE") || message.StartsWith("[SEND") ||
             message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
             message.StartsWith("[DISPATCH") || message.StartsWith("[WATCHDOG") ||
-            message.StartsWith("[HEALTH") ||
+            message.StartsWith("[HEALTH") || message.StartsWith("[ZERO-IDLE") ||
             message.Contains("watchdog"))
         {
             try
@@ -794,6 +860,7 @@ public partial class CopilotService : IAsyncDisposable
         {
             CancelProcessingWatchdog(state);
             CancelTurnEndFallback(state);
+            CancelToolHealthCheck(state);
             try { if (state.Session != null) await state.Session.DisposeAsync(); } catch { }
         }
         _sessions.Clear();
@@ -1615,7 +1682,7 @@ public partial class CopilotService : IAsyncDisposable
             {
                 Volatile.Write(ref state.HasReceivedEventsSinceResume, true);
                 if (hadToolActivity)
-                    Volatile.Write(ref state.HasUsedToolsThisTurn, true);
+                    state.HasUsedToolsThisTurn = true;
                 Debug($"[RESTORE] '{displayName}' events.jsonl is fresh — bypassing quiescence " +
                       $"(hadToolActivity={hadToolActivity})");
             }
@@ -1971,10 +2038,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         // Drain any messages queued while IsCreating was true.
         // The user may have typed and sent a message before SDK creation finished.
-        if (state.Info.MessageQueue.Count > 0)
+        var nextPrompt = state.Info.MessageQueue.TryDequeue();
+        if (nextPrompt != null)
         {
-            var nextPrompt = state.Info.MessageQueue[0];
-            state.Info.MessageQueue.RemoveAt(0);
             List<string>? nextImagePaths = null;
             lock (_imageQueueLock)
             {
@@ -2374,7 +2440,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ClearPermissionDenials();
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
+        state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+        Interlocked.Exchange(ref state.EventCountThisTurn, 0); // Reset event counter for zero-idle capture
+        Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
         // Cancel any pending TurnEnd→Idle fallback from the previous turn
         CancelTurnEndFallback(state);
         state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName); // Cache for watchdog (UI thread safe)
@@ -2414,12 +2483,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Prompt = prompt
             };
 
-            // NOTE: MessageOptions.Mode is reserved for routing ("immediate" = steer-without-abort,
-            // null = default enqueue). Do NOT set Mode to an agent mode string here.
-            // The .NET SDK has no public mechanism to set session agent mode (autopilot/plan/interactive).
-            // Agent mode is controlled by session-level configuration (system message, available tools)
-            // set at session creation time via SessionConfig. The agentMode parameter is preserved
-            // in the pipeline for queue dispatch, bridge forwarding, and future SDK support.
+            // MessageOptions.Mode supports interaction modes: "plan", "autopilot", "edit",
+            // or "immediate" (used by SteerSessionAsync for soft-steer).
+            // When the user selects Plan or Autopilot in the UI, pass it through to the SDK.
+            if (!string.IsNullOrEmpty(agentMode))
+            {
+                messageOptions.Mode = agentMode;
+                Debug($"[SEND] '{sessionName}' agentMode={agentMode}");
+            }
             
             // Attach images via SDK if available
             if (imagePaths != null && imagePaths.Count > 0)
@@ -2493,47 +2564,68 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     if (client == null)
                         throw new InvalidOperationException("Client is not initialized");
 
-                    // If the underlying connection is broken, recreate the client first
+                    // If the underlying connection is broken, recreate the client first.
+                    // Serialize via _clientReconnectLock so concurrent workers don't each
+                    // dispose+recreate _client (thundering herd — only the first one reconnects).
                     if (IsConnectionError(ex))
                     {
-                        Debug("Connection error detected, recreating client before session reconnect...");
-                        var connSettings = _currentSettings ?? ConnectionSettings.Load();
-                        if (CurrentMode == ConnectionMode.Persistent &&
-                            !_serverManager.CheckServerRunning("127.0.0.1", connSettings.Port))
-                        {
-                            Debug("Persistent server not running, restarting...");
-                            var started = await _serverManager.StartServerAsync(connSettings.Port);
-                            if (!started)
-                            {
-                                Debug("Failed to restart persistent server");
-                                try { await _client.DisposeAsync(); } catch { }
-                                _client = null;
-                                IsInitialized = false;
-                                throw;
-                            }
-                        }
-                        try { await _client.DisposeAsync(); } catch { }
+                        Debug($"Connection error detected for '{sessionName}', acquiring reconnect lock...");
+                        await _clientReconnectLock.WaitAsync(cancellationToken);
                         try
                         {
-                            _client = CreateClient(connSettings);
-                            await _client.StartAsync(cancellationToken);
-                            client = _client; // Update local reference to the new client
-                            Debug("Client recreated successfully");
+                            // Double-check: another worker may have already reconnected while we waited.
+                            // Compare references — if _client changed, someone else already recreated it.
+                            if (!ReferenceEquals(_client, client))
+                            {
+                                Debug($"Client already reconnected by another worker, skipping recreate for '{sessionName}'");
+                                client = _client;
+                            }
+                            else
+                            {
+                                Debug("Recreating client after connection error...");
+                                var connSettings = _currentSettings ?? ConnectionSettings.Load();
+                                if (CurrentMode == ConnectionMode.Persistent &&
+                                    !_serverManager.CheckServerRunning("127.0.0.1", connSettings.Port))
+                                {
+                                    Debug("Persistent server not running, restarting...");
+                                    var started = await _serverManager.StartServerAsync(connSettings.Port);
+                                    if (!started)
+                                    {
+                                        Debug("Failed to restart persistent server");
+                                        try { await _client.DisposeAsync(); } catch { }
+                                        _client = null;
+                                        IsInitialized = false;
+                                        throw;
+                                    }
+                                }
+                                try { await _client.DisposeAsync(); } catch { }
+                                try
+                                {
+                                    _client = CreateClient(connSettings);
+                                    await _client.StartAsync(cancellationToken);
+                                    client = _client;
+                                    Debug("Client recreated successfully");
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    try { if (_client != null) await _client.DisposeAsync(); } catch { }
+                                    _client = null;
+                                    IsInitialized = false;
+                                    throw;
+                                }
+                                catch (Exception clientEx)
+                                {
+                                    Debug($"Failed to recreate client: {clientEx.Message}");
+                                    try { if (_client != null) await _client.DisposeAsync(); } catch { }
+                                    _client = null;
+                                    IsInitialized = false;
+                                    throw;
+                                }
+                            }
                         }
-                        catch (OperationCanceledException)
+                        finally
                         {
-                            try { if (_client != null) await _client.DisposeAsync(); } catch { }
-                            _client = null;
-                            IsInitialized = false;
-                            throw;
-                        }
-                        catch (Exception clientEx)
-                        {
-                            Debug($"Failed to recreate client: {clientEx.Message}");
-                            try { if (_client != null) await _client.DisposeAsync(); } catch { }
-                            _client = null;
-                            IsInitialized = false;
-                            throw;
+                            _clientReconnectLock.Release();
                         }
                     }
 
@@ -2557,52 +2649,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         // with full config (MCP servers, skills, system message) matching CreateSessionAsync.
                         Debug($"Session '{sessionName}' expired on server, creating fresh session...");
                         OnActivity?.Invoke(sessionName, "🔄 Session expired, creating new session...");
-                        var freshSettings = _currentSettings ?? ConnectionSettings.Load();
-                        var freshMcpServers = LoadMcpServers(freshSettings.DisabledMcpServers, freshSettings.DisabledPlugins);
-                        var freshSkillDirs = LoadSkillDirectories(freshSettings.DisabledPlugins);
-                        // Rebuild system message with the same conditional logic as CreateSessionAsync
-                        var freshSystemContent = new StringBuilder();
-                        var freshDir = state.Info.WorkingDirectory;
-                        if (string.Equals(freshDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
-                        {
-                            var relaunchCmd = OperatingSystem.IsWindows()
-                                ? $"powershell -ExecutionPolicy Bypass -File \"{Path.Combine(ProjectDir, "relaunch.ps1")}\""
-                                : $"bash {Path.Combine(ProjectDir, "relaunch.sh")}";
-                            freshSystemContent.AppendLine($@"
-CRITICAL BUILD INSTRUCTION: You are running inside the PolyPilot MAUI application.
-When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and relaunch by running:
-
-    {relaunchCmd}
-
-This script builds the app, launches a new instance, waits for it to start, then kills the old one.
-NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
-ALWAYS run the relaunch script as the final step after making changes to this project.
-");
-                        }
-                        var freshConfig = new SessionConfig
-                        {
-                            Model = reconnectModel ?? DefaultModel,
-                            WorkingDirectory = freshDir,
-                            McpServers = freshMcpServers,
-                            SkillDirectories = freshSkillDirs,
-                            Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
-                            SystemMessage = new SystemMessageConfig
-                            {
-                                Mode = SystemMessageMode.Append,
-                                Content = freshSystemContent.ToString()
-                            },
-                            OnPermissionRequest = AutoApprovePermissions
-                        };
-                        if (freshMcpServers != null)
-                            Debug($"[RECONNECT] Fresh session config includes {freshMcpServers.Count} MCP server(s)");
-                        if (freshSkillDirs != null)
-                            Debug($"[RECONNECT] Fresh session config includes {freshSkillDirs.Count} skill dir(s)");
+                        var freshConfig = BuildFreshSessionConfig(state);
                         newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
                         state.Info.SessionId = newSession.SessionId;
                     }
                     // Cancel old watchdog AND TurnEnd fallback BEFORE creating new state — they share Info/TCS
                     CancelProcessingWatchdog(state);
                     CancelTurnEndFallback(state);
+                    CancelToolHealthCheck(state);
                     Debug($"[RECONNECT] '{sessionName}' replacing state (old handler will be orphaned, " +
                           $"old session disposed, new session={newSession.SessionId})");
                     var newState = new SessionState
@@ -2615,8 +2669,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // orphaned old state can't pass generation checks on the new state.
                     Interlocked.Exchange(ref newState.ProcessingGeneration,
                         Interlocked.Read(ref state.ProcessingGeneration));
-                    newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn;
-                    Interlocked.Exchange(ref newState.SuccessfulToolCountThisTurn, Volatile.Read(ref state.SuccessfulToolCountThisTurn));
+                    // Reset tool tracking for the NEW connection. The old connection's
+                    // tool state is stale — no tools have run on this connection yet.
+                    // Without this, HasUsedToolsThisTurn=true from the dead connection
+                    // inflates the watchdog timeout from 120s to 600s, making stuck
+                    // sessions wait 5x longer than necessary to recover.
+                    newState.HasUsedToolsThisTurn = false;
+                    Interlocked.Exchange(ref newState.ActiveToolCallCount, 0);
+                    Interlocked.Exchange(ref newState.SuccessfulToolCountThisTurn, 0);
                     newState.IsMultiAgentSession = state.IsMultiAgentSession;
                     newSession.On(evt => HandleSessionEvent(newState, evt));
                     _sessions[sessionName] = newState;
@@ -2628,11 +2688,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // replayed IDLE from clearing IsProcessing before the retry completes.
                     Interlocked.Increment(ref state.ProcessingGeneration);
                     state.Info.IsProcessing = true;
+                    // Reset ProcessingStartedAt so the watchdog's max-time safety net
+                    // measures from the reconnect, not the original send. Without this,
+                    // the 60-min absolute max is measured from the first attempt and
+                    // the reconnected session inherits a stale deadline.
+                    state.Info.ProcessingStartedAt = DateTime.UtcNow;
                     state.CurrentResponse.Clear();
                     state.FlushedResponse.Clear();
                     state.PendingReasoningMessages.Clear();
                     Debug($"[RECONNECT] '{sessionName}' reset processing state: gen={Interlocked.Read(ref state.ProcessingGeneration)}");
                     
+                    // Reset HasUsedToolsThisTurn so the retried turn starts with the default
+                    // 120s watchdog tier instead of the inflated 600s from stale tool state.
+                    state.HasUsedToolsThisTurn = false;
+
                     // Start fresh watchdog for the new connection
                     StartProcessingWatchdog(state, sessionName);
                     
@@ -2641,6 +2710,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     {
                         Prompt = prompt
                     };
+                    if (!string.IsNullOrEmpty(agentMode))
+                        retryOptions.Mode = agentMode;
                     // WORKAROUND: Pass CancellationToken.None (same reason as primary send path).
                     // Same watchdog limitation applies here.
                     await state.Session.SendAsync(retryOptions, CancellationToken.None);
@@ -2652,6 +2723,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {Models.ErrorMessageHelper.Humanize(retryEx)}");
                     CancelProcessingWatchdog(state);
                     CancelTurnEndFallback(state);
+                    CancelToolHealthCheck(state);
                     FlushCurrentResponse(state);
                     Debug($"[ERROR] '{sessionName}' reconnect+retry failed, clearing IsProcessing");
                     Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
@@ -2673,6 +2745,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 OnError?.Invoke(sessionName, $"SendAsync failed: {Models.ErrorMessageHelper.Humanize(ex)}");
                 CancelProcessingWatchdog(state);
                 CancelTurnEndFallback(state);
+                CancelToolHealthCheck(state);
                 FlushCurrentResponse(state);
                 Debug($"[ERROR] '{sessionName}' SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
@@ -2706,6 +2779,56 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Interlocked.Exchange(ref state.SendingFlag, 0);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Build a fresh SessionConfig with MCP servers, skill directories, and system message.
+    /// Mirrors the reconnect handler's "Session not found" path to ensure revived/fresh sessions
+    /// have full external tool access.
+    /// </summary>
+    private SessionConfig BuildFreshSessionConfig(SessionState state, List<Microsoft.Extensions.AI.AIFunction>? tools = null)
+    {
+        var settings = _currentSettings ?? ConnectionSettings.Load();
+        var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+        var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
+        var systemContent = new StringBuilder();
+        var workDir = state.Info.WorkingDirectory;
+        if (string.Equals(workDir, ProjectDir, StringComparison.OrdinalIgnoreCase))
+        {
+            var relaunchCmd = OperatingSystem.IsWindows()
+                ? $"powershell -ExecutionPolicy Bypass -File \"{Path.Combine(ProjectDir, "relaunch.ps1")}\""
+                : $"bash {Path.Combine(ProjectDir, "relaunch.sh")}";
+            systemContent.AppendLine($@"
+CRITICAL BUILD INSTRUCTION: You are running inside the PolyPilot MAUI application.
+When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and relaunch by running:
+
+    {relaunchCmd}
+
+This script builds the app, launches a new instance, waits for it to start, then kills the old one.
+NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
+ALWAYS run the relaunch script as the final step after making changes to this project.
+");
+        }
+        var finalTools = tools ?? new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
+        var config = new SessionConfig
+        {
+            Model = Models.ModelHelper.NormalizeToSlug(state.Info.Model) ?? DefaultModel,
+            WorkingDirectory = workDir,
+            McpServers = mcpServers,
+            SkillDirectories = skillDirs,
+            Tools = finalTools,
+            SystemMessage = new SystemMessageConfig
+            {
+                Mode = SystemMessageMode.Append,
+                Content = systemContent.ToString()
+            },
+            OnPermissionRequest = AutoApprovePermissions
+        };
+        if (mcpServers != null)
+            Debug($"[FRESH-CONFIG] Includes {mcpServers.Count} MCP server(s)");
+        if (skillDirs != null)
+            Debug($"[FRESH-CONFIG] Includes {skillDirs.Count} skill dir(s)");
+        return config;
     }
 
     public async Task AbortSessionAsync(string sessionName, bool markAsInterrupted = false)
@@ -2786,6 +2909,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Cancel any pending TurnEnd→Idle fallback so it doesn't fire CompleteResponse after abort
         CancelTurnEndFallback(state);
         CancelProcessingWatchdog(state);
+        CancelToolHealthCheck(state);
         state.FlushedResponse.Clear();
         state.PendingReasoningMessages.Clear();
         state.Info.ClearPermissionDenials(); // INV-1: clear on all termination paths
@@ -2816,7 +2940,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             return;
         }
 
-        bool toolsActiveOrUsed = Volatile.Read(ref state.ActiveToolCallCount) > 0 || Volatile.Read(ref state.HasUsedToolsThisTurn);
+        bool toolsActiveOrUsed = Volatile.Read(ref state.ActiveToolCallCount) > 0 || state.HasUsedToolsThisTurn;
 
         // Soft steer is only available for real SDK sessions (not demo/remote which lack CopilotSession).
         if (state.Info.IsProcessing && toolsActiveOrUsed && !IsDemoMode && !IsRemoteMode && state.Session != null)
@@ -2875,6 +2999,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 OnError?.Invoke(sessionName, $"Soft steer failed: {Models.ErrorMessageHelper.Humanize(ex)}");
                 CancelProcessingWatchdog(state);
                 CancelTurnEndFallback(state);
+                CancelToolHealthCheck(state);
                 FlushCurrentResponse(state);
                 Debug($"[STEER-ERROR] '{sessionName}' soft steer SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
@@ -2931,7 +3056,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
 
-        state.Info.MessageQueue.Add(prompt);
+        var queueCount = state.Info.MessageQueue.AddAndGetCount(prompt);
         
         // Track image paths alongside the queued message
         if (imagePaths != null && imagePaths.Count > 0)
@@ -2939,7 +3064,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             lock (_imageQueueLock)
             {
                 var queue = _queuedImagePaths.GetOrAdd(sessionName, _ => new List<List<string>>());
-                while (queue.Count < state.Info.MessageQueue.Count - 1)
+                while (queue.Count < queueCount - 1)
                     queue.Add(new List<string>());
                 queue.Add(imagePaths);
             }
@@ -2951,7 +3076,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             lock (_imageQueueLock)
             {
                 var modes = _queuedAgentModes.GetOrAdd(sessionName, _ => new List<string?>());
-                while (modes.Count < state.Info.MessageQueue.Count - 1)
+                while (modes.Count < queueCount - 1)
                     modes.Add(null);
                 modes.Add(agentMode);
             }
@@ -3003,9 +3128,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!_sessions.TryGetValue(sessionName, out var state))
             return;
         
-        if (index >= 0 && index < state.Info.MessageQueue.Count)
+        if (state.Info.MessageQueue.TryRemoveAt(index))
         {
-            state.Info.MessageQueue.RemoveAt(index);
             // Keep queued image paths in sync
             lock (_imageQueueLock)
             {
@@ -3329,6 +3453,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Cancel any pending timers so they don't fire on torn-down state after session removal
         CancelProcessingWatchdog(state);
         CancelTurnEndFallback(state);
+        CancelToolHealthCheck(state);
 
         // Dispose the SDK session AFTER UI has updated — DisposeAsync talks to the CLI
         // process and may trigger additional SDK events on background threads. Running it
@@ -3371,11 +3496,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         _saveUiStateDebounce?.Dispose();
         _saveUiStateDebounce = null;
         FlushUiState();
-        
+
+        _stateChangedCoalesceTimer?.Dispose();
+        _stateChangedCoalesceTimer = null;
+
         foreach (var state in _sessions.Values)
         {
             CancelProcessingWatchdog(state);
             CancelTurnEndFallback(state);
+            CancelToolHealthCheck(state);
             if (state.Session is not null)
                 try { await state.Session.DisposeAsync(); } catch { }
         }

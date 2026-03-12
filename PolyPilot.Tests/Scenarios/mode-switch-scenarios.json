@@ -1469,6 +1469,53 @@
           "note": "The session menu is visible after right-click"
         }
       ]
+    },
+    {
+      "id": "settings-code-blocks-use-theme-colors",
+      "name": "Code blocks in settings use theme-aware colors, not Bootstrap red",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "window.location.href = '/settings'; true",
+          "note": "Navigate to settings page"
+        },
+        {
+          "action": "wait",
+          "ms": 500
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.settings-page') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Settings page loaded"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('.section-desc code').length > 0",
+          "expect": {
+            "equals": true
+          },
+          "note": "Settings page should render at least one .section-desc code element"
+        },
+        {
+          "action": "evaluate",
+          "script": "(() => { const codes = Array.from(document.querySelectorAll('.section-desc code')); const probe = document.createElement('span'); probe.style.color = 'var(--text-bright)'; probe.style.position = 'absolute'; probe.style.visibility = 'hidden'; document.body.appendChild(probe); const expected = getComputedStyle(probe).color; probe.remove(); return codes.every(el => getComputedStyle(el).color === expected); })()",
+          "expect": {
+            "equals": true
+          },
+          "note": "All .section-desc code elements should resolve to the theme's --text-bright color"
+        },
+        {
+          "action": "evaluate",
+          "script": "Array.from(document.querySelectorAll('.section-desc code')).every(el => getComputedStyle(el).borderStyle !== 'none')",
+          "expect": {
+            "equals": true
+          },
+          "note": "Code elements in section-desc should have a visible border for contrast"
+        }
+      ]
     }
   ]
 }

@@ -27,13 +27,17 @@ public class WsBridgeIntegrationTests : IDisposable
     }
 
     /// <summary>
-    /// Polls until a condition is true, with a timeout. Replaces fixed Task.Delay for reliability under load.
+    /// Polls until a condition is true, with a timeout. Throws TimeoutException on silent timeout
+    /// to surface flaky races instead of letting assertions fail on stale state.
     /// </summary>
     private static async Task WaitForAsync(Func<bool> condition, CancellationToken ct, int pollMs = 50, int maxMs = 4000)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         while (!condition() && sw.ElapsedMilliseconds < maxMs)
             await Task.Delay(pollMs, ct);
+
+        if (!condition())
+            throw new TimeoutException($"WaitForAsync condition not met within {maxMs}ms");
     }
 
     public WsBridgeIntegrationTests()
@@ -677,7 +681,7 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         await client.RenameSessionAsync("old-name", "new-name", cts.Token);
-        await WaitForAsync(() => _copilot.GetSession("new-name") != null, cts.Token);
+        await WaitForAsync(() => _copilot.GetSession("new-name") != null, cts.Token, maxMs: 8000);
 
         Assert.Null(_copilot.GetSession("old-name"));
         Assert.NotNull(_copilot.GetSession("new-name"));

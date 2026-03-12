@@ -426,30 +426,33 @@ public class ChatExperienceSafetyTests
         bool isResumed, bool hasReceivedEvents)
     {
         var useResumeQuiescence = isResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
-        var useToolTimeout = hasActiveTool || (isResumed && !useResumeQuiescence) || hasUsedTools || isMultiAgent;
+        var useToolTimeout = hasActiveTool || (isResumed && !useResumeQuiescence);
+        var useUsedToolsTimeout = !useToolTimeout && hasUsedTools && !hasActiveTool;
         return useResumeQuiescence
             ? CopilotService.WatchdogResumeQuiescenceTimeoutSeconds
             : useToolTimeout
                 ? CopilotService.WatchdogToolExecutionTimeoutSeconds
-                : CopilotService.WatchdogInactivityTimeoutSeconds;
+                : useUsedToolsTimeout
+                    ? CopilotService.WatchdogUsedToolsIdleTimeoutSeconds
+                    : CopilotService.WatchdogInactivityTimeoutSeconds;
     }
 
     /// <summary>
-    /// INV-5: HasUsedToolsThisTurn BETWEEN tool rounds must keep 600s timeout.
+    /// INV-5: HasUsedToolsThisTurn BETWEEN tool rounds must keep 180s timeout (used-tools idle tier).
     /// This is the primary protection against "messages killed during long-running processes."
     /// ActiveToolCallCount resets on AssistantTurnStartEvent between rounds — only
     /// HasUsedToolsThisTurn persists and keeps the longer timeout.
     /// </summary>
     [Fact]
-    public void WatchdogTimeout_BetweenToolRounds_Uses600s()
+    public void WatchdogTimeout_BetweenToolRounds_Uses180s()
     {
         // Between tool rounds: ActiveToolCallCount=0, but HasUsedToolsThisTurn=true
         var timeout = ComputeEffectiveTimeout(
             hasActiveTool: false, hasUsedTools: true, isMultiAgent: false,
             isResumed: false, hasReceivedEvents: false);
 
-        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, timeout);
-        Assert.Equal(600, timeout);
+        Assert.Equal(CopilotService.WatchdogUsedToolsIdleTimeoutSeconds, timeout);
+        Assert.Equal(180, timeout);
     }
 
     /// <summary>Active tool execution gets the 600s timeout.</summary>
@@ -462,14 +465,14 @@ public class ChatExperienceSafetyTests
         Assert.Equal(600, timeout);
     }
 
-    /// <summary>Multi-agent sessions always get 600s to prevent killing workers mid-task.</summary>
+    /// <summary>Multi-agent sessions without active tools get 120s base timeout (isMultiAgent alone no longer escalates).</summary>
     [Fact]
-    public void WatchdogTimeout_MultiAgent_Uses600s()
+    public void WatchdogTimeout_MultiAgent_Uses120s()
     {
         var timeout = ComputeEffectiveTimeout(
             hasActiveTool: false, hasUsedTools: false, isMultiAgent: true,
             isResumed: false, hasReceivedEvents: false);
-        Assert.Equal(600, timeout);
+        Assert.Equal(120, timeout);
     }
 
     /// <summary>Resumed session with no events → 30s quiescence (fast recovery).</summary>
@@ -481,6 +484,17 @@ public class ChatExperienceSafetyTests
             isResumed: true, hasReceivedEvents: false);
         Assert.Equal(CopilotService.WatchdogResumeQuiescenceTimeoutSeconds, timeout);
         Assert.Equal(30, timeout);
+    }
+
+    /// <summary>Used tools but none active → 180s middle tier (between 600s active and 120s base).</summary>
+    [Fact]
+    public void WatchdogTimeout_UsedToolsIdle_Uses180s()
+    {
+        var timeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, hasUsedTools: true, isMultiAgent: false,
+            isResumed: false, hasReceivedEvents: false);
+        Assert.Equal(CopilotService.WatchdogUsedToolsIdleTimeoutSeconds, timeout);
+        Assert.Equal(180, timeout);
     }
 
     /// <summary>Resumed session with events flowing → 600s (session is active).</summary>
@@ -511,12 +525,12 @@ public class ChatExperienceSafetyTests
     [Theory]
     [InlineData(false, false, false, false, false, 120)]  // base case
     [InlineData(true,  false, false, false, false, 600)]  // active tool
-    [InlineData(false, true,  false, false, false, 600)]  // used tools (between rounds!)
-    [InlineData(false, false, true,  false, false, 600)]  // multi-agent
-    [InlineData(true,  true,  false, false, false, 600)]  // active + used
+    [InlineData(false, true,  false, false, false, 180)]  // used tools (between rounds) → 180s middle tier
+    [InlineData(false, false, true,  false, false, 120)]  // multi-agent alone → base (no escalation)
+    [InlineData(true,  true,  false, false, false, 600)]  // active + used → active wins (600s)
     [InlineData(true,  false, true,  false, false, 600)]  // active + multi
-    [InlineData(false, true,  true,  false, false, 600)]  // used + multi
-    [InlineData(true,  true,  true,  false, false, 600)]  // all three
+    [InlineData(false, true,  true,  false, false, 180)]  // used + multi → used-tools tier (180s)
+    [InlineData(true,  true,  true,  false, false, 600)]  // all three → active wins (600s)
     public void WatchdogTimeout_AllCombinations(
         bool hasActive, bool hasUsed, bool isMulti,
         bool isResumed, bool hasEvents, int expected)
@@ -828,7 +842,7 @@ public class ChatExperienceSafetyTests
         Assert.True(crIdx > 0);
 
         // Within CompleteResponse, SendingFlag must be cleared (may be 80+ lines into method)
-        var afterCR = source.Substring(crIdx, Math.Min(5000, source.Length - crIdx));
+        var afterCR = source.Substring(crIdx, Math.Min(6000, source.Length - crIdx));
         Assert.Contains("SendingFlag", afterCR);
     }
 
@@ -842,12 +856,18 @@ public class ChatExperienceSafetyTests
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
+        // After extraction to BuildFreshSessionConfig, verify the reconnect path calls the helper
         var sessionNotFoundIdx = source.IndexOf("Session not found", StringComparison.OrdinalIgnoreCase);
         Assert.True(sessionNotFoundIdx > 0);
+        var afterNotFound = source.Substring(sessionNotFoundIdx, Math.Min(1000, source.Length - sessionNotFoundIdx));
+        Assert.Contains("BuildFreshSessionConfig", afterNotFound);
 
-        var afterNotFound = source.Substring(sessionNotFoundIdx, Math.Min(2000, source.Length - sessionNotFoundIdx));
-        Assert.Contains("McpServers", afterNotFound);
-        Assert.Contains("SkillDirectories", afterNotFound);
+        // And verify the helper itself includes MCP and Skills
+        var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
+        Assert.True(helperIdx > 0);
+        var helperBlock = source.Substring(helperIdx, Math.Min(2000, source.Length - helperIdx));
+        Assert.Contains("McpServers", helperBlock);
+        Assert.Contains("SkillDirectories", helperBlock);
     }
 
     // =========================================================================

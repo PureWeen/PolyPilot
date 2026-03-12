@@ -1459,11 +1459,17 @@ public class MultiAgentRegressionTests
         // 120s inactivity timeout instead of 600s, killing long-running worker tasks.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
         
-        // Find the reconnect block where HasUsedToolsThisTurn is carried forward
-        var reconnectBlock = source.Substring(source.IndexOf("newState.HasUsedToolsThisTurn = state.HasUsedToolsThisTurn"));
-        // IsMultiAgentSession must be carried forward in the same block
-        // Use 400 chars to accommodate intermediate carry-forward lines (e.g. SuccessfulToolCountThisTurn)
-        Assert.Contains("newState.IsMultiAgentSession = state.IsMultiAgentSession", reconnectBlock.Substring(0, 400));
+        // Find the reconnect block where state is replaced
+        var marker = "[RECONNECT] '{sessionName}' replacing state";
+        var reconnectIdx = source.IndexOf(marker);
+        Assert.True(reconnectIdx >= 0, "Reconnect block must exist");
+        var watchdogIdx = source.IndexOf("StartProcessingWatchdog(state, sessionName)", reconnectIdx);
+        Assert.True(watchdogIdx >= 0, "StartProcessingWatchdog must follow reconnect block");
+        var reconnectBlock = source.Substring(reconnectIdx, watchdogIdx - reconnectIdx);
+        // IsMultiAgentSession must be carried forward (it's a property of the conversation, not the connection)
+        Assert.Contains("newState.IsMultiAgentSession = state.IsMultiAgentSession", reconnectBlock);
+        // But HasUsedToolsThisTurn must be RESET to false (it's connection-specific, not conversation-specific)
+        Assert.Contains("HasUsedToolsThisTurn = false", reconnectBlock);
     }
 
     [Fact]
