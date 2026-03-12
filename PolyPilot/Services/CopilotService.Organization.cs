@@ -1376,8 +1376,28 @@ public partial class CopilotService
             var secondsSinceLastEvent = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
             if (secondsSinceLastEvent >= inactivityThresholdSeconds)
             {
-                Debug($"[DISPATCH] '{sessionName}' no SDK events for {secondsSinceLastEvent:F0}s — aborting to proceed with synthesis");
-                await AbortSessionAsync(sessionName);
+                Debug($"[DISPATCH] '{sessionName}' no SDK events for {secondsSinceLastEvent:F0}s — force-clearing to proceed with synthesis");
+                // Use InvokeOnUI to safely clear processing state — AbortSessionAsync
+                // touches Blazor rendering and crashes from background threads.
+                var tcs = new TaskCompletionSource<bool>();
+                InvokeOnUI(() =>
+                {
+                    try
+                    {
+                        if (state.Info.IsProcessing)
+                        {
+                            FlushCurrentResponse(state);
+                            state.Info.IsProcessing = false;
+                            state.Info.ProcessingPhase = 0;
+                            state.Info.ProcessingStartedAt = null;
+                            Interlocked.Exchange(ref state.SendingFlag, 0);
+                            OnStateChanged?.Invoke();
+                        }
+                        tcs.TrySetResult(true);
+                    }
+                    catch (Exception ex) { tcs.TrySetException(ex); }
+                });
+                try { await tcs.Task; } catch { }
                 await Task.Delay(500, ct);
                 break;
             }
@@ -1385,8 +1405,26 @@ public partial class CopilotService
         }
         if (state.Info.IsProcessing)
         {
-            Debug($"[DISPATCH] '{sessionName}' still processing after {sw.Elapsed.TotalSeconds:F1}s — aborting to allow synthesis");
-            await AbortSessionAsync(sessionName);
+            Debug($"[DISPATCH] '{sessionName}' still processing after {sw.Elapsed.TotalSeconds:F1}s — force-clearing to allow synthesis");
+            var tcs = new TaskCompletionSource<bool>();
+            InvokeOnUI(() =>
+            {
+                try
+                {
+                    if (state.Info.IsProcessing)
+                    {
+                        FlushCurrentResponse(state);
+                        state.Info.IsProcessing = false;
+                        state.Info.ProcessingPhase = 0;
+                        state.Info.ProcessingStartedAt = null;
+                        Interlocked.Exchange(ref state.SendingFlag, 0);
+                        OnStateChanged?.Invoke();
+                    }
+                    tcs.TrySetResult(true);
+                }
+                catch (Exception ex) { tcs.TrySetException(ex); }
+            });
+            try { await tcs.Task; } catch { }
             await Task.Delay(500, ct);
         }
         Debug($"[DISPATCH] '{sessionName}' now idle after {sw.Elapsed.TotalSeconds:F1}s");
