@@ -1334,6 +1334,65 @@ public partial class CopilotService
     private record WorkerResult(string WorkerName, string? Response, bool Success, string? Error, TimeSpan Duration);
 
     /// <summary>
+    /// Full INV-1-compliant force-completion of a session's processing state.
+    /// Clears all 9+ companion fields, resolves the ResponseCompletion TCS,
+    /// fires OnSessionComplete, and cancels background timers.
+    /// Must be awaited — runs state mutation on UI thread via TCS synchronization.
+    /// </summary>
+    private async Task ForceCompleteProcessingAsync(string sessionName, SessionState state, string reason)
+    {
+        // Cancel timers first (thread-safe — use Interlocked internally)
+        CancelProcessingWatchdog(state);
+        CancelTurnEndFallback(state);
+        CancelToolHealthCheck(state);
+
+        var tcs = new TaskCompletionSource<bool>();
+        InvokeOnUI(() =>
+        {
+            try
+            {
+                if (!state.Info.IsProcessing) { tcs.TrySetResult(true); return; }
+
+                // Full cleanup mirroring CompleteResponse / unstartedWorkers recovery
+                FlushCurrentResponse(state);
+                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                Interlocked.Exchange(ref state.SendingFlag, 0);
+                Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
+                Interlocked.Exchange(ref state.WatchdogCaseBResets, 0);
+                state.HasUsedToolsThisTurn = false;
+                state.FallbackCanceledByTurnStart = false;
+                state.Info.IsResumed = false;
+                state.Info.ProcessingStartedAt = null;
+                state.Info.ToolCallCount = 0;
+                state.Info.ProcessingPhase = 0;
+                state.Info.ClearPermissionDenials();
+
+                var response = state.CurrentResponse.ToString();
+                var fullResponse = state.FlushedResponse.Length > 0
+                    ? (string.IsNullOrEmpty(response)
+                        ? state.FlushedResponse.ToString()
+                        : state.FlushedResponse + "\n\n" + response)
+                    : response;
+
+                state.CurrentResponse.Clear();
+                state.FlushedResponse.Clear();
+                state.PendingReasoningMessages.Clear();
+                state.Info.IsProcessing = false;
+
+                state.ResponseCompletion?.TrySetResult(fullResponse);
+                var summary = fullResponse.Length > 0 ? (fullResponse.Length > 100 ? fullResponse[..100] + "..." : fullResponse) : "";
+                OnSessionComplete?.Invoke(sessionName, summary);
+                OnStateChanged?.Invoke();
+                Debug($"[DISPATCH] ForceCompleteProcessing '{sessionName}': {reason} (responseLen={fullResponse.Length})");
+                tcs.TrySetResult(true);
+            }
+            catch (Exception ex) { tcs.TrySetException(ex); }
+        });
+        try { await tcs.Task; } catch { }
+    }
+
+    /// <summary>
     /// Wait for a session to finish processing (go idle). Used after early dispatch
     /// resolves the orchestrator's TCS while it's still doing tool work — we must
     /// wait for it to go idle before sending the next prompt (synthesis).
@@ -1359,28 +1418,8 @@ public partial class CopilotService
             var secondsSinceLastEvent = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
             if (secondsSinceLastEvent >= inactivityThresholdSeconds)
             {
-                Debug($"[DISPATCH] '{sessionName}' no SDK events for {secondsSinceLastEvent:F0}s — force-clearing to proceed with synthesis");
-                // Use InvokeOnUI to safely clear processing state — AbortSessionAsync
-                // touches Blazor rendering and crashes from background threads.
-                var tcs = new TaskCompletionSource<bool>();
-                InvokeOnUI(() =>
-                {
-                    try
-                    {
-                        if (state.Info.IsProcessing)
-                        {
-                            FlushCurrentResponse(state);
-                            state.Info.IsProcessing = false;
-                            state.Info.ProcessingPhase = 0;
-                            state.Info.ProcessingStartedAt = null;
-                            Interlocked.Exchange(ref state.SendingFlag, 0);
-                            OnStateChanged?.Invoke();
-                        }
-                        tcs.TrySetResult(true);
-                    }
-                    catch (Exception ex) { tcs.TrySetException(ex); }
-                });
-                try { await tcs.Task; } catch { }
+                Debug($"[DISPATCH] '{sessionName}' no SDK events for {secondsSinceLastEvent:F0}s — force-completing to proceed with synthesis");
+                await ForceCompleteProcessingAsync(sessionName, state, $"inactivity {secondsSinceLastEvent:F0}s");
                 await Task.Delay(500, ct);
                 break;
             }
@@ -1388,26 +1427,8 @@ public partial class CopilotService
         }
         if (state.Info.IsProcessing)
         {
-            Debug($"[DISPATCH] '{sessionName}' still processing after {sw.Elapsed.TotalSeconds:F1}s — force-clearing to allow synthesis");
-            var tcs = new TaskCompletionSource<bool>();
-            InvokeOnUI(() =>
-            {
-                try
-                {
-                    if (state.Info.IsProcessing)
-                    {
-                        FlushCurrentResponse(state);
-                        state.Info.IsProcessing = false;
-                        state.Info.ProcessingPhase = 0;
-                        state.Info.ProcessingStartedAt = null;
-                        Interlocked.Exchange(ref state.SendingFlag, 0);
-                        OnStateChanged?.Invoke();
-                    }
-                    tcs.TrySetResult(true);
-                }
-                catch (Exception ex) { tcs.TrySetException(ex); }
-            });
-            try { await tcs.Task; } catch { }
+            Debug($"[DISPATCH] '{sessionName}' still processing after {sw.Elapsed.TotalSeconds:F1}s — force-completing to allow synthesis");
+            await ForceCompleteProcessingAsync(sessionName, state, $"timeout {sw.Elapsed.TotalSeconds:F1}s");
             await Task.Delay(500, ct);
         }
         Debug($"[DISPATCH] '{sessionName}' now idle after {sw.Elapsed.TotalSeconds:F1}s");
@@ -1461,17 +1482,7 @@ public partial class CopilotService
             if (preState.Info.IsProcessing)
             {
                 Debug($"[DISPATCH] Worker '{workerName}' still processing after 150s wait — force-completing");
-                InvokeOnUI(() =>
-                {
-                    preState.Info.IsProcessing = false;
-                    preState.Info.ProcessingPhase = 0;
-                    preState.Info.ProcessingStartedAt = null;
-                    preState.HasUsedToolsThisTurn = false;
-                    Interlocked.Exchange(ref preState.ActiveToolCallCount, 0);
-                    Interlocked.Exchange(ref preState.SendingFlag, 0);
-                    OnStateChanged?.Invoke();
-                });
-                await Task.Delay(100, cancellationToken); // let UI thread process
+                await ForceCompleteProcessingAsync(workerName, preState, "pre-dispatch 150s timeout");
             }
             else
             {
@@ -1515,7 +1526,9 @@ public partial class CopilotService
                 // even though FlushedResponse/CurrentResponse were empty (e.g., watchdog completion).
                 if (string.IsNullOrWhiteSpace(response) && _sessions.TryGetValue(workerName, out var histState))
                 {
-                    var historySnapshot = histState.Info.History.ToArray();
+                    ChatMessage[] historySnapshot;
+                    try { historySnapshot = histState.Info.History.ToArray(); }
+                    catch (InvalidOperationException) { historySnapshot = Array.Empty<ChatMessage>(); }
 
                     // First try: last assistant text message after dispatch
                     var lastAssistant = historySnapshot
@@ -1895,57 +1908,7 @@ public partial class CopilotService
                 if (_sessions.TryGetValue(workerName, out var workerState) && workerState.Info.IsProcessing)
                 {
                     Debug($"[DISPATCH] Clearing stuck IsProcessing on '{workerName}' before re-dispatch");
-                    // Cancel timers first (thread-safe — use Interlocked internally)
-                    CancelProcessingWatchdog(workerState);
-                    CancelTurnEndFallback(workerState);
-                    CancelToolHealthCheck(workerState);
-
-                    // Must run on UI thread per INV-2; use TCS to synchronize
-                    var tcs = new TaskCompletionSource<bool>();
-                    InvokeOnUI(() =>
-                    {
-                        try
-                        {
-                            if (!workerState.Info.IsProcessing) { tcs.TrySetResult(true); return; }
-
-                            // Full cleanup mirroring CompleteResponse / tool-health recovery
-                            Interlocked.Exchange(ref workerState.ActiveToolCallCount, 0);
-                            Interlocked.Exchange(ref workerState.SendingFlag, 0);
-                            Interlocked.Exchange(ref workerState.SuccessfulToolCountThisTurn, 0);
-                            Interlocked.Exchange(ref workerState.WatchdogCaseAResets, 0);
-                            Interlocked.Exchange(ref workerState.WatchdogCaseBResets, 0);
-                            workerState.HasUsedToolsThisTurn = false;
-                            workerState.FallbackCanceledByTurnStart = false;
-                            workerState.Info.IsResumed = false;
-                            workerState.Info.ProcessingStartedAt = null;
-                            workerState.Info.ToolCallCount = 0;
-                            workerState.Info.ProcessingPhase = 0;
-                            workerState.Info.ClearPermissionDenials();
-
-                            var response = workerState.CurrentResponse.ToString();
-                            var fullResponse = workerState.FlushedResponse.Length > 0
-                                ? (string.IsNullOrEmpty(response)
-                                    ? workerState.FlushedResponse.ToString()
-                                    : workerState.FlushedResponse + "\n\n" + response)
-                                : response;
-
-                            workerState.CurrentResponse.Clear();
-                            workerState.FlushedResponse.Clear();
-                            workerState.PendingReasoningMessages.Clear();
-                            workerState.Info.IsProcessing = false;
-
-                            workerState.ResponseCompletion?.TrySetResult(fullResponse);
-                            var summary = fullResponse.Length > 0 ? (fullResponse.Length > 100 ? fullResponse[..100] + "..." : fullResponse) : "";
-                            OnSessionComplete?.Invoke(workerName, summary);
-                            OnStateChanged?.Invoke();
-                            tcs.TrySetResult(true);
-                        }
-                        catch (Exception ex)
-                        {
-                            tcs.TrySetException(ex);
-                        }
-                    });
-                    await tcs.Task;
+                    await ForceCompleteProcessingAsync(workerName, workerState, "pre-redispatch cleanup");
                 }
             }
 
