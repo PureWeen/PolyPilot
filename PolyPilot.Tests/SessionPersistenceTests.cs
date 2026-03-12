@@ -9,8 +9,8 @@ namespace PolyPilot.Tests;
 /// </summary>
 public class SessionPersistenceTests
 {
-    private static ActiveSessionEntry Entry(string id, string name = "s") =>
-        new() { SessionId = id, DisplayName = name, Model = "m", WorkingDirectory = "/w" };
+    private static ActiveSessionEntry Entry(string id, string? name = null) =>
+        new() { SessionId = id, DisplayName = name ?? id, Model = "m", WorkingDirectory = "/w" };
 
     // --- MergeSessionEntries: basic behavior ---
 
@@ -200,6 +200,61 @@ public class SessionPersistenceTests
 
         Assert.Equal(2, result.Count);
         Assert.DoesNotContain(result, e => e.SessionId == "gone");
+    }
+
+    // --- MergeSessionEntries: display name deduplication ---
+
+    [Fact]
+    public void Merge_DuplicateDisplayName_ActiveWins_PersistedDropped()
+    {
+        // Active session "MyChat" has ID "new-id" (from reconnect).
+        // Persisted has old entry with stale ID "old-id" but same display name.
+        // Only the active entry should survive — no ghost duplicates.
+        var active = new List<ActiveSessionEntry> { Entry("new-id", "MyChat") };
+        var persisted = new List<ActiveSessionEntry> { Entry("old-id", "MyChat") };
+        var closed = new HashSet<string>();
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
+
+        Assert.Single(result);
+        Assert.Equal("new-id", result[0].SessionId);
+    }
+
+    [Fact]
+    public void Merge_MultipleGhostEntriesSameDisplayName_OnlyOneKept()
+    {
+        // Simulates the "28 MEssagePierce entries" bug: multiple persisted entries
+        // with different session IDs but the same display name. Only one should survive.
+        var active = new List<ActiveSessionEntry>();
+        var persisted = new List<ActiveSessionEntry>
+        {
+            Entry("ghost-1", "MEssagePierce"),
+            Entry("ghost-2", "MEssagePierce"),
+            Entry("ghost-3", "MEssagePierce"),
+            Entry("real-1", "OtherSession"),
+        };
+        var closed = new HashSet<string>();
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
+
+        Assert.Equal(2, result.Count);
+        // First MEssagePierce entry wins, others are deduped
+        Assert.Single(result, e => e.DisplayName == "MEssagePierce");
+        Assert.Equal("ghost-1", result.First(e => e.DisplayName == "MEssagePierce").SessionId);
+        Assert.Single(result, e => e.DisplayName == "OtherSession");
+    }
+
+    [Fact]
+    public void Merge_ActiveAndPersistedDifferentNames_BothKept()
+    {
+        // Entries with different display names should both be kept.
+        var active = new List<ActiveSessionEntry> { Entry("id-1", "Alpha") };
+        var persisted = new List<ActiveSessionEntry> { Entry("id-2", "Beta") };
+        var closed = new HashSet<string>();
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
+
+        Assert.Equal(2, result.Count);
     }
 
     // --- MergeSessionEntries: mode switch simulation ---
@@ -543,5 +598,64 @@ public class SessionPersistenceTests
         while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
             dir = Path.GetDirectoryName(dir);
         return dir ?? throw new InvalidOperationException("Could not find repo root");
+    }
+
+    // --- RECONNECT handler: structural regression guards ---
+    // These verify the RECONNECT path in SendPromptAsync persists the new session ID.
+    // Without this, the debounced save captures a stale pre-reconnect session ID,
+    // causing the next restore to find an empty directory with no events.jsonl.
+
+    [Fact]
+    public void Reconnect_CallsSaveActiveSessionsToDisk_AfterUpdatingSessionId()
+    {
+        // STRUCTURAL REGRESSION GUARD: After RECONNECT updates state.Info.SessionId
+        // and _sessions[sessionName] = newState, SaveActiveSessionsToDisk() must be
+        // called so the new session ID is persisted immediately.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        // Find the specific assignment where the new state replaces the old one
+        var sessionsAssign = source.IndexOf("_sessions[sessionName] = newState", StringComparison.Ordinal);
+        Assert.True(sessionsAssign > 0, "Could not find _sessions assignment in RECONNECT handler");
+
+        // SaveActiveSessionsToDisk must appear within the next 500 chars (before StartProcessingWatchdog)
+        var afterAssign = source.Substring(sessionsAssign, Math.Min(500, source.Length - sessionsAssign));
+        Assert.Contains("SaveActiveSessionsToDisk()", afterAssign);
+    }
+
+    // --- Restore: events.jsonl existence check ---
+
+    [Fact]
+    public void Restore_SkipsSessionsWithoutEventsJsonl()
+    {
+        // STRUCTURAL REGRESSION GUARD: The restore loop must check for events.jsonl
+        // existence, not just directory existence. Empty directories (created by SDK
+        // during ResumeSessionAsync) should be skipped to prevent ghost sessions.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var restoreIdx = source.IndexOf("RestorePreviousSessionsAsync", StringComparison.Ordinal);
+        Assert.True(restoreIdx > 0);
+
+        var restoreBlock = source.Substring(restoreIdx, Math.Min(5000, source.Length - restoreIdx));
+        // Must check events.jsonl, not just Directory.Exists
+        Assert.Contains("events.jsonl", restoreBlock);
+    }
+
+    [Fact]
+    public void SaveActiveSessionsToDisk_ChecksEventsJsonlNotJustDirectory()
+    {
+        // STRUCTURAL REGRESSION GUARD: The sessionDirExists callback in
+        // WriteActiveSessionsFile/SaveActiveSessionsToDisk must check for
+        // events.jsonl file existence, not just the directory.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var mergeCallIdx = source.IndexOf("MergeSessionEntries(entries", StringComparison.Ordinal);
+        Assert.True(mergeCallIdx > 0);
+
+        // The callback passed to MergeSessionEntries must reference events.jsonl
+        var mergeCall = source.Substring(mergeCallIdx, Math.Min(500, source.Length - mergeCallIdx));
+        Assert.Contains("events.jsonl", mergeCall);
     }
 }

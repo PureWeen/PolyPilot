@@ -113,7 +113,14 @@ public partial class CopilotService
                         var closedIds = new HashSet<string>(_closedSessionIds.Keys, StringComparer.OrdinalIgnoreCase);
                         var closedNames = new HashSet<string>(_closedSessionNames.Keys, StringComparer.OrdinalIgnoreCase);
                         entries = MergeSessionEntries(entries, existingEntries, closedIds, closedNames,
-                            sessionId => Directory.Exists(Path.Combine(SessionStatePath, sessionId)));
+                            sessionId =>
+                            {
+                                var dir = Path.Combine(SessionStatePath, sessionId);
+                                // Require events.jsonl, not just the directory.
+                                // The SDK creates empty directories during ResumeSessionAsync
+                                // even when the session is recreated with a new ID.
+                                return File.Exists(Path.Combine(dir, "events.jsonl"));
+                            });
                     }
                 }
             }
@@ -148,16 +155,22 @@ public partial class CopilotService
     {
         var merged = new List<ActiveSessionEntry>(active);
         var activeIds = new HashSet<string>(active.Select(e => e.SessionId), StringComparer.OrdinalIgnoreCase);
+        // Track display names already in the merged list to prevent ghost duplicates.
+        // Without this, a session that reconnected (new ID) accumulates old entries
+        // because the old IDs pass the session-ID check but share the same display name.
+        var activeNames = new HashSet<string>(active.Select(e => e.DisplayName), StringComparer.OrdinalIgnoreCase);
 
         foreach (var existing in persisted)
         {
             if (activeIds.Contains(existing.SessionId)) continue;
+            if (activeNames.Contains(existing.DisplayName)) continue;
             if (closedIds.Contains(existing.SessionId)) continue;
             if (closedNames.Contains(existing.DisplayName)) continue;
             if (!sessionDirExists(existing.SessionId)) continue;
 
             merged.Add(existing);
             activeIds.Add(existing.SessionId);
+            activeNames.Add(existing.DisplayName);
         }
 
         return merged;
@@ -336,11 +349,13 @@ public partial class CopilotService
                                 continue;
                             }
                             
-                            // Check the session still exists on disk
+                            // Check the session still exists on disk with actual event data.
+                            // Empty directories (created by SDK during ResumeSessionAsync for
+                            // sessions that were later reconnected with a new ID) are skipped.
                             var sessionDir = Path.Combine(SessionStatePath, entry.SessionId);
-                            if (!Directory.Exists(sessionDir))
+                            if (!File.Exists(Path.Combine(sessionDir, "events.jsonl")))
                             {
-                                Debug($"Skipping '{entry.DisplayName}' — session dir not found: {sessionDir}");
+                                Debug($"Skipping '{entry.DisplayName}' — no events.jsonl in: {sessionDir}");
                                 continue;
                             }
 
