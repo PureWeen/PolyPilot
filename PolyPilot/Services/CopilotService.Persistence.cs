@@ -467,8 +467,6 @@ public partial class CopilotService
 
                                         foreach (var msg in oldHistory)
                                             recreatedState.Info.History.Add(msg);
-                                        recreatedState.Info.MessageCount = recreatedState.Info.History.Count;
-                                        recreatedState.Info.LastReadMessageCount = recreatedState.Info.History.Count;
 
                                         // Normalize stale incomplete entries (same as ResumeSessionAsync)
                                         foreach (var msg in recreatedState.Info.History.Where(m =>
@@ -482,6 +480,8 @@ public partial class CopilotService
                                             SafeFireAndForget(_chatDb.BulkInsertAsync(recreatedState.Info.SessionId, oldHistory));
 
                                         recreatedState.Info.History.Add(ChatMessage.SystemMessage("🔄 Session recreated — conversation history recovered from previous session."));
+                                        recreatedState.Info.MessageCount = recreatedState.Info.History.Count;
+                                        recreatedState.Info.LastReadMessageCount = recreatedState.Info.History.Count;
                                     }
 
                                     // Restore usage stats (token counts, CreatedAt, etc.)

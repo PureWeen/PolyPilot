@@ -541,8 +541,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(5000, source.Length - fallbackIdx));
-        Assert.Contains("History.Add", afterFallback);
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));        Assert.Contains("History.Add", afterFallback);
         Assert.Contains("MessageCount", afterFallback);
         Assert.Contains("LastReadMessageCount", afterFallback);
     }
@@ -627,6 +626,29 @@ public class SessionPersistenceTests
         var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
         Assert.Contains("Session recreated", afterFallback);
         Assert.Contains("SystemMessage", afterFallback);
+    }
+
+    [Fact]
+    public void RestoreFallback_MessageCount_SetAfterSystemMessage()
+    {
+        // STRUCTURAL REGRESSION GUARD: MessageCount and LastReadMessageCount must be
+        // set AFTER the system message is added, not before. Otherwise the system
+        // message ("🔄 Session recreated") isn't counted, and the unread indicator
+        // doesn't trigger for it.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
+        Assert.True(fallbackIdx > 0);
+
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
+        var systemMsgIdx = afterFallback.IndexOf("Session recreated", StringComparison.Ordinal);
+        var messageCountIdx = afterFallback.IndexOf("MessageCount = recreatedState.Info.History.Count", StringComparison.Ordinal);
+
+        Assert.True(systemMsgIdx > 0, "System message not found in fallback path");
+        Assert.True(messageCountIdx > 0, "MessageCount assignment not found in fallback path");
+        Assert.True(messageCountIdx > systemMsgIdx,
+            "MessageCount must be set AFTER the system message is added to History");
     }
 
     private static string GetRepoRoot()
