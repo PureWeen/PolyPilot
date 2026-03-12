@@ -510,26 +510,13 @@ public partial class CopilotService
                                 Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — tools still active");
                                 return;
                             }
-                            // Guard: if tools were used this turn, the LLM may still be reasoning
-                            // between tool rounds (TurnEnd → thinking → TurnStart, >4s).
-                            // Don't complete immediately — wait an additional period. If no new
-                            // TurnStart arrives within that window, SessionIdleEvent was lost
-                            // (SDK bug #299) and we must complete to unblock the session.
+                            // Guard: if tools were used this turn, more agent rounds may follow
+                            // (TurnEnd → thinking → TurnStart → more tools). Firing CompleteResponse
+                            // here would prematurely end the turn. Skip the fallback entirely and
+                            // let the watchdog handle any genuinely stuck sessions.
                             if (state.HasUsedToolsThisTurn)
                             {
-                                await Task.Delay(TurnEndIdleToolFallbackAdditionalMs, fallbackToken);
-                                if (fallbackToken.IsCancellationRequested) return;
-                                // Re-check: if a new tool started or TurnStart fired and cancelled
-                                // this token, we would have exited above. If still here, no new
-                                // activity arrived → SessionIdleEvent was lost → complete.
-                                if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
-                                {
-                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped after extended wait — tools still active");
-                                    return;
-                                }
-                                Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs + TurnEndIdleToolFallbackAdditionalMs}ms after TurnEnd (tools used) — firing CompleteResponse");
-                                CaptureZeroIdleDiagnostics(state, sessionName, toolsUsed: true);
-                                InvokeOnUI(() => CompleteResponse(state, turnEndGen));
+                                Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — tools were used this turn (watchdog will handle if stuck)");
                                 return;
                             }
                             Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs}ms after TurnEnd — firing CompleteResponse");
@@ -1878,6 +1865,44 @@ public partial class CopilotService
                             // For multi-agent no-tool sessions: LLM finished generating, SDK dropped
                             // both AssistantTurnEndEvent and SessionIdleEvent. Server liveness check
                             // confirms the session completed normally, not a server crash.
+                            //
+                            // BUT: ActiveToolCallCount can drop to 0 between tool rounds (the model
+                            // is deciding what to do next). If events.jsonl is still being written,
+                            // the session is alive — don't complete prematurely.
+                            if (!IsDemoMode && !IsRemoteMode && startedAt.HasValue)
+                            {
+                                // Compare events.jsonl modification time to when this turn started.
+                                // The CLI writes events.jsonl independently from our SDK handler —
+                                // during long tool execution, our handler sees zero events but the
+                                // CLI may still be writing. A fixed 60s window is too tight because
+                                // tools can run silently for minutes between event writes.
+                                var caseBEventsActive = false;
+                                try
+                                {
+                                    var sid = state.Info.SessionId;
+                                    if (!string.IsNullOrEmpty(sid))
+                                    {
+                                        var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                                        if (File.Exists(ep))
+                                        {
+                                            var lastWrite = File.GetLastWriteTimeUtc(ep);
+                                            // If the file was modified AFTER this turn started,
+                                            // the CLI is producing events — session is alive.
+                                            caseBEventsActive = lastWrite > startedAt.Value;
+                                        }
+                                    }
+                                }
+                                catch { /* filesystem errors → proceed with completion */ }
+
+                                if (caseBEventsActive)
+                                {
+                                    Debug($"[WATCHDOG] '{sessionName}' Case B deferred — events.jsonl modified since turn start, session still active " +
+                                          $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                    Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                    continue;
+                                }
+                            }
+
                             var watchdogGen = Interlocked.Read(ref state.ProcessingGeneration);
                             Debug($"[WATCHDOG] '{sessionName}' tool finished but SessionIdleEvent never arrived — completing cleanly " +
                                   $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");

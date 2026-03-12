@@ -274,3 +274,73 @@ scenarios:
       - "Agent explains that HandleComplete is dispatched via Invoke() (synchronous), so it is already on the UI thread and can call StateHasChanged or OnStateChanged directly"
       - "Agent proposes the correct synchronous approach that avoids the deferred render issue"
     timeout: 120
+
+  - name: "Bridge OnTurnEnd path must include full cleanup (Path 9)"
+    prompt: |
+      I'm updating the WsBridgeClient's OnTurnEnd handler in Bridge.cs. Currently it sets
+      IsProcessing = false and fires OnStateChanged. We're in remote mode so there's no
+      local CopilotSession. Here's the current code:
+
+      ```csharp
+      private void OnTurnEnd(TurnEndPayload payload)
+      {
+          var state = GetSessionState(payload.SessionId);
+          if (state == null) return;
+          state.Info.IsProcessing = false;
+          OnStateChanged?.Invoke();
+      }
+      ```
+
+      Is there anything missing here?
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(InvokeOnUI|UI thread|marshal|dispatch)"
+      - type: "output_matches"
+        pattern: "FlushCurrentResponse|flush"
+      - type: "output_matches"
+        pattern: "IsResumed|HasUsedToolsThisTurn|ActiveToolCallCount"
+      - type: "output_matches"
+        pattern: "ProcessingPhase|ProcessingStartedAt|ToolCallCount|SendingFlag"
+      - type: "output_matches"
+        pattern: "(?i)(OnSessionComplete|ClearPermissionDenials|orchestrator)"
+      - type: "output_matches"
+        pattern: "(?i)(\\[BRIDGE-COMPLETE\\]|diagnostic.*log|log.*entry)"
+    rubric:
+      - "Agent identifies that the Bridge OnTurnEnd path (Path #9) is a background-thread path and must marshal mutations to the UI thread via InvokeOnUI()"
+      - "Agent lists the missing companion fields that must also be cleared (IsResumed, HasUsedToolsThisTurn, ActiveToolCallCount, ProcessingPhase, ProcessingStartedAt, ToolCallCount, SendingFlag)"
+      - "Agent notes FlushCurrentResponse must be called before clearing IsProcessing to avoid losing accumulated content"
+      - "Agent mentions that OnSessionComplete must be fired to unblock any orchestrator loops, and a [BRIDGE-COMPLETE] diagnostic log entry should be added"
+    timeout: 120
+
+  - name: "FlushCurrentResponse must be called BEFORE clearing IsProcessing"
+    prompt: |
+      I'm writing a new error path in CopilotService that fires when the SDK returns
+      an authentication error. I want to clear the session and show an error message.
+      Here's my draft:
+
+      ```csharp
+      state.Info.IsProcessing = false;
+      state.Info.IsResumed = false;
+      state.Info.HasUsedToolsThisTurn = false;
+      state.Info.ActiveToolCallCount = 0;
+      FlushCurrentResponse(state);
+      AddSystemMessage(state, "Authentication failed. Please re-authenticate.");
+      ```
+
+      The flush is there — is the order correct?
+    assertions:
+      - type: "output_matches"
+        pattern: "(?i)(before|order|flush.*before|prior.*to|first)"
+      - type: "output_matches"
+        # Should call out that flush is AFTER IsProcessing clear — wrong order
+        pattern: "(?i)(wrong.*order|order.*wrong|should.*before|move.*flush|flush.*first|incorrect.*order)"
+      - type: "output_matches"
+        # Should also note missing fields
+        pattern: "ProcessingPhase|ProcessingStartedAt|ToolCallCount|SendingFlag"
+      - type: "output_matches"
+        pattern: "(?i)(content.*loss|lose.*content|lost.*response|accumulated.*text|CurrentResponse)"
+    rubric:
+      - "Agent identifies the ordering bug: FlushCurrentResponse must be called BEFORE IsProcessing is set to false, not after — content accumulated in CurrentResponse will be lost if IsProcessing is cleared first and a new turn races in"
+      - "Agent explains why the order matters: once IsProcessing is false, a concurrent SendPromptAsync could start a new turn and overwrite CurrentResponse before the flush runs"
+      - "Agent notes the additional missing cleanup fields (ProcessingPhase, ProcessingStartedAt, ToolCallCount, SendingFlag, ClearPermissionDenials, OnSessionComplete) and the diagnostic log requirement"
+    timeout: 120

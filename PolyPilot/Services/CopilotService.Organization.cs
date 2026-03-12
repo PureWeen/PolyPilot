@@ -1460,13 +1460,44 @@ public partial class CopilotService
                 // even though FlushedResponse/CurrentResponse were empty (e.g., watchdog completion).
                 if (string.IsNullOrWhiteSpace(response) && _sessions.TryGetValue(workerName, out var histState))
                 {
-                    var lastAssistant = histState.Info.History.ToArray()
+                    var historySnapshot = histState.Info.History.ToArray();
+
+                    // First try: last assistant text message after dispatch
+                    var lastAssistant = historySnapshot
                         .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
+                            && m.MessageType == ChatMessageType.Assistant
                             && m.Timestamp >= dispatchTime);
                     if (lastAssistant != null)
                     {
                         response = lastAssistant.Content;
-                        Debug($"[DISPATCH] Worker '{workerName}' recovered {response!.Length} chars from chat history");
+                        Debug($"[DISPATCH] Worker '{workerName}' recovered {response!.Length} chars from chat history (assistant message)");
+                    }
+                    else
+                    {
+                        // Second try: reconstruct from tool outputs. When the agent runs a long
+                        // tool (e.g., skill-validator) and the session completes before the agent
+                        // writes its verdict, the tool results are in ToolCall messages but no
+                        // assistant text message exists.
+                        var toolOutputs = historySnapshot
+                            .Where(m => m.MessageType == ChatMessageType.ToolCall
+                                && m.IsComplete && !string.IsNullOrWhiteSpace(m.Content)
+                                && m.Timestamp >= dispatchTime)
+                            .ToList();
+                        if (toolOutputs.Count > 0)
+                        {
+                            var sb = new System.Text.StringBuilder();
+                            sb.AppendLine("## Tool Execution Results (agent did not produce a final summary)");
+                            foreach (var tool in toolOutputs)
+                            {
+                                sb.AppendLine($"### {tool.ToolName ?? "tool"}");
+                                // Truncate very large tool outputs to keep synthesis manageable
+                                var content = tool.Content!.Length > 8000 ? tool.Content[..8000] + "\n... (truncated)" : tool.Content;
+                                sb.AppendLine(content);
+                                sb.AppendLine();
+                            }
+                            response = sb.ToString();
+                            Debug($"[DISPATCH] Worker '{workerName}' recovered {response.Length} chars from {toolOutputs.Count} tool output(s)");
+                        }
                     }
                 }
 
