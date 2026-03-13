@@ -211,6 +211,13 @@ public partial class CopilotService
 
     private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
+        // Skip ALL event processing for orphaned states. When a session reconnects,
+        // the old state is marked IsOrphaned=true. The old CopilotSession object may still
+        // fire events (replays, stale callbacks) — processing them on the orphaned state
+        // would race with the new state and corrupt IsProcessing on the shared Info object.
+        if (state.IsOrphaned)
+            return;
+        
         Volatile.Write(ref state.HasReceivedEventsSinceResume, true);
         // Don't reset the watchdog timer for pure metrics/info events (SessionUsageInfoEvent,
         // AssistantUsageEvent). These are informational only and don't indicate actual turn
@@ -896,6 +903,14 @@ public partial class CopilotService
     /// </summary>
     private void CompleteResponse(SessionState state, long? expectedGeneration = null)
     {
+        // Belt-and-suspenders: skip if this state was orphaned by a reconnect.
+        // Invoke callbacks may have been queued before IsOrphaned was set.
+        if (state.IsOrphaned)
+        {
+            Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse skipped — state is orphaned (reconnect replaced it)");
+            return;
+        }
+        
         if (!state.Info.IsProcessing)
         {
             // Still flush any accumulated content — delta events may have arrived
