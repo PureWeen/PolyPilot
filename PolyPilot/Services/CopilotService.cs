@@ -2518,6 +2518,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             if (await Task.WhenAny(sendTask, Task.Delay(SendAsyncTimeoutMs)) != sendTask)
             {
                 Debug($"[SEND-TIMEOUT] '{sessionName}' SendAsync did not complete within {SendAsyncTimeoutMs / 1000}s — treating as hung connection");
+                // Observe the abandoned sendTask's exception to prevent UnobservedTaskException on GC.
+                _ = sendTask.ContinueWith(static t => { _ = t.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
                 throw new TimeoutException($"Server did not accept the message within {SendAsyncTimeoutMs / 1000} seconds. The connection may be broken or the server may be overloaded.");
             }
             await sendTask; // propagate any exception from SendAsync
@@ -2748,6 +2750,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     if (await Task.WhenAny(retryTask, Task.Delay(SendAsyncTimeoutMs)) != retryTask)
                     {
                         Debug($"[RECONNECT-TIMEOUT] '{sessionName}' retry SendAsync did not complete within {SendAsyncTimeoutMs / 1000}s");
+                        // Observe the abandoned retryTask's exception to prevent UnobservedTaskException on GC.
+                        _ = retryTask.ContinueWith(static t => { _ = t.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
                         throw new TimeoutException($"Server did not accept the message within {SendAsyncTimeoutMs / 1000} seconds after reconnect.");
                     }
                     await retryTask;
