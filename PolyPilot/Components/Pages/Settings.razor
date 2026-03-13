@@ -266,9 +266,22 @@
                         @if (TailscaleService.IsRunning)
                         {
                             <div class="tunnel-url">
-                                <label>Tailscale:</label>
+                                <label>✅ Tailscale:</label>
                                 <code>http://@(TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp):@DevTunnelService.BridgePort</code>
                                 <button class="copy-btn" @onclick="CopyDirectUrl" title="Copy URL"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="onboarding-steps">
+                                <p class="onboarding-heading"><strong>🌐 Want to use Fiesta across different networks?</strong></p>
+                                <p>Install <a href="https://tailscale.com/download" target="_blank">Tailscale</a> (free) to connect machines that aren't on the same LAN.</p>
+                                <ol class="onboarding-list">
+                                    <li>Download from <a href="https://tailscale.com/download" target="_blank">tailscale.com/download</a></li>
+                                    <li>Install and sign in on both machines (same account)</li>
+                                    <li>Restart PolyPilot — it auto-detects Tailscale</li>
+                                </ol>
+                                <p class="hint">Tailscale creates a secure private network between your devices, so Fiesta pairing strings work across the internet.</p>
                             </div>
                         }
                         @foreach (var ip in localIps)
