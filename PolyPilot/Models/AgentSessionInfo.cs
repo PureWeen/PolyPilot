@@ -8,7 +8,13 @@ public class AgentSessionInfo
     public int MessageCount { get; set; }
     public bool IsProcessing { get; set; }
     public List<ChatMessage> History { get; } = new();
-    // Guards snapshot reads of History from concurrent SDK event mutations
+    /// <summary>
+    /// Guards snapshot reads of History from background threads.
+    /// Note: All History.Add() calls must go through InvokeOnUI (UI thread).
+    /// Both reads and writes from the UI thread are safe without the lock.
+    /// The lock protects only against the rare case where a background thread
+    /// needs to read History (e.g., ExternalSessionScanner, notification services).
+    /// </summary>
     public readonly object HistoryLock = new();
     public SynchronizedMessageQueue MessageQueue { get; } = new();
     
