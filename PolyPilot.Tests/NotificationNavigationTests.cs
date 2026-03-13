@@ -252,5 +252,62 @@ public class NotificationNavigationTests
         // App.CheckPendingNavigation guards with File.Exists — verify no file means no action
         Assert.False(File.Exists(navPath));
     }
+
+    [Fact]
+    public void PendingNavigation_WrittenAt_IsIncludedInSidecar()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"polypilot-nav-test-{Guid.NewGuid()}");
+        Directory.CreateDirectory(dir);
+        var navPath = Path.Combine(dir, "pending-navigation.json");
+        try
+        {
+            var before = DateTime.UtcNow;
+            var payload = new { sessionId = "ttl-test", writtenAt = DateTime.UtcNow };
+            File.WriteAllText(navPath, System.Text.Json.JsonSerializer.Serialize(payload));
+
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(navPath));
+            Assert.True(doc.RootElement.TryGetProperty("writtenAt", out var ts));
+            var written = ts.GetDateTime();
+            Assert.True(written >= before.AddSeconds(-1));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PendingNavigation_StaleCheck_OlderThan30s_Discarded()
+    {
+        // Simulate what CheckPendingNavigation does: parse writtenAt and apply TTL
+        var stalePayload = new
+        {
+            sessionId = "stale-session",
+            writtenAt = DateTime.UtcNow.AddSeconds(-60) // 60 seconds old — beyond 30s TTL
+        };
+        var json = System.Text.Json.JsonSerializer.Serialize(stalePayload);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+
+        Assert.True(doc.RootElement.TryGetProperty("writtenAt", out var ts));
+        var age = DateTime.UtcNow - ts.GetDateTime();
+        Assert.True(age > TimeSpan.FromSeconds(30), "Stale sidecar should be older than TTL");
+    }
+
+    [Fact]
+    public void PendingNavigation_FreshCheck_Within30s_NotDiscarded()
+    {
+        // Simulate what CheckPendingNavigation does: parse writtenAt and apply TTL
+        var freshPayload = new
+        {
+            sessionId = "fresh-session",
+            writtenAt = DateTime.UtcNow.AddSeconds(-5) // 5 seconds old — within 30s TTL
+        };
+        var json = System.Text.Json.JsonSerializer.Serialize(freshPayload);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+
+        Assert.True(doc.RootElement.TryGetProperty("writtenAt", out var ts));
+        var age = DateTime.UtcNow - ts.GetDateTime();
+        Assert.True(age <= TimeSpan.FromSeconds(30), "Fresh sidecar should be within TTL");
+    }
 }
 

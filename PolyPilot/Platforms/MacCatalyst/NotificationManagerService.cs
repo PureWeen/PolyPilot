@@ -87,8 +87,10 @@ public class NotificationManagerService : INotificationManagerService
         {
             var dir = Path.GetDirectoryName(PendingNavigationPath)!;
             Directory.CreateDirectory(dir);
+            // writtenAt enables the consumer to discard stale sidecars (e.g. user ignored
+            // the notification and later brings the app to the foreground by other means).
             File.WriteAllText(PendingNavigationPath,
-                System.Text.Json.JsonSerializer.Serialize(new { sessionId }));
+                System.Text.Json.JsonSerializer.Serialize(new { sessionId, writtenAt = DateTime.UtcNow }));
         }
         catch { /* Best effort */ }
     }

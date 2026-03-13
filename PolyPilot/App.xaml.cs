@@ -64,6 +64,16 @@ public partial class App : Application
 			File.Delete(navPath);
 
 			using var doc = System.Text.Json.JsonDocument.Parse(json);
+
+			// Discard sidecars older than 30 seconds: the notification was sent long enough ago
+			// that any second-instance race would have resolved. Consuming a stale sidecar would
+			// navigate the user to an unintended session just because they Cmd+Tabbed back.
+			if (doc.RootElement.TryGetProperty("writtenAt", out var ts))
+			{
+				if (DateTime.UtcNow - ts.GetDateTime() > TimeSpan.FromSeconds(30))
+					return;
+			}
+
 			if (doc.RootElement.TryGetProperty("sessionId", out var prop))
 			{
 				var sessionId = prop.GetString();
