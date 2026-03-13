@@ -392,6 +392,8 @@ public partial class CopilotService
                 // (e.g., reading our own permission detection code) — false positive.
                 var isPermissionDenial = IsPermissionDenialText(errorStr)
                     || (hasError && IsPermissionDenialText(resultStr));
+                var isShellFailure = IsShellEnvironmentFailure(errorStr)
+                    || (hasError && IsShellEnvironmentFailure(resultStr));
 
                 // Black-box log every permission denial for post-mortem analysis
                 if (isPermissionDenial)
@@ -404,24 +406,35 @@ public partial class CopilotService
                           $"(denials={state.Info.PermissionDenialCount + 1}, isMultiAgent={state.IsMultiAgentSession})");
                 }
 
-                // Track permission denials via sliding window (3 of last 5 tool results)
-                // This handles cases where an occasional OK tool resets a strict consecutive counter
-                if (isPermissionDenial || !hasError)
+                if (isShellFailure)
                 {
-                    var denialCount = state.Info.RecordToolResult(isPermissionDenial);
-                    if (!isPermissionDenial && !hasError)
+                    Debug($"[SHELL-FAILURE] '{sessionName}' tool='{completeToolName}' " +
+                          $"error='{errorStr}' (shell errors so far: posix_spawn/environment failure)");
+                }
+
+                // Track permission denials AND shell failures via sliding window (3 of last 5 tool results)
+                // Shell environment failures (posix_spawn) are treated like permission denials — they
+                // indicate the session's process context is broken and needs recovery.
+                var isRecoverableError = isPermissionDenial || isShellFailure;
+                if (isRecoverableError || !hasError)
+                {
+                    var denialCount = state.Info.RecordToolResult(isRecoverableError);
+                    if (!isRecoverableError && !hasError)
                         Interlocked.Increment(ref state.SuccessfulToolCountThisTurn);
-                    if (isPermissionDenial && denialCount >= 3)
+                    if (isRecoverableError && denialCount >= 3)
                     {
                         // Trigger recovery on first threshold crossing (denialCount == 3),
                         // not on subsequent denials that stay at 3+ in the window
                         if (denialCount == 3)
                         {
-                            Debug($"[PERMISSION-RECOVER-TRIGGER] '{sessionName}' threshold reached ({denialCount}/5 denials)");
+                            var reason = isShellFailure ? "Shell environment broken" : "Permission errors";
+                            Debug($"[PERMISSION-RECOVER-TRIGGER] '{sessionName}' threshold reached ({denialCount}/5 errors, reason={reason})");
                             Invoke(() =>
                             {
-                                state.Info.History.Add(ChatMessage.SystemMessage(
-                                    "⚠️ Permission errors detected. Attempting to reconnect session..."));
+                                var msg = isShellFailure
+                                    ? "⚠️ Shell environment broken (posix_spawn failed). Attempting to reconnect session..."
+                                    : "⚠️ Permission errors detected. Attempting to reconnect session...";
+                                state.Info.History.Add(ChatMessage.SystemMessage(msg));
                                 OnStateChanged?.Invoke();
                                 _ = TryRecoverPermissionAsync(state, sessionName);
                             });
@@ -1706,6 +1719,17 @@ public partial class CopilotService
         return text.Contains("Permission denied", StringComparison.OrdinalIgnoreCase)
             || text.Contains("denied-no-approval-rule", StringComparison.OrdinalIgnoreCase)
             || text.Contains("could not request permission", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Detects shell environment failures where the CLI can no longer spawn processes.
+    /// This happens when posix_spawn fails (e.g., broken session process context after
+    /// prolonged use or server restart). The session needs to be disposed and recreated.
+    /// </summary>
+    internal static bool IsShellEnvironmentFailure(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        return text.Contains("posix_spawn failed", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
