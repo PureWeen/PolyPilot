@@ -364,6 +364,8 @@ public class FiestaService : IDisposable
     {
         if (string.IsNullOrWhiteSpace(pairingString) || !pairingString.StartsWith("pp+", StringComparison.Ordinal))
             throw new FormatException("Not a valid PolyPilot pairing string (must start with 'pp+').");
+        if (pairingString.Length > 4096)
+            throw new FormatException("Pairing string is too large.");
 
         var b64 = pairingString[3..].Replace('-', '+').Replace('_', '/');
         // Restore standard base64 padding
@@ -459,7 +461,7 @@ public class FiestaService : IDisposable
             await tcs.Task.WaitAsync(expiryCts.Token);
             // Winner's send is in-flight — wait for it to complete before returning so the
             // caller's finally (socket close) doesn't race the outgoing message.
-            await pending.SendComplete.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try { await pending.SendComplete.Task.WaitAsync(TimeSpan.FromSeconds(5)); } catch { }
         }
         catch (OperationCanceledException)
         {
@@ -823,6 +825,7 @@ public class FiestaService : IDisposable
                 break;
 
             messageBuffer.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+            if (messageBuffer.Length > 256 * 1024) break; // guard against unbounded frames
             if (!result.EndOfMessage)
                 continue;
 
@@ -941,7 +944,11 @@ public class FiestaService : IDisposable
     public static string GetFiestaWorkspaceDirectory(string fiestaName)
     {
         var safeName = SanitizeFiestaName(fiestaName);
-        return Path.Combine(GetPolyPilotBaseDir(), "workspace", safeName);
+        var baseDir = Path.GetFullPath(Path.Combine(GetPolyPilotBaseDir(), "workspace"));
+        var fullPath = Path.GetFullPath(Path.Combine(baseDir, safeName));
+        if (!fullPath.StartsWith(baseDir, StringComparison.Ordinal))
+            throw new InvalidOperationException("Workspace path escapes the base directory.");
+        return fullPath;
     }
 
     private static string SanitizeFiestaName(string fiestaName)
@@ -1069,6 +1076,7 @@ public class FiestaService : IDisposable
             try
             {
                 var result = await listener.ReceiveAsync(ct);
+                if (result.Buffer.Length > 4096) continue; // reject oversized discovery packets
                 var json = Encoding.UTF8.GetString(result.Buffer);
                 var announcement = JsonSerializer.Deserialize<FiestaDiscoveryAnnouncement>(json, _jsonOptions);
                 if (announcement == null || string.IsNullOrWhiteSpace(announcement.InstanceId))
