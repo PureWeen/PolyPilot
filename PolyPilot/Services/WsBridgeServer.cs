@@ -21,6 +21,7 @@ public class WsBridgeServer : IDisposable
     private RepoManager? _repoManager;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
+    private long _lastPairRequestAcceptedAtTicks = DateTime.MinValue.Ticks;
 
     public int BridgePort => _bridgePort;
     public bool IsRunning => _listener?.IsListening == true;
@@ -187,7 +188,25 @@ public class WsBridgeServer : IDisposable
             {
                 var context = await _listener.GetContextAsync();
 
-                if (context.Request.IsWebSocketRequest)
+                if (context.Request.IsWebSocketRequest &&
+                    context.Request.Url?.AbsolutePath == "/pair")
+                {
+                    // Unauthenticated pairing handshake path — rate-limited at HTTP level
+                    // Use Interlocked.CompareExchange to atomically claim the slot, preventing TOCTOU races.
+                    var nowTicks = DateTime.UtcNow.Ticks;
+                    var lastTicks = Interlocked.Read(ref _lastPairRequestAcceptedAtTicks);
+                    var elapsed = TimeSpan.FromTicks(nowTicks - lastTicks);
+                    if (elapsed.TotalSeconds < 5 ||
+                        Interlocked.CompareExchange(ref _lastPairRequestAcceptedAtTicks, nowTicks, lastTicks) != lastTicks)
+                    {
+                        context.Response.StatusCode = 429;
+                        context.Response.Close();
+                        Console.WriteLine("[WsBridge] Pair request rate-limited");
+                        continue;
+                    }
+                    _ = Task.Run(() => HandlePairHandshakeAsync(context, ct), ct);
+                }
+                else if (context.Request.IsWebSocketRequest)
                 {
                     if (!ValidateClientToken(context.Request))
                     {
@@ -345,6 +364,12 @@ public class WsBridgeServer : IDisposable
                 if (result.MessageType == WebSocketMessageType.Close) break;
 
                 messageBuffer.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+
+                if (messageBuffer.Length > 256 * 1024)
+                {
+                    try { await ws.CloseAsync(WebSocketCloseStatus.MessageTooBig, "Message exceeds 256KB limit", CancellationToken.None); } catch { }
+                    break; // guard against unbounded frames
+                }
 
                 if (result.EndOfMessage)
                 {
@@ -1230,4 +1255,31 @@ public class WsBridgeServer : IDisposable
         ".tiff" => "image/tiff",
         _ => "image/png"
     };
+
+    private async Task HandlePairHandshakeAsync(HttpListenerContext ctx, CancellationToken ct)
+    {
+        WebSocket? ws = null;
+        try
+        {
+            var wsCtx = await ctx.AcceptWebSocketAsync(null);
+            ws = wsCtx.WebSocket;
+            var remoteIp = ctx.Request.RemoteEndPoint?.Address.ToString() ?? "unknown";
+            Console.WriteLine($"[WsBridge] Pair handshake from {remoteIp}");
+
+            if (_fiestaService != null)
+                await _fiestaService.HandleIncomingPairHandshakeAsync(ws, remoteIp, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WsBridge] Pair handshake error: {ex.Message}");
+        }
+        finally
+        {
+            if (ws?.State == WebSocketState.Open)
+            {
+                try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None); }
+                catch { }
+            }
+        }
+    }
 }

@@ -120,4 +120,45 @@ public class PermissionDenialDetectionTests
         Assert.False(CopilotService.IsPermissionDenialText(fakeTypeName),
             "SDK type name should NOT match permission denial patterns");
     }
+
+    // ===== Shell environment failure detection =====
+
+    [Theory]
+    [InlineData("posix_spawn failed: No such file or directory")]
+    [InlineData("Error: posix_spawn failed")]
+    [InlineData("POSIX_SPAWN FAILED: some reason")]
+    public void IsShellEnvironmentFailure_PosixSpawnErrors_ReturnsTrue(string text)
+    {
+        Assert.True(CopilotService.IsShellEnvironmentFailure(text));
+    }
+
+    [Fact]
+    public void IsShellEnvironmentFailure_Null_ReturnsFalse()
+    {
+        Assert.False(CopilotService.IsShellEnvironmentFailure(null));
+    }
+
+    [Fact]
+    public void IsShellEnvironmentFailure_Empty_ReturnsFalse()
+    {
+        Assert.False(CopilotService.IsShellEnvironmentFailure(""));
+    }
+
+    [Theory]
+    [InlineData("Connection refused")]
+    [InlineData("Permission denied")]
+    [InlineData("File not found")]
+    public void IsShellEnvironmentFailure_UnrelatedErrors_ReturnsFalse(string text)
+    {
+        Assert.False(CopilotService.IsShellEnvironmentFailure(text));
+    }
+
+    [Fact]
+    public void IsShellEnvironmentFailure_NotConfusedWithPermissionDenial()
+    {
+        // posix_spawn errors should be detected by shell failure, not permission denial
+        var text = "posix_spawn failed: No such file or directory";
+        Assert.True(CopilotService.IsShellEnvironmentFailure(text));
+        Assert.False(CopilotService.IsPermissionDenialText(text));
+    }
 }

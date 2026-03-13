@@ -231,6 +231,15 @@
             <h3>Direct Connection</h3>
             <div class="tunnel-controls">
                 <p class="mode-hint">Share your server directly over LAN, Tailscale, or VPN — no DevTunnel needed.</p>
+                <div class="onboarding-steps">
+                    <p class="onboarding-heading"><strong>🖥️ Setting up this machine as a Fiesta worker?</strong></p>
+                    <ol class="onboarding-list">
+                        <li>Set a password below and click <strong>Enable Direct Sharing</strong>.</li>
+                        <li>Copy the <strong>pairing string</strong> (<code>pp+…</code>) that appears.</li>
+                        <li>On the <strong>host machine</strong>, go to Settings → Fiesta Workers → paste the string → click <strong>Link</strong>.</li>
+                        <li>The host can then dispatch tasks to this machine using <code>@@worker-name</code> mentions in chat.</li>
+                    </ol>
+                </div>
 
                 <div class="url-input">
                     <label>Password:</label>
@@ -258,9 +267,22 @@
                         @if (TailscaleService.IsRunning)
                         {
                             <div class="tunnel-url">
-                                <label>Tailscale:</label>
+                                <label>✅ Tailscale:</label>
                                 <code>http://@(TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp):@DevTunnelService.BridgePort</code>
                                 <button class="copy-btn" @onclick="CopyDirectUrl" title="Copy URL"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="onboarding-steps">
+                                <p class="onboarding-heading"><strong>🌐 Want to use Fiesta across different networks?</strong></p>
+                                <p>Install <a href="https://tailscale.com/download" target="_blank">Tailscale</a> (free) to connect machines that aren't on the same LAN.</p>
+                                <ol class="onboarding-list">
+                                    <li>Download from <a href="https://tailscale.com/download" target="_blank">tailscale.com/download</a></li>
+                                    <li>Install and sign in on both machines (same account)</li>
+                                    <li>Restart PolyPilot — it auto-detects Tailscale</li>
+                                </ol>
+                                <p class="hint">Tailscale creates a secure private network between your devices, so Fiesta pairing strings work across the internet.</p>
                             </div>
                         }
                         @foreach (var ip in localIps)
@@ -269,6 +291,29 @@
                                 <label>LAN:</label>
                                 <code>http://@ip:@DevTunnelService.BridgePort</code>
                             </div>
+                        }
+
+                        @if (fiestaPairingString != null)
+                        {
+                            <div class="tunnel-url">
+                                <label>Pairing string:</label>
+                                <code class="token-value @(showFiestaPairingString ? "" : "blurred")">@fiestaPairingString</code>
+                                <button class="copy-btn" @onclick="() => showFiestaPairingString = !showFiestaPairingString"
+                                        title="@(showFiestaPairingString ? "Hide" : "Reveal")">
+                                    @if (showFiestaPairingString)
+                                    {
+                                        <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                    }
+                                    else
+                                    {
+                                        <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    }
+                                </button>
+                                <button class="copy-btn" @onclick="CopyFiestaPairingString" title="Copy to clipboard">
+                                    <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                </button>
+                            </div>
+                            <p class="hint">Paste this string into the hub machine's Settings → Fiesta Workers → "Paste pairing string" field.</p>
                         }
 
                         @if (!string.IsNullOrEmpty(directQrCodeDataUri))
@@ -289,11 +334,59 @@
 
     @if (PlatformHelper.IsDesktop && (settings.Mode == ConnectionMode.Embedded || settings.Mode == ConnectionMode.Persistent))
     {
-        <div class="mode-linked-panel @(SectionVisible("fiesta workers discovery link remove hostname") ? "" : "search-hidden")">
+        <div class="mode-linked-panel @(SectionVisible("fiesta workers discovery link remove hostname pair pairing") ? "" : "search-hidden")">
             <h3>Fiesta Workers</h3>
             <div class="tunnel-controls">
+                <div class="onboarding-steps">
+                    <p class="onboarding-heading"><strong>🎉 How Fiesta works</strong></p>
+                    <p class="mode-hint">Fiesta lets this machine act as a <strong>hub</strong> that dispatches work to linked worker machines on your LAN.</p>
+                    <ol class="onboarding-list">
+                        <li><strong>On each worker machine:</strong> open Settings → Direct Connection → set a password → click <strong>Enable Direct Sharing</strong> → copy the <code>pp+…</code> pairing string.</li>
+                        <li><strong>Here (hub):</strong> paste that string into the field below and click <strong>Link</strong>. The worker appears in "Linked workers".</li>
+                        <li><strong>In any chat:</strong> use <code>@@worker-name</code> to send a task to that machine. It runs autonomously and returns results.</li>
+                    </ol>
+                </div>
                 <p class="mode-hint">Discovered workers require manual linking before they can be used in Fiesta mode.</p>
 
+                @* Incoming pair requests (worker side) *@
+                @foreach (var req in FiestaService.PendingPairRequests)
+                {
+                    <div class="pair-request-banner">
+                        <p><strong>@req.HostName</strong> (<code>@req.RemoteIp</code>) wants to pair with this machine.</p>
+                        <div class="pair-request-actions">
+                            <button class="start-btn" @onclick="() => ApproveFiestaPairRequest(req.RequestId)">Allow</button>
+                            <button class="stop-btn" @onclick="() => DenyFiestaPairRequest(req.RequestId)">Deny</button>
+                        </div>
+                    </div>
+                }
+
+                @* Worker side — show pairing string when bridge is running *@
+                @if (WsBridgeServer.IsRunning && fiestaPairingString != null)
+                {
+                    <div class="tunnel-url-section">
+                        <label>Your pairing string:</label>
+                        <p class="mode-hint">Copy this on the worker machine and paste it on the hub to link instantly. Works via RDP clipboard, SSH, or any text channel.</p>
+                        <div class="tunnel-url">
+                            <code class="token-value @(showFiestaPairingString ? "" : "blurred")">@fiestaPairingString</code>
+                            <button class="copy-btn" @onclick="() => showFiestaPairingString = !showFiestaPairingString"
+                                    title="@(showFiestaPairingString ? "Hide" : "Reveal")">
+                                @if (showFiestaPairingString)
+                                {
+                                    <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                }
+                                else
+                                {
+                                    <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                }
+                            </button>
+                            <button class="copy-btn" @onclick="CopyFiestaPairingString" title="Copy to clipboard">
+                                <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                }
+
+                @* Discovered LAN workers with Request Pair button *@
                 @if (FiestaService.DiscoveredWorkers.Any())
                 {
                     <div class="tunnel-url-section">
@@ -302,7 +395,15 @@
                         {
                             <div class="tunnel-url">
                                 <code>@worker.Hostname — @worker.BridgeUrl</code>
-                                <button class="copy-btn" @onclick="() => UseDiscoveredWorker(worker)" title="Use for linking">Use</button>
+                                @if (pendingOutgoingPairs.ContainsKey(worker.InstanceId))
+                                {
+                                    <span class="hint">Waiting for approval…</span>
+                                }
+                                else
+                                {
+                                    <button class="start-btn" @onclick="() => RequestPairFromWorker(worker)" title="Send pairing request — worker must approve">Request Pair</button>
+                                    <button class="copy-btn" @onclick="() => UseDiscoveredWorker(worker)" title="Fill form manually">Use</button>
+                                }
                             </div>
                         }
                     </div>
@@ -312,6 +413,21 @@
                     <p class="hint">No workers discovered yet. Enable Direct Sharing on worker machines first.</p>
                 }
 
+                @* Paste pairing string (hub side) *@
+                <div class="url-input">
+                    <label>Paste pairing string:</label>
+                    <div class="tunnel-url">
+                        <input type="text" @bind="fiestaPasteString" placeholder="pp+..." class="form-input wide" />
+                        <button class="start-btn" @onclick="ImportFiestaPairingString"
+                                disabled="@(!fiestaPasteString.StartsWith("pp+", StringComparison.Ordinal))">Link</button>
+                    </div>
+                </div>
+                @if (!string.IsNullOrEmpty(fiestaPasteError))
+                {
+                    <p class="tunnel-error">@fiestaPasteError</p>
+                }
+
+                @* Manual form *@
                 <div class="url-input">
                     <label>Worker Name:</label>
                     <input type="text" @bind="fiestaLinkName" placeholder="e.g. mac-mini" class="form-input wide" />
@@ -629,6 +745,12 @@
     private string fiestaLinkUrl = "";
     private string fiestaLinkToken = "";
     private string? fiestaLinkError;
+    private string fiestaPasteString = "";
+    private string? fiestaPasteError;
+    private string? fiestaPairingString;
+    private bool showFiestaPairingString;
+    private Dictionary<string, PairRequestResult?> pendingOutgoingPairs = new();
+    private string? pairStatusMessage;
     private SettingsContext settingsCtx = null!;
     private List<DiscoveredPlugin> discoveredPlugins = new();
 
@@ -777,6 +899,7 @@
         DevTunnelService.OnStateChanged += OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
         FiestaService.OnStateChanged += OnFiestaStateChanged;
+        FiestaService.OnPairRequested += OnFiestaPairRequested;
 
         var uiState = CopilotService.LoadUiState();
         if (uiState?.FontSize > 0) fontSize = uiState.FontSize;
@@ -788,7 +911,10 @@
             GenerateQrCode(DevTunnelService.TunnelUrl, DevTunnelService.AccessToken);
 
         if (WsBridgeServer.IsRunning)
+        {
             GenerateDirectQrCode();
+            TryGenerateFiestaPairingString();
+        }
     }
 
     protected override void OnAfterRender(bool firstRender)
@@ -873,6 +999,7 @@
         DevTunnelService.OnStateChanged -= OnTunnelStateChanged;
         GitAutoUpdate.OnStateChanged -= OnAutoUpdateStateChanged;
         FiestaService.OnStateChanged -= OnFiestaStateChanged;
+        FiestaService.OnPairRequested -= OnFiestaPairRequested;
         _ = JS.InvokeVoidAsync("eval", "document.querySelector('article.content')?.classList.remove('settings-content-active');");
         _ = JS.InvokeVoidAsync("eval", "window.__settingsRef = null;");
         _selfRef?.Dispose();
@@ -1053,7 +1180,7 @@
         string? url = null;
         try
         {
-            var doc = System.Text.Json.JsonDocument.Parse(result);
+            using var doc = System.Text.Json.JsonDocument.Parse(result);
             if (doc.RootElement.TryGetProperty("url", out var urlProp))
                 url = urlProp.GetString();
             if (doc.RootElement.TryGetProperty("token", out var tokenProp))
@@ -1082,6 +1209,7 @@
             settings.RemoteUrl = url;
 
         ShowStatus("QR code scanned!", "success");
+        StateHasChanged();
     }
 
     private async Task TunnelLogin()
@@ -1276,6 +1404,96 @@
         ShowStatus("Fiesta worker removed", "success", 2000);
     }
 
+    private void TryGenerateFiestaPairingString()
+    {
+        try
+        {
+            var preferredHost = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp;
+            fiestaPairingString = FiestaService.GeneratePairingString(preferredHost);
+        }
+        catch (Exception ex)
+        {
+            fiestaPairingString = null;
+            Console.WriteLine($"[Settings] Failed to generate pairing string: {ex.Message}");
+            ShowStatus($"Could not generate pairing string: {ex.Message}", "error", 8000);
+        }
+    }
+
+    private async Task CopyFiestaPairingString()
+    {
+        if (fiestaPairingString != null)
+        {
+            await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(fiestaPairingString);
+            ShowStatus("Pairing string copied!", "success", 2000);
+        }
+    }
+
+    private void ImportFiestaPairingString()
+    {
+        fiestaPasteError = null;
+        try
+        {
+            FiestaService.ParseAndLinkPairingString(fiestaPasteString.Trim());
+            fiestaPasteString = "";
+            ShowStatus("Worker linked via pairing string!", "success", 2500);
+        }
+        catch (Exception ex)
+        {
+            fiestaPasteError = ex.Message;
+        }
+    }
+
+    private async Task RequestPairFromWorker(FiestaDiscoveredWorker worker)
+    {
+        pendingOutgoingPairs[worker.InstanceId] = null;
+        pairStatusMessage = null;
+        StateHasChanged();
+        try
+        {
+            var result = await FiestaService.RequestPairAsync(worker);
+            pendingOutgoingPairs[worker.InstanceId] = result;
+            pairStatusMessage = result switch
+            {
+                PairRequestResult.Approved => $"{worker.Hostname} approved the pairing request!",
+                PairRequestResult.Denied => $"{worker.Hostname} denied the pairing request.",
+                PairRequestResult.Timeout => $"No response from {worker.Hostname} (timed out).",
+                _ => $"Could not reach {worker.Hostname}."
+            };
+            var kind = result == PairRequestResult.Approved ? "success" : "error";
+            ShowStatus(pairStatusMessage, kind, 4000);
+        }
+        catch (Exception ex)
+        {
+            pendingOutgoingPairs[worker.InstanceId] = PairRequestResult.Unreachable;
+            ShowStatus($"Pair request failed: {ex.Message}", "error", 4000);
+        }
+        finally
+        {
+            pendingOutgoingPairs.Remove(worker.InstanceId);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ApproveFiestaPairRequest(string requestId)
+    {
+        var success = await FiestaService.ApprovePairRequestAsync(requestId);
+        if (success)
+            ShowStatus("Pair request approved — worker linked!", "success", 2500);
+        else
+            ShowStatus("Failed to send approval — worker may not have received credentials.", "error", 3000);
+    }
+
+    private async Task DenyFiestaPairRequest(string requestId)
+    {
+        await FiestaService.DenyPairRequestAsync(requestId);
+        ShowStatus("Pair request denied.", "error", 2000);
+    }
+
+    private void OnFiestaPairRequested(string requestId, string hostName, string remoteIp)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
     private static string? TryExtractHost(string url)
     {
         try
@@ -1410,9 +1628,15 @@
         WsBridgeServer.ServerPassword = settings.ServerPassword;
         WsBridgeServer.SetCopilotService(CopilotService);
         WsBridgeServer.Start(DevTunnelService.BridgePort, settings.Port);
+        if (!WsBridgeServer.IsRunning)
+        {
+            ShowStatus($"Failed to start bridge server on port {DevTunnelService.BridgePort} — the port may already be in use.", "error", 10000);
+            return;
+        }
         settings.DirectSharingEnabled = true;
         settings.Save();
         GenerateDirectQrCode();
+        TryGenerateFiestaPairingString();
         StateHasChanged();
     }
 
@@ -1422,6 +1646,7 @@
         settings.DirectSharingEnabled = false;
         settings.Save();
         directQrCodeDataUri = null;
+        fiestaPairingString = null;
         StateHasChanged();
     }
 
