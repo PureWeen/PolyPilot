@@ -71,7 +71,9 @@ public class Program
 						".polypilot");
 					Directory.CreateDirectory(navDir);
 					var navPath = Path.Combine(navDir, "pending-navigation.json");
-					File.WriteAllText(navPath, System.Text.Json.JsonSerializer.Serialize(new { sessionId }));
+					// Include writtenAt so the 30s TTL in CheckPendingNavigation applies if the
+					// AppleScript activation fails and the sidecar is left on disk.
+					File.WriteAllText(navPath, System.Text.Json.JsonSerializer.Serialize(new { sessionId, writtenAt = DateTime.UtcNow }));
 				}
 				catch
 				{
