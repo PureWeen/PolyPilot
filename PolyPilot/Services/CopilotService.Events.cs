@@ -550,6 +550,7 @@ public partial class CopilotService
                         {
                             await Task.Delay(TurnEndIdleFallbackMs, fallbackToken);
                             if (fallbackToken.IsCancellationRequested) return;
+                            if (state.IsOrphaned) return;
                             // Guard: if tools are still active, a TurnStart is coming — skip.
                             if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
                             {
@@ -908,6 +909,8 @@ public partial class CopilotService
         if (state.IsOrphaned)
         {
             Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse skipped — state is orphaned (reconnect replaced it)");
+            // Complete the TCS so callers (e.g., orchestrator workers) don't hang forever.
+            state.ResponseCompletion?.TrySetCanceled();
             return;
         }
         
@@ -1600,6 +1603,7 @@ public partial class CopilotService
                 // Verify we're still on the same turn
                 if (Interlocked.Read(ref state.ProcessingGeneration) != checkGeneration) return;
                 if (!state.Info.IsProcessing) return;
+                if (state.IsOrphaned) return;
 
                 var activeTools = Volatile.Read(ref state.ActiveToolCallCount);
                 if (activeTools <= 0) return; // Tool completed normally
@@ -1659,6 +1663,7 @@ public partial class CopilotService
     /// </summary>
     private void TriggerToolHealthRecovery(SessionState state, string sessionName, string reason)
     {
+        if (state.IsOrphaned) return;
         CancelToolHealthCheck(state);
         CancelProcessingWatchdog(state);
         CancelTurnEndFallback(state);
@@ -1666,8 +1671,9 @@ public partial class CopilotService
         var activeTools = Volatile.Read(ref state.ActiveToolCallCount);
         Debug($"[TOOL-HEALTH] '{sessionName}' triggering recovery: {reason} (activeTools={activeTools})");
 
-        InvokeOnUI(() =>
+                        InvokeOnUI(() =>
         {
+            if (state.IsOrphaned) return;
             if (!state.Info.IsProcessing) return;
 
             OnError?.Invoke(sessionName, $"Tool execution stuck ({reason}). Session recovered automatically.");
@@ -1679,6 +1685,8 @@ public partial class CopilotService
             Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
             Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+            Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+            Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
 
             // Build full response: flushed mid-turn text + remaining current text
             var response = state.CurrentResponse.ToString();
@@ -1802,6 +1810,7 @@ public partial class CopilotService
                 await Task.Delay(TimeSpan.FromSeconds(WatchdogCheckIntervalSeconds), ct);
 
                 if (!state.Info.IsProcessing) break;
+                if (state.IsOrphaned) { Debug($"[WATCHDOG] '{sessionName}' exiting — state is orphaned"); return; }
 
                 var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
                 var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
@@ -2076,6 +2085,7 @@ public partial class CopilotService
                     // racing with CompleteResponse / HandleSessionEvent.
                     InvokeOnUI(() =>
                     {
+                        if (state.IsOrphaned) return; // Reconnect already replaced this state
                         if (!state.Info.IsProcessing) return; // Already completed
                         var currentGen = Interlocked.Read(ref state.ProcessingGeneration);
                         if (watchdogGeneration != currentGen)
@@ -2089,6 +2099,9 @@ public partial class CopilotService
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                        Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+                        Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+                        Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
                         // Cancel any pending TurnEnd→Idle fallback
                         CancelTurnEndFallback(state);
                         state.Info.IsResumed = false;
@@ -2150,6 +2163,7 @@ public partial class CopilotService
             {
                 InvokeOnUI(() =>
                 {
+                    if (state.IsOrphaned) return;
                     if (!state.Info.IsProcessing) return;
                     Debug($"[WATCHDOG-CRASH] '{sessionName}' clearing IsProcessing after watchdog crash");
                     // Best-effort flush before clearing processing state
@@ -2162,6 +2176,9 @@ public partial class CopilotService
                     Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                     state.HasUsedToolsThisTurn = false;
                     Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                    Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+                    Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+                    Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
                     state.Info.ProcessingStartedAt = null;
                     state.Info.ToolCallCount = 0;
                     state.Info.ProcessingPhase = 0;

@@ -2652,8 +2652,22 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     cfg.WorkingDirectory = otherState.Info.WorkingDirectory;
                                                 var resumed = await newClient.ResumeSessionAsync(
                                                     otherState.Info.SessionId, cfg, CancellationToken.None);
-                                                otherState.Session = resumed;
-                                                resumed.On(evt => HandleSessionEvent(otherState, evt));
+                                                // Mark old state orphaned so stale handlers from the
+                                                // previous CopilotSession stop processing events.
+                                                // Create a new state (like the primary reconnect path)
+                                                // instead of mutating otherState in place.
+                                                otherState.IsOrphaned = true;
+                                                Interlocked.Exchange(ref otherState.ProcessingGeneration, long.MaxValue);
+                                                var siblingState = new SessionState
+                                                {
+                                                    Session = resumed,
+                                                    Info = otherState.Info,
+                                                    IsMultiAgentSession = otherState.IsMultiAgentSession,
+                                                };
+                                                // Register handler BEFORE publishing to dictionary —
+                                                // no window where events arrive with no handler.
+                                                resumed.On(evt => HandleSessionEvent(siblingState, evt));
+                                                _sessions[kvp.Key] = siblingState;
                                                 Debug($"[RECONNECT] Re-resumed sibling session '{kvp.Key}' after client recreation");
                                             }
                                             catch (Exception reEx)
@@ -2706,9 +2720,22 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         // with full config (MCP servers, skills, system message) matching CreateSessionAsync.
                         Debug($"Session '{sessionName}' expired on server, creating fresh session...");
                         OnActivity?.Invoke(sessionName, "🔄 Session expired, creating new session...");
-                        var freshConfig = BuildFreshSessionConfig(state);
-                        newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
-                        state.Info.SessionId = newSession.SessionId;
+                        try
+                        {
+                            var freshConfig = BuildFreshSessionConfig(state);
+                            newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
+                            state.Info.SessionId = newSession.SessionId;
+                        }
+                        catch (Exception createEx)
+                        {
+                            Debug($"[RECONNECT] '{sessionName}' fresh session creation failed: {createEx.Message}");
+                            CancelProcessingWatchdog(state);
+                            CancelTurnEndFallback(state);
+                            CancelToolHealthCheck(state);
+                            state.IsOrphaned = true;
+                            Interlocked.Exchange(ref state.ProcessingGeneration, long.MaxValue);
+                            throw;
+                        }
                     }
                     catch (Exception resumeEx) when (resumeEx.Message.Contains("corrupted", StringComparison.OrdinalIgnoreCase))
                     {
@@ -2716,22 +2743,36 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         // The CLI can't parse the session state, so create a fresh session.
                         Debug($"[RECONNECT] '{sessionName}' session file corrupted, creating fresh session: {resumeEx.Message}");
                         OnActivity?.Invoke(sessionName, "🔄 Session file corrupted, creating new session...");
-                        var freshConfig = BuildFreshSessionConfig(state);
-                        newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
-                        state.Info.SessionId = newSession.SessionId;
+                        try
+                        {
+                            var freshConfig = BuildFreshSessionConfig(state);
+                            newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
+                            state.Info.SessionId = newSession.SessionId;
+                        }
+                        catch (Exception createEx)
+                        {
+                            // CreateSessionAsync failed — still cancel watchers and orphan the state
+                            // so stale callbacks from the broken session stop mutating shared Info.
+                            Debug($"[RECONNECT] '{sessionName}' fresh session creation also failed: {createEx.Message}");
+                            CancelProcessingWatchdog(state);
+                            CancelTurnEndFallback(state);
+                            CancelToolHealthCheck(state);
+                            state.IsOrphaned = true;
+                            Interlocked.Exchange(ref state.ProcessingGeneration, long.MaxValue);
+                            throw;
+                        }
                     }
-                    // Cancel old watchdog AND TurnEnd fallback BEFORE creating new state — they share Info/TCS
+                    // CRITICAL: Mark the old state as orphaned FIRST — any already-queued
+                    // timer/watchdog callbacks that check IsOrphaned will bail out.
+                    // Then cancel the timers to prevent new callbacks from being scheduled.
+                    state.IsOrphaned = true;
+                    Interlocked.Exchange(ref state.ProcessingGeneration, long.MaxValue);
                     CancelProcessingWatchdog(state);
                     CancelTurnEndFallback(state);
                     CancelToolHealthCheck(state);
                     
-                    // CRITICAL: Mark the old state as orphaned BEFORE creating the new state.
                     // This prevents stale event callbacks (still registered on the old CopilotSession)
                     // from processing events or clearing IsProcessing on the shared Info object.
-                    // Also invalidate the old state's ProcessingGeneration so any queued Invoke callbacks
-                    // from the old state fail the generation check in CompleteResponse.
-                    state.IsOrphaned = true;
-                    Interlocked.Exchange(ref state.ProcessingGeneration, long.MaxValue);
                     
                     Debug($"[RECONNECT] '{sessionName}' replacing state (old handler will be orphaned, " +
                           $"old session disposed, new session={newSession.SessionId})");
