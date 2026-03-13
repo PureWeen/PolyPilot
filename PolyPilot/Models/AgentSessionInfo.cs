@@ -50,6 +50,10 @@ public class AgentSessionInfo
     /// 2=Thinking (TurnStart), 3=Working (tools running)
     /// </summary>
     public int ProcessingPhase { get; set; }
+    /// <summary>
+    /// Number of consecutive watchdog crash recoveries without a successful user turn.
+    /// </summary>
+    public int ConsecutiveStuckCount { get; set; }
 
     /// <summary>
     /// Sliding window of recent tool results (true = permission denial, false = OK).
