@@ -33,7 +33,7 @@ public class FiestaPairingTests : IDisposable
             new RepoManager(),
             new ServiceCollection().BuildServiceProvider(),
             new StubDemoService());
-        _fiesta = new FiestaService(_copilot, _bridgeServer);
+        _fiesta = new FiestaService(_copilot, _bridgeServer, new TailscaleService());
     }
 
     public void Dispose()
