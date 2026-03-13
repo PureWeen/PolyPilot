@@ -243,10 +243,10 @@ public partial class CodespaceService
                 var authCmd = "";
                 if (!string.IsNullOrEmpty(localToken))
                 {
-                    // Pipe token via stdin using printf to avoid exposing it in shell arguments
-                    // or relying on fragile regex sanitization.
-                    var escapedToken = localToken.Replace("'", @"'\''");
-                    authCmd = $"printf '%s' '{escapedToken}' | gh auth login --with-token 2>/dev/null; ";
+                    // Base64-encode the token so it can be safely embedded in a shell command
+                    // with no quoting or escaping needed (base64 output is [A-Za-z0-9+/=] only).
+                    var b64Token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(localToken));
+                    authCmd = $"echo {b64Token} | base64 -d | gh auth login --with-token 2>/dev/null; ";
                     Console.WriteLine($"[CodespaceService] Injecting gh auth token into codespace SSH session");
                 }
 
