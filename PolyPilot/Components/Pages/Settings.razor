@@ -1369,7 +1369,8 @@
     {
         try
         {
-            fiestaPairingString = FiestaService.GeneratePairingString();
+            var preferredHost = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp;
+            fiestaPairingString = FiestaService.GeneratePairingString(preferredHost);
         }
         catch (Exception ex)
         {

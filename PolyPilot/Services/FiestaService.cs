@@ -337,13 +337,13 @@ public class FiestaService : IDisposable
         }
     }
 
-    public string GeneratePairingString()
+    public string GeneratePairingString(string? preferredHost = null)
     {
         if (!_bridgeServer.IsRunning)
             throw new InvalidOperationException("Bridge server is not running. Enable Direct Sharing first.");
 
         var token = EnsureServerPassword();
-        var localIp = GetPrimaryLocalIpAddress() ?? "localhost";
+        var localIp = preferredHost ?? GetPrimaryLocalIpAddress() ?? "localhost";
         var url = $"http://{localIp}:{_bridgeServer.BridgePort}";
 
         var payload = new FiestaPairingPayload
