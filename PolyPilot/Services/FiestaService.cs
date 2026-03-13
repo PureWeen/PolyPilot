@@ -461,7 +461,7 @@ public class FiestaService : IDisposable
             await tcs.Task.WaitAsync(expiryCts.Token);
             // Winner's send is in-flight — wait for it to complete before returning so the
             // caller's finally (socket close) doesn't race the outgoing message.
-            try { await pending.SendComplete.Task.WaitAsync(TimeSpan.FromSeconds(5)); } catch { }
+            try { await pending.SendComplete.Task.WaitAsync(TimeSpan.FromSeconds(5)); } catch (TimeoutException) { } catch (OperationCanceledException) { }
         }
         catch (OperationCanceledException)
         {
@@ -483,7 +483,7 @@ public class FiestaService : IDisposable
             else
             {
                 // Approve already won — wait for its send to finish before closing socket
-                try { await pending.SendComplete.Task.WaitAsync(TimeSpan.FromSeconds(5)); } catch { }
+                try { await pending.SendComplete.Task.WaitAsync(TimeSpan.FromSeconds(5)); } catch (TimeoutException) { } catch (OperationCanceledException) { }
             }
         }
         finally
@@ -828,7 +828,11 @@ public class FiestaService : IDisposable
                 break;
 
             messageBuffer.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
-            if (messageBuffer.Length > 256 * 1024) break; // guard against unbounded frames
+            if (messageBuffer.Length > 256 * 1024)
+            {
+                try { await ws.CloseAsync(WebSocketCloseStatus.MessageTooBig, "Message exceeds 256KB limit", CancellationToken.None); } catch { }
+                break; // guard against unbounded frames
+            }
             if (!result.EndOfMessage)
                 continue;
 
@@ -949,7 +953,8 @@ public class FiestaService : IDisposable
         var safeName = SanitizeFiestaName(fiestaName);
         var baseDir = Path.GetFullPath(Path.Combine(GetPolyPilotBaseDir(), "workspace"));
         var fullPath = Path.GetFullPath(Path.Combine(baseDir, safeName));
-        if (!fullPath.StartsWith(baseDir, StringComparison.Ordinal))
+        var relativePath = Path.GetRelativePath(baseDir, fullPath);
+        if (relativePath.StartsWith("..", StringComparison.Ordinal))
             throw new InvalidOperationException("Workspace path escapes the base directory.");
         return fullPath;
     }
