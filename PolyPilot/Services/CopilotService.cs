@@ -2628,6 +2628,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                     // sessions become zombies with stale CopilotSession objects and
                                     // silently stop receiving events until their next SendAsync fails.
                                     var newClient = _client;
+                                    // Snapshot collections before Task.Run — Organization.Sessions
+                                    // and Groups are List<T> (not thread-safe) and must not be
+                                    // enumerated from a background thread.
+                                    var sessionSnapshots = Organization.Sessions.ToList();
+                                    var groupSnapshots = Organization.Groups.ToList();
                                     _ = Task.Run(async () =>
                                     {
                                         foreach (var kvp in _sessions)
@@ -2635,9 +2640,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                             if (kvp.Key == sessionName) continue;
                                             var otherState = kvp.Value;
                                             if (string.IsNullOrEmpty(otherState.Info.SessionId)) continue;
-                                            var otherMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == kvp.Key);
+                                            var otherMeta = sessionSnapshots.FirstOrDefault(m => m.SessionName == kvp.Key);
                                             if (otherMeta?.GroupId != null &&
-                                                Organization.Groups.Any(g => g.Id == otherMeta.GroupId && g.IsCodespace))
+                                                groupSnapshots.Any(g => g.Id == otherMeta.GroupId && g.IsCodespace))
                                                 continue;
                                             try
                                             {
@@ -2673,6 +2678,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                             catch (Exception reEx)
                                             {
                                                 Debug($"[RECONNECT] Failed to re-resume sibling '{kvp.Key}': {reEx.Message}");
+                                                // Mark as orphaned so stale handlers from the old (now-dead)
+                                                // CopilotSession stop processing events. Without this, the
+                                                // session becomes a zombie with a dead SDK handle.
+                                                otherState.IsOrphaned = true;
+                                                Interlocked.Exchange(ref otherState.ProcessingGeneration, long.MaxValue);
                                             }
                                         }
                                     });
@@ -2737,10 +2747,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                             throw;
                         }
                     }
-                    catch (Exception resumeEx) when (resumeEx.Message.Contains("corrupted", StringComparison.OrdinalIgnoreCase))
+                    catch (Exception resumeEx) when (
+                        resumeEx.Message.Contains("corrupted", StringComparison.OrdinalIgnoreCase) ||
+                        resumeEx.Message.Contains("session file", StringComparison.OrdinalIgnoreCase))
                     {
-                        // Session events.jsonl is corrupted (e.g., "ephemeral: Invalid literal value").
-                        // The CLI can't parse the session state, so create a fresh session.
+                        // Session events.jsonl is corrupted or unreadable.
+                        // CLI errors include "Session file is corrupted (line N: ...)" and variants.
                         Debug($"[RECONNECT] '{sessionName}' session file corrupted, creating fresh session: {resumeEx.Message}");
                         OnActivity?.Invoke(sessionName, "🔄 Session file corrupted, creating new session...");
                         try
