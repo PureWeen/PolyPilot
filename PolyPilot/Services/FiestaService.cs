@@ -19,6 +19,7 @@ public class FiestaService : IDisposable
 
     private readonly CopilotService _copilot;
     private readonly WsBridgeServer _bridgeServer;
+    private readonly TailscaleService? _tailscale;
     private readonly ConcurrentDictionary<string, FiestaDiscoveredWorker> _discoveredWorkers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FiestaSessionState> _activeFiestas = new(StringComparer.Ordinal);
     private readonly object _stateLock = new();
@@ -41,10 +42,11 @@ public class FiestaService : IDisposable
     /// <summary>Fires on the worker side when a remote host requests pairing. Args: requestId, hostName, remoteIp.</summary>
     public event Action<string, string, string>? OnPairRequested;
 
-    public FiestaService(CopilotService copilot, WsBridgeServer bridgeServer)
+    public FiestaService(CopilotService copilot, WsBridgeServer bridgeServer, TailscaleService tailscale)
     {
         _copilot = copilot;
         _bridgeServer = bridgeServer;
+        _tailscale = tailscale;
         _bridgeServer.SetFiestaService(this);
         LoadState();
         if (PlatformHelper.IsDesktop)
@@ -343,6 +345,12 @@ public class FiestaService : IDisposable
             throw new InvalidOperationException("Bridge server is not running. Enable Direct Sharing first.");
 
         var token = EnsureServerPassword();
+
+        // If no explicit host supplied, prefer Tailscale IP/MagicDNS when running —
+        // it works across different networks, not just the local LAN.
+        if (preferredHost == null && _tailscale?.IsRunning == true)
+            preferredHost = _tailscale.MagicDnsName ?? _tailscale.TailscaleIp;
+
         var localIp = preferredHost ?? GetPrimaryLocalIpAddress() ?? "localhost";
         var url = $"http://{localIp}:{_bridgeServer.BridgePort}";
 
@@ -1051,14 +1059,18 @@ public class FiestaService : IDisposable
             {
                 if (_bridgeServer.IsRunning && _bridgeServer.BridgePort > 0)
                 {
-                    var localIp = GetPrimaryLocalIpAddress();
-                    if (!string.IsNullOrEmpty(localIp))
+                    // Prefer Tailscale IP in the broadcast so peers that receive it can reach us
+                    // via Tailscale (works across networks). Fall back to primary LAN IP.
+                    string? advertiseIp = (_tailscale?.IsRunning == true)
+                        ? (_tailscale.TailscaleIp ?? GetPrimaryLocalIpAddress())
+                        : GetPrimaryLocalIpAddress();
+                    if (!string.IsNullOrEmpty(advertiseIp))
                     {
                         var announcement = new FiestaDiscoveryAnnouncement
                         {
                             InstanceId = _instanceId,
                             Hostname = Environment.MachineName,
-                            BridgeUrl = $"http://{localIp}:{_bridgeServer.BridgePort}",
+                            BridgeUrl = $"http://{advertiseIp}:{_bridgeServer.BridgePort}",
                             TimestampUtc = DateTime.UtcNow
                         };
 
