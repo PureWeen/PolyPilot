@@ -99,7 +99,12 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
 
         _ws = new ClientWebSocket();
         if (!string.IsNullOrEmpty(authToken))
+        {
             _ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {authToken}");
+            // Also send as X-Bridge-Authorization so the bridge server can validate it
+            // even when DevTunnel strips X-Tunnel-Authorization before proxying to localhost.
+            _ws.Options.SetRequestHeader("X-Bridge-Authorization", authToken);
+        }
 
         var uri = new Uri(wsUrl);
         Console.WriteLine($"[WsBridgeClient] Connecting to {wsUrl}...");

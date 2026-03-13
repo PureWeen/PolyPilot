@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using PolyPilot.Models;
 
@@ -212,6 +213,10 @@ public partial class DevTunnelService : IDisposable
             _bridge.SetCopilotService(_copilot);
             _bridge.SetRepoManager(_repoManager);
 
+            // Set a temporary random token before starting the bridge so connections
+            // are rejected during the tunnel setup window (before the real token is issued).
+            _bridge.AccessToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
             // Start WebSocket bridge: WS on BridgePort for remote viewer clients
             _bridge.Start(BridgePort, copilotPort);
             if (!_bridge.IsRunning)
@@ -261,9 +266,17 @@ public partial class DevTunnelService : IDisposable
             // Issue a connect-scoped access token
             _accessToken = await IssueAccessTokenAsync();
             if (_accessToken == null)
-                Console.WriteLine("[DevTunnel] Warning: could not issue access token — clients may not be able to connect");
+            {
+                // Could not issue a real token — clear the random placeholder so the bridge
+                // reverts to unauthenticated local-only mode rather than being permanently
+                // locked with an opaque token no client can ever know.
+                _bridge.AccessToken = null;
+                Console.WriteLine("[DevTunnel] Warning: could not issue access token — bridge running in local-only mode");
+            }
             else
+            {
                 _bridge.AccessToken = _accessToken;
+            }
 
             SetState(TunnelState.Running);
             hostStopwatch.Stop();
