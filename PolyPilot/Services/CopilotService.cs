@@ -3592,6 +3592,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     PolyPilotBaseDir.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase);
             });
 
+        // Safe from background thread: NotifyStateChangedCoalesced uses Interlocked + Timer.Change
+        // (both thread-safe); the timer callback marshals to UI via InvokeOnUI.
         _externalSessionScanner.OnChanged += () => NotifyStateChangedCoalesced();
         _externalSessionScanner.Start();
         Debug("External session scanner started");

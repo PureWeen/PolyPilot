@@ -18,8 +18,8 @@ public class ExternalSessionScanner : IDisposable
     private readonly Func<IReadOnlySet<int>>? _getExcludedPids;
 
     private Timer? _pollTimer;
-    private IReadOnlyList<ExternalSessionInfo> _sessions = Array.Empty<ExternalSessionInfo>();
-    private bool _disposed;
+    private volatile IReadOnlyList<ExternalSessionInfo> _sessions = Array.Empty<ExternalSessionInfo>();
+    private volatile bool _disposed;
 
     // Cache: sessionId -> (eventsFileMtime, parsedInfo)
     private readonly Dictionary<string, (DateTimeOffset mtime, ExternalSessionInfo info)> _cache = new();
@@ -163,8 +163,10 @@ public class ExternalSessionScanner : IDisposable
             catch { }
 
             // CWD-based exclusion: sessions inside ~/.polypilot/ are PolyPilot worker sessions.
-            // HOWEVER, if a live CLI process has the session open (active lock file), always show it —
-            // the user may be running their CLI from a worktree directory.
+            // HOWEVER, if a live CLI process has the session open (active lock file), bypass CWD exclusion.
+            // This is safe because PolyPilot-managed sessions are already filtered by session ID
+            // (ownedIds check above), so any session reaching this point with an active lock
+            // is genuinely an external CLI process running in a worktree directory.
             if (!hasActiveLock && _isExcludedCwd != null && _isExcludedCwd(cwd)) continue;
 
             // Parse events.jsonl for history + last event type
