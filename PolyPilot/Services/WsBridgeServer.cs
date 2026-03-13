@@ -445,6 +445,11 @@ public class WsBridgeServer : IDisposable
 
                 messageBuffer.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
 
+                if (messageBuffer.Length > 256 * 1024)
+                {
+                    break; // guard against unbounded frames
+                }
+
                 if (result.EndOfMessage)
                 {
                     var json = messageBuffer.ToString();
