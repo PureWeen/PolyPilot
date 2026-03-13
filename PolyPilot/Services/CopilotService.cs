@@ -2640,6 +2640,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                             if (kvp.Key == sessionName) continue;
                                             var otherState = kvp.Value;
                                             if (string.IsNullOrEmpty(otherState.Info.SessionId)) continue;
+                                            // Skip siblings that are actively processing — re-resuming
+                                            // them would orphan mid-turn state and cause TaskCanceledException
+                                            // in orchestrator workers. Let their existing watchdog handle recovery.
+                                            if (otherState.Info.IsProcessing) continue;
                                             var otherMeta = sessionSnapshots.FirstOrDefault(m => m.SessionName == kvp.Key);
                                             if (otherMeta?.GroupId != null &&
                                                 groupSnapshots.Any(g => g.Id == otherMeta.GroupId && g.IsCodespace))
@@ -2681,7 +2685,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 // Register handler BEFORE publishing to dictionary —
                                                 // no window where events arrive with no handler.
                                                 resumed.On(evt => HandleSessionEvent(siblingState, evt));
-                                                _sessions[kvp.Key] = siblingState;
+                                                // Use TryUpdate to prevent a stale Task.Run from overwriting
+                                                // a newer reconnect's state on rapid back-to-back reconnects.
+                                                if (!_sessions.TryUpdate(kvp.Key, siblingState, otherState))
+                                                {
+                                                    Debug($"[RECONNECT] Sibling '{kvp.Key}' already replaced by another reconnect — discarding");
+                                                    siblingState.IsOrphaned = true;
+                                                    continue;
+                                                }
                                                 Debug($"[RECONNECT] Re-resumed sibling session '{kvp.Key}' after client recreation");
                                             }
                                             catch (Exception reEx)
@@ -2692,6 +2703,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 // session becomes a zombie with a dead SDK handle.
                                                 otherState.IsOrphaned = true;
                                                 Interlocked.Exchange(ref otherState.ProcessingGeneration, long.MaxValue);
+                                                // Unblock any orchestrator worker awaiting this session's TCS
+                                                otherState.ResponseCompletion?.TrySetCanceled();
                                             }
                                         }
                                     });
