@@ -24,23 +24,15 @@ public class WorkerToolHonestyTests
     [Fact]
     public void WorkerPrompt_ContainsToolHonestyInstructions()
     {
-        // The worker prompt is built inside ExecuteWorkerAsync which is private.
-        // We test the prompt template by checking the synthesis prompt that embeds
-        // the worker instructions indirectly. But for the worker prompt itself,
-        // we verify the key phrases exist in the source via a representative test:
-        // Construct what ExecuteWorkerAsync builds and verify it has the right content.
+        var svc = CreateService();
+        var method = typeof(CopilotService).GetMethod("BuildWorkerPrompt",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
 
-        // Simulate the worker prompt construction (mirrors ExecuteWorkerAsync logic)
-        var identity = "You are a worker agent. Complete the following task thoroughly.";
-        var workerPrompt = $"{identity}\n\nYour response will be collected and synthesized with other workers' responses.\n\n" +
-            "## CRITICAL: Tool Usage & Honesty Policy\n" +
-            "- You MUST use your CLI tools (file reads, builds, tests, grep, etc.) to complete your task. Do NOT rely on assumptions or memory.\n" +
-            "- If a tool call fails or is unavailable, REPORT THE FAILURE explicitly. Say what you tried, what failed, and why.\n" +
-            "- NEVER fabricate, invent, or assume tool outputs. If you cannot run a tool, say so — do NOT generate plausible-looking results.\n" +
-            "- NEVER evaluate or assess code, tests, or behavior without actually running the relevant tools first.\n" +
-            "- If you cannot complete your task because tools are unavailable, respond with: " +
-            "\"TOOL_FAILURE: [description of what failed and why]\"\n\n" +
-            "## Original User Request (context)\nFix the tests\n\n## Your Assigned Task\nRun the unit tests";
+        var workerPrompt = (string)method!.Invoke(null, new object[] {
+            "You are a worker agent. Complete the following task thoroughly.",
+            "", "", "Fix the tests", "Run the unit tests"
+        })!;
 
         Assert.Contains("CRITICAL: Tool Usage & Honesty Policy", workerPrompt);
         Assert.Contains("NEVER fabricate", workerPrompt);

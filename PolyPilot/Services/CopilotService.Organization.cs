@@ -1462,15 +1462,7 @@ public partial class CopilotService
               "To check out a PR: `git fetch origin pull/<N>/head:pr-<N> && git checkout pr-<N>`\n"
             : "";
 
-        var workerPrompt = $"{identity}{worktreeNote}\n\nYour response will be collected and synthesized with other workers' responses.\n\n" +
-            "## CRITICAL: Tool Usage & Honesty Policy\n" +
-            "- You MUST use your CLI tools (file reads, builds, tests, grep, etc.) to complete your task. Do NOT rely on assumptions or memory.\n" +
-            "- If a tool call fails or is unavailable, REPORT THE FAILURE explicitly. Say what you tried, what failed, and why.\n" +
-            "- NEVER fabricate, invent, or assume tool outputs. If you cannot run a tool, say so — do NOT generate plausible-looking results.\n" +
-            "- NEVER evaluate or assess code, tests, or behavior without actually running the relevant tools first.\n" +
-            "- If you cannot complete your task because tools are unavailable, respond with: " +
-            "\"TOOL_FAILURE: [description of what failed and why]\"\n\n" +
-            $"{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
+        var workerPrompt = BuildWorkerPrompt(identity, worktreeNote, sharedPrefix, originalPrompt, task);
 
         const int maxRetries = 2;
         var dispatchTime = DateTime.UtcNow;
@@ -1648,6 +1640,19 @@ public partial class CopilotService
                 s.ResponseCompletion?.TrySetCanceled();
         });
         return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token, originalPrompt: originalPrompt);
+    }
+
+    private static string BuildWorkerPrompt(string identity, string worktreeNote, string sharedPrefix, string originalPrompt, string task)
+    {
+        return $"{identity}{worktreeNote}\n\nYour response will be collected and synthesized with other workers' responses.\n\n" +
+            "## CRITICAL: Tool Usage & Honesty Policy\n" +
+            "- You MUST use your CLI tools (file reads, builds, tests, grep, etc.) to complete your task. Do NOT rely on assumptions or memory.\n" +
+            "- If a tool call fails or is unavailable, REPORT THE FAILURE explicitly. Say what you tried, what failed, and why.\n" +
+            "- NEVER fabricate, invent, or assume tool outputs. If you cannot run a tool, say so — do NOT generate plausible-looking results.\n" +
+            "- NEVER evaluate or assess code, tests, or behavior without actually running the relevant tools first.\n" +
+            "- If you cannot complete your task because tools are unavailable, respond with: " +
+            "\"TOOL_FAILURE: [description of what failed and why]\"\n\n" +
+            $"{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
     }
 
     private string BuildSynthesisPrompt(string originalPrompt, List<WorkerResult> results)
