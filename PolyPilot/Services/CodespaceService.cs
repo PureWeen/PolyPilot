@@ -139,7 +139,7 @@ public partial class CodespaceService
     public async Task<TunnelHandle?> OpenSshTunnelAsync(
         string codespaceName, int remotePort = 4321, int connectTimeoutSeconds = 30)
     {
-        if (!System.Text.RegularExpressions.Regex.IsMatch(codespaceName, @"^[a-zA-Z0-9\-]+$"))
+        if (codespaceName.Length > 255 || !System.Text.RegularExpressions.Regex.IsMatch(codespaceName, @"^[a-zA-Z0-9\-]+$"))
             throw new ArgumentException("Invalid codespace name.", nameof(codespaceName));
         if (remotePort < 1 || remotePort > 65535)
             throw new ArgumentOutOfRangeException(nameof(remotePort), "Port must be between 1 and 65535.");
@@ -243,10 +243,10 @@ public partial class CodespaceService
                 var authCmd = "";
                 if (!string.IsNullOrEmpty(localToken))
                 {
-                    // Strip any characters that aren't alphanumeric, dash, underscore, or period
-                    // to prevent shell injection via malicious token values.
-                    var sanitizedToken = System.Text.RegularExpressions.Regex.Replace(localToken, @"[^a-zA-Z0-9\-_\.]", "");
-                    authCmd = $"gh auth login --with-token <<< '{sanitizedToken}' 2>/dev/null; ";
+                    // Pipe token via stdin using printf to avoid exposing it in shell arguments
+                    // or relying on fragile regex sanitization.
+                    var escapedToken = localToken.Replace("'", @"'\''");
+                    authCmd = $"printf '%s' '{escapedToken}' | gh auth login --with-token 2>/dev/null; ";
                     Console.WriteLine($"[CodespaceService] Injecting gh auth token into codespace SSH session");
                 }
 
