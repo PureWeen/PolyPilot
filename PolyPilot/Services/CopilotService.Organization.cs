@@ -1462,7 +1462,7 @@ public partial class CopilotService
               "To check out a PR: `git fetch origin pull/<N>/head:pr-<N> && git checkout pr-<N>`\n"
             : "";
 
-        var workerPrompt = $"{identity}{worktreeNote}\n\nYour response will be collected and synthesized with other workers' responses.\n\n{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
+        var workerPrompt = BuildWorkerPrompt(identity, worktreeNote, sharedPrefix, originalPrompt, task);
 
         const int maxRetries = 2;
         var dispatchTime = DateTime.UtcNow;
@@ -1642,6 +1642,19 @@ public partial class CopilotService
         return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token, originalPrompt: originalPrompt);
     }
 
+    private static string BuildWorkerPrompt(string identity, string worktreeNote, string sharedPrefix, string originalPrompt, string task)
+    {
+        return $"{identity}{worktreeNote}\n\nYour response will be collected and synthesized with other workers' responses.\n\n" +
+            "## CRITICAL: Tool Usage & Honesty Policy\n" +
+            "- You MUST use your CLI tools (file reads, builds, tests, grep, etc.) to complete your task. Do NOT rely on assumptions or memory.\n" +
+            "- If a tool call fails or is unavailable, REPORT THE FAILURE explicitly. Say what you tried, what failed, and why.\n" +
+            "- NEVER fabricate, invent, or assume tool outputs. If you cannot run a tool, say so — do NOT generate plausible-looking results.\n" +
+            "- NEVER evaluate or assess code, tests, or behavior without actually running the relevant tools first.\n" +
+            "- If you cannot complete your task because tools are unavailable, respond with: " +
+            "\"TOOL_FAILURE: [description of what failed and why]\"\n\n" +
+            $"{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
+    }
+
     private string BuildSynthesisPrompt(string originalPrompt, List<WorkerResult> results)
     {
         var sb = new System.Text.StringBuilder();
@@ -1664,7 +1677,12 @@ public partial class CopilotService
         sb.AppendLine("## Instructions");
         sb.AppendLine($"Original request: {originalPrompt}");
         sb.AppendLine();
-        sb.AppendLine("Synthesize these worker responses into a coherent final answer. Note any tasks that failed. Provide a unified response addressing the original request.");
+        sb.AppendLine("Synthesize these worker responses into a coherent final answer. Follow these rules:");
+        sb.AppendLine("- Note any tasks that failed and clearly report what went wrong.");
+        sb.AppendLine("- Flag any worker response that appears to contain fabricated results (results not backed by actual tool execution).");
+        sb.AppendLine("- If a worker reports TOOL_FAILURE, do NOT attempt to fill in or guess the missing results — report the failure as-is.");
+        sb.AppendLine("- Prefer worker outputs that show evidence of actual tool usage (file contents, build output, test results) over generic assessments.");
+        sb.AppendLine("Provide a unified response addressing the original request.");
         return sb.ToString();
     }
 
@@ -2868,6 +2886,7 @@ public partial class CopilotService
         sb.AppendLine("1. **Completeness** — Did they fully address their assigned task?");
         sb.AppendLine("2. **Correctness** — Is the output accurate and well-reasoned?");
         sb.AppendLine("3. **Relevance** — Does it contribute meaningfully toward the goal?");
+        sb.AppendLine("4. **Tool Verification** — Did the worker actually run tools, or did they fabricate results? Workers reporting TOOL_FAILURE are honest failures; workers presenting results without evidence of tool execution may have fabricated their output.");
         sb.AppendLine();
         if (state.CurrentIteration > 1 && state.LastEvaluation != null)
         {
@@ -2963,6 +2982,7 @@ public partial class CopilotService
         sb.AppendLine("2. **Correctness** (0-1): Is it accurate and well-reasoned?");
         sb.AppendLine("3. **Coherence** (0-1): Is the synthesis well-organized?");
         sb.AppendLine("4. **Actionability** (0-1): Can the user act on this output?");
+        sb.AppendLine("5. **Tool Verification** (0-1): Are results backed by actual tool execution? Score 0 if workers appear to have fabricated results without running tools. Score 1 only if outputs clearly reference real tool outputs (file contents, build logs, test results, command output).");
         sb.AppendLine();
         if (state.EvaluationHistory.Count > 0)
         {
@@ -2972,7 +2992,7 @@ public partial class CopilotService
             sb.AppendLine();
         }
         sb.AppendLine("### Response Format");
-        sb.AppendLine("SCORE: <average of 4 dimensions as decimal, e.g. 0.75>");
+        sb.AppendLine("SCORE: <average of 5 dimensions as decimal, e.g. 0.75>");
         sb.AppendLine("RATIONALE: <2-3 sentences explaining the score and gaps>");
         sb.AppendLine();
         sb.AppendLine("If score >= 0.9, include `[[GROUP_REFLECT_COMPLETE]]`.");

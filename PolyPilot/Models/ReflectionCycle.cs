@@ -215,7 +215,9 @@ public partial class ReflectionCycle
              + $"{iterationContext}\n\n"
              + "Check EVERY requirement in the goal. For each one, verify it is fully met.\n"
              + "If ANY requirement is missing, incomplete, or poorly executed: FAIL.\n"
-             + "Look for: missing requirements, weak execution, lack of specificity, logical errors, room for improvement.\n\n"
+             + "Look for: missing requirements, weak execution, lack of specificity, logical errors, room for improvement.\n"
+             + "**Tool Verification:** If the task required running tools (builds, tests, file reads, commands), verify the response shows evidence of actual tool execution. "
+             + "If the response contains results without evidence of tool usage (no file contents, no command output, no build/test logs), it may be fabricated — FAIL with feedback requesting actual tool execution.\n\n"
              + "- If ALL requirements are genuinely and fully met with high quality: respond with exactly: PASS\n"
              + "- Otherwise: respond with: FAIL: <specific feedback listing what to improve>\n\n"
              + "Respond with PASS or FAIL: on the FIRST LINE. No other format.";
