@@ -512,7 +512,7 @@ public class FiestaService : IDisposable
         }
 
         var token = EnsureServerPassword();
-        var localIp = GetPrimaryLocalIpAddress() ?? "localhost";
+        var localIp = _tailscale?.MagicDnsName ?? _tailscale?.TailscaleIp ?? GetPrimaryLocalIpAddress() ?? "localhost";
         var bridgeUrl = $"http://{localIp}:{_bridgeServer.BridgePort}";
 
         // Atomically claim ownership. If the timeout already fired (TrySetResult(false) won),
