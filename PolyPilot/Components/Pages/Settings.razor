@@ -226,6 +226,15 @@
             <h3>Direct Connection</h3>
             <div class="tunnel-controls">
                 <p class="mode-hint">Share your server directly over LAN, Tailscale, or VPN — no DevTunnel needed.</p>
+                <div class="onboarding-steps">
+                    <p class="onboarding-heading"><strong>🖥️ Setting up this machine as a Fiesta worker?</strong></p>
+                    <ol class="onboarding-list">
+                        <li>Set a password below and click <strong>Enable Direct Sharing</strong>.</li>
+                        <li>Copy the <strong>pairing string</strong> (<code>pp+…</code>) that appears.</li>
+                        <li>On the <strong>host machine</strong>, go to Settings → Fiesta Workers → paste the string → click <strong>Link</strong>.</li>
+                        <li>The host can then dispatch tasks to this machine using <code>@</code>mentions in chat.</li>
+                    </ol>
+                </div>
 
                 <div class="url-input">
                     <label>Password:</label>
@@ -310,6 +319,15 @@
         <div class="mode-linked-panel @(SectionVisible("fiesta workers discovery link remove hostname pair pairing") ? "" : "search-hidden")">
             <h3>Fiesta Workers</h3>
             <div class="tunnel-controls">
+                <div class="onboarding-steps">
+                    <p class="onboarding-heading"><strong>🎉 How Fiesta works</strong></p>
+                    <p class="mode-hint">Fiesta lets this machine act as a <strong>hub</strong> that dispatches work to linked worker machines on your LAN.</p>
+                    <ol class="onboarding-list">
+                        <li><strong>On each worker machine:</strong> open Settings → Direct Connection → set a password → click <strong>Enable Direct Sharing</strong> → copy the <code>pp+…</code> pairing string.</li>
+                        <li><strong>Here (hub):</strong> paste that string into the field below and click <strong>Link</strong>. The worker appears in "Linked workers".</li>
+                        <li><strong>In any chat:</strong> use <code>@@worker-name</code> to send a task to that machine. It runs autonomously and returns results.</li>
+                    </ol>
+                </div>
                 <p class="mode-hint">Discovered workers require manual linking before they can be used in Fiesta mode.</p>
 
                 @* Incoming pair requests (worker side) *@
