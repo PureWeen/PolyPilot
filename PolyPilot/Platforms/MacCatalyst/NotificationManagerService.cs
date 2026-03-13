@@ -51,6 +51,10 @@ public class NotificationManagerService : INotificationManagerService
             content.UserInfo = NSDictionary.FromObjectAndKey(
                 new NSString(sessionId), 
                 new NSString("sessionId"));
+
+            // Write to sidecar so the running instance can navigate even if the OS launches
+            // a second instance (which activates us via AppleScript but can't fire the delegate).
+            WritePendingNavigation(sessionId);
         }
 
         var trigger = UNTimeIntervalNotificationTrigger.CreateTrigger(0.1, false);
@@ -64,7 +68,35 @@ public class NotificationManagerService : INotificationManagerService
 
     internal void OnNotificationTapped(string? sessionId)
     {
+        // Clear the sidecar: the delegate fired normally in the running instance so
+        // App.OnWindowActivated doesn't need to re-navigate via file.
+        if (sessionId != null)
+            DeletePendingNavigation();
+
         NotificationTapped?.Invoke(this, new NotificationTappedEventArgs { SessionId = sessionId });
+    }
+
+    private static string PendingNavigationPath =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".polypilot", "pending-navigation.json");
+
+    private static void WritePendingNavigation(string sessionId)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(PendingNavigationPath)!;
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(PendingNavigationPath,
+                System.Text.Json.JsonSerializer.Serialize(new { sessionId }));
+        }
+        catch { /* Best effort */ }
+    }
+
+    internal static void DeletePendingNavigation()
+    {
+        try { File.Delete(PendingNavigationPath); }
+        catch { /* Best effort */ }
     }
 
     private class NotificationDelegate : UNUserNotificationCenterDelegate

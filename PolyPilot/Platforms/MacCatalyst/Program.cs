@@ -15,7 +15,7 @@ public class Program
 		// and macOS Launch Services resolves a different .app bundle (e.g. build output vs staging).
 		if (!TryAcquireInstanceLock())
 		{
-			ActivateExistingInstance();
+			ActivateExistingInstance(args);
 			return;
 		}
 
@@ -47,15 +47,38 @@ public class Program
 		}
 		catch
 		{
-			// If the lock mechanism fails (permissions, etc.), allow this instance to start
-			return true;
+			// If the lock mechanism fails for an unexpected reason (not a contention IOException),
+			// fail-closed to prevent a duplicate instance rather than silently allowing it.
+			return false;
 		}
 	}
 
-	static void ActivateExistingInstance()
+	static void ActivateExistingInstance(string[] args)
 	{
 		try
 		{
+			// If the launch was triggered by a notification tap that included a sessionId,
+			// write it to a sidecar file so the running instance can pick it up and navigate.
+			// The running instance also writes this file in SendNotificationAsync; this path
+			// handles cases where the OS re-launches a different bundle for the same notification.
+			var sessionId = ExtractSessionId(args);
+			if (sessionId != null)
+			{
+				try
+				{
+					var navDir = Path.Combine(
+						Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+						".polypilot");
+					Directory.CreateDirectory(navDir);
+					var navPath = Path.Combine(navDir, "pending-navigation.json");
+					File.WriteAllText(navPath, System.Text.Json.JsonSerializer.Serialize(new { sessionId }));
+				}
+				catch
+				{
+					// Best effort — don't block window activation if sidecar write fails
+				}
+			}
+
 			// Bring the existing PolyPilot window to the foreground via AppleScript
 			var psi = new System.Diagnostics.ProcessStartInfo
 			{
@@ -71,5 +94,17 @@ public class Program
 		{
 			// Best effort — if activation fails, just exit silently
 		}
+	}
+
+	// Extract a session ID from launch arguments if present (e.g. --session-id=<id>).
+	static string? ExtractSessionId(string[] args)
+	{
+		foreach (var arg in args)
+		{
+			const string prefix = "--session-id=";
+			if (arg.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+				return arg[prefix.Length..];
+		}
+		return null;
 	}
 }

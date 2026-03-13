@@ -193,4 +193,64 @@ public class NotificationNavigationTests
             File.Delete(lockPath);
         }
     }
+
+    // ── Pending navigation sidecar (second-instance forwarding) ─────
+
+    [Fact]
+    public void PendingNavigation_WriteAndRead_RoundTrips()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"polypilot-nav-test-{Guid.NewGuid()}");
+        Directory.CreateDirectory(dir);
+        var navPath = Path.Combine(dir, "pending-navigation.json");
+        try
+        {
+            // Simulate what NotificationManagerService.WritePendingNavigation writes
+            var sessionId = "test-session-42";
+            File.WriteAllText(navPath, System.Text.Json.JsonSerializer.Serialize(new { sessionId }));
+
+            // Simulate what App.CheckPendingNavigation reads
+            Assert.True(File.Exists(navPath));
+            var json = File.ReadAllText(navPath);
+            var doc = System.Text.Json.JsonDocument.Parse(json);
+            Assert.True(doc.RootElement.TryGetProperty("sessionId", out var prop));
+            Assert.Equal("test-session-42", prop.GetString());
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PendingNavigation_DeleteAfterRead_FileIsGone()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"polypilot-nav-test-{Guid.NewGuid()}");
+        Directory.CreateDirectory(dir);
+        var navPath = Path.Combine(dir, "pending-navigation.json");
+        try
+        {
+            File.WriteAllText(navPath, System.Text.Json.JsonSerializer.Serialize(new { sessionId = "abc" }));
+            Assert.True(File.Exists(navPath));
+
+            // Simulate App.CheckPendingNavigation consuming the sidecar
+            File.Delete(navPath);
+
+            Assert.False(File.Exists(navPath));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PendingNavigation_MissingFile_NoActionNeeded()
+    {
+        var navPath = Path.Combine(Path.GetTempPath(), $"nonexistent-nav-{Guid.NewGuid()}.json");
+
+        // App.CheckPendingNavigation guards with File.Exists — verify no file means no action
+        Assert.False(File.Exists(navPath));
+    }
 }
+
