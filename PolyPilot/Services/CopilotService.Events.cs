@@ -2077,8 +2077,11 @@ public partial class CopilotService
                         // Cancel any pending TurnEnd→Idle fallback
                         CancelTurnEndFallback(state);
                         state.Info.IsResumed = false;
-                        // Flush any accumulated partial response before clearing processing state
-                        FlushCurrentResponse(state);
+                        // Flush any accumulated partial response before clearing processing state.
+                        // Wrapped in try-catch: if flush fails, IsProcessing MUST still be cleared
+                        // (otherwise the session is permanently stuck — the watchdog has already exited).
+                        try { FlushCurrentResponse(state); }
+                        catch (Exception flushEx) { Debug($"[WATCHDOG] '{sessionName}' flush failed during kill: {flushEx.Message}"); }
                         Debug($"[WATCHDOG] '{sessionName}' IsProcessing=false — watchdog timeout after {totalProcessingSeconds:F0}s total, elapsed={elapsed:F0}s, exceededMaxTime={exceededMaxTime}");
                         state.Info.IsProcessing = false;
                         Interlocked.Exchange(ref state.SendingFlag, 0);
@@ -2121,7 +2124,46 @@ public partial class CopilotService
             }
         }
         catch (OperationCanceledException) { /* Normal cancellation when response completes */ }
-        catch (Exception ex) { Debug($"Watchdog error for '{sessionName}': {ex.Message}"); }
+        catch (Exception ex)
+        {
+            // Safety net: if the watchdog crashes for ANY reason, clear IsProcessing to prevent
+            // permanently stuck sessions. Without this, any unexpected exception (NRE, state
+            // corruption, etc.) leaves the session showing "Sending..." forever with no recovery
+            // path — the watchdog is the last line of defense.
+            Debug($"[WATCHDOG-CRASH] Watchdog loop error for '{sessionName}': {ex.Message}");
+            try
+            {
+                InvokeOnUI(() =>
+                {
+                    if (!state.Info.IsProcessing) return;
+                    Debug($"[WATCHDOG-CRASH] '{sessionName}' clearing IsProcessing after watchdog crash");
+                    // Best-effort flush before clearing processing state
+                    try { FlushCurrentResponse(state); }
+                    catch { /* Flush failure must not prevent IsProcessing cleanup */ }
+                    // INV-1: clear IsProcessing and all 9 companion fields
+                    state.Info.IsProcessing = false;
+                    state.Info.IsResumed = false;
+                    Interlocked.Exchange(ref state.SendingFlag, 0);
+                    Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                    state.HasUsedToolsThisTurn = false;
+                    Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                    state.Info.ProcessingStartedAt = null;
+                    state.Info.ToolCallCount = 0;
+                    state.Info.ProcessingPhase = 0;
+                    state.Info.ClearPermissionDenials();
+                    state.Info.ConsecutiveStuckCount++;
+                    var crashResponse = state.FlushedResponse.ToString();
+                    state.FlushedResponse.Clear();
+                    state.CurrentResponse.Clear();
+                    state.PendingReasoningMessages.Clear();
+                    state.ResponseCompletion?.TrySetResult(crashResponse);
+                    OnSessionComplete?.Invoke(sessionName, "[Watchdog] crash recovery");
+                    OnError?.Invoke(sessionName, "Internal error in session monitoring. Try sending your message again.");
+                    OnStateChanged?.Invoke();
+                });
+            }
+            catch { /* Best effort — InvokeOnUI itself failed */ }
+        }
     }
 
     /// <summary>

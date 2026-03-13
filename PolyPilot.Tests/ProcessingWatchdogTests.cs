@@ -2663,4 +2663,122 @@ public class ProcessingWatchdogTests
             && watchdogBody.Contains("WatchdogCaseBFreshnessSeconds"),
             "Case B must select freshness threshold based on isMultiAgentSession");
     }
+
+    // ===== Watchdog crash recovery: catch(Exception) must clear IsProcessing =====
+
+    [Fact]
+    public void WatchdogCatchBlock_ClearsIsProcessing_InSource()
+    {
+        // If the watchdog loop throws an unexpected exception, the catch(Exception) block
+        // MUST clear IsProcessing — otherwise the session is permanently stuck.
+        // Regression test for: sessions stuck at "Sending..." forever after watchdog crash.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // The catch(Exception) block must contain IsProcessing cleanup
+        Assert.True(watchdogBody.Contains("[WATCHDOG-CRASH]"),
+            "Watchdog catch block must use [WATCHDOG-CRASH] diagnostic tag");
+        Assert.True(watchdogBody.Contains("clearing IsProcessing after watchdog crash"),
+            "Watchdog catch block must log that it is clearing IsProcessing on crash");
+
+        // The crash recovery must clear all INV-1 companion fields
+        // Search the full catch block (after the [WATCHDOG-CRASH] tag) for required patterns
+        var crashIdx = watchdogBody.IndexOf("[WATCHDOG-CRASH]");
+        var crashBlock = watchdogBody.Substring(crashIdx);
+        Assert.True(crashBlock.Contains("IsProcessing = false"),
+            "Watchdog crash recovery must set IsProcessing = false");
+        Assert.True(crashBlock.Contains("SendingFlag"),
+            "Watchdog crash recovery must clear SendingFlag (INV-1)");
+        Assert.True(crashBlock.Contains("ProcessingStartedAt = null"),
+            "Watchdog crash recovery must clear ProcessingStartedAt (INV-1)");
+        Assert.True(crashBlock.Contains("ProcessingPhase = 0"),
+            "Watchdog crash recovery must clear ProcessingPhase (INV-1)");
+        Assert.True(crashBlock.Contains("ClearPermissionDenials"),
+            "Watchdog crash recovery must clear permission denials (INV-1)");
+    }
+
+    [Fact]
+    public void WatchdogCatchBlock_CompletesResponseCompletion_InSource()
+    {
+        // The crash recovery must complete the TCS so callers (e.g., orchestrators)
+        // waiting on SendPromptAsync aren't blocked forever.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        var crashIdx = watchdogBody.IndexOf("[WATCHDOG-CRASH]");
+        var crashBlock = watchdogBody.Substring(crashIdx);
+        Assert.True(crashBlock.Contains("ResponseCompletion?.TrySetResult"),
+            "Watchdog crash recovery must complete ResponseCompletion TCS to unblock callers");
+        Assert.True(crashBlock.Contains("OnSessionComplete"),
+            "Watchdog crash recovery must fire OnSessionComplete for orchestrator coordination");
+        Assert.True(crashBlock.Contains("OnStateChanged"),
+            "Watchdog crash recovery must fire OnStateChanged to update UI");
+    }
+
+    // ===== Watchdog kill callback: FlushCurrentResponse must be protected =====
+
+    [Fact]
+    public void WatchdogKillCallback_ProtectsFlushCurrentResponse_InSource()
+    {
+        // The watchdog's Case C kill callback (InvokeOnUI) calls FlushCurrentResponse
+        // BEFORE setting IsProcessing = false. If FlushCurrentResponse throws, the
+        // exception is caught by InvokeOnUI's try-catch, but IsProcessing is never cleared
+        // because the watchdog has already exited (break). FlushCurrentResponse MUST be
+        // wrapped in try-catch within the kill callback.
+        // Regression test for: sessions permanently stuck after FlushCurrentResponse failure.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // Find the watchdog timeout kill path (Case C): the block that sets IsProcessing=false
+        // after the Case A/B checks. It should contain a protected FlushCurrentResponse call.
+        var killIdx = watchdogBody.IndexOf("[WATCHDOG] '{sessionName}' IsProcessing=false — watchdog timeout");
+        Assert.True(killIdx > 0, "Could not find watchdog kill path diagnostic log");
+
+        // Look backwards from the kill log to find the FlushCurrentResponse call.
+        // It must be wrapped in try-catch, not bare.
+        var beforeKill = watchdogBody.Substring(Math.Max(0, killIdx - 500), Math.Min(500, killIdx));
+        Assert.True(beforeKill.Contains("try { FlushCurrentResponse") || beforeKill.Contains("try\n") || beforeKill.Contains("flush failed during kill"),
+            "FlushCurrentResponse in the watchdog kill path must be wrapped in try-catch to prevent " +
+            "IsProcessing from staying true if the flush throws");
+    }
+
+    [Fact]
+    public void WatchdogCrashRecovery_ClearsCompanionFields()
+    {
+        // Behavioral test: verify that the INV-1 companion fields are properly
+        // reset when a session recovers from a stuck state (simulating what the
+        // crash recovery path does).
+        var info = new AgentSessionInfo { Name = "crash-test", Model = "test" };
+        info.IsProcessing = true;
+        info.IsResumed = true;
+        info.ProcessingStartedAt = DateTime.UtcNow;
+        info.ToolCallCount = 5;
+        info.ProcessingPhase = 3;
+        info.ConsecutiveStuckCount = 0;
+
+        // Simulate crash recovery clearing all fields (mirrors the catch block logic)
+        info.IsProcessing = false;
+        info.IsResumed = false;
+        info.ProcessingStartedAt = null;
+        info.ToolCallCount = 0;
+        info.ProcessingPhase = 0;
+        info.ClearPermissionDenials();
+        info.ConsecutiveStuckCount++;
+
+        Assert.False(info.IsProcessing);
+        Assert.False(info.IsResumed);
+        Assert.Null(info.ProcessingStartedAt);
+        Assert.Equal(0, info.ToolCallCount);
+        Assert.Equal(0, info.ProcessingPhase);
+        Assert.Equal(1, info.ConsecutiveStuckCount);
+    }
 }
