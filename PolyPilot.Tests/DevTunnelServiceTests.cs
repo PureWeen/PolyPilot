@@ -377,12 +377,19 @@ public class DevTunnelServiceTests
     {
         // When devtunnel CLI is not installed, HostAsync should end in Error state
         // (not NotStarted) so the user sees what went wrong.
+        // When devtunnel IS installed, HostAsync may succeed — skip the test in that case.
         var bridge = new WsBridgeServer();
         var copilot = CreateTestCopilotService();
         var service = new DevTunnelService(bridge, copilot, new RepoManager());
 
-        // HostAsync will fail because devtunnel CLI is not installed in CI/test environments.
         var result = await service.HostAsync(4321);
+
+        if (result)
+        {
+            // devtunnel CLI is installed and hosting succeeded — clean up and skip
+            service.Stop();
+            return; // Can't test error path when CLI is available
+        }
 
         // The failure must be deterministic: state must be Error (not NotStarted)
         // and ErrorMessage must be non-null so the UI can display feedback.
