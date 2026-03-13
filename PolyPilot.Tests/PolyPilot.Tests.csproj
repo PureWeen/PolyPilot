@@ -92,6 +92,9 @@
     <Compile Include="../PolyPilot/Services/PluginFileLogger.cs" Link="Shared/PluginFileLogger.cs" />
     <Compile Include="../PolyPilot/Services/ProviderHostContext.cs" Link="Shared/ProviderHostContext.cs" />
     <Compile Include="../PolyPilot/Models/PluginSettings.cs" Link="Shared/PluginSettings.cs" />
+    <Compile Include="../PolyPilot/Models/ExternalSessionInfo.cs" Link="Shared/ExternalSessionInfo.cs" />
+    <Compile Include="../PolyPilot/Services/ExternalSessionScanner.cs" Link="Shared/ExternalSessionScanner.cs" />
+    <Compile Include="../PolyPilot/Services/WindowFocusHelper.cs" Link="Shared/WindowFocusHelper.cs" />
   </ItemGroup>
 
   <ItemGroup>

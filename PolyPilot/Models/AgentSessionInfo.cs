@@ -8,6 +8,8 @@ public class AgentSessionInfo
     public int MessageCount { get; set; }
     public bool IsProcessing { get; set; }
     public List<ChatMessage> History { get; } = new();
+    // Guards snapshot reads of History from concurrent SDK event mutations
+    public readonly object HistoryLock = new();
     public SynchronizedMessageQueue MessageQueue { get; } = new();
     
     public string? WorkingDirectory { get; set; }
@@ -130,8 +132,8 @@ public class AgentSessionInfo
         {
             try
             {
-                // Snapshot to avoid collection-modified exceptions from background threads
-                var snapshot = History.ToArray();
+                ChatMessage[] snapshot;
+                lock (HistoryLock) { snapshot = History.ToArray(); }
                 return Math.Max(0,
                     snapshot.Skip(LastReadMessageCount).Count(m => m?.Role == "assistant"));
             }
@@ -164,4 +166,61 @@ public class AgentSessionInfo
     /// a stronger warning suggesting the user start a new session.
     /// </summary>
     public int ConsecutiveStuckCount { get; set; }
+
+    /// <summary>
+    /// The content of the most recent user message in this session's history, or null if none.
+    /// Useful for displaying context in the session list without rendering the full history.
+    /// </summary>
+    public string? LastUserPrompt
+    {
+        get
+        {
+            try
+            {
+                ChatMessage[] snapshot;
+                lock (HistoryLock) { snapshot = History.ToArray(); }
+                return snapshot.LastOrDefault(m => m.IsUser)?.Content;
+            }
+            catch { return null; }
+        }
+    }
+
+    internal static readonly string[] QuestionPhrases =
+    [
+        "let me know", "which would you prefer", "would you like", "should i", "do you want",
+        "what would you", "how would you", "please confirm", "is that correct", "does that work",
+        "shall i", "which option", "what do you think", "any preference"
+    ];
+
+    /// <summary>
+    /// True when the session is idle (not processing) and the last assistant message appears
+    /// to be asking the user a question — indicating the agent is waiting for user input.
+    /// Only triggers when there is no subsequent user message (the user hasn't replied yet).
+    /// </summary>
+    public bool NeedsAttention
+    {
+        get
+        {
+            if (IsProcessing) return false;
+            try
+            {
+                ChatMessage[] snapshot;
+                lock (HistoryLock) { snapshot = History.ToArray(); }
+                // Find the last conversational message (user or assistant, not tool/system/diff)
+                var lastConversational = snapshot.LastOrDefault(m =>
+                    (m.IsUser || m.IsAssistant) &&
+                    m.MessageType is ChatMessageType.User or ChatMessageType.Assistant);
+                // Only trigger if the last conversational turn is from the assistant
+                if (lastConversational == null || !lastConversational.IsAssistant) return false;
+                var content = lastConversational.Content;
+                if (string.IsNullOrEmpty(content)) return false;
+                if (content.TrimEnd().EndsWith('?')) return true;
+                var lower = content.ToLowerInvariant();
+                foreach (var phrase in QuestionPhrases)
+                    if (lower.Contains(phrase)) return true;
+                return false;
+            }
+            catch { return false; }
+        }
+    }
 }
