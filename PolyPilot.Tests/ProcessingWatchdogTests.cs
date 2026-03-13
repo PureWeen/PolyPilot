@@ -2592,4 +2592,75 @@ public class ProcessingWatchdogTests
         Assert.True(reconnectBlock.Contains("ActiveToolCallCount") && reconnectBlock.Contains("0"),
             "Reconnect block must reset ActiveToolCallCount to 0 for the new connection.");
     }
+
+    // ===== Multi-agent Case B extended freshness (issue #365 fix) =====
+
+    [Fact]
+    public void WatchdogCaseBFreshnessSeconds_StandardValue()
+    {
+        // Standard (non-multi-agent) freshness is 300s (5 min).
+        Assert.Equal(300, CopilotService.WatchdogCaseBFreshnessSeconds);
+    }
+
+    [Fact]
+    public void WatchdogMultiAgentCaseBFreshnessSeconds_ExtendedValue()
+    {
+        // Multi-agent sessions get 1800s (30 min) to accommodate long server-side tool execution.
+        Assert.Equal(1800, CopilotService.WatchdogMultiAgentCaseBFreshnessSeconds);
+        Assert.True(CopilotService.WatchdogMultiAgentCaseBFreshnessSeconds >
+                    CopilotService.WatchdogCaseBFreshnessSeconds,
+            "Multi-agent freshness must be longer than standard freshness");
+    }
+
+    [Fact]
+    public void WatchdogMultiAgentCaseBFreshnessSeconds_WithinWorkerTimeout()
+    {
+        // The extended freshness must be less than the worker execution timeout (60 min = 3600s).
+        // It's a safety net, not an override of the ultimate backstop.
+        Assert.True(CopilotService.WatchdogMultiAgentCaseBFreshnessSeconds <
+                    CopilotService.WatchdogMaxProcessingTimeSeconds,
+            "Multi-agent Case B freshness must be shorter than the absolute max processing time");
+    }
+
+    [Fact]
+    public void WatchdogCaseB_UsesMultiAgentFreshness_InSource()
+    {
+        // Case B freshness check must select threshold based on isMultiAgentSession.
+        // This prevents premature force-completion of worker sessions (issue #365).
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // The freshness threshold must be conditional on isMultiAgentSession
+        Assert.True(watchdogBody.Contains("WatchdogMultiAgentCaseBFreshnessSeconds"),
+            "Case B must reference WatchdogMultiAgentCaseBFreshnessSeconds for multi-agent sessions");
+        Assert.True(watchdogBody.Contains("WatchdogCaseBFreshnessSeconds"),
+            "Case B must reference WatchdogCaseBFreshnessSeconds for standard sessions");
+
+        // The age comparison must use the parameterized threshold, not a hardcoded 300
+        Assert.True(watchdogBody.Contains("age < freshnessSeconds"),
+            "Case B must compare age against the parameterized freshnessSeconds, not a hardcoded value");
+        Assert.False(watchdogBody.Contains("age < 300"),
+            "Case B must NOT use hardcoded 300 — must use named constant via freshnessSeconds variable");
+    }
+
+    [Fact]
+    public void WatchdogCaseB_FreshnessThresholdSelection_InSource()
+    {
+        // Verify that the freshness threshold is selected based on isMultiAgentSession
+        // using a ternary before the events.jsonl check.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // The threshold selection must use isMultiAgentSession ternary
+        Assert.True(watchdogBody.Contains("isMultiAgentSession")
+            && watchdogBody.Contains("WatchdogMultiAgentCaseBFreshnessSeconds")
+            && watchdogBody.Contains("WatchdogCaseBFreshnessSeconds"),
+            "Case B must select freshness threshold based on isMultiAgentSession");
+    }
 }

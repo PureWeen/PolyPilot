@@ -1489,6 +1489,18 @@ public partial class CopilotService
     /// of additional time beyond the initial 120s inactivity timeout.</summary>
     internal const int WatchdogMaxCaseBResets = 40;
 
+    /// <summary>Maximum age (in seconds) of events.jsonl for Case B to consider the session still active.
+    /// If events.jsonl was modified after the turn started AND within this window, the CLI is still
+    /// writing — defer completion. 300s (5 min) is appropriate for interactive sessions.</summary>
+    internal const int WatchdogCaseBFreshnessSeconds = 300;
+
+    /// <summary>Extended freshness window for multi-agent sessions. Worker sessions perform long
+    /// server-side tool executions (builds, tests, complex code analysis) where the SDK may pause
+    /// event delivery for 10+ minutes while the tool runs. The standard 300s window causes premature
+    /// force-completion, sending truncated results to the orchestrator (issue #365).
+    /// 1800s (30 min) aligns with the 60-min worker execution timeout as the ultimate backstop.</summary>
+    internal const int WatchdogMultiAgentCaseBFreshnessSeconds = 1800;
+
     /// <summary>
     /// Milliseconds after a tool starts to perform the first health check. If no events have
     /// arrived since tool start, we verify the connection is still alive. This detects dead
@@ -1945,6 +1957,9 @@ public partial class CopilotService
                                 // - "after turn start" alone stays true forever once any event is written
                                 // - "recent" alone could match stale files from a previous turn
                                 var caseBEventsActive = false;
+                                var freshnessSeconds = isMultiAgentSession
+                                    ? WatchdogMultiAgentCaseBFreshnessSeconds
+                                    : WatchdogCaseBFreshnessSeconds;
                                 try
                                 {
                                     var sid = state.Info.SessionId;
@@ -1956,8 +1971,10 @@ public partial class CopilotService
                                             var lastWrite = File.GetLastWriteTimeUtc(ep);
                                             var age = (DateTime.UtcNow - lastWrite).TotalSeconds;
                                             // File must be: (1) written after this turn started AND
-                                            // (2) written within last 5 minutes (CLI is still active)
-                                            caseBEventsActive = lastWrite > startedAt.Value && age < 300;
+                                            // (2) written within the freshness window (CLI is still active).
+                                            // Multi-agent workers get a much longer window because the SDK
+                                            // can pause event delivery for 10+ min during long tool runs.
+                                            caseBEventsActive = lastWrite > startedAt.Value && age < freshnessSeconds;
                                         }
                                     }
                                 }
@@ -1969,12 +1986,13 @@ public partial class CopilotService
                                     if (caseBResets <= WatchdogMaxCaseBResets)
                                     {
                                         Debug($"[WATCHDOG] '{sessionName}' Case B deferred — events.jsonl modified since turn start, session still active " +
-                                              $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s, deferral={caseBResets}/{WatchdogMaxCaseBResets})");
+                                              $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s, deferral={caseBResets}/{WatchdogMaxCaseBResets}, " +
+                                              $"freshness={freshnessSeconds}s{(isMultiAgentSession ? " [multi-agent]" : "")})");
                                         Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
                                         continue;
                                     }
                                     Debug($"[WATCHDOG] '{sessionName}' Case B deferral cap reached ({caseBResets}/{WatchdogMaxCaseBResets}) — completing despite fresh events.jsonl " +
-                                          $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                          $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s, freshness={freshnessSeconds}s{(isMultiAgentSession ? " [multi-agent]" : "")})");
                                 }
                             }
 
