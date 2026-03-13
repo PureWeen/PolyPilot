@@ -2663,12 +2663,21 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 // instead of mutating otherState in place.
                                                 otherState.IsOrphaned = true;
                                                 Interlocked.Exchange(ref otherState.ProcessingGeneration, long.MaxValue);
+                                                // Cancel old TCS so any awaiter (orchestrator worker) doesn't hang
+                                                otherState.ResponseCompletion?.TrySetCanceled();
                                                 var siblingState = new SessionState
                                                 {
                                                     Session = resumed,
                                                     Info = otherState.Info,
                                                     IsMultiAgentSession = otherState.IsMultiAgentSession,
                                                 };
+                                                // Mirror primary reconnect: reset tool tracking for new connection
+                                                siblingState.HasUsedToolsThisTurn = false;
+                                                Interlocked.Exchange(ref siblingState.ActiveToolCallCount, 0);
+                                                Interlocked.Exchange(ref siblingState.SuccessfulToolCountThisTurn, 0);
+                                                Interlocked.Exchange(ref siblingState.ToolHealthStaleChecks, 0);
+                                                Interlocked.Exchange(ref siblingState.EventCountThisTurn, 0);
+                                                Interlocked.Exchange(ref siblingState.TurnEndReceivedAtTicks, 0);
                                                 // Register handler BEFORE publishing to dictionary —
                                                 // no window where events arrive with no handler.
                                                 resumed.On(evt => HandleSessionEvent(siblingState, evt));
@@ -2739,11 +2748,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         catch (Exception createEx)
                         {
                             Debug($"[RECONNECT] '{sessionName}' fresh session creation failed: {createEx.Message}");
+                            state.IsOrphaned = true;
+                            Interlocked.Exchange(ref state.ProcessingGeneration, long.MaxValue);
                             CancelProcessingWatchdog(state);
                             CancelTurnEndFallback(state);
                             CancelToolHealthCheck(state);
-                            state.IsOrphaned = true;
-                            Interlocked.Exchange(ref state.ProcessingGeneration, long.MaxValue);
                             throw;
                         }
                     }
@@ -2763,14 +2772,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         }
                         catch (Exception createEx)
                         {
-                            // CreateSessionAsync failed — still cancel watchers and orphan the state
+                            // CreateSessionAsync failed — orphan first, then cancel watchers
                             // so stale callbacks from the broken session stop mutating shared Info.
                             Debug($"[RECONNECT] '{sessionName}' fresh session creation also failed: {createEx.Message}");
+                            state.IsOrphaned = true;
+                            Interlocked.Exchange(ref state.ProcessingGeneration, long.MaxValue);
                             CancelProcessingWatchdog(state);
                             CancelTurnEndFallback(state);
                             CancelToolHealthCheck(state);
-                            state.IsOrphaned = true;
-                            Interlocked.Exchange(ref state.ProcessingGeneration, long.MaxValue);
                             throw;
                         }
                     }

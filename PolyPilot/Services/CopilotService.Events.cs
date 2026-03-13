@@ -715,8 +715,12 @@ public partial class CopilotService
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+                Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+                Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
                 InvokeOnUI(() =>
                 {
+                    if (state.IsOrphaned) return;
                     OnError?.Invoke(sessionName, errMsg);
                     // Flush any accumulated partial response before clearing the accumulator
                     FlushCurrentResponse(state);
@@ -1669,12 +1673,15 @@ public partial class CopilotService
         CancelTurnEndFallback(state);
 
         var activeTools = Volatile.Read(ref state.ActiveToolCallCount);
+        var recoveryGeneration = Interlocked.Read(ref state.ProcessingGeneration);
         Debug($"[TOOL-HEALTH] '{sessionName}' triggering recovery: {reason} (activeTools={activeTools})");
 
                         InvokeOnUI(() =>
         {
             if (state.IsOrphaned) return;
             if (!state.Info.IsProcessing) return;
+            var currentGen = Interlocked.Read(ref state.ProcessingGeneration);
+            if (recoveryGeneration != currentGen) return;
 
             OnError?.Invoke(sessionName, $"Tool execution stuck ({reason}). Session recovered automatically.");
 
@@ -2231,6 +2238,9 @@ public partial class CopilotService
             state.HasUsedToolsThisTurn = false;
             Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+            Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+            Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+            Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
             state.Info.ProcessingStartedAt = null;
             state.Info.ToolCallCount = 0;
             state.Info.ProcessingPhase = 0;
@@ -2361,6 +2371,9 @@ public partial class CopilotService
                 state.HasUsedToolsThisTurn = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+                Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+                Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ToolCallCount = 0;
                 state.Info.ProcessingPhase = 0;
