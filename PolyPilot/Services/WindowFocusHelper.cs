@@ -13,6 +13,7 @@ internal static class WindowFocusHelper
     /// Attempts to bring the terminal window hosting the given process into focus.
     /// Walks up the process tree from <paramref name="pid"/> to find the nearest
     /// ancestor with a visible window (the terminal emulator), then activates it.
+    /// For Windows Terminal, also focuses the specific tab containing the process.
     /// </summary>
     /// <returns>True if a window was found and focused, false otherwise.</returns>
     public static bool TryFocusTerminalForProcess(int pid)
@@ -36,9 +37,16 @@ internal static class WindowFocusHelper
     {
         // Walk up the process tree from the CLI PID looking for a process
         // that has a visible window (the terminal: wt.exe, conhost, cmd, powershell, etc.)
+        // Collect the ancestry chain so we can identify the tab for Windows Terminal.
+        var ancestryChain = new List<int>();
         var currentPid = pid;
+        IntPtr windowHandle = IntPtr.Zero;
+        int terminalPid = -1;
+        bool isWindowsTerminal = false;
+
         for (int depth = 0; depth < 10; depth++)
         {
+            ancestryChain.Add(currentPid);
             try
             {
                 using var proc = Process.GetProcessById(currentPid);
@@ -46,9 +54,11 @@ internal static class WindowFocusHelper
 
                 if (proc.MainWindowHandle != IntPtr.Zero)
                 {
-                    ShowWindow(proc.MainWindowHandle, SW_RESTORE);
-                    SetForegroundWindow(proc.MainWindowHandle);
-                    return true;
+                    windowHandle = proc.MainWindowHandle;
+                    terminalPid = currentPid;
+                    var name = proc.ProcessName?.ToLowerInvariant() ?? "";
+                    isWindowsTerminal = name.Contains("windowsterminal");
+                    break;
                 }
 
                 // Move to parent process
@@ -62,7 +72,101 @@ internal static class WindowFocusHelper
             }
         }
 
-        return false;
+        if (windowHandle == IntPtr.Zero) return false;
+
+        ShowWindow(windowHandle, SW_RESTORE);
+        SetForegroundWindow(windowHandle);
+
+        // For Windows Terminal, also try to focus the correct tab
+        if (isWindowsTerminal)
+            TryFocusWindowsTerminalTab(terminalPid, ancestryChain);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Attempts to focus the Windows Terminal tab containing the target process.
+    /// Uses process creation times to approximate tab order, then invokes
+    /// <c>wt -w 0 focus-tab -t &lt;index&gt;</c> to switch tabs.
+    /// </summary>
+    private static void TryFocusWindowsTerminalTab(int terminalPid, List<int> ancestryChain)
+    {
+        try
+        {
+            // The ancestry chain runs from target PID up to terminal PID.
+            // The entry just before the terminal is the direct child of WT in our chain.
+            var terminalIndex = ancestryChain.IndexOf(terminalPid);
+            if (terminalIndex <= 0) return;
+
+            var tabRootPid = ancestryChain[terminalIndex - 1];
+
+            // Enumerate all direct children of the Windows Terminal process
+            var children = GetChildProcessIds(terminalPid);
+            if (children.Count <= 1) return; // Single tab — no switching needed
+
+            // Sort by process start time to approximate visual tab order
+            var sorted = new List<(int Pid, DateTime StartTime)>();
+            foreach (var childPid in children)
+            {
+                try
+                {
+                    using var proc = Process.GetProcessById(childPid);
+                    if (!proc.HasExited)
+                        sorted.Add((childPid, proc.StartTime));
+                }
+                catch
+                {
+                    // Process exited between enumeration and query
+                }
+            }
+
+            if (sorted.Count <= 1) return;
+            sorted.Sort((a, b) => a.StartTime.CompareTo(b.StartTime));
+
+            var tabIndex = sorted.FindIndex(c => c.Pid == tabRootPid);
+            if (tabIndex < 0) return;
+
+            using var wt = Process.Start(new ProcessStartInfo
+            {
+                FileName = "wt.exe",
+                Arguments = $"-w 0 focus-tab -t {tabIndex}",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+            wt?.WaitForExit(3000);
+        }
+        catch
+        {
+            // Tab focusing is best-effort; the window is already in the foreground.
+        }
+    }
+
+    /// <summary>
+    /// Returns the PIDs of all processes whose parent is <paramref name="parentPid"/>.
+    /// </summary>
+    private static List<int> GetChildProcessIds(int parentPid)
+    {
+        var children = new List<int>();
+        var snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snapshot == IntPtr.Zero || snapshot == INVALID_HANDLE_VALUE) return children;
+
+        try
+        {
+            var entry = new PROCESSENTRY32 { dwSize = (uint)Marshal.SizeOf<PROCESSENTRY32>() };
+            if (!Process32First(snapshot, ref entry)) return children;
+
+            do
+            {
+                if (entry.th32ParentProcessID == (uint)parentPid)
+                    children.Add((int)entry.th32ProcessID);
+            } while (Process32Next(snapshot, ref entry));
+        }
+        finally
+        {
+            CloseHandle(snapshot);
+        }
+
+        return children;
     }
 
     private static int GetParentProcessId(int pid)
