@@ -3289,6 +3289,19 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         return true;
     }
 
+    /// <summary>
+    /// Finds a session by its SDK session ID (GUID) and switches to it.
+    /// Used when navigating from a notification tap where only the sessionId is known.
+    /// </summary>
+    public bool SwitchToSessionById(string sessionId)
+    {
+        var match = _sessions.FirstOrDefault(kv =>
+            string.Equals(kv.Value.Info.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
+        if (match.Key == null)
+            return false;
+        return SwitchSession(match.Key);
+    }
+
     public bool RenameSession(string oldName, string newName)
     {
         if (string.IsNullOrWhiteSpace(newName))
