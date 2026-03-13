@@ -636,7 +636,7 @@ public partial class CopilotService
     {
         // Compute a lightweight cache key from session count + group count + sort mode
         var key = HashCode.Combine(_sessions.Count, Organization.Groups.Count, Organization.SortMode);
-        foreach (var s in _sessions) key = HashCode.Combine(key, s.Key.GetHashCode(), s.Value.Info.IsProcessing ? 1 : 0);
+        foreach (var s in _sessions) key = HashCode.Combine(key, s.Key.GetHashCode(), s.Value.Info.IsProcessing ? 1 : 0, s.Value.Info.NeedsAttention ? 1 : 0);
 
         if (_organizedSessionsCache != null && key == _organizedSessionsCacheKey)
             return _organizedSessionsCache;
@@ -653,6 +653,7 @@ public partial class CopilotService
 
             var sorted = groupSessions
                 .OrderByDescending(s => metas.TryGetValue(s.Name, out var m) && m.IsPinned)
+                .ThenBy(s => UrgencyScore(s))
                 .ThenBy(s => ApplySort(s, metas))
                 .ToList();
 
@@ -663,6 +664,10 @@ public partial class CopilotService
         _organizedSessionsCacheKey = key;
         return result;
     }
+
+    private static int UrgencyScore(AgentSessionInfo session) =>
+        session.NeedsAttention ? 0 :
+        session.IsProcessing ? 1 : 2;
 
     private object ApplySort(AgentSessionInfo session, Dictionary<string, SessionMeta> metas)
     {
