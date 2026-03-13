@@ -973,8 +973,9 @@ public partial class CopilotService
             state.Info.PremiumRequestsUsed++;
         }
         state.Info.IsProcessing = false;
-        state.Info.IsResumed = false; // After first successful completion, use normal watchdog timeouts
+        state.Info.IsResumed = false;
         Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
+        state.Info.ConsecutiveStuckCount = 0;
         state.Info.ProcessingStartedAt = null;
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0;
@@ -1507,6 +1508,16 @@ public partial class CopilotService
     /// connections within ~30s instead of waiting for the 600s watchdog timeout.
     /// </summary>
     internal const int ToolHealthCheckIntervalMs = 30_000;
+
+    /// <summary>
+    /// Maximum milliseconds to wait for SDK SendAsync to complete before treating it as hung.
+    /// SendAsync is called with CancellationToken.None (SDK workaround), so we wrap it with
+    /// Task.WhenAny to enforce a client-side timeout. If the server takes longer than this
+    /// to accept the message (e.g., large context processing, half-open TCP), we throw
+    /// TimeoutException which enters the reconnect/error path. Set to 60s — long enough for
+    /// legitimate slow starts but short enough to detect hung connections quickly.
+    /// </summary>
+    internal const int SendAsyncTimeoutMs = 60_000;
 
     /// <summary>
     /// Milliseconds to wait after AssistantTurnEndEvent before firing CompleteResponse
@@ -2053,15 +2064,32 @@ public partial class CopilotService
                         state.Info.ToolCallCount = 0;
                         state.Info.ProcessingPhase = 0;
                         state.Info.ClearPermissionDenials(); // INV-1: clear on all termination paths
-                        state.Info.History.Add(ChatMessage.SystemMessage(
-                            "⚠️ Session appears stuck — no response received. You can try sending your message again."));
+                        state.Info.ConsecutiveStuckCount++;
+                        // Break the positive feedback loop: when a session repeatedly gets stuck,
+                        // each "Session appears stuck" system message grows the history, increasing
+                        // server context processing time and making the NEXT failure more likely.
+                        // After 3+ consecutive timeouts, skip the system message to stop history growth.
+                        if (state.Info.ConsecutiveStuckCount < 3)
+                        {
+                            state.Info.History.Add(ChatMessage.SystemMessage(
+                                "⚠️ Session appears stuck — no response received. You can try sending your message again."));
+                        }
+                        else
+                        {
+                            // Clear message queue to prevent auto-dispatch from immediately re-sending
+                            // into a session that's in a repeated-stuck cycle.
+                            state.Info.MessageQueue.Clear();
+                        }
                         var watchdogResponse = state.FlushedResponse.ToString();
                         state.FlushedResponse.Clear();
                         state.PendingReasoningMessages.Clear();
                         state.ResponseCompletion?.TrySetResult(watchdogResponse);
                         // Fire completion notification so orchestrator loops are unblocked (INV-O4)
                         OnSessionComplete?.Invoke(sessionName, "[Watchdog] timeout");
-                        OnError?.Invoke(sessionName, $"Session appears stuck — no events received for over {timeoutDisplay}.");
+                        var stuckCountMsg = state.Info.ConsecutiveStuckCount >= 3
+                            ? $"Session has failed to respond {state.Info.ConsecutiveStuckCount} times consecutively. Consider starting a new session — the conversation history ({state.Info.History.Count} messages) may be too large for the server to process."
+                            : $"Session appears stuck — no events received for over {timeoutDisplay}.";
+                        OnError?.Invoke(sessionName, stuckCountMsg);
                         OnStateChanged?.Invoke();
                     });
                     break;

@@ -2510,11 +2510,19 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // WORKAROUND: Pass CancellationToken.None to avoid SDK bug where StreamJsonRpc's
             // StandardCancellationStrategy tries to serialize RequestId (not in SDK's JSON context).
             // Cancellation is handled at the TCS level via ResponseCompletion.TrySetCanceled().
-            // NOTE: If SendAsync itself blocks (half-open TCP), watchdog completes TCS but we're
-            // stuck here. This is an edge case on mobile/codespace connections; true fix requires
-            // SDK-level timeout on the transport write.
+            // Client-side timeout via Task.WhenAny detects hung SendAsync without needing a
+            // CancellationToken. If SendAsync doesn't complete within SendAsyncTimeoutMs, throw
+            // TimeoutException to enter the reconnect/error path.
             // See: https://github.com/PureWeen/PolyPilot/issues/319
-            await state.Session.SendAsync(messageOptions, CancellationToken.None);
+            var sendTask = state.Session.SendAsync(messageOptions, CancellationToken.None);
+            if (await Task.WhenAny(sendTask, Task.Delay(SendAsyncTimeoutMs)) != sendTask)
+            {
+                Debug($"[SEND-TIMEOUT] '{sessionName}' SendAsync did not complete within {SendAsyncTimeoutMs / 1000}s — treating as hung connection");
+                // Observe the abandoned sendTask's exception to prevent UnobservedTaskException on GC.
+                _ = sendTask.ContinueWith(static t => { _ = t.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                throw new TimeoutException($"Server did not accept the message within {SendAsyncTimeoutMs / 1000} seconds. The connection may be broken or the server may be overloaded.");
+            }
+            await sendTask; // propagate any exception from SendAsync
         }
         catch (Exception ex)
         {
@@ -2737,8 +2745,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     if (!string.IsNullOrEmpty(agentMode))
                         retryOptions.Mode = agentMode;
                     // WORKAROUND: Pass CancellationToken.None (same reason as primary send path).
-                    // Same watchdog limitation applies here.
-                    await state.Session.SendAsync(retryOptions, CancellationToken.None);
+                    // Client-side timeout via Task.WhenAny (same pattern as primary send).
+                    var retryTask = state.Session.SendAsync(retryOptions, CancellationToken.None);
+                    if (await Task.WhenAny(retryTask, Task.Delay(SendAsyncTimeoutMs)) != retryTask)
+                    {
+                        Debug($"[RECONNECT-TIMEOUT] '{sessionName}' retry SendAsync did not complete within {SendAsyncTimeoutMs / 1000}s");
+                        // Observe the abandoned retryTask's exception to prevent UnobservedTaskException on GC.
+                        _ = retryTask.ContinueWith(static t => { _ = t.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                        throw new TimeoutException($"Server did not accept the message within {SendAsyncTimeoutMs / 1000} seconds after reconnect.");
+                    }
+                    await retryTask;
                     Debug($"[RECONNECT] '{sessionName}' SendAsync completed after reconnect — awaiting events");
                 }
                 catch (Exception retryEx)
