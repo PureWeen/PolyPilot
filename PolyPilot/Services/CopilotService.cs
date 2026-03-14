@@ -475,6 +475,10 @@ public partial class CopilotService : IAsyncDisposable
         /// <summary>Timestamp (UTC ticks) when AssistantTurnEndEvent was received.
         /// Used by zero-idle capture to measure fallback wait duration.</summary>
         public long TurnEndReceivedAtTicks;
+        /// <summary>Set to true when this state is replaced by a reconnect. Prevents orphaned
+        /// event handlers (still registered on the old CopilotSession) from processing events
+        /// or clearing IsProcessing on the shared Info object.</summary>
+        public volatile bool IsOrphaned;
     }
 
     private void Debug(string message)
@@ -2618,6 +2622,105 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                     await _client.StartAsync(cancellationToken);
                                     client = _client;
                                     Debug("Client recreated successfully");
+
+                                    // Re-resume all OTHER non-codespace sessions whose SDK transport
+                                    // died when we disposed the old client. Without this, sibling
+                                    // sessions become zombies with stale CopilotSession objects and
+                                    // silently stop receiving events until their next SendAsync fails.
+                                    var newClient = _client;
+                                    // Snapshot collections before Task.Run — Organization.Sessions
+                                    // and Groups are List<T> (not thread-safe) and must not be
+                                    // enumerated from a background thread.
+                                    var sessionSnapshots = Organization.Sessions.ToList();
+                                    var groupSnapshots = Organization.Groups.ToList();
+                                    _ = Task.Run(async () =>
+                                    {
+                                        foreach (var kvp in _sessions)
+                                        {
+                                            if (kvp.Key == sessionName) continue;
+                                            var otherState = kvp.Value;
+                                            if (string.IsNullOrEmpty(otherState.Info.SessionId)) continue;
+                                            // Skip siblings that are actively processing — re-resuming
+                                            // them would orphan mid-turn state and cause TaskCanceledException
+                                            // in orchestrator workers. Let their existing watchdog handle recovery.
+                                            if (otherState.Info.IsProcessing) continue;
+                                            var otherMeta = sessionSnapshots.FirstOrDefault(m => m.SessionName == kvp.Key);
+                                            if (otherMeta?.GroupId != null &&
+                                                groupSnapshots.Any(g => g.Id == otherMeta.GroupId && g.IsCodespace))
+                                                continue;
+                                            try
+                                            {
+                                                var settings = _currentSettings ?? ConnectionSettings.Load();
+                                                var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+                                                var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
+                                                var cfg = new ResumeSessionConfig
+                                                {
+                                                    Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
+                                                    OnPermissionRequest = AutoApprovePermissions,
+                                                    McpServers = mcpServers,
+                                                    SkillDirectories = skillDirs,
+                                                };
+                                                var m = Models.ModelHelper.NormalizeToSlug(otherState.Info.Model);
+                                                if (!string.IsNullOrEmpty(m)) cfg.Model = m;
+                                                if (!string.IsNullOrEmpty(otherState.Info.WorkingDirectory))
+                                                    cfg.WorkingDirectory = otherState.Info.WorkingDirectory;
+                                                var resumed = await newClient.ResumeSessionAsync(
+                                                    otherState.Info.SessionId, cfg, CancellationToken.None);
+                                                // Re-check after await — a concurrent SendPromptAsync
+                                                // may have started processing while we were resuming.
+                                                // Orphan the just-resumed session rather than cancel a live turn.
+                                                if (otherState.Info.IsProcessing)
+                                                {
+                                                    Debug($"[RECONNECT] Sibling '{kvp.Key}' started processing during re-resume — skipping");
+                                                    continue;
+                                                }
+                                                // Mark old state orphaned so stale handlers from the
+                                                // previous CopilotSession stop processing events.
+                                                // Create a new state (like the primary reconnect path)
+                                                // instead of mutating otherState in place.
+                                                otherState.IsOrphaned = true;
+                                                Interlocked.Exchange(ref otherState.ProcessingGeneration, long.MaxValue);
+                                                // Cancel old TCS so any awaiter (orchestrator worker) doesn't hang
+                                                otherState.ResponseCompletion?.TrySetCanceled();
+                                                var siblingState = new SessionState
+                                                {
+                                                    Session = resumed,
+                                                    Info = otherState.Info,
+                                                    IsMultiAgentSession = otherState.IsMultiAgentSession,
+                                                };
+                                                // Mirror primary reconnect: reset tool tracking for new connection
+                                                siblingState.HasUsedToolsThisTurn = false;
+                                                Interlocked.Exchange(ref siblingState.ActiveToolCallCount, 0);
+                                                Interlocked.Exchange(ref siblingState.SuccessfulToolCountThisTurn, 0);
+                                                Interlocked.Exchange(ref siblingState.ToolHealthStaleChecks, 0);
+                                                Interlocked.Exchange(ref siblingState.EventCountThisTurn, 0);
+                                                Interlocked.Exchange(ref siblingState.TurnEndReceivedAtTicks, 0);
+                                                // Register handler BEFORE publishing to dictionary —
+                                                // no window where events arrive with no handler.
+                                                resumed.On(evt => HandleSessionEvent(siblingState, evt));
+                                                // Use TryUpdate to prevent a stale Task.Run from overwriting
+                                                // a newer reconnect's state on rapid back-to-back reconnects.
+                                                if (!_sessions.TryUpdate(kvp.Key, siblingState, otherState))
+                                                {
+                                                    Debug($"[RECONNECT] Sibling '{kvp.Key}' already replaced by another reconnect — discarding");
+                                                    siblingState.IsOrphaned = true;
+                                                    continue;
+                                                }
+                                                Debug($"[RECONNECT] Re-resumed sibling session '{kvp.Key}' after client recreation");
+                                            }
+                                            catch (Exception reEx)
+                                            {
+                                                Debug($"[RECONNECT] Failed to re-resume sibling '{kvp.Key}': {reEx.Message}");
+                                                // Mark as orphaned so stale handlers from the old (now-dead)
+                                                // CopilotSession stop processing events. Without this, the
+                                                // session becomes a zombie with a dead SDK handle.
+                                                otherState.IsOrphaned = true;
+                                                Interlocked.Exchange(ref otherState.ProcessingGeneration, long.MaxValue);
+                                                // Unblock any orchestrator worker awaiting this session's TCS
+                                                otherState.ResponseCompletion?.TrySetCanceled();
+                                            }
+                                        }
+                                    });
                                 }
                                 catch (OperationCanceledException)
                                 {
@@ -2662,14 +2765,63 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         // with full config (MCP servers, skills, system message) matching CreateSessionAsync.
                         Debug($"Session '{sessionName}' expired on server, creating fresh session...");
                         OnActivity?.Invoke(sessionName, "🔄 Session expired, creating new session...");
-                        var freshConfig = BuildFreshSessionConfig(state);
-                        newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
-                        state.Info.SessionId = newSession.SessionId;
+                        try
+                        {
+                            var freshConfig = BuildFreshSessionConfig(state);
+                            newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
+                            state.Info.SessionId = newSession.SessionId;
+                        }
+                        catch (Exception createEx)
+                        {
+                            Debug($"[RECONNECT] '{sessionName}' fresh session creation failed: {createEx.Message}");
+                            state.IsOrphaned = true;
+                            Interlocked.Exchange(ref state.ProcessingGeneration, long.MaxValue);
+                            CancelProcessingWatchdog(state);
+                            CancelTurnEndFallback(state);
+                            CancelToolHealthCheck(state);
+                            throw;
+                        }
                     }
-                    // Cancel old watchdog AND TurnEnd fallback BEFORE creating new state — they share Info/TCS
+                    catch (Exception resumeEx) when (
+                        resumeEx.Message.Contains("corrupted", StringComparison.OrdinalIgnoreCase) ||
+                        resumeEx.Message.Contains("session file is", StringComparison.OrdinalIgnoreCase) ||
+                        resumeEx.Message.Contains("Invalid literal value", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Session events.jsonl is corrupted or unreadable.
+                        // CLI errors include "Session file is corrupted (line N: ...)" and variants.
+                        Debug($"[RECONNECT] '{sessionName}' session file corrupted, creating fresh session: {resumeEx.Message}");
+                        OnActivity?.Invoke(sessionName, "🔄 Session file corrupted, creating new session...");
+                        try
+                        {
+                            var freshConfig = BuildFreshSessionConfig(state);
+                            newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
+                            state.Info.SessionId = newSession.SessionId;
+                        }
+                        catch (Exception createEx)
+                        {
+                            // CreateSessionAsync failed — orphan first, then cancel watchers
+                            // so stale callbacks from the broken session stop mutating shared Info.
+                            Debug($"[RECONNECT] '{sessionName}' fresh session creation also failed: {createEx.Message}");
+                            state.IsOrphaned = true;
+                            Interlocked.Exchange(ref state.ProcessingGeneration, long.MaxValue);
+                            CancelProcessingWatchdog(state);
+                            CancelTurnEndFallback(state);
+                            CancelToolHealthCheck(state);
+                            throw;
+                        }
+                    }
+                    // CRITICAL: Mark the old state as orphaned FIRST — any already-queued
+                    // timer/watchdog callbacks that check IsOrphaned will bail out.
+                    // Then cancel the timers to prevent new callbacks from being scheduled.
+                    state.IsOrphaned = true;
+                    Interlocked.Exchange(ref state.ProcessingGeneration, long.MaxValue);
                     CancelProcessingWatchdog(state);
                     CancelTurnEndFallback(state);
                     CancelToolHealthCheck(state);
+                    
+                    // This prevents stale event callbacks (still registered on the old CopilotSession)
+                    // from processing events or clearing IsProcessing on the shared Info object.
+                    
                     Debug($"[RECONNECT] '{sessionName}' replacing state (old handler will be orphaned, " +
                           $"old session disposed, new session={newSession.SessionId})");
                     // Preserve accumulated response content from the old state.

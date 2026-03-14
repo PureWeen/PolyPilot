@@ -211,6 +211,13 @@ public partial class CopilotService
 
     private void HandleSessionEvent(SessionState state, SessionEvent evt)
     {
+        // Skip ALL event processing for orphaned states. When a session reconnects,
+        // the old state is marked IsOrphaned=true. The old CopilotSession object may still
+        // fire events (replays, stale callbacks) — processing them on the orphaned state
+        // would race with the new state and corrupt IsProcessing on the shared Info object.
+        if (state.IsOrphaned)
+            return;
+        
         Volatile.Write(ref state.HasReceivedEventsSinceResume, true);
         // Don't reset the watchdog timer for pure metrics/info events (SessionUsageInfoEvent,
         // AssistantUsageEvent). These are informational only and don't indicate actual turn
@@ -392,6 +399,8 @@ public partial class CopilotService
                 // (e.g., reading our own permission detection code) — false positive.
                 var isPermissionDenial = IsPermissionDenialText(errorStr)
                     || (hasError && IsPermissionDenialText(resultStr));
+                var isShellFailure = IsShellEnvironmentFailure(errorStr)
+                    || (hasError && IsShellEnvironmentFailure(resultStr));
 
                 // Black-box log every permission denial for post-mortem analysis
                 if (isPermissionDenial)
@@ -404,24 +413,35 @@ public partial class CopilotService
                           $"(denials={state.Info.PermissionDenialCount + 1}, isMultiAgent={state.IsMultiAgentSession})");
                 }
 
-                // Track permission denials via sliding window (3 of last 5 tool results)
-                // This handles cases where an occasional OK tool resets a strict consecutive counter
-                if (isPermissionDenial || !hasError)
+                if (isShellFailure)
                 {
-                    var denialCount = state.Info.RecordToolResult(isPermissionDenial);
-                    if (!isPermissionDenial && !hasError)
+                    Debug($"[SHELL-FAILURE] '{sessionName}' tool='{completeToolName}' " +
+                          $"error='{errorStr}' (shell errors so far: posix_spawn/environment failure)");
+                }
+
+                // Track permission denials AND shell failures via sliding window (3 of last 5 tool results)
+                // Shell environment failures (posix_spawn) are treated like permission denials — they
+                // indicate the session's process context is broken and needs recovery.
+                var isRecoverableError = isPermissionDenial || isShellFailure;
+                if (isRecoverableError || !hasError)
+                {
+                    var denialCount = state.Info.RecordToolResult(isRecoverableError);
+                    if (!isRecoverableError && !hasError)
                         Interlocked.Increment(ref state.SuccessfulToolCountThisTurn);
-                    if (isPermissionDenial && denialCount >= 3)
+                    if (isRecoverableError && denialCount >= 3)
                     {
                         // Trigger recovery on first threshold crossing (denialCount == 3),
                         // not on subsequent denials that stay at 3+ in the window
                         if (denialCount == 3)
                         {
-                            Debug($"[PERMISSION-RECOVER-TRIGGER] '{sessionName}' threshold reached ({denialCount}/5 denials)");
+                            var reason = isShellFailure ? "Shell environment broken" : "Permission errors";
+                            Debug($"[PERMISSION-RECOVER-TRIGGER] '{sessionName}' threshold reached ({denialCount}/5 errors, reason={reason})");
                             Invoke(() =>
                             {
-                                state.Info.History.Add(ChatMessage.SystemMessage(
-                                    "⚠️ Permission errors detected. Attempting to reconnect session..."));
+                                var msg = isShellFailure
+                                    ? "⚠️ Shell environment broken (posix_spawn failed). Attempting to reconnect session..."
+                                    : "⚠️ Permission errors detected. Attempting to reconnect session...";
+                                state.Info.History.Add(ChatMessage.SystemMessage(msg));
                                 OnStateChanged?.Invoke();
                                 _ = TryRecoverPermissionAsync(state, sessionName);
                             });
@@ -530,6 +550,7 @@ public partial class CopilotService
                         {
                             await Task.Delay(TurnEndIdleFallbackMs, fallbackToken);
                             if (fallbackToken.IsCancellationRequested) return;
+                            if (state.IsOrphaned) return;
                             // Guard: if tools are still active, a TurnStart is coming — skip.
                             if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
                             {
@@ -694,8 +715,12 @@ public partial class CopilotService
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+                Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+                Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
                 InvokeOnUI(() =>
                 {
+                    if (state.IsOrphaned) return;
                     OnError?.Invoke(sessionName, errMsg);
                     // Flush any accumulated partial response before clearing the accumulator
                     FlushCurrentResponse(state);
@@ -883,6 +908,16 @@ public partial class CopilotService
     /// </summary>
     private void CompleteResponse(SessionState state, long? expectedGeneration = null)
     {
+        // Belt-and-suspenders: skip if this state was orphaned by a reconnect.
+        // Invoke callbacks may have been queued before IsOrphaned was set.
+        if (state.IsOrphaned)
+        {
+            Debug($"[COMPLETE] '{state.Info.Name}' CompleteResponse skipped — state is orphaned (reconnect replaced it)");
+            // Complete the TCS so callers (e.g., orchestrator workers) don't hang forever.
+            state.ResponseCompletion?.TrySetCanceled();
+            return;
+        }
+        
         if (!state.Info.IsProcessing)
         {
             // Still flush any accumulated content — delta events may have arrived
@@ -1572,6 +1607,7 @@ public partial class CopilotService
                 // Verify we're still on the same turn
                 if (Interlocked.Read(ref state.ProcessingGeneration) != checkGeneration) return;
                 if (!state.Info.IsProcessing) return;
+                if (state.IsOrphaned) return;
 
                 var activeTools = Volatile.Read(ref state.ActiveToolCallCount);
                 if (activeTools <= 0) return; // Tool completed normally
@@ -1631,16 +1667,21 @@ public partial class CopilotService
     /// </summary>
     private void TriggerToolHealthRecovery(SessionState state, string sessionName, string reason)
     {
+        if (state.IsOrphaned) return;
         CancelToolHealthCheck(state);
         CancelProcessingWatchdog(state);
         CancelTurnEndFallback(state);
 
         var activeTools = Volatile.Read(ref state.ActiveToolCallCount);
+        var recoveryGeneration = Interlocked.Read(ref state.ProcessingGeneration);
         Debug($"[TOOL-HEALTH] '{sessionName}' triggering recovery: {reason} (activeTools={activeTools})");
 
-        InvokeOnUI(() =>
+                        InvokeOnUI(() =>
         {
+            if (state.IsOrphaned) return;
             if (!state.Info.IsProcessing) return;
+            var currentGen = Interlocked.Read(ref state.ProcessingGeneration);
+            if (recoveryGeneration != currentGen) return;
 
             OnError?.Invoke(sessionName, $"Tool execution stuck ({reason}). Session recovered automatically.");
 
@@ -1651,6 +1692,8 @@ public partial class CopilotService
             Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
             Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+            Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+            Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
 
             // Build full response: flushed mid-turn text + remaining current text
             var response = state.CurrentResponse.ToString();
@@ -1709,6 +1752,17 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Detects shell environment failures where the CLI can no longer spawn processes.
+    /// This happens when posix_spawn fails (e.g., broken session process context after
+    /// prolonged use or server restart). The session needs to be disposed and recreated.
+    /// </summary>
+    internal static bool IsShellEnvironmentFailure(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        return text.Contains("posix_spawn failed", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// Extracts a human-readable error message from a ToolExecutionCompleteData.Error object.
     /// The SDK's ToolExecutionCompleteDataError type has Message/Code properties but does NOT
     /// override ToString() — calling ToString() returns the type name, not the message.
@@ -1763,6 +1817,7 @@ public partial class CopilotService
                 await Task.Delay(TimeSpan.FromSeconds(WatchdogCheckIntervalSeconds), ct);
 
                 if (!state.Info.IsProcessing) break;
+                if (state.IsOrphaned) { Debug($"[WATCHDOG] '{sessionName}' exiting — state is orphaned"); return; }
 
                 var lastEventTicks = Interlocked.Read(ref state.LastEventAtTicks);
                 var elapsed = (DateTime.UtcNow - new DateTime(lastEventTicks)).TotalSeconds;
@@ -2037,6 +2092,7 @@ public partial class CopilotService
                     // racing with CompleteResponse / HandleSessionEvent.
                     InvokeOnUI(() =>
                     {
+                        if (state.IsOrphaned) return; // Reconnect already replaced this state
                         if (!state.Info.IsProcessing) return; // Already completed
                         var currentGen = Interlocked.Read(ref state.ProcessingGeneration);
                         if (watchdogGeneration != currentGen)
@@ -2050,11 +2106,17 @@ public partial class CopilotService
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                        Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+                        Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+                        Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
                         // Cancel any pending TurnEnd→Idle fallback
                         CancelTurnEndFallback(state);
                         state.Info.IsResumed = false;
-                        // Flush any accumulated partial response before clearing processing state
-                        FlushCurrentResponse(state);
+                        // Flush any accumulated partial response before clearing processing state.
+                        // Wrapped in try-catch: if flush fails, IsProcessing MUST still be cleared
+                        // (otherwise the session is permanently stuck — the watchdog has already exited).
+                        try { FlushCurrentResponse(state); }
+                        catch (Exception flushEx) { Debug($"[WATCHDOG] '{sessionName}' flush failed during kill: {flushEx.Message}"); }
                         Debug($"[WATCHDOG] '{sessionName}' IsProcessing=false — watchdog timeout after {totalProcessingSeconds:F0}s total, elapsed={elapsed:F0}s, exceededMaxTime={exceededMaxTime}");
                         state.Info.IsProcessing = false;
                         Interlocked.Exchange(ref state.SendingFlag, 0);
@@ -2097,7 +2159,50 @@ public partial class CopilotService
             }
         }
         catch (OperationCanceledException) { /* Normal cancellation when response completes */ }
-        catch (Exception ex) { Debug($"Watchdog error for '{sessionName}': {ex.Message}"); }
+        catch (Exception ex)
+        {
+            // Safety net: if the watchdog crashes for ANY reason, clear IsProcessing to prevent
+            // permanently stuck sessions. Without this, any unexpected exception (NRE, state
+            // corruption, etc.) leaves the session showing "Sending..." forever with no recovery
+            // path — the watchdog is the last line of defense.
+            Debug($"[WATCHDOG-CRASH] Watchdog loop error for '{sessionName}': {ex.Message}");
+            try
+            {
+                InvokeOnUI(() =>
+                {
+                    if (state.IsOrphaned) return;
+                    if (!state.Info.IsProcessing) return;
+                    Debug($"[WATCHDOG-CRASH] '{sessionName}' clearing IsProcessing after watchdog crash");
+                    // Best-effort flush before clearing processing state
+                    try { FlushCurrentResponse(state); }
+                    catch { /* Flush failure must not prevent IsProcessing cleanup */ }
+                    // INV-1: clear IsProcessing and all 9 companion fields
+                    state.Info.IsProcessing = false;
+                    state.Info.IsResumed = false;
+                    Interlocked.Exchange(ref state.SendingFlag, 0);
+                    Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                    state.HasUsedToolsThisTurn = false;
+                    Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+                    Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+                    Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+                    Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
+                    state.Info.ProcessingStartedAt = null;
+                    state.Info.ToolCallCount = 0;
+                    state.Info.ProcessingPhase = 0;
+                    state.Info.ClearPermissionDenials();
+                    state.Info.ConsecutiveStuckCount++;
+                    var crashResponse = state.FlushedResponse.ToString() + state.CurrentResponse.ToString();
+                    state.FlushedResponse.Clear();
+                    state.CurrentResponse.Clear();
+                    state.PendingReasoningMessages.Clear();
+                    state.ResponseCompletion?.TrySetResult(crashResponse);
+                    OnSessionComplete?.Invoke(sessionName, "[Watchdog] crash recovery");
+                    OnError?.Invoke(sessionName, "Internal error in session monitoring. Try sending your message again.");
+                    OnStateChanged?.Invoke();
+                });
+            }
+            catch { /* Best effort — InvokeOnUI itself failed */ }
+        }
     }
 
     /// <summary>
@@ -2133,6 +2238,9 @@ public partial class CopilotService
             state.HasUsedToolsThisTurn = false;
             Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+            Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+            Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+            Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
             state.Info.ProcessingStartedAt = null;
             state.Info.ToolCallCount = 0;
             state.Info.ProcessingPhase = 0;
@@ -2263,6 +2371,9 @@ public partial class CopilotService
                 state.HasUsedToolsThisTurn = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+                Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+                Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ToolCallCount = 0;
                 state.Info.ProcessingPhase = 0;

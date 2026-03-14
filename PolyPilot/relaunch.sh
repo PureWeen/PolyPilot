@@ -24,8 +24,10 @@ if [ -x "$HOME/.dotnet/dotnet" ]; then
     export PATH="$HOME/.dotnet:$PATH"
 fi
 
-# Capture PIDs of currently running instances BEFORE build
-OLD_PIDS=$(ps -eo pid,comm | grep "PolyPilot" | grep -v grep | grep -v "PolyPilot.csproj" | awk '{print $1}' | tr '\n' ' ')
+# Capture PIDs of currently running PolyPilot app instances BEFORE build.
+# Use end-of-line anchor so we only match the app binary (path ends with "PolyPilot"),
+# NOT the copilot headless server bundled inside PolyPilot.app/Contents/MonoBundle/copilot.
+OLD_PIDS=$(ps -eo pid,comm | grep "PolyPilot$" | grep -v grep | awk '{print $1}' | tr '\n' ' ')
 
 echo "🔨 Building..."
 cd "$PROJECT_DIR"

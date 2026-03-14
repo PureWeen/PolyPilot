@@ -60,7 +60,7 @@ public class SystemTextFontScalingTests
 
         Assert.NotEmpty(blocks);
         var mainBlock = blocks[0];
-        Assert.Contains("var(--type-subhead)", mainBlock);
+        Assert.Contains("var(--type-callout)", mainBlock);
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class SystemTextFontScalingTests
         var blocks = ExtractCssBlocks(css, @"\.chat-message-list\.full\.style-minimal ::deep \.system-text");
 
         Assert.NotEmpty(blocks);
-        Assert.Contains("var(--type-subhead)", blocks[0]);
+        Assert.Contains("var(--type-callout)", blocks[0]);
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public class SystemTextFontScalingTests
         var css = File.ReadAllText(appCssPath);
 
         // Verify the CSS variables used by system-text exist and use rem units
-        Assert.Matches(@"--type-subhead:\s*[\d.]+rem", css);
+        Assert.Matches(@"--type-callout:\s*[\d.]+rem", css);
         Assert.Matches(@"--type-footnote:\s*[\d.]+rem", css);
     }
 }
