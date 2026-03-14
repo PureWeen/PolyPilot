@@ -2650,10 +2650,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 continue;
                                             try
                                             {
+                                                var settings = _currentSettings ?? ConnectionSettings.Load();
+                                                var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+                                                var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
                                                 var cfg = new ResumeSessionConfig
                                                 {
                                                     Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
                                                     OnPermissionRequest = AutoApprovePermissions,
+                                                    McpServers = mcpServers,
+                                                    SkillDirectories = skillDirs,
                                                 };
                                                 var m = Models.ModelHelper.NormalizeToSlug(otherState.Info.Model);
                                                 if (!string.IsNullOrEmpty(m)) cfg.Model = m;
@@ -2661,6 +2666,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     cfg.WorkingDirectory = otherState.Info.WorkingDirectory;
                                                 var resumed = await newClient.ResumeSessionAsync(
                                                     otherState.Info.SessionId, cfg, CancellationToken.None);
+                                                // Re-check after await — a concurrent SendPromptAsync
+                                                // may have started processing while we were resuming.
+                                                // Orphan the just-resumed session rather than cancel a live turn.
+                                                if (otherState.Info.IsProcessing)
+                                                {
+                                                    Debug($"[RECONNECT] Sibling '{kvp.Key}' started processing during re-resume — skipping");
+                                                    continue;
+                                                }
                                                 // Mark old state orphaned so stale handlers from the
                                                 // previous CopilotSession stop processing events.
                                                 // Create a new state (like the primary reconnect path)
@@ -2771,7 +2784,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     }
                     catch (Exception resumeEx) when (
                         resumeEx.Message.Contains("corrupted", StringComparison.OrdinalIgnoreCase) ||
-                        resumeEx.Message.Contains("session file", StringComparison.OrdinalIgnoreCase))
+                        resumeEx.Message.Contains("session file is", StringComparison.OrdinalIgnoreCase) ||
+                        resumeEx.Message.Contains("Invalid literal value", StringComparison.OrdinalIgnoreCase))
                     {
                         // Session events.jsonl is corrupted or unreadable.
                         // CLI errors include "Session file is corrupted (line N: ...)" and variants.

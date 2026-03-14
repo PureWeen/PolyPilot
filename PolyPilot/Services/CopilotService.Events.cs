@@ -2191,7 +2191,7 @@ public partial class CopilotService
                     state.Info.ProcessingPhase = 0;
                     state.Info.ClearPermissionDenials();
                     state.Info.ConsecutiveStuckCount++;
-                    var crashResponse = state.FlushedResponse.ToString();
+                    var crashResponse = state.FlushedResponse.ToString() + state.CurrentResponse.ToString();
                     state.FlushedResponse.Clear();
                     state.CurrentResponse.Clear();
                     state.PendingReasoningMessages.Clear();
