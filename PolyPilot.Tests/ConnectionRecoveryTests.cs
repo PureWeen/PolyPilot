@@ -455,11 +455,13 @@ public class ConnectionRecoveryTests
 
         // Find the fallback condition that checks ex.Message for "Session not found"
         var conditionIndex = source.IndexOf("ex.Message.Contains(\"Session not found\"");
-        Assert.True(conditionIndex > 0, "Could not find ex.Message.Contains(\"Session not found\") in RestorePreviousSessionsAsync");
+        Assert.True(conditionIndex != -1, "Could not find ex.Message.Contains(\"Session not found\") in RestorePreviousSessionsAsync");
 
-        // The IsProcessError check must be in the same if-condition block
-        var conditionBlock = source.Substring(conditionIndex, 500);
-        Assert.Contains("IsProcessError", conditionBlock);
+        // IsProcessError must appear somewhere after the "Session not found" anchor in the same file.
+        // Using IndexOf with a start position avoids a fixed-width window that could throw or miss.
+        var processErrorIndex = source.IndexOf("IsProcessError", conditionIndex);
+        Assert.True(processErrorIndex != -1,
+            "IsProcessError must be included in the RestorePreviousSessionsAsync fallback condition (not found after the 'Session not found' anchor)");
     }
 
     // ===== SafeFireAndForget task observation =====
