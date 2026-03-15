@@ -2825,7 +2825,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // from processing events or clearing IsProcessing on the shared Info object.
                     
                     Debug($"[RECONNECT] '{sessionName}' replacing state (old handler will be orphaned, " +
-                          $"old session disposed, new session={newSession.SessionId})");
+                          $"new session={newSession.SessionId})");
                     // Preserve accumulated response content from the old state.
                     // FlushedResponse contains text from earlier FlushCurrentResponse calls —
                     // this is real output the worker produced before the connection died.
