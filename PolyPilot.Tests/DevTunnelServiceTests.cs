@@ -786,13 +786,13 @@ public class DevTunnelServiceTests
     }
 
     [Fact]
-    public void ValidateClientToken_LoopbackAlwaysAllowed()
+    public void ValidateClientToken_Loopback_WithoutToken_Rejected()
     {
         var server = new WsBridgeServer();
         server.AccessToken = "secret-token";
-        // Loopback should be allowed even without providing a token
+        // Loopback is no longer trusted when a token is configured — token required
         var result = InvokeValidateClientToken(server, isLoopback: true, authHeader: null, queryToken: null);
-        Assert.True(result);
+        Assert.False(result);
     }
 
     [Fact]
@@ -900,7 +900,7 @@ public class DevTunnelServiceTests
     /// Tests ValidateClientToken logic by mirroring its implementation,
     /// since HttpListenerRequest can't be easily mocked.
     /// </summary>
-    private static bool InvokeValidateClientToken(WsBridgeServer server, bool isLoopback, string? authHeader, string? queryToken)
+    private static bool InvokeValidateClientToken(WsBridgeServer server, bool isLoopback, string? authHeader, string? queryToken, string? bridgeHeader = null)
     {
         // Mirror the logic from WsBridgeServer.ValidateClientToken
         var accessToken = server.AccessToken;
@@ -909,11 +909,17 @@ public class DevTunnelServiceTests
         if (string.IsNullOrEmpty(accessToken) && string.IsNullOrEmpty(serverPassword))
             return true;
 
-        if (isLoopback)
-            return true;
+        // isLoopback parameter retained for call-site compatibility; loopback bypass was
+        // removed from production -- all connections require a token when one is configured.
 
+        // Extract token: prefer X-Bridge-Authorization (survives DevTunnel proxying),
+        // fall back to X-Tunnel-Authorization, then query string.
         string? providedToken = null;
-        if (!string.IsNullOrEmpty(authHeader))
+        if (!string.IsNullOrEmpty(bridgeHeader))
+        {
+            providedToken = bridgeHeader.Trim();
+        }
+        else if (!string.IsNullOrEmpty(authHeader))
         {
             providedToken = authHeader.StartsWith("tunnel ", StringComparison.OrdinalIgnoreCase)
                 ? authHeader["tunnel ".Length..].Trim()
