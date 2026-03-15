@@ -331,12 +331,10 @@ public class LongRunningSessionSafetyTests
         var eventsFields = typeof(CopilotService).GetFields(
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         var multiField = eventsFields.FirstOrDefault(f => f.Name == "WatchdogMultiAgentCaseBFreshnessSeconds");
-        if (multiField != null)
-        {
-            var multiValue = Convert.ToInt32(multiField.GetValue(null));
-            Assert.True(multiValue >= 1800,
-                $"WatchdogMultiAgentCaseBFreshnessSeconds={multiValue} must be >= 1800 for long-running workers");
-        }
+        Assert.NotNull(multiField); // Fail loudly if constant is renamed
+        var multiValue = Convert.ToInt32(multiField.GetValue(null));
+        Assert.True(multiValue >= 1800,
+            $"WatchdogMultiAgentCaseBFreshnessSeconds={multiValue} must be >= 1800 for long-running workers");
     }
 
     [Fact]
