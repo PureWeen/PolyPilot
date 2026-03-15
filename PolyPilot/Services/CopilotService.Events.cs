@@ -518,6 +518,7 @@ public partial class CopilotService
                 if (!state.Info.IsProcessing && isCurrentState && !state.IsOrphaned)
                 {
                     Debug($"[EVT-REARM] '{sessionName}' TurnStartEvent arrived after premature session.idle — re-arming IsProcessing");
+                    state.WasPrematurelyIdled = true; // Signal to ExecuteWorkerAsync that TCS result was truncated
                     Invoke(() =>
                     {
                         if (state.IsOrphaned) return;

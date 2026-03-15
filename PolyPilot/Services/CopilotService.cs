@@ -475,6 +475,11 @@ public partial class CopilotService : IAsyncDisposable
         /// <summary>Timestamp (UTC ticks) when AssistantTurnEndEvent was received.
         /// Used by zero-idle capture to measure fallback wait duration.</summary>
         public long TurnEndReceivedAtTicks;
+        /// <summary>Set to true when EVT-REARM fires (premature session.idle followed by
+        /// TurnStartEvent while IsProcessing=false). Used by ExecuteWorkerAsync to detect
+        /// that the initial TCS result was truncated and the worker is still running.
+        /// Cleared in SendPromptAsync (new turn start).</summary>
+        public volatile bool WasPrematurelyIdled;
         /// <summary>Set to true when this state is replaced by a reconnect. Prevents orphaned
         /// event handlers (still registered on the old CopilotSession) from processing events
         /// or clearing IsProcessing on the shared Info object.</summary>
@@ -2479,6 +2484,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ClearPermissionDenials();
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
+        state.WasPrematurelyIdled = false; // Clear premature idle detection from previous turn
         state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
         Interlocked.Exchange(ref state.EventCountThisTurn, 0); // Reset event counter for zero-idle capture

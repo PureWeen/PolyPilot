@@ -2454,7 +2454,9 @@ else
                 var pendingPath = Path.Combine(CopilotService.BaseDir, "pending-orchestration.json");
                 if (File.Exists(pendingPath))
                 {
-                    var content = File.ReadAllText(pendingPath);
+                    using var fs = new FileStream(pendingPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var reader = new StreamReader(fs);
+                    var content = reader.ReadToEnd();
                     if (!string.IsNullOrWhiteSpace(content) && content.Trim() != "{}" && content.Trim() != "[]")
                         sb.AppendLine($"PendingOrchestration: active ({content.Length} chars)");
                     else

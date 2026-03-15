@@ -2350,4 +2350,179 @@ public class MultiAgentRegressionTests
     }
 
     #endregion
+
+    #region Premature Idle Recovery Tests (PR #375 — SDK bug #299)
+
+    [Fact]
+    public void PrematureIdleDetectionWindowMs_IsReasonable()
+    {
+        // The detection window must be long enough for EVT-REARM to fire on the UI thread
+        // after the premature idle, but short enough not to delay normal completions excessively.
+        Assert.True(CopilotService.PrematureIdleDetectionWindowMs >= 3000,
+            "Detection window must be >= 3s to allow UI thread EVT-REARM dispatch");
+        Assert.True(CopilotService.PrematureIdleDetectionWindowMs <= 10_000,
+            "Detection window must be <= 10s to avoid excessive delay on normal completions");
+    }
+
+    [Fact]
+    public void PrematureIdleRecoveryTimeoutMs_IsReasonable()
+    {
+        // Recovery timeout must accommodate workers with long tool runs (up to 10+ minutes)
+        // but not exceed the worker execution timeout.
+        Assert.True(CopilotService.PrematureIdleRecoveryTimeoutMs >= 60_000,
+            "Recovery timeout must be >= 60s to accommodate worker tool runs");
+        Assert.True(CopilotService.PrematureIdleRecoveryTimeoutMs <= 600_000,
+            "Recovery timeout must be <= 600s (10 min) to not exceed worker timeout");
+    }
+
+    [Fact]
+    public void WasPrematurelyIdled_ExistsOnSessionState()
+    {
+        // The volatile flag must exist on SessionState for EVT-REARM → ExecuteWorkerAsync signaling
+        var field = typeof(CopilotService).GetNestedType("SessionState",
+            System.Reflection.BindingFlags.NonPublic)?
+            .GetField("WasPrematurelyIdled");
+        Assert.NotNull(field);
+        Assert.True(field.FieldType == typeof(bool), "WasPrematurelyIdled must be a bool");
+    }
+
+    [Fact]
+    public void WasPrematurelyIdled_SetInRearmPath()
+    {
+        // Structural: the EVT-REARM path must set WasPrematurelyIdled = true
+        var eventsPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs");
+        var source = File.ReadAllText(eventsPath);
+
+        // Find the EVT-REARM block
+        var rearmIdx = source.IndexOf("[EVT-REARM]", StringComparison.Ordinal);
+        Assert.True(rearmIdx >= 0, "EVT-REARM diagnostic tag must exist in Events.cs");
+
+        // Within the next 200 chars after the tag, WasPrematurelyIdled must be set
+        var rearmBlock = source.Substring(rearmIdx, Math.Min(200, source.Length - rearmIdx));
+        Assert.Contains("WasPrematurelyIdled = true", rearmBlock);
+    }
+
+    [Fact]
+    public void WasPrematurelyIdled_ClearedInSendPromptAsync()
+    {
+        // Structural: SendPromptAsync must clear WasPrematurelyIdled on each new turn
+        var servicePath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(servicePath);
+
+        // Find SendPromptAsync method
+        var sendIdx = source.IndexOf("async Task<string> SendPromptAsync(", StringComparison.Ordinal);
+        Assert.True(sendIdx >= 0, "SendPromptAsync must exist in CopilotService.cs");
+
+        var sendBlock = source.Substring(sendIdx, Math.Min(5000, source.Length - sendIdx));
+        Assert.Contains("WasPrematurelyIdled = false", sendBlock);
+    }
+
+    [Fact]
+    public void RecoverFromPrematureIdleIfNeededAsync_ExistsInOrganization()
+    {
+        // Structural: the recovery method must exist and be called from ExecuteWorkerAsync
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        Assert.Contains("RecoverFromPrematureIdleIfNeededAsync", source);
+
+        // Must be called within ExecuteWorkerAsync (find the method definition, not a call site)
+        var execIdx = source.IndexOf("private async Task<WorkerResult> ExecuteWorkerAsync", StringComparison.Ordinal);
+        Assert.True(execIdx >= 0, "ExecuteWorkerAsync method definition must exist");
+        var execBlock = source.Substring(execIdx, Math.Min(5000, source.Length - execIdx));
+        Assert.Contains("RecoverFromPrematureIdleIfNeededAsync", execBlock);
+    }
+
+    [Fact]
+    public void RecoverFromPrematureIdleIfNeededAsync_OnlyForMultiAgentSessions()
+    {
+        // Structural: the recovery check must be guarded by IsMultiAgentSession
+        // to avoid adding latency to normal single-session completions
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        var execIdx = source.IndexOf("private async Task<WorkerResult> ExecuteWorkerAsync", StringComparison.Ordinal);
+        Assert.True(execIdx >= 0, "ExecuteWorkerAsync method definition must exist");
+        var execBlock = source.Substring(execIdx, Math.Min(5000, source.Length - execIdx));
+
+        // Must check IsMultiAgentSession before calling recovery
+        var recoveryIdx = execBlock.IndexOf("RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
+        Assert.True(recoveryIdx >= 0, "Recovery call must exist in ExecuteWorkerAsync");
+        var beforeRecovery = execBlock[..recoveryIdx];
+        Assert.Contains("IsMultiAgentSession", beforeRecovery);
+    }
+
+    [Fact]
+    public void RecoverFromPrematureIdleIfNeededAsync_SubscribesToOnSessionComplete()
+    {
+        // Structural: the recovery method must subscribe to OnSessionComplete to detect
+        // the worker's real completion (after premature idle re-arm)
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        // Find the method definition (not a call site)
+        var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
+        var methodBlock = source.Substring(methodIdx, Math.Min(5000, source.Length - methodIdx));
+
+        Assert.Contains("OnSessionComplete +=", methodBlock);
+        // Unsubscribe must exist somewhere in the method (may be beyond 5K window)
+        var fullMethodBlock = source.Substring(methodIdx, Math.Min(6000, source.Length - methodIdx));
+        Assert.Contains("OnSessionComplete -=", fullMethodBlock); // Must unsubscribe in finally
+    }
+
+    [Fact]
+    public void RecoverFromPrematureIdleIfNeededAsync_HasDiskFallback()
+    {
+        // Structural: if History doesn't have full content, fall back to LoadHistoryFromDisk
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        // Find the method definition (not a call site)
+        var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
+        var methodBlock = source.Substring(methodIdx, Math.Min(5000, source.Length - methodIdx));
+
+        Assert.Contains("LoadHistoryFromDisk", methodBlock);
+    }
+
+    [Fact]
+    public void RecoverFromPrematureIdleIfNeededAsync_HasDiagnosticLogging()
+    {
+        // Every recovery path must have diagnostic log entries
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        // Find the method definition (not a call site)
+        var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
+        var methodBlock = source.Substring(methodIdx, Math.Min(5000, source.Length - methodIdx));
+
+        Assert.Contains("[DISPATCH-RECOVER]", methodBlock);
+    }
+
+    [Fact]
+    public void MutationBeforeCommit_SessionIdSetAfterTryUpdate()
+    {
+        // Structural: SessionId must be set AFTER TryUpdate succeeds, not before.
+        // This prevents mutating shared Info on a path that might discard the state.
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        // Find the revival block in ExecuteWorkerAsync
+        var revivalIdx = source.IndexOf("revived with fresh session", StringComparison.Ordinal);
+        Assert.True(revivalIdx >= 0, "Revival debug message must exist");
+
+        // SessionId assignment must be near/after the "revived" message, not before TryUpdate
+        var tryUpdateIdx = source.IndexOf("TryUpdate(workerName, freshState, deadState)", StringComparison.Ordinal);
+        Assert.True(tryUpdateIdx >= 0, "TryUpdate call must exist");
+
+        // Find the SessionId assignment
+        var sessionIdAssign = source.IndexOf("deadState.Info.SessionId = freshSession.SessionId", StringComparison.Ordinal);
+        Assert.True(sessionIdAssign >= 0, "SessionId assignment must exist");
+        Assert.True(sessionIdAssign > tryUpdateIdx,
+            "SessionId must be assigned AFTER TryUpdate succeeds (mutation-after-commit pattern)");
+    }
+
+    #endregion
 }
