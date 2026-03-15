@@ -161,4 +161,86 @@ public class PermissionDenialDetectionTests
         Assert.True(CopilotService.IsShellEnvironmentFailure(text));
         Assert.False(CopilotService.IsPermissionDenialText(text));
     }
+
+    // ===== MCP server failure detection =====
+
+    [Fact]
+    public void IsMcpError_Null_ReturnsFalse()
+    {
+        Assert.False(CopilotService.IsMcpError(null));
+    }
+
+    [Fact]
+    public void IsMcpError_Empty_ReturnsFalse()
+    {
+        Assert.False(CopilotService.IsMcpError(""));
+    }
+
+    [Theory]
+    [InlineData("MCP server 'workiq' failed to start")]
+    [InlineData("Error connecting to MCP server: connection refused")]
+    [InlineData("ECONNREFUSED")]
+    [InlineData("connect ECONNREFUSED 127.0.0.1:3000")]
+    [InlineData("Connection refused")]
+    [InlineData("connection refused while connecting to MCP")]
+    [InlineData("server disconnected unexpectedly")]
+    [InlineData("transport error: connection reset")]
+    [InlineData("Failed to start MCP process")]
+    [InlineData("server process exited with code 1")]
+    [InlineData("spawn ENOENT: npx not found")]
+    [InlineData("mcp_server_workiq: connection failed")]
+    public void IsMcpError_McpFailureVariants_ReturnsTrue(string text)
+    {
+        Assert.True(CopilotService.IsMcpError(text));
+    }
+
+    [Theory]
+    [InlineData("Permission denied")]
+    [InlineData("posix_spawn failed")]
+    [InlineData("File not found")]
+    [InlineData("Session not found")]
+    [InlineData("Timeout waiting for response")]
+    public void IsMcpError_UnrelatedErrors_ReturnsFalse(string text)
+    {
+        Assert.False(CopilotService.IsMcpError(text));
+    }
+
+    [Fact]
+    public void IsMcpError_NotConfusedWithPermissionDenialOrShellFailure()
+    {
+        // MCP errors should be detected by IsMcpError, not by the other detectors
+        var text = "MCP server 'workiq' failed to start: ECONNREFUSED";
+        Assert.True(CopilotService.IsMcpError(text));
+        Assert.False(CopilotService.IsPermissionDenialText(text));
+        Assert.False(CopilotService.IsShellEnvironmentFailure(text));
+    }
+
+    // ===== Structural: MCP errors are recoverable =====
+
+    [Fact]
+    public void RecoverableError_IncludesMcpFailure()
+    {
+        // STRUCTURAL REGRESSION GUARD: isRecoverableError must include isMcpFailure
+        // so that repeated MCP errors trigger auto-recovery (session reconnect).
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        Assert.Contains("var isRecoverableError = isPermissionDenial || isShellFailure || isMcpFailure;", source);
+    }
+
+    [Fact]
+    public void McpRecoveryMessage_IncludesReloadHint()
+    {
+        // When MCP recovery triggers, the user message must mention /mcp reload
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        Assert.Contains("/mcp reload", source);
+    }
+
+    private static string GetRepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return dir ?? throw new InvalidOperationException("Could not find repo root");
+    }
 }

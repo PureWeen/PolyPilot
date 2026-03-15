@@ -288,7 +288,7 @@ public class ConnectionRecoveryTests
         // Verify the helper body includes McpServers
         var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
         Assert.True(helperIdx > 0, "Could not find BuildFreshSessionConfig helper");
-        var helperBlock = source.Substring(helperIdx, Math.Min(2000, source.Length - helperIdx));
+        var helperBlock = source.Substring(helperIdx, Math.Min(3000, source.Length - helperIdx));
         Assert.Contains("McpServers = ", helperBlock);
     }
 
@@ -301,7 +301,7 @@ public class ConnectionRecoveryTests
 
         var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
         Assert.True(helperIdx > 0, "Could not find BuildFreshSessionConfig helper");
-        var helperBlock = source.Substring(helperIdx, Math.Min(2000, source.Length - helperIdx));
+        var helperBlock = source.Substring(helperIdx, Math.Min(3000, source.Length - helperIdx));
         Assert.Contains("SkillDirectories = ", helperBlock);
     }
 
@@ -314,7 +314,7 @@ public class ConnectionRecoveryTests
 
         var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
         Assert.True(helperIdx > 0, "Could not find BuildFreshSessionConfig helper");
-        var helperBlock = source.Substring(helperIdx, Math.Min(2000, source.Length - helperIdx));
+        var helperBlock = source.Substring(helperIdx, Math.Min(3000, source.Length - helperIdx));
         Assert.Contains("SystemMessage = ", helperBlock);
         Assert.Contains("SystemMessageMode.Append", helperBlock);
     }
@@ -329,7 +329,7 @@ public class ConnectionRecoveryTests
         var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
         Assert.True(helperIdx > 0);
 
-        var helperBlock = source.Substring(helperIdx, Math.Min(2000, source.Length - helperIdx));
+        var helperBlock = source.Substring(helperIdx, Math.Min(3000, source.Length - helperIdx));
 
         var requiredAssignments = new[]
         {

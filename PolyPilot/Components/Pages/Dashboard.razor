@@ -1615,7 +1615,7 @@
                     "- `/status` — Show git status\n" +
                     "- `/prompt` — List saved prompts (`/prompt use|save|edit|show|delete`)\n" +
                     "- `/usage` — Show token usage and quota for this session\n" +
-                    "- `/mcp` — List MCP servers (enable/disable with `/mcp enable|disable <name>`)\n" +
+                    "- `/mcp` — List MCP servers (`/mcp enable|disable <name>`, `/mcp reload` to restart)\n" +
                     "- `/plugin` — List installed plugins (enable/disable with `/plugin enable|disable <name>`)\n" +
                     "- `/reflect <goal>` — Start a reflection cycle (`/reflect help` for details)\n" +
                     "- `!<command>` — Run a shell command"));
@@ -1881,9 +1881,47 @@
                 session.History.Add(ChatMessage.SystemMessage($"🚫 MCP server **{target}** disabled. Create a new session to pick up the change."));
                 break;
 
+            case "reload":
+                session.History.Add(ChatMessage.SystemMessage("🔄 Reloading MCP servers — creating a new session with fresh configuration..."));
+                _ = ReloadMcpServersAsync(session);
+                break;
+
             default:
                 session.History.Add(ChatMessage.SystemMessage(GetMcpServerInfo()));
                 break;
+        }
+    }
+
+    private async Task ReloadMcpServersAsync(AgentSessionInfo session)
+    {
+        try
+        {
+            var newSession = await CopilotService.CreateSessionAsync(
+                session.Name + " (reloaded)",
+                model: session.Model,
+                workingDirectory: session.WorkingDirectory);
+            session.MessageCount = session.History.Count;
+            _needsScrollToBottom = true;
+            await InvokeAsync(SafeRefreshAsync);
+
+            // Switch to the new session
+            _activeSession = newSession.Name;
+            session.History.Add(ChatMessage.SystemMessage(
+                $"✅ New session **{newSession.Name}** created with fresh MCP server configuration.\n\n" +
+                "MCP servers have been reloaded from disk. You can re-send your previous prompt in the new session."));
+            await InvokeAsync(SafeRefreshAsync);
+        }
+        catch (Exception ex)
+        {
+            session.History.Add(ChatMessage.ErrorMessage(
+                $"Failed to reload MCP servers: {ex.Message}\n\n" +
+                "**Troubleshooting tips:**\n" +
+                "- Check that MCP server processes are running (e.g., `npx`, `node`, `python`)\n" +
+                "- Verify your MCP config at `~/.copilot/mcp-servers.json` or `~/.copilot/mcp-config.json`\n" +
+                "- Try Settings → Save & Reconnect to fully restart the connection"));
+            session.MessageCount = session.History.Count;
+            _needsScrollToBottom = true;
+            await InvokeAsync(SafeRefreshAsync);
         }
     }
 
@@ -2345,6 +2383,7 @@
         }
         sb.AppendLine();
         sb.AppendLine("Use `/mcp enable <name>` or `/mcp disable <name>` to toggle.");
+        sb.AppendLine("Use `/mcp reload` to create a new session with fresh MCP configuration.");
 
         return sb.ToString().TrimEnd();
     }

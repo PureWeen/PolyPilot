@@ -401,6 +401,8 @@ public partial class CopilotService
                     || (hasError && IsPermissionDenialText(resultStr));
                 var isShellFailure = IsShellEnvironmentFailure(errorStr)
                     || (hasError && IsShellEnvironmentFailure(resultStr));
+                var isMcpFailure = IsMcpError(errorStr)
+                    || (hasError && IsMcpError(resultStr));
 
                 // Black-box log every permission denial for post-mortem analysis
                 if (isPermissionDenial)
@@ -419,10 +421,16 @@ public partial class CopilotService
                           $"error='{errorStr}' (shell errors so far: posix_spawn/environment failure)");
                 }
 
-                // Track permission denials AND shell failures via sliding window (3 of last 5 tool results)
-                // Shell environment failures (posix_spawn) are treated like permission denials — they
-                // indicate the session's process context is broken and needs recovery.
-                var isRecoverableError = isPermissionDenial || isShellFailure;
+                if (isMcpFailure)
+                {
+                    Debug($"[MCP-FAILURE] '{sessionName}' tool='{completeToolName}' " +
+                          $"error='{errorStr}' (MCP server error detected)");
+                }
+
+                // Track permission denials, shell failures, AND MCP failures via sliding window (3 of last 5 tool results)
+                // Shell environment failures (posix_spawn) and MCP server failures are treated like
+                // permission denials — they indicate the session's process context is broken and needs recovery.
+                var isRecoverableError = isPermissionDenial || isShellFailure || isMcpFailure;
                 if (isRecoverableError || !hasError)
                 {
                     var denialCount = state.Info.RecordToolResult(isRecoverableError);
@@ -434,11 +442,14 @@ public partial class CopilotService
                         // not on subsequent denials that stay at 3+ in the window
                         if (denialCount == 3)
                         {
-                            var reason = isShellFailure ? "Shell environment broken" : "Permission errors";
+                            var reason = isMcpFailure ? "MCP server error" : isShellFailure ? "Shell environment broken" : "Permission errors";
                             Debug($"[PERMISSION-RECOVER-TRIGGER] '{sessionName}' threshold reached ({denialCount}/5 errors, reason={reason})");
                             Invoke(() =>
                             {
-                                var msg = isShellFailure
+                                var msg = isMcpFailure
+                                    ? "⚠️ MCP server errors detected. Attempting to reconnect session with fresh MCP configuration...\n\n" +
+                                      "If the issue persists, try `/mcp reload` to create a new session, or check that the MCP server process is running."
+                                    : isShellFailure
                                     ? "⚠️ Shell environment broken (posix_spawn failed). Attempting to reconnect session..."
                                     : "⚠️ Permission errors detected. Attempting to reconnect session...";
                                 state.Info.History.Add(ChatMessage.SystemMessage(msg));
@@ -1815,6 +1826,26 @@ public partial class CopilotService
     {
         if (string.IsNullOrEmpty(text)) return false;
         return text.Contains("posix_spawn failed", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Detects MCP server failures where a configured MCP server is unreachable or crashed.
+    /// Common patterns: connection refused, server process exited, transport errors, spawn failures.
+    /// When repeated MCP failures are detected, the session is recreated with fresh MCP configs
+    /// so the CLI can re-launch the MCP server processes.
+    /// </summary>
+    internal static bool IsMcpError(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        return text.Contains("MCP server", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("mcp_server", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("ECONNREFUSED", StringComparison.Ordinal)
+            || text.Contains("connection refused", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("server disconnected", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("transport error", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("failed to start", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("server process exited", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("spawn ENOENT", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

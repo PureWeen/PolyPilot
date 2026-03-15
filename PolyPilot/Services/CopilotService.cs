@@ -2144,6 +2144,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         var settings = ConnectionSettings.Load();
         var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
         var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
+
+        // Add MCP server awareness so the model can guide users when MCP tools fail
+        if (mcpServers != null && mcpServers.Count > 0)
+        {
+            systemContent.AppendLine($@"
+MCP SERVERS: This session has {mcpServers.Count} MCP server(s) configured: {string.Join(", ", mcpServers.Keys)}.
+If an MCP tool call fails (connection refused, server not responding, etc.), do NOT ask the user to debug MCP configuration.
+Instead, suggest the user type /mcp reload to create a new session with fresh MCP connections.
+The user can also check configured servers with the /mcp command.
+");
+        }
+
         var config = new SessionConfig
         {
             Model = sessionModel,
@@ -3388,6 +3400,16 @@ When you make ANY code changes to files in {ProjectDir}, you MUST rebuild and re
 This script builds the app, launches a new instance, waits for it to start, then kills the old one.
 NEVER use 'dotnet build' + 'open' separately. NEVER skip the relaunch after code changes.
 ALWAYS run the relaunch script as the final step after making changes to this project.
+");
+        }
+        // Add MCP server awareness so the model can guide users when MCP tools fail
+        if (mcpServers != null && mcpServers.Count > 0)
+        {
+            systemContent.AppendLine($@"
+MCP SERVERS: This session has {mcpServers.Count} MCP server(s) configured: {string.Join(", ", mcpServers.Keys)}.
+If an MCP tool call fails (connection refused, server not responding, etc.), do NOT ask the user to debug MCP configuration.
+Instead, suggest the user type /mcp reload to create a new session with fresh MCP connections.
+The user can also check configured servers with the /mcp command.
 ");
         }
         var finalTools = tools ?? new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
