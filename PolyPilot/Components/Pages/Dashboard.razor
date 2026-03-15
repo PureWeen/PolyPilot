@@ -1315,6 +1315,12 @@
                     pendingImagesBySession.Remove(sessionName);
                 }
                 CopilotService.EnqueueMessage(sessionName, finalPrompt, queueImagePaths, agentMode);
+                // Show user feedback that message is queued (orchestrator is busy dispatching workers)
+                session.History.Add(ChatMessage.SystemMessage(
+                    "📋 Orchestrator is busy coordinating workers — your message has been queued and will be sent when the current operation completes."));
+                session.MessageCount = session.History.Count;
+                _needsScrollToBottom = true;
+                await InvokeAsync(SafeRefreshAsync);
                 return;
             }
 

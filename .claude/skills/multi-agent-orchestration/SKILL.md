@@ -537,6 +537,61 @@ legitimate workers pause for 5+ minutes between tool rounds (model thinking),
 which would trigger false positives. The root cause fix (register handler)
 is the correct approach. See **Long-Running Session Safety** section.
 
+### Bug: Steering cancels in-flight orchestration (PR #375)
+
+**Symptom**: User sends a follow-up message to a busy orchestrator (e.g., "also
+check PR #400" while workers are running). Instead of queuing, Dashboard routes
+through `SteerSessionAsync` which bumps `ProcessingGeneration`, canceling the
+in-flight orchestration `ResponseCompletion` TCS. `SendToMultiAgentGroupAsync`
+gets `TaskCanceledException`. Workers complete but their results are never
+collected. Orchestrator appears stuck.
+
+**Root cause**: Dashboard.razor dispatch routing checked `IsProcessing` and
+routed to `SteerSessionAsync` BEFORE checking if the session is an orchestrator.
+Steering is designed for regular sessions where you want to redirect the agent.
+For orchestrators, steering is destructive — it cancels the dispatch/synthesis
+lifecycle.
+
+**Fix**: Check `GetOrchestratorGroupId(sessionName)` WITHIN the `IsProcessing`
+block, BEFORE the steer path. If session is an orchestrator, route to
+`EnqueueMessage` instead. The queued message will be sent after the current
+orchestration completes. Logged as `QUEUED_ORCH_BUSY` in event diagnostics.
+
+**Key invariant**: Orchestrator sessions must NEVER be steered while processing.
+Always queue. Workers CAN still be steered (useful for "stop" or "focus on X").
+
+**Tests**: `MultiAgentRegressionTests.cs` — 8 tests in "Orchestrator-Steer
+Conflict Tests (PR #375)" region:
+- Structural test verifying orchestrator check appears before steer in Dashboard
+- Verify EnqueueMessage (not steer) is used for orchestrators
+- Verify non-orchestrator sessions still get steered
+- Long-running orchestrator (15min) follow-up must queue
+
+### Bug: Premature session.idle truncates orchestrator results (PR #375)
+
+**Symptom**: CLI sends `session.idle` prematurely mid-turn (after only a few
+tool rounds), then continues processing for 15+ more tool rounds. The
+`CompleteResponse` fires on the premature idle, completing the
+`ResponseCompletion` TCS with partial content. If this is a worker, the
+orchestrator receives truncated results in synthesis.
+
+**Root cause**: SDK/CLI bug — variant of bug #299 (missing idle). Instead of
+missing the idle entirely, it sends it too early. The idle arrives, passes all
+generation guards, and CompleteResponse runs with whatever content has been
+flushed so far.
+
+**Partial fix (UI)**: Added re-arm in `AssistantTurnStartEvent` handler: when
+TurnStart arrives with `IsProcessing=false` on the current (non-orphaned) state,
+re-arm IsProcessing, restart watchdog, log as `[EVT-REARM]`. This keeps the UI
+showing "Working…" and the watchdog active.
+
+**Not fixed**: Orchestrator content truncation. The TCS was already completed
+with partial content before re-arm fires. A future fix could create a NEW TCS
+on re-arm so the orchestrator waits for the real completion. Complex — may
+need separate PR.
+
+**Filed**: See GitHub issue for tracking.
+
 ---
 
 ## "Fix with Copilot" — Multi-Agent Awareness
