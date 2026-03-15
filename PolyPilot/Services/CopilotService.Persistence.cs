@@ -431,35 +431,45 @@ public partial class CopilotService
                                                 var oldEvents = Path.Combine(SessionStatePath, entry.SessionId, "events.jsonl");
                                                 var newEventsDir = Path.Combine(SessionStatePath, recreatedState.Info.SessionId);
                                                 var newEvents = Path.Combine(newEventsDir, "events.jsonl");
-                                                if (File.Exists(oldEvents) && !File.Exists(newEvents))
+                                                if (File.Exists(oldEvents))
                                                 {
                                                     Directory.CreateDirectory(newEventsDir);
-                                                    // Sanitized copy: only write lines that parse as valid JSON.
-                                                    // If ResumeSessionAsync failed due to corrupt events.jsonl,
-                                                    // a raw File.Copy would propagate corruption and cause a
-                                                    // retry loop on every restart.
-                                                    int validLines = 0, skippedLines = 0;
-                                                    using (var writer = new StreamWriter(newEvents))
+                                                    // Read old events (sanitized: only valid JSON lines)
+                                                    var oldLines = new List<string>();
+                                                    int skippedLines = 0;
+                                                    foreach (var line in File.ReadLines(oldEvents))
                                                     {
-                                                        foreach (var line in File.ReadLines(oldEvents))
+                                                        if (string.IsNullOrWhiteSpace(line)) continue;
+                                                        try
                                                         {
-                                                            if (string.IsNullOrWhiteSpace(line)) continue;
-                                                            try
-                                                            {
-                                                                using var doc = JsonDocument.Parse(line);
-                                                                writer.WriteLine(line);
-                                                                validLines++;
-                                                            }
-                                                            catch (JsonException)
-                                                            {
-                                                                skippedLines++;
-                                                            }
+                                                            using var doc = JsonDocument.Parse(line);
+                                                            oldLines.Add(line);
                                                         }
+                                                        catch (JsonException) { skippedLines++; }
                                                     }
-                                                    if (skippedLines > 0)
-                                                        Debug($"Sanitized events.jsonl copy from {entry.SessionId} to {recreatedState.Info.SessionId}: {validLines} valid, {skippedLines} corrupt lines skipped");
-                                                    else
-                                                        Debug($"Copied events.jsonl from {entry.SessionId} to {recreatedState.Info.SessionId}: {validLines} lines");
+
+                                                    if (oldLines.Count > 0)
+                                                    {
+                                                        if (!File.Exists(newEvents))
+                                                        {
+                                                            // New session has no events yet — write old events directly
+                                                            File.WriteAllLines(newEvents, oldLines);
+                                                        }
+                                                        else
+                                                        {
+                                                            // New session already has events (SDK created it).
+                                                            // Prepend old events so history is preserved on future restarts.
+                                                            var newLines = File.ReadAllLines(newEvents);
+                                                            using var writer = new StreamWriter(newEvents, append: false);
+                                                            foreach (var line in oldLines) writer.WriteLine(line);
+                                                            foreach (var line in newLines) writer.WriteLine(line);
+                                                        }
+
+                                                        if (skippedLines > 0)
+                                                            Debug($"Sanitized events.jsonl copy from {entry.SessionId} to {recreatedState.Info.SessionId}: {oldLines.Count} valid, {skippedLines} corrupt lines skipped");
+                                                        else
+                                                            Debug($"Copied events.jsonl from {entry.SessionId} to {recreatedState.Info.SessionId}: {oldLines.Count} lines (prepended={File.Exists(newEvents)})");
+                                                    }
                                                 }
                                             }
                                             catch (Exception copyEx)

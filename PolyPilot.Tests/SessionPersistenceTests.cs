@@ -590,7 +590,11 @@ public class SessionPersistenceTests
 
         var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
         Assert.Contains("events.jsonl", afterFallback);
-        Assert.Contains("Sanitized copy: only write lines that parse as valid JSON", afterFallback);
+        // Must sanitize old events (skip corrupt JSON lines)
+        Assert.Contains("JsonDocument.Parse", afterFallback);
+        // Must handle both cases: new file doesn't exist (write) and does exist (prepend)
+        Assert.Contains("WriteAllLines", afterFallback);
+        Assert.Contains("Prepend old events", afterFallback);
         Assert.Contains("Copied events.jsonl", afterFallback);
     }
 
@@ -657,6 +661,56 @@ public class SessionPersistenceTests
         while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
             dir = Path.GetDirectoryName(dir);
         return dir ?? throw new InvalidOperationException("Could not find repo root");
+    }
+
+    // --- Regression: flush after restore persists fallback-recreated session IDs ---
+
+    [Fact]
+    public void InitializeAsync_FlushesSessionsAfterRestore()
+    {
+        // STRUCTURAL REGRESSION GUARD: After RestorePreviousSessionsAsync returns and
+        // IsRestoring = false, FlushSaveActiveSessionsToDisk must be called so that
+        // session IDs changed during fallback recreation are persisted immediately.
+        // Without this, active-sessions.json retains stale IDs and the next restart
+        // reads the wrong events.jsonl, causing history loss.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        // Find the RestorePreviousSessionsAsync call in InitializeAsync
+        var restoreCallIdx = source.IndexOf("await RestorePreviousSessionsAsync(cancellationToken);", StringComparison.Ordinal);
+        Assert.True(restoreCallIdx > 0, "RestorePreviousSessionsAsync call not found");
+
+        // FlushSaveActiveSessionsToDisk must appear within the next 500 chars (before ReconcileOrganization)
+        var afterRestore = source.Substring(restoreCallIdx, Math.Min(500, source.Length - restoreCallIdx));
+        Assert.Contains("FlushSaveActiveSessionsToDisk", afterRestore);
+    }
+
+    [Fact]
+    public void ReconnectAsync_FlushesSessionsAfterRestore()
+    {
+        // STRUCTURAL REGRESSION GUARD: Same as InitializeAsync — the ReconnectAsync
+        // path must also flush after restore to persist recreated session IDs.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        // Find all RestorePreviousSessionsAsync calls
+        var indices = new List<int>();
+        int idx = 0;
+        while ((idx = source.IndexOf("RestorePreviousSessionsAsync", idx, StringComparison.Ordinal)) >= 0)
+        {
+            indices.Add(idx);
+            idx += 1;
+        }
+
+        // There should be at least 2 call sites (InitializeAsync + ReconnectAsync)
+        Assert.True(indices.Count >= 2, $"Expected at least 2 RestorePreviousSessionsAsync calls, found {indices.Count}");
+
+        // Each call site must have FlushSaveActiveSessionsToDisk within 500 chars
+        foreach (var callIdx in indices.Where(i => source.Substring(i, Math.Min(60, source.Length - i)).Contains("await")))
+        {
+            var after = source.Substring(callIdx, Math.Min(500, source.Length - callIdx));
+            Assert.Contains("FlushSaveActiveSessionsToDisk", after);
+        }
     }
 
     // --- RECONNECT handler: structural regression guards ---
@@ -1012,6 +1066,162 @@ public class SessionPersistenceTests
             Assert.Contains("session.start", writtenLines[0]);
             Assert.Contains("user.message", writtenLines[1]);
             Assert.Contains("tool.execution_start", writtenLines[2]);
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    // --- Regression: fallback recreation must persist new session ID ---
+    // Bug: When ResumeSessionAsync fails and CreateSessionAsync creates a new session
+    // with a different ID, active-sessions.json must be updated. Without this,
+    // the stale old ID is read on the next restart, causing LoadHistoryFromDisk
+    // to read the wrong events.jsonl and "lose" accumulated history.
+
+    [Fact]
+    public void Merge_RecreatedSessionWithNewId_OverridesOldEntry()
+    {
+        // Simulate: session was recreated during restore with a new ID but same display name
+        var active = new List<ActiveSessionEntry> { Entry("new-id-after-recreate", "AndroidShellHandler") };
+        var persisted = new List<ActiveSessionEntry> { Entry("old-stale-id", "AndroidShellHandler") };
+        var closed = new HashSet<string>();
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
+
+        // Only the active (new ID) entry should survive — persisted entry has same display name
+        Assert.Single(result);
+        Assert.Equal("new-id-after-recreate", result[0].SessionId);
+        Assert.Equal("AndroidShellHandler", result[0].DisplayName);
+    }
+
+    [Fact]
+    public void Merge_RecreatedSessionNewId_OldIdNotResurrected()
+    {
+        // Even if the old session directory still exists, the persisted entry with a
+        // matching display name must not be re-added (it has a stale SessionId).
+        var active = new List<ActiveSessionEntry> { Entry("recreated-id", "MySession") };
+        var persisted = new List<ActiveSessionEntry> { Entry("original-id", "MySession") };
+        var closed = new HashSet<string>();
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(),
+            sessionId => true); // All dirs exist
+
+        Assert.Single(result);
+        Assert.Equal("recreated-id", result[0].SessionId);
+    }
+
+    // --- Regression: events.jsonl copy when new file already exists ---
+
+    [Fact]
+    public void EventsCopy_PrependOldEventsWhenNewExists()
+    {
+        // When CreateSessionAsync already creates events.jsonl for the new session,
+        // the old events should be prepended so history survives future restarts.
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-prepend-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempBase);
+            var oldDir = Path.Combine(tempBase, "old-session");
+            var newDir = Path.Combine(tempBase, "new-session");
+            Directory.CreateDirectory(oldDir);
+            Directory.CreateDirectory(newDir);
+
+            var oldEvents = Path.Combine(oldDir, "events.jsonl");
+            var newEvents = Path.Combine(newDir, "events.jsonl");
+
+            // Old session had substantial history
+            var oldLines = new[]
+            {
+                "{\"type\":\"session.start\",\"data\":{\"ts\":1}}",
+                "{\"type\":\"user.message\",\"data\":{\"content\":\"old message 1\"}}",
+                "{\"type\":\"assistant.message\",\"data\":{\"content\":\"old reply 1\"}}",
+            };
+            File.WriteAllLines(oldEvents, oldLines);
+
+            // New session already has a few events from SDK session creation
+            var newExistingLines = new[]
+            {
+                "{\"type\":\"session.start\",\"data\":{\"ts\":2}}",
+            };
+            File.WriteAllLines(newEvents, newExistingLines);
+
+            // Replicate the updated copy logic from CopilotService.Persistence.cs
+            var sanitizedOldLines = new List<string>();
+            foreach (var line in File.ReadLines(oldEvents))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(line);
+                    sanitizedOldLines.Add(line);
+                }
+                catch (System.Text.Json.JsonException) { }
+            }
+
+            if (sanitizedOldLines.Count > 0 && File.Exists(newEvents))
+            {
+                var existingNewLines = File.ReadAllLines(newEvents);
+                using var writer = new StreamWriter(newEvents, append: false);
+                foreach (var line in sanitizedOldLines) writer.WriteLine(line);
+                foreach (var line in existingNewLines) writer.WriteLine(line);
+            }
+
+            // Verify: old events are prepended before new events
+            var resultLines = File.ReadAllLines(newEvents).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+            Assert.Equal(4, resultLines.Length);
+            Assert.Contains("\"ts\":1", resultLines[0]); // old session.start first
+            Assert.Contains("old message 1", resultLines[1]);
+            Assert.Contains("old reply 1", resultLines[2]);
+            Assert.Contains("\"ts\":2", resultLines[3]); // new session.start last
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    [Fact]
+    public void EventsCopy_WritesOldEventsWhenNewDoesNotExist()
+    {
+        // When the new session directory exists but events.jsonl hasn't been created yet
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-noexist-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempBase);
+            var oldDir = Path.Combine(tempBase, "old-session");
+            var newDir = Path.Combine(tempBase, "new-session");
+            Directory.CreateDirectory(oldDir);
+            Directory.CreateDirectory(newDir);
+
+            var oldEvents = Path.Combine(oldDir, "events.jsonl");
+            var newEvents = Path.Combine(newDir, "events.jsonl");
+
+            var oldLines = new[]
+            {
+                "{\"type\":\"user.message\",\"data\":{\"content\":\"preserved history\"}}",
+            };
+            File.WriteAllLines(oldEvents, oldLines);
+
+            // New events.jsonl does NOT exist yet
+            Assert.False(File.Exists(newEvents));
+
+            // Replicate the copy logic
+            var sanitizedOldLines = new List<string>();
+            foreach (var line in File.ReadLines(oldEvents))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(line);
+                    sanitizedOldLines.Add(line);
+                }
+                catch (System.Text.Json.JsonException) { }
+            }
+
+            if (sanitizedOldLines.Count > 0 && !File.Exists(newEvents))
+            {
+                File.WriteAllLines(newEvents, sanitizedOldLines);
+            }
+
+            Assert.True(File.Exists(newEvents));
+            var resultLines = File.ReadAllLines(newEvents).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+            Assert.Single(resultLines);
+            Assert.Contains("preserved history", resultLines[0]);
         }
         finally { try { Directory.Delete(tempBase, true); } catch { } }
     }
