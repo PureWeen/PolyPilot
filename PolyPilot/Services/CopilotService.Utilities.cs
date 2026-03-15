@@ -494,6 +494,10 @@ public partial class CopilotService
     /// </summary>
     internal static bool IsProcessError(Exception ex)
     {
+        // NOTE: "No process is associated" is an English BCL string from System.Diagnostics.Process.
+        // .NET Core / .NET 5+ does NOT localize exception messages, so this is safe for all
+        // supported runtimes. If .NET ever starts localizing, add a secondary check on the
+        // call stack (e.g., Process.HasExited) or catch the exception at a higher level.
         if (ex is InvalidOperationException && ex.Message.Contains("No process is associated", StringComparison.OrdinalIgnoreCase))
             return true;
         if (ex is AggregateException agg)
