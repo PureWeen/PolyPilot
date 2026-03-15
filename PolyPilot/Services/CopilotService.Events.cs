@@ -1676,7 +1676,7 @@ public partial class CopilotService
         var recoveryGeneration = Interlocked.Read(ref state.ProcessingGeneration);
         Debug($"[TOOL-HEALTH] '{sessionName}' triggering recovery: {reason} (activeTools={activeTools})");
 
-                        InvokeOnUI(() =>
+        InvokeOnUI(() =>
         {
             if (state.IsOrphaned) return;
             if (!state.Info.IsProcessing) return;

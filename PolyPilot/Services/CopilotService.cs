@@ -2672,6 +2672,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 if (otherState.Info.IsProcessing)
                                                 {
                                                     Debug($"[RECONNECT] Sibling '{kvp.Key}' started processing during re-resume — skipping");
+                                                    try { await resumed.DisposeAsync(); } catch { }
                                                     continue;
                                                 }
                                                 // Mark old state orphaned so stale handlers from the
@@ -2704,6 +2705,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 {
                                                     Debug($"[RECONNECT] Sibling '{kvp.Key}' already replaced by another reconnect — discarding");
                                                     siblingState.IsOrphaned = true;
+                                                    try { await resumed.DisposeAsync(); } catch { }
                                                     continue;
                                                 }
                                                 Debug($"[RECONNECT] Re-resumed sibling session '{kvp.Key}' after client recreation");
