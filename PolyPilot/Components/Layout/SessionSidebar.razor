@@ -2378,16 +2378,17 @@ else
 
         try
         {
-            var crashPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".polypilot", "crash.log");
+            var crashPath = Path.Combine(CopilotService.BaseDir, "crash.log");
             if (File.Exists(crashPath))
             {
-                var lines = File.ReadAllLines(crashPath);
-                var tail = lines.Length > 10 ? lines[^10..] : lines;
-                sb.AppendLine($"--- crash.log (last {tail.Length} lines) ---");
-                foreach (var line in tail)
-                    sb.AppendLine(line);
+                // Read only the tail to avoid loading entire file
+                var tail = ReadLastLines(crashPath, 10);
+                if (tail.Length > 0)
+                {
+                    sb.AppendLine($"--- crash.log (last {tail.Length} lines) ---");
+                    foreach (var line in tail)
+                        sb.AppendLine(line);
+                }
             }
         }
         catch { /* ignore */ }
@@ -2431,11 +2432,9 @@ else
                 if (File.Exists(diagPath))
                 {
                     var groupPrefix = group.Name;
-                    // Read only the tail of the file to avoid blocking on large logs
-                    string[] allLines;
-                    try { allLines = File.ReadAllLines(diagPath); }
-                    catch (IOException) { allLines = Array.Empty<string>(); }
-                    var groupLines = allLines
+                    // Read only the tail to avoid blocking on large logs
+                    var tailLines = ReadLastLines(diagPath, 500);
+                    var groupLines = tailLines
                         .Where(l => l.Contains(groupPrefix, StringComparison.OrdinalIgnoreCase))
                         .TakeLast(30)
                         .ToArray();
@@ -2871,5 +2870,31 @@ Important conventions:
         CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;
         CopilotService.OnOrchestratorPhaseChanged -= HandleOrchestratorPhaseChanged;
         RepoManager.OnStateChanged -= OnRepoStateChanged;
+    }
+
+    /// <summary>
+    /// Reads the last N lines from a file without loading the entire file into memory.
+    /// Falls back to empty array on IOException.
+    /// </summary>
+    private static string[] ReadLastLines(string path, int count)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(fs);
+            var buffer = new Queue<string>();
+            string? line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                buffer.Enqueue(line);
+                if (buffer.Count > count)
+                    buffer.Dequeue();
+            }
+            return buffer.ToArray();
+        }
+        catch (IOException)
+        {
+            return Array.Empty<string>();
+        }
     }
 }

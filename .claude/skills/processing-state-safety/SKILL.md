@@ -34,7 +34,9 @@ Every code path that sets `IsProcessing = false` MUST also:
 12. Run on UI thread (via `InvokeOnUI()` or already on UI thread)
 13. After changes, run `ProcessingWatchdogTests.cs` to catch regressions
 
-## The 9 Paths That Clear IsProcessing
+## The 10 Paths That Set/Clear IsProcessing
+
+### Paths that CLEAR IsProcessing (→ false)
 
 | # | Path | File | Thread | Notes |
 |---|------|------|--------|-------|
@@ -47,6 +49,17 @@ Every code path that sets `IsProcessing = false` MUST also:
 | 7 | SendAsync reconnect failure | CopilotService.cs | UI | Prompt send failed after reconnect |
 | 8 | SendAsync initial failure | CopilotService.cs | UI | Prompt send failed |
 | 9 | Bridge OnTurnEnd | Bridge.cs | Background → InvokeOnUI | Remote mode turn complete |
+
+### Path that RE-ARMS IsProcessing (→ true)
+
+| # | Path | File | Thread | Notes |
+|---|------|------|--------|-------|
+| 10 | TurnStart re-arm | Events.cs | Background → InvokeOnUI | Premature session.idle recovery (PR #375) |
+
+Path #10 fires when `AssistantTurnStartEvent` arrives with `IsProcessing=false` on the
+current non-orphaned state. This detects premature `session.idle` (SDK sends idle mid-turn
+then continues). Re-arm sets `IsProcessing=true`, restarts the watchdog, and logs `[EVT-REARM]`.
+Does NOT create a new TCS — the old one was already completed with partial content.
 
 ## Content Persistence Safety
 

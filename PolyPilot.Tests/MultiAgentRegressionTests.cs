@@ -2142,17 +2142,16 @@ public class MultiAgentRegressionTests
         var svc = CreateService();
         CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
 
-        // Create a session with a message queue
-        var info = new AgentSessionInfo { Name = "test-orch", IsProcessing = true };
-        var state = new CopilotService.SessionState(info);
-        svc.SetSessionForTesting("test-orch", state);
+        // Create a session via reflection helper
+        AddDummySessions(svc, "test-orch");
+        var info = svc.GetSession("test-orch")!;
 
-        // Enqueue a message while "processing"
+        // Enqueue a message
         svc.EnqueueMessage("test-orch", "also check PR #400");
 
         // The message should be queued
         Assert.Equal(1, info.MessageQueue.Count);
-        Assert.True(info.MessageQueue.TryDequeue(out var queued));
+        var queued = info.MessageQueue.TryDequeue();
         Assert.Equal("also check PR #400", queued);
     }
 
@@ -2162,9 +2161,8 @@ public class MultiAgentRegressionTests
         var svc = CreateService();
         CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
 
-        var info = new AgentSessionInfo { Name = "test-orch", IsProcessing = true };
-        var state = new CopilotService.SessionState(info);
-        svc.SetSessionForTesting("test-orch", state);
+        AddDummySessions(svc, "test-orch");
+        var info = svc.GetSession("test-orch")!;
 
         svc.EnqueueMessage("test-orch", "message 1");
         svc.EnqueueMessage("test-orch", "message 2");
@@ -2173,12 +2171,9 @@ public class MultiAgentRegressionTests
         Assert.Equal(3, info.MessageQueue.Count);
 
         // Drain in order
-        Assert.True(info.MessageQueue.TryDequeue(out var m1));
-        Assert.True(info.MessageQueue.TryDequeue(out var m2));
-        Assert.True(info.MessageQueue.TryDequeue(out var m3));
-        Assert.Equal("message 1", m1);
-        Assert.Equal("message 2", m2);
-        Assert.Equal("message 3", m3);
+        Assert.Equal("message 1", info.MessageQueue.TryDequeue());
+        Assert.Equal("message 2", info.MessageQueue.TryDequeue());
+        Assert.Equal("message 3", info.MessageQueue.TryDequeue());
     }
 
     /// <summary>
@@ -2334,14 +2329,7 @@ public class MultiAgentRegressionTests
 
         // Set up a multi-agent group with orchestrator
         var group = svc.CreateMultiAgentGroup("Long Run Team", MultiAgentMode.Orchestrator);
-        var orchInfo = new AgentSessionInfo
-        {
-            Name = "Long Run Team-orchestrator",
-            IsProcessing = true,
-            ProcessingStartedAt = DateTime.UtcNow.AddMinutes(-15) // Running for 15 minutes
-        };
-        var orchState = new CopilotService.SessionState(orchInfo);
-        svc.SetSessionForTesting("Long Run Team-orchestrator", orchState);
+        AddDummySessions(svc, "Long Run Team-orchestrator");
 
         svc.Organization.Sessions.Add(new SessionMeta
         {
@@ -2357,7 +2345,8 @@ public class MultiAgentRegressionTests
         svc.EnqueueMessage("Long Run Team-orchestrator", "also review PR #500");
 
         // Message should be queued, NOT cause steering
-        Assert.Equal(1, orchInfo.MessageQueue.Count);
+        var info = svc.GetSession("Long Run Team-orchestrator")!;
+        Assert.Equal(1, info.MessageQueue.Count);
     }
 
     #endregion
