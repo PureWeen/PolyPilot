@@ -49,7 +49,7 @@
     border-left: 3px solid #ffcc00;
     border-radius: 4px;
     padding: 0.3rem 0.6rem;
-    font-size: 0.72rem;
+    font-size: var(--type-footnote);
     color: #ffcc00;
     font-weight: 500;
 }

@@ -1962,7 +1962,7 @@
 }
 
 .ext-observer-badge {
-    font-size: 0.68rem;
+    font-size: var(--type-footnote);
     opacity: 0.6;
     flex-shrink: 0;
 }
@@ -1974,7 +1974,7 @@
 }
 
 .ext-sidebar-attention {
-    font-size: 0.68rem;
+    font-size: var(--type-footnote);
     color: #ffcc00;
     padding: 0.1rem 0;
 }
@@ -1987,7 +1987,7 @@
     border: 1px solid rgba(96, 165, 250, 0.3);
     border-radius: 5px;
     color: rgba(96, 165, 250, 0.9);
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     cursor: pointer;
 }
 
@@ -2006,7 +2006,7 @@
 }
 
 .resume-confirm-msg {
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     color: var(--text-secondary);
     line-height: 1.4;
     margin-bottom: 0.25rem;
@@ -2043,7 +2043,7 @@
     border: 1px solid var(--border-subtle);
     border-radius: 6px;
     color: var(--text-primary);
-    font-size: 0.72rem;
+    font-size: var(--type-callout);
     outline: none;
     min-width: 0;
 }
@@ -2066,7 +2066,7 @@
     border: 1px solid rgba(96, 165, 250, 0.25);
     border-radius: 5px;
     color: rgba(96, 165, 250, 0.85);
-    font-size: 0.9rem;
+    font-size: var(--type-body);
     cursor: pointer;
     flex-shrink: 0;
 }
@@ -2091,7 +2091,7 @@
     border: 1px solid rgba(96, 165, 250, 0.25);
     border-radius: 5px;
     color: rgba(96, 165, 250, 0.85);
-    font-size: 0.68rem;
+    font-size: var(--type-footnote);
     cursor: pointer;
     transition: background 0.15s;
 }

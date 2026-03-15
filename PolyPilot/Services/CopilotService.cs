@@ -20,6 +20,8 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _remoteStreamingSessions = new();
     // Sessions for which history has already been requested — prevents duplicate request storms
     private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();
+    // External session IDs currently being resumed — prevents duplicate SDK connections from rapid double-clicks
+    private readonly ConcurrentDictionary<string, byte> _resumingSessionIds = new();
     // Session IDs explicitly closed by the user — excluded from merge-back during SaveActiveSessionsToDisk
     private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
     private readonly ConcurrentDictionary<string, byte> _closedSessionNames = new();
@@ -4408,17 +4410,26 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     /// Resume an externally-observed Copilot CLI session in PolyPilot.
     /// Only valid when the external session is no longer active (IsActive == false).
     /// </summary>
-    public Task<AgentSessionInfo> ResumeExternalSessionAsync(ExternalSessionInfo external, string? model = null, CancellationToken cancellationToken = default)
+    public async Task<AgentSessionInfo> ResumeExternalSessionAsync(ExternalSessionInfo external, string? model = null, CancellationToken cancellationToken = default)
     {
         if (external.Tier == ExternalSessionTier.Active)
             throw new InvalidOperationException("Cannot resume an active session — the CLI process is still running.");
 
-        return ResumeSessionAsync(
-            external.SessionId,
-            external.DisplayName,
-            external.WorkingDirectory,
-            model,
-            cancellationToken);
+        if (!_resumingSessionIds.TryAdd(external.SessionId, 0))
+            throw new InvalidOperationException("This session is already being resumed.");
+        try
+        {
+            return await ResumeSessionAsync(
+                external.SessionId,
+                external.DisplayName,
+                external.WorkingDirectory,
+                model,
+                cancellationToken);
+        }
+        finally
+        {
+            _resumingSessionIds.TryRemove(external.SessionId, out _);
+        }
     }
 
     /// <summary>

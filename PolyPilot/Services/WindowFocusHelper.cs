@@ -104,7 +104,9 @@ internal static class WindowFocusHelper
             var children = GetChildProcessIds(terminalPid);
             if (children.Count <= 1) return; // Single tab — no switching needed
 
-            // Sort by process start time to approximate visual tab order
+            // Sort by process start time to approximate visual tab order.
+            // NOTE: This heuristic assumes tabs are in creation order. If the user has
+            // manually reordered tabs by dragging, the computed index will be wrong.
             var sorted = new List<(int Pid, DateTime StartTime)>();
             foreach (var childPid in children)
             {

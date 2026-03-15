@@ -526,4 +526,47 @@ public class ExternalSessionScannerTests : IDisposable
 
         Assert.Single(scanner.Sessions);
     }
+
+    // ── FindActiveLockPid tests ─────────────────────────────────────────────────
+
+    [Fact]
+    public void FindActiveLockPid_DetectsCurrentProcess()
+    {
+        var sessionId = Guid.NewGuid().ToString();
+        var dir = Path.Combine(_sessionStateDir, sessionId);
+        Directory.CreateDirectory(dir);
+
+        // Start a real "dotnet" process so the name passes the process-name validation
+        using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("dotnet", "--info")
+        {
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        });
+        Assert.NotNull(child);
+
+        File.WriteAllText(Path.Combine(dir, $"inuse.{child.Id}.lock"), "");
+
+        var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
+        var detectedPid = scanner.FindActiveLockPid(dir);
+
+        Assert.Equal(child.Id, detectedPid);
+
+        if (!child.HasExited) child.Kill();
+    }
+
+    [Fact]
+    public void FindActiveLockPid_IgnoresStaleLockWithDeadPid()
+    {
+        var sessionId = Guid.NewGuid().ToString();
+        var dir = Path.Combine(_sessionStateDir, sessionId);
+        Directory.CreateDirectory(dir);
+
+        // Use a PID that almost certainly doesn't exist
+        File.WriteAllText(Path.Combine(dir, "inuse.999999.lock"), "");
+
+        var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
+        var detectedPid = scanner.FindActiveLockPid(dir);
+
+        Assert.Null(detectedPid);
+    }
 }

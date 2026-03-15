@@ -459,7 +459,7 @@
 .session-last-prompt .attention-icon {
     font-style: normal;
     flex-shrink: 0;
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
 }
 
 .session-last-prompt span:nth-child(2) {

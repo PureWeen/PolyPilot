@@ -1494,10 +1494,10 @@ else
         }
     }
 
-    private void FocusExternalTerminal(ExternalSessionInfo ext)
+    private async Task FocusExternalTerminal(ExternalSessionInfo ext)
     {
         if (ext.ActiveLockPid is { } pid)
-            CopilotService.FocusExternalSessionTerminal(pid);
+            await Task.Run(() => CopilotService.FocusExternalSessionTerminal(pid));
     }
 
     private static string GetSidebarRelativeAge(DateTimeOffset time)

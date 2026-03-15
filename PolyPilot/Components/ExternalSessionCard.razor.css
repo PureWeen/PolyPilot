@@ -88,7 +88,7 @@
 }
 
 .observer-badge {
-    font-size: 0.65rem;
+    font-size: var(--type-footnote);
     color: var(--text-dim);
     background: var(--control-bg);
     padding: 0.1rem 0.4rem;
@@ -98,7 +98,7 @@
 }
 
 .ext-age {
-    font-size: 0.65rem;
+    font-size: var(--type-footnote);
     color: var(--text-dim);
     white-space: nowrap;
     flex-shrink: 0;
@@ -130,7 +130,7 @@
     border-left: 3px solid #ffcc00;
     border-radius: 4px;
     padding: 0.3rem 0.6rem;
-    font-size: 0.72rem;
+    font-size: var(--type-footnote);
     color: #ffcc00;
     font-weight: 500;
 }
@@ -149,7 +149,7 @@
 }
 
 .ext-active-note {
-    font-size: 0.68rem;
+    font-size: var(--type-footnote);
     color: var(--text-dim);
     font-style: italic;
     padding: 0.25rem 0;
@@ -168,7 +168,7 @@
     border: 1px solid rgba(96, 165, 250, 0.3);
     border-radius: 8px;
     color: rgba(96, 165, 250, 0.9);
-    font-size: 0.75rem;
+    font-size: var(--type-callout);
     font-style: normal;
     cursor: pointer;
     transition: background 0.15s;
@@ -203,7 +203,7 @@
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
     color: var(--text-primary);
-    font-size: 0.8rem;
+    font-size: var(--type-callout);
     outline: none;
     transition: border-color 0.15s;
 }
@@ -230,7 +230,7 @@
     border: 1px solid rgba(96, 165, 250, 0.3);
     border-radius: 8px;
     color: rgba(96, 165, 250, 0.9);
-    font-size: 1rem;
+    font-size: var(--type-title3);
     cursor: pointer;
     flex-shrink: 0;
     transition: background 0.15s;
@@ -246,18 +246,18 @@
 }
 
 .sending-dots {
-    font-size: 1rem;
+    font-size: var(--type-title3);
     letter-spacing: 2px;
 }
 
 .ext-takeover-note {
-    font-size: 0.62rem;
+    font-size: var(--type-caption1);
     color: var(--text-dim);
     opacity: 0.7;
 }
 
 .resume-error {
-    font-size: 0.7rem;
+    font-size: var(--type-footnote);
     color: #ff6b6b;
     padding: 0.25rem 0.4rem;
     background: rgba(255, 107, 107, 0.08);

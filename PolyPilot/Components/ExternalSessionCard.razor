@@ -110,18 +110,13 @@
     private string? _sendError;
     private bool _focusing;
 
-    private void FocusTerminal()
+    private async Task FocusTerminal()
     {
         if (Session.ActiveLockPid is not { } pid) return;
         _focusing = true;
-        try
-        {
-            CopilotService.FocusExternalSessionTerminal(pid);
-        }
-        finally
-        {
-            _focusing = false;
-        }
+        StateHasChanged();
+        try { await Task.Run(() => CopilotService.FocusExternalSessionTerminal(pid)); }
+        finally { _focusing = false; }
     }
 
     private async Task HandleKeyUp(KeyboardEventArgs e)
