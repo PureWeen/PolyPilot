@@ -2371,6 +2371,9 @@ else
                 sb.AppendLine($"LastUpdatedAt: {session.LastUpdatedAt:o}");
                 sb.AppendLine($"WorkingDirectory: {session.WorkingDirectory}");
             }
+
+            // Multi-agent context
+            AppendMultiAgentDebugInfo(sb, selectedBugSession);
         }
 
         try
@@ -2390,6 +2393,79 @@ else
         catch { /* ignore */ }
 
         return sb.ToString();
+    }
+
+    private void AppendMultiAgentDebugInfo(System.Text.StringBuilder sb, string sessionName)
+    {
+        try
+        {
+            var meta = CopilotService.Organization.Sessions
+                .FirstOrDefault(m => m.SessionName == sessionName);
+            if (meta?.GroupId == null) return;
+
+            var group = CopilotService.Organization.Groups
+                .FirstOrDefault(g => g.Id == meta.GroupId);
+            if (group is not { IsMultiAgent: true }) return;
+
+            sb.AppendLine($"--- Multi-Agent Context ---");
+            sb.AppendLine($"Group: {group.Name}");
+            sb.AppendLine($"OrchestratorMode: {group.OrchestratorMode}");
+            sb.AppendLine($"Role: {meta.Role}");
+
+            // List all members of the group
+            var members = CopilotService.Organization.Sessions
+                .Where(m => m.GroupId == group.Id)
+                .ToList();
+            foreach (var m in members)
+            {
+                var mSession = CopilotService.GetAllSessions()
+                    .FirstOrDefault(s => s.Name == m.SessionName);
+                var status = mSession?.IsProcessing == true ? "processing" : "idle";
+                sb.AppendLine($"  {m.Role}: {m.SessionName} ({mSession?.Model ?? "?"}) [{status}]");
+            }
+
+            // Include recent event-diagnostics entries for the group
+            try
+            {
+                var diagPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".polypilot", "event-diagnostics.log");
+                if (File.Exists(diagPath))
+                {
+                    var groupPrefix = group.Name;
+                    var allLines = File.ReadAllLines(diagPath);
+                    var groupLines = allLines
+                        .Where(l => l.Contains(groupPrefix, StringComparison.OrdinalIgnoreCase))
+                        .TakeLast(30)
+                        .ToArray();
+                    if (groupLines.Length > 0)
+                    {
+                        sb.AppendLine($"--- Event Diagnostics ({groupPrefix}, last {groupLines.Length} lines) ---");
+                        foreach (var line in groupLines)
+                            sb.AppendLine(line);
+                    }
+                }
+            }
+            catch { /* best-effort */ }
+
+            // Check PendingOrchestration
+            try
+            {
+                var pendingPath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".polypilot", "pending-orchestration.json");
+                if (File.Exists(pendingPath))
+                {
+                    var content = File.ReadAllText(pendingPath);
+                    if (!string.IsNullOrWhiteSpace(content) && content.Trim() != "{}" && content.Trim() != "[]")
+                        sb.AppendLine($"PendingOrchestration: active ({content.Length} chars)");
+                    else
+                        sb.AppendLine("PendingOrchestration: none");
+                }
+            }
+            catch { /* best-effort */ }
+        }
+        catch { /* multi-agent debug info is best-effort */ }
     }
 
     // --- Report Bug: creates a GitHub issue ---
@@ -2575,8 +2651,28 @@ else
         }
     }
 
-    private static string BuildCopilotPrompt(string description, string debugInfo, string branchName)
+    private string BuildCopilotPrompt(string description, string debugInfo, string branchName)
     {
+        var isMultiAgent = !string.IsNullOrEmpty(selectedBugSession) &&
+            CopilotService.IsSessionInMultiAgentGroup(selectedBugSession);
+
+        var multiAgentSection = "";
+        if (isMultiAgent)
+        {
+            multiAgentSection = """
+
+## Multi-Agent Testing Requirements
+This session is part of a multi-agent orchestration group. After fixing the issue:
+1. Verify orchestration dispatch still works — `grep "DISPATCH" ~/.polypilot/event-diagnostics.log | tail -20` should show DISPATCH-ROUTE → DISPATCH → SEND sequence.
+2. Verify workers complete and report back — each should get SessionIdleEvent → CompleteResponse.
+3. Verify PendingOrchestration is cleared after synthesis — `cat ~/.polypilot/pending-orchestration.json` should be empty.
+4. If modifying IsProcessing paths, verify ALL 9 companion fields are cleared (see processing-state-safety skill — INV-1).
+5. If modifying reconnect paths, verify IsOrphaned guards prevent stale callbacks (see INV-O9-O13 in multi-agent-orchestration skill).
+6. If modifying event handlers, ensure IsOrphaned check is the FIRST guard in the handler.
+7. Run `dotnet test PolyPilot.Tests/ --filter "MultiAgent"` to verify multi-agent regression tests pass.
+""";
+        }
+
         return $"""
 You are fixing a bug in the PolyPilot app (a .NET MAUI Blazor Hybrid app).
 
@@ -2599,7 +2695,7 @@ You are fixing a bug in the PolyPilot app (a .NET MAUI Blazor Hybrid app).
 8. **Verify your branch is based on `main`** — run `git log --oneline upstream/main..HEAD` (or `origin/main..HEAD`) and confirm only YOUR commits appear. If unrelated commits are included, the branch was created from the wrong base. Fix it: create a new branch from `upstream/main` and cherry-pick your commits onto it.
 9. Commit your changes to branch `{branchName}` with a descriptive commit message.
 10. Push the branch and create a PR against `main` in the PureWeen/PolyPilot repository using `gh pr create`.
-
+{multiAgentSection}
 Important conventions:
 - Never use `static readonly` fields that call platform APIs (use lazy `??=` properties instead).
 - Tests must NEVER call `ConnectionSettings.Save()` or `ConnectionSettings.Load()`.
