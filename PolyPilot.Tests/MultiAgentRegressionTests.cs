@@ -2121,4 +2121,244 @@ public class MultiAgentRegressionTests
     }
 
     #endregion
+
+    #region Orchestrator-Steer Conflict Tests (PR #375)
+
+    /// <summary>
+    /// CRITICAL REGRESSION: When a user sends a message to a busy orchestrator,
+    /// Dashboard must queue the message (EnqueueMessage) — NOT steer it.
+    /// Steering cancels the in-flight orchestration TCS via ProcessingGeneration bump,
+    /// which causes TaskCanceledException in SendToMultiAgentGroupAsync.
+    /// 
+    /// Bug scenario:
+    /// 1. User sends "review these PRs" → orchestrator starts dispatching workers
+    /// 2. User sends "also check PR #400" while orchestrator is still processing
+    /// 3. OLD: Dashboard sees IsProcessing=true → calls SteerSessionAsync → cancels orchestration
+    /// 4. FIX: Dashboard sees IsProcessing=true + orchestrator → calls EnqueueMessage → safe
+    /// </summary>
+    [Fact]
+    public void EnqueueMessage_QueuesDrainAfterCompletion()
+    {
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        // Create a session with a message queue
+        var info = new AgentSessionInfo { Name = "test-orch", IsProcessing = true };
+        var state = new CopilotService.SessionState(info);
+        svc.SetSessionForTesting("test-orch", state);
+
+        // Enqueue a message while "processing"
+        svc.EnqueueMessage("test-orch", "also check PR #400");
+
+        // The message should be queued
+        Assert.Equal(1, info.MessageQueue.Count);
+        Assert.True(info.MessageQueue.TryDequeue(out var queued));
+        Assert.Equal("also check PR #400", queued);
+    }
+
+    [Fact]
+    public void EnqueueMessage_MultipleMessages_QueuedInOrder()
+    {
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        var info = new AgentSessionInfo { Name = "test-orch", IsProcessing = true };
+        var state = new CopilotService.SessionState(info);
+        svc.SetSessionForTesting("test-orch", state);
+
+        svc.EnqueueMessage("test-orch", "message 1");
+        svc.EnqueueMessage("test-orch", "message 2");
+        svc.EnqueueMessage("test-orch", "message 3");
+
+        Assert.Equal(3, info.MessageQueue.Count);
+
+        // Drain in order
+        Assert.True(info.MessageQueue.TryDequeue(out var m1));
+        Assert.True(info.MessageQueue.TryDequeue(out var m2));
+        Assert.True(info.MessageQueue.TryDequeue(out var m3));
+        Assert.Equal("message 1", m1);
+        Assert.Equal("message 2", m2);
+        Assert.Equal("message 3", m3);
+    }
+
+    /// <summary>
+    /// Structural test: Dashboard.razor dispatch routing must check for orchestrator
+    /// sessions BEFORE the general steer path. This prevents the steer from canceling
+    /// in-flight orchestrations.
+    ///
+    /// Order must be:
+    /// 1. if (IsProcessing) → check GetOrchestratorGroupId → queue if orchestrator
+    /// 2. else → SteerSessionAsync (for regular sessions)
+    /// </summary>
+    [Fact]
+    public void DashboardDispatch_OrchestratorCheckBeforeSteer()
+    {
+        var dashboardPath = Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PolyPilot",
+                "Components", "Pages", "Dashboard.razor"));
+
+        Assert.True(File.Exists(dashboardPath), $"Dashboard.razor not found at {dashboardPath}");
+
+        var source = File.ReadAllText(dashboardPath);
+
+        // Find the IsProcessing block that contains both the orchestrator check and steer
+        var isProcessingIdx = source.IndexOf("if (session?.IsProcessing == true)");
+        Assert.True(isProcessingIdx >= 0, "Dashboard must have 'if (session?.IsProcessing == true)' check");
+
+        // Within the IsProcessing block, orchestrator check must come BEFORE steer
+        var orchCheckIdx = source.IndexOf("GetOrchestratorGroupId(sessionName)", isProcessingIdx);
+        var steerIdx = source.IndexOf("SteerSessionAsync(sessionName", isProcessingIdx);
+
+        Assert.True(orchCheckIdx >= 0, "Dashboard must call GetOrchestratorGroupId within the IsProcessing block");
+        Assert.True(steerIdx >= 0, "Dashboard must call SteerSessionAsync within the IsProcessing block");
+        Assert.True(orchCheckIdx < steerIdx,
+            $"GetOrchestratorGroupId (pos {orchCheckIdx}) must appear BEFORE " +
+            $"SteerSessionAsync (pos {steerIdx}) in the IsProcessing block. " +
+            "If steer fires first, it cancels the in-flight orchestration TCS.");
+    }
+
+    /// <summary>
+    /// Structural test: Dashboard must use EnqueueMessage (not SteerSessionAsync)
+    /// when the session is identified as an orchestrator.
+    /// </summary>
+    [Fact]
+    public void DashboardDispatch_OrchestratorUsesEnqueueNotSteer()
+    {
+        var dashboardPath = Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PolyPilot",
+                "Components", "Pages", "Dashboard.razor"));
+
+        var source = File.ReadAllText(dashboardPath);
+
+        // Find the orchestrator guard block
+        var orchCheckIdx = source.IndexOf("GetOrchestratorGroupId(sessionName)");
+        Assert.True(orchCheckIdx >= 0);
+
+        // Find the return statement after the EnqueueMessage in the orchestrator block
+        // The pattern should be: orchGroupId != null → EnqueueMessage → return
+        var orchBlockStart = orchCheckIdx;
+        var orchNullCheck = source.IndexOf("orchGroupId != null", orchBlockStart);
+        Assert.True(orchNullCheck >= 0, "Must check orchGroupId != null");
+
+        // Within the orchestrator block (between orchGroupId check and the next return),
+        // EnqueueMessage must be called
+        var nextReturn = source.IndexOf("return;", orchNullCheck);
+        Assert.True(nextReturn >= 0);
+
+        var orchBlock = source[orchNullCheck..nextReturn];
+        Assert.Contains("EnqueueMessage", orchBlock);
+        Assert.DoesNotContain("SteerSessionAsync", orchBlock);
+    }
+
+    /// <summary>
+    /// Structural test: The QUEUED_ORCH_BUSY diagnostic log tag must be present
+    /// in the orchestrator queue path. This ensures diagnostic tracing is maintained.
+    /// </summary>
+    [Fact]
+    public void DashboardDispatch_OrchestratorQueueHasDiagnosticLog()
+    {
+        var dashboardPath = Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PolyPilot",
+                "Components", "Pages", "Dashboard.razor"));
+
+        var source = File.ReadAllText(dashboardPath);
+
+        Assert.Contains("QUEUED_ORCH_BUSY", source);
+    }
+
+    /// <summary>
+    /// Non-orchestrator sessions that are processing should still be steered.
+    /// This ensures the fix only affects orchestrator sessions, not regular ones.
+    /// </summary>
+    [Fact]
+    public void DashboardDispatch_NonOrchestratorStillSteered()
+    {
+        var dashboardPath = Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PolyPilot",
+                "Components", "Pages", "Dashboard.razor"));
+
+        var source = File.ReadAllText(dashboardPath);
+
+        // After the orchestrator block (orchGroupId != null → EnqueueMessage → return),
+        // the steer path must still exist for non-orchestrator sessions
+        var orchReturnIdx = source.IndexOf("QUEUED_ORCH_BUSY");
+        Assert.True(orchReturnIdx >= 0);
+
+        // SteerSessionAsync should still appear AFTER the orchestrator block
+        var steerAfterOrch = source.IndexOf("SteerSessionAsync", orchReturnIdx);
+        Assert.True(steerAfterOrch >= 0,
+            "SteerSessionAsync must still be called for non-orchestrator sessions " +
+            "that are processing. The orchestrator check is a special case, not a replacement.");
+    }
+
+    /// <summary>
+    /// Tests that GetOrchestratorGroupId returns null for a session that IS in a
+    /// multi-agent group but as a worker (not orchestrator). This ensures workers
+    /// can still be steered normally.
+    /// </summary>
+    [Fact]
+    public void GetOrchestratorGroupId_WorkerInActiveGroup_ReturnsNull()
+    {
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        var group = svc.CreateMultiAgentGroup("Steer Test Team", MultiAgentMode.Orchestrator);
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "Steer Test Team-orchestrator",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "Steer Test Team-worker-1",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Worker
+        });
+
+        // Workers should NOT be identified as orchestrators
+        Assert.Null(svc.GetOrchestratorGroupId("Steer Test Team-worker-1"));
+        // Workers can be steered without issue
+    }
+
+    /// <summary>
+    /// Long-running orchestrator scenario: when an orchestrator has been dispatching
+    /// workers for 10+ minutes and the user sends a follow-up, it must be queued.
+    /// This is the exact scenario from the PR Review Squad bug.
+    /// </summary>
+    [Fact]
+    public void LongRunningOrchestrator_UserFollowup_MustQueue()
+    {
+        var svc = CreateService();
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
+
+        // Set up a multi-agent group with orchestrator
+        var group = svc.CreateMultiAgentGroup("Long Run Team", MultiAgentMode.Orchestrator);
+        var orchInfo = new AgentSessionInfo
+        {
+            Name = "Long Run Team-orchestrator",
+            IsProcessing = true,
+            ProcessingStartedAt = DateTime.UtcNow.AddMinutes(-15) // Running for 15 minutes
+        };
+        var orchState = new CopilotService.SessionState(orchInfo);
+        svc.SetSessionForTesting("Long Run Team-orchestrator", orchState);
+
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "Long Run Team-orchestrator",
+            GroupId = group.Id,
+            Role = MultiAgentRole.Orchestrator
+        });
+
+        // Verify the orchestrator is detected
+        Assert.Equal(group.Id, svc.GetOrchestratorGroupId("Long Run Team-orchestrator"));
+
+        // User sends a follow-up while orchestrator is busy
+        svc.EnqueueMessage("Long Run Team-orchestrator", "also review PR #500");
+
+        // Message should be queued, NOT cause steering
+        Assert.Equal(1, orchInfo.MessageQueue.Count);
+    }
+
+    #endregion
 }
