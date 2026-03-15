@@ -423,7 +423,10 @@ public class FiestaService : IDisposable
         {
             using var ws = new ClientWebSocket();
             if (!string.IsNullOrWhiteSpace(worker.Token))
+            {
                 ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {worker.Token}");
+                ws.Options.SetRequestHeader("X-Bridge-Authorization", worker.Token);
+            }
 
             var wsUri = ToWebSocketUri(worker.BridgeUrl);
             using var connectTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

@@ -302,21 +302,20 @@ public class ConnectionSettings
             // Migrate legacy plaintext values to SecureStorage on first run.
             // Per-field tracking: only scrub a field from JSON after confirming its write succeeded,
             // so a partial Keychain failure (full, locked, missing entitlements) cannot lose tokens.
-            bool migratedRemote = false, migratedLan = false, migratedPass = false;
             if (string.IsNullOrEmpty(storedRemote) && !string.IsNullOrEmpty(legacyRemote))
             {
                 if (SetSecureStorageSync(RemoteTokenKey, legacyRemote))
-                { storedRemote = legacyRemote; migratedRemote = true; }
+                    storedRemote = legacyRemote;
             }
             if (string.IsNullOrEmpty(storedLan) && !string.IsNullOrEmpty(legacyLan))
             {
                 if (SetSecureStorageSync(LanTokenKey, legacyLan))
-                { storedLan = legacyLan; migratedLan = true; }
+                    storedLan = legacyLan;
             }
             if (string.IsNullOrEmpty(storedPass) && !string.IsNullOrEmpty(legacyPass))
             {
                 if (SetSecureStorageSync(ServerPasswordKey, legacyPass))
-                { storedPass = legacyPass; migratedPass = true; }
+                    storedPass = legacyPass;
             }
 
             _remoteToken = storedRemote;

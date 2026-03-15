@@ -201,8 +201,10 @@ public class WsBridgeServer : IDisposable
                 }
                 else if (context.Request.Url?.AbsolutePath == "/token" && context.Request.HttpMethod == "GET")
                 {
-                    // Only serve token to loopback clients (localhost)
-                    if (!IsLoopbackRequest(context.Request))
+                    // Only serve token to loopback clients in local-only mode.
+                    // When an AccessToken is configured (DevTunnel active), the /token endpoint
+                    // is disabled — clients receive the token via QR code / URL, not HTTP discovery.
+                    if (!string.IsNullOrEmpty(AccessToken) || !IsLoopbackRequest(context.Request))
                     {
                         context.Response.StatusCode = 403;
                         context.Response.Close();

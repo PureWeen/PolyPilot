@@ -1000,7 +1000,10 @@ public class WsBridgeIntegrationTests : IDisposable
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             // Connect without providing the token — loopback no longer bypasses auth when token is configured
-            await Assert.ThrowsAnyAsync<Exception>(() => ConnectClientAsync(cts.Token));
+            var ex = await Assert.ThrowsAnyAsync<Exception>(() => ConnectClientAsync(cts.Token));
+            Assert.True(
+                ex is System.Net.WebSockets.WebSocketException || ex is HttpRequestException || ex is InvalidOperationException,
+                $"Expected WebSocket/HTTP rejection but got {ex.GetType().Name}: {ex.Message}");
         }
         finally
         {

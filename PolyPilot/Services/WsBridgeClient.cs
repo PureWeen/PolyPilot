@@ -241,7 +241,10 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
 
             var request = new HttpRequestMessage(HttpMethod.Get, httpUrl);
             if (!string.IsNullOrEmpty(lanToken))
+            {
                 request.Headers.Add("X-Tunnel-Authorization", $"tunnel {lanToken}");
+                request.Headers.Add("X-Bridge-Authorization", lanToken);
+            }
 
             using var response = await _probeClient.SendAsync(request, cts.Token);
             return response.IsSuccessStatusCode;
