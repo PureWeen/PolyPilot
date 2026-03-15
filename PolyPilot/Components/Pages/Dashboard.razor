@@ -1300,6 +1300,24 @@
 
         if (session?.IsProcessing == true)
         {
+            // If this session is an orchestrator in a multi-agent group, queue the message
+            // instead of steering. Steering cancels the in-flight orchestration TCS which
+            // aborts worker dispatch. The queued message will be sent after the current
+            // orchestration completes.
+            var orchGroupId = CopilotService.GetOrchestratorGroupId(sessionName);
+            if (orchGroupId != null)
+            {
+                CopilotService.LogDispatchRoute(sessionName, true, "QUEUED_ORCH_BUSY", null, null, null, true);
+                List<string>? queueImagePaths = null;
+                if (hasImages)
+                {
+                    queueImagePaths = pendingSendImages!.Select(i => i.TempPath).ToList();
+                    pendingImagesBySession.Remove(sessionName);
+                }
+                CopilotService.EnqueueMessage(sessionName, finalPrompt, queueImagePaths, agentMode);
+                return;
+            }
+
             CopilotService.LogDispatchRoute(sessionName, true, "STEER", null, null, null, false);
             List<string>? steerImagePaths = null;
             if (hasImages)
