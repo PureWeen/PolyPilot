@@ -70,8 +70,9 @@ public class ConnectionSettings
     public bool AutoStartServer { get; set; } = false;
     public string? RemoteUrl { get; set; }
 
-    // Secrets: stored in SecureStorage on iOS/Android/MacCatalyst; plain JSON on other desktop.
-#if IOS || ANDROID || MACCATALYST
+    // Secrets: stored in SecureStorage on iOS/Android; plain JSON on desktop (incl. Mac Catalyst).
+    // Mac Catalyst runs without app sandbox, making Keychain unreliable for SecureStorage.
+#if IOS || ANDROID
     private string? _remoteToken;
     [System.Text.Json.Serialization.JsonIgnore]
     public string? RemoteToken
@@ -215,7 +216,11 @@ public class ConnectionSettings
         if (settings.Theme == UiTheme.InternationalWomensDay)
             settings.Theme = UiTheme.System;
 
-#if IOS || ANDROID || MACCATALYST
+#if MACCATALYST
+        // Reverse migration: PR 341 moved secrets to SecureStorage on Mac Catalyst,
+        // but Keychain is unreliable without app sandboxing. Recover secrets to plain JSON.
+        RecoverSecretsFromSecureStorage(settings);
+#elif IOS || ANDROID
         settings.MigrateAndLoadMobileSecrets(rawJson);
 #endif
 
@@ -260,7 +265,7 @@ public class ConnectionSettings
         {
             var dir = Path.GetDirectoryName(SettingsPath)!;
             Directory.CreateDirectory(dir);
-#if IOS || ANDROID || MACCATALYST
+#if IOS || ANDROID
             SaveMobileSecretsIfDirty();
             var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
 #else
@@ -271,7 +276,67 @@ public class ConnectionSettings
         catch { }
     }
 
-#if IOS || ANDROID || MACCATALYST
+#if MACCATALYST
+    /// <summary>
+    /// One-time reverse migration: PR 341 moved ServerPassword/RemoteToken/LanToken to
+    /// SecureStorage on Mac Catalyst. Since Mac Catalyst runs without sandbox, Keychain
+    /// is unreliable. This recovers any values and writes them back to plain JSON.
+    /// </summary>
+    private static void RecoverSecretsFromSecureStorage(ConnectionSettings settings)
+    {
+        try
+        {
+            bool needsSave = false;
+
+            if (string.IsNullOrEmpty(settings.RemoteToken))
+            {
+                var val = ReadSecureStorage("polypilot.connection.remoteToken");
+                if (!string.IsNullOrEmpty(val)) { settings.RemoteToken = val; needsSave = true; }
+            }
+            if (string.IsNullOrEmpty(settings.LanToken))
+            {
+                var val = ReadSecureStorage("polypilot.connection.lanToken");
+                if (!string.IsNullOrEmpty(val)) { settings.LanToken = val; needsSave = true; }
+            }
+            if (string.IsNullOrEmpty(settings.ServerPassword))
+            {
+                var val = ReadSecureStorage("polypilot.connection.serverPassword");
+                if (!string.IsNullOrEmpty(val)) { settings.ServerPassword = val; needsSave = true; }
+            }
+
+            if (needsSave)
+            {
+                settings.Save();
+
+                // Only clean up Keychain after verifying the JSON file was actually written.
+                // If Save() failed silently, leave Keychain intact so migration retries next launch.
+                if (File.Exists(SettingsPath))
+                {
+                    try
+                    {
+                        var verify = File.ReadAllText(SettingsPath);
+                        if (verify.Contains("ServerPassword"))
+                        {
+                            try { SecureStorage.Default.Remove("polypilot.connection.remoteToken"); } catch { }
+                            try { SecureStorage.Default.Remove("polypilot.connection.lanToken"); } catch { }
+                            try { SecureStorage.Default.Remove("polypilot.connection.serverPassword"); } catch { }
+                        }
+                    }
+                    catch { }
+                }
+            }
+        }
+        catch { }
+    }
+
+    private static string? ReadSecureStorage(string key)
+    {
+        try { return Task.Run(() => SecureStorage.Default.GetAsync(key)).GetAwaiter().GetResult(); }
+        catch { return null; }
+    }
+#endif
+
+#if IOS || ANDROID
     private const string RemoteTokenKey = "polypilot.connection.remoteToken";
     private const string LanTokenKey = "polypilot.connection.lanToken";
     private const string ServerPasswordKey = "polypilot.connection.serverPassword";

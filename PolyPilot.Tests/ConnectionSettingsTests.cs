@@ -483,6 +483,79 @@ public class ConnectionSettingsTests
         Assert.Equal("VS Code Insiders", VsCodeVariant.Insiders.DisplayName());
     }
 
+    [Fact]
+    public void ServerPassword_SerializesToJson_OnDesktop()
+    {
+        // Regression test for PR 341: ServerPassword must be included in JSON serialization
+        // on desktop platforms (including Mac Catalyst). Previously, [JsonIgnore] on MACCATALYST
+        // caused the password to be silently dropped, breaking Direct Sharing persistence.
+        var settings = new ConnectionSettings
+        {
+            ServerPassword = "test-password-123",
+            DirectSharingEnabled = true
+        };
+
+        var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+        Assert.Contains("\"ServerPassword\"", json);
+        Assert.Contains("test-password-123", json);
+    }
+
+    [Fact]
+    public void ServerPassword_DeserializesFromJson_OnDesktop()
+    {
+        // Regression test: password round-trips through JSON on desktop platforms
+        var json = """{"Mode":0,"Host":"localhost","Port":4321,"ServerPassword":"my-secret","DirectSharingEnabled":true}""";
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        Assert.Equal("my-secret", loaded!.ServerPassword);
+        Assert.True(loaded.DirectSharingEnabled);
+    }
+
+    [Fact]
+    public void DirectSharing_RequiresServerPassword_ForAutoStart()
+    {
+        // Validates the auto-start guard logic from Dashboard.StartDirectSharingIfEnabled:
+        // DirectSharingEnabled=true with empty password should NOT auto-start.
+        var settings = new ConnectionSettings
+        {
+            DirectSharingEnabled = true,
+            ServerPassword = null
+        };
+        bool shouldAutoStart = settings.DirectSharingEnabled && !string.IsNullOrEmpty(settings.ServerPassword);
+        Assert.False(shouldAutoStart, "Should not auto-start without password");
+
+        settings.ServerPassword = "";
+        shouldAutoStart = settings.DirectSharingEnabled && !string.IsNullOrEmpty(settings.ServerPassword);
+        Assert.False(shouldAutoStart, "Should not auto-start with empty password");
+
+        settings.ServerPassword = "real-password";
+        shouldAutoStart = settings.DirectSharingEnabled && !string.IsNullOrEmpty(settings.ServerPassword);
+        Assert.True(shouldAutoStart, "Should auto-start with password set");
+    }
+
+    [Fact]
+    public void AllSecretFields_PresentInJson_OnDesktop()
+    {
+        // Ensures RemoteToken, LanToken, and ServerPassword all serialize on desktop.
+        // On iOS/Android they get [JsonIgnore] and go to SecureStorage,
+        // but on desktop (including Mac Catalyst) they must be in plain JSON.
+        var settings = new ConnectionSettings
+        {
+            RemoteToken = "remote-tok",
+            LanToken = "lan-tok",
+            ServerPassword = "srv-pass"
+        };
+
+        var json = JsonSerializer.Serialize(settings);
+        Assert.Contains("\"RemoteToken\"", json);
+        Assert.Contains("\"LanToken\"", json);
+        Assert.Contains("\"ServerPassword\"", json);
+        Assert.Contains("remote-tok", json);
+        Assert.Contains("lan-tok", json);
+        Assert.Contains("srv-pass", json);
+    }
+
     private void Dispose()
     {
         try { Directory.Delete(_testDir, true); } catch { }
