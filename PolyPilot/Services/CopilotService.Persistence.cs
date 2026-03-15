@@ -402,11 +402,14 @@ public partial class CopilotService
                             // (e.g., worker sessions that were created but never received a message).
                             // "corrupted" / "session file" errors mean the events.jsonl is locked or
                             // unreadable (e.g., another copilot process owns the session).
+                            // "No process is associated" means the CLI server process died and the
+                            // SDK's StartCliServerAsync hit a stale Process handle (HasExited throws).
                             // Fall back to creating a fresh session so multi-agent workers don't vanish.
                             // Load history from the old session's events.jsonl so messages aren't lost.
                             if (ex.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase) ||
                                 ex.Message.Contains("corrupt", StringComparison.OrdinalIgnoreCase) ||
-                                ex.Message.Contains("session file", StringComparison.OrdinalIgnoreCase))
+                                ex.Message.Contains("session file", StringComparison.OrdinalIgnoreCase) ||
+                                IsProcessError(ex))
                             {
                                 try
                                 {

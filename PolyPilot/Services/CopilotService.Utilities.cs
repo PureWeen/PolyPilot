@@ -318,10 +318,28 @@ public partial class CopilotService
             || msg.Contains("JSON-RPC connection", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("not connected", StringComparison.OrdinalIgnoreCase))
             return true;
+        // Stale process handle: the CLI server process died and the SDK's
+        // StartCliServerAsync hit Process.HasExited on a dead handle.
+        if (IsProcessError(ex))
+            return true;
         // Walk the full exception chain, including all AggregateException inner exceptions
         if (ex is AggregateException agg)
             return agg.InnerExceptions.Any(IsConnectionError);
         return ex.InnerException != null && IsConnectionError(ex.InnerException);
+    }
+
+    /// <summary>
+    /// Returns true if the exception indicates the CLI server process is dead
+    /// (e.g., Process.HasExited throws because the Process handle was never started
+    /// or has been disposed). This happens when the SDK tries to monitor a stale process.
+    /// </summary>
+    internal static bool IsProcessError(Exception ex)
+    {
+        if (ex is InvalidOperationException && ex.Message.Contains("No process is associated", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (ex is AggregateException agg)
+            return agg.InnerExceptions.Any(IsProcessError);
+        return ex.InnerException != null && IsProcessError(ex.InnerException);
     }
 
     /// <summary>

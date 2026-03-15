@@ -374,6 +374,94 @@ public class ConnectionRecoveryTests
         Assert.True(CopilotService.IsConnectionError(phase2), "Phase 2: client not connected should be detected");
     }
 
+    // ===== Process error detection (stale CLI server process) =====
+    // When the CLI server process dies, the SDK's StartCliServerAsync calls Process.HasExited
+    // on a stale handle, throwing InvalidOperationException: "No process is associated with this object."
+    // This must be detected as both a process error and a connection error so session restore
+    // falls back to CreateSessionAsync instead of silently dropping worker sessions.
+
+    [Fact]
+    public void IsProcessError_DetectsNoProcessAssociated()
+    {
+        var ex = new InvalidOperationException("No process is associated with this object.");
+        Assert.True(CopilotService.IsProcessError(ex));
+    }
+
+    [Fact]
+    public void IsProcessError_DetectsWrappedInAggregateException()
+    {
+        var inner = new InvalidOperationException("No process is associated with this object.");
+        var agg = new AggregateException("One or more errors occurred.", inner);
+        Assert.True(CopilotService.IsProcessError(agg));
+    }
+
+    [Fact]
+    public void IsProcessError_DetectsAsInnerException()
+    {
+        var inner = new InvalidOperationException("No process is associated with this object.");
+        var outer = new Exception("ResumeSessionAsync failed", inner);
+        Assert.True(CopilotService.IsProcessError(outer));
+    }
+
+    [Fact]
+    public void IsProcessError_ReturnsFalseForUnrelatedInvalidOperationException()
+    {
+        var ex = new InvalidOperationException("Session 'test' already exists.");
+        Assert.False(CopilotService.IsProcessError(ex));
+    }
+
+    [Fact]
+    public void IsProcessError_ReturnsFalseForNonInvalidOperationException()
+    {
+        var ex = new ArgumentException("No process is associated with this object.");
+        Assert.False(CopilotService.IsProcessError(ex));
+    }
+
+    [Fact]
+    public void IsConnectionError_DetectsStaleProcessHandle()
+    {
+        // The exact exception from the bug report: SDK's StartCliServerAsync calls
+        // Process.HasExited on a dead handle during session resume.
+        var ex = new InvalidOperationException("No process is associated with this object.");
+        Assert.True(CopilotService.IsConnectionError(ex));
+    }
+
+    [Fact]
+    public void IsConnectionError_DetectsStaleProcessHandleWrappedInAggregate()
+    {
+        // The crash log shows this wrapped in AggregateException from TaskScheduler.UnobservedTaskException
+        var inner = new InvalidOperationException("No process is associated with this object.");
+        var agg = new AggregateException("A Task's exception(s) were not observed", inner);
+        Assert.True(CopilotService.IsConnectionError(agg));
+    }
+
+    [Fact]
+    public void IsConnectionError_DetectsStaleProcessHandleAsInnerException()
+    {
+        var inner = new InvalidOperationException("No process is associated with this object.");
+        var outer = new InvalidOperationException("Failed to start CLI server", inner);
+        Assert.True(CopilotService.IsConnectionError(outer));
+    }
+
+    // ===== Structural guard: restore fallback covers process errors =====
+
+    [Fact]
+    public void RestorePreviousSessions_FallbackCoversProcessErrors()
+    {
+        // STRUCTURAL REGRESSION GUARD: RestorePreviousSessionsAsync must include
+        // IsProcessError in the fallback condition so worker sessions with stale CLI
+        // server process handles get recreated instead of silently dropped.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        // Find the fallback condition that checks ex.Message for "Session not found"
+        var conditionIndex = source.IndexOf("ex.Message.Contains(\"Session not found\"");
+        Assert.True(conditionIndex > 0, "Could not find ex.Message.Contains(\"Session not found\") in RestorePreviousSessionsAsync");
+
+        // The IsProcessError check must be in the same if-condition block
+        var conditionBlock = source.Substring(conditionIndex, 500);
+        Assert.Contains("IsProcessError", conditionBlock);
+    }
+
     // ===== SafeFireAndForget task observation =====
     // Prevents UnobservedTaskException from fire-and-forget _chatDb calls.
     // See crash log: "A Task's exception(s) were not observed" wrapping ConnectionLostException.
