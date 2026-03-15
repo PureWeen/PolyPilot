@@ -857,7 +857,7 @@ public class ChatExperienceSafetyTests
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
         // After extraction to BuildFreshSessionConfig, verify the reconnect path calls the helper
-        var sessionNotFoundIdx = source.IndexOf("Session not found", StringComparison.OrdinalIgnoreCase);
+        var sessionNotFoundIdx = source.IndexOf("resumeEx.Message.Contains(\"Session not found\"", StringComparison.Ordinal);
         Assert.True(sessionNotFoundIdx > 0);
         var afterNotFound = source.Substring(sessionNotFoundIdx, Math.Min(1000, source.Length - sessionNotFoundIdx));
         Assert.Contains("BuildFreshSessionConfig", afterNotFound);

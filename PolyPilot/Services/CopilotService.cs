@@ -787,9 +787,9 @@ public partial class CopilotService : IAsyncDisposable
         IsRestoring = false;
 
         // Flush session list immediately after restore so that any session IDs changed
-        // during fallback recreation (e.g., "Session not found" → CreateSessionAsync)
-        // are persisted. Without this, active-sessions.json retains stale IDs and
-        // LoadHistoryFromDisk reads the wrong events.jsonl on the next restart.
+        // during fallback recreation (resume failed → CreateSessionAsync) are persisted.
+        // Without this, active-sessions.json retains stale IDs and LoadHistoryFromDisk
+        // reads the wrong events.jsonl on the next restart.
         FlushSaveActiveSessionsToDisk();
 
         // Start health check loop for any codespace groups (regardless of whether sessions were restored)

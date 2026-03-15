@@ -450,7 +450,8 @@ public partial class CopilotService
 
                                                     if (oldLines.Count > 0)
                                                     {
-                                                        if (!File.Exists(newEvents))
+                                                        var existed = File.Exists(newEvents);
+                                                        if (!existed)
                                                         {
                                                             // New session has no events yet — write old events directly
                                                             File.WriteAllLines(newEvents, oldLines);
@@ -459,16 +460,21 @@ public partial class CopilotService
                                                         {
                                                             // New session already has events (SDK created it).
                                                             // Prepend old events so history is preserved on future restarts.
+                                                            // Write to temp file then atomic-move to avoid data loss on crash.
                                                             var newLines = File.ReadAllLines(newEvents);
-                                                            using var writer = new StreamWriter(newEvents, append: false);
-                                                            foreach (var line in oldLines) writer.WriteLine(line);
-                                                            foreach (var line in newLines) writer.WriteLine(line);
+                                                            var tmpFile = newEvents + ".tmp";
+                                                            using (var writer = new StreamWriter(tmpFile, append: false))
+                                                            {
+                                                                foreach (var line in oldLines) writer.WriteLine(line);
+                                                                foreach (var line in newLines) writer.WriteLine(line);
+                                                            }
+                                                            File.Move(tmpFile, newEvents, overwrite: true);
                                                         }
 
                                                         if (skippedLines > 0)
                                                             Debug($"Sanitized events.jsonl copy from {entry.SessionId} to {recreatedState.Info.SessionId}: {oldLines.Count} valid, {skippedLines} corrupt lines skipped");
                                                         else
-                                                            Debug($"Copied events.jsonl from {entry.SessionId} to {recreatedState.Info.SessionId}: {oldLines.Count} lines (prepended={File.Exists(newEvents)})");
+                                                            Debug($"Copied events.jsonl from {entry.SessionId} to {recreatedState.Info.SessionId}: {oldLines.Count} lines (prepended={existed})");
                                                     }
                                                 }
                                             }

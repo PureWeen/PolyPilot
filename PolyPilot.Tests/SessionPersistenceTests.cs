@@ -541,7 +541,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));        Assert.Contains("History.Add", afterFallback);
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(8000, source.Length - fallbackIdx));        Assert.Contains("History.Add", afterFallback);
         Assert.Contains("MessageCount", afterFallback);
         Assert.Contains("LastReadMessageCount", afterFallback);
     }
@@ -557,7 +557,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(8000, source.Length - fallbackIdx));
         Assert.Contains("RestoreUsageStats", afterFallback);
     }
 
@@ -572,7 +572,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(8000, source.Length - fallbackIdx));
         Assert.Contains("BulkInsertAsync", afterFallback);
     }
 
@@ -588,7 +588,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(8000, source.Length - fallbackIdx));
         Assert.Contains("events.jsonl", afterFallback);
         // Must sanitize old events (skip corrupt JSON lines)
         Assert.Contains("JsonDocument.Parse", afterFallback);
@@ -609,7 +609,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(8000, source.Length - fallbackIdx));
         Assert.Contains("ChatMessageType.ToolCall", afterFallback);
         Assert.Contains("ChatMessageType.Reasoning", afterFallback);
         Assert.Contains("msg.IsComplete = true", afterFallback);
@@ -627,7 +627,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(8000, source.Length - fallbackIdx));
         Assert.Contains("Session recreated", afterFallback);
         Assert.Contains("SystemMessage", afterFallback);
     }
@@ -645,7 +645,7 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
-        var afterFallback = source.Substring(fallbackIdx, Math.Min(7000, source.Length - fallbackIdx));
+        var afterFallback = source.Substring(fallbackIdx, Math.Min(8000, source.Length - fallbackIdx));
         var systemMsgIdx = afterFallback.IndexOf("Session recreated", StringComparison.Ordinal);
         var messageCountIdx = afterFallback.IndexOf("MessageCount = recreatedState.Info.History.Count", StringComparison.Ordinal);
 
