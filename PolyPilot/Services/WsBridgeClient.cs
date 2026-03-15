@@ -587,7 +587,10 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                 _ws?.Dispose();
                 _ws = new ClientWebSocket();
                 if (!string.IsNullOrEmpty(authToken))
+                {
                     _ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {authToken}");
+                    _ws.Options.SetRequestHeader("X-Bridge-Authorization", authToken);
+                }
 
                 var uri = new Uri(wsUrl);
 
@@ -620,7 +623,10 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                     _ws?.Dispose();
                     _ws = new ClientWebSocket();
                     if (!string.IsNullOrEmpty(authToken))
+                    {
                         _ws.Options.SetRequestHeader("X-Tunnel-Authorization", $"tunnel {authToken}");
+                        _ws.Options.SetRequestHeader("X-Bridge-Authorization", authToken);
+                    }
                     await _ws.ConnectAsync(uri, cts.Token);
                 }
 

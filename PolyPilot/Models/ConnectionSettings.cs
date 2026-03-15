@@ -326,9 +326,11 @@ public class ConnectionSettings
 
             // Only scrub legacy JSON if every field that existed was successfully migrated.
             // If any write failed, leave the JSON untouched so migration retries next launch.
-            bool allSucceeded = (string.IsNullOrEmpty(legacyRemote) || migratedRemote)
-                             && (string.IsNullOrEmpty(legacyLan)    || migratedLan)
-                             && (string.IsNullOrEmpty(legacyPass)   || migratedPass);
+            // Treat "already in SecureStorage" as success so crash-recovery cases (where SecureStorage
+            // was written but Save() crashed before scrubbing JSON) can still reach Save() next launch.
+            bool allSucceeded = (string.IsNullOrEmpty(legacyRemote) || !string.IsNullOrEmpty(storedRemote))
+                             && (string.IsNullOrEmpty(legacyLan)    || !string.IsNullOrEmpty(storedLan))
+                             && (string.IsNullOrEmpty(legacyPass)   || !string.IsNullOrEmpty(storedPass));
             bool anyAttempted = !string.IsNullOrEmpty(legacyRemote)
                              || !string.IsNullOrEmpty(legacyLan)
                              || !string.IsNullOrEmpty(legacyPass);
