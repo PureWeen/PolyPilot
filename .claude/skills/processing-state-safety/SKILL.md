@@ -170,6 +170,46 @@ Use the class-level `InvokeOnUI()` method in all `Task.Run` and timer callbacks
 for explicit, unambiguous UI thread dispatch. The local `Invoke` works but the
 intent is less clear when reading cross-threaded code.
 
+### INV-14: IsOrphaned guards on all event/timer entry points (PR #373)
+When a `SessionState` is orphaned (after reconnect creates a replacement):
+1. Set `state.IsOrphaned = true` (volatile)
+2. Set `ProcessingGeneration = long.MaxValue` (prevents any generation check from passing)
+3. Call `state.ResponseCompletion?.TrySetCanceled()` (unblocks orchestrator waits)
+
+ALL event/timer entry points must check `state.IsOrphaned` and return immediately:
+- `HandleSessionEvent` (line ~214)
+- `CompleteResponse` (line ~913) — TrySetCanceled + return
+- Watchdog loop (line ~1820) — exit loop
+- Watchdog InvokeOnUI callbacks (line ~2095) — skip
+- Tool health/recovery handlers — skip
+
+Without this, stale SDK events from the disposed old `CopilotSession` pass through
+to the shared `Info` object and corrupt the replacement session's state.
+
+### INV-15: TryUpdate for atomic state swaps (PR #373)
+When replacing a `SessionState` in `_sessions` after reconnect, use
+`_sessions.TryUpdate(key, newState, expectedOldState)` instead of
+`_sessions[key] = newState`. This prevents a stale `Task.Run` (from an earlier
+reconnect) from overwriting a newer reconnect's state. If TryUpdate fails,
+discard the result — someone else already updated.
+
+### INV-16: Register handler BEFORE publishing to dictionary (PR #373)
+When creating a new `SessionState` (reconnect or sibling re-resume):
+```csharp
+resumed.On(evt => HandleSessionEvent(newState, evt));  // 1. Handler first
+_sessions.TryUpdate(key, newState, oldState);           // 2. Publish second
+```
+If reversed, a race window exists where events arrive before the handler is
+registered, and those events are lost permanently.
+
+### INV-17: Sibling re-resume must reload MCP servers (PR #373)
+Both the primary reconnect path and the sibling loop must call:
+- `cfg.LoadMcpServers()` — MCP server handles are tied to the disposed client
+- `cfg.LoadSkillDirectories()` — same issue
+
+The primary path was missing these until PR #373 Round 5. Asymmetry between
+the sibling and primary reconnect configs is a recurring bug pattern.
+
 ## Top 5 Recurring Mistakes
 
 1. **Incomplete cleanup** — modifying one IsProcessing path without
