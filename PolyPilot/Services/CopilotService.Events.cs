@@ -510,12 +510,35 @@ public partial class CopilotService
                 var phaseAdvancedToThinking = state.Info.ProcessingPhase < 2;
                 if (phaseAdvancedToThinking) state.Info.ProcessingPhase = 2; // Thinking
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-                Invoke(() =>
+                // Premature session.idle recovery: the SDK sometimes sends session.idle
+                // mid-turn, then continues processing (ghost events). If we receive a
+                // TurnStart after IsProcessing was already cleared, re-arm processing
+                // so the UI shows the session as active and content is properly captured
+                // via the normal CompleteResponse path on the next session.idle.
+                if (!state.Info.IsProcessing && isCurrentState && !state.IsOrphaned)
                 {
-                    OnTurnStart?.Invoke(sessionName);
-                    OnActivity?.Invoke(sessionName, "🤔 Thinking...");
-                    if (phaseAdvancedToThinking) NotifyStateChangedCoalesced();
-                });
+                    Debug($"[EVT-REARM] '{sessionName}' TurnStartEvent arrived after premature session.idle — re-arming IsProcessing");
+                    Invoke(() =>
+                    {
+                        if (state.IsOrphaned) return;
+                        state.Info.IsProcessing = true;
+                        state.Info.ProcessingPhase = 2;
+                        state.Info.ProcessingStartedAt ??= DateTime.UtcNow;
+                        StartProcessingWatchdog(state, sessionName);
+                        OnTurnStart?.Invoke(sessionName);
+                        OnActivity?.Invoke(sessionName, "🤔 Thinking...");
+                        NotifyStateChangedCoalesced();
+                    });
+                }
+                else
+                {
+                    Invoke(() =>
+                    {
+                        OnTurnStart?.Invoke(sessionName);
+                        OnActivity?.Invoke(sessionName, "🤔 Thinking...");
+                        if (phaseAdvancedToThinking) NotifyStateChangedCoalesced();
+                    });
+                }
                 break;
 
             case AssistantTurnEndEvent:

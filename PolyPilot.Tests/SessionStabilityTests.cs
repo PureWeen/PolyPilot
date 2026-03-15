@@ -112,6 +112,8 @@ public class SessionStabilityTests
         // Timer cancellation must happen BEFORE InvokeOnUI (thread-safe operations first)
         var cancelIdx = method.IndexOf("CancelProcessingWatchdog", StringComparison.Ordinal);
         var invokeIdx = method.IndexOf("InvokeOnUI", StringComparison.Ordinal);
+        Assert.True(cancelIdx >= 0, "CancelProcessingWatchdog must be present in ForceCompleteProcessingAsync");
+        Assert.True(invokeIdx >= 0, "InvokeOnUI must be present in ForceCompleteProcessingAsync");
         Assert.True(cancelIdx < invokeIdx,
             "Timer cancellation must happen before InvokeOnUI in ForceCompleteProcessingAsync");
     }
@@ -174,8 +176,11 @@ public class SessionStabilityTests
     {
         var source = File.ReadAllText(TestPaths.CopilotServiceCs);
 
-        // Must use TryUpdate for atomic swap (prevents stale Task.Run overwrite)
-        Assert.Contains("TryUpdate", source);
+        // Reconnect sibling path must use TryUpdate for atomic swap (prevents stale Task.Run overwrite)
+        // The sibling re-resume code lives inside SendPromptAsync's reconnect-on-failure path
+        var sendMethod = ExtractMethod(source, "Task<string> SendPromptAsync(");
+        Assert.False(string.IsNullOrEmpty(sendMethod), "SendPromptAsync method must exist");
+        Assert.Contains("TryUpdate", sendMethod);
     }
 
     [Fact]
@@ -185,8 +190,11 @@ public class SessionStabilityTests
 
         // Must snapshot Organization.Sessions and Groups before Task.Run
         // (List<T> is not thread-safe for concurrent reads during modification)
-        Assert.Contains("Sessions.ToList()", source);
-        Assert.Contains("Groups.ToList()", source);
+        // The sibling re-resume code lives inside SendPromptAsync's reconnect-on-failure path
+        var sendMethod = ExtractMethod(source, "Task<string> SendPromptAsync(");
+        Assert.False(string.IsNullOrEmpty(sendMethod), "SendPromptAsync method must exist");
+        Assert.Contains("Sessions.ToList()", sendMethod);
+        Assert.Contains("Groups.ToList()", sendMethod);
     }
 
     [Fact]
@@ -195,9 +203,18 @@ public class SessionStabilityTests
         var source = File.ReadAllText(TestPaths.CopilotServiceCs);
 
         // Handler registration (HandleSessionEvent(siblingState)) must appear
-        // in the source — paired with TryUpdate for correct ordering
-        Assert.Contains("HandleSessionEvent(siblingState", source);
-        Assert.Contains("TryUpdate", source);
+        // in the SendPromptAsync reconnect path — paired with TryUpdate for correct ordering
+        var sendMethod = ExtractMethod(source, "Task<string> SendPromptAsync(");
+        Assert.False(string.IsNullOrEmpty(sendMethod), "SendPromptAsync method must exist");
+        Assert.Contains("HandleSessionEvent(siblingState", sendMethod);
+
+        // Handler must appear BEFORE TryUpdate (register before publishing)
+        var handlerIdx = sendMethod.IndexOf("HandleSessionEvent(siblingState", StringComparison.Ordinal);
+        var tryUpdateIdx = sendMethod.IndexOf("TryUpdate", StringComparison.Ordinal);
+        Assert.True(handlerIdx >= 0, "HandleSessionEvent(siblingState must be present in reconnect path");
+        Assert.True(tryUpdateIdx >= 0, "TryUpdate must be present in reconnect path");
+        Assert.True(handlerIdx < tryUpdateIdx,
+            "Handler registration must happen BEFORE TryUpdate (no window where events arrive with no handler)");
     }
 
     [Fact]
