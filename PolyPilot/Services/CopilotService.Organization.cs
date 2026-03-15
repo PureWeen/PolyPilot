@@ -1504,6 +1504,8 @@ public partial class CopilotService
                     Debug($"[DISPATCH] Worker '{workerName}' returned empty — attempting fresh session revival");
                     if (_sessions.TryGetValue(workerName, out var deadState))
                     {
+                        // Mark old state as orphaned so any lingering callbacks are no-ops
+                        deadState.IsOrphaned = true;
                         try { await deadState.Session.DisposeAsync(); } catch { }
 
                         var workerMeta = GetSessionMeta(workerName);
@@ -1514,6 +1516,11 @@ public partial class CopilotService
                             var freshSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
                             deadState.Info.SessionId = freshSession.SessionId;
                             var freshState = new SessionState { Session = freshSession, Info = deadState.Info };
+                            freshState.IsMultiAgentSession = deadState.IsMultiAgentSession;
+                            // Register event handler BEFORE sending — without this, the SDK
+                            // writes events.jsonl but HandleSessionEvent never fires, creating
+                            // a dead event stream where the watchdog is the only recovery path.
+                            freshSession.On(evt => HandleSessionEvent(freshState, evt));
                             _sessions[workerName] = freshState;
                             Debug($"[DISPATCH] Worker '{workerName}' revived with fresh session '{freshSession.SessionId}'");
                             response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);

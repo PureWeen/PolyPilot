@@ -17,6 +17,12 @@ description: >
 > **Read this before modifying orchestration dispatch, worker execution, synthesis,
 > reflection loops, or PendingOrchestration persistence.**
 
+> ⚠️ **LONG-RUNNING SESSION SAFETY**: Multi-agent workers routinely run for 5-30+
+> minutes. ANY watchdog change, timeout tweak, or session lifecycle fix MUST be
+> validated against long-running workers or it WILL kill legitimate sessions.
+> See the **Long-Running Session Safety** section and run `LongRunningSessionSafetyTests`
+> before merging ANY change to watchdog, Case B, or session lifecycle paths.
+
 ## Overview
 
 PolyPilot's orchestration system coordinates work between an orchestrator session
@@ -372,6 +378,75 @@ Every event/timer entry point checks `state.IsOrphaned` first:
 
 ---
 
+## Long-Running Session Safety
+
+> ⚠️ **This section is mandatory reading before touching ANY watchdog, timeout,
+> or session lifecycle code.** Multi-agent workers are the longest-running sessions
+> in PolyPilot. Changes that seem safe for interactive 30-second sessions can kill
+> 20-minute review workers, losing all their work.
+
+### Real-World Session Durations
+
+| Scenario | Typical Duration | Max Observed |
+|----------|-----------------|--------------|
+| Interactive user chat | 5-30s | 2 min |
+| Single-tool agent | 30s-2 min | 5 min |
+| Multi-agent worker (review) | 3-11 min | 20 min |
+| Multi-agent worker (fix+review) | 5-15 min | 30 min |
+| OrchestratorReflect full loop | 15-30 min | 60 min |
+
+### What Looks Like a Stuck Session But Isn't
+
+These are **legitimate** long pauses that must NOT trigger watchdog kills:
+
+1. **Model thinking between tool rounds** (30s-5 min): After tool output, the LLM
+   decides its next action. No events written. `events.jsonl` mtime frozen.
+   ❌ Detecting "mtime unchanged for N checks" WILL kill this.
+
+2. **Large context ingestion** (1-3 min): Worker receives 60K+ char diff, model
+   processes before first response. Zero events between prompt send and first delta.
+
+3. **Multi-round tool execution bursts**: Worker runs 5 tools in 30s, then thinks
+   for 3 min, then runs 5 more. Bursty, not continuous.
+
+4. **Sub-agent dispatch** (5-15 min): Worker dispatches 5 sub-agents via task tool.
+   From our perspective, ONE tool call is running for 15 minutes. events.jsonl gets
+   one `tool_execution_start` and nothing until `tool_execution_complete`.
+
+### The Cardinal Rule
+
+> **NEVER add a timeout or staleness check that can kill a session where the CLI
+> server process is alive and the events.jsonl file was written AFTER the current
+> turn started.** The 1800s multi-agent freshness window exists because workers
+> genuinely need 30 minutes. If detection needs to be faster, fix the ROOT CAUSE
+> (e.g., missing event handler) rather than tightening timeouts.
+
+### Safe vs Unsafe Watchdog Changes
+
+| Change | Safe? | Why |
+|--------|-------|-----|
+| Fix missing `.On(evt => ...)` handler registration | ✅ | Root cause fix, no timeout change |
+| Reduce `WatchdogMultiAgentCaseBFreshnessSeconds` | ❌ | Workers genuinely run 20+ min |
+| Add mtime staleness counter (kill after N unchanged checks) | ❌ | Model thinking pauses freeze mtime for 5+ min |
+| Reduce `WatchdogMaxCaseBResets` from 40 | ❌ | 40 × 120s = 80 min, matches worker execution timeout |
+| Add `IsOrphaned` flag to skip stale callbacks | ✅ | Guards stale state, no timeout change |
+| Add event handler on revival path | ✅ | Root cause fix, no timeout change |
+| Abort IsProcessing siblings during client recreation | ⚠️ | Safe IF orchestrator retries, but loses in-flight work |
+
+### INV-O14: Watchdog Changes Must Pass Long-Running Tests
+
+Every PR that modifies watchdog logic, Case B freshness, timeout constants, or
+session lifecycle (revival, reconnect, dispose) **MUST** run
+`LongRunningSessionSafetyTests` and verify all pass. These tests simulate:
+- 20-minute workers with bursty event patterns
+- 5-minute model thinking pauses (zero events)
+- Revival mid-execution
+- events.jsonl written once then frozen
+
+If a test fails, the change would kill a legitimate long-running session in production.
+
+---
+
 ## Common Bugs & Mitigations
 
 ### Bug: Worker result lost on app restart
@@ -434,6 +509,33 @@ completes. No errors in log.
 **Mitigation**: Always `TrySetCanceled()` on old state's TCS during orphan.
 `ExecuteWorkerAsync` catches `OperationCanceledException` and returns
 `WorkerResult.Success = false`.
+
+### Bug: Dead event stream after worker revival (discovered 2026-03-15)
+
+**Symptom**: Worker shows "Thinking…" or "Working…" forever after being
+re-dispatched. Diagnostic log shows `[SEND]` but zero `[EVT]` entries.
+events.jsonl has 100+ events (CLI is working) but `HandleSessionEvent` never
+fires. Watchdog Case B defers for 30+ minutes.
+
+**Root cause**: `ExecuteWorkerAsync` revival path (Organization.cs ~line 1516)
+creates a fresh `SessionState` and `CopilotSession` but did NOT call
+`freshSession.On(evt => HandleSessionEvent(freshState, evt))`. Without the
+event handler, the SDK transport delivers events to nobody. The session
+completes server-side but the app never knows.
+
+**Why it took 30+ min to detect**: Case B freshness check uses events.jsonl
+mtime. The CLI wrote events to the file (mtime updates), so the freshness
+check kept deferring. With `WatchdogMultiAgentCaseBFreshnessSeconds = 1800`,
+it deferred for 30 min before the file aged out.
+
+**Fix**: Register event handler on fresh session BEFORE sending, copy
+`IsMultiAgentSession`, mark old state as `IsOrphaned`.
+
+**Why NOT mtime staleness detection**: Initially considered tracking mtime
+changes across consecutive checks to detect "wrote once then stopped." But
+legitimate workers pause for 5+ minutes between tool rounds (model thinking),
+which would trigger false positives. The root cause fix (register handler)
+is the correct approach. See **Long-Running Session Safety** section.
 
 ---
 
