@@ -281,48 +281,46 @@ public class ConnectionSettings
     /// One-time reverse migration: PR 341 moved ServerPassword/RemoteToken/LanToken to
     /// SecureStorage on Mac Catalyst. Since Mac Catalyst runs without sandbox, Keychain
     /// is unreliable. This recovers any values and writes them back to plain JSON.
+    /// Only removes each Keychain entry after confirming that specific value was recovered.
     /// </summary>
     private static void RecoverSecretsFromSecureStorage(ConnectionSettings settings)
     {
         try
         {
             bool needsSave = false;
+            bool recoveredRemote = false, recoveredLan = false, recoveredPass = false;
 
             if (string.IsNullOrEmpty(settings.RemoteToken))
             {
                 var val = ReadSecureStorage("polypilot.connection.remoteToken");
-                if (!string.IsNullOrEmpty(val)) { settings.RemoteToken = val; needsSave = true; }
+                if (!string.IsNullOrEmpty(val)) { settings.RemoteToken = val; needsSave = true; recoveredRemote = true; }
             }
             if (string.IsNullOrEmpty(settings.LanToken))
             {
                 var val = ReadSecureStorage("polypilot.connection.lanToken");
-                if (!string.IsNullOrEmpty(val)) { settings.LanToken = val; needsSave = true; }
+                if (!string.IsNullOrEmpty(val)) { settings.LanToken = val; needsSave = true; recoveredLan = true; }
             }
             if (string.IsNullOrEmpty(settings.ServerPassword))
             {
                 var val = ReadSecureStorage("polypilot.connection.serverPassword");
-                if (!string.IsNullOrEmpty(val)) { settings.ServerPassword = val; needsSave = true; }
+                if (!string.IsNullOrEmpty(val)) { settings.ServerPassword = val; needsSave = true; recoveredPass = true; }
             }
 
             if (needsSave)
             {
                 settings.Save();
 
-                // Only clean up Keychain after verifying the JSON file was actually written.
-                // If Save() failed silently, leave Keychain intact so migration retries next launch.
+                // Per-key cleanup: only remove a Keychain entry if that specific value was recovered
+                // and Save() wrote the file. Prevents data loss if Keychain read fails transiently
+                // for one secret but succeeds for another.
                 if (File.Exists(SettingsPath))
                 {
-                    try
-                    {
-                        var verify = File.ReadAllText(SettingsPath);
-                        if (verify.Contains("ServerPassword"))
-                        {
-                            try { SecureStorage.Default.Remove("polypilot.connection.remoteToken"); } catch { }
-                            try { SecureStorage.Default.Remove("polypilot.connection.lanToken"); } catch { }
-                            try { SecureStorage.Default.Remove("polypilot.connection.serverPassword"); } catch { }
-                        }
-                    }
-                    catch { }
+                    if (recoveredRemote)
+                        try { SecureStorage.Default.Remove("polypilot.connection.remoteToken"); } catch { }
+                    if (recoveredLan)
+                        try { SecureStorage.Default.Remove("polypilot.connection.lanToken"); } catch { }
+                    if (recoveredPass)
+                        try { SecureStorage.Default.Remove("polypilot.connection.serverPassword"); } catch { }
                 }
             }
         }
