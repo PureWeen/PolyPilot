@@ -2648,6 +2648,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                             if (otherMeta?.GroupId != null &&
                                                 groupSnapshots.Any(g => g.Id == otherMeta.GroupId && g.IsCodespace))
                                                 continue;
+                                            // Check cancellation between siblings for clean shutdown
+                                            if (cancellationToken.IsCancellationRequested) break;
                                             try
                                             {
                                                 var settings = _currentSettings ?? ConnectionSettings.Load();
@@ -2665,7 +2667,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 if (!string.IsNullOrEmpty(otherState.Info.WorkingDirectory))
                                                     cfg.WorkingDirectory = otherState.Info.WorkingDirectory;
                                                 var resumed = await newClient.ResumeSessionAsync(
-                                                    otherState.Info.SessionId, cfg, CancellationToken.None);
+                                                    otherState.Info.SessionId, cfg, cancellationToken);
                                                 // Re-check after await — a concurrent SendPromptAsync
                                                 // may have started processing while we were resuming.
                                                 // Orphan the just-resumed session rather than cancel a live turn.
@@ -2748,9 +2750,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     }
 
                     var reconnectModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
+                    var reconnectSettings = _currentSettings ?? ConnectionSettings.Load();
+                    var reconnectMcpServers = LoadMcpServers(reconnectSettings.DisabledMcpServers, reconnectSettings.DisabledPlugins);
+                    var reconnectSkillDirs = LoadSkillDirectories(reconnectSettings.DisabledPlugins);
                     var reconnectConfig = new ResumeSessionConfig();
                     reconnectConfig.Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
                     reconnectConfig.OnPermissionRequest = AutoApprovePermissions;
+                    reconnectConfig.McpServers = reconnectMcpServers;
+                    reconnectConfig.SkillDirectories = reconnectSkillDirs;
                     if (!string.IsNullOrEmpty(reconnectModel))
                         reconnectConfig.Model = reconnectModel;
                     if (!string.IsNullOrEmpty(state.Info.WorkingDirectory))
