@@ -1521,9 +1521,19 @@ public partial class CopilotService
                             // writes events.jsonl but HandleSessionEvent never fires, creating
                             // a dead event stream where the watchdog is the only recovery path.
                             freshSession.On(evt => HandleSessionEvent(freshState, evt));
-                            _sessions[workerName] = freshState;
-                            Debug($"[DISPATCH] Worker '{workerName}' revived with fresh session '{freshSession.SessionId}'");
-                            response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
+                            // Use TryUpdate for atomic swap — prevents a stale Task.Run
+                            // from a concurrent reconnect from overwriting newer state (INV-15).
+                            if (!_sessions.TryUpdate(workerName, freshState, deadState))
+                            {
+                                Debug($"[DISPATCH] Worker '{workerName}' revival state already replaced — discarding");
+                                freshState.IsOrphaned = true;
+                                try { await freshSession.DisposeAsync(); } catch { }
+                            }
+                            else
+                            {
+                                Debug($"[DISPATCH] Worker '{workerName}' revived with fresh session '{freshSession.SessionId}'");
+                                response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
+                            }
                         }
                     }
                 }

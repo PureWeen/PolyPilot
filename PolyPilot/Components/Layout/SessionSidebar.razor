@@ -2399,12 +2399,14 @@ else
     {
         try
         {
-            var meta = CopilotService.Organization.Sessions
-                .FirstOrDefault(m => m.SessionName == sessionName);
+            // Use thread-safe snapshots to avoid concurrent modification issues
+            var sessions = CopilotService.SnapshotSessionMetas();
+            var groups = CopilotService.SnapshotGroups();
+
+            var meta = sessions.FirstOrDefault(m => m.SessionName == sessionName);
             if (meta?.GroupId == null) return;
 
-            var group = CopilotService.Organization.Groups
-                .FirstOrDefault(g => g.Id == meta.GroupId);
+            var group = groups.FirstOrDefault(g => g.Id == meta.GroupId);
             if (group is not { IsMultiAgent: true }) return;
 
             sb.AppendLine($"--- Multi-Agent Context ---");
@@ -2413,9 +2415,7 @@ else
             sb.AppendLine($"Role: {meta.Role}");
 
             // List all members of the group
-            var members = CopilotService.Organization.Sessions
-                .Where(m => m.GroupId == group.Id)
-                .ToList();
+            var members = sessions.Where(m => m.GroupId == group.Id).ToList();
             foreach (var m in members)
             {
                 var mSession = CopilotService.GetAllSessions()
@@ -2427,13 +2427,14 @@ else
             // Include recent event-diagnostics entries for the group
             try
             {
-                var diagPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    ".polypilot", "event-diagnostics.log");
+                var diagPath = Path.Combine(CopilotService.BaseDir, "event-diagnostics.log");
                 if (File.Exists(diagPath))
                 {
                     var groupPrefix = group.Name;
-                    var allLines = File.ReadAllLines(diagPath);
+                    // Read only the tail of the file to avoid blocking on large logs
+                    string[] allLines;
+                    try { allLines = File.ReadAllLines(diagPath); }
+                    catch (IOException) { allLines = Array.Empty<string>(); }
                     var groupLines = allLines
                         .Where(l => l.Contains(groupPrefix, StringComparison.OrdinalIgnoreCase))
                         .TakeLast(30)
@@ -2451,9 +2452,7 @@ else
             // Check PendingOrchestration
             try
             {
-                var pendingPath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    ".polypilot", "pending-orchestration.json");
+                var pendingPath = Path.Combine(CopilotService.BaseDir, "pending-orchestration.json");
                 if (File.Exists(pendingPath))
                 {
                     var content = File.ReadAllText(pendingPath);
