@@ -13,6 +13,8 @@ public class RepositoryInfo
     /// <summary>Path to the bare clone (e.g. ~/.polypilot/repos/PureWeen-PolyPilot.git)</summary>
     public string BareClonePath { get; set; } = "";
     public DateTime AddedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>Last time a session or worktree was created for this repo. Used to sort the repo dropdown by most recently used.</summary>
+    public DateTime? LastUsedAt { get; set; }
 }
 
 /// <summary>

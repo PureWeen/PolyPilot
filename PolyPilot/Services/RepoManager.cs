@@ -38,7 +38,7 @@ public class RepoManager
     private bool _loaded;
     private bool _loadedSuccessfully;
     private readonly object _stateLock = new();
-    public IReadOnlyList<RepositoryInfo> Repositories { get { EnsureLoaded(); lock (_stateLock) return _state.Repositories.ToList().AsReadOnly(); } }
+    public IReadOnlyList<RepositoryInfo> Repositories { get { EnsureLoaded(); lock (_stateLock) return _state.Repositories.OrderByDescending(r => r.LastUsedAt ?? r.AddedAt).ToList().AsReadOnly(); } }
     public IReadOnlyList<WorktreeInfo> Worktrees { get { EnsureLoaded(); lock (_stateLock) return _state.Worktrees.ToList().AsReadOnly(); } }
 
     // Disk size cache: repoId → (totalBytes, computedAt)
@@ -294,6 +294,23 @@ public class RepoManager
         {
             Console.WriteLine($"[RepoManager] Failed to save state: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Update LastUsedAt for a repository to now. Used to sort the repo dropdown by most recently used.
+    /// </summary>
+    public void TouchRepository(string repoId)
+    {
+        EnsureLoaded();
+        lock (_stateLock)
+        {
+            var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId);
+            if (repo != null)
+            {
+                repo.LastUsedAt = DateTime.UtcNow;
+            }
+        }
+        Save();
     }
 
     /// <summary>
@@ -559,6 +576,7 @@ public class RepoManager
         lock (_stateLock)
         {
             _state.Worktrees.Add(wt);
+            repo.LastUsedAt = DateTime.UtcNow;
         }
         Save();
         OnStateChanged?.Invoke();
@@ -662,6 +680,7 @@ public class RepoManager
         lock (_stateLock)
         {
             _state.Worktrees.Add(wt);
+            repo.LastUsedAt = DateTime.UtcNow;
         }
         Save();
         OnStateChanged?.Invoke();

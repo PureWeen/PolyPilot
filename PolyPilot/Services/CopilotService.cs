@@ -2241,6 +2241,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             wt = await _repoManager.CreateWorktreeAsync(repoId, branch, null, ct: ct);
         }
 
+        // Track repo usage for most-recently-used ordering in the dropdown
+        _repoManager.TouchRepository(wt.RepoId);
+
         var name = sessionName ?? wt.Branch;
 
         // Ensure unique session name
