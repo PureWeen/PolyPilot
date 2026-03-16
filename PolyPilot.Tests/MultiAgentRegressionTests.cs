@@ -1987,6 +1987,34 @@ public class MultiAgentRegressionTests
         Assert.True(workerCancelled);
     }
 
+    /// <summary>
+    /// INV-O14: The re-resume loop must NOT skip IsProcessing siblings. Their
+    /// CopilotSession is tied to the old client (which was disposed), so the event
+    /// stream is permanently dead. The loop must force-complete them so the orchestrator
+    /// retries immediately rather than waiting 2–5 min for the watchdog.
+    /// </summary>
+    [Fact]
+    public void ReconnectLoop_IsProcessingSiblings_ForceCompletedNotSkipped()
+    {
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        // Find the Task.Run sibling re-resume block
+        var taskRunIdx = source.IndexOf("Re-resume all OTHER non-codespace sessions");
+        Assert.True(taskRunIdx >= 0, "Re-resume loop must exist in SendPromptAsync");
+
+        // Find the IsProcessing check inside that block
+        var blockEnd = source.IndexOf("catch (Exception reEx)", taskRunIdx);
+        Assert.True(blockEnd > taskRunIdx, "Catch block must follow the re-resume loop");
+        var loopBlock = source.Substring(taskRunIdx, blockEnd - taskRunIdx);
+
+        // INV-O14: must NOT use bare 'continue' on IsProcessing — this was the bug
+        Assert.DoesNotContain("if (otherState.Info.IsProcessing) continue;", loopBlock);
+
+        // INV-O14: must call ForceCompleteProcessingAsync for IsProcessing siblings
+        Assert.Contains("ForceCompleteProcessingAsync", loopBlock);
+        Assert.Contains("client-recreated-dead-event-stream", loopBlock);
+    }
+
     #endregion
 
     #region PendingOrchestration Persistence Tests
