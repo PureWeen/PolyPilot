@@ -259,7 +259,7 @@ public class ConnectionSettings
 #endif
     }
 
-    public void Save()
+    public bool Save()
     {
         try
         {
@@ -272,8 +272,9 @@ public class ConnectionSettings
             var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
 #endif
             File.WriteAllText(SettingsPath, json);
+            return true;
         }
-        catch { }
+        catch { return false; }
     }
 
 #if MACCATALYST
@@ -308,12 +309,13 @@ public class ConnectionSettings
 
             if (needsSave)
             {
-                settings.Save();
+                bool saved = settings.Save();
 
                 // Per-key cleanup: only remove a Keychain entry if that specific value was recovered
-                // and Save() wrote the file. Prevents data loss if Keychain read fails transiently
-                // for one secret but succeeds for another.
-                if (File.Exists(SettingsPath))
+                // and Save() succeeded. Using the bool return value is stronger than File.Exists():
+                // if Save() fails (e.g., disk full) but a prior file exists, File.Exists would return
+                // true and we'd delete Keychain entries without having persisted the recovered values.
+                if (saved)
                 {
                     if (recoveredRemote)
                         try { SecureStorage.Default.Remove("polypilot.connection.remoteToken"); } catch { }
@@ -324,11 +326,22 @@ public class ConnectionSettings
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ConnectionSettings] RecoverSecretsFromSecureStorage failed: {ex.Message}");
+            try
+            {
+                var logPath = Path.Combine(GetPolyPilotDir(), "crash.log");
+                File.AppendAllText(logPath, $"\n=== {DateTime.Now:yyyy-MM-dd HH:mm:ss} [RecoverSecretsFromSecureStorage] ===\n{ex}\n");
+            }
+            catch { /* Don't throw in exception handler */ }
+        }
     }
 
     private static string? ReadSecureStorage(string key)
     {
+        // Intentional sync-over-async: Task.Run avoids SynchronizationContext deadlock
+        // on the UI thread while keeping this one-time migration path synchronous.
         try { return Task.Run(() => SecureStorage.Default.GetAsync(key)).GetAwaiter().GetResult(); }
         catch { return null; }
     }
