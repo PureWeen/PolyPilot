@@ -1672,6 +1672,9 @@ public partial class CopilotService
         throw new UnreachableException(); // for loop always returns or continues
     }
 
+    /// <summary>Max times to retry after permission recovery cancels the ResponseCompletion TCS.</summary>
+    internal const int MaxPermissionRecoveryRetries = 3;
+
     private async Task<string> SendPromptAndWaitAsync(string sessionName, string prompt, CancellationToken cancellationToken, string? originalPrompt = null)
     {
         // Use SendPromptAsync directly — it already awaits ResponseCompletion internally.
@@ -1686,7 +1689,65 @@ public partial class CopilotService
             if (_sessions.TryGetValue(sessionName, out var s))
                 s.ResponseCompletion?.TrySetCanceled();
         });
-        return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token, originalPrompt: originalPrompt);
+
+        // Permission recovery (TryRecoverPermissionAsync) cancels the ResponseCompletion TCS
+        // to unblock SendPromptAsync, then reconnects the session and optionally resends.
+        // For multi-agent workers, we must detect this and wait for the new session's completion
+        // instead of propagating the TaskCanceledException up to ExecuteWorkerAsync.
+        for (int recoveryAttempt = 0; recoveryAttempt < MaxPermissionRecoveryRetries; recoveryAttempt++)
+        {
+            try
+            {
+                if (recoveryAttempt == 0)
+                {
+                    return await SendPromptAsync(sessionName, prompt, cancellationToken: cts.Token, originalPrompt: originalPrompt);
+                }
+                else
+                {
+                    // After permission recovery, the session has been reconnected and may have
+                    // resent the prompt. Wait for the NEW state's ResponseCompletion TCS.
+                    if (!_sessions.TryGetValue(sessionName, out var newState) || newState.IsOrphaned)
+                        throw new InvalidOperationException("Session lost after permission recovery");
+
+                    // If recovery skipped the resend (tools already completed), IsProcessing
+                    // is false and the new TCS will never complete. Return partial content.
+                    if (!newState.Info.IsProcessing)
+                    {
+                        Debug($"[DISPATCH] Worker '{sessionName}' recovery skipped resend — collecting partial response");
+                        var lastAssistant = newState.Info.History
+                            .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content));
+                        return lastAssistant?.Content ?? "";
+                    }
+
+                    var tcs = newState.ResponseCompletion;
+                    if (tcs == null)
+                    {
+                        var lastAssistant = newState.Info.History
+                            .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content));
+                        return lastAssistant?.Content ?? "";
+                    }
+
+                    Debug($"[DISPATCH] Worker '{sessionName}' re-awaiting after permission recovery (attempt {recoveryAttempt})");
+                    return await tcs.Task.WaitAsync(cts.Token);
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && !cts.IsCancellationRequested)
+            {
+                // The TCS was cancelled but our dispatch token is still alive — this is
+                // permission recovery cancelling the old TCS. Check if the session was
+                // reconnected (not orphaned) and retry with the new state.
+                if (!_sessions.TryGetValue(sessionName, out var recoveredState) || recoveredState.IsOrphaned)
+                    throw; // Session truly gone
+
+                Debug($"[DISPATCH] Worker '{sessionName}' detected permission recovery cancellation — retrying (attempt {recoveryAttempt + 1}/{MaxPermissionRecoveryRetries})");
+
+                // Brief delay to let the recovery's UI-thread cleanup finish
+                await Task.Delay(500, cancellationToken);
+                continue;
+            }
+        }
+
+        throw new OperationCanceledException("Max permission recovery retries exceeded");
     }
 
     /// <summary>
