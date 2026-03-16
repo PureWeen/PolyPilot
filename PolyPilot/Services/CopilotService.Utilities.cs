@@ -141,6 +141,7 @@ public partial class CopilotService
     /// Reads the last non-empty line of events.jsonl and returns its "type" field.
     /// Used by the watchdog to detect session.shutdown without parsing the full file.
     /// Returns null if the file doesn't exist, is empty, or can't be parsed.
+    /// Uses a tail-read (last 4KB) to avoid O(N) full-file scan on large sessions.
     /// </summary>
     internal static string? GetLastEventType(string eventsFilePath)
     {
@@ -148,9 +149,16 @@ public partial class CopilotService
         {
             if (!File.Exists(eventsFilePath)) return null;
 
-            // Read backwards to find the last non-empty line
+            // Read only the tail of the file (last 4KB is plenty for the last JSON line)
+            const int tailBytes = 4096;
+            using var fs = new FileStream(eventsFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (fs.Length == 0) return null;
+
+            var offset = Math.Max(0, fs.Length - tailBytes);
+            fs.Seek(offset, SeekOrigin.Begin);
+            using var reader = new StreamReader(fs);
             string? lastLine = null;
-            foreach (var line in File.ReadLines(eventsFilePath))
+            while (reader.ReadLine() is { } line)
             {
                 if (!string.IsNullOrWhiteSpace(line))
                     lastLine = line;

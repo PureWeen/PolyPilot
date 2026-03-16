@@ -905,6 +905,7 @@ public partial class CopilotService : IAsyncDisposable
             CancelProcessingWatchdog(state);
             CancelTurnEndFallback(state);
             CancelToolHealthCheck(state);
+            DisposePrematureIdleSignal(state);
             try { if (state.Session != null) await state.Session.DisposeAsync(); } catch { }
         }
         _sessions.Clear();
@@ -4027,6 +4028,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             CancelProcessingWatchdog(state);
             CancelTurnEndFallback(state);
             CancelToolHealthCheck(state);
+            DisposePrematureIdleSignal(state);
             if (state.Session is not null)
                 try { await state.Session.DisposeAsync(); } catch { }
         }
