@@ -350,7 +350,7 @@
         var externalSessions = CopilotService.ExternalSessions.ToList();
         var hasActiveExternal = externalSessions.Any(s => s.IsActive);
     }
-    @if (externalSessions.Count > 0)
+    @if (externalSessions.Count > 0 && expandedSession == null)
     {
         <div class="group-divider @(isExternalCollapsed && !hasActiveExternal ? "collapsed" : "")"
              @onclick="() => isExternalCollapsed = !isExternalCollapsed">
