@@ -361,6 +361,19 @@ public partial class CopilotService
                 state.Info.SessionId = copilotSession.SessionId;
                 FlushSaveActiveSessionsToDisk();
             }
+            catch (Exception ex) when (IsAuthError(ex))
+            {
+                // Auth failure: the persistent server is running but can't authenticate.
+                // Attempt server recovery (restart forces re-authentication with GitHub).
+                Debug($"Lazy-resume auth failure for '{sessionName}': {ex.Message} — attempting server recovery");
+                var recovered = await TryRecoverPersistentServerAsync();
+                if (!recovered)
+                    throw new InvalidOperationException(
+                        "Session authentication failed and server recovery was unsuccessful. Go to Settings → Save & Reconnect.", ex);
+
+                // Retry with the new client after recovery
+                copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+            }
 
             state.Session = copilotSession;
             state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName);
