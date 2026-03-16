@@ -228,4 +228,85 @@ public class ServerRecoveryTests
         var counterAfter = (int)counterField.GetValue(svc)!;
         Assert.Equal(0, counterAfter);
     }
+
+    [Fact]
+    public async Task TryRecoverPersistentServer_ConcurrentCallerAfterSuccessfulRecovery_ReturnsTrue()
+    {
+        // Verifies that a second concurrent caller that "loses" the semaphore but arrives after
+        // recovery completed recently returns true (not false), preventing false-permanent errors
+        // for multi-session startups when a token has expired.
+        var svc = CreateService();
+        _serverManager.IsServerRunning = false;
+        _serverManager.StartServerResult = true;
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            Host = "localhost",
+            Port = 19999
+        });
+
+        // Grab the semaphore and timestamp fields via reflection
+        var lockField = typeof(CopilotService).GetField("_recoveryLock",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var tsField = typeof(CopilotService).GetField("_lastRecoveryCompletedAt",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+        var semaphore = (SemaphoreSlim)lockField.GetValue(svc)!;
+
+        // Simulate: recovery just completed (timestamp fresh), but lock is still held (in-flight)
+        tsField.SetValue(svc, DateTime.UtcNow);
+        await semaphore.WaitAsync(); // hold the lock
+
+        try
+        {
+            // This call should see WaitAsync(0) == false AND timestamp is recent → return true
+            var result = await svc.TryRecoverPersistentServerAsync();
+            Assert.True(result);
+
+            // Server must NOT have been stopped (the real recovery path was skipped)
+            Assert.Equal(0, _serverManager.StopServerCallCount);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }
+
+    [Fact]
+    public async Task TryRecoverPersistentServer_ConcurrentCallerLongAfterRecovery_ReturnsFalse()
+    {
+        // Verifies that a second caller arriving > 30s after the last recovery returns false
+        // (i.e., the timestamp guard only applies within the 30s window).
+        var svc = CreateService();
+        _serverManager.IsServerRunning = false;
+        _serverManager.StartServerResult = true;
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            Host = "localhost",
+            Port = 19999
+        });
+
+        var lockField = typeof(CopilotService).GetField("_recoveryLock",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var tsField = typeof(CopilotService).GetField("_lastRecoveryCompletedAt",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+        var semaphore = (SemaphoreSlim)lockField.GetValue(svc)!;
+
+        // Simulate: recovery last happened 60s ago, lock is held (another recovery in progress)
+        tsField.SetValue(svc, DateTime.UtcNow.AddSeconds(-60));
+        await semaphore.WaitAsync(); // hold the lock
+
+        try
+        {
+            // This call should see WaitAsync(0) == false AND timestamp is stale → return false
+            var result = await svc.TryRecoverPersistentServerAsync();
+            Assert.False(result);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }
 }

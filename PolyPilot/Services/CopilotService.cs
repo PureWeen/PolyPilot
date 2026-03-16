@@ -69,6 +69,9 @@ public partial class CopilotService : IAsyncDisposable
     internal const int WatchdogServerRecoveryThreshold = 2;
     // Prevents concurrent TryRecoverPersistentServerAsync invocations from racing on _client.
     private readonly SemaphoreSlim _recoveryLock = new(1, 1);
+    // Tracks when recovery last succeeded so concurrent callers that lose the lock can return true
+    // if recovery just completed (within 30s), rather than showing a false-permanent error.
+    private DateTime _lastRecoveryCompletedAt = DateTime.MinValue;
     
     private static readonly object _pathLock = new();
     private static string? _copilotBaseDir;
@@ -995,6 +998,13 @@ public partial class CopilotService : IAsyncDisposable
         // timeout >= threshold. Without this lock, concurrent calls race on _client and the server.
         if (!await _recoveryLock.WaitAsync(0))
         {
+            // If recovery completed recently (within 30s), report success so callers (e.g. sessions
+            // resuming concurrently after a token expiry) don't show a false-permanent error.
+            if ((DateTime.UtcNow - _lastRecoveryCompletedAt).TotalSeconds < 30)
+            {
+                Debug("[SERVER-RECOVERY] Recovery recently completed — concurrent caller treated as success");
+                return true;
+            }
             Debug("[SERVER-RECOVERY] Recovery already in progress — skipping duplicate invocation");
             return false;
         }
@@ -1037,6 +1047,7 @@ public partial class CopilotService : IAsyncDisposable
             Debug("[SERVER-RECOVERY] Server recovery successful — new server started and client reconnected");
             FallbackNotice = "Persistent server was automatically restarted due to repeated failures. Your sessions should work again.";
             Interlocked.Exchange(ref _consecutiveWatchdogTimeouts, 0);
+            _lastRecoveryCompletedAt = DateTime.UtcNow;
             InvokeOnUI(() => OnStateChanged?.Invoke());
             return true;
         }
