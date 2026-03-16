@@ -309,6 +309,14 @@ public class AgentSessionInfoTests
     }
 
     [Fact]
+    public void NeedsAttention_FalseWhenIsOrchestratorWorker()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5", IsOrchestratorWorker = true };
+        session.History.Add(ChatMessage.AssistantMessage("Should I proceed with this approach?"));
+        Assert.False(session.NeedsAttention);
+    }
+
+    [Fact]
     public void IsCreating_DefaultsToFalse()
     {
         var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };

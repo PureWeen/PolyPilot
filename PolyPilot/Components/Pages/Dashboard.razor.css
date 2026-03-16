@@ -470,10 +470,12 @@
     border-color: rgba(99, 102, 241, 0.6);
 }
 
-.workers-toggle-standalone {
+/* Full-width bar below group header for worker toggle */
+.workers-toggle-bar {
     display: flex;
-    justify-content: center;
-    padding: 0.3rem 0;
+    align-items: center;
+    padding: 4px 8px;
+    margin-bottom: 4px;
 }
 
 /* Orchestrator phase indicator */

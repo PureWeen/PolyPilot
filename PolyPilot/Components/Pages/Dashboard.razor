@@ -284,14 +284,6 @@
                         {
                             <span class="phase-indicator">@PhaseLabel(gridPhase.Phase, gridPhase.Detail)</span>
                         }
-                        @if (isOrchestratorGroup && workerCount > 0)
-                        {
-                            <button class="workers-toggle-btn" @onclick:stopPropagation="true"
-                                    @onclick="() => { if (!_expandedWorkerGroups.Remove(group.Id)) _expandedWorkerGroups.Add(group.Id); }"
-                                    title="@(workersExpanded ? "Hide workers" : "Show workers")">
-                                👷 @workerCount worker@(workerCount != 1 ? "s" : "") @(workersExpanded ? "▼" : "▶")
-                            </button>
-                        }
                     }
                     <span class="group-divider-chevron">@(group.IsCollapsed ? "▶" : "▼")</span>
                 </div>
@@ -323,13 +315,14 @@
                     </div>
                     }
                 }
-                @* Workers toggle — renders even when group headers are hidden *@
-                @if (isOrchestratorGroup && workerCount > 0 && (!showGroupHeaders || group.IsCollapsed))
+                @* Workers expand/collapse bar — only for Orchestrator/Reflect groups *@
+                @if (isOrchestratorGroup)
                 {
-                    <div class="workers-toggle-standalone">
-                        <button class="workers-toggle-btn" 
-                                @onclick="() => { if (!_expandedWorkerGroups.Remove(group.Id)) _expandedWorkerGroups.Add(group.Id); }">
-                            👷 @workerCount worker@(workerCount != 1 ? "s" : "") @(workersExpanded ? "▼" : "▶")
+                    <div class="workers-toggle-bar">
+                        <button class="workers-toggle-btn"
+                                @onclick="() => { if (!_expandedWorkerGroups.Remove(group.Id)) _expandedWorkerGroups.Add(group.Id); StateHasChanged(); }">
+                            👷 @(workerCount > 0 ? $"{workerCount} worker{(workerCount != 1 ? "s" : "")}" : "no workers yet")
+                            @(workersExpanded ? " ▼ hide" : " ▶ show")
                         </button>
                     </div>
                 }
