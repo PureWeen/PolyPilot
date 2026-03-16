@@ -347,7 +347,7 @@ public partial class CopilotService
             IsProcessError(ex))
         {
             Debug($"Lazy-resume failed for '{sessionName}': {ex.Message} — creating fresh session");
-            copilotSession = await _client.CreateSessionAsync(new SessionConfig
+            copilotSession = await GetClientForGroup(groupId).CreateSessionAsync(new SessionConfig
             {
                 Model = resumeModel,
                 WorkingDirectory = resumeWorkDir,

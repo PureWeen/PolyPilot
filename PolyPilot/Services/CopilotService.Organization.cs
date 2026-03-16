@@ -1748,12 +1748,11 @@ public partial class CopilotService
 
         // The worker may hit premature idle repeatedly (observed: 4x in a row),
         // so we loop until events.jsonl goes stale (worker truly done).
+        string? bestResponse = initialResponse;
         try
         {
             using var recoveryCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             recoveryCts.CancelAfter(PrematureIdleRecoveryTimeoutMs);
-            
-            string? bestResponse = initialResponse;
             var rounds = 0;
             
             while (!recoveryCts.Token.IsCancellationRequested)
@@ -1860,7 +1859,7 @@ public partial class CopilotService
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return initialResponse;
+            return bestResponse ?? initialResponse;
         }
     }
 
