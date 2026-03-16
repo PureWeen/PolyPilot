@@ -23,6 +23,9 @@ internal class StubChatDatabase : IChatDatabase
         return Task.CompletedTask;
     }
 
+    public Task<List<ChatMessage>> GetAllMessagesAsync(string sessionId)
+        => Task.FromResult(new List<ChatMessage>());
+
     public Task UpdateToolCompleteAsync(string sessionId, string toolCallId, string result, bool success)
         => Task.CompletedTask;
 

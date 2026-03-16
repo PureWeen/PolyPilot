@@ -545,7 +545,7 @@ public class SessionPersistenceTests
     public void RestoreFallback_LoadsHistoryFromOldSession()
     {
         // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback in
-        // RestorePreviousSessionsAsync must call LoadHistoryFromDisk(entry.SessionId)
+        // RestorePreviousSessionsAsync must load history (via LoadBestHistoryAsync)
         // before CreateSessionAsync so conversation history is recovered.
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
@@ -553,11 +553,11 @@ public class SessionPersistenceTests
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0, "Could not find fallback path in RestorePreviousSessionsAsync");
 
-        // LoadHistoryFromDisk must appear BEFORE CreateSessionAsync in the fallback block
+        // LoadBestHistoryAsync must appear BEFORE CreateSessionAsync in the fallback block
         var beforeFallback = source.Substring(
-            Math.Max(0, fallbackIdx - 500),
-            Math.Min(500, fallbackIdx));
-        Assert.Contains("LoadHistoryFromDisk", beforeFallback);
+            Math.Max(0, fallbackIdx - 1200),
+            Math.Min(1200, fallbackIdx));
+        Assert.Contains("LoadBestHistoryAsync", beforeFallback);
     }
 
     [Fact]
@@ -1434,12 +1434,12 @@ public class SessionPersistenceTests
     public void FallbackRestore_ShouldUseFindBestEventsSource()
     {
         // Structural test verifying the fallback restore path uses FindBestEventsSource
-        // instead of always loading from the stale entry.SessionId
+        // and LoadBestHistoryAsync (which checks both events.jsonl and chat_history.db)
         var persistenceFile = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
 
         Assert.Contains("FindBestEventsSource(entry.SessionId, entry.WorkingDirectory)", persistenceFile);
-        Assert.Contains("LoadHistoryFromDisk(bestSourceId)", persistenceFile);
+        Assert.Contains("LoadBestHistoryAsync(bestSourceId)", persistenceFile);
     }
 
     [Fact]

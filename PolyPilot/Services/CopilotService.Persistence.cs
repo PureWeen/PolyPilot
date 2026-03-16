@@ -539,7 +539,7 @@ public partial class CopilotService
                                     continue;
                                 }
                                 Debug($"Deferring codespace session '{entry.DisplayName}' — client not connected yet");
-                                var history = LoadHistoryFromDisk(entry.SessionId);
+                                var (history, _) = await LoadBestHistoryAsync(entry.SessionId);
                                 var resumeModel = Models.ModelHelper.NormalizeToSlug(entry.Model ?? DefaultModel);
 
                                 // Use the codespace working directory (/workspaces/{repo}) instead of the
@@ -567,7 +567,7 @@ public partial class CopilotService
                             // Create lightweight placeholder — actual SDK resume happens lazily
                             // when user sends a message (EnsureSessionConnectedAsync).
                             // This avoids 41 sequential SDK connections blocking app startup.
-                            var lazyHistory = LoadHistoryFromDisk(entry.SessionId);
+                            var (lazyHistory, _) = await LoadBestHistoryAsync(entry.SessionId);
                             var lazyModel = Models.ModelHelper.NormalizeToSlug(entry.Model ?? DefaultModel);
                             if (string.IsNullOrEmpty(lazyModel)) lazyModel = DefaultModel;
                             var lazyWorkDir = entry.WorkingDirectory ?? GetSessionWorkingDirectory(entry.SessionId);
@@ -618,17 +618,25 @@ public partial class CopilotService
                             {
                                 try
                                 {
-                                    // Recover history from the best available events source.
-                                    // When active-sessions.json is stale (pointing to an old session ID),
-                                    // intermediate fallback-recreated sessions may have accumulated more history.
-                                    // FindBestEventsSource scans session directories matching the working directory
-                                    // and picks the one with the most events.
+                                    // Recover history from the best available source.
+                                    // First check events.jsonl variants (FindBestEventsSource scans session dirs),
+                                    // then compare against chat_history.db which survives dead event streams.
                                     var bestSourceId = FindBestEventsSource(entry.SessionId, entry.WorkingDirectory);
-                                    var oldHistory = LoadHistoryFromDisk(bestSourceId);
+                                    var (oldHistory, oldFromDb) = await LoadBestHistoryAsync(bestSourceId);
+                                    // Also check the original session ID in case DB has messages under that ID
                                     if (bestSourceId != entry.SessionId)
-                                        Debug($"Using better events source '{bestSourceId}' instead of stale '{entry.SessionId}' for '{entry.DisplayName}' ({oldHistory.Count} messages)");
+                                    {
+                                        var (origHistory, origFromDb) = await LoadBestHistoryAsync(entry.SessionId);
+                                        if (origHistory.Count > oldHistory.Count)
+                                        {
+                                            oldHistory = origHistory;
+                                            oldFromDb = origFromDb;
+                                            bestSourceId = entry.SessionId;
+                                        }
+                                        Debug($"Using better source '{bestSourceId}' instead of stale '{entry.SessionId}' for '{entry.DisplayName}' ({oldHistory.Count} messages{(oldFromDb ? " from DB" : "")})");
+                                    }
                                     else
-                                        Debug($"Falling back to CreateSessionAsync for '{entry.DisplayName}' (recovered {oldHistory.Count} messages from old session)");
+                                        Debug($"Falling back to CreateSessionAsync for '{entry.DisplayName}' (recovered {oldHistory.Count} messages{(oldFromDb ? " from DB" : "")})");
 
                                     await CreateSessionAsync(entry.DisplayName, entry.Model, entry.WorkingDirectory, cancellationToken, entry.GroupId);
 

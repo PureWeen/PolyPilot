@@ -638,6 +638,40 @@ public partial class CopilotService
         }
     }
 
+    /// <summary>
+    /// Load session history from the best available source: events.jsonl or chat_history.db.
+    /// The SDK's event file writer can break after server-side session cleanup + re-resume,
+    /// causing events to flow in-memory but never persist to events.jsonl ("dead event stream").
+    /// ChatDatabase is written fire-and-forget on every message and survives this failure mode.
+    /// Returns (history, fromDatabase) — fromDatabase=true means DB was richer and events.jsonl is stale.
+    /// </summary>
+    private async Task<(List<ChatMessage> History, bool FromDatabase)> LoadBestHistoryAsync(string sessionId)
+    {
+        var eventsHistory = await LoadHistoryFromDiskAsync(sessionId);
+
+        List<ChatMessage> dbHistory;
+        try
+        {
+            dbHistory = await _chatDb.GetAllMessagesAsync(sessionId);
+        }
+        catch
+        {
+            return (eventsHistory, false);
+        }
+
+        // Compare substantive messages (User + Assistant) — tool calls vary between sources
+        int eventsSubstantive = eventsHistory.Count(m => m.MessageType is ChatMessageType.User or ChatMessageType.Assistant);
+        int dbSubstantive = dbHistory.Count(m => m.MessageType is ChatMessageType.User or ChatMessageType.Assistant);
+
+        if (dbSubstantive > eventsSubstantive)
+        {
+            Debug($"[HISTORY-RECOVERY] ChatDatabase has more messages ({dbSubstantive} user/assistant vs {eventsSubstantive} in events.jsonl) for session {sessionId} — using DB");
+            return (dbHistory, true);
+        }
+
+        return (eventsHistory, false);
+    }
+
     // Dock badge for completed sessions
     private int _badgeCount;
 

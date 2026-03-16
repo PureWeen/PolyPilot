@@ -1790,12 +1790,15 @@ public partial class CopilotService : IAsyncDisposable
                 throw new InvalidOperationException($"Session '{baseName}' already exists (too many duplicates).");
         }
 
-        // Load history: always parse events.jsonl as source of truth, then sync to DB
-        List<ChatMessage> history = LoadHistoryFromDisk(sessionId);
+        // Load history: compare events.jsonl and chat_history.db, prefer whichever is richer.
+        // The SDK's event file writer can break after server-side idle cleanup + re-resume
+        // ("dead event stream"), causing in-memory events to never persist to events.jsonl.
+        // ChatDatabase is written fire-and-forget on every message and survives this.
+        var (history, historyFromDb) = await LoadBestHistoryAsync(sessionId);
 
-        if (history.Count > 0)
+        if (history.Count > 0 && !historyFromDb)
         {
-            // Replace DB contents with fresh parse (events.jsonl may have grown since last DB sync)
+            // events.jsonl was richer — sync to DB (normal case)
             await _chatDb.BulkInsertAsync(sessionId, history);
         }
 
@@ -1829,11 +1832,11 @@ public partial class CopilotService : IAsyncDisposable
             // The SDK may start writing events to the new dir after ResumeSessionAsync returns,
             // but our copy runs immediately and the new dir typically has no events yet.
             CopyEventsToNewSession(sessionId, actualSessionId);
-            var actualHistory = LoadHistoryFromDisk(actualSessionId);
+            var (actualHistory, actualFromDb) = await LoadBestHistoryAsync(actualSessionId);
             if (actualHistory.Count >= history.Count)
                 history = actualHistory;
             sessionId = actualSessionId;
-            if (history.Count > 0)
+            if (history.Count > 0 && !actualFromDb)
                 await _chatDb.BulkInsertAsync(sessionId, history);
         }
 
