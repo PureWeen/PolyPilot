@@ -43,6 +43,17 @@
                     <button class="dismiss-btn" @onclick="DismissFallbackNotice">Dismiss</button>
                 </div>
             }
+            @if (!string.IsNullOrEmpty(CopilotService.ServerHealthNotice))
+            {
+                <div class="init-error-card server-health-notice">
+                    <span class="init-error-icon">🔧</span>
+                    <p class="init-error-text">@CopilotService.ServerHealthNotice</p>
+                    <button class="retry-btn" @onclick="RestartServer" disabled="@_isRestartingServer">
+                        @(_isRestartingServer ? "Restarting…" : "Restart Server")
+                    </button>
+                    <button class="dismiss-btn" @onclick="DismissServerHealthNotice">Dismiss</button>
+                </div>
+            }
             @if (PlatformHelper.IsMobile && !CopilotService.IsInitialized && !_initializationComplete)
             {
                 <div class="restoring-indicator">
@@ -573,6 +584,33 @@
     private void DismissFallbackNotice()
     {
         CopilotService.ClearFallbackNotice();
+        StateHasChanged();
+    }
+
+    private bool _isRestartingServer;
+
+    private async Task RestartServer()
+    {
+        _isRestartingServer = true;
+        StateHasChanged();
+        try
+        {
+            await CopilotService.RestartServerAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Dashboard] Server restart failed: {ex.Message}");
+        }
+        finally
+        {
+            _isRestartingServer = false;
+            StateHasChanged();
+        }
+    }
+
+    private void DismissServerHealthNotice()
+    {
+        CopilotService.ClearServerHealthNotice();
         StateHasChanged();
     }
 

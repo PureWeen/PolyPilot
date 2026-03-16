@@ -233,6 +233,11 @@ public partial class CopilotService : IAsyncDisposable
     public string? FallbackNotice { get; private set; }
     public void ClearFallbackNotice() => FallbackNotice = null;
 
+    // Server health notice — shown when the headless server's native modules are broken
+    // (e.g., posix_spawn failures due to cleaned-up pkg directory)
+    public string? ServerHealthNotice { get; private set; }
+    public void ClearServerHealthNotice() => ServerHealthNotice = null;
+
     // GitHub user info
     public string? GitHubAvatarUrl { get; private set; }
     public string? GitHubLogin { get; private set; }
@@ -1069,6 +1074,106 @@ public partial class CopilotService : IAsyncDisposable
         finally
         {
             _recoveryLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Restarts the headless server and reconnects all sessions.
+    /// Used when the server's native modules become stale (e.g., posix_spawn failures
+    /// because another CLI installation cleaned up ~/.copilot/pkg/darwin-arm64/).
+    /// Follows the version-mismatch restart pattern: stop → wait → start → recreate client → restore sessions.
+    /// </summary>
+    public async Task RestartServerAsync(CancellationToken cancellationToken = default)
+    {
+        if (CurrentMode != ConnectionMode.Persistent)
+        {
+            Debug("[SERVER-RESTART] Not in Persistent mode, using ReconnectAsync instead");
+            var settings = _currentSettings ?? ConnectionSettings.Load();
+            await ReconnectAsync(settings, cancellationToken);
+            return;
+        }
+
+        await _clientReconnectLock.WaitAsync(cancellationToken);
+        try
+        {
+            Debug("[SERVER-RESTART] Restarting headless server due to native module failure...");
+            ServerHealthNotice = null;
+
+            // 1. Dispose all existing sessions (they hold broken connections)
+            foreach (var state in _sessions.Values)
+            {
+                CancelProcessingWatchdog(state);
+                CancelTurnEndFallback(state);
+                CancelToolHealthCheck(state);
+                DisposePrematureIdleSignal(state);
+                try { if (state.Session != null) await state.Session.DisposeAsync(); } catch { }
+            }
+            _sessions.Clear();
+            _closedSessionIds.Clear();
+            _closedSessionNames.Clear();
+
+            // 2. Dispose old client
+            if (_client != null)
+            {
+                try { await _client.DisposeAsync(); } catch { }
+                _client = null;
+            }
+
+            // 3. Kill the old server process
+            _serverManager.StopServer();
+
+            // 4. Wait for port to be free
+            var restartSettings = _currentSettings ?? ConnectionSettings.Load();
+            for (int i = 0; i < 20; i++)
+            {
+                if (!_serverManager.CheckServerRunning("127.0.0.1", restartSettings.Port))
+                    break;
+                await Task.Delay(250, cancellationToken);
+            }
+
+            // 5. Start fresh server (will extract current native modules)
+            var started = await _serverManager.StartServerAsync(restartSettings.Port);
+            if (!started)
+            {
+                Debug("[SERVER-RESTART] Failed to restart server");
+                FallbackNotice = "Server restart failed — go to Settings to reconnect.";
+                IsInitialized = false;
+                OnStateChanged?.Invoke();
+                return;
+            }
+
+            // 6. Create new client and connect
+            _client = CreateClient(restartSettings);
+            try
+            {
+                await _client.StartAsync(cancellationToken);
+                IsInitialized = true;
+                NeedsConfiguration = false;
+                Debug("[SERVER-RESTART] Server restarted and client connected");
+            }
+            catch (Exception ex)
+            {
+                Debug($"[SERVER-RESTART] Failed to connect after restart: {ex.Message}");
+                try { await _client.DisposeAsync(); } catch { }
+                _client = null;
+                IsInitialized = false;
+                FallbackNotice = "Server restarted but connection failed — go to Settings to reconnect.";
+                OnStateChanged?.Invoke();
+                return;
+            }
+
+            // 7. Restore all sessions from disk
+            LoadOrganization();
+            await RestorePreviousSessionsAsync(cancellationToken);
+            FlushSaveActiveSessionsToDisk();
+            ReconcileOrganization();
+            OnStateChanged?.Invoke();
+
+            Debug("[SERVER-RESTART] Server restart complete, all sessions restored");
+        }
+        finally
+        {
+            _clientReconnectLock.Release();
         }
     }
 

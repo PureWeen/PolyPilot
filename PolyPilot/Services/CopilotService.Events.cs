@@ -442,6 +442,15 @@ public partial class CopilotService
                                     ? "⚠️ Shell environment broken (posix_spawn failed). Attempting to reconnect session..."
                                     : "⚠️ Permission errors detected. Attempting to reconnect session...";
                                 state.Info.History.Add(ChatMessage.SystemMessage(msg));
+
+                                // For shell failures: also set the server health banner so the user
+                                // can restart the entire headless server (the root cause is stale
+                                // native modules, not a session-level issue)
+                                if (isShellFailure && CurrentMode == ConnectionMode.Persistent)
+                                {
+                                    ServerHealthNotice = "Shell environment broken — the headless server's native modules may be stale (posix_spawn failed). Restart the server to fix.";
+                                }
+
                                 OnStateChanged?.Invoke();
                                 _ = TryRecoverPermissionAsync(state, sessionName);
                             });
