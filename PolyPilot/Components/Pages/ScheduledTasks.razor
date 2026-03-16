@@ -117,6 +117,7 @@
             <div class="task-list">
                 @foreach (var task in tasks)
                 {
+                    var nextRunTime = task.IsEnabled ? task.GetNextRunTimeUtc(DateTime.UtcNow) : null;
                     <div class="task-card @(!task.IsEnabled ? "disabled" : "")">
                         <div class="task-card-header">
                             <div class="task-info">
@@ -164,25 +165,16 @@
                                         <span class="run-status error" title="@task.RecentRuns.Last().Error">✗</span>
                                     }
                                 </span>
-                                @{
-                                    var nextRun = task.GetNextRunTimeUtc(DateTime.UtcNow);
-                                }
-                                @if (nextRun != null && task.IsEnabled)
+                                @if (nextRunTime != null)
                                 {
-                                    <span class="next-run">Next: @FormatTimeAgo(nextRun.Value)</span>
+                                    <span class="next-run">Next: @FormatTimeAgo(nextRunTime.Value)</span>
                                 }
                             </div>
                         }
-                        else if (task.IsEnabled)
+                        else if (nextRunTime != null)
                         {
                             <div class="task-card-footer">
-                                @{
-                                    var nextRun2 = task.GetNextRunTimeUtc(DateTime.UtcNow);
-                                }
-                                @if (nextRun2 != null)
-                                {
-                                    <span class="next-run">Next: @FormatTimeAgo(nextRun2.Value)</span>
-                                }
+                                <span class="next-run">Next: @FormatTimeAgo(nextRunTime.Value)</span>
                             </div>
                         }
                     </div>

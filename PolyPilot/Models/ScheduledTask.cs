@@ -99,8 +99,9 @@ public class ScheduledTask
                 var (h, m) = ParseTimeOfDay();
                 var todayLocal = now.ToLocalTime().Date.AddHours(h).AddMinutes(m);
                 var todayUtc = todayLocal.ToUniversalTime();
-                if (LastRunAt == null) return todayUtc <= now ? todayUtc : todayUtc;
-                if (todayUtc > now && (LastRunAt == null || LastRunAt.Value.Date < now.ToLocalTime().Date))
+                if (LastRunAt == null)
+                    return todayUtc; // never run — schedule for today's slot (may be in the past, that's fine — IsDue will fire)
+                if (todayUtc > now && LastRunAt.Value.Date < now.ToLocalTime().Date)
                     return todayUtc;
                 // Next day
                 return todayLocal.AddDays(1).ToUniversalTime();

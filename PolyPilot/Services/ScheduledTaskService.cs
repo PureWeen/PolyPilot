@@ -20,6 +20,7 @@ public class ScheduledTaskService : IDisposable
     private readonly List<ScheduledTask> _tasks = new();
     private readonly object _lock = new();
     private Timer? _evaluationTimer;
+    private int _evaluating; // Guard against overlapping evaluations
     private bool _disposed;
 
     /// <summary>Raised when any task list or state change occurs (for UI refresh).</summary>
@@ -111,20 +112,31 @@ public class ScheduledTaskService : IDisposable
     /// <summary>
     /// Evaluate all tasks and execute any that are due.
     /// Called by the background timer every 30 seconds.
+    /// Uses an interlocked guard to prevent overlapping evaluations.
     /// </summary>
     internal async Task EvaluateTasksAsync()
     {
-        List<ScheduledTask> dueTasks;
-        var now = DateTime.UtcNow;
+        // Prevent overlapping evaluations if a previous run is still executing
+        if (Interlocked.CompareExchange(ref _evaluating, 1, 0) != 0) return;
 
-        lock (_lock)
+        try
         {
-            dueTasks = _tasks.Where(t => t.IsDue(now)).ToList();
+            List<ScheduledTask> dueTasks;
+            var now = DateTime.UtcNow;
+
+            lock (_lock)
+            {
+                dueTasks = _tasks.Where(t => t.IsDue(now)).ToList();
+            }
+
+            foreach (var task in dueTasks)
+            {
+                await ExecuteTaskAsync(task, now);
+            }
         }
-
-        foreach (var task in dueTasks)
+        finally
         {
-            await ExecuteTaskAsync(task, now);
+            Interlocked.Exchange(ref _evaluating, 0);
         }
     }
 
@@ -161,7 +173,7 @@ public class ScheduledTaskService : IDisposable
             else
             {
                 // Create a new session for this run
-                var timestamp = utcNow.ToLocalTime().ToString("MMdd-HHmm");
+                var timestamp = utcNow.ToLocalTime().ToString("MMM dd HH:mm");
                 sessionName = $"⏰ {task.Name} ({timestamp})";
                 try
                 {
