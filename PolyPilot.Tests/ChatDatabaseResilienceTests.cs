@@ -417,10 +417,25 @@ public class ChatDatabaseResilienceTests : IDisposable
 
         await db.AddMessageAsync("s1", ChatMessage.UserMessage("before-delete"));
 
-        // Delete the file and its WAL/SHM siblings, then point to impossible path
+        // Delete the file and its WAL/SHM siblings, then point to impossible path.
+        // ResetConnection fires CloseAsync fire-and-forget; on Windows the file
+        // handle isn't released immediately, so retry with a brief delay.
         db.ResetConnection();
-        foreach (var f in Directory.GetFiles(_tempDir, "deleted-db*"))
-            File.Delete(f);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            try
+            {
+                foreach (var f in Directory.GetFiles(_tempDir, "deleted-db*"))
+                    File.Delete(f);
+                break;
+            }
+            catch (IOException) when (attempt < 9)
+            {
+                await Task.Delay(200);
+            }
+        }
         ChatDatabase.SetDbPathForTesting(_impossibleDbPath);
 
         var result = await db.GetAllMessagesAsync("s1");
