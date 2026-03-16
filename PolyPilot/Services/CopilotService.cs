@@ -1608,6 +1608,25 @@ public partial class CopilotService : IAsyncDisposable
         var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions };
         var copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
 
+        // Detect session ID mismatch: the persistent server may return a different
+        // session ID than requested (e.g., if it recreated the session internally).
+        // Using the wrong ID causes events to be written to a different directory,
+        // so LoadHistoryFromDisk reads stale data on subsequent restarts.
+        var actualSessionId = copilotSession.SessionId;
+        if (!string.IsNullOrEmpty(actualSessionId) && actualSessionId != sessionId)
+        {
+            Debug($"[RESUME-REMAP] Session ID changed: requested '{sessionId}', server returned '{actualSessionId}' for '{displayName}'");
+            CopyEventsToNewSession(sessionId, actualSessionId);
+            // Reload history from the actual session's events.jsonl if it has more content
+            var actualHistory = LoadHistoryFromDisk(actualSessionId);
+            if (actualHistory.Count >= history.Count)
+                history = actualHistory;
+            sessionId = actualSessionId;
+            // Re-sync DB under the correct session ID
+            if (history.Count > 0)
+                await _chatDb.BulkInsertAsync(sessionId, history);
+        }
+
         var isStillProcessing = IsSessionStillProcessing(sessionId);
 
         var info = new AgentSessionInfo
@@ -1615,7 +1634,7 @@ public partial class CopilotService : IAsyncDisposable
             Name = displayName,
             Model = resumeModel,
             CreatedAt = DateTime.UtcNow,
-            SessionId = sessionId,
+            SessionId = actualSessionId ?? sessionId,
             IsResumed = isStillProcessing,
             WorkingDirectory = resumeWorkingDirectory
         };
@@ -2777,6 +2796,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     try
                     {
                         newSession = await client.ResumeSessionAsync(state.Info.SessionId, reconnectConfig, cancellationToken);
+                        // Detect session ID mismatch on reconnect (same as ResumeSessionAsync)
+                        var actualId = newSession.SessionId;
+                        if (!string.IsNullOrEmpty(actualId) && actualId != state.Info.SessionId)
+                        {
+                            Debug($"[RECONNECT] Session ID changed on resume: '{state.Info.SessionId}' → '{actualId}' for '{sessionName}'");
+                            CopyEventsToNewSession(state.Info.SessionId, actualId);
+                            state.Info.SessionId = actualId;
+                        }
                     }
                     catch (Exception resumeEx) when (resumeEx.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase))
                     {

@@ -413,75 +413,28 @@ public partial class CopilotService
                             {
                                 try
                                 {
-                                    // Recover history from the old session before creating a new one
-                                    var oldHistory = LoadHistoryFromDisk(entry.SessionId);
-                                    Debug($"Falling back to CreateSessionAsync for '{entry.DisplayName}' (recovered {oldHistory.Count} messages from old session)");
+                                    // Recover history from the best available events source.
+                                    // When active-sessions.json is stale (pointing to an old session ID),
+                                    // intermediate fallback-recreated sessions may have accumulated more history.
+                                    // FindBestEventsSource scans session directories matching the working directory
+                                    // and picks the one with the most events.
+                                    var bestSourceId = FindBestEventsSource(entry.SessionId, entry.WorkingDirectory);
+                                    var oldHistory = LoadHistoryFromDisk(bestSourceId);
+                                    if (bestSourceId != entry.SessionId)
+                                        Debug($"Using better events source '{bestSourceId}' instead of stale '{entry.SessionId}' for '{entry.DisplayName}' ({oldHistory.Count} messages)");
+                                    else
+                                        Debug($"Falling back to CreateSessionAsync for '{entry.DisplayName}' (recovered {oldHistory.Count} messages from old session)");
 
                                     await CreateSessionAsync(entry.DisplayName, entry.Model, entry.WorkingDirectory, cancellationToken, entry.GroupId);
 
                                     // Inject recovered history into the newly created session
                                     if (_sessions.TryGetValue(entry.DisplayName, out var recreatedState) && oldHistory.Count > 0)
                                     {
-                                        // Copy the old events.jsonl to the new session directory so history
-                                        // survives future restarts (LoadHistoryFromDisk reads events.jsonl).
-                                        if (recreatedState.Info.SessionId != null && recreatedState.Info.SessionId != entry.SessionId)
+                                        // Copy events.jsonl from the best source to the new session directory
+                                        // so history survives future restarts (LoadHistoryFromDisk reads events.jsonl).
+                                        if (recreatedState.Info.SessionId != null && recreatedState.Info.SessionId != bestSourceId)
                                         {
-                                            try
-                                            {
-                                                var oldEvents = Path.Combine(SessionStatePath, entry.SessionId, "events.jsonl");
-                                                var newEventsDir = Path.Combine(SessionStatePath, recreatedState.Info.SessionId);
-                                                var newEvents = Path.Combine(newEventsDir, "events.jsonl");
-                                                if (File.Exists(oldEvents))
-                                                {
-                                                    Directory.CreateDirectory(newEventsDir);
-                                                    // Read old events (sanitized: only valid JSON lines)
-                                                    var oldLines = new List<string>();
-                                                    int skippedLines = 0;
-                                                    foreach (var line in File.ReadLines(oldEvents))
-                                                    {
-                                                        if (string.IsNullOrWhiteSpace(line)) continue;
-                                                        try
-                                                        {
-                                                            using var doc = JsonDocument.Parse(line);
-                                                            oldLines.Add(line);
-                                                        }
-                                                        catch (JsonException) { skippedLines++; }
-                                                    }
-
-                                                    if (oldLines.Count > 0)
-                                                    {
-                                                        var existed = File.Exists(newEvents);
-                                                        if (!existed)
-                                                        {
-                                                            // New session has no events yet — write old events directly
-                                                            File.WriteAllLines(newEvents, oldLines);
-                                                        }
-                                                        else
-                                                        {
-                                                            // New session already has events (SDK created it).
-                                                            // Prepend old events so history is preserved on future restarts.
-                                                            // Write to temp file then atomic-move to avoid data loss on crash.
-                                                            var newLines = File.ReadAllLines(newEvents);
-                                                            var tmpFile = newEvents + ".tmp";
-                                                            using (var writer = new StreamWriter(tmpFile, append: false))
-                                                            {
-                                                                foreach (var line in oldLines) writer.WriteLine(line);
-                                                                foreach (var line in newLines) writer.WriteLine(line);
-                                                            }
-                                                            File.Move(tmpFile, newEvents, overwrite: true);
-                                                        }
-
-                                                        if (skippedLines > 0)
-                                                            Debug($"Sanitized events.jsonl copy from {entry.SessionId} to {recreatedState.Info.SessionId}: {oldLines.Count} valid, {skippedLines} corrupt lines skipped");
-                                                        else
-                                                            Debug($"Copied events.jsonl from {entry.SessionId} to {recreatedState.Info.SessionId}: {oldLines.Count} lines (prepended={existed})");
-                                                    }
-                                                }
-                                            }
-                                            catch (Exception copyEx)
-                                            {
-                                                Debug($"Failed to copy events.jsonl: {copyEx.Message}");
-                                            }
+                                            CopyEventsToNewSession(bestSourceId, recreatedState.Info.SessionId);
                                         }
 
                                         foreach (var msg in oldHistory)
@@ -877,5 +830,133 @@ public partial class CopilotService
             Preview = preview ?? "No preview available",
             WorkingDirectory = workingDir
         };
+    }
+
+    /// <summary>
+    /// Copy events.jsonl from an old session directory to a new one.
+    /// Sanitizes lines (only valid JSON) and prepends if the destination already exists.
+    /// Used when the SDK returns a different session ID than requested.
+    /// </summary>
+    private void CopyEventsToNewSession(string oldSessionId, string newSessionId)
+    {
+        try
+        {
+            var oldEvents = Path.Combine(SessionStatePath, oldSessionId, "events.jsonl");
+            var newEventsDir = Path.Combine(SessionStatePath, newSessionId);
+            var newEvents = Path.Combine(newEventsDir, "events.jsonl");
+            if (!File.Exists(oldEvents)) return;
+
+            Directory.CreateDirectory(newEventsDir);
+
+            var oldLines = new List<string>();
+            int skippedLines = 0;
+            foreach (var line in File.ReadLines(oldEvents))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    oldLines.Add(line);
+                }
+                catch (JsonException) { skippedLines++; }
+            }
+
+            if (oldLines.Count == 0) return;
+
+            var existed = File.Exists(newEvents);
+            if (!existed)
+            {
+                File.WriteAllLines(newEvents, oldLines);
+            }
+            else
+            {
+                var newLines = File.ReadAllLines(newEvents);
+                var tmpFile = newEvents + ".tmp";
+                using (var writer = new StreamWriter(tmpFile, append: false))
+                {
+                    foreach (var line in oldLines) writer.WriteLine(line);
+                    foreach (var line in newLines) writer.WriteLine(line);
+                }
+                File.Move(tmpFile, newEvents, overwrite: true);
+            }
+
+            Debug($"CopyEventsToNewSession: {oldSessionId} → {newSessionId}: {oldLines.Count} lines (prepended={existed}, skipped={skippedLines})");
+        }
+        catch (Exception ex)
+        {
+            Debug($"CopyEventsToNewSession failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Search session-state directories for the best events.jsonl source matching a working directory.
+    /// Returns the session ID with the most event lines whose workspace.yaml cwd matches.
+    /// Falls back to the original session ID if no better source is found.
+    /// This handles the case where active-sessions.json has a stale session ID but
+    /// intermediate fallback-recreated sessions accumulated more history.
+    /// </summary>
+    internal string FindBestEventsSource(string originalSessionId, string? workingDirectory, string? statePath = null)
+    {
+        if (string.IsNullOrEmpty(workingDirectory))
+            return originalSessionId;
+
+        try
+        {
+            var resolvedStatePath = statePath ?? SessionStatePath;
+            var stateDir = new DirectoryInfo(resolvedStatePath);
+            if (!stateDir.Exists) return originalSessionId;
+
+            var originalEvents = Path.Combine(resolvedStatePath, originalSessionId, "events.jsonl");
+            long originalLines = 0;
+            if (File.Exists(originalEvents))
+            {
+                try { originalLines = File.ReadLines(originalEvents).LongCount(); }
+                catch { /* ignore read errors */ }
+            }
+
+            string bestId = originalSessionId;
+            long bestLines = originalLines;
+
+            foreach (var sessionDir in stateDir.EnumerateDirectories())
+            {
+                if (sessionDir.Name == originalSessionId) continue;
+
+                var eventsFile = Path.Combine(sessionDir.FullName, "events.jsonl");
+                if (!File.Exists(eventsFile)) continue;
+
+                // Check if this session's working directory matches
+                var workspaceFile = Path.Combine(sessionDir.FullName, "workspace.yaml");
+                if (!File.Exists(workspaceFile)) continue;
+
+                try
+                {
+                    var yaml = File.ReadAllText(workspaceFile);
+                    // workspace.yaml contains "cwd: /path/to/dir" — simple string match
+                    if (!yaml.Contains(workingDirectory, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    long lineCount = 0;
+                    try { lineCount = File.ReadLines(eventsFile).LongCount(); }
+                    catch { continue; }
+
+                    if (lineCount > bestLines)
+                    {
+                        bestId = sessionDir.Name;
+                        bestLines = lineCount;
+                    }
+                }
+                catch { /* skip unreadable sessions */ }
+            }
+
+            if (bestId != originalSessionId)
+                Debug($"[BEST-EVENTS] Found better events source for cwd '{workingDirectory}': {bestId} ({bestLines} lines) vs original {originalSessionId} ({originalLines} lines)");
+
+            return bestId;
+        }
+        catch (Exception ex)
+        {
+            Debug($"FindBestEventsSource failed: {ex.Message}");
+            return originalSessionId;
+        }
     }
 }
