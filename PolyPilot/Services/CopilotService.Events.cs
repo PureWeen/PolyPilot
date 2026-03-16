@@ -1841,18 +1841,20 @@ public partial class CopilotService
     {
         if (string.IsNullOrEmpty(text)) return false;
 
-        // MCP-specific patterns — safe to match without additional context
+        // Unambiguously MCP-specific patterns — safe without additional context
         if (text.Contains("MCP server", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("mcp_server", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("ECONNREFUSED", StringComparison.Ordinal)
-            || text.Contains("spawn ENOENT", StringComparison.OrdinalIgnoreCase))
+            || text.Contains("mcp_server", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        // Generic network/process patterns require "mcp" in the message to avoid
-        // false-positives on SSH failures, Docker, database connections, etc.
+        // All other patterns require "mcp" context to avoid false-positives:
+        // - ECONNREFUSED / spawn ENOENT are standard Node.js/libuv errors emitted by any
+        //   tool making a TCP connection or spawning a missing binary (Docker, jq, gh, etc.)
+        // - The remaining patterns are generic network/process terms
         var hasMcpContext = text.Contains("mcp", StringComparison.OrdinalIgnoreCase);
         return hasMcpContext && (
-            text.Contains("connection refused", StringComparison.OrdinalIgnoreCase)
+            text.Contains("ECONNREFUSED", StringComparison.Ordinal)
+            || text.Contains("spawn ENOENT", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("connection refused", StringComparison.OrdinalIgnoreCase)
             || text.Contains("server disconnected", StringComparison.OrdinalIgnoreCase)
             || text.Contains("transport error", StringComparison.OrdinalIgnoreCase)
             || text.Contains("failed to start", StringComparison.OrdinalIgnoreCase)

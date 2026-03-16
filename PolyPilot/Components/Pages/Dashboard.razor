@@ -1905,9 +1905,12 @@
             newSession.History.Add(ChatMessage.SystemMessage(
                 $"✅ Session created with fresh MCP server configuration.\n\n" +
                 "MCP servers have been reloaded from disk. You can re-send your previous prompt here."));
+            newSession.MessageCount = newSession.History.Count;
 
             // Switch to the new session
-            _activeSession = newSession.Name;
+            CopilotService.SetActiveSession(newSession.Name);
+            expandedSession = newSession.Name;
+            _explicitlyCollapsed = false;
             _needsScrollToBottom = true;
             await InvokeAsync(SafeRefreshAsync);
         }
