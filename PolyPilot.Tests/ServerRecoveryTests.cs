@@ -43,7 +43,7 @@ public class ServerRecoveryTests
     [InlineData("Invalid token")]
     [InlineData("Auth token has expired")]
     [InlineData("403 Forbidden")]
-    [InlineData("401 Unauthorized")]
+    [InlineData("HTTP 401 Unauthorized")]
     [InlineData("Not authorized to access this resource")]
     [InlineData("Bad credentials")]
     [InlineData("Login required")]
@@ -165,8 +165,7 @@ public class ServerRecoveryTests
             Port = 19999
         });
 
-        // Server was initially "running"
-        Assert.True(true); // StubServerManager.StopServer sets IsServerRunning = false
+        // Server was initially "running" — after recovery attempt it should be stopped
         await svc.TryRecoverPersistentServerAsync();
 
         // After recovery attempt, old server should have been stopped

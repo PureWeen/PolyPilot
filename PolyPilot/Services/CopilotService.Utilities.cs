@@ -366,9 +366,9 @@ public partial class CopilotService
             || msg.Contains("invalid token", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("auth token", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("403 forbidden", StringComparison.OrdinalIgnoreCase)
-            || msg.Contains("401", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("HTTP 401", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("not authorized", StringComparison.OrdinalIgnoreCase)
-            || msg.Contains("credentials", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("bad credentials", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("login required", StringComparison.OrdinalIgnoreCase))
             return true;
         if (ex is AggregateException agg)

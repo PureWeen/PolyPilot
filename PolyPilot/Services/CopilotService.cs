@@ -67,6 +67,8 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>Number of consecutive watchdog timeouts (across all sessions) before
     /// attempting automatic persistent server recovery.</summary>
     internal const int WatchdogServerRecoveryThreshold = 2;
+    // Prevents concurrent TryRecoverPersistentServerAsync invocations from racing on _client.
+    private readonly SemaphoreSlim _recoveryLock = new(1, 1);
     
     private static readonly object _pathLock = new();
     private static string? _copilotBaseDir;
@@ -989,11 +991,19 @@ public partial class CopilotService : IAsyncDisposable
         if (CurrentMode != ConnectionMode.Persistent)
             return false;
 
-        var settings = _currentSettings ?? ConnectionSettings.Load();
-        Debug("[SERVER-RECOVERY] Attempting persistent server recovery (auth/connectivity failure suspected)...");
+        // Guard against concurrent recovery attempts: the watchdog fires a new Task.Run for every
+        // timeout >= threshold. Without this lock, concurrent calls race on _client and the server.
+        if (!await _recoveryLock.WaitAsync(0))
+        {
+            Debug("[SERVER-RECOVERY] Recovery already in progress — skipping duplicate invocation");
+            return false;
+        }
 
         try
         {
+            var settings = _currentSettings ?? ConnectionSettings.Load();
+            Debug("[SERVER-RECOVERY] Attempting persistent server recovery (auth/connectivity failure suspected)...");
+
             // Stop the old server — it's running but broken (e.g., expired auth token cached in-process)
             _serverManager.StopServer();
 
@@ -1011,7 +1021,7 @@ public partial class CopilotService : IAsyncDisposable
             {
                 Debug("[SERVER-RECOVERY] Failed to restart persistent server");
                 FallbackNotice = "Persistent server recovery failed — all sessions may be affected. Go to Settings → Save & Reconnect.";
-                OnStateChanged?.Invoke();
+                InvokeOnUI(() => OnStateChanged?.Invoke());
                 return false;
             }
 
@@ -1027,15 +1037,19 @@ public partial class CopilotService : IAsyncDisposable
             Debug("[SERVER-RECOVERY] Server recovery successful — new server started and client reconnected");
             FallbackNotice = "Persistent server was automatically restarted due to repeated failures. Your sessions should work again.";
             Interlocked.Exchange(ref _consecutiveWatchdogTimeouts, 0);
-            OnStateChanged?.Invoke();
+            InvokeOnUI(() => OnStateChanged?.Invoke());
             return true;
         }
         catch (Exception ex)
         {
             Debug($"[SERVER-RECOVERY] Recovery failed: {ex.Message}");
             FallbackNotice = "Persistent server recovery failed — go to Settings → Save & Reconnect to fix.";
-            OnStateChanged?.Invoke();
+            InvokeOnUI(() => OnStateChanged?.Invoke());
             return false;
+        }
+        finally
+        {
+            _recoveryLock.Release();
         }
     }
 
