@@ -177,18 +177,19 @@ public class PermissionDenialDetectionTests
     }
 
     [Theory]
+    // MCP-specific patterns — match unconditionally
     [InlineData("MCP server 'workiq' failed to start")]
     [InlineData("Error connecting to MCP server: connection refused")]
     [InlineData("ECONNREFUSED")]
     [InlineData("connect ECONNREFUSED 127.0.0.1:3000")]
-    [InlineData("Connection refused")]
-    [InlineData("connection refused while connecting to MCP")]
-    [InlineData("server disconnected unexpectedly")]
-    [InlineData("transport error: connection reset")]
-    [InlineData("Failed to start MCP process")]
-    [InlineData("server process exited with code 1")]
     [InlineData("spawn ENOENT: npx not found")]
     [InlineData("mcp_server_workiq: connection failed")]
+    // Generic patterns — match only when "mcp" context is present
+    [InlineData("connection refused while connecting to MCP")]
+    [InlineData("Failed to start MCP process")]
+    [InlineData("mcp server disconnected unexpectedly")]
+    [InlineData("MCP transport error: connection reset")]
+    [InlineData("mcp server process exited with code 1")]
     public void IsMcpError_McpFailureVariants_ReturnsTrue(string text)
     {
         Assert.True(CopilotService.IsMcpError(text));
@@ -200,6 +201,15 @@ public class PermissionDenialDetectionTests
     [InlineData("File not found")]
     [InlineData("Session not found")]
     [InlineData("Timeout waiting for response")]
+    // Generic network/process errors without MCP context — must NOT trigger MCP recovery
+    [InlineData("Connection refused")]
+    [InlineData("server disconnected unexpectedly")]
+    [InlineData("transport error: connection reset")]
+    [InlineData("server process exited with code 1")]
+    [InlineData("failed to start")]
+    [InlineData("SSH connection refused")]
+    [InlineData("docker container failed to start")]
+    [InlineData("kubectl: connection refused to 10.0.0.1:6443")]
     public void IsMcpError_UnrelatedErrors_ReturnsFalse(string text)
     {
         Assert.False(CopilotService.IsMcpError(text));

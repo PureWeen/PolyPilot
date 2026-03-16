@@ -1830,22 +1830,33 @@ public partial class CopilotService
 
     /// <summary>
     /// Detects MCP server failures where a configured MCP server is unreachable or crashed.
-    /// Common patterns: connection refused, server process exited, transport errors, spawn failures.
+    /// MCP-specific patterns (ECONNREFUSED, mcp_server, spawn ENOENT) match unconditionally.
+    /// Generic network/process patterns (connection refused, transport error, etc.) require
+    /// "mcp" context in the text to avoid false-positives from SSH, DB, Docker, or HTTP errors
+    /// that would otherwise incorrectly trigger MCP recovery.
     /// When repeated MCP failures are detected, the session is recreated with fresh MCP configs
     /// so the CLI can re-launch the MCP server processes.
     /// </summary>
     internal static bool IsMcpError(string? text)
     {
         if (string.IsNullOrEmpty(text)) return false;
-        return text.Contains("MCP server", StringComparison.OrdinalIgnoreCase)
+
+        // MCP-specific patterns — safe to match without additional context
+        if (text.Contains("MCP server", StringComparison.OrdinalIgnoreCase)
             || text.Contains("mcp_server", StringComparison.OrdinalIgnoreCase)
             || text.Contains("ECONNREFUSED", StringComparison.Ordinal)
-            || text.Contains("connection refused", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("spawn ENOENT", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Generic network/process patterns require "mcp" in the message to avoid
+        // false-positives on SSH failures, Docker, database connections, etc.
+        var hasMcpContext = text.Contains("mcp", StringComparison.OrdinalIgnoreCase);
+        return hasMcpContext && (
+            text.Contains("connection refused", StringComparison.OrdinalIgnoreCase)
             || text.Contains("server disconnected", StringComparison.OrdinalIgnoreCase)
             || text.Contains("transport error", StringComparison.OrdinalIgnoreCase)
             || text.Contains("failed to start", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("server process exited", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("spawn ENOENT", StringComparison.OrdinalIgnoreCase);
+            || text.Contains("server process exited", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
