@@ -1625,7 +1625,8 @@ public partial class CopilotService
                                 var diskHistory = await LoadHistoryFromDiskAsync(sessionId);
                                 var lastDiskAssistant = diskHistory
                                     .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
-                                        && m.MessageType == ChatMessageType.Assistant);
+                                        && m.MessageType == ChatMessageType.Assistant
+                                        && m.Timestamp >= dispatchTime);
                                 if (lastDiskAssistant != null)
                                 {
                                     response = lastDiskAssistant.Content;
@@ -1830,7 +1831,8 @@ public partial class CopilotService
                         var diskHistory = await LoadHistoryFromDiskAsync(sessionId);
                         var lastDisk = diskHistory
                             .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
-                                && m.MessageType == ChatMessageType.Assistant);
+                                && m.MessageType == ChatMessageType.Assistant
+                                && m.Timestamp >= dispatchTime);
                         if (lastDisk != null && lastDisk.Content!.Length > (bestResponse?.Length ?? 0))
                         {
                             Debug($"[DISPATCH-RECOVER] Worker '{workerName}' recovered {lastDisk.Content.Length} chars from events.jsonl");
