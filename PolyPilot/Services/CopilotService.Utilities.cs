@@ -138,6 +138,106 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Checks whether events.jsonl shows a session that was interrupted mid-tool-execution.
+    /// Returns true if the last non-control events are tool.execution_start without matching
+    /// tool.execution_complete, AND a session.shutdown occurred after them (proving the tools
+    /// were interrupted by a crash, not just running slowly).
+    /// Used by EnsureSessionConnectedAsync to send an abort on resume.
+    /// </summary>
+    internal bool HasInterruptedToolExecution(string sessionId) =>
+        HasInterruptedToolExecution(sessionId, SessionStatePath);
+
+    /// <summary>Testable overload that accepts a custom base path.</summary>
+    internal bool HasInterruptedToolExecution(string sessionId, string basePath)
+    {
+        var eventsFile = Path.Combine(basePath, sessionId, "events.jsonl");
+        if (!File.Exists(eventsFile)) return false;
+
+        try
+        {
+            // Stream through events.jsonl keeping only the last 30 non-empty lines
+            // (avoids loading the full file into memory for large sessions).
+            // Then scan backwards for the pattern: tool.execution_start with no
+            // matching tool.execution_complete — indicating a crash mid-tool-execution.
+            var buffer = new Queue<string>(31);
+            foreach (var line in File.ReadLines(eventsFile))
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    buffer.Enqueue(line);
+                    if (buffer.Count > 30)
+                        buffer.Dequeue();
+                }
+            }
+            var recentLines = buffer.ToList();
+
+            // Walk backwards from the end, skipping session.resume/shutdown control events.
+            // IMPORTANT: Because we scan backwards, we see tool.execution_complete BEFORE
+            // its matching tool.execution_start. So we count completions first, then consume
+            // them when we hit a start. Any start without a matching completion is interrupted.
+            var unmatchedStarts = 0;
+            var pendingCompletions = 0;
+            var sawShutdown = false;
+            var sawOnlyControlEvents = true; // Only saw resume/shutdown so far
+
+            for (int i = recentLines.Count - 1; i >= 0; i--)
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(recentLines[i]);
+                var type = doc.RootElement.GetProperty("type").GetString();
+
+                if (type == "session.resume")
+                    continue; // skip resume markers
+
+                if (type == "session.shutdown")
+                {
+                    sawShutdown = true;
+                    continue;
+                }
+
+                // We've hit a non-control event
+                sawOnlyControlEvents = false;
+
+                if (type == "tool.execution_complete")
+                {
+                    // Scanning backwards: completions come first. Count them so
+                    // we can match them against starts found further back.
+                    pendingCompletions++;
+                    continue;
+                }
+
+                if (type == "tool.execution_start")
+                {
+                    if (pendingCompletions > 0)
+                        pendingCompletions--; // matched with a completion above
+                    else
+                        unmatchedStarts++; // no matching completion — interrupted
+                    continue;
+                }
+
+                // Hit a non-tool, non-control event — stop scanning
+                break;
+            }
+
+            // Interrupted tools detected if:
+            // 1. There are unmatched tool.execution_start events, AND
+            // 2. Either a session.shutdown confirms the crash, OR the tool starts
+            //    are the very last non-control events (force-kill scenario)
+            var result = unmatchedStarts > 0 && (sawShutdown || !sawOnlyControlEvents);
+            if (result)
+            {
+                Debug($"[RESUME-ABORT] events.jsonl for '{sessionId}' has {unmatchedStarts} interrupted tool(s) " +
+                      $"(shutdown={sawShutdown}, force-kill={!sawShutdown})");
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Debug($"[RESUME-ABORT] Failed to check events.jsonl for '{sessionId}': {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// During session restore, determines whether the events.jsonl file shows recent server activity
     /// and whether the last event was a tool event. Used to pre-seed watchdog flags so that
     /// the 30s quiescence timeout is bypassed for sessions that were genuinely active before restart.

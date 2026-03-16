@@ -340,9 +340,11 @@ public partial class CopilotService
             };
 
             CopilotSession copilotSession;
+            bool wasResumed = false;
             try
             {
                 copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+                wasResumed = true;
             }
             catch (Exception ex) when (
                 ex.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase) ||
@@ -362,9 +364,32 @@ public partial class CopilotService
                 FlushSaveActiveSessionsToDisk();
             }
 
+            // INV-16: Register event handler BEFORE publishing to state —
+            // no window where events arrive with no handler. Matches the pattern
+            // in sibling reconnect (CopilotService.cs:2766) and worker revival
+            // (Organization.cs:1547).
+            copilotSession.On(evt => HandleSessionEvent(state, evt));
             state.Session = copilotSession;
             state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName);
-            copilotSession.On(evt => HandleSessionEvent(state, evt));
+
+            // If we resumed a session that crashed mid-tool-execution, the SDK is stuck
+            // waiting for tool results that will never arrive. It silently queues/ignores
+            // new SendAsync calls until the pending tools are resolved. An explicit abort
+            // clears this state and allows new messages to flow.
+            if (wasResumed && HasInterruptedToolExecution(sessionId))
+            {
+                Debug($"[RESUME-ABORT] '{sessionName}' has interrupted tool execution — sending abort to clear pending state");
+                try
+                {
+                    await copilotSession.AbortAsync(cancellationToken);
+                    Debug($"[RESUME-ABORT] '{sessionName}' abort sent successfully");
+                }
+                catch (Exception abortEx)
+                {
+                    Debug($"[RESUME-ABORT] '{sessionName}' abort failed (non-fatal): {abortEx.Message}");
+                }
+            }
+
             Debug($"Lazy-resume complete: '{sessionName}'");
         }
         finally
