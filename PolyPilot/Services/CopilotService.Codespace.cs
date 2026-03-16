@@ -782,6 +782,7 @@ public partial class CopilotService : IAsyncDisposable
                     };
                     newSession = await client.CreateSessionAsync(freshConfig, ct);
                     state.Info.SessionId = newSession.SessionId;
+                    FlushSaveActiveSessionsToDisk();
                 }
 
                 // Update the stored working directory so persistence saves the codespace path

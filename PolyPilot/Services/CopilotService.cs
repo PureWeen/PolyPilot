@@ -2958,6 +2958,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                             Debug($"[RECONNECT] Session ID changed on resume: '{state.Info.SessionId}' → '{actualId}' for '{sessionName}'");
                             CopyEventsToNewSession(state.Info.SessionId, actualId);
                             state.Info.SessionId = actualId;
+                            // Persist the new session ID so restarts don't revert to the old one
+                            FlushSaveActiveSessionsToDisk();
                         }
                     }
                     catch (Exception resumeEx) when (resumeEx.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase))
@@ -2971,6 +2973,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                             var freshConfig = BuildFreshSessionConfig(state);
                             newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
                             state.Info.SessionId = newSession.SessionId;
+                            FlushSaveActiveSessionsToDisk();
                         }
                         catch (Exception createEx)
                         {
@@ -2997,6 +3000,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                             var freshConfig = BuildFreshSessionConfig(state);
                             newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
                             state.Info.SessionId = newSession.SessionId;
+                            FlushSaveActiveSessionsToDisk();
                         }
                         catch (Exception createEx)
                         {
