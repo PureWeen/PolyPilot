@@ -1596,7 +1596,48 @@ public partial class CopilotService : IAsyncDisposable
         if (string.IsNullOrEmpty(resumeModel)) resumeModel = DefaultModel;
         Debug($"Resuming session '{displayName}' with model: '{resumeModel}', cwd: '{resumeWorkingDirectory}'");
         var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions };
-        var copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+
+        CopilotSession copilotSession;
+        try
+        {
+            copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+        }
+        catch (Exception ex) when (
+            ex.Message.Contains("corrupt", StringComparison.OrdinalIgnoreCase) ||
+            ex.Message.Contains("Unknown event type", StringComparison.OrdinalIgnoreCase) ||
+            ex.Message.Contains("session file", StringComparison.OrdinalIgnoreCase))
+        {
+            // The SDK rejects events.jsonl files with unknown event types (e.g., "system.notification"
+            // injected by Copilot CLI extensions). Fall back to creating a fresh session and recovering
+            // history from the original events.jsonl, which PolyPilot's LoadHistoryFromDisk can parse.
+            Debug($"SDK rejected events.jsonl for '{displayName}': {ex.Message} — falling back to fresh session with recovered history");
+
+            await CreateSessionAsync(displayName, resumeModel, resumeWorkingDirectory, cancellationToken, groupId);
+
+            if (_sessions.TryGetValue(displayName, out var recreatedState) && history.Count > 0)
+            {
+                foreach (var msg in history)
+                    recreatedState.Info.History.Add(msg);
+
+                foreach (var msg in recreatedState.Info.History.Where(m =>
+                    (m.MessageType == ChatMessageType.ToolCall || m.MessageType == ChatMessageType.Reasoning) && !m.IsComplete))
+                {
+                    msg.IsComplete = true;
+                }
+
+                if (recreatedState.Info.SessionId != null)
+                    SafeFireAndForget(_chatDb.BulkInsertAsync(recreatedState.Info.SessionId, history));
+
+                recreatedState.Info.History.Add(ChatMessage.SystemMessage(
+                    "🔄 Session recreated — conversation history recovered. (Original events.jsonl had event types the SDK doesn't support.)"));
+                recreatedState.Info.MessageCount = recreatedState.Info.History.Count;
+                recreatedState.Info.LastReadMessageCount = recreatedState.Info.History.Count;
+            }
+
+            _activeSessionName = displayName;
+            OnStateChanged?.Invoke();
+            return;
+        }
 
         var isStillProcessing = IsSessionStillProcessing(sessionId);
 
