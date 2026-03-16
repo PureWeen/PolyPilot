@@ -1479,7 +1479,7 @@ public partial class CopilotService
         var workerPrompt = BuildWorkerPrompt(identity, worktreeNote, sharedPrefix, originalPrompt, task);
 
         const int maxRetries = 2;
-        var dispatchTime = DateTime.UtcNow;
+        var dispatchTime = DateTime.Now;
 
         // Pre-dispatch: if worker is still processing from a previous run (e.g., restored
         // mid-processing after app relaunch), wait for it to become idle. The watchdog will
@@ -1799,7 +1799,8 @@ public partial class CopilotService
                     }
                     
                     // Check if the worker is truly done or will hit premature idle again
-                    await Task.Delay(2000, recoveryCts.Token); // Brief settle time
+                    try { await Task.Delay(2000, recoveryCts.Token); } // Brief settle time
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { break; }
                     
                     if (!IsEventsFileActive(state.Info.SessionId) && !state.Info.IsProcessing)
                     {
@@ -2110,7 +2111,8 @@ public partial class CopilotService
                         var diskHistory = await LoadHistoryFromDiskAsync(session.SessionId);
                         var lastDiskAssistant = diskHistory
                             .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
-                                && m.MessageType == ChatMessageType.Assistant);
+                                && m.MessageType == ChatMessageType.Assistant
+                                && m.Timestamp >= dispatchTimeLocal);
                         if (lastDiskAssistant != null)
                         {
                             diskResponse = lastDiskAssistant.Content;
