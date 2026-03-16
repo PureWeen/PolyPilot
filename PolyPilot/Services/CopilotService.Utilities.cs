@@ -138,6 +138,35 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Reads the last non-empty line of events.jsonl and returns its "type" field.
+    /// Used by the watchdog to detect session.shutdown without parsing the full file.
+    /// Returns null if the file doesn't exist, is empty, or can't be parsed.
+    /// </summary>
+    internal static string? GetLastEventType(string eventsFilePath)
+    {
+        try
+        {
+            if (!File.Exists(eventsFilePath)) return null;
+
+            // Read backwards to find the last non-empty line
+            string? lastLine = null;
+            foreach (var line in File.ReadLines(eventsFilePath))
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                    lastLine = line;
+            }
+            if (lastLine == null) return null;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(lastLine);
+            return doc.RootElement.GetProperty("type").GetString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Checks whether events.jsonl shows a session that was interrupted mid-tool-execution.
     /// Returns true if the last non-control events are tool.execution_start without matching
     /// tool.execution_complete, AND a session.shutdown occurred after them (proving the tools

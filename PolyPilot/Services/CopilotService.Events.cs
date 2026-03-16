@@ -2084,6 +2084,22 @@ public partial class CopilotService
                                             // Multi-agent workers get a much longer window because the SDK
                                             // can pause event delivery for 10+ min during long tool runs.
                                             caseBEventsActive = lastWrite > startedAt.Value && age < freshnessSeconds;
+
+                                            // Even if the file looks fresh, check if the server shut down
+                                            // the session. session.shutdown is written to events.jsonl when
+                                            // the server kills a session (idle timeout, stuck tools, etc.)
+                                            // but the client event stream may be dead so we never received it.
+                                            // Same pattern as HasInterruptedToolExecution in Utilities.cs.
+                                            if (caseBEventsActive)
+                                            {
+                                                var lastEventType = GetLastEventType(ep);
+                                                if (lastEventType == "session.shutdown")
+                                                {
+                                                    Debug($"[WATCHDOG] '{sessionName}' Case B — events.jsonl ends with session.shutdown, " +
+                                                          $"skipping deferral (server killed session)");
+                                                    caseBEventsActive = false;
+                                                }
+                                            }
                                         }
                                     }
                                 }
