@@ -1616,13 +1616,14 @@ public partial class CopilotService : IAsyncDisposable
         if (!string.IsNullOrEmpty(actualSessionId) && actualSessionId != sessionId)
         {
             Debug($"[RESUME-REMAP] Session ID changed: requested '{sessionId}', server returned '{actualSessionId}' for '{displayName}'");
+            // Copy old events to the new session dir BEFORE registering the event handler.
+            // The SDK may start writing events to the new dir after ResumeSessionAsync returns,
+            // but our copy runs immediately and the new dir typically has no events yet.
             CopyEventsToNewSession(sessionId, actualSessionId);
-            // Reload history from the actual session's events.jsonl if it has more content
             var actualHistory = LoadHistoryFromDisk(actualSessionId);
             if (actualHistory.Count >= history.Count)
                 history = actualHistory;
             sessionId = actualSessionId;
-            // Re-sync DB under the correct session ID
             if (history.Count > 0)
                 await _chatDb.BulkInsertAsync(sessionId, history);
         }
@@ -1634,7 +1635,7 @@ public partial class CopilotService : IAsyncDisposable
             Name = displayName,
             Model = resumeModel,
             CreatedAt = DateTime.UtcNow,
-            SessionId = actualSessionId ?? sessionId,
+            SessionId = sessionId,
             IsResumed = isStillProcessing,
             WorkingDirectory = resumeWorkingDirectory
         };
@@ -2796,7 +2797,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     try
                     {
                         newSession = await client.ResumeSessionAsync(state.Info.SessionId, reconnectConfig, cancellationToken);
-                        // Detect session ID mismatch on reconnect (same as ResumeSessionAsync)
+                        // Detect session ID mismatch on reconnect (same as ResumeSessionAsync).
+                        // Copy events before event handler registration to minimize race window.
                         var actualId = newSession.SessionId;
                         if (!string.IsNullOrEmpty(actualId) && actualId != state.Info.SessionId)
                         {

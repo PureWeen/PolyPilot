@@ -839,6 +839,7 @@ public partial class CopilotService
     /// </summary>
     private void CopyEventsToNewSession(string oldSessionId, string newSessionId)
     {
+        string? tmpFile = null;
         try
         {
             var oldEvents = Path.Combine(SessionStatePath, oldSessionId, "events.jsonl");
@@ -871,13 +872,14 @@ public partial class CopilotService
             else
             {
                 var newLines = File.ReadAllLines(newEvents);
-                var tmpFile = newEvents + ".tmp";
+                tmpFile = newEvents + ".tmp";
                 using (var writer = new StreamWriter(tmpFile, append: false))
                 {
                     foreach (var line in oldLines) writer.WriteLine(line);
                     foreach (var line in newLines) writer.WriteLine(line);
                 }
                 File.Move(tmpFile, newEvents, overwrite: true);
+                tmpFile = null; // Move succeeded, no cleanup needed
             }
 
             Debug($"CopyEventsToNewSession: {oldSessionId} → {newSessionId}: {oldLines.Count} lines (prepended={existed}, skipped={skippedLines})");
@@ -885,16 +887,24 @@ public partial class CopilotService
         catch (Exception ex)
         {
             Debug($"CopyEventsToNewSession failed: {ex.Message}");
+            // Clean up temp file if File.Move failed
+            if (tmpFile != null)
+            {
+                try { File.Delete(tmpFile); } catch { }
+            }
         }
     }
 
     /// <summary>
     /// Search session-state directories for the best events.jsonl source matching a working directory.
-    /// Returns the session ID with the most event lines whose workspace.yaml cwd matches.
+    /// Returns the session ID with the most event lines whose workspace.yaml cwd matches exactly.
     /// Falls back to the original session ID if no better source is found.
     /// This handles the case where active-sessions.json has a stale session ID but
     /// intermediate fallback-recreated sessions accumulated more history.
+    /// Scans at most MaxSessionDirsToScan directories sorted by last-write-time (newest first).
     /// </summary>
+    internal const int MaxSessionDirsToScan = 200;
+
     internal string FindBestEventsSource(string originalSessionId, string? workingDirectory, string? statePath = null)
     {
         if (string.IsNullOrEmpty(workingDirectory))
@@ -917,22 +927,27 @@ public partial class CopilotService
             string bestId = originalSessionId;
             long bestLines = originalLines;
 
-            foreach (var sessionDir in stateDir.EnumerateDirectories())
+            // Sort by last-write-time descending so the most recent sessions are checked first.
+            // Limit to MaxSessionDirsToScan to bound scan time on large state directories.
+            var dirs = stateDir.EnumerateDirectories()
+                .OrderByDescending(d => d.LastWriteTimeUtc)
+                .Take(MaxSessionDirsToScan);
+
+            foreach (var sessionDir in dirs)
             {
                 if (sessionDir.Name == originalSessionId) continue;
 
                 var eventsFile = Path.Combine(sessionDir.FullName, "events.jsonl");
                 if (!File.Exists(eventsFile)) continue;
 
-                // Check if this session's working directory matches
                 var workspaceFile = Path.Combine(sessionDir.FullName, "workspace.yaml");
                 if (!File.Exists(workspaceFile)) continue;
 
                 try
                 {
-                    var yaml = File.ReadAllText(workspaceFile);
-                    // workspace.yaml contains "cwd: /path/to/dir" — simple string match
-                    if (!yaml.Contains(workingDirectory, StringComparison.OrdinalIgnoreCase))
+                    // Extract the exact cwd value from workspace.yaml line-by-line
+                    // to avoid false positives (e.g., "/project" matching "/project-2").
+                    if (!WorkspaceYamlMatchesCwd(workspaceFile, workingDirectory))
                         continue;
 
                     long lineCount = 0;
@@ -958,5 +973,23 @@ public partial class CopilotService
             Debug($"FindBestEventsSource failed: {ex.Message}");
             return originalSessionId;
         }
+    }
+
+    /// <summary>
+    /// Check whether a workspace.yaml file's cwd value matches the given working directory exactly.
+    /// Parses "cwd: /path/to/dir" lines and compares the extracted path, avoiding substring matches.
+    /// </summary>
+    internal static bool WorkspaceYamlMatchesCwd(string workspaceFile, string workingDirectory)
+    {
+        foreach (var line in File.ReadLines(workspaceFile))
+        {
+            var trimmed = line.TrimStart();
+            if (!trimmed.StartsWith("cwd:", StringComparison.OrdinalIgnoreCase))
+                continue;
+            // Extract the value after "cwd:" and trim whitespace/quotes
+            var value = trimmed.Substring(4).Trim().Trim('"', '\'');
+            return string.Equals(value, workingDirectory, StringComparison.OrdinalIgnoreCase);
+        }
+        return false;
     }
 }
