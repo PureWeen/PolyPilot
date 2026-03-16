@@ -1774,6 +1774,7 @@ public partial class CopilotService
 
                     await using var reg = recoveryCts.Token.Register(() => completionTcs.TrySetResult(false));
                     var completed = await completionTcs.Task;
+                    if (!completed)
                     {
                         Debug($"[DISPATCH-RECOVER] Worker '{workerName}' recovery timed out after {PrematureIdleRecoveryTimeoutMs / 1000}s " +
                               $"(round {rounds}) — using best response ({bestResponse?.Length ?? 0} chars)");

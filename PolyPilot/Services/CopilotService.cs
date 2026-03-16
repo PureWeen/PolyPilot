@@ -2449,12 +2449,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (state.Session == null && IsCodespaceSession(sessionName))
             throw new InvalidOperationException("This session is waiting for its codespace to connect. Please wait for the green status dot.");
 
-        // Lazy resume: placeholder sessions from startup need SDK connection on first use
-        if (state.Session == null)
-        {
-            await EnsureSessionConnectedAsync(sessionName, state, cancellationToken);
-        }
-
         if (state.Info.IsProcessing)
             throw new InvalidOperationException("Session is already processing a request.");
 
@@ -2462,6 +2456,22 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // IsProcessing=false and both enter without this guard.
         if (Interlocked.CompareExchange(ref state.SendingFlag, 1, 0) != 0)
             throw new InvalidOperationException("Session is already processing a request.");
+
+        // Lazy resume INSIDE the SendingFlag guard to prevent double-resume race:
+        // without this, two rapid sends could both see Session==null and both call
+        // EnsureSessionConnectedAsync concurrently, leaking the first resumed session.
+        if (state.Session == null)
+        {
+            try
+            {
+                await EnsureSessionConnectedAsync(sessionName, state, cancellationToken);
+            }
+            catch
+            {
+                Interlocked.Exchange(ref state.SendingFlag, 0);
+                throw;
+            }
+        }
 
         long myGeneration = 0; // will be set right after the generation increment inside try
 

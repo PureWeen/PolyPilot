@@ -296,9 +296,12 @@ public partial class CopilotService
     /// </summary>
     private bool IsCodespaceSession(string sessionName)
     {
-        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        // Use snapshots for thread safety — may be called from background threads
+        var metas = SnapshotSessionMetas();
+        var meta = metas.FirstOrDefault(m => m.SessionName == sessionName);
         if (meta?.GroupId == null) return false;
-        var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+        var groups = SnapshotGroups();
+        var group = groups.FirstOrDefault(g => g.Id == meta.GroupId);
         return group?.IsCodespace == true;
     }
 
@@ -319,7 +322,8 @@ public partial class CopilotService
 
         Debug($"Lazy-resuming session '{sessionName}' (id={sessionId})...");
 
-        var groupId = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName)?.GroupId;
+        // Use snapshot for thread safety — may be called from ThreadPool via SendPromptAsync
+        var groupId = SnapshotSessionMetas().FirstOrDefault(m => m.SessionName == sessionName)?.GroupId;
         var resumeModel = state.Info.Model ?? DefaultModel;
         var resumeWorkDir = state.Info.WorkingDirectory;
 
@@ -384,8 +388,14 @@ public partial class CopilotService
             if (CodespacesEnabled)
                 StartCodespaceHealthCheck();
 
-            ReconcileOrganization();
-            InvokeOnUI(() => OnStateChanged?.Invoke());
+            // ReconcileOrganization reads/writes Organization.Sessions (a plain List<T>)
+            // which is not thread-safe. Now that restore runs on ThreadPool via Task.Run,
+            // we must marshal this to the UI thread to avoid concurrent enumeration crashes.
+            InvokeOnUI(() =>
+            {
+                ReconcileOrganization();
+                OnStateChanged?.Invoke();
+            });
 
             // Resume any pending orchestration dispatch interrupted by relaunch
             _ = ResumeOrchestrationIfPendingAsync(cancellationToken);
