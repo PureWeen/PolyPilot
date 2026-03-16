@@ -679,6 +679,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
+        await WaitForAsync(() => client.Sessions.Any(s => s.Name == "old-name"), cts.Token);
 
         await client.RenameSessionAsync("old-name", "new-name", cts.Token);
         await WaitForAsync(() => _copilot.GetSession("new-name") != null, cts.Token, maxMs: 8000);
@@ -696,6 +697,7 @@ public class WsBridgeIntegrationTests : IDisposable
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
+        await WaitForAsync(() => client.Sessions.Any(s => s.Name == "rename-list"), cts.Token);
 
         await client.RenameSessionAsync("rename-list", "renamed-list", cts.Token);
         await WaitForAsync(() => client.Sessions.Any(s => s.Name == "renamed-list"), cts.Token);
