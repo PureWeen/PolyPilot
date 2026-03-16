@@ -36,9 +36,10 @@ public partial class CopilotService
     private static readonly TimeSpan WorkerExecutionTimeout = TimeSpan.FromMinutes(60);
     private static readonly TimeSpan WorkerExecutionTimeoutRemote = TimeSpan.FromMinutes(10);
 
-    /// <summary>How long to poll for the WasPrematurelyIdled flag after the initial TCS
-    /// completes. The EVT-REARM fires on the UI thread shortly after premature session.idle;
-    /// this window accounts for thread scheduling delays.</summary>
+    /// <summary>How long to wait for the PrematureIdleSignal after the initial TCS
+    /// completes. Uses ManualResetEventSlim for event-based signaling: exits immediately
+    /// if EVT-REARM fires (common case: no overhead), or times out after 5s if not.
+    /// Must be >= 3000ms to allow for UI-thread EVT-REARM dispatch scheduling.</summary>
     internal const int PrematureIdleDetectionWindowMs = 5_000;
 
     /// <summary>Maximum time to wait for the worker's real completion after detecting a
@@ -1617,7 +1618,7 @@ public partial class CopilotService
                         {
                             try
                             {
-                                var diskHistory = LoadHistoryFromDisk(sessionId);
+                                var diskHistory = await LoadHistoryFromDiskAsync(sessionId);
                                 var lastDiskAssistant = diskHistory
                                     .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
                                         && m.MessageType == ChatMessageType.Assistant);
@@ -1691,21 +1692,13 @@ public partial class CopilotService
         string workerName, SessionState state, string? initialResponse,
         DateTime dispatchTime, CancellationToken cancellationToken)
     {
-        // Fast path: check if re-arm already fired (flag set on background thread before UI dispatch)
-        if (!state.WasPrematurelyIdled)
-        {
-            // Poll briefly — EVT-REARM fires on the UI thread and may not have run yet
-            var detectStart = DateTime.UtcNow;
-            while ((DateTime.UtcNow - detectStart).TotalMilliseconds < PrematureIdleDetectionWindowMs)
-            {
-                if (state.WasPrematurelyIdled || cancellationToken.IsCancellationRequested)
-                    break;
-                await Task.Delay(500, cancellationToken);
-            }
+        // Wait for EVT-REARM signal (event-based — exits immediately when Set(), or after timeout)
+        var signaled = await Task.Run(
+            () => state.PrematureIdleSignal.Wait(PrematureIdleDetectionWindowMs, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
 
-            if (!state.WasPrematurelyIdled)
-                return initialResponse; // Normal completion — no re-arm detected
-        }
+        if (!signaled)
+            return initialResponse; // Normal completion — no re-arm detected
 
         Debug($"[DISPATCH-RECOVER] Worker '{workerName}' premature idle detected — " +
               $"truncated response={initialResponse?.Length ?? 0} chars, " +
@@ -1742,7 +1735,7 @@ public partial class CopilotService
             // Re-collect from History (real CompleteResponse added full content here)
             ChatMessage[] histSnapshot;
             try { histSnapshot = state.Info.History.ToArray(); }
-            catch (InvalidOperationException) { histSnapshot = Array.Empty<ChatMessage>(); }
+            catch (Exception) { histSnapshot = Array.Empty<ChatMessage>(); }
 
             var fullContent = histSnapshot
                 .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
@@ -1756,16 +1749,17 @@ public partial class CopilotService
                 return fullContent.Content;
             }
 
-            // Fallback: LoadHistoryFromDisk (events.jsonl has server-written full content)
+            // Fallback: LoadHistoryFromDiskAsync (events.jsonl has server-written full content)
             var sessionId = state.Info.SessionId;
             if (!string.IsNullOrEmpty(sessionId))
             {
                 try
                 {
-                    var diskHistory = LoadHistoryFromDisk(sessionId);
+                    var diskHistory = await LoadHistoryFromDiskAsync(sessionId);
                     var lastDisk = diskHistory
                         .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
-                            && m.MessageType == ChatMessageType.Assistant);
+                            && m.MessageType == ChatMessageType.Assistant
+                            && m.Timestamp >= dispatchTime);
                     if (lastDisk != null && lastDisk.Content!.Length > (initialResponse?.Length ?? 0))
                     {
                         Debug($"[DISPATCH-RECOVER] Worker '{workerName}' recovered {lastDisk.Content.Length} chars from events.jsonl");
@@ -2015,7 +2009,7 @@ public partial class CopilotService
                 {
                     try
                     {
-                        var diskHistory = LoadHistoryFromDisk(session.SessionId);
+                        var diskHistory = await LoadHistoryFromDiskAsync(session.SessionId);
                         var lastDiskAssistant = diskHistory
                             .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
                                 && m.MessageType == ChatMessageType.Assistant);
