@@ -643,7 +643,10 @@ public partial class CopilotService
     /// The SDK's event file writer can break after server-side session cleanup + re-resume,
     /// causing events to flow in-memory but never persist to events.jsonl ("dead event stream").
     /// ChatDatabase is written fire-and-forget on every message and survives this failure mode.
-    /// Returns (history, fromDatabase) — fromDatabase=true means DB was richer and events.jsonl is stale.
+    /// 
+    /// Strategy: compare the latest user message timestamp from each source. Whichever has
+    /// the most recent user interaction wins entirely — no merging, no risk of duplicates.
+    /// Returns (history, fromDatabase) — fromDatabase=true means events.jsonl was stale.
     /// </summary>
     private async Task<(List<ChatMessage> History, bool FromDatabase)> LoadBestHistoryAsync(string sessionId)
     {
@@ -659,13 +662,25 @@ public partial class CopilotService
             return (eventsHistory, false);
         }
 
-        // Compare substantive messages (User + Assistant) — tool calls vary between sources
-        int eventsSubstantive = eventsHistory.Count(m => m.MessageType is ChatMessageType.User or ChatMessageType.Assistant);
-        int dbSubstantive = dbHistory.Count(m => m.MessageType is ChatMessageType.User or ChatMessageType.Assistant);
+        if (dbHistory.Count == 0)
+            return (eventsHistory, false);
 
-        if (dbSubstantive > eventsSubstantive)
+        if (eventsHistory.Count == 0)
+            return (dbHistory, true);
+
+        // Compare the latest user message timestamp from each source.
+        // Whichever has the most recent user interaction is the better source.
+        var eventsLatestUser = eventsHistory
+            .Where(m => m.MessageType == ChatMessageType.User)
+            .MaxBy(m => m.Timestamp)?.Timestamp ?? DateTime.MinValue;
+
+        var dbLatestUser = dbHistory
+            .Where(m => m.MessageType == ChatMessageType.User)
+            .MaxBy(m => m.Timestamp)?.Timestamp ?? DateTime.MinValue;
+
+        if (dbLatestUser > eventsLatestUser && (dbLatestUser - eventsLatestUser).TotalMinutes > 1)
         {
-            Debug($"[HISTORY-RECOVERY] ChatDatabase has more messages ({dbSubstantive} user/assistant vs {eventsSubstantive} in events.jsonl) for session {sessionId} — using DB");
+            Debug($"[HISTORY-RECOVERY] ChatDatabase has newer messages (DB latest={dbLatestUser:u}, events latest={eventsLatestUser:u}) for session {sessionId} — using DB");
             return (dbHistory, true);
         }
 
