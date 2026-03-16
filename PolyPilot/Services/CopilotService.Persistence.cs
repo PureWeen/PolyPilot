@@ -661,7 +661,8 @@ public partial class CopilotService
                                         }
 
                                         // Sync recovered history to DB under the new session ID
-                                        if (recreatedState.Info.SessionId != null)
+                                        // (skip if history came from DB — no need to overwrite)
+                                        if (recreatedState.Info.SessionId != null && !oldFromDb)
                                             SafeFireAndForget(_chatDb.BulkInsertAsync(recreatedState.Info.SessionId, oldHistory));
 
                                         recreatedState.Info.History.Add(ChatMessage.SystemMessage("🔄 Session recreated — conversation history recovered from previous session."));
