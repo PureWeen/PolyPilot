@@ -59,6 +59,19 @@ public partial class CopilotService : IAsyncDisposable
     // Serializes per-session lazy/eager SDK reconnects so background restore and
     // the first user send can't both resume the same placeholder concurrently.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionConnectLocks = new();
+    // Tracks consecutive watchdog timeouts across ALL sessions. When the persistent
+    // server's auth token expires, every session silently hangs (no error event) and
+    // the watchdog kills them one by one. This counter detects the pattern and triggers
+    // automatic server restart (re-authentication). Reset on successful CompleteResponse.
+    private int _consecutiveWatchdogTimeouts;
+    /// <summary>Number of consecutive watchdog timeouts (across all sessions) before
+    /// attempting automatic persistent server recovery.</summary>
+    internal const int WatchdogServerRecoveryThreshold = 2;
+    // Prevents concurrent TryRecoverPersistentServerAsync invocations from racing on _client.
+    private readonly SemaphoreSlim _recoveryLock = new(1, 1);
+    // Tracks when recovery last succeeded so concurrent callers that lose the lock can return true
+    // if recovery just completed (within 30s), rather than showing a false-permanent error.
+    private DateTime _lastRecoveryCompletedAt = DateTime.MinValue;
     
     private static readonly object _pathLock = new();
     private static string? _copilotBaseDir;
@@ -976,6 +989,87 @@ public partial class CopilotService : IAsyncDisposable
 
         // Re-initialize providers after reconnect
         await InitializeProvidersAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Attempt to recover from persistent server failures (auth token expiry, server hang, etc.).
+    /// Stops the old server, starts a fresh one (which re-authenticates with GitHub), and
+    /// recreates the client connection. Called from the watchdog when consecutive timeouts
+    /// across multiple sessions suggest the server itself is broken, not individual sessions.
+    /// </summary>
+    internal async Task<bool> TryRecoverPersistentServerAsync()
+    {
+        if (CurrentMode != ConnectionMode.Persistent)
+            return false;
+
+        // Guard against concurrent recovery attempts: the watchdog fires a new Task.Run for every
+        // timeout >= threshold. Without this lock, concurrent calls race on _client and the server.
+        if (!await _recoveryLock.WaitAsync(0))
+        {
+            // If recovery completed recently (within 30s), report success so callers (e.g. sessions
+            // resuming concurrently after a token expiry) don't show a false-permanent error.
+            if ((DateTime.UtcNow - _lastRecoveryCompletedAt).TotalSeconds < 30)
+            {
+                Debug("[SERVER-RECOVERY] Recovery recently completed — concurrent caller treated as success");
+                return true;
+            }
+            Debug("[SERVER-RECOVERY] Recovery already in progress — skipping duplicate invocation");
+            return false;
+        }
+
+        try
+        {
+            var settings = _currentSettings ?? ConnectionSettings.Load();
+            Debug("[SERVER-RECOVERY] Attempting persistent server recovery (auth/connectivity failure suspected)...");
+
+            // Stop the old server — it's running but broken (e.g., expired auth token cached in-process)
+            _serverManager.StopServer();
+
+            // Wait for the old server to fully release the port
+            for (int i = 0; i < 20; i++)
+            {
+                if (!_serverManager.CheckServerRunning("127.0.0.1", settings.Port))
+                    break;
+                await Task.Delay(250);
+            }
+
+            // Start a fresh server — this forces the CLI to re-authenticate with GitHub
+            var started = await _serverManager.StartServerAsync(settings.Port);
+            if (!started)
+            {
+                Debug("[SERVER-RECOVERY] Failed to restart persistent server");
+                FallbackNotice = "Persistent server recovery failed — all sessions may be affected. Go to Settings → Save & Reconnect.";
+                InvokeOnUI(() => OnStateChanged?.Invoke());
+                return false;
+            }
+
+            // Recreate the client connection to the new server
+            if (_client != null)
+            {
+                try { await _client.DisposeAsync(); } catch { }
+            }
+            _client = CreateClient(settings);
+            await _client.StartAsync(CancellationToken.None);
+            IsInitialized = true;
+
+            Debug("[SERVER-RECOVERY] Server recovery successful — new server started and client reconnected");
+            FallbackNotice = "Persistent server was automatically restarted due to repeated failures. Your sessions should work again.";
+            Interlocked.Exchange(ref _consecutiveWatchdogTimeouts, 0);
+            _lastRecoveryCompletedAt = DateTime.UtcNow;
+            InvokeOnUI(() => OnStateChanged?.Invoke());
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug($"[SERVER-RECOVERY] Recovery failed: {ex.Message}");
+            FallbackNotice = "Persistent server recovery failed — go to Settings → Save & Reconnect to fix.";
+            InvokeOnUI(() => OnStateChanged?.Invoke());
+            return false;
+        }
+        finally
+        {
+            _recoveryLock.Release();
+        }
     }
 
     private CopilotClient CreateClient(ConnectionSettings settings)
@@ -3843,6 +3937,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             try { await _client.DisposeAsync(); } catch { }
         }
+        _recoveryLock.Dispose();
     }
 }
 

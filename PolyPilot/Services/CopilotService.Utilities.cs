@@ -422,6 +422,11 @@ public partial class CopilotService
         // StartCliServerAsync hit Process.HasExited on a dead handle.
         if (IsProcessError(ex))
             return true;
+        // Auth failures on the persistent server: the server is TCP-alive but can't
+        // process requests because the GitHub token expired. Treat as connection error
+        // so the existing recovery paths (server restart + client recreate) kick in.
+        if (IsAuthError(ex))
+            return true;
         // Walk the full exception chain, including all AggregateException inner exceptions
         if (ex is AggregateException agg)
             return agg.InnerExceptions.Any(IsConnectionError);
@@ -440,6 +445,35 @@ public partial class CopilotService
         if (ex is AggregateException agg)
             return agg.InnerExceptions.Any(IsProcessError);
         return ex.InnerException != null && IsProcessError(ex.InnerException);
+    }
+
+    /// <summary>
+    /// Returns true if the exception indicates an authentication or authorization failure.
+    /// When the Copilot CLI's GitHub auth token expires or becomes invalid, the persistent
+    /// server stays running (TCP check passes) but all session operations fail silently —
+    /// no SessionErrorEvent is sent, the session just hangs until the watchdog kills it.
+    /// Detecting these errors allows the app to restart the server (re-authenticating).
+    /// </summary>
+    internal static bool IsAuthError(Exception ex)
+    {
+        var msg = ex.Message;
+        if (msg.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("not authenticated", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("authentication failed", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("authentication required", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("token expired", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("token is invalid", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("invalid token", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("auth token", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("403 forbidden", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("HTTP 401", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("not authorized", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("bad credentials", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("login required", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (ex is AggregateException agg)
+            return agg.InnerExceptions.Any(IsAuthError);
+        return ex.InnerException != null && IsAuthError(ex.InnerException);
     }
 
     /// <summary>
