@@ -1946,6 +1946,12 @@ public partial class CopilotService
 
                     // Before killing, check what state we're actually in:
                     //
+                    // Case D — Dead send (events.jsonl hasn't grown since SendAsync):
+                    //   The SDK accepted the message but isn't processing it. This happens when
+                    //   a session resumes with interrupted tool execution — the SDK is stuck
+                    //   waiting for tool results that will never arrive. An abort clears this.
+                    //   Only fires once per generation (WatchdogAbortAttempted).
+                    //
                     // Case A — Tool actively running (ActiveToolCallCount > 0):
                     //   The SDK only fires events at tool start/complete; a long build or test run
                     //   produces zero events while executing. Use server TCP liveness to decide:
@@ -1963,6 +1969,46 @@ public partial class CopilotService
                     //   Kill with error (genuine zombie session).
                     if (!exceededMaxTime)
                     {
+                        // Case D: Dead send detection — events.jsonl hasn't grown since send.
+                        // The SDK accepted SendAsync but is stuck (e.g., pending interrupted tools).
+                        // Try AbortAsync to clear the stuck state, then let the caller re-send.
+                        if (!state.WatchdogAbortAttempted && Interlocked.Read(ref state.EventsFileSizeAtSend) > 0
+                            && !IsDemoMode && !IsRemoteMode && elapsed >= 30)
+                        {
+                            try
+                            {
+                                var sid = state.Info.SessionId;
+                                if (!string.IsNullOrEmpty(sid))
+                                {
+                                    var eventsPath = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                                    if (File.Exists(eventsPath))
+                                    {
+                                        var currentSize = new FileInfo(eventsPath).Length;
+                                        var sizeAtSend = Interlocked.Read(ref state.EventsFileSizeAtSend);
+                                        if (currentSize <= sizeAtSend)
+                                        {
+                                            // events.jsonl hasn't grown — SDK is not processing.
+                                            state.WatchdogAbortAttempted = true;
+                                            Debug($"[WATCHDOG-DEAD-SEND] '{sessionName}' events.jsonl unchanged since send " +
+                                                  $"(size={currentSize}, sizeAtSend={sizeAtSend}, elapsed={elapsed:F0}s) — sending abort");
+                                            try
+                                            {
+                                                await state.Session.AbortAsync(ct);
+                                                Debug($"[WATCHDOG-DEAD-SEND] '{sessionName}' abort sent — resetting watchdog timer");
+                                                Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                                continue;
+                                            }
+                                            catch (Exception abortEx)
+                                            {
+                                                Debug($"[WATCHDOG-DEAD-SEND] '{sessionName}' abort failed: {abortEx.Message} — falling through to normal timeout");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            catch { /* filesystem error — fall through */ }
+                        }
+
                         if (hasActiveTool && !IsDemoMode && !IsRemoteMode)
                         {
                             // Case A: check server TCP port + events.jsonl freshness

@@ -484,6 +484,14 @@ public partial class CopilotService : IAsyncDisposable
         /// Reset in SendPromptAsync (new turn start).
         /// Uses ManualResetEventSlim for event-based signaling (no polling).</summary>
         public readonly ManualResetEventSlim PrematureIdleSignal = new ManualResetEventSlim(initialState: false);
+        /// <summary>File size (bytes) of events.jsonl at the time SendPromptAsync was called.
+        /// Used by the watchdog to detect "dead sends" — messages accepted by SendAsync that
+        /// produce zero new events in events.jsonl. If the file hasn't grown after 30s,
+        /// the SDK session is likely stuck (e.g., pending interrupted tools) and needs an abort.</summary>
+        public long EventsFileSizeAtSend;
+        /// <summary>True if the watchdog has already attempted an abort for the current
+        /// processing generation. Prevents repeated abort attempts.</summary>
+        public volatile bool WatchdogAbortAttempted;
         /// <summary>Set to true when this state is replaced by a reconnect. Prevents orphaned
         /// event handlers (still registered on the old CopilotSession) from processing events
         /// or clearing IsProcessing on the shared Info object.</summary>
@@ -508,7 +516,7 @@ public partial class CopilotService : IAsyncDisposable
             message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
             message.StartsWith("[DISPATCH") || message.StartsWith("[WATCHDOG") ||
             message.StartsWith("[HEALTH") || message.StartsWith("[ZERO-IDLE") ||
-            message.StartsWith("[PERMISSION") ||
+            message.StartsWith("[PERMISSION") || message.StartsWith("[RESUME-ABORT") ||
             message.Contains("watchdog"))
         {
             try
@@ -2526,6 +2534,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.CurrentResponse.Clear();
         state.FlushedResponse.Clear();
         state.PendingReasoningMessages.Clear();
+        // Snapshot events.jsonl size so the watchdog can detect "dead sends" —
+        // messages the SDK accepts but never writes any events for.
+        state.WatchdogAbortAttempted = false;
+        try
+        {
+            var sid = state.Info.SessionId;
+            if (!string.IsNullOrEmpty(sid))
+            {
+                var eventsPath = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                if (File.Exists(eventsPath))
+                    Interlocked.Exchange(ref state.EventsFileSizeAtSend, new FileInfo(eventsPath).Length);
+            }
+        }
+        catch { /* filesystem errors — watchdog will skip dead-send check */ }
         StartProcessingWatchdog(state, sessionName);
 
         if (!skipHistoryMessage)

@@ -44,10 +44,10 @@ if (Test-Path $ServerPidFile) {
     }
     
     if (-not (Test-ServerListening -Port $ServerPort)) {
-        Write-Host "[!] Stale server.pid detected (port $ServerPort not listening) — cleaning up"
+        Write-Host '[!] Stale server.pid detected (port' $ServerPort 'not listening) — cleaning up'
         Remove-Item $ServerPidFile -Force -ErrorAction SilentlyContinue
     } else {
-        Write-Host "[OK] Persistent server running on port $ServerPort"
+        Write-Host '[OK] Persistent server running on port' $ServerPort
     }
 }
 
@@ -57,7 +57,7 @@ $OldPids = @(Get-Process -Name 'PolyPilot' -ErrorAction SilentlyContinue | Selec
 # On Windows, the running exe locks the output file, preventing build.
 # Kill old instances BEFORE building to free the file lock.
 if ($OldPids.Count -gt 0) {
-    Write-Host "[*] Closing old instance(s) to unlock build output..."
+    Write-Host '[*] Closing old instance(s) to unlock build output...'
     foreach ($OldPid in $OldPids) {
         Write-Host "   Killing PID $OldPid"
         Stop-Process -Id $OldPid -Force -ErrorAction SilentlyContinue
@@ -66,14 +66,14 @@ if ($OldPids.Count -gt 0) {
     Start-Sleep -Seconds 2
 }
 
-Write-Host "[*] Building..."
+Write-Host '[*] Building...'
 Set-Location $ProjectDir
 
 $BuildOutput = dotnet build PolyPilot.csproj -f $Framework -c $Configuration 2>&1 | Out-String
 $BuildExitCode = $LASTEXITCODE
 
 if ($BuildExitCode -ne 0) {
-    Write-Host "[X] BUILD FAILED!"
+    Write-Host '[X] BUILD FAILED!'
     Write-Host ""
     Write-Host "Error details:"
     $BuildOutput -split "`n" | Where-Object { $_ -match 'error CS' } | Write-Host
@@ -90,19 +90,19 @@ if ($BuildExitCode -ne 0) {
 $BuildOutput -split "`n" | Select-Object -Last 3 | Write-Host
 
 # Detect the runtime identifier by finding the subdirectory containing the exe
-$FrameworkDir = Join-Path $ProjectDir 'bin' $Configuration $Framework
+$FrameworkDir = Join-Path (Join-Path (Join-Path $ProjectDir 'bin') $Configuration) $Framework
 $RidDir = Get-ChildItem -Path $FrameworkDir -Directory |
     Where-Object { Test-Path (Join-Path $_.FullName $ExeName) } |
     Select-Object -First 1 -ExpandProperty Name
 if (-not $RidDir) {
-    Write-Host "[X] Could not detect runtime identifier in build output"
+    Write-Host '[X] Could not detect runtime identifier in build output'
     exit 1
 }
 $BuildDir = Join-Path $FrameworkDir $RidDir
-Write-Host "[OK] Build output: $BuildDir"
+Write-Host '[OK] Build output:' $BuildDir
 
 for ($Attempt = 1; $Attempt -le $MaxLaunchAttempts; $Attempt++) {
-    Write-Host "[>] Launching new instance (attempt $Attempt/$MaxLaunchAttempts)..."
+    Write-Host '[>] Launching new instance (attempt' "$Attempt/$MaxLaunchAttempts)..."
     $logDir = Join-Path $env:USERPROFILE '.polypilot'
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 
@@ -110,17 +110,17 @@ for ($Attempt = 1; $Attempt -le $MaxLaunchAttempts; $Attempt++) {
     $NewPid = $NewProcess.Id
 
     if (-not $NewPid) {
-        Write-Host "[!]  Failed to start new instance."
+        Write-Host '[!] Failed to start new instance.'
         if ($Attempt -lt $MaxLaunchAttempts) {
-            Write-Host "[~] Retrying launch..."
+            Write-Host '[~] Retrying launch...'
             continue
         }
         Write-Host "Launch failed. Old instance was stopped."
         exit 1
     }
 
-    Write-Host "[OK] New instance running (PID $NewPid)"
-    Write-Host "[?] Verifying stability for ${StabilitySeconds}s..."
+    Write-Host '[OK] New instance running (PID' "$NewPid)"
+    Write-Host '[?] Verifying stability for' $StabilitySeconds 's...'
     $Stable = $true
     for ($i = 1; $i -le $StabilitySeconds; $i++) {
         Start-Sleep -Seconds 1
@@ -132,16 +132,16 @@ for ($Attempt = 1; $Attempt -le $MaxLaunchAttempts; $Attempt++) {
     }
 
     if ($Stable) {
-        Write-Host "[OK] Handoff complete!"
+        Write-Host '[OK] Handoff complete!'
         exit 0
     }
 
-    Write-Host "[X] New instance crashed quickly (PID $NewPid)."
+    Write-Host '[X] New instance crashed quickly (PID' "$NewPid)."
     if ($Attempt -lt $MaxLaunchAttempts) {
-        Write-Host "[~] Retrying launch..."
+        Write-Host '[~] Retrying launch...'
         continue
     }
 
-    Write-Host "[!]  New instance is unstable. Old instance was stopped."
+    Write-Host '[!] New instance is unstable. Old instance was stopped.'
     exit 1
 }
