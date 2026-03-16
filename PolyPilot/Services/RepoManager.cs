@@ -38,7 +38,17 @@ public class RepoManager
     private bool _loaded;
     private bool _loadedSuccessfully;
     private readonly object _stateLock = new();
-    public IReadOnlyList<RepositoryInfo> Repositories { get { EnsureLoaded(); lock (_stateLock) return _state.Repositories.OrderByDescending(r => r.LastUsedAt ?? r.AddedAt).ToList().AsReadOnly(); } }
+    public IReadOnlyList<RepositoryInfo> Repositories
+    {
+        get
+        {
+            EnsureLoaded();
+            List<RepositoryInfo> snapshot;
+            lock (_stateLock)
+                snapshot = _state.Repositories.ToList();
+            return snapshot.OrderByDescending(r => r.LastUsedAt ?? r.AddedAt).ToList().AsReadOnly();
+        }
+    }
     public IReadOnlyList<WorktreeInfo> Worktrees { get { EnsureLoaded(); lock (_stateLock) return _state.Worktrees.ToList().AsReadOnly(); } }
 
     // Disk size cache: repoId → (totalBytes, computedAt)
@@ -308,6 +318,10 @@ public class RepoManager
             if (repo != null)
             {
                 repo.LastUsedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                return;
             }
         }
         Save();
