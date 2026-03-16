@@ -191,6 +191,14 @@ public class AgentSessionInfo
         }
     }
 
+    /// <summary>
+    /// True when this session is a worker in an Orchestrator or OrchestratorReflect group.
+    /// Workers are driven by the orchestrator automatically — they should not show the
+    /// "Awaiting your response" attention banner, as a human doesn't respond to them directly.
+    /// Set by CopilotService when session roles are assigned.
+    /// </summary>
+    public bool IsOrchestratorWorker { get; set; }
+
     internal static readonly string[] QuestionPhrases =
     [
         "let me know", "which would you prefer", "would you like", "should i", "do you want",
@@ -208,6 +216,9 @@ public class AgentSessionInfo
         get
         {
             if (IsProcessing) return false;
+            // Workers in orchestrator groups are driven by the orchestrator, not the user.
+            // They should never show "Awaiting your response".
+            if (IsOrchestratorWorker) return false;
             try
             {
                 ChatMessage[] snapshot;

@@ -651,7 +651,7 @@ public partial class CopilotService
     {
         // Compute a lightweight cache key from session count + group count + sort mode
         var key = HashCode.Combine(_sessions.Count, Organization.Groups.Count, Organization.SortMode);
-        foreach (var s in _sessions) key = HashCode.Combine(key, s.Key.GetHashCode(), s.Value.Info.IsProcessing ? 1 : 0, s.Value.Info.NeedsAttention ? 1 : 0);
+        foreach (var s in _sessions) key = HashCode.Combine(key, s.Key.GetHashCode(), s.Value.Info.IsProcessing ? 1 : 0, s.Value.Info.NeedsAttention ? 1 : 0, s.Value.Info.IsOrchestratorWorker ? 1 : 0);
 
         if (_organizedSessionsCache != null && key == _organizedSessionsCacheKey)
             return _organizedSessionsCache;
@@ -665,6 +665,21 @@ public partial class CopilotService
             var groupSessions = allSessions
                 .Where(s => metas.TryGetValue(s.Name, out var m) && m.GroupId == group.Id)
                 .ToList();
+
+            // Sync IsOrchestratorWorker on each session so NeedsAttention suppression is always accurate.
+            // Workers in Orchestrator/OrchestratorReflect groups are driven by the orchestrator —
+            // the human doesn't respond to them directly, so they should never show attention banners.
+            bool isOrchestratorGroup = group.IsMultiAgent &&
+                (group.OrchestratorMode == MultiAgentMode.Orchestrator ||
+                 group.OrchestratorMode == MultiAgentMode.OrchestratorReflect);
+            foreach (var s in groupSessions)
+            {
+                bool shouldBeWorker = isOrchestratorGroup &&
+                    metas.TryGetValue(s.Name, out var sm) &&
+                    sm.Role == MultiAgentRole.Worker;
+                if (s.IsOrchestratorWorker != shouldBeWorker)
+                    s.IsOrchestratorWorker = shouldBeWorker;
+            }
 
             var sorted = groupSessions
                 .OrderByDescending(s => metas.TryGetValue(s.Name, out var m) && m.IsPinned)
