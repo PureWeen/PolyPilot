@@ -309,4 +309,39 @@ public class ServerRecoveryTests
             semaphore.Release();
         }
     }
+
+    [Fact]
+    public async Task TryRecoverPersistentServer_InFlightConcurrentCaller_ReturnsFalseImmediately()
+    {
+        // Documents that a concurrent caller arriving WHILE recovery is in-progress (timestamp still
+        // MinValue) returns false from TryRecoverPersistentServerAsync. The EnsureSessionConnectedAsync
+        // caller handles this by waiting on _recoveryLock with a timeout before retrying.
+        var svc = CreateService();
+        _serverManager.IsServerRunning = false;
+        _serverManager.StartServerResult = true;
+        await svc.ReconnectAsync(new ConnectionSettings
+        {
+            Mode = ConnectionMode.Persistent,
+            Host = "localhost",
+            Port = 19999
+        });
+
+        var lockField = typeof(CopilotService).GetField("_recoveryLock",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var semaphore = (SemaphoreSlim)lockField.GetValue(svc)!;
+
+        // Simulate: recovery is in-flight (lock held, timestamp not set yet)
+        await semaphore.WaitAsync();
+
+        try
+        {
+            // Concurrent caller sees lock held and timestamp = MinValue → returns false immediately
+            var result = await svc.TryRecoverPersistentServerAsync();
+            Assert.False(result);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }
 }

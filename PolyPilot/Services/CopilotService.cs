@@ -3915,6 +3915,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             try { await _client.DisposeAsync(); } catch { }
         }
+        _recoveryLock.Dispose();
     }
 }
 
