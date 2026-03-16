@@ -451,6 +451,35 @@ public class SessionPersistenceTests
         Assert.Equal("deploy to production", result[0].LastPrompt);
     }
 
+    [Fact]
+    public void RestorePreviousSessionsAsync_QueuesEagerResumeForInterruptedSessions()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var placeholderIdx = source.IndexOf("Loaded session placeholder", StringComparison.Ordinal);
+        Assert.True(placeholderIdx > 0, "Placeholder restore block not found");
+
+        var placeholderBlock = source.Substring(Math.Max(0, placeholderIdx - 1200), Math.Min(1600, source.Length - Math.Max(0, placeholderIdx - 1200)));
+        Assert.Contains("!string.IsNullOrWhiteSpace(entry.LastPrompt)", placeholderBlock);
+        Assert.Contains("eagerResumeCandidates.Add((entry.DisplayName, lazyState))", placeholderBlock);
+    }
+
+    [Fact]
+    public void RestorePreviousSessionsAsync_RunsInterruptedSessionResumesAfterPlaceholderLoad()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var loadIdx = source.IndexOf("Loaded session placeholder", StringComparison.Ordinal);
+        var eagerResumeIdx = source.IndexOf("await EnsureSessionConnectedAsync(pendingResume.SessionName, pendingResume.State, cancellationToken)", StringComparison.Ordinal);
+
+        Assert.True(loadIdx > 0, "Placeholder restore block not found");
+        Assert.True(eagerResumeIdx > 0, "Eager resume loop not found");
+        Assert.True(eagerResumeIdx > loadIdx, "Interrupted-session eager resume must run after placeholders are loaded");
+        Assert.Contains("Task.Run(async () =>", source);
+    }
+
     // --- DeleteGroup persistence tests ---
 
     [Fact]

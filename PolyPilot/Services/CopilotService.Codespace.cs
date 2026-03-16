@@ -789,6 +789,7 @@ public partial class CopilotService : IAsyncDisposable
 
                 CancelProcessingWatchdog(state);
                 CancelToolHealthCheck(state);
+                var oldState = state;
                 var newState = new SessionState
                 {
                     Session = newSession,
@@ -796,6 +797,7 @@ public partial class CopilotService : IAsyncDisposable
                 };
                 newSession.On(evt => HandleSessionEvent(newState, evt));
                 _sessions[meta.SessionName] = newState;
+                DisposePrematureIdleSignal(oldState);
 
                 // Remove the placeholder system message and add connected notification (on UI thread)
                 var infoRef = state.Info;

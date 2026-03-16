@@ -2340,6 +2340,7 @@ public partial class CopilotService
             state.ResponseCompletion?.TrySetCanceled();
 
             // Create new state preserving Info
+            var oldState = state;
             var newState = new SessionState
             {
                 Session = newSession,
@@ -2361,6 +2362,7 @@ public partial class CopilotService
             // Replace in sessions dictionary BEFORE registering event handler
             // so HandleSessionEvent's isCurrentState check passes for the new state.
             _sessions[sessionName] = newState;
+            DisposePrematureIdleSignal(oldState);
             newSession.On(evt => HandleSessionEvent(newState, evt));
 
             // Bug A fix: Clear IsProcessing + all 9 companion fields so SendPromptAsync

@@ -311,57 +311,66 @@ public partial class CopilotService
     /// </summary>
     private async Task EnsureSessionConnectedAsync(string sessionName, SessionState state, CancellationToken cancellationToken)
     {
-        if (state.Session != null) return; // already connected
-
-        var sessionId = state.Info.SessionId;
-        if (string.IsNullOrEmpty(sessionId) || !Guid.TryParse(sessionId, out _))
-            throw new InvalidOperationException($"Session '{sessionName}' has no valid session ID for resume.");
-
-        if (!IsInitialized || _client == null)
-            throw new InvalidOperationException("Copilot is not connected yet. Go to Settings to configure.");
-
-        Debug($"Lazy-resuming session '{sessionName}' (id={sessionId})...");
-
-        // Use snapshot for thread safety — may be called from ThreadPool via SendPromptAsync
-        var groupId = SnapshotSessionMetas().FirstOrDefault(m => m.SessionName == sessionName)?.GroupId;
-        var resumeModel = state.Info.Model ?? DefaultModel;
-        var resumeWorkDir = state.Info.WorkingDirectory;
-
-        var resumeConfig = new ResumeSessionConfig
-        {
-            Model = resumeModel,
-            WorkingDirectory = resumeWorkDir,
-            Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
-            OnPermissionRequest = AutoApprovePermissions
-        };
-
-        CopilotSession copilotSession;
+        var connectLock = _sessionConnectLocks.GetOrAdd(sessionName, _ => new SemaphoreSlim(1, 1));
+        await connectLock.WaitAsync(cancellationToken);
         try
         {
-            copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
-        }
-        catch (Exception ex) when (
-            ex.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase) ||
-            ex.Message.Contains("corrupt", StringComparison.OrdinalIgnoreCase) ||
-            ex.Message.Contains("session file", StringComparison.OrdinalIgnoreCase) ||
-            IsProcessError(ex))
-        {
-            Debug($"Lazy-resume failed for '{sessionName}': {ex.Message} — creating fresh session");
-            copilotSession = await GetClientForGroup(groupId).CreateSessionAsync(new SessionConfig
+            if (state.Session != null) return; // already connected
+
+            var sessionId = state.Info.SessionId;
+            if (string.IsNullOrEmpty(sessionId) || !Guid.TryParse(sessionId, out _))
+                throw new InvalidOperationException($"Session '{sessionName}' has no valid session ID for resume.");
+
+            if (!IsInitialized || _client == null)
+                throw new InvalidOperationException("Copilot is not connected yet. Go to Settings to configure.");
+
+            Debug($"Lazy-resuming session '{sessionName}' (id={sessionId})...");
+
+            // Use snapshot for thread safety — may be called from ThreadPool via SendPromptAsync
+            var groupId = SnapshotSessionMetas().FirstOrDefault(m => m.SessionName == sessionName)?.GroupId;
+            var resumeModel = state.Info.Model ?? DefaultModel;
+            var resumeWorkDir = state.Info.WorkingDirectory;
+
+            var resumeConfig = new ResumeSessionConfig
             {
                 Model = resumeModel,
                 WorkingDirectory = resumeWorkDir,
                 Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
                 OnPermissionRequest = AutoApprovePermissions
-            }, cancellationToken);
-            state.Info.SessionId = copilotSession.SessionId;
-            FlushSaveActiveSessionsToDisk();
-        }
+            };
 
-        state.Session = copilotSession;
-        state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName);
-        copilotSession.On(evt => HandleSessionEvent(state, evt));
-        Debug($"Lazy-resume complete: '{sessionName}'");
+            CopilotSession copilotSession;
+            try
+            {
+                copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+            }
+            catch (Exception ex) when (
+                ex.Message.Contains("Session not found", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("corrupt", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("session file", StringComparison.OrdinalIgnoreCase) ||
+                IsProcessError(ex))
+            {
+                Debug($"Lazy-resume failed for '{sessionName}': {ex.Message} — creating fresh session");
+                copilotSession = await GetClientForGroup(groupId).CreateSessionAsync(new SessionConfig
+                {
+                    Model = resumeModel,
+                    WorkingDirectory = resumeWorkDir,
+                    Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
+                    OnPermissionRequest = AutoApprovePermissions
+                }, cancellationToken);
+                state.Info.SessionId = copilotSession.SessionId;
+                FlushSaveActiveSessionsToDisk();
+            }
+
+            state.Session = copilotSession;
+            state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName);
+            copilotSession.On(evt => HandleSessionEvent(state, evt));
+            Debug($"Lazy-resume complete: '{sessionName}'");
+        }
+        finally
+        {
+            connectLock.Release();
+        }
     }
 
     /// <summary>
@@ -438,6 +447,8 @@ public partial class CopilotService
                         if (g.ReflectionState?.IsActive == true && !string.IsNullOrEmpty(g.ReflectionState.EvaluatorSessionName))
                             activeEvaluators.Add(g.ReflectionState.EvaluatorSessionName);
                     }
+
+                    var eagerResumeCandidates = new List<(string SessionName, SessionState State)>();
 
                     foreach (var entry in entries)
                     {
@@ -530,6 +541,11 @@ public partial class CopilotService
                             _sessions[entry.DisplayName] = lazyState;
                             _activeSessionName ??= entry.DisplayName;
                             RestoreUsageStats(entry);
+                            if (!string.IsNullOrWhiteSpace(entry.LastPrompt))
+                            {
+                                eagerResumeCandidates.Add((entry.DisplayName, lazyState));
+                                Debug($"Queued eager resume for interrupted session: {entry.DisplayName}");
+                            }
                             Debug($"Loaded session placeholder: {entry.DisplayName} ({lazyHistory.Count} messages)");
                         }
                         catch (Exception ex)
@@ -625,6 +641,29 @@ public partial class CopilotService
                                 }
                             }
                         }
+                    }
+
+                    if (eagerResumeCandidates.Count > 0)
+                    {
+                        var pendingResumes = eagerResumeCandidates.ToArray();
+                        _ = Task.Run(async () =>
+                        {
+                            foreach (var pendingResume in pendingResumes)
+                            {
+                                try
+                                {
+                                    await EnsureSessionConnectedAsync(pendingResume.SessionName, pendingResume.State, cancellationToken).ConfigureAwait(false);
+                                }
+                                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                                {
+                                    break;
+                                }
+                                catch (Exception resumeEx)
+                                {
+                                    Debug($"Eager resume failed for '{pendingResume.SessionName}': {resumeEx.Message}");
+                                }
+                            }
+                        }, cancellationToken);
                     }
                     
                     IsRestoring = false;

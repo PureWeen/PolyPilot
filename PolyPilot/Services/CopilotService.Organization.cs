@@ -1552,12 +1552,14 @@ public partial class CopilotService
                                 Debug($"[DISPATCH] Worker '{workerName}' revival state already replaced — discarding");
                                 freshState.IsOrphaned = true;
                                 try { await freshSession.DisposeAsync(); } catch { }
+                                DisposePrematureIdleSignal(deadState);
                             }
                             else
                             {
                                 // Commit SessionId only after TryUpdate succeeds — avoids
                                 // mutating shared Info on a path that might discard the state.
                                 deadState.Info.SessionId = freshSession.SessionId;
+                                DisposePrematureIdleSignal(deadState);
                                 Debug($"[DISPATCH] Worker '{workerName}' revived with fresh session '{freshSession.SessionId}'");
                                 response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
                             }
@@ -1702,8 +1704,20 @@ public partial class CopilotService
         // 2. events.jsonl freshness — CLI is still writing events despite our TCS completing
         //    This catches cases where EVT-REARM takes 30-60s to fire
         
+        bool IsPrematureIdleSignalSet()
+        {
+            try { return state.PrematureIdleSignal.IsSet; }
+            catch (ObjectDisposedException) { return false; }
+        }
+
+        bool WaitForPrematureIdleSignal()
+        {
+            try { return state.PrematureIdleSignal.Wait(500, cancellationToken); }
+            catch (ObjectDisposedException) { return false; }
+        }
+
         // Fast path: check if PrematureIdleSignal was already set
-        var detected = state.PrematureIdleSignal.IsSet;
+        var detected = IsPrematureIdleSignalSet();
         
         if (!detected)
         {
@@ -1719,9 +1733,8 @@ public partial class CopilotService
             while ((DateTime.UtcNow - detectStart).TotalMilliseconds < PrematureIdleDetectionWindowMs)
             {
                 // Wait up to 500ms on the signal (exits immediately if Set())
-                var signaled = await Task.Run(
-                    () => state.PrematureIdleSignal.Wait(500, cancellationToken),
-                    cancellationToken).ConfigureAwait(false);
+                var signaled = await Task.Run(WaitForPrematureIdleSignal, cancellationToken)
+                    .ConfigureAwait(false);
                 
                 if (signaled || cancellationToken.IsCancellationRequested)
                 {
@@ -1741,7 +1754,7 @@ public partial class CopilotService
         if (!detected)
             return initialResponse; // Normal completion — no premature idle indicators
 
-        var signal = state.PrematureIdleSignal.IsSet ? "PrematureIdleSignal" : "events.jsonl freshness";
+        var signal = IsPrematureIdleSignalSet() ? "PrematureIdleSignal" : "events.jsonl freshness";
         Debug($"[DISPATCH-RECOVER] Worker '{workerName}' premature idle detected via {signal} — " +
               $"truncated response={initialResponse?.Length ?? 0} chars, " +
               $"IsProcessing={state.Info.IsProcessing}. Waiting for real completion...");

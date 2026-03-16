@@ -459,8 +459,11 @@ public partial class CopilotService
         var remoteNames = remoteSessions.Select(s => s.Name).ToHashSet();
         foreach (var name in _sessions.Keys.ToList())
         {
-            if (!remoteNames.Contains(name) && !_pendingRemoteSessions.ContainsKey(name))
-                _sessions.TryRemove(name, out _);
+            if (!remoteNames.Contains(name) && !_pendingRemoteSessions.ContainsKey(name) &&
+                _sessions.TryRemove(name, out var removedState))
+            {
+                DisposePrematureIdleSignal(removedState);
+            }
         }
 
         // Clear pending flag for sessions confirmed by server

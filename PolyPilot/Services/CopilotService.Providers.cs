@@ -356,7 +356,8 @@ public partial class CopilotService
             .Where(k => k != leaderName && k.StartsWith(prefix) && k.EndsWith(suffix) && !expectedNames.Contains(k))
             .ToList())
         {
-            _sessions.TryRemove(existing, out _);
+            if (_sessions.TryRemove(existing, out var removedState))
+                DisposePrematureIdleSignal(removedState);
             _sessionToProviderId.TryRemove(existing, out _);
             var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == existing);
             if (meta != null) RemoveSessionMeta(meta);
