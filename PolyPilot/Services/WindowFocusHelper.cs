@@ -87,8 +87,8 @@ internal static class WindowFocusHelper
     /// <summary>
     /// Attempts to focus the Windows Terminal tab containing the target process.
     /// Enumerates WT's direct shell children (filtering out OpenConsole.exe helper
-    /// processes), sorts by start time to approximate tab order, then invokes
-    /// <c>wt -w 0 focus-tab -t &lt;index&gt;</c> to switch tabs.
+    /// processes), sorts by start time to approximate tab order, then sends
+    /// Ctrl+Alt+&lt;N&gt; to the focused window to switch tabs.
     /// </summary>
     private static void TryFocusWindowsTerminalTab(int terminalPid, List<int> ancestryChain)
     {
@@ -134,16 +134,14 @@ internal static class WindowFocusHelper
             sorted.Sort((a, b) => a.StartTime.CompareTo(b.StartTime));
 
             var tabIndex = sorted.FindIndex(c => c.Pid == tabRootPid);
-            if (tabIndex < 0) return;
+            if (tabIndex < 0 || tabIndex > 8) return; // WT supports Ctrl+Alt+1..9
 
-            using var wt = Process.Start(new ProcessStartInfo
-            {
-                FileName = "wt.exe",
-                Arguments = $"-w 0 focus-tab -t {tabIndex}",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
-            wt?.WaitForExit(3000);
+            // Send Ctrl+Alt+<N> to the focused WT window to switch tabs.
+            // Tab numbers are 1-based in WT shortcuts (Ctrl+Alt+1 = first tab).
+            // This is more reliable than `wt -w 0 focus-tab` which may target
+            // a different WT window than the one we just brought to foreground.
+            Thread.Sleep(100); // Brief pause for SetForegroundWindow to settle
+            SendCtrlAltNumber(tabIndex + 1);
         }
         catch
         {
@@ -209,6 +207,39 @@ internal static class WindowFocusHelper
     private const uint TH32CS_SNAPPROCESS = 0x00000002;
     private static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
 
+    // SendInput constants
+    private const uint INPUT_KEYBOARD = 1;
+    private const ushort VK_CONTROL = 0x11;
+    private const ushort VK_MENU = 0x12; // Alt key
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+
+    // Virtual key codes for number keys 1-9
+    private static readonly ushort[] VK_NUMBERS = { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 };
+
+    /// <summary>
+    /// Sends Ctrl+Alt+&lt;N&gt; keystrokes to the foreground window.
+    /// Windows Terminal uses this shortcut to switch to tab N (1-based).
+    /// </summary>
+    private static void SendCtrlAltNumber(int number)
+    {
+        if (number < 1 || number > 9) return;
+        var vkNumber = VK_NUMBERS[number - 1];
+
+        var inputs = new INPUT[]
+        {
+            // Key down: Ctrl, Alt, Number
+            new() { type = INPUT_KEYBOARD, ki = new KEYBDINPUT { wVk = VK_CONTROL } },
+            new() { type = INPUT_KEYBOARD, ki = new KEYBDINPUT { wVk = VK_MENU } },
+            new() { type = INPUT_KEYBOARD, ki = new KEYBDINPUT { wVk = vkNumber } },
+            // Key up: Number, Alt, Ctrl (reverse order)
+            new() { type = INPUT_KEYBOARD, ki = new KEYBDINPUT { wVk = vkNumber, dwFlags = KEYEVENTF_KEYUP } },
+            new() { type = INPUT_KEYBOARD, ki = new KEYBDINPUT { wVk = VK_MENU, dwFlags = KEYEVENTF_KEYUP } },
+            new() { type = INPUT_KEYBOARD, ki = new KEYBDINPUT { wVk = VK_CONTROL, dwFlags = KEYEVENTF_KEYUP } },
+        };
+
+        SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+    }
+
     // ── Win32 P/Invoke (resolved lazily — safe to declare on all platforms) ────
 
     [DllImport("user32.dll")]
@@ -216,6 +247,9 @@ internal static class WindowFocusHelper
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
@@ -228,6 +262,26 @@ internal static class WindowFocusHelper
 
     [DllImport("kernel32.dll")]
     private static extern bool CloseHandle(IntPtr hObject);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT
+    {
+        public uint type;
+        public KEYBDINPUT ki;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+        // Padding to match MOUSEINPUT union size
+        private readonly int _padding1;
+        private readonly int _padding2;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
     private struct PROCESSENTRY32
