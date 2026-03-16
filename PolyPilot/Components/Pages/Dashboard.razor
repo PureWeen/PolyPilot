@@ -1900,15 +1900,15 @@
                 session.Name + " (reloaded)",
                 model: session.Model,
                 workingDirectory: session.WorkingDirectory);
-            session.MessageCount = session.History.Count;
-            _needsScrollToBottom = true;
-            await InvokeAsync(SafeRefreshAsync);
+
+            // Add the success message to the NEW session so the user sees it after switching
+            newSession.History.Add(ChatMessage.SystemMessage(
+                $"✅ Session created with fresh MCP server configuration.\n\n" +
+                "MCP servers have been reloaded from disk. You can re-send your previous prompt here."));
 
             // Switch to the new session
             _activeSession = newSession.Name;
-            session.History.Add(ChatMessage.SystemMessage(
-                $"✅ New session **{newSession.Name}** created with fresh MCP server configuration.\n\n" +
-                "MCP servers have been reloaded from disk. You can re-send your previous prompt in the new session."));
+            _needsScrollToBottom = true;
             await InvokeAsync(SafeRefreshAsync);
         }
         catch (Exception ex)

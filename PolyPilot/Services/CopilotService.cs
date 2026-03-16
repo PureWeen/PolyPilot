@@ -1638,6 +1638,21 @@ public partial class CopilotService : IAsyncDisposable
     }
 
     /// <summary>
+    /// Appends MCP server guidance to the session system message so the model knows which
+    /// servers are configured and can suggest /mcp reload instead of looping on failures.
+    /// </summary>
+    private static void AppendMcpServerGuidance(StringBuilder systemContent, Dictionary<string, object>? mcpServers)
+    {
+        if (mcpServers == null || mcpServers.Count == 0) return;
+        systemContent.AppendLine($@"
+MCP SERVERS: This session has {mcpServers.Count} MCP server(s) configured: {string.Join(", ", mcpServers.Keys)}.
+If an MCP tool call fails (connection refused, server not responding, etc.), do NOT ask the user to debug MCP configuration.
+Instead, suggest the user type /mcp reload to create a new session with fresh MCP connections.
+The user can also check configured servers with the /mcp command.
+");
+    }
+
+    /// <summary>
     /// Discover all available skills from installed plugins and project-level skill directories.
     /// Returns a list of (Name, Description, Source) tuples.
     /// </summary>
@@ -2146,15 +2161,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
 
         // Add MCP server awareness so the model can guide users when MCP tools fail
-        if (mcpServers != null && mcpServers.Count > 0)
-        {
-            systemContent.AppendLine($@"
-MCP SERVERS: This session has {mcpServers.Count} MCP server(s) configured: {string.Join(", ", mcpServers.Keys)}.
-If an MCP tool call fails (connection refused, server not responding, etc.), do NOT ask the user to debug MCP configuration.
-Instead, suggest the user type /mcp reload to create a new session with fresh MCP connections.
-The user can also check configured servers with the /mcp command.
-");
-        }
+        AppendMcpServerGuidance(systemContent, mcpServers);
 
         var config = new SessionConfig
         {
@@ -3403,15 +3410,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 ");
         }
         // Add MCP server awareness so the model can guide users when MCP tools fail
-        if (mcpServers != null && mcpServers.Count > 0)
-        {
-            systemContent.AppendLine($@"
-MCP SERVERS: This session has {mcpServers.Count} MCP server(s) configured: {string.Join(", ", mcpServers.Keys)}.
-If an MCP tool call fails (connection refused, server not responding, etc.), do NOT ask the user to debug MCP configuration.
-Instead, suggest the user type /mcp reload to create a new session with fresh MCP connections.
-The user can also check configured servers with the /mcp command.
-");
-        }
+        AppendMcpServerGuidance(systemContent, mcpServers);
         var finalTools = tools ?? new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
         var config = new SessionConfig
         {
