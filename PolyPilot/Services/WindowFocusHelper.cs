@@ -86,7 +86,8 @@ internal static class WindowFocusHelper
 
     /// <summary>
     /// Attempts to focus the Windows Terminal tab containing the target process.
-    /// Uses process creation times to approximate tab order, then invokes
+    /// Enumerates WT's direct shell children (filtering out OpenConsole.exe helper
+    /// processes), sorts by start time to approximate tab order, then invokes
     /// <c>wt -w 0 focus-tab -t &lt;index&gt;</c> to switch tabs.
     /// </summary>
     private static void TryFocusWindowsTerminalTab(int terminalPid, List<int> ancestryChain)
@@ -94,15 +95,18 @@ internal static class WindowFocusHelper
         try
         {
             // The ancestry chain runs from target PID up to terminal PID.
-            // The entry just before the terminal is the direct child of WT in our chain.
+            // The entry just before the terminal is the direct child of WT in our chain
+            // (typically a shell process like pwsh.exe, cmd.exe, or bash.exe).
             var terminalIndex = ancestryChain.IndexOf(terminalPid);
             if (terminalIndex <= 0) return;
 
             var tabRootPid = ancestryChain[terminalIndex - 1];
 
-            // Enumerate all direct children of the Windows Terminal process
+            // Enumerate all direct children of the Windows Terminal process.
+            // WT spawns two processes per tab: OpenConsole.exe (PTY host) and
+            // the shell (pwsh, cmd, bash). Only shells map 1:1 with tabs.
             var children = GetChildProcessIds(terminalPid);
-            if (children.Count <= 1) return; // Single tab — no switching needed
+            if (children.Count <= 1) return;
 
             // Sort by process start time to approximate visual tab order.
             // NOTE: This heuristic assumes tabs are in creation order. If the user has
@@ -113,8 +117,12 @@ internal static class WindowFocusHelper
                 try
                 {
                     using var proc = Process.GetProcessById(childPid);
-                    if (!proc.HasExited)
-                        sorted.Add((childPid, proc.StartTime));
+                    if (proc.HasExited) continue;
+                    // Filter out OpenConsole.exe — it's a PTY host, not a tab shell.
+                    var name = proc.ProcessName?.ToLowerInvariant() ?? "";
+                    if (name.Contains("openconsole") || name.Contains("conhost"))
+                        continue;
+                    sorted.Add((childPid, proc.StartTime));
                 }
                 catch
                 {
