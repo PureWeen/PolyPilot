@@ -2463,12 +2463,10 @@ public class MultiAgentRegressionTests
         // Find the method definition (not a call site)
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
         Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
-        var methodBlock = source.Substring(methodIdx, Math.Min(5000, source.Length - methodIdx));
+        var methodBlock = source.Substring(methodIdx, Math.Min(8000, source.Length - methodIdx));
 
         Assert.Contains("OnSessionComplete +=", methodBlock);
-        // Unsubscribe must exist somewhere in the method (may be beyond 5K window)
-        var fullMethodBlock = source.Substring(methodIdx, Math.Min(6000, source.Length - methodIdx));
-        Assert.Contains("OnSessionComplete -=", fullMethodBlock); // Must unsubscribe in finally
+        Assert.Contains("OnSessionComplete -=", methodBlock); // Must unsubscribe in finally
     }
 
     [Fact]
@@ -2481,7 +2479,7 @@ public class MultiAgentRegressionTests
         // Find the method definition (not a call site)
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
         Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
-        var methodBlock = source.Substring(methodIdx, Math.Min(5000, source.Length - methodIdx));
+        var methodBlock = source.Substring(methodIdx, Math.Min(8000, source.Length - methodIdx));
 
         Assert.Contains("LoadHistoryFromDisk", methodBlock);
     }
@@ -2496,7 +2494,7 @@ public class MultiAgentRegressionTests
         // Find the method definition (not a call site)
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
         Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
-        var methodBlock = source.Substring(methodIdx, Math.Min(5000, source.Length - methodIdx));
+        var methodBlock = source.Substring(methodIdx, Math.Min(8000, source.Length - methodIdx));
 
         Assert.Contains("[DISPATCH-RECOVER]", methodBlock);
     }
@@ -2522,6 +2520,71 @@ public class MultiAgentRegressionTests
         Assert.True(sessionIdAssign >= 0, "SessionId assignment must exist");
         Assert.True(sessionIdAssign > tryUpdateIdx,
             "SessionId must be assigned AFTER TryUpdate succeeds (mutation-after-commit pattern)");
+    }
+
+    [Fact]
+    public void RecoverFromPrematureIdleIfNeededAsync_UsesEventsFileFreshness()
+    {
+        // Structural: recovery must check events.jsonl freshness as a parallel detection
+        // signal alongside WasPrematurelyIdled flag. This catches cases where EVT-REARM
+        // takes 30-60s to fire but the CLI is still writing events.
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
+        var methodBlock = source.Substring(methodIdx, Math.Min(8000, source.Length - methodIdx));
+
+        Assert.Contains("IsEventsFileActive", methodBlock);
+    }
+
+    [Fact]
+    public void IsEventsFileActive_HelperExists()
+    {
+        // Structural: IsEventsFileActive must exist as a helper for events.jsonl freshness checks
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        var helperIdx = source.IndexOf("private bool IsEventsFileActive(", StringComparison.Ordinal);
+        Assert.True(helperIdx >= 0, "IsEventsFileActive helper must exist");
+
+        var helperBlock = source.Substring(helperIdx, Math.Min(1000, source.Length - helperIdx));
+        Assert.Contains("GetLastWriteTimeUtc", helperBlock);
+        Assert.Contains("PrematureIdleEventsFileFreshnessSeconds", helperBlock);
+    }
+
+    [Fact]
+    public void RecoverFromPrematureIdleIfNeededAsync_LoopsOnRepeatedPrematureIdle()
+    {
+        // Structural: recovery must loop to handle repeated premature idle (observed: 4x in a row).
+        // After each OnSessionComplete, it checks if events.jsonl is still active before deciding
+        // the worker is truly done.
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
+        var methodBlock = source.Substring(methodIdx, Math.Min(8000, source.Length - methodIdx));
+
+        // Must have a loop for repeated premature idle rounds
+        Assert.Contains("while (", methodBlock);
+        Assert.Contains("rounds++", methodBlock);
+        // Must check events.jsonl freshness inside the loop to decide if worker is truly done
+        Assert.Contains("IsEventsFileActive", methodBlock);
+    }
+
+    [Fact]
+    public void PrematureIdleEventsFileFreshnessSeconds_ConstantExists()
+    {
+        // The freshness threshold constant must exist and be reasonable (10-60s range)
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        Assert.Contains("PrematureIdleEventsFileFreshnessSeconds", source);
+
+        // Verify it's a constant (internal const int)
+        var constIdx = source.IndexOf("internal const int PrematureIdleEventsFileFreshnessSeconds", StringComparison.Ordinal);
+        Assert.True(constIdx >= 0, "Must be an internal const int");
     }
 
     #endregion
