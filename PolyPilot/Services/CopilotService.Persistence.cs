@@ -363,6 +363,32 @@ public partial class CopilotService
                 state.Info.SessionId = copilotSession.SessionId;
                 FlushSaveActiveSessionsToDisk();
             }
+            catch (Exception ex) when (IsAuthError(ex))
+            {
+                // Auth failure: the persistent server is running but can't authenticate.
+                // Attempt server recovery (restart forces re-authentication with GitHub).
+                Debug($"Lazy-resume auth failure for '{sessionName}': {ex.Message} — attempting server recovery");
+                var recovered = await TryRecoverPersistentServerAsync();
+                if (!recovered)
+                {
+                    // Recovery returned false: either it failed outright, or another session is
+                    // already recovering concurrently. In the concurrent case, wait up to 30s for
+                    // the in-flight recovery to complete before giving up with a permanent error.
+                    if (await _recoveryLock.WaitAsync(30_000))
+                    {
+                        _recoveryLock.Release(); // Don't need to hold it — just waiting for in-flight recovery to finish
+                        Debug($"[SERVER-RECOVERY] Lazy-resume waited for in-flight recovery — retrying session '{sessionName}'");
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            "Session authentication failed and server recovery was unsuccessful. Go to Settings → Save & Reconnect.", ex);
+                    }
+                }
+
+                // Retry with the new client after recovery
+                copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+            }
 
             // INV-16: Register event handler BEFORE publishing to state —
             // no window where events arrive with no handler. Matches the pattern

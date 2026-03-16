@@ -1367,8 +1367,7 @@
           }
         }
       ]
-    }
-,
+    },
     {
       "id": "vscode-remote-tunnels-in-remote-mode",
       "name": "VS Code opens with Remote - Tunnels when in remote mode",
@@ -1412,8 +1411,7 @@
           "note": "VS Code menu item is visible in the context menu"
         }
       ]
-    }
-,
+    },
     {
       "id": "info-popover-not-clipped-by-main-pane",
       "name": "Sidebar content has overflow:visible so info popover is not clipped",
@@ -1430,8 +1428,8 @@
     },
     {
       "id": "right-click-opens-session-menu",
-      "name": "Right-click on session item opens the ⋯ menu",
-      "description": "Right-clicking (contextual click) on a session in the left pane should open the same ⋯ menu that the ellipsis button opens, and suppress the browser default context menu.",
+      "name": "Right-click on session item opens the \u22ef menu",
+      "description": "Right-clicking (contextual click) on a session in the left pane should open the same \u22ef menu that the ellipsis button opens, and suppress the browser default context menu.",
       "category": "ui-interaction",
       "unitTestCoverage": [
         "RightClickContextMenuTests.SessionListItem_HasContextMenuHandler",
@@ -1514,6 +1512,39 @@
             "equals": true
           },
           "note": "Code elements in section-desc should have a visible border for contrast"
+        }
+      ]
+    },
+    {
+      "id": "persistent-server-auth-recovery",
+      "name": "Automatic server restart when all sessions get stuck (auth token expiry)",
+      "description": "When the persistent server auth token expires, all sessions silently hang. After 2+ consecutive watchdog timeouts, the app should automatically restart the server and show a recovery notice.",
+      "steps": [
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll(\".session-item\").length",
+          "capture": "initialSessionCount",
+          "note": "Capture initial session count"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector(\".fallback-notice\")?.textContent",
+          "expect": {
+            "equals": null
+          },
+          "note": "No fallback notice initially"
+        },
+        {
+          "action": "note",
+          "text": "Simulate auth failure: send messages to 2+ sessions, wait for watchdog timeouts (~135s each). After the 2nd timeout, the app should attempt server recovery."
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector(\".fallback-notice\")?.textContent",
+          "expect": {
+            "contains": "restarted"
+          },
+          "note": "After recovery, a notice should inform the user the server was restarted"
         }
       ]
     }

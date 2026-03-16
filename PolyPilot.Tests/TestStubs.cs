@@ -48,7 +48,8 @@ internal class StubServerManager : IServerManager
         return Task.FromResult(StartServerResult);
     }
 
-    public void StopServer() { IsServerRunning = false; }
+    public void StopServer() { IsServerRunning = false; StopServerCallCount++; }
+    public int StopServerCallCount { get; private set; }
     public bool DetectExistingServer() => IsServerRunning;
 }
 

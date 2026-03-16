@@ -1035,6 +1035,9 @@ public partial class CopilotService
         state.Info.IsResumed = false;
         Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
         state.Info.ConsecutiveStuckCount = 0;
+        // A successful completion proves the server is healthy — reset the
+        // service-level watchdog timeout counter to prevent false recovery triggers.
+        Interlocked.Exchange(ref _consecutiveWatchdogTimeouts, 0);
         state.Info.ProcessingStartedAt = null;
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0;
@@ -2202,6 +2205,22 @@ public partial class CopilotService
                         state.Info.ProcessingPhase = 0;
                         state.Info.ClearPermissionDenials(); // INV-1: clear on all termination paths
                         state.Info.ConsecutiveStuckCount++;
+                        // Track service-level consecutive watchdog timeouts. When the
+                        // persistent server's auth token expires, ALL sessions hang silently.
+                        // After WatchdogServerRecoveryThreshold consecutive timeouts across
+                        // any sessions, attempt automatic server restart (re-authentication).
+                        var serviceTimeouts = Interlocked.Increment(ref _consecutiveWatchdogTimeouts);
+                        if (serviceTimeouts >= WatchdogServerRecoveryThreshold
+                            && CurrentMode == ConnectionMode.Persistent
+                            && !IsDemoMode && !IsRemoteMode)
+                        {
+                            Debug($"[SERVER-RECOVERY] {serviceTimeouts} consecutive watchdog timeouts — triggering persistent server recovery");
+                            _ = Task.Run(async () =>
+                            {
+                                try { await TryRecoverPersistentServerAsync(); }
+                                catch (Exception recoverEx) { Debug($"[SERVER-RECOVERY] Background recovery failed: {recoverEx.Message}"); }
+                            });
+                        }
                         // Break the positive feedback loop: when a session repeatedly gets stuck,
                         // each "Session appears stuck" system message grows the history, increasing
                         // server context processing time and making the NEXT failure more likely.
@@ -2266,6 +2285,7 @@ public partial class CopilotService
                     state.Info.ProcessingPhase = 0;
                     state.Info.ClearPermissionDenials();
                     state.Info.ConsecutiveStuckCount++;
+                    Interlocked.Increment(ref _consecutiveWatchdogTimeouts);
                     var crashResponse = state.FlushedResponse.ToString() + state.CurrentResponse.ToString();
                     state.FlushedResponse.Clear();
                     state.CurrentResponse.Clear();
