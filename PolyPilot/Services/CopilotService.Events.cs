@@ -619,9 +619,28 @@ public partial class CopilotService
                 });
                 break;
 
-            case SessionIdleEvent:
+            case SessionIdleEvent idle:
                 // Cancel the TurnEnd→Idle fallback — normal SessionIdleEvent arrived
                 CancelTurnEndFallback(state);
+
+                // KEY FIX: Check if the server reports active background tasks (sub-agents, shells).
+                // session.idle with background tasks means "foreground quiesced, background still running."
+                // Do NOT treat this as terminal — flush text and wait for the real idle.
+                if (HasActiveBackgroundTasks(idle))
+                {
+                    Debug($"[IDLE-DEFER] '{sessionName}' session.idle received with active background tasks — " +
+                          $"deferring completion (IsProcessing={state.Info.IsProcessing}, " +
+                          $"response={state.CurrentResponse.Length}+{state.FlushedResponse.Length} chars)");
+                    // Flush accumulated text at each idle boundary to prevent content loss
+                    Invoke(() =>
+                    {
+                        if (state.IsOrphaned) return;
+                        FlushCurrentResponse(state);
+                        NotifyStateChangedCoalesced();
+                    });
+                    break; // Don't complete — wait for next idle without background tasks
+                }
+
                 try { CompleteReasoningMessages(state, sessionName); }
                 catch (Exception ex)
                 {
@@ -1827,6 +1846,38 @@ public partial class CopilotService
             // Reflection failed — fall through to ToString()
         }
         return error.ToString();
+    }
+
+    /// <summary>
+    /// Check if a SessionIdleEvent reports active background tasks (agents or shells).
+    /// When background tasks are active, session.idle means "foreground quiesced, background
+    /// still running" — NOT true completion. Uses reflection to access the SDK's typed
+    /// BackgroundTasks payload safely.
+    /// </summary>
+    internal static bool HasActiveBackgroundTasks(SessionIdleEvent idle)
+    {
+        try
+        {
+            // SessionIdleEvent.Data : SessionIdleData
+            // SessionIdleData.BackgroundTasks : SessionIdleDataBackgroundTasks?
+            // SessionIdleDataBackgroundTasks.Agents : SessionIdleDataBackgroundTasksAgentsItem[]?
+            // SessionIdleDataBackgroundTasks.Shells : SessionIdleDataBackgroundTasksShellsItem[]?
+            var data = idle.GetType().GetProperty("Data")?.GetValue(idle);
+            if (data == null) return false;
+
+            var bt = data.GetType().GetProperty("BackgroundTasks")?.GetValue(data);
+            if (bt == null) return false;
+
+            var agents = bt.GetType().GetProperty("Agents")?.GetValue(bt) as Array;
+            var shells = bt.GetType().GetProperty("Shells")?.GetValue(bt) as Array;
+
+            return (agents != null && agents.Length > 0) || (shells != null && shells.Length > 0);
+        }
+        catch
+        {
+            // Reflection failed — assume no background tasks (safe: CompleteResponse proceeds)
+            return false;
+        }
     }
 
     private void StartProcessingWatchdog(SessionState state, string sessionName)
