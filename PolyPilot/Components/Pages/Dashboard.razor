@@ -323,6 +323,16 @@
                     </div>
                     }
                 }
+                @* Workers toggle — renders even when group headers are hidden *@
+                @if (isOrchestratorGroup && workerCount > 0 && (!showGroupHeaders || group.IsCollapsed))
+                {
+                    <div class="workers-toggle-standalone">
+                        <button class="workers-toggle-btn" 
+                                @onclick="() => { if (!_expandedWorkerGroups.Remove(group.Id)) _expandedWorkerGroups.Add(group.Id); }">
+                            👷 @workerCount worker@(workerCount != 1 ? "s" : "") @(workersExpanded ? "▼" : "▶")
+                        </button>
+                    </div>
+                }
                 <div class="session-grid @(isCompactGrid ? "" : "expanded-grid")">
                 @foreach (var session in visibleSessions)
                 {

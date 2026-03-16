@@ -87,6 +87,11 @@
         <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.23.1" />
     </ItemGroup>
 
+    <!-- UI Automation for Windows Terminal tab switching (Windows-only) -->
+    <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+        <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+    </ItemGroup>
+
     <!-- Prevent linker from trimming SDK event types needed for pattern matching -->
     <ItemGroup>
         <TrimmerRootAssembly Include="GitHub.Copilot.SDK" RootMode="All" />
