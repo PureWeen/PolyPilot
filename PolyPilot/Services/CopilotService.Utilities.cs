@@ -155,25 +155,32 @@ public partial class CopilotService
 
         try
         {
-            // Read the last N lines to check for the pattern:
-            // tool.execution_start (1+) with no matching tool.execution_complete.
-            // This happens when the app crashes or is force-killed mid-tool-execution.
-            // A session.shutdown between the starts and resume is strong confirmation,
-            // but force-kill (SIGKILL, Stop-Process -Force) never writes shutdown.
-            // So we also detect: tool.execution_start as the last non-control event.
-            var recentLines = new List<string>();
+            // Stream through events.jsonl keeping only the last 30 non-empty lines
+            // (avoids loading the full file into memory for large sessions).
+            // Then scan backwards for the pattern: tool.execution_start with no
+            // matching tool.execution_complete — indicating a crash mid-tool-execution.
+            var buffer = new Queue<string>(31);
             foreach (var line in File.ReadLines(eventsFile))
             {
                 if (!string.IsNullOrWhiteSpace(line))
-                    recentLines.Add(line);
+                {
+                    buffer.Enqueue(line);
+                    if (buffer.Count > 30)
+                        buffer.Dequeue();
+                }
             }
+            var recentLines = buffer.ToList();
 
-            // Walk backwards from the end, skipping session.resume/shutdown control events
-            var pendingToolStarts = 0;
+            // Walk backwards from the end, skipping session.resume/shutdown control events.
+            // IMPORTANT: Because we scan backwards, we see tool.execution_complete BEFORE
+            // its matching tool.execution_start. So we count completions first, then consume
+            // them when we hit a start. Any start without a matching completion is interrupted.
+            var unmatchedStarts = 0;
+            var pendingCompletions = 0;
             var sawShutdown = false;
             var sawOnlyControlEvents = true; // Only saw resume/shutdown so far
 
-            for (int i = recentLines.Count - 1; i >= Math.Max(0, recentLines.Count - 30); i--)
+            for (int i = recentLines.Count - 1; i >= 0; i--)
             {
                 using var doc = System.Text.Json.JsonDocument.Parse(recentLines[i]);
                 var type = doc.RootElement.GetProperty("type").GetString();
@@ -190,18 +197,20 @@ public partial class CopilotService
                 // We've hit a non-control event
                 sawOnlyControlEvents = false;
 
-                if (type == "tool.execution_start")
+                if (type == "tool.execution_complete")
                 {
-                    pendingToolStarts++;
+                    // Scanning backwards: completions come first. Count them so
+                    // we can match them against starts found further back.
+                    pendingCompletions++;
                     continue;
                 }
 
-                if (type == "tool.execution_complete")
+                if (type == "tool.execution_start")
                 {
-                    // Found a completion — if we already counted starts above it,
-                    // those starts have matching completions. Reduce the count.
-                    if (pendingToolStarts > 0)
-                        pendingToolStarts--;
+                    if (pendingCompletions > 0)
+                        pendingCompletions--; // matched with a completion above
+                    else
+                        unmatchedStarts++; // no matching completion — interrupted
                     continue;
                 }
 
@@ -213,10 +222,10 @@ public partial class CopilotService
             // 1. There are unmatched tool.execution_start events, AND
             // 2. Either a session.shutdown confirms the crash, OR the tool starts
             //    are the very last non-control events (force-kill scenario)
-            var result = pendingToolStarts > 0 && (sawShutdown || !sawOnlyControlEvents);
+            var result = unmatchedStarts > 0 && (sawShutdown || !sawOnlyControlEvents);
             if (result)
             {
-                Debug($"[RESUME-ABORT] events.jsonl for '{sessionId}' has {pendingToolStarts} interrupted tool(s) " +
+                Debug($"[RESUME-ABORT] events.jsonl for '{sessionId}' has {unmatchedStarts} interrupted tool(s) " +
                       $"(shutdown={sawShutdown}, force-kill={!sawShutdown})");
             }
             return result;
