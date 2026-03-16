@@ -72,7 +72,7 @@
     background: none;
     border: none;
     color: var(--text-dim);
-    font-size: 1.2rem;
+    font-size: var(--type-title3);
     cursor: pointer;
     padding: 0.2rem 0.4rem;
 }
@@ -340,7 +340,7 @@
     display: inline-block;
     margin-top: 0.4rem;
     padding: 0.15rem 0.5rem;
-    font-size: 0.75rem;
+    font-size: var(--type-callout);
     background: var(--hover-bg, rgba(124, 92, 252, 0.1));
     border-radius: 4px;
     color: var(--text-dim);
@@ -352,7 +352,7 @@
     border-top: 1px solid var(--control-border);
     display: flex;
     justify-content: space-between;
-    font-size: 0.75rem;
+    font-size: var(--type-callout);
     color: var(--text-dim);
 }
 
@@ -383,7 +383,7 @@
 }
 
 .empty-icon {
-    font-size: 3rem;
+    font-size: var(--type-title1);
     margin-bottom: 1rem;
 }
 
