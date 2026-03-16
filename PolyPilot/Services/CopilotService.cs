@@ -1606,7 +1606,51 @@ public partial class CopilotService : IAsyncDisposable
         if (string.IsNullOrEmpty(resumeModel)) resumeModel = DefaultModel;
         Debug($"Resuming session '{displayName}' with model: '{resumeModel}', cwd: '{resumeWorkingDirectory}'");
         var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions };
-        var copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+
+        CopilotSession copilotSession;
+        string? sanitizeWarning = null;
+        try
+        {
+            copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+        }
+        catch (Exception ex) when (
+            ex.Message.Contains("corrupt", StringComparison.OrdinalIgnoreCase) ||
+            ex.Message.Contains("Unknown event type", StringComparison.OrdinalIgnoreCase) ||
+            ex.Message.Contains("session file", StringComparison.OrdinalIgnoreCase))
+        {
+            // The SDK rejects events.jsonl with unknown event types (e.g., "system.notification"
+            // from Copilot CLI extensions). Temporarily sanitize the file so the SDK can resume
+            // with the same session ID, then restore the original so the CLI can still use it.
+            Debug($"SDK rejected events.jsonl for '{displayName}': {ex.Message} — attempting sanitized resume");
+            var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+            var backupFile = eventsFile + ".pre-sanitize";
+
+            int stripped = SanitizeEventsFile(eventsFile, backupFile);
+            if (stripped == 0)
+                throw; // Not an event-type issue — re-throw original error
+
+            try
+            {
+                copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+                sanitizeWarning = $"⚠️ Removed {stripped} unsupported event(s) from session history to enable resume. Session context preserved.";
+            }
+            finally
+            {
+                // Always restore the original file so the CLI can still use this session
+                try
+                {
+                    if (File.Exists(backupFile))
+                    {
+                        File.Copy(backupFile, eventsFile, overwrite: true);
+                        File.Delete(backupFile);
+                    }
+                }
+                catch (Exception restoreEx)
+                {
+                    Debug($"Failed to restore original events.jsonl: {restoreEx.Message}");
+                }
+            }
+        }
 
         // Detect session ID mismatch: the persistent server may return a different
         // session ID than requested (e.g., if it recreated the session internally).
@@ -1676,6 +1720,10 @@ public partial class CopilotService : IAsyncDisposable
             }
         }
         info.History.Add(ChatMessage.SystemMessage(reconnectMsg));
+
+        // Show warning if events.jsonl had to be sanitized for resume
+        if (sanitizeWarning != null)
+            info.History.Add(ChatMessage.SystemMessage(sanitizeWarning));
 
         // Set processing state if session was mid-turn when app died
         info.IsProcessing = isStillProcessing;

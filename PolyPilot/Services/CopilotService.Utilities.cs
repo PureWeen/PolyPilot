@@ -343,6 +343,49 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Temporarily sanitize events.jsonl for SDK resume: backs up the original, writes a
+    /// version with unknown event types removed, and returns the count of stripped events.
+    /// The caller is responsible for restoring the original from the backup afterwards.
+    /// </summary>
+    private int SanitizeEventsFile(string eventsFile, string backupFile)
+    {
+        if (!File.Exists(eventsFile)) return 0;
+
+        var lines = File.ReadAllLines(eventsFile);
+        File.Copy(eventsFile, backupFile, overwrite: true);
+
+        int stripped = 0;
+        using var writer = new StreamWriter(eventsFile, append: false);
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                if (doc.RootElement.TryGetProperty("type", out var typeEl))
+                {
+                    var eventType = typeEl.GetString();
+                    // Strip events that aren't part of the SDK's known schema.
+                    // These are injected by CLI extensions and are harmless metadata.
+                    if (eventType != null && eventType.StartsWith("system.", StringComparison.Ordinal))
+                    {
+                        stripped++;
+                        continue;
+                    }
+                }
+                writer.WriteLine(line);
+            }
+            catch (JsonException)
+            {
+                stripped++;
+            }
+        }
+
+        Debug($"Sanitized events.jsonl for resume: stripped {stripped} unsupported events ({lines.Length} → {lines.Length - stripped} lines)");
+        return stripped;
+    }
+
+    /// <summary>
     /// Load conversation history from events.jsonl
     /// </summary>
     private List<ChatMessage> LoadHistoryFromDisk(string sessionId)
