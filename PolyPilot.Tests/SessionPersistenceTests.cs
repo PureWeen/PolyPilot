@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
@@ -586,16 +587,14 @@ public class SessionPersistenceTests
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
 
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
+        if (fallbackIdx < 0)
+            fallbackIdx = source.IndexOf("Using better events source", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
 
         var afterFallback = source.Substring(fallbackIdx, Math.Min(8000, source.Length - fallbackIdx));
         Assert.Contains("events.jsonl", afterFallback);
-        // Must sanitize old events (skip corrupt JSON lines)
-        Assert.Contains("JsonDocument.Parse", afterFallback);
-        // Must handle both cases: new file doesn't exist (write) and does exist (prepend)
-        Assert.Contains("WriteAllLines", afterFallback);
-        Assert.Contains("Prepend old events", afterFallback);
-        Assert.Contains("Copied events.jsonl", afterFallback);
+        // Must copy events from best source to new session via shared helper
+        Assert.Contains("CopyEventsToNewSession", afterFallback);
     }
 
     [Fact]
@@ -1224,5 +1223,367 @@ public class SessionPersistenceTests
             Assert.Contains("preserved history", resultLines[0]);
         }
         finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    // --- FindBestEventsSource: finds most-events session matching working directory ---
+
+    private CopilotService CreateServiceForFindBest()
+    {
+        var sp = new ServiceCollection().BuildServiceProvider();
+        return new CopilotService(
+            new StubChatDatabase(), new StubServerManager(),
+            new StubWsBridgeClient(), new RepoManager(),
+            sp, new StubDemoService());
+    }
+
+    [Fact]
+    public void FindBestEventsSource_ReturnsOriginal_WhenNoOtherSessions()
+    {
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        var stateDir = Path.Combine(tempBase, "session-state");
+        try
+        {
+            var originalId = Guid.NewGuid().ToString("D");
+            var originalDir = Path.Combine(stateDir, originalId);
+            Directory.CreateDirectory(originalDir);
+            File.WriteAllText(Path.Combine(originalDir, "events.jsonl"),
+                """{"type":"user.message","data":{"content":"hello"}}""" + "\n");
+            File.WriteAllText(Path.Combine(originalDir, "workspace.yaml"),
+                "cwd: /Users/test/myproject\n");
+
+            var service = CreateServiceForFindBest();
+            var result = service.FindBestEventsSource(originalId, "/Users/test/myproject", stateDir);
+            Assert.Equal(originalId, result);
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    [Fact]
+    public void FindBestEventsSource_ReturnsBetterSession_WhenMoreEventsExist()
+    {
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        var stateDir = Path.Combine(tempBase, "session-state");
+        try
+        {
+            var staleId = Guid.NewGuid().ToString("D");
+            var betterId = Guid.NewGuid().ToString("D");
+            var cwd = "/Users/test/myproject";
+
+            // Stale session: 2 lines
+            var staleDir2 = Path.Combine(stateDir, staleId);
+            Directory.CreateDirectory(staleDir2);
+            File.WriteAllText(Path.Combine(staleDir2, "events.jsonl"),
+                """{"type":"user.message","data":{"content":"hello"}}""" + "\n" +
+                """{"type":"assistant.message","data":{"content":"hi"}}""" + "\n");
+            File.WriteAllText(Path.Combine(staleDir2, "workspace.yaml"),
+                $"cwd: {cwd}\n");
+
+            // Better session: 10 lines
+            var betterDir = Path.Combine(stateDir, betterId);
+            Directory.CreateDirectory(betterDir);
+            var lines = string.Join("\n", Enumerable.Range(1, 10)
+                .Select(i => "{\"type\":\"user.message\",\"data\":{\"content\":\"msg" + i + "\"}}"));
+            File.WriteAllText(Path.Combine(betterDir, "events.jsonl"), lines + "\n");
+            File.WriteAllText(Path.Combine(betterDir, "workspace.yaml"),
+                $"cwd: {cwd}\n");
+
+            var service = CreateServiceForFindBest();
+            var result = service.FindBestEventsSource(staleId, cwd, stateDir);
+            Assert.Equal(betterId, result);
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    [Fact]
+    public void FindBestEventsSource_IgnoresSessions_WithDifferentWorkingDirectory()
+    {
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        var stateDir = Path.Combine(tempBase, "session-state");
+        try
+        {
+            var originalId = Guid.NewGuid().ToString("D");
+            var otherId = Guid.NewGuid().ToString("D");
+
+            // Original session: 2 lines, cwd = /project-a
+            var originalDir = Path.Combine(stateDir, originalId);
+            Directory.CreateDirectory(originalDir);
+            File.WriteAllText(Path.Combine(originalDir, "events.jsonl"),
+                """{"type":"user.message","data":{"content":"a"}}""" + "\n" +
+                """{"type":"user.message","data":{"content":"b"}}""" + "\n");
+            File.WriteAllText(Path.Combine(originalDir, "workspace.yaml"),
+                "cwd: /project-a\n");
+
+            // Other session: 20 lines, but cwd = /project-b (doesn't match)
+            var otherDir = Path.Combine(stateDir, otherId);
+            Directory.CreateDirectory(otherDir);
+            var manyLines = string.Join("\n", Enumerable.Range(1, 20)
+                .Select(i => "{\"type\":\"user.message\",\"data\":{\"content\":\"msg" + i + "\"}}"));
+            File.WriteAllText(Path.Combine(otherDir, "events.jsonl"), manyLines + "\n");
+            File.WriteAllText(Path.Combine(otherDir, "workspace.yaml"),
+                "cwd: /project-b\n");
+
+            var service = CreateServiceForFindBest();
+            var result = service.FindBestEventsSource(originalId, "/project-a", stateDir);
+            Assert.Equal(originalId, result);
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    [Fact]
+    public void FindBestEventsSource_ReturnsOriginal_WhenWorkingDirectoryIsNull()
+    {
+        var service = CreateServiceForFindBest();
+        var result = service.FindBestEventsSource("some-id", null);
+        Assert.Equal("some-id", result);
+    }
+
+    [Fact]
+    public void FindBestEventsSource_SkipsSessions_WithNoWorkspaceYaml()
+    {
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        var stateDir = Path.Combine(tempBase, "session-state");
+        try
+        {
+            var originalId = Guid.NewGuid().ToString("D");
+            var orphanId = Guid.NewGuid().ToString("D");
+            var cwd = "/Users/test/myproject";
+
+            // Original: 1 line
+            var originalDir = Path.Combine(stateDir, originalId);
+            Directory.CreateDirectory(originalDir);
+            File.WriteAllText(Path.Combine(originalDir, "events.jsonl"),
+                """{"type":"user.message","data":{"content":"a"}}""" + "\n");
+            File.WriteAllText(Path.Combine(originalDir, "workspace.yaml"),
+                $"cwd: {cwd}\n");
+
+            // Orphan: 50 lines but NO workspace.yaml
+            var orphanDir = Path.Combine(stateDir, orphanId);
+            Directory.CreateDirectory(orphanDir);
+            var manyLines = string.Join("\n", Enumerable.Range(1, 50)
+                .Select(i => "{\"type\":\"user.message\",\"data\":{\"content\":\"msg" + i + "\"}}"));
+            File.WriteAllText(Path.Combine(orphanDir, "events.jsonl"), manyLines + "\n");
+
+            var service = CreateServiceForFindBest();
+            var result = service.FindBestEventsSource(originalId, cwd, stateDir);
+            Assert.Equal(originalId, result);
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    // --- ResumeSessionAsync: session ID mismatch detection ---
+
+    [Fact]
+    public void ResumeSessionAsync_ShouldUseActualSessionId_NotInputId()
+    {
+        // Structural test verifying that ResumeSessionAsync uses
+        // copilotSession.SessionId (actual) instead of sessionId (input).
+        var serviceFile = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        // Verify the session ID mismatch detection block exists
+        Assert.Contains("[RESUME-REMAP] Session ID changed", serviceFile);
+
+        // Verify sessionId is reassigned to actualSessionId before use
+        Assert.Contains("sessionId = actualSessionId;", serviceFile);
+
+        // Verify CopyEventsToNewSession is called on mismatch
+        Assert.Contains("CopyEventsToNewSession(sessionId, actualSessionId)", serviceFile);
+    }
+
+    [Fact]
+    public void ReconnectPath_ShouldDetectSessionIdMismatch()
+    {
+        // Structural test verifying the reconnect path also detects ID mismatch
+        var serviceFile = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        Assert.Contains("[RECONNECT] Session ID changed on resume", serviceFile);
+        Assert.Contains("CopyEventsToNewSession(state.Info.SessionId, actualId)", serviceFile);
+    }
+
+    [Fact]
+    public void FallbackRestore_ShouldUseFindBestEventsSource()
+    {
+        // Structural test verifying the fallback restore path uses FindBestEventsSource
+        // instead of always loading from the stale entry.SessionId
+        var persistenceFile = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        Assert.Contains("FindBestEventsSource(entry.SessionId, entry.WorkingDirectory)", persistenceFile);
+        Assert.Contains("LoadHistoryFromDisk(bestSourceId)", persistenceFile);
+    }
+
+    [Fact]
+    public void CopyEventsToNewSession_SharedHelper_ExistsInPersistence()
+    {
+        // Structural test verifying CopyEventsToNewSession is a reusable helper
+        var persistenceFile = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        // Should be a private method (not inlined copy logic)
+        Assert.Contains("private void CopyEventsToNewSession(string oldSessionId, string newSessionId)", persistenceFile);
+
+        // The fallback path should use the helper instead of inline copy
+        Assert.Contains("CopyEventsToNewSession(bestSourceId, recreatedState.Info.SessionId)", persistenceFile);
+    }
+
+    // --- WorkspaceYamlMatchesCwd: exact cwd matching ---
+
+    [Fact]
+    public void FindBestEventsSource_DoesNotMatchSubstringPaths()
+    {
+        // Regression test: "/project" must NOT match "/project-2".
+        // The old yaml.Contains() approach had false positives with path substrings.
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        var stateDir = Path.Combine(tempBase, "session-state");
+        try
+        {
+            var originalId = Guid.NewGuid().ToString("D");
+            var decoyId = Guid.NewGuid().ToString("D");
+
+            // Original session: 2 lines, cwd = /project
+            var originalDir = Path.Combine(stateDir, originalId);
+            Directory.CreateDirectory(originalDir);
+            File.WriteAllText(Path.Combine(originalDir, "events.jsonl"),
+                """{"type":"user.message","data":{"content":"a"}}""" + "\n" +
+                """{"type":"user.message","data":{"content":"b"}}""" + "\n");
+            File.WriteAllText(Path.Combine(originalDir, "workspace.yaml"),
+                "cwd: /project\n");
+
+            // Decoy session: 100 lines, cwd = /project-2 (should NOT match /project)
+            var decoyDir = Path.Combine(stateDir, decoyId);
+            Directory.CreateDirectory(decoyDir);
+            var manyLines = string.Join("\n", Enumerable.Range(1, 100)
+                .Select(i => "{\"type\":\"user.message\",\"data\":{\"content\":\"msg" + i + "\"}}"));
+            File.WriteAllText(Path.Combine(decoyDir, "events.jsonl"), manyLines + "\n");
+            File.WriteAllText(Path.Combine(decoyDir, "workspace.yaml"),
+                "cwd: /project-2\n");
+
+            var service = CreateServiceForFindBest();
+            var result = service.FindBestEventsSource(originalId, "/project", stateDir);
+            // Must return originalId, NOT decoyId — exact cwd match required
+            Assert.Equal(originalId, result);
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    [Fact]
+    public void FindBestEventsSource_HandlesEmptyEventsJsonl()
+    {
+        // Edge case: events.jsonl exists but is empty — should be treated as 0 lines.
+        var tempBase = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        var stateDir = Path.Combine(tempBase, "session-state");
+        try
+        {
+            var originalId = Guid.NewGuid().ToString("D");
+            var emptyId = Guid.NewGuid().ToString("D");
+            var cwd = "/Users/test/myproject";
+
+            // Original session: 5 lines
+            var originalDir = Path.Combine(stateDir, originalId);
+            Directory.CreateDirectory(originalDir);
+            var lines = string.Join("\n", Enumerable.Range(1, 5)
+                .Select(i => "{\"type\":\"user.message\",\"data\":{\"content\":\"msg" + i + "\"}}"));
+            File.WriteAllText(Path.Combine(originalDir, "events.jsonl"), lines + "\n");
+            File.WriteAllText(Path.Combine(originalDir, "workspace.yaml"), $"cwd: {cwd}\n");
+
+            // Empty session: 0 bytes in events.jsonl
+            var emptyDir = Path.Combine(stateDir, emptyId);
+            Directory.CreateDirectory(emptyDir);
+            File.WriteAllText(Path.Combine(emptyDir, "events.jsonl"), "");
+            File.WriteAllText(Path.Combine(emptyDir, "workspace.yaml"), $"cwd: {cwd}\n");
+
+            var service = CreateServiceForFindBest();
+            var result = service.FindBestEventsSource(originalId, cwd, stateDir);
+            // Original (5 lines) should still be preferred over empty (0 lines)
+            Assert.Equal(originalId, result);
+        }
+        finally { try { Directory.Delete(tempBase, true); } catch { } }
+    }
+
+    [Fact]
+    public void WorkspaceYamlMatchesCwd_ExactMatch()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, "cwd: /Users/test/myproject\nbranch: main\n");
+            Assert.True(CopilotService.WorkspaceYamlMatchesCwd(tempFile, "/Users/test/myproject"));
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void WorkspaceYamlMatchesCwd_RejectsSubstringMatch()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, "cwd: /Users/test/myproject-2\nbranch: main\n");
+            // "/Users/test/myproject" is a substring of the cwd, but NOT an exact match
+            Assert.False(CopilotService.WorkspaceYamlMatchesCwd(tempFile, "/Users/test/myproject"));
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void WorkspaceYamlMatchesCwd_CaseInsensitive()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, "cwd: /Users/Test/MyProject\n");
+            Assert.True(CopilotService.WorkspaceYamlMatchesCwd(tempFile, "/users/test/myproject"));
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void WorkspaceYamlMatchesCwd_ReturnsFalse_WhenNoCwdLine()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, "branch: main\nrepo: test\n");
+            Assert.False(CopilotService.WorkspaceYamlMatchesCwd(tempFile, "/some/path"));
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void WorkspaceYamlMatchesCwd_HandlesQuotedValue()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, "cwd: \"/Users/test/my project\"\n");
+            Assert.True(CopilotService.WorkspaceYamlMatchesCwd(tempFile, "/Users/test/my project"));
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void FindBestEventsSource_LimitsDirectoryScan()
+    {
+        // Structural test: verify MaxSessionDirsToScan constant exists for performance bounding
+        var persistenceFile = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        Assert.Contains("MaxSessionDirsToScan", persistenceFile);
+        Assert.Contains(".Take(MaxSessionDirsToScan)", persistenceFile);
+        Assert.Contains("OrderByDescending", persistenceFile);
+    }
+
+    [Fact]
+    public void CopyEventsToNewSession_CleansTempFileOnFailure()
+    {
+        // Structural test: verify temp file cleanup in catch block
+        var persistenceFile = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        // Verify tmpFile is declared outside try and cleaned in catch
+        Assert.Contains("string? tmpFile = null;", persistenceFile);
+        Assert.Contains("tmpFile = null; // Move succeeded", persistenceFile);
+        Assert.Contains("File.Delete(tmpFile)", persistenceFile);
     }
 }
