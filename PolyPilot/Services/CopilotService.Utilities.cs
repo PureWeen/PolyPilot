@@ -343,9 +343,11 @@ public partial class CopilotService
     }
 
     /// <summary>
-    /// Load conversation history from events.jsonl
+    /// Load conversation history from events.jsonl asynchronously with proper file sharing.
+    /// Uses FileShare.ReadWrite to avoid contention with concurrent SDK writes during
+    /// premature idle recovery scenarios.
     /// </summary>
-    private List<ChatMessage> LoadHistoryFromDisk(string sessionId)
+    private async Task<List<ChatMessage>> LoadHistoryFromDiskAsync(string sessionId)
     {
         var history = new List<ChatMessage>();
         var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
@@ -358,7 +360,16 @@ public partial class CopilotService
             // Track tool calls by ID so we can update them when complete
             var toolCallMessages = new Dictionary<string, ChatMessage>();
 
-            foreach (var line in File.ReadLines(eventsFile))
+            // Open file with FileShare.ReadWrite to allow concurrent reads/writes
+            using var stream = new FileStream(
+                eventsFile,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+
+            string? line;
+            while ((line = await reader.ReadLineAsync()) != null)
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
                 
@@ -473,6 +484,24 @@ public partial class CopilotService
         }
 
         return history;
+    }
+
+    /// <summary>
+    /// Synchronous wrapper for LoadHistoryFromDiskAsync for callers that can't await.
+    /// This is a temporary bridge; callers should be updated to use async version.
+    /// </summary>
+    private List<ChatMessage> LoadHistoryFromDisk(string sessionId)
+    {
+        // For synchronous contexts, use blocking wait on the async version
+        // This is not ideal but maintains backward compatibility during transition
+        try
+        {
+            return LoadHistoryFromDiskAsync(sessionId).GetAwaiter().GetResult();
+        }
+        catch
+        {
+            return new List<ChatMessage>();
+        }
     }
 
     // Dock badge for completed sessions

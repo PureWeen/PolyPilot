@@ -2376,20 +2376,20 @@ public class MultiAgentRegressionTests
     }
 
     [Fact]
-    public void WasPrematurelyIdled_ExistsOnSessionState()
+    public void PrematureIdleSignal_ExistsOnSessionState()
     {
-        // The volatile flag must exist on SessionState for EVT-REARM → ExecuteWorkerAsync signaling
+        // ManualResetEventSlim signal must exist on SessionState for EVT-REARM → ExecuteWorkerAsync signaling
         var field = typeof(CopilotService).GetNestedType("SessionState",
             System.Reflection.BindingFlags.NonPublic)?
-            .GetField("WasPrematurelyIdled");
+            .GetField("PrematureIdleSignal");
         Assert.NotNull(field);
-        Assert.True(field.FieldType == typeof(bool), "WasPrematurelyIdled must be a bool");
+        Assert.True(field.FieldType == typeof(ManualResetEventSlim), "PrematureIdleSignal must be a ManualResetEventSlim");
     }
 
     [Fact]
-    public void WasPrematurelyIdled_SetInRearmPath()
+    public void PrematureIdleSignal_SetInRearmPath()
     {
-        // Structural: the EVT-REARM path must set WasPrematurelyIdled = true
+        // Structural: the EVT-REARM path must call PrematureIdleSignal.Set()
         var eventsPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs");
         var source = File.ReadAllText(eventsPath);
 
@@ -2397,15 +2397,15 @@ public class MultiAgentRegressionTests
         var rearmIdx = source.IndexOf("[EVT-REARM]", StringComparison.Ordinal);
         Assert.True(rearmIdx >= 0, "EVT-REARM diagnostic tag must exist in Events.cs");
 
-        // Within the next 200 chars after the tag, WasPrematurelyIdled must be set
+        // Within the next 200 chars after the tag, PrematureIdleSignal must be set
         var rearmBlock = source.Substring(rearmIdx, Math.Min(200, source.Length - rearmIdx));
-        Assert.Contains("WasPrematurelyIdled = true", rearmBlock);
+        Assert.Contains("PrematureIdleSignal.Set()", rearmBlock);
     }
 
     [Fact]
-    public void WasPrematurelyIdled_ClearedInSendPromptAsync()
+    public void PrematureIdleSignal_ResetInSendPromptAsync()
     {
-        // Structural: SendPromptAsync must clear WasPrematurelyIdled on each new turn
+        // Structural: SendPromptAsync must reset PrematureIdleSignal on each new turn
         var servicePath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
         var source = File.ReadAllText(servicePath);
 
@@ -2414,7 +2414,7 @@ public class MultiAgentRegressionTests
         Assert.True(sendIdx >= 0, "SendPromptAsync must exist in CopilotService.cs");
 
         var sendBlock = source.Substring(sendIdx, Math.Min(5000, source.Length - sendIdx));
-        Assert.Contains("WasPrematurelyIdled = false", sendBlock);
+        Assert.Contains("PrematureIdleSignal.Reset()", sendBlock);
     }
 
     [Fact]
