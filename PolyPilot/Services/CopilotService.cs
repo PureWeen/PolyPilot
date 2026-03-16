@@ -237,6 +237,7 @@ public partial class CopilotService : IAsyncDisposable
     // (e.g., posix_spawn failures due to cleaned-up pkg directory)
     public string? ServerHealthNotice { get; private set; }
     public void ClearServerHealthNotice() => ServerHealthNotice = null;
+    public void SetServerHealthNotice(string notice) => ServerHealthNotice = notice;
 
     // GitHub user info
     public string? GitHubAvatarUrl { get; private set; }

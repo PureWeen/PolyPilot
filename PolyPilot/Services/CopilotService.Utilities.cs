@@ -678,7 +678,7 @@ public partial class CopilotService
             .Where(m => m.MessageType == ChatMessageType.User)
             .MaxBy(m => m.Timestamp)?.Timestamp ?? DateTime.MinValue;
 
-        if (dbLatestUser > eventsLatestUser && (dbLatestUser - eventsLatestUser).TotalMinutes > 1)
+        if (dbLatestUser > eventsLatestUser && (dbLatestUser - eventsLatestUser).TotalSeconds > 5)
         {
             Debug($"[HISTORY-RECOVERY] ChatDatabase has newer messages (DB latest={dbLatestUser:u}, events latest={eventsLatestUser:u}) for session {sessionId} — using DB");
             return (dbHistory, true);

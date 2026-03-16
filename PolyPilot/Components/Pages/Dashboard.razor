@@ -600,6 +600,7 @@
         catch (Exception ex)
         {
             Console.WriteLine($"[Dashboard] Server restart failed: {ex.Message}");
+            CopilotService.SetServerHealthNotice("Server restart failed — please try again.");
         }
         finally
         {
