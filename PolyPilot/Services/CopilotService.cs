@@ -786,28 +786,12 @@ public partial class CopilotService : IAsyncDisposable
         // Load organization state FIRST (groups, pinning, sorting) so reconcile during restore doesn't wipe it
         LoadOrganization();
 
-        // Restore previous sessions (includes subscribing to untracked server sessions in Persistent mode)
+        // Session restore runs in the background so the UI renders immediately.
+        // With many sessions (40+), sequential ResumeSessionAsync calls can take
+        // minutes — blocking here shows a blue screen until all are connected.
         IsRestoring = true;
         OnStateChanged?.Invoke();
-        await RestorePreviousSessionsAsync(cancellationToken);
-        IsRestoring = false;
-
-        // Flush session list immediately after restore so that any session IDs changed
-        // during fallback recreation (resume failed → CreateSessionAsync) are persisted.
-        // Without this, active-sessions.json retains stale IDs and LoadHistoryFromDisk
-        // reads the wrong events.jsonl on the next restart.
-        FlushSaveActiveSessionsToDisk();
-
-        // Start health check loop for any codespace groups (regardless of whether sessions were restored)
-        if (CodespacesEnabled)
-            StartCodespaceHealthCheck();
-
-        // Reconcile now that all sessions are restored
-        ReconcileOrganization();
-        OnStateChanged?.Invoke();
-
-        // Resume any pending orchestration dispatch that was interrupted by a relaunch
-        _ = ResumeOrchestrationIfPendingAsync(cancellationToken);
+        _ = RestoreSessionsInBackgroundAsync(cancellationToken);
 
         // Initialize any registered providers (from DI / plugin loader)
         await InitializeProvidersAsync(cancellationToken);
@@ -2458,8 +2442,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             throw new InvalidOperationException("Session is still being created. Please wait.");
 
         // Placeholder codespace sessions have Session=null until the tunnel connects
-        if (state.Session == null)
+        if (state.Session == null && IsCodespaceSession(sessionName))
             throw new InvalidOperationException("This session is waiting for its codespace to connect. Please wait for the green status dot.");
+
+        // Lazy resume: placeholder sessions from startup need SDK connection on first use
+        if (state.Session == null)
+        {
+            await EnsureSessionConnectedAsync(sessionName, state, cancellationToken);
+        }
 
         if (state.Info.IsProcessing)
             throw new InvalidOperationException("Session is already processing a request.");
