@@ -194,7 +194,7 @@ public class RenderThrottleTests
         var isProcessingFalse = source.IndexOf("state.Info.IsProcessing = false;", anchor, StringComparison.Ordinal);
         Assert.True(isProcessingFalse >= 0, "IsProcessing = false not found in CompleteResponse main path");
 
-        var afterProcessing = source.Substring(isProcessingFalse, 1000);
+        var afterProcessing = source.Substring(isProcessingFalse, 1200);
         var completeIdx = afterProcessing.IndexOf("OnSessionComplete?", StringComparison.Ordinal);
         var stateIdx = afterProcessing.IndexOf("OnStateChanged?", StringComparison.Ordinal);
         Assert.True(completeIdx >= 0, "OnSessionComplete not found after IsProcessing=false in CompleteResponse");

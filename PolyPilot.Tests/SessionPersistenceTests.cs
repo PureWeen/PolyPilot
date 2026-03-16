@@ -545,7 +545,7 @@ public class SessionPersistenceTests
     public void RestoreFallback_LoadsHistoryFromOldSession()
     {
         // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback in
-        // RestorePreviousSessionsAsync must load history (via LoadBestHistoryAsync)
+        // RestorePreviousSessionsAsync must call LoadHistoryFromDisk(entry.SessionId)
         // before CreateSessionAsync so conversation history is recovered.
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
@@ -1434,7 +1434,7 @@ public class SessionPersistenceTests
     public void FallbackRestore_ShouldUseFindBestEventsSource()
     {
         // Structural test verifying the fallback restore path uses FindBestEventsSource
-        // and LoadBestHistoryAsync (which checks both events.jsonl and chat_history.db)
+        // instead of always loading from the stale entry.SessionId
         var persistenceFile = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
 
