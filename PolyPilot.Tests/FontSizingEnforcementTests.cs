@@ -77,6 +77,7 @@ public class FontSizingEnforcementTests
 
         // Decorative elements beyond the type-scale range
         ("Settings.razor.css", @"^2rem$", "Decorative mode-icon — beyond type-scale range"),
+        ("Settings.razor.css", @"^0\.85em$", "Inline code (.onboarding-list code) — scales with parent text"),
 
         // Worker child items scale relative to parent — em is correct here
         ("SessionListItem.razor.css", @"^0\.85em$", "Worker child items scale relative to parent text"),

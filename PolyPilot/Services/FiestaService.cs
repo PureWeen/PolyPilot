@@ -37,6 +37,8 @@ public class FiestaService : IDisposable
     private static string? _stateFilePath;
     private readonly Dictionary<string, PendingPairRequest> _pendingPairRequests = new(StringComparer.Ordinal);
 
+    internal static void SetStateFilePathForTesting(string path) => _stateFilePath = path;
+
     public event Action? OnStateChanged;
     public event Action<string, FiestaTaskUpdate>? OnHostTaskUpdate;
     /// <summary>Fires on the worker side when a remote host requests pairing. Args: requestId, hostName, remoteIp.</summary>
@@ -53,26 +55,7 @@ public class FiestaService : IDisposable
             StartDiscovery();
     }
 
-    private static string StateFilePath => _stateFilePath ??= Path.Combine(GetPolyPilotBaseDir(), "fiesta.json");
-
-    private static string GetPolyPilotBaseDir()
-    {
-        try
-        {
-#if IOS || ANDROID
-            return Path.Combine(FileSystem.AppDataDirectory, ".polypilot");
-#else
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (string.IsNullOrEmpty(home))
-                home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(home, ".polypilot");
-#endif
-        }
-        catch
-        {
-            return Path.Combine(Path.GetTempPath(), ".polypilot");
-        }
-    }
+    private static string StateFilePath => _stateFilePath ??= Path.Combine(CopilotService.BaseDir, "fiesta.json");
 
     public IReadOnlyList<FiestaDiscoveredWorker> DiscoveredWorkers =>
         _discoveredWorkers.Values
@@ -512,7 +495,8 @@ public class FiestaService : IDisposable
         }
 
         var token = EnsureServerPassword();
-        var localIp = _tailscale?.MagicDnsName ?? _tailscale?.TailscaleIp ?? GetPrimaryLocalIpAddress() ?? "localhost";
+        var localIp = (_tailscale?.IsRunning == true ? (_tailscale.MagicDnsName ?? _tailscale.TailscaleIp) : null)
+                      ?? GetPrimaryLocalIpAddress() ?? "localhost";
         var bridgeUrl = $"http://{localIp}:{_bridgeServer.BridgePort}";
 
         // Atomically claim ownership. If the timeout already fired (TrySetResult(false) won),
@@ -652,26 +636,29 @@ public class FiestaService : IDisposable
 
     private string EnsureServerPassword()
     {
-        // First check the runtime value already set on the bridge server
-        if (!string.IsNullOrWhiteSpace(_bridgeServer.ServerPassword))
-            return _bridgeServer.ServerPassword;
-
-        // Fall back to persisted settings
-        var settings = ConnectionSettings.Load();
-        if (!string.IsNullOrWhiteSpace(settings.ServerPassword))
+        lock (_stateLock)
         {
-            _bridgeServer.ServerPassword = settings.ServerPassword;
-            return settings.ServerPassword;
-        }
+            // First check the runtime value already set on the bridge server
+            if (!string.IsNullOrWhiteSpace(_bridgeServer.ServerPassword))
+                return _bridgeServer.ServerPassword;
 
-        // Auto-generate and persist
-        var generated = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(18))
-                               .Replace('+', '-').Replace('/', '_').TrimEnd('=');
-        settings.ServerPassword = generated;
-        settings.Save();
-        _bridgeServer.ServerPassword = generated;
-        Console.WriteLine("[Fiesta] Auto-generated server password for pairing.");
-        return generated;
+            // Fall back to persisted settings
+            var settings = ConnectionSettings.Load();
+            if (!string.IsNullOrWhiteSpace(settings.ServerPassword))
+            {
+                _bridgeServer.ServerPassword = settings.ServerPassword;
+                return settings.ServerPassword;
+            }
+
+            // Auto-generate and persist
+            var generated = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(18))
+                                   .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+            settings.ServerPassword = generated;
+            settings.Save();
+            _bridgeServer.ServerPassword = generated;
+            Console.WriteLine("[Fiesta] Auto-generated server password for pairing.");
+            return generated;
+        }
     }
 
     private async Task HandleFiestaAssignAsync(string clientId, WebSocket ws, FiestaAssignPayload assign, CancellationToken ct)
@@ -959,7 +946,7 @@ public class FiestaService : IDisposable
     public static string GetFiestaWorkspaceDirectory(string fiestaName)
     {
         var safeName = SanitizeFiestaName(fiestaName);
-        var baseDir = Path.GetFullPath(Path.Combine(GetPolyPilotBaseDir(), "workspace"));
+        var baseDir = Path.GetFullPath(Path.Combine(CopilotService.BaseDir, "workspace"));
         var fullPath = Path.GetFullPath(Path.Combine(baseDir, safeName));
         var relativePath = Path.GetRelativePath(baseDir, fullPath);
         if (relativePath.StartsWith("..", StringComparison.Ordinal))
