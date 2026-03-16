@@ -791,7 +791,11 @@ public partial class CopilotService : IAsyncDisposable
         // minutes — blocking here shows a blue screen until all are connected.
         IsRestoring = true;
         OnStateChanged?.Invoke();
-        _ = RestoreSessionsInBackgroundAsync(cancellationToken);
+        // CRITICAL: Must use Task.Run to ensure restore runs on ThreadPool, not UI SyncContext.
+        // Without Task.Run, the async continuations run on the UI thread. LoadHistoryFromDisk's
+        // .GetAwaiter().GetResult() then blocks the UI thread waiting for async file I/O whose
+        // continuation needs the UI thread → classic SyncContext deadlock → blue screen.
+        _ = Task.Run(() => RestoreSessionsInBackgroundAsync(cancellationToken));
 
         // Initialize any registered providers (from DI / plugin loader)
         await InitializeProvidersAsync(cancellationToken);

@@ -401,7 +401,7 @@ public partial class CopilotService
         {
             try
             {
-                var json = await File.ReadAllTextAsync(ActiveSessionsFile, cancellationToken);
+                var json = await File.ReadAllTextAsync(ActiveSessionsFile, cancellationToken).ConfigureAwait(false);
                 var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
                 if (entries != null && entries.Count > 0)
                 {

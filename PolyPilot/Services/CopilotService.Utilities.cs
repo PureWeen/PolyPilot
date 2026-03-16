@@ -369,7 +369,7 @@ public partial class CopilotService
             using var reader = new StreamReader(stream);
 
             string? line;
-            while ((line = await reader.ReadLineAsync()) != null)
+            while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
                 
