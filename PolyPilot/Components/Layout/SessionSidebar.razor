@@ -1175,6 +1175,7 @@ else
                                         <button class="ext-sidebar-focus-btn"
                                                 @onclick="() => FocusExternalTerminal(ext)"
                                                 @onclick:stopPropagation="true"
+                                                disabled="@(_focusingExternal == ext.SessionId)"
                                                 title="CLI is running — click to bring its terminal window into focus">📺 Focus Terminal</button>
                                     </div>
                                 }
@@ -1494,10 +1495,16 @@ else
         }
     }
 
+    private string? _focusingExternal; // session ID currently being focused
+
     private async Task FocusExternalTerminal(ExternalSessionInfo ext)
     {
-        if (ext.ActiveLockPid is { } pid)
-            await Task.Run(() => CopilotService.FocusExternalSessionTerminal(pid));
+        if (ext.ActiveLockPid is not { } pid) return;
+        if (_focusingExternal == ext.SessionId) return; // debounce double-clicks
+        _focusingExternal = ext.SessionId;
+        StateHasChanged();
+        try { await Task.Run(() => CopilotService.FocusExternalSessionTerminal(pid)); }
+        finally { _focusingExternal = null; }
     }
 
     private static string GetSidebarRelativeAge(DateTimeOffset time)

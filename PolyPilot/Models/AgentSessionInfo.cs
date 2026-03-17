@@ -9,11 +9,17 @@ public class AgentSessionInfo
     public bool IsProcessing { get; set; }
     public List<ChatMessage> History { get; } = new();
     /// <summary>
-    /// Guards snapshot reads of History from background threads.
-    /// Note: All History.Add() calls must go through InvokeOnUI (UI thread).
-    /// Both reads and writes from the UI thread are safe without the lock.
-    /// The lock protects only against the rare case where a background thread
-    /// needs to read History (e.g., ExternalSessionScanner, notification services).
+    /// Guards ToArray() snapshot reads of <see cref="History"/> from background threads.
+    /// Callers on background threads (e.g., <c>NeedsAttention</c>, <c>UnreadCount</c>,
+    /// <c>LastUserPrompt</c>) lock on this object before calling <c>History.ToArray()</c>.
+    /// <para>
+    /// Write-side discipline: most <c>History.Add()</c> calls go through
+    /// <c>InvokeOnUI</c> (UI thread) so they are serialized against Blazor rendering
+    /// and do not race with each other. A subset (e.g., bulk session restore) runs
+    /// before the UI references the session, so no reader lock is needed.
+    /// The lock therefore serializes background snapshot reads against any
+    /// concurrent writes; try/catch in each reader handles the residual race edge case.
+    /// </para>
     /// </summary>
     public readonly object HistoryLock = new();
     public SynchronizedMessageQueue MessageQueue { get; } = new();

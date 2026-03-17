@@ -4335,6 +4335,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // No local filesystem access on mobile
         return;
 #else
+    // UI-thread only -- callers are InitializeAsync, InitializeDemo, and ReconnectAsync
         if (_externalSessionScanner != null) return; // already running
 
         // CWD-based exclusion: sessions whose CWD is inside ~/.polypilot/ are typically PolyPilot's own

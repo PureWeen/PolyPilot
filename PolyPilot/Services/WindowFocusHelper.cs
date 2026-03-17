@@ -267,6 +267,13 @@ internal static class WindowFocusHelper
     }
 
     /// <summary>
+    /// Serializes all FreeConsole/AttachConsole/GetConsoleTitle calls.
+    /// These Win32 functions modify process-wide console state; concurrent calls
+    /// (e.g., two Focus Terminal clicks in quick succession) would interfere.
+    /// </summary>
+    private static readonly object _consoleLock = new();
+
+    /// <summary>
     /// Reads the console title of a process's console by temporarily attaching to it.
     /// PolyPilot is a GUI app with no console, so FreeConsole is a safe no-op.
     /// The console title is what Windows Terminal displays as the tab title.
@@ -275,20 +282,23 @@ internal static class WindowFocusHelper
     {
         try
         {
-            // Detach from any current console (PolyPilot is GUI-only; this is a no-op but harmless)
-            FreeConsole();
-
-            if (!AttachConsole((uint)shellPid)) return null;
-
-            try
+            lock (_consoleLock)
             {
-                var sb = new StringBuilder(2048);
-                uint len = GetConsoleTitle(sb, (uint)sb.Capacity);
-                return len > 0 ? sb.ToString() : null;
-            }
-            finally
-            {
+                // Detach from any current console (PolyPilot is GUI-only; this is a no-op but harmless)
                 FreeConsole();
+
+                if (!AttachConsole((uint)shellPid)) return null;
+
+                try
+                {
+                    var sb = new StringBuilder(2048);
+                    uint len = GetConsoleTitle(sb, (uint)sb.Capacity);
+                    return len > 0 ? sb.ToString() : null;
+                }
+                finally
+                {
+                    FreeConsole();
+                }
             }
         }
         catch
