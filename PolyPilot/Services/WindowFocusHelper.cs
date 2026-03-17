@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 #if WINDOWS
 using UIA = System.Windows.Automation;
 #endif
@@ -84,9 +85,9 @@ internal static class WindowFocusHelper
 
     /// <summary>
     /// Uses UI Automation to find and select the correct tab in Windows Terminal.
-    /// Walks the UIA tree to find TabItem elements, matches by tab title containing
-    /// the target process's working directory or name, then calls SelectionItemPattern.Select().
-    /// Falls back to the process start-time heuristic if UIA matching fails.
+    /// Reads the console title of the shell process via AttachConsole/GetConsoleTitle —
+    /// this is the same string that Windows Terminal displays as the tab title.
+    /// Falls back to process-name matching and then index-based selection if needed.
     /// </summary>
     private static void TryFocusWindowsTerminalTab(IntPtr windowHandle, int terminalPid, List<int> ancestryChain)
     {
@@ -99,7 +100,7 @@ internal static class WindowFocusHelper
             var tabShellPid = ancestryChain[terminalIndex - 1];
 
             // Try UI Automation first — most reliable for tab selection
-            if (TryFocusTabViaUIA(windowHandle, tabShellPid))
+            if (TryFocusTabViaUIA(windowHandle, terminalPid, tabShellPid, ancestryChain))
                 return;
 
             // Fallback: start-time heuristic with Ctrl+Alt+N
@@ -114,26 +115,22 @@ internal static class WindowFocusHelper
 #if WINDOWS
     /// <summary>
     /// Uses UI Automation to enumerate TabItem elements in the WT window and
-    /// select the one whose title matches the target process's context.
+    /// select the one whose title matches the target shell's console title.
+    ///
+    /// Strategy 1 (most reliable): Read the shell's console title via AttachConsole +
+    /// GetConsoleTitle. The console title is exactly what Windows Terminal shows as the
+    /// tab name — it's set by whatever foreground process is running (e.g., Copilot CLI
+    /// sets it to the session/task name).
+    ///
+    /// Strategy 2: Match by known shell process-name → tab-name patterns (pwsh → "PowerShell").
+    ///
+    /// Strategy 3: Match by sort-order — sort WT's shell children by creation time and
+    /// use the index of tabShellPid to select the corresponding UIA tab.
     /// </summary>
-    private static bool TryFocusTabViaUIA(IntPtr windowHandle, int tabShellPid)
+    private static bool TryFocusTabViaUIA(IntPtr windowHandle, int terminalPid, int tabShellPid, List<int> ancestryChain)
     {
         try
         {
-            // Get the tab title we're looking for from the shell process
-            string? targetTitle = null;
-            string? targetProcessName = null;
-            try
-            {
-                using var shellProc = Process.GetProcessById(tabShellPid);
-                if (!shellProc.HasExited)
-                {
-                    targetTitle = shellProc.MainWindowTitle;
-                    targetProcessName = shellProc.ProcessName?.ToLowerInvariant();
-                }
-            }
-            catch { }
-
             var root = UIA.AutomationElement.FromHandle(windowHandle);
             if (root == null) return false;
 
@@ -142,50 +139,108 @@ internal static class WindowFocusHelper
                 UIA.AutomationElement.ControlTypeProperty, UIA.ControlType.TabItem);
             var tabItems = root.FindAll(UIA.TreeScope.Descendants, tabCondition);
 
-            if (tabItems == null || tabItems.Count <= 1) return false;
+            if (tabItems == null || tabItems.Count == 0) return false;
 
             UIA.AutomationElement? bestMatch = null;
 
-            // Strategy 1: Match by tab title containing the shell process's window title
-            if (!string.IsNullOrEmpty(targetTitle))
+            // ── Strategy 1: AttachConsole + GetConsoleTitle ──────────────────────────
+            // The console title of the shell's console IS what WT displays as the tab title.
+            // Copilot CLI sets the console title to the session/task name (e.g. "Fix the tests").
+            // This is the most accurate matching strategy.
+            var consoleTitle = ReadConsoleTitleForProcess(tabShellPid);
+            if (!string.IsNullOrEmpty(consoleTitle))
             {
                 foreach (UIA.AutomationElement tab in tabItems)
                 {
                     try
                     {
                         var tabName = tab.Current.Name;
-                        if (!string.IsNullOrEmpty(tabName) &&
-                            tabName.Contains(targetTitle, StringComparison.OrdinalIgnoreCase))
+                        // Exact match first
+                        if (string.Equals(tabName, consoleTitle, StringComparison.OrdinalIgnoreCase))
                         {
                             bestMatch = tab;
                             break;
                         }
                     }
                     catch { }
+                }
+
+                // Partial match fallback (handles cases where WT trims or adds prefixes)
+                if (bestMatch == null)
+                {
+                    foreach (UIA.AutomationElement tab in tabItems)
+                    {
+                        try
+                        {
+                            var tabName = tab.Current.Name ?? "";
+                            if (tabName.Contains(consoleTitle, StringComparison.OrdinalIgnoreCase) ||
+                                consoleTitle.Contains(tabName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                bestMatch = tab;
+                                break;
+                            }
+                        }
+                        catch { }
+                    }
                 }
             }
 
-            // Strategy 2: Match by tab title containing the process name
-            if (bestMatch == null && !string.IsNullOrEmpty(targetProcessName))
+            // ── Strategy 2: Known process-name → tab-name patterns ───────────────────
+            // For shells that don't set custom titles: pwsh → "PowerShell", etc.
+            if (bestMatch == null)
             {
-                foreach (UIA.AutomationElement tab in tabItems)
+                string? processName = null;
+                try
                 {
-                    try
-                    {
-                        var tabName = tab.Current.Name?.ToLowerInvariant() ?? "";
-                        if (tabName.Contains(targetProcessName))
-                        {
-                            bestMatch = tab;
-                            break;
-                        }
-                    }
-                    catch { }
+                    using var shellProc = Process.GetProcessById(tabShellPid);
+                    processName = shellProc.HasExited ? null : shellProc.ProcessName?.ToLowerInvariant();
                 }
+                catch { }
+
+                if (!string.IsNullOrEmpty(processName))
+                {
+                    // Build expected tab names for this process
+                    var expectedTabNames = processName switch
+                    {
+                        "pwsh" => new[] { "PowerShell" },
+                        "powershell" => new[] { "Windows PowerShell", "PowerShell" },
+                        "cmd" => new[] { "Command Prompt", "cmd" },
+                        "bash" => new[] { "bash", "Git Bash" },
+                        "wsl" or "wsl2" => new[] { "Ubuntu", "Debian", "Kali", "openSUSE", "Linux" },
+                        _ => Array.Empty<string>()
+                    };
+
+                    foreach (var expected in expectedTabNames)
+                    {
+                        foreach (UIA.AutomationElement tab in tabItems)
+                        {
+                            try
+                            {
+                                var tabName = tab.Current.Name ?? "";
+                                if (tabName.StartsWith(expected, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    bestMatch = tab;
+                                    break;
+                                }
+                            }
+                            catch { }
+                        }
+                        if (bestMatch != null) break;
+                    }
+                }
+            }
+
+            // ── Strategy 3: Creation-time sort → tab index ───────────────────────────
+            // Sort WT's direct shell children (non-OpenConsole) by creation time.
+            // Tab index in UIA (left to right) = tab creation order (unless user reordered).
+            if (bestMatch == null)
+            {
+                bestMatch = FindTabByCreationOrder(tabItems, terminalPid, tabShellPid);
             }
 
             if (bestMatch == null) return false;
 
-            // Try SelectionItemPattern (canonical for tab controls)
+            // Select the tab via SelectionItemPattern (canonical for tab controls)
             if (bestMatch.TryGetCurrentPattern(UIA.SelectionItemPattern.Pattern, out object? selPattern) &&
                 selPattern is UIA.SelectionItemPattern sel)
             {
@@ -210,8 +265,81 @@ internal static class WindowFocusHelper
             return false;
         }
     }
+
+    /// <summary>
+    /// Reads the console title of a process's console by temporarily attaching to it.
+    /// PolyPilot is a GUI app with no console, so FreeConsole is a safe no-op.
+    /// The console title is what Windows Terminal displays as the tab title.
+    /// </summary>
+    private static string? ReadConsoleTitleForProcess(int shellPid)
+    {
+        try
+        {
+            // Detach from any current console (PolyPilot is GUI-only; this is a no-op but harmless)
+            FreeConsole();
+
+            if (!AttachConsole((uint)shellPid)) return null;
+
+            try
+            {
+                var sb = new StringBuilder(2048);
+                uint len = GetConsoleTitle(sb, (uint)sb.Capacity);
+                return len > 0 ? sb.ToString() : null;
+            }
+            finally
+            {
+                FreeConsole();
+            }
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Strategy 3 fallback: find which UIA tab corresponds to our shell by sorting
+    /// WT's direct shell children by creation time (= tab creation order).
+    /// WT creates tabs in order so UIA tab index[N] = Nth created shell child.
+    /// </summary>
+    private static UIA.AutomationElement? FindTabByCreationOrder(
+        UIA.AutomationElementCollection tabItems, int terminalPid, int tabShellPid)
+    {
+        try
+        {
+            // Get WT's direct children, filter to shell processes (skip OpenConsole/ConHost)
+            var children = GetChildProcessIds(terminalPid);
+            var shells = new List<(int Pid, DateTime StartTime)>();
+
+            foreach (var childPid in children)
+            {
+                try
+                {
+                    using var proc = Process.GetProcessById(childPid);
+                    if (proc.HasExited) continue;
+                    var name = proc.ProcessName?.ToLowerInvariant() ?? "";
+                    // Skip the PTY host processes — only count shell processes
+                    if (name.Contains("openconsole") || name.Contains("conhost")) continue;
+                    shells.Add((childPid, proc.StartTime));
+                }
+                catch { }
+            }
+
+            if (shells.Count == 0) return null;
+            shells.Sort((a, b) => a.StartTime.CompareTo(b.StartTime));
+
+            var tabIndex = shells.FindIndex(s => s.Pid == tabShellPid);
+            if (tabIndex < 0 || tabIndex >= tabItems.Count) return null;
+
+            return tabItems[tabIndex];
+        }
+        catch
+        {
+            return null;
+        }
+    }
 #else
-    private static bool TryFocusTabViaUIA(IntPtr windowHandle, int tabShellPid) => false;
+    private static bool TryFocusTabViaUIA(IntPtr windowHandle, int terminalPid, int tabShellPid, List<int> ancestryChain) => false;
 #endif
 
     /// <summary>
@@ -349,6 +477,15 @@ internal static class WindowFocusHelper
 
     [DllImport("kernel32.dll")]
     private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool FreeConsole();
+
+    [DllImport("kernel32.dll")]
+    private static extern bool AttachConsole(uint dwProcessId);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint GetConsoleTitle([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder lpConsoleTitle, uint nSize);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct INPUT
