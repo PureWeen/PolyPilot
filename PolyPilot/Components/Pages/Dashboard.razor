@@ -1248,8 +1248,14 @@
                 await InvokeAsync(() =>
                 {
                     if (_disposed) return;
-                    _groupPhases.Remove(groupId);
-                    ScheduleRender();
+                    // Only remove if still showing Complete — a new orchestration may have
+                    // started for this group, overwriting Complete with Planning/Dispatching
+                    if (_groupPhases.TryGetValue(groupId, out var current) &&
+                        current.Phase == OrchestratorPhase.Complete)
+                    {
+                        _groupPhases.Remove(groupId);
+                        ScheduleRender();
+                    }
                 });
             });
             return;
