@@ -66,9 +66,10 @@ public class ExternalSessionScanner : IDisposable
         // Create timer paused, assign to field, THEN arm it.
         // This avoids a race where the callback fires before _pollTimer is assigned,
         // which would skip the re-arm and kill the poll loop forever.
+        // Delay initial scan by 5s so it doesn't compete with session restoration at startup.
         _pollTimer = new Timer(_ => { SafeScan(); RearmTimer(); },
             null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-        _pollTimer.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
+        _pollTimer.Change(TimeSpan.FromSeconds(5), Timeout.InfiniteTimeSpan);
     }
 
     private void RearmTimer()
@@ -113,8 +114,8 @@ public class ExternalSessionScanner : IDisposable
         var newSessions = new List<ExternalSessionInfo>();
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var dirs = Directory.GetDirectories(_sessionStatePath);
-        foreach (var dir in dirs)
+        // Use EnumerateDirectories for lazy enumeration (avoids allocating 3K+ string array)
+        foreach (var dir in Directory.EnumerateDirectories(_sessionStatePath))
         {
             var name = Path.GetFileName(dir);
             if (!Guid.TryParse(name, out _)) continue;
@@ -128,14 +129,21 @@ public class ExternalSessionScanner : IDisposable
             try { eventsMtime = new DateTimeOffset(File.GetLastWriteTimeUtc(eventsFile), TimeSpan.Zero); }
             catch { continue; }
 
-            // Check if a live CLI process is connected via inuse.{PID}.lock files.
-            // This is the most reliable signal — it means someone has this session open RIGHT NOW.
-            int? activeLockPid = FindActiveLockPid(dir);
-            bool hasActiveLock = activeLockPid.HasValue;
+            // Age filter FIRST — skip old sessions before the expensive lock file check.
+            // Most of the 3K+ session dirs are old and will be skipped here.
+            bool possiblyRecent = now - eventsMtime <= MaxAge;
 
-            // Age filter: skip sessions older than MaxAge UNLESS an active lock file is present
-            // (the CLI may be idle — no new events — but still connected)
-            if (!hasActiveLock && now - eventsMtime > MaxAge) continue;
+            // Only check lock files for sessions that pass the age filter OR are cached
+            // (avoids Process.GetProcessById calls for thousands of stale sessions)
+            int? activeLockPid = null;
+            bool hasActiveLock = false;
+            if (possiblyRecent || _cache.ContainsKey(name))
+            {
+                activeLockPid = FindActiveLockPid(dir);
+                hasActiveLock = activeLockPid.HasValue;
+            }
+
+            if (!possiblyRecent && !hasActiveLock) continue;
 
             seenIds.Add(name);
 

@@ -22,11 +22,13 @@ internal static class WindowFocusHelper
     /// <returns>True if a window was found and focused, false otherwise.</returns>
     public static bool TryFocusTerminalForProcess(int pid)
     {
-        if (!OperatingSystem.IsWindows()) return false;
-
         try
         {
-            return TryFocusTerminalWindows(pid);
+            if (OperatingSystem.IsWindows())
+                return TryFocusTerminalWindows(pid);
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+                return TryFocusTerminalMac(pid);
+            return false;
         }
         catch
         {
@@ -35,7 +37,7 @@ internal static class WindowFocusHelper
     }
 
     /// <summary>Whether the Focus Terminal feature is supported on the current platform.</summary>
-    public static bool IsSupported => OperatingSystem.IsWindows();
+    public static bool IsSupported => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst();
 
     private static bool TryFocusTerminalWindows(int pid)
     {
@@ -530,5 +532,134 @@ internal static class WindowFocusHelper
         public uint dwFlags;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
         public string szExeFile;
+    }
+
+    /// <summary>
+    /// macOS: Walk up the process tree from the CLI PID to find the terminal emulator,
+    /// then use osascript to bring it to the foreground and select the correct tab.
+    /// </summary>
+    private static bool TryFocusTerminalMac(int pid)
+    {
+        var currentPid = pid;
+        string? terminalApp = null;
+
+        // Get the tty of the target process for tab matching
+        string? targetTty = null;
+        try
+        {
+            var ttyPsi = new ProcessStartInfo("ps", $"-p {pid} -o tty=")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var ttyProc = Process.Start(ttyPsi);
+            if (ttyProc != null)
+            {
+                targetTty = "/dev/" + ttyProc.StandardOutput.ReadToEnd().Trim();
+                ttyProc.WaitForExit(2000);
+            }
+        }
+        catch { }
+
+        for (int depth = 0; depth < 15; depth++)
+        {
+            try
+            {
+                var commPsi = new ProcessStartInfo("ps", $"-p {currentPid} -o comm=")
+                {
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var commProc = Process.Start(commPsi);
+                if (commProc == null) break;
+                var comm = commProc.StandardOutput.ReadToEnd().Trim().ToLowerInvariant();
+                commProc.WaitForExit(2000);
+
+                if (comm.Contains("terminal") || comm.Contains("iterm") ||
+                    comm.Contains("warp") || comm.Contains("alacritty") ||
+                    comm.Contains("kitty") || comm.Contains("hyper") ||
+                    comm.Contains("ghostty"))
+                {
+                    terminalApp = comm switch
+                    {
+                        var c when c.Contains("iterm") => "iTerm",
+                        var c when c.Contains("warp") => "Warp",
+                        var c when c.Contains("alacritty") => "Alacritty",
+                        var c when c.Contains("kitty") => "kitty",
+                        var c when c.Contains("ghostty") => "Ghostty",
+                        _ => "Terminal"
+                    };
+                    break;
+                }
+
+                var ppidPsi = new ProcessStartInfo("ps", $"-p {currentPid} -o ppid=")
+                {
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var ppidProc = Process.Start(ppidPsi);
+                if (ppidProc == null) break;
+                var ppidStr = ppidProc.StandardOutput.ReadToEnd().Trim();
+                ppidProc.WaitForExit(2000);
+
+                if (!int.TryParse(ppidStr, out var ppid) || ppid <= 1)
+                    break;
+
+                currentPid = ppid;
+            }
+            catch { break; }
+        }
+
+        if (terminalApp == null) return false;
+
+        try
+        {
+            // For Terminal.app: activate the window AND select the specific tab by tty
+            string script;
+            if (terminalApp == "Terminal" && !string.IsNullOrEmpty(targetTty))
+            {
+                script = $@"tell application ""Terminal""
+    activate
+    repeat with w in windows
+        repeat with t in tabs of w
+            if tty of t is ""{targetTty}"" then
+                set selected of t to true
+                set index of w to 1
+                return ""focused""
+            end if
+        end repeat
+    end repeat
+end tell";
+            }
+            else
+            {
+                script = $"tell application \"{terminalApp}\" to activate";
+            }
+
+            // Write script to temp file — multi-line AppleScript doesn't work with -e
+            var scriptFile = Path.Combine(Path.GetTempPath(), $"polypilot-focus-{pid}.scpt");
+            try
+            {
+                File.WriteAllText(scriptFile, script);
+                var psi = new ProcessStartInfo("osascript", scriptFile)
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var proc = Process.Start(psi);
+                proc?.WaitForExit(3000);
+                return proc?.ExitCode == 0;
+            }
+            finally
+            {
+                try { File.Delete(scriptFile); } catch { }
+            }
+        }
+        catch { return false; }
     }
 }
