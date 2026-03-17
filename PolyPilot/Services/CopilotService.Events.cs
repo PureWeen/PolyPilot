@@ -1830,10 +1830,11 @@ public partial class CopilotService
 
     /// <summary>
     /// Detects MCP server failures where a configured MCP server is unreachable or crashed.
-    /// MCP-specific patterns (ECONNREFUSED, mcp_server, spawn ENOENT) match unconditionally.
-    /// Generic network/process patterns (connection refused, transport error, etc.) require
-    /// "mcp" context in the text to avoid false-positives from SSH, DB, Docker, or HTTP errors
-    /// that would otherwise incorrectly trigger MCP recovery.
+    /// Only "MCP server" and "mcp_server" substrings match unconditionally — these are
+    /// unambiguously MCP-specific. All other patterns (ECONNREFUSED, connection refused,
+    /// transport error, spawn ENOENT, etc.) require "mcp" context in the text to avoid
+    /// false-positives from SSH, DB, Docker, or HTTP errors that would otherwise incorrectly
+    /// trigger MCP recovery.
     /// When repeated MCP failures are detected, the session is recreated with fresh MCP configs
     /// so the CLI can re-launch the MCP server processes.
     /// </summary>
