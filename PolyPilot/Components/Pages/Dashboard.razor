@@ -1247,6 +1247,7 @@
                 await Task.Delay(8000);
                 await InvokeAsync(() =>
                 {
+                    if (_disposed) return;
                     _groupPhases.Remove(groupId);
                     ScheduleRender();
                 });
