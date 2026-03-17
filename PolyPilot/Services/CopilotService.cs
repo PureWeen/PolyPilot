@@ -34,6 +34,8 @@ public partial class CopilotService : IAsyncDisposable
     private Timer? _saveUiStateDebounce;
     private UiState? _pendingUiState;
     private readonly object _uiStateLock = new();
+    // Keepalive ping to prevent the headless server from killing idle sessions (~35 min timeout)
+    private CancellationTokenSource? _keepaliveCts;
     private readonly IChatDatabase _chatDb;
     private readonly IServerManager _serverManager;
     private readonly IWsBridgeClient _bridgeClient;
@@ -522,6 +524,56 @@ public partial class CopilotService : IAsyncDisposable
         try { state?.PrematureIdleSignal?.Dispose(); } catch { }
     }
 
+    /// <summary>Ping interval to prevent the headless server from killing idle sessions.
+    /// The server has a ~35 minute idle timeout; pinging every 15 minutes keeps sessions alive.</summary>
+    internal const int KeepalivePingIntervalSeconds = 15 * 60; // 15 minutes
+
+    private void StartKeepalivePing()
+    {
+        StopKeepalivePing();
+        var cts = new CancellationTokenSource();
+        _keepaliveCts = cts;
+        _ = RunKeepalivePingAsync(cts.Token);
+    }
+
+    private void StopKeepalivePing()
+    {
+        var prev = Interlocked.Exchange(ref _keepaliveCts, null);
+        if (prev != null)
+        {
+            try { prev.Cancel(); } catch { }
+            prev.Dispose();
+        }
+    }
+
+    private async Task RunKeepalivePingAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(KeepalivePingIntervalSeconds), ct);
+                if (ct.IsCancellationRequested) break;
+
+                var client = _client;
+                if (client == null || IsDemoMode || IsRemoteMode) continue;
+
+                try
+                {
+                    await client.PingAsync("keepalive", ct);
+                    Debug($"[KEEPALIVE] Ping sent to headless server");
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    Debug($"[KEEPALIVE] Ping failed: {ex.Message}");
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Debug($"[KEEPALIVE] Loop exited: {ex.Message}"); }
+    }
+
     private void Debug(string message)
     {
         LastDebugMessage = message;
@@ -536,6 +588,7 @@ public partial class CopilotService : IAsyncDisposable
             message.StartsWith("[DISPATCH") || message.StartsWith("[WATCHDOG") ||
             message.StartsWith("[HEALTH") || message.StartsWith("[ZERO-IDLE") ||
             message.StartsWith("[PERMISSION") || message.StartsWith("[RESUME-ABORT") ||
+            message.StartsWith("[KEEPALIVE") ||
             message.Contains("watchdog"))
         {
             try
@@ -834,6 +887,10 @@ public partial class CopilotService : IAsyncDisposable
 
         // Initialize any registered providers (from DI / plugin loader)
         await InitializeProvidersAsync(cancellationToken);
+
+        // Start keepalive pinging to prevent server idle timeout
+        if (!IsDemoMode && !IsRemoteMode && _client != null)
+            StartKeepalivePing();
     }
 
     /// <summary>
@@ -897,6 +954,7 @@ public partial class CopilotService : IAsyncDisposable
         _currentSettings = settings;
 
         StopConnectivityMonitoring();
+        StopKeepalivePing();
         await StopCodespaceHealthCheckAsync();
 
         // Dispose existing sessions and client
@@ -996,6 +1054,10 @@ public partial class CopilotService : IAsyncDisposable
 
         // Re-initialize providers after reconnect
         await InitializeProvidersAsync(cancellationToken);
+
+        // Start keepalive pinging to prevent server idle timeout
+        if (!IsDemoMode && !IsRemoteMode && _client != null)
+            StartKeepalivePing();
     }
 
     /// <summary>
@@ -4013,6 +4075,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     public async ValueTask DisposeAsync()
     {
         StopConnectivityMonitoring();
+        StopKeepalivePing();
         await StopCodespaceHealthCheckAsync();
 
         // Flush any pending debounced writes immediately
