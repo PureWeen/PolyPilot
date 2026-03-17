@@ -3941,9 +3941,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     state.Info.ProcessingStartedAt = null;
                     state.Info.ToolCallCount = 0;
                     state.Info.ProcessingPhase = 0;
-                    state.Info.ClearPermissionDenials();
                 });
             }
+            // Always clear the sliding-window denial queue regardless of processing state.
+            // The typical /mcp reload scenario: MCP errors accumulate, model turn completes,
+            // session is idle (IsProcessing=false) when user types the command. Without this,
+            // the stale denial count carries into the fresh SDK session and triggers an
+            // unwanted TryRecoverPermissionAsync cascade on the very first MCP tool call.
+            // ClearPermissionDenials() is lock-protected internally; no UI thread required.
+            state.Info.ClearPermissionDenials();
 
             // Mark old state as orphaned BEFORE disposal so stale event callbacks from the
             // disposed SDK session bail out (via IsOrphaned guard in HandleSessionEvent)

@@ -287,14 +287,27 @@ public class PermissionDenialDetectionTests
     }
 
     [Fact]
-    public void ReloadMcpServersAsync_ClearsPermissionDenials()
+    public void ReloadMcpServersAsync_ClearsPermissionDenials_Unconditionally()
     {
-        // STRUCTURAL: Reload must clear the sliding window denial count so stale denials
-        // from the broken MCP session don't immediately re-trigger TryRecoverPermissionAsync
-        // on the very first tool error in the fresh session.
+        // STRUCTURAL: Reload must clear the sliding-window denial count UNCONDITIONALLY —
+        // i.e. regardless of whether IsProcessing is true or false. The typical /mcp reload
+        // scenario has the session idle when the user types the command, so any check gated
+        // on IsProcessing would silently skip the clear and let stale denials carry into the
+        // fresh SDK session, triggering an immediate TryRecoverPermissionAsync cascade.
+        //
+        // We verify the unconditional clear by checking for the unique marker comment that
+        // accompanies the out-of-if-block call. If ClearPermissionDenials() were moved back
+        // inside the if-block, this comment would not be present and the test would fail.
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
-        Assert.Contains("ClearPermissionDenials()", source);
+
+        // The unconditional call is preceded by a comment that is unique to that call site.
+        Assert.Contains("Always clear the sliding-window denial queue regardless of processing state", source);
+
+        // Verify the actual call follows that comment (not just the comment without the fix).
+        var markerIdx = source.IndexOf("Always clear the sliding-window denial queue regardless of processing state", StringComparison.Ordinal);
+        var snippetAfterMarker = source.Substring(markerIdx, Math.Min(500, source.Length - markerIdx));
+        Assert.Contains("ClearPermissionDenials()", snippetAfterMarker);
     }
 
     private static string GetRepoRoot()
