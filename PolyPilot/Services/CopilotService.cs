@@ -3871,51 +3871,72 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (IsRemoteMode)
             throw new InvalidOperationException("MCP reload is not supported in Remote mode.");
 
-        // Abort any in-progress processing first
-        if (state.Info.IsProcessing)
+        // Guard against concurrent reloads (e.g., user double-clicks /mcp reload)
+        if (!_recoveryInProgress.TryAdd(sessionName, true))
         {
-            try { await state.Session?.AbortAsync()!; } catch { }
-            FlushCurrentResponse(state);
-            state.Info.IsProcessing = false;
-            state.Info.ProcessingStartedAt = null;
-            state.Info.ToolCallCount = 0;
-            state.Info.ProcessingPhase = 0;
+            Debug($"[MCP-RELOAD] Reload already in progress for '{sessionName}', ignoring duplicate request");
+            return;
         }
-
-        // Dispose old SDK session
-        CancelProcessingWatchdog(state);
-        CancelTurnEndFallback(state);
-        CancelToolHealthCheck(state);
-        state.ResponseCompletion?.TrySetCanceled();
-        try { if (state.Session != null) await state.Session.DisposeAsync(); } catch { }
-
-        // Build fresh config with reloaded MCP servers from disk
-        var freshConfig = BuildFreshSessionConfig(state);
-
-        // Create new SDK session (fresh session ID, fresh MCP server initialization)
-        var newSdkSession = await _client.CreateSessionAsync(freshConfig);
-
-        // Build new SessionState reusing the existing AgentSessionInfo (preserves history)
-        var newState = new SessionState
+        try
         {
-            Session = newSdkSession,
-            Info = state.Info
-        };
-        newState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Interlocked.Exchange(ref newState.ProcessingGeneration, Interlocked.Read(ref state.ProcessingGeneration));
-        newState.IsMultiAgentSession = state.IsMultiAgentSession;
+            // Abort any in-progress processing first
+            if (state.Info.IsProcessing)
+            {
+                try { await state.Session?.AbortAsync()!; } catch { }
+                FlushCurrentResponse(state);
+                state.Info.IsProcessing = false;
+                state.Info.ProcessingStartedAt = null;
+                state.Info.ToolCallCount = 0;
+                state.Info.ProcessingPhase = 0;
+            }
 
-        // Replace in sessions dictionary BEFORE registering event handler
-        DisposePrematureIdleSignal(state);
-        _sessions[sessionName] = newState;
-        newSdkSession.On(evt => HandleSessionEvent(newState, evt));
+            // Mark old state as orphaned BEFORE disposal so stale event callbacks from the
+            // disposed SDK session bail out and don't corrupt the shared AgentSessionInfo.
+            state.IsOrphaned = true;
 
-        // Update the session ID in AgentSessionInfo so watchdog and diagnostics use the new one
-        state.Info.SessionId = newSdkSession.SessionId;
-        state.Info.IsResumed = false;
+            // Dispose old SDK session
+            CancelProcessingWatchdog(state);
+            CancelTurnEndFallback(state);
+            CancelToolHealthCheck(state);
+            state.ResponseCompletion?.TrySetCanceled();
+            try { if (state.Session != null) await state.Session.DisposeAsync(); } catch { }
 
-        Debug($"[MCP-RELOAD] '{sessionName}' session replaced with fresh SDK session (MCP servers reloaded from disk)");
-        OnStateChanged?.Invoke();
+            // Build fresh config with reloaded MCP servers from disk
+            var freshConfig = BuildFreshSessionConfig(state);
+
+            // Create new SDK session (fresh session ID, fresh MCP server initialization)
+            var newSdkSession = await _client.CreateSessionAsync(freshConfig);
+
+            // Build new SessionState reusing the existing AgentSessionInfo (preserves history)
+            var newState = new SessionState
+            {
+                Session = newSdkSession,
+                Info = state.Info
+            };
+            newState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Interlocked.Exchange(ref newState.ProcessingGeneration, Interlocked.Read(ref state.ProcessingGeneration));
+            newState.IsMultiAgentSession = state.IsMultiAgentSession;
+
+            // Replace in sessions dictionary BEFORE registering event handler
+            DisposePrematureIdleSignal(state);
+            _sessions[sessionName] = newState;
+            newSdkSession.On(evt => HandleSessionEvent(newState, evt));
+
+            // Update the session ID in AgentSessionInfo so watchdog and diagnostics use the new one
+            state.Info.SessionId = newSdkSession.SessionId;
+            state.Info.IsResumed = false;
+
+            // Persist the new session ID so a crash after reload doesn't leave active-sessions.json
+            // pointing at the old (dead) SDK session ID.
+            FlushSaveActiveSessionsToDisk();
+
+            Debug($"[MCP-RELOAD] '{sessionName}' session replaced with fresh SDK session (MCP servers reloaded from disk)");
+            OnStateChanged?.Invoke();
+        }
+        finally
+        {
+            _recoveryInProgress.TryRemove(sessionName, out _);
+        }
     }
 
     public AgentSessionInfo? GetActiveSession()
