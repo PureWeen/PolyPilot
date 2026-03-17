@@ -1851,33 +1851,13 @@ public partial class CopilotService
     /// <summary>
     /// Check if a SessionIdleEvent reports active background tasks (agents or shells).
     /// When background tasks are active, session.idle means "foreground quiesced, background
-    /// still running" — NOT true completion. Uses reflection to access the SDK's typed
-    /// BackgroundTasks payload safely.
+    /// still running" — NOT true completion.
     /// </summary>
     internal static bool HasActiveBackgroundTasks(SessionIdleEvent idle)
     {
-        try
-        {
-            // SessionIdleEvent.Data : SessionIdleData
-            // SessionIdleData.BackgroundTasks : SessionIdleDataBackgroundTasks?
-            // SessionIdleDataBackgroundTasks.Agents : SessionIdleDataBackgroundTasksAgentsItem[]?
-            // SessionIdleDataBackgroundTasks.Shells : SessionIdleDataBackgroundTasksShellsItem[]?
-            var data = idle.GetType().GetProperty("Data")?.GetValue(idle);
-            if (data == null) return false;
-
-            var bt = data.GetType().GetProperty("BackgroundTasks")?.GetValue(data);
-            if (bt == null) return false;
-
-            var agents = bt.GetType().GetProperty("Agents")?.GetValue(bt) as Array;
-            var shells = bt.GetType().GetProperty("Shells")?.GetValue(bt) as Array;
-
-            return (agents != null && agents.Length > 0) || (shells != null && shells.Length > 0);
-        }
-        catch
-        {
-            // Reflection failed — assume no background tasks (safe: CompleteResponse proceeds)
-            return false;
-        }
+        var bt = idle.Data?.BackgroundTasks;
+        if (bt == null) return false;
+        return (bt.Agents is { Length: > 0 }) || (bt.Shells is { Length: > 0 });
     }
 
     private void StartProcessingWatchdog(SessionState state, string sessionName)

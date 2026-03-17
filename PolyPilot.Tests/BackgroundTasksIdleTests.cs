@@ -103,4 +103,11 @@ public class BackgroundTasksIdleTests
         var idle = new SessionIdleEvent { Data = new SessionIdleData() };
         Assert.False(CopilotService.HasActiveBackgroundTasks(idle));
     }
+
+    [Fact]
+    public void HasActiveBackgroundTasks_DataNull_ReturnsFalse()
+    {
+        var idle = new SessionIdleEvent { Data = null! };
+        Assert.False(CopilotService.HasActiveBackgroundTasks(idle));
+    }
 }
