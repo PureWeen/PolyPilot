@@ -11,8 +11,8 @@ description: >
   (RestoreSingleSessionAsync) that must initialize watchdog-dependent state,
   (8) Modifying ReconcileOrganization or any code that reads Organization.Sessions
   during the IsRestoring window, (9) Session appears hung or unresponsive after tool use.
-  Covers: 13 invariants from 10 PRs of fix cycles,
-  the 9 code paths that clear IsProcessing, and common regression patterns.
+  Covers: 18 invariants from 13 PRs of fix cycles,
+  the 16 code paths that set/clear IsProcessing, and common regression patterns.
 ---
 
 # Processing State Safety
@@ -34,32 +34,57 @@ Every code path that sets `IsProcessing = false` MUST also:
 12. Run on UI thread (via `InvokeOnUI()` or already on UI thread)
 13. After changes, run `ProcessingWatchdogTests.cs` to catch regressions
 
-## The 10 Paths That Set/Clear IsProcessing
+## The 16 Paths That Set/Clear IsProcessing
 
 ### Paths that CLEAR IsProcessing (→ false)
 
-| # | Path | File | Thread | Notes |
-|---|------|------|--------|-------|
-| 1 | CompleteResponse | Events.cs | UI (via Invoke) | Normal completion |
-| 2 | SessionErrorEvent | Events.cs | Background → InvokeOnUI | SDK error |
-| 3 | Watchdog timeout (kill) | Events.cs | Timer → InvokeOnUI | No events for 120s/600s, server dead, or max time exceeded (Case C) |
-| 4 | Watchdog clean complete | Events.cs | Timer → InvokeOnUI | Tools done, lost terminal event → calls CompleteResponse (Case B, PR #332) |
-| 5 | AbortSessionAsync (local) | CopilotService.cs | UI | User clicks Stop |
-| 6 | AbortSessionAsync (remote) | CopilotService.cs | UI | Mobile stop |
-| 7 | SendAsync reconnect failure | CopilotService.cs | UI | Prompt send failed after reconnect |
-| 8 | SendAsync initial failure | CopilotService.cs | UI | Prompt send failed |
-| 9 | Bridge OnTurnEnd | Bridge.cs | Background → InvokeOnUI | Remote mode turn complete |
+| # | Path | File | Thread | Tag | Notes |
+|---|------|------|--------|-----|-------|
+| 1 | CompleteResponse | Events.cs | UI (via Invoke) | `[COMPLETE]` | Normal completion |
+| 2 | SessionErrorEvent | Events.cs | Background → InvokeOnUI | `[ERROR]` | SDK error |
+| 3 | Watchdog timeout (kill) | Events.cs | Timer → InvokeOnUI | `[WATCHDOG]` | No events for 120s/600s, server dead, or max time exceeded (Case C) |
+| 4 | Watchdog clean complete | Events.cs | Timer → InvokeOnUI | `[WATCHDOG]` | Tools done, lost terminal event → calls CompleteResponse (Case B, PR #332) |
+| 5 | AbortSessionAsync (local) | CopilotService.cs | UI | `[ABORT]` | User clicks Stop |
+| 6 | AbortSessionAsync (remote) | CopilotService.cs | UI | — | Mobile stop |
+| 7 | SendAsync reconnect failure | CopilotService.cs | UI | `[ERROR]` | Prompt send failed after reconnect |
+| 8 | SendAsync initial failure | CopilotService.cs | UI | `[ERROR]` | Prompt send failed |
+| 9 | Bridge OnTurnEnd | Bridge.cs | Background → InvokeOnUI | `[BRIDGE-COMPLETE]` | Remote mode turn complete |
+| 10 | Tool health recovery | Events.cs | Timer → InvokeOnUI | `[TOOL-HEALTH-COMPLETE]` | Dead connection detected by health check timer |
+| 11 | Watchdog crash handler | Events.cs | Timer → InvokeOnUI | `[WATCHDOG-CRASH]` | Safety net when watchdog loop itself throws |
+| 12 | Permission recovery failure | Events.cs | UI | `[PERMISSION-RECOVER]` | ClearProcessingStateForRecoveryFailure — recovery can't proceed |
+| 13 | Permission recovery cleanup | Events.cs | UI | `[PERMISSION-RECOVER]` | After successful session resume, clears old state before resend |
+| 14 | Steer error | CopilotService.cs | UI | `[STEER-ERROR]` | Soft steer SendAsync failure |
+| 15 | ForceCompleteProcessing | Organization.cs | UI (via InvokeOnUI) | `[DISPATCH]` | Orchestration forces unstarted workers complete |
+
+Additional clearing paths exist in `CopilotService.Providers.cs` (4 paths for external
+provider OnTurnEnd/OnError/OnMemberTurnEnd/OnMemberError) and `DemoService.cs` (1 path).
+These follow simpler patterns and don't participate in the SDK event flow.
 
 ### Path that RE-ARMS IsProcessing (→ true)
 
-| # | Path | File | Thread | Notes |
-|---|------|------|--------|-------|
-| 10 | TurnStart re-arm | Events.cs | Background → InvokeOnUI | Premature session.idle recovery (PR #375) |
+| # | Path | File | Thread | Tag | Notes |
+|---|------|------|--------|-----|-------|
+| 16 | TurnStart re-arm | Events.cs | Background → InvokeOnUI | `[EVT-REARM]` | Premature session.idle recovery (PR #375) |
 
-Path #10 fires when `AssistantTurnStartEvent` arrives with `IsProcessing=false` on the
+Path #16 fires when `AssistantTurnStartEvent` arrives with `IsProcessing=false` on the
 current non-orphaned state. This detects premature `session.idle` (SDK sends idle mid-turn
 then continues). Re-arm sets `IsProcessing=true`, restarts the watchdog, and logs `[EVT-REARM]`.
 Does NOT create a new TCS — the old one was already completed with partial content.
+
+> **Note:** EVT-REARM is now a **secondary defense**. The primary fix is IDLE-DEFER (PR #399),
+> which prevents premature completion in the first place by checking `BackgroundTasks`.
+> EVT-REARM remains as defense-in-depth for edge cases where `BackgroundTasks` is null.
+
+### Path that DEFERS completion (IsProcessing stays true)
+
+| Path | File | Tag | Notes |
+|------|------|-----|-------|
+| IDLE-DEFER | Events.cs | `[IDLE-DEFER]` | SessionIdleEvent with active background tasks (PR #399) |
+
+When `HasActiveBackgroundTasks(idle)` returns true (sub-agents or shells running),
+`SessionIdleEvent` flushes text via `FlushCurrentResponse` but does NOT call
+`CompleteResponse`. Processing stays active. The watchdog and future idle events
+(without background tasks) handle eventual completion.
 
 ## Content Persistence Safety
 
@@ -77,7 +102,7 @@ that crash the app. The DB is a write-through cache; `events.jsonl` is the sourc
 and replays on session resume via `BulkInsertAsync`. DB write failures are self-healing.
 **NEVER narrow the ChatDatabase catch filters** — use `catch (Exception ex)` always.
 
-## 13 Invariants
+## 18 Invariants
 
 ### INV-1: Complete state cleanup
 Every IsProcessing=false path clears ALL fields. See checklist above.
@@ -223,6 +248,20 @@ Both the primary reconnect path and the sibling loop must call:
 The primary path was missing these until PR #373 Round 5. Asymmetry between
 the sibling and primary reconnect configs is a recurring bug pattern.
 
+### INV-18: SessionIdleEvent is not always terminal (PR #399)
+`SessionIdleEvent` with active background tasks (`HasActiveBackgroundTasks()` returns true)
+means "foreground quiesced, background still running" — NOT true completion.
+This path:
+1. Cancels the TurnEnd→Idle fallback timer
+2. Flushes accumulated text via `FlushCurrentResponse` (preserves content)
+3. Does **NOT** call `CompleteResponse` — `IsProcessing` stays `true`
+4. Logs `[IDLE-DEFER]` with task counts
+
+The watchdog continues running and will eventually time out if background tasks never
+finish. A subsequent `SessionIdleEvent` without background tasks completes normally.
+**Do NOT** add `IsProcessing = false` to the IDLE-DEFER path — it would prematurely
+complete the response while sub-agents are still working.
+
 ## Top 5 Recurring Mistakes
 
 1. **Incomplete cleanup** — modifying one IsProcessing path without
@@ -271,6 +310,7 @@ When a session shows "Thinking..." indefinitely:
    |---------|-------------|-----|
    | `[SEND]` then silence | SDK never responded, watchdog will catch at 120s | Wait or abort |
    | `[EVT] TurnEnd` but no `[IDLE]` | Zero-idle SDK bug | Watchdog catches at 30s fallback (INV-10) |
+   | `[IDLE-DEFER]` then long silence | Background tasks (sub-agents/shells) active but never completed | Check agent status; watchdog will eventually catch (INV-18) |
    | `[COMPLETE]` fired but spinner persists | UI thread not notified | Check INV-2, INV-8 |
    | `[WATCHDOG]` clears but re-sticks | New turn started before watchdog callback ran | Check INV-3 generation guard |
 
@@ -279,4 +319,5 @@ When a session shows "Thinking..." indefinitely:
 ## Regression History
 
 10 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164 → #276 → #284 → #332.
+Additional safety PRs: #373 (orphaned state guards), #375 (premature idle re-arm), #399 (IDLE-DEFER for background tasks).
 See `references/regression-history.md` for the full timeline with root causes.

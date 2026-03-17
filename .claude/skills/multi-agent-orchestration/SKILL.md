@@ -8,8 +8,10 @@ description: >
   persistence or resume logic, (4) Debugging orchestrator-worker communication failures,
   (5) Adding error handling around worker dispatch or completion, (6) Modifying
   OnSessionComplete coordination or TCS ordering, (7) Working with reflection loop
-  concurrency (semaphores, queued prompts). Covers: 4-phase dispatch lifecycle, restart
-  recovery via PendingOrchestration, worker failure patterns, and connection error handling.
+  concurrency (semaphores, queued prompts), (8) Modifying SessionIdleEvent handling
+  or IDLE-DEFER logic (BackgroundTasks check). Covers: 5-phase dispatch lifecycle,
+  IDLE-DEFER background task guard, restart recovery via PendingOrchestration, worker
+  failure patterns, and connection error handling.
 ---
 
 # Multi-Agent Orchestration — Invariants & Error Recovery
@@ -40,7 +42,7 @@ stuck sessions, and coordination failures.
 
 ---
 
-## The 4-Phase Orchestration Lifecycle
+## The 5-Phase Orchestration Lifecycle
 
 Every orchestrator dispatch (single-pass and reflect) follows these phases:
 
@@ -49,9 +51,10 @@ Every orchestrator dispatch (single-pass and reflect) follows these phases:
 │  Phase 1: PLAN                                                   │
 │  ├── Orchestrator receives user prompt + worker list             │
 │  ├── Builds planning prompt with worker models/descriptions      │
+│  ├── EarlyDispatchOnWorkerBlocks = true (resolve TCS mid-turn)   │
 │  ├── Orchestrator responds with @worker:name task blocks         │
 │  └── ParseTaskAssignments extracts → List<TaskAssignment>        │
-│       └── If no assignments: send nudge → retry parse            │
+│       └── If no assignments: send nudge → retry parse (up to 3x)│
 │           └── If still none: orchestrator handled directly       │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -61,6 +64,7 @@ Every orchestrator dispatch (single-pass and reflect) follows these phases:
 │  ├── SavePendingOrchestration() — BEFORE dispatching             │
 │  ├── Fire OnOrchestratorPhaseChanged(Dispatching)                │
 │  ├── Launch worker tasks in parallel: Task.WhenAll(workers)      │
+│  │   └── Workers staggered with 1s delay between dispatches      │
 │  └── Each worker gets: system prompt + original prompt + task    │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -68,6 +72,7 @@ Every orchestrator dispatch (single-pass and reflect) follows these phases:
 ┌─────────────────────────────────────────────────────────────────┐
 │  Phase 3: COLLECT (WaitingForWorkers)                            │
 │  ├── Await all worker completions (10-min timeout each)          │
+│  ├── WaitForSessionIdleAsync on orchestrator (early dispatch)    │
 │  ├── Collect WorkerResult[] with response, success, duration     │
 │  └── Failed workers: response = error message, success = false   │
 └─────────────────────────────────────────────────────────────────┘
@@ -80,7 +85,24 @@ Every orchestrator dispatch (single-pass and reflect) follows these phases:
 │  ├── ClearPendingOrchestration() — in finally block              │
 │  └── Fire OnOrchestratorPhaseChanged(Complete)                   │
 └─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 5: IDLE-DEFER (Background Task Safety) — PR #399          │
+│  ├── SessionIdleEvent handler checks HasActiveBackgroundTasks()  │
+│  ├── If agents/shells active: flush text, log [IDLE-DEFER],     │
+│  │   and break WITHOUT calling CompleteResponse                  │
+│  └── Only truly idle (no background tasks) → CompleteResponse    │
+│                                                                   │
+│  This prevents premature TCS completion when workers are still   │
+│  running as background agents/shells dispatched by the CLI.      │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+> **Phase 5 (IDLE-DEFER) is not a sequential phase** — it's a guard in the
+> `SessionIdleEvent` handler (Events.cs:622-642) that applies to ALL sessions.
+> It's listed here because it fundamentally changed the premature idle story
+> for orchestrator workers. See **IDLE-DEFER & BackgroundTasks** section below.
 
 ### OrchestratorReflect: Extended Loop
 
@@ -88,14 +110,22 @@ OrchestratorReflect wraps phases 1–4 in a loop with evaluation:
 
 ```
 while (IsActive && !IsPaused && CurrentIteration < MaxIterations):
+    Drain _reflectQueuedPrompts (user messages during loop)
     Phase 1–4 (as above)
     Phase 5: EVALUATE
     ├── With evaluator: score + rationale → RecordEvaluation()
-    └── Self-eval: check for [[GROUP_REFLECT_COMPLETE]] sentinel
+    ├── Self-eval: check for [[GROUP_REFLECT_COMPLETE]] sentinel
+    └── AutoAdjustFromFeedback() detects quality degradation
     Phase 6: STALL DETECTION
-    ├── CheckStall() compares synthesis to previous
+    ├── CheckStall() compares synthesis to previous (Jaccard > 0.9)
     └── 2 consecutive stalls → IsStalled = true → break
 ```
+
+> **Sentinel note**: `ReflectionCycle.cs` defines `CompletionSentinel = "[[REFLECTION_COMPLETE]]"`
+> (used by `IsGoalMet()` regex). The orchestrator prompts in `Organization.cs` use
+> `[[GROUP_REFLECT_COMPLETE]]` for model-facing instructions. Both are checked, but
+> via different mechanisms — `IsGoalMet()` for the ReflectionCycle, string.Contains
+> for orchestrator-level evaluation.
 
 ---
 
@@ -233,24 +263,30 @@ even if dispatch throws. This prevents orphaned pending files.
 `OnSessionComplete` is fired when a session finishes processing (IsProcessing → false).
 Orchestrator loops use this to detect when workers finish.
 
+**Signature**: `event Action<string, string>? OnSessionComplete` — `(sessionName, summary)`
+
 ### Ordering Invariant (from processing-state-safety)
 
-**INV-O3: IsProcessing = false BEFORE TrySetResult**
+**INV-O3: IsProcessing = false BEFORE TrySetResult BEFORE OnSessionComplete**
 
 ```csharp
-// CORRECT ORDER in CompleteResponse:
-state.Info.IsProcessing = false;  // 1. Clear processing state
-OnSessionComplete?.Invoke(name);   // 2. Notify listeners
-tcs.TrySetResult(response);        // 3. Complete TCS (may run sync continuation)
+// CORRECT ORDER in CompleteResponse (Events.cs ~line 1062-1080):
+state.Info.IsProcessing = false;                    // 1. Clear processing state
+state.ResponseCompletion?.TrySetResult(fullResponse);// 2. Complete TCS (may run sync continuation)
+OnSessionComplete?.Invoke(name, summary);            // 3. Notify listeners
+OnStateChanged?.Invoke();                            // 4. UI update
 ```
 
-If TrySetResult runs first, the reflection loop's synchronous continuation may see
-`IsProcessing = true` and fail to send the next prompt.
+If TrySetResult runs before IsProcessing=false, the reflection loop's synchronous
+continuation may see `IsProcessing = true` and fail to send the next prompt.
 
 ### INV-O4: OnSessionComplete fired on ALL termination paths
 
-All 8 paths that clear IsProcessing (see processing-state-safety) must also fire
-OnSessionComplete. Otherwise, orchestrator loops waiting on workers hang forever.
+All paths that clear IsProcessing (currently 19+ across Events.cs, CopilotService.cs,
+Organization.cs, Bridge.cs, and Providers.cs) should fire OnSessionComplete. Otherwise,
+orchestrator loops waiting on workers hang forever. Key invocation sites include:
+CompleteResponse, SessionErrorEvent, watchdog timeout, watchdog crash recovery,
+abort, steer error, and bridge completion.
 
 ---
 
@@ -301,6 +337,7 @@ When modifying orchestration, verify:
 - [ ] **INV-O6**: Phase changes fire OnOrchestratorPhaseChanged for UI updates
 - [ ] **INV-O7**: Worker timeouts use 10-minute default (600s for resumed sessions)
 - [ ] **INV-O8**: Cancellation tokens propagated to all async operations
+- [ ] **INV-O15**: IDLE-DEFER flushes CurrentResponse before breaking (content preservation)
 
 ---
 
@@ -465,7 +502,9 @@ not from live TCS tracking.
 
 **Root cause**: Worker's OnSessionComplete wasn't fired (incomplete cleanup path).
 
-**Mitigation**: Ensure all 9 IsProcessing=false paths fire OnSessionComplete.
+**Mitigation**: Ensure all IsProcessing=false paths fire OnSessionComplete
+(currently 19+ paths across Events.cs, CopilotService.cs, Organization.cs,
+Bridge.cs, and Providers.cs).
 
 ### Bug: Reflection loop processes stale user message
 
@@ -567,7 +606,7 @@ Conflict Tests (PR #375)" region:
 - Verify non-orchestrator sessions still get steered
 - Long-running orchestrator (15min) follow-up must queue
 
-### Bug: Premature session.idle truncates orchestrator results (PR #375)
+### Bug: Premature session.idle truncates orchestrator results (PR #375, FIXED in PR #399)
 
 **Symptom**: CLI sends `session.idle` prematurely mid-turn (after only a few
 tool rounds), then continues processing for 15+ more tool rounds. The
@@ -580,17 +619,104 @@ missing the idle entirely, it sends it too early. The idle arrives, passes all
 generation guards, and CompleteResponse runs with whatever content has been
 flushed so far.
 
-**Partial fix (UI)**: Added re-arm in `AssistantTurnStartEvent` handler: when
-TurnStart arrives with `IsProcessing=false` on the current (non-orphaned) state,
-re-arm IsProcessing, restart watchdog, log as `[EVT-REARM]`. This keeps the UI
-showing "Working…" and the watchdog active.
+**Primary fix (PR #399 — IDLE-DEFER)**: `SessionIdleEvent` handler now checks
+`HasActiveBackgroundTasks(idle)` (Events.cs:629). If `BackgroundTasks.Agents`
+or `BackgroundTasks.Shells` has any entries, the handler flushes accumulated
+text but does NOT call `CompleteResponse` — it breaks early and logs
+`[IDLE-DEFER]`. The next `SessionIdleEvent` without background tasks triggers
+the real completion. This prevents TCS completion with partial content.
 
-**Not fixed**: Orchestrator content truncation. The TCS was already completed
-with partial content before re-arm fires. A future fix could create a NEW TCS
-on re-arm so the orchestrator waits for the real completion. Complex — may
-need separate PR.
+**Defense-in-depth (still active)**:
+- `[EVT-REARM]` (Events.cs:529): `AssistantTurnStartEvent` after premature idle
+  re-arms IsProcessing and sets `PrematureIdleSignal`. Keeps UI showing "Working…".
+- `RecoverFromPrematureIdleIfNeededAsync` (Organization.cs:1759): Polls signal +
+  events.jsonl freshness to collect full response after TCS got partial content.
+- `IsEventsFileActive` (Organization.cs:1946): Checks events.jsonl mtime < 15s.
+
+These defense layers handle edge cases where `BackgroundTasks` data isn't
+present (older CLI versions, or non-agent premature idles).
 
 **Filed**: See GitHub issue for tracking.
+
+---
+
+## IDLE-DEFER & BackgroundTasks (PR #399)
+
+> **This is the primary fix for premature idle in multi-agent workers.**
+> Before PR #399, premature `session.idle` events caused truncated worker
+> responses. The defense-in-depth layers (`EVT-REARM`, `RecoverFromPrematureIdleIfNeededAsync`)
+> mitigated but didn't fully fix the problem for orchestrator TCS completion.
+
+### How It Works
+
+The CLI's `SessionIdleEvent` now includes a `Data.BackgroundTasks` object with:
+- `Agents` — array of active background agent processes
+- `Shells` — array of active shell/terminal processes
+
+When a worker uses `task` tool to dispatch sub-agents, or runs shell commands,
+these appear as background tasks. A `session.idle` with active background tasks
+means "foreground processing quiesced, but background work is ongoing."
+
+### Code Path (Events.cs:622-642)
+
+```csharp
+case SessionIdleEvent idle:
+    CancelTurnEndFallback(state);
+    
+    if (HasActiveBackgroundTasks(idle))
+    {
+        Debug($"[IDLE-DEFER] ...");
+        Invoke(() => {
+            if (state.IsOrphaned) return;
+            FlushCurrentResponse(state);  // Preserve accumulated text
+            NotifyStateChangedCoalesced();
+        });
+        break; // Do NOT call CompleteResponse
+    }
+    
+    // Only reach here when truly idle (no background tasks)
+    CompleteResponse(state, idleGeneration);
+```
+
+### HasActiveBackgroundTasks (Events.cs:1856-1861)
+
+```csharp
+internal static bool HasActiveBackgroundTasks(SessionIdleEvent idle)
+{
+    var bt = idle.Data?.BackgroundTasks;
+    if (bt == null) return false;
+    return (bt.Agents is { Length: > 0 }) || (bt.Shells is { Length: > 0 });
+}
+```
+
+### Impact on Multi-Agent Orchestration
+
+1. **Workers dispatching sub-agents**: Previously, these would trigger premature
+   completion when the foreground quiesced. Now correctly deferred.
+2. **Workers running shell commands**: Same — deferred until shells complete.
+3. **TCS ordering**: The `ResponseCompletion` TCS is no longer completed with
+   partial content for the common case. Only edge cases (old CLI, missing
+   BackgroundTasks data) fall through to the defense-in-depth layers.
+4. **Content preservation**: `FlushCurrentResponse` is called on each deferred
+   idle, ensuring accumulated text is preserved even if the app restarts.
+
+### INV-O15: IDLE-DEFER Must Flush Before Breaking
+
+The `FlushCurrentResponse(state)` call inside the IDLE-DEFER block is critical.
+Without it, accumulated response text in `state.CurrentResponse` would be lost
+if another idle event arrives or the app restarts. The flush preserves content
+into `state.FlushedResponse` and chat history.
+
+### Defense-in-Depth Layers (Still Active)
+
+These layers remain as fallbacks for edge cases where IDLE-DEFER doesn't fire:
+
+| Layer | Mechanism | When It Helps |
+|-------|-----------|---------------|
+| `[EVT-REARM]` | Re-arm IsProcessing on TurnStart after idle | Old CLI without BackgroundTasks |
+| `PrematureIdleSignal` | ManualResetEventSlim set on re-arm | Signals ExecuteWorkerAsync to recover |
+| `RecoverFromPrematureIdleIfNeededAsync` | Poll signal + events.jsonl freshness | Collect full response after partial TCS |
+| `IsEventsFileActive` | events.jsonl mtime < 15s | Detect ongoing CLI activity |
 
 ---
 
@@ -665,8 +791,8 @@ for w in 1 2 3 4 5; do
   [[ -n "$last" ]] && echo "W$w: $last"
 done
 
-# 3. Any completions?
-grep "$GROUP" ~/.polypilot/event-diagnostics.log | grep -E "IDLE|COMPLETE|DISPATCH.*completed" | tail -10
+# 3. Any completions or deferred idles?
+grep "$GROUP" ~/.polypilot/event-diagnostics.log | grep -E "IDLE|IDLE-DEFER|COMPLETE|DISPATCH.*completed" | tail -10
 
 # 4. Any errors?
 grep "$GROUP" ~/.polypilot/event-diagnostics.log | grep -E "ERROR|WATCHDOG" | tail -5
@@ -678,7 +804,7 @@ cat ~/.polypilot/pending-orchestration.json 2>/dev/null | head -3 || echo "(empt
 ### Monitoring Orchestrator Dispatch
 
 ```bash
-grep "DISPATCH" ~/.polypilot/event-diagnostics.log | grep "$GROUP" | tail -20
+grep "DISPATCH\|IDLE-DEFER" ~/.polypilot/event-diagnostics.log | grep "$GROUP" | tail -20
 ```
 
 **Expected sequence for N-worker dispatch:**
@@ -700,7 +826,8 @@ grep "DISPATCH" ~/.polypilot/event-diagnostics.log | grep "$GROUP" | tail -20
 
 **Signs of healthy worker:**
 - TurnStart/TurnEnd pairs cycling every 2-30 seconds (tool rounds)
-- Eventually a SessionIdleEvent → CompleteResponse → COMPLETE sequence
+- `[IDLE-DEFER]` entries when worker has active sub-agents (expected, not stuck)
+- Eventually a SessionIdleEvent (no background tasks) → CompleteResponse → COMPLETE
 - No [ERROR] or [WATCHDOG] entries
 
 **Signs of stuck worker:**
@@ -743,9 +870,10 @@ Reflect mode runs multiple iterations. Expect this pattern:
 
 2. **Worker Execution Phase**:
    - [ ] Each worker actively processes (TurnStart/TurnEnd cycling)
+   - [ ] Workers with sub-agents show [IDLE-DEFER] entries (expected)
    - [ ] Watchdog Case B correctly defers when events.jsonl is fresh
    - [ ] No [ERROR] entries
-   - [ ] Each worker eventually gets SessionIdleEvent → CompleteResponse
+   - [ ] Each worker eventually gets SessionIdleEvent (no BackgroundTasks) → CompleteResponse
 
 3. **Collection Phase**:
    - [ ] After ALL workers complete, orchestrator synthesis triggered
@@ -783,6 +911,8 @@ Reflect mode runs multiple iterations. Expect this pattern:
 | PendingOrchestration stale | `cat ~/.polypilot/pending-orchestration.json` | Finally block didn't run; check for crash |
 | All sessions die after reconnect | Check [RECONNECT] entries | IsOrphaned not set; see INV-O9 |
 | Orchestration hangs on reconnect | Check for missing TrySetCanceled | TCS not canceled; see INV-O9 |
+| Many IDLE-DEFER entries | `grep "IDLE-DEFER" diagnostics.log` | Normal — worker has active sub-agents; wait for completion |
+| IDLE-DEFER but worker never completes | Check if background tasks are leaking | Sub-agent/shell not terminating; check CLI logs |
 
 ---
 

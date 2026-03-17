@@ -175,7 +175,7 @@ When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in
 6. `ToolExecutionCompleteEvent` → tool done, increments `ToolCallCount`
 7. `AssistantIntentEvent` → intent/plan updates
 8. `AssistantTurnEndEvent` → end of a sub-turn, tool loop continues. `FlushCurrentResponse` persists accumulated text before the next sub-turn.
-9. `SessionIdleEvent` → turn complete, response finalized
+9. `SessionIdleEvent` → turn complete, response finalized. **Unless** `Data.BackgroundTasks` has active agents/shells — then flushes text, logs `[IDLE-DEFER]`, and keeps `IsProcessing=true` (PR #399).
 
 ### Processing Status Indicator
 `AgentSessionInfo` tracks three fields for the processing status UI:
@@ -188,10 +188,10 @@ All three are reset in `SendPromptAsync` (new turn) and cleared in `CompleteResp
 The UI shows: "Sending…" → "Server connected…" → "Thinking…" → "Working · Xm Xs · N tool calls…".
 
 ### Abort Behavior
-`AbortSessionAsync` must clear ALL processing state — see `.claude/skills/processing-state-safety/SKILL.md` for the full cleanup checklist and the 8 paths that clear `IsProcessing`.
+`AbortSessionAsync` must clear ALL processing state — see `.claude/skills/processing-state-safety/SKILL.md` for the full cleanup checklist and the paths that clear `IsProcessing`.
 
 ### ⚠️ IsProcessing Cleanup Invariant
-**CRITICAL**: Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (7 PRs of fix/regression cycles). **Read `.claude/skills/processing-state-safety/SKILL.md` before modifying ANY processing path.** There are 8 such paths across CopilotService.cs, Events.cs, and Bridge.cs.
+**CRITICAL**: Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (13 PRs of fix/regression cycles). **Read `.claude/skills/processing-state-safety/SKILL.md` before modifying ANY processing path.** There are 15+ such paths across CopilotService.cs, Events.cs, Bridge.cs, Organization.cs, and Providers.cs.
 
 ### Content Persistence
 `FlushCurrentResponse` is also called on `AssistantTurnEndEvent` to persist accumulated response text at each sub-turn boundary. This prevents content loss if the app restarts between `turn_end` and `session.idle` (e.g., "zero-idle sessions" where the SDK never emits `session.idle`). The flush includes a dedup guard to prevent duplicate messages from event replay on resume.
@@ -214,6 +214,7 @@ The event diagnostics log (`~/.polypilot/event-diagnostics.log`) uses these tags
 - `[SEND]` — prompt sent, IsProcessing set to true
 - `[EVT]` — SDK event received (only SessionIdleEvent, AssistantTurnEndEvent, SessionErrorEvent)
 - `[IDLE]` — SessionIdleEvent dispatched to CompleteResponse
+- `[IDLE-DEFER]` — SessionIdleEvent deferred due to active background tasks (agents/shells)
 - `[COMPLETE]` — CompleteResponse executed or skipped
 - `[RECONNECT]` — session replaced after disconnect
 - `[ERROR]` — SessionErrorEvent or SendAsync/reconnect failure cleared IsProcessing
@@ -307,6 +308,7 @@ Test files in `PolyPilot.Tests/`:
 - `ToolResultFormattingTests.cs` — Tool output formatting
 - `UiStatePersistenceTests.cs` — UI state save/load
 - `ProcessingWatchdogTests.cs` — Watchdog constants, timeout selection, HasUsedToolsThisTurn, IsResumed, abort clears queue and processing status
+- `BackgroundTasksIdleTests.cs` — IDLE-DEFER background tasks handling, HasActiveBackgroundTasks
 - `CliPathResolutionTests.cs` — CLI path resolution
 - `InitializationModeTests.cs` — Mode initialization
 - `PersistentModeTests.cs` — Persistent mode behavior
