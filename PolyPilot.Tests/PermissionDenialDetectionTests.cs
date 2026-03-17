@@ -249,6 +249,32 @@ public class PermissionDenialDetectionTests
         Assert.Contains("/mcp reload", source);
     }
 
+    [Fact]
+    public void ReloadMcpServersAsync_ExistsOnService_WithSessionNameParam()
+    {
+        // STRUCTURAL: The public API must accept a session name, not create a new session
+        var method = typeof(CopilotService).GetMethod(
+            "ReloadMcpServersAsync",
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(method);
+        var parameters = method.GetParameters();
+        Assert.Single(parameters);
+        Assert.Equal(typeof(string), parameters[0].ParameterType);
+        Assert.Equal("sessionName", parameters[0].Name);
+    }
+
+    [Fact]
+    public void ReloadMcpServersAsync_PreservesHistoryInPlace()
+    {
+        // STRUCTURAL REGRESSION GUARD: ReloadMcpServersAsync must replace the SDK session
+        // in-place using _sessions[sessionName] = newState (preserving AgentSessionInfo/history).
+        // It must NOT call CreateSessionAsync with a renamed session (which loses history).
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        Assert.Contains("_sessions[sessionName] = newState", source);
+        Assert.Contains("Info = state.Info", source);
+    }
+
     private static string GetRepoRoot()
     {
         var dir = AppContext.BaseDirectory;
