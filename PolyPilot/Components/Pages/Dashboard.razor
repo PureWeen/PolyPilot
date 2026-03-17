@@ -1882,7 +1882,7 @@
                 break;
 
             case "reload":
-                session.History.Add(ChatMessage.SystemMessage("🔄 Reloading MCP servers — creating a new session with fresh configuration..."));
+                session.History.Add(ChatMessage.SystemMessage("🔄 Reloading MCP servers — replacing SDK session in-place (history preserved)..."));
                 _ = ReloadMcpServersAsync(session);
                 break;
 
@@ -1900,6 +1900,7 @@
             // while preserving all chat history in the existing AgentSessionInfo.
             await CopilotService.ReloadMcpServersAsync(session.Name);
 
+            if (_disposed) return;
             session.History.Add(ChatMessage.SystemMessage(
                 "✅ MCP servers reloaded. A fresh connection was established — your conversation history is preserved.\n\n" +
                 "You can re-send your last prompt to continue where you left off."));
@@ -1909,9 +1910,13 @@
         }
         catch (Exception ex)
         {
+            if (_disposed) return;
             var isMcpRelated = CopilotService.IsMcpError(ex.Message);
-            var errorMsg = $"Failed to reload MCP servers: {ex.Message}";
-            if (isMcpRelated)
+            var isConcurrent = ex.Message.Contains("already in progress", StringComparison.OrdinalIgnoreCase);
+            var errorMsg = isConcurrent
+                ? "⚠️ MCP reload already in progress — please wait for it to complete."
+                : $"Failed to reload MCP servers: {ex.Message}";
+            if (!isConcurrent && isMcpRelated)
             {
                 errorMsg += "\n\n**Troubleshooting tips:**\n" +
                     "- Check that MCP server processes are running (e.g., `npx`, `node`, `python`)\n" +

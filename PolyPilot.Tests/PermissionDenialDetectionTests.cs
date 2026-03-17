@@ -267,12 +267,34 @@ public class PermissionDenialDetectionTests
     public void ReloadMcpServersAsync_PreservesHistoryInPlace()
     {
         // STRUCTURAL REGRESSION GUARD: ReloadMcpServersAsync must replace the SDK session
-        // in-place using _sessions[sessionName] = newState (preserving AgentSessionInfo/history).
+        // in-place using _sessions.TryUpdate (preserving AgentSessionInfo/history).
         // It must NOT call CreateSessionAsync with a renamed session (which loses history).
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
-        Assert.Contains("_sessions[sessionName] = newState", source);
+        Assert.Contains("_sessions.TryUpdate(sessionName, newState, state)", source);
         Assert.Contains("Info = state.Info", source);
+    }
+
+    [Fact]
+    public void ReloadMcpServersAsync_ThrowsOnConcurrentReload()
+    {
+        // STRUCTURAL: Concurrent reload must throw (not silently succeed) so the Dashboard
+        // can display an honest error message instead of a false "✅ reloaded" confirmation.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        // The guard must throw, not return silently
+        Assert.Contains("throw new InvalidOperationException(\"MCP reload is already in progress", source);
+    }
+
+    [Fact]
+    public void ReloadMcpServersAsync_ClearsPermissionDenials()
+    {
+        // STRUCTURAL: Reload must clear the sliding window denial count so stale denials
+        // from the broken MCP session don't immediately re-trigger TryRecoverPermissionAsync
+        // on the very first tool error in the fresh session.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        Assert.Contains("ClearPermissionDenials()", source);
     }
 
     private static string GetRepoRoot()

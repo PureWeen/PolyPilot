@@ -1521,7 +1521,7 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>
     /// Load MCP server configurations for per-session registration via SessionConfig.McpServers.
     /// Merges servers from ~/.copilot/mcp-servers.json, ~/.copilot/mcp-config.json, and installed plugins.
-    /// Returns McpLocalServerConfig objects that the SDK can serialize properly.
+    /// Returns McpLocalServerConfig or McpRemoteServerConfig objects that the SDK can serialize properly.
     /// Skips servers in the disabled list.
     /// </summary>
     internal static Dictionary<string, object>? LoadMcpServers(IReadOnlyCollection<string>? disabledServers = null, IReadOnlyCollection<string>? disabledPlugins = null)
@@ -1787,9 +1787,48 @@ The user can also check configured servers with the /mcp command.
     }
 
     /// <summary>
-    /// Parse a JSON element into a McpLocalServerConfig so the SDK serializes it correctly.
+    /// Parse a JSON element into the appropriate MCP server config type.
+    /// HTTP-type servers (with "type": "http" or a "url" property) use McpRemoteServerConfig.
+    /// Command-based servers use McpLocalServerConfig with a default CWD to prevent
+    /// child process ENOENT crashes when the headless server's CWD is invalid.
     /// </summary>
-    private static McpLocalServerConfig ParseMcpServerConfig(JsonElement element)
+    private static object ParseMcpServerConfig(JsonElement element)
+    {
+        var isRemote = false;
+        if (element.TryGetProperty("type", out var typeEl))
+        {
+            var typeStr = typeEl.GetString() ?? "";
+            if (typeStr.Equals("http", StringComparison.OrdinalIgnoreCase) ||
+                typeStr.Equals("sse", StringComparison.OrdinalIgnoreCase))
+                isRemote = true;
+        }
+        if (!isRemote && element.TryGetProperty("url", out _))
+            isRemote = true;
+
+        if (isRemote)
+            return ParseRemoteMcpServerConfig(element);
+        return ParseLocalMcpServerConfig(element);
+    }
+
+    private static McpRemoteServerConfig ParseRemoteMcpServerConfig(JsonElement element)
+    {
+        var config = new McpRemoteServerConfig();
+        if (element.TryGetProperty("url", out var url))
+            config.Url = url.GetString() ?? "";
+        if (element.TryGetProperty("headers", out var headers) && headers.ValueKind == JsonValueKind.Object)
+            config.Headers = headers.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString() ?? "");
+        if (element.TryGetProperty("type", out var type))
+            config.Type = type.GetString() ?? "";
+        if (element.TryGetProperty("tools", out var tools) && tools.ValueKind == JsonValueKind.Array)
+            config.Tools = tools.EnumerateArray().Select(t => t.GetString() ?? "").ToList();
+        else
+            config.Tools = new List<string> { "*" }; // Default to all tools when not specified
+        if (element.TryGetProperty("timeout", out var timeout) && timeout.TryGetInt32(out var tv))
+            config.Timeout = tv;
+        return config;
+    }
+
+    private static McpLocalServerConfig ParseLocalMcpServerConfig(JsonElement element)
     {
         var config = new McpLocalServerConfig();
         if (element.TryGetProperty("command", out var cmd))
@@ -1800,10 +1839,16 @@ The user can also check configured servers with the /mcp command.
             config.Env = env.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString() ?? "");
         if (element.TryGetProperty("cwd", out var cwd))
             config.Cwd = cwd.GetString() ?? "";
+        // Default CWD to home directory to prevent ENOENT uv_cwd crashes when the
+        // headless server's CWD is an invalid/deleted directory (e.g., staging path).
+        if (string.IsNullOrEmpty(config.Cwd))
+            config.Cwd = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (element.TryGetProperty("type", out var type))
             config.Type = type.GetString() ?? "";
         if (element.TryGetProperty("tools", out var tools) && tools.ValueKind == JsonValueKind.Array)
             config.Tools = tools.EnumerateArray().Select(t => t.GetString() ?? "").ToList();
+        else
+            config.Tools = new List<string> { "*" }; // Default to all tools when not specified
         if (element.TryGetProperty("timeout", out var timeout) && timeout.TryGetInt32(out var tv))
             config.Timeout = tv;
         return config;
@@ -3871,27 +3916,38 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (IsRemoteMode)
             throw new InvalidOperationException("MCP reload is not supported in Remote mode.");
 
-        // Guard against concurrent reloads (e.g., user double-clicks /mcp reload)
+        // Guard against concurrent reloads (e.g., user double-clicks /mcp reload).
+        // Throw instead of silent return so the caller (Dashboard) can show an honest message.
         if (!_recoveryInProgress.TryAdd(sessionName, true))
         {
-            Debug($"[MCP-RELOAD] Reload already in progress for '{sessionName}', ignoring duplicate request");
-            return;
+            Debug($"[MCP-RELOAD] Reload already in progress for '{sessionName}', rejecting duplicate request");
+            throw new InvalidOperationException("MCP reload is already in progress for this session. Please wait.");
         }
         try
         {
-            // Abort any in-progress processing first
+            // Abort any in-progress processing. Must run on the UI thread (INV-1/INV-2) to
+            // safely mutate IsProcessing and all companion fields.
             if (state.Info.IsProcessing)
             {
                 try { await state.Session?.AbortAsync()!; } catch { }
-                FlushCurrentResponse(state);
-                state.Info.IsProcessing = false;
-                state.Info.ProcessingStartedAt = null;
-                state.Info.ToolCallCount = 0;
-                state.Info.ProcessingPhase = 0;
+                await InvokeOnUIAsync(() =>
+                {
+                    FlushCurrentResponse(state);
+                    state.Info.IsProcessing = false;
+                    state.Info.IsResumed = false;
+                    state.HasUsedToolsThisTurn = false;
+                    Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+                    Interlocked.Exchange(ref state.SendingFlag, 0);
+                    state.Info.ProcessingStartedAt = null;
+                    state.Info.ToolCallCount = 0;
+                    state.Info.ProcessingPhase = 0;
+                    state.Info.ClearPermissionDenials();
+                });
             }
 
             // Mark old state as orphaned BEFORE disposal so stale event callbacks from the
-            // disposed SDK session bail out and don't corrupt the shared AgentSessionInfo.
+            // disposed SDK session bail out (via IsOrphaned guard in HandleSessionEvent)
+            // and don't corrupt the shared AgentSessionInfo.
             state.IsOrphaned = true;
 
             // Dispose old SDK session
@@ -3907,7 +3963,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // Create new SDK session (fresh session ID, fresh MCP server initialization)
             var newSdkSession = await _client.CreateSessionAsync(freshConfig);
 
-            // Build new SessionState reusing the existing AgentSessionInfo (preserves history)
+            // Build new SessionState reusing the existing AgentSessionInfo (preserves history).
+            // Update SessionId and IsResumed BEFORE publishing to the dictionary so event
+            // handlers never see a stale SessionId on the shared Info object.
+            state.Info.SessionId = newSdkSession.SessionId;
+            state.Info.IsResumed = false;
+
             var newState = new SessionState
             {
                 Session = newSdkSession,
@@ -3917,14 +3978,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             Interlocked.Exchange(ref newState.ProcessingGeneration, Interlocked.Read(ref state.ProcessingGeneration));
             newState.IsMultiAgentSession = state.IsMultiAgentSession;
 
-            // Replace in sessions dictionary BEFORE registering event handler
+            // Register event handler BEFORE publishing to the dictionary (INV-16) so no
+            // events from the new session are dropped in the window between publish and register.
             DisposePrematureIdleSignal(state);
-            _sessions[sessionName] = newState;
             newSdkSession.On(evt => HandleSessionEvent(newState, evt));
 
-            // Update the session ID in AgentSessionInfo so watchdog and diagnostics use the new one
-            state.Info.SessionId = newSdkSession.SessionId;
-            state.Info.IsResumed = false;
+            // Atomically replace the old state. TryUpdate ensures we don't silently overwrite
+            // a concurrent replacement (INV-15). If another path already swapped the state,
+            // log and bail — the concurrent replacement takes priority.
+            if (!_sessions.TryUpdate(sessionName, newState, state))
+            {
+                Debug($"[MCP-RELOAD] '{sessionName}' TryUpdate missed — concurrent replacement; aborting new session");
+                try { await newSdkSession.DisposeAsync(); } catch { }
+                return;
+            }
 
             // Persist the new session ID so a crash after reload doesn't leave active-sessions.json
             // pointing at the old (dead) SDK session ID.
