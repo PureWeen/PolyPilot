@@ -530,9 +530,13 @@ public partial class CopilotService : IAsyncDisposable
 
     private void StartKeepalivePing()
     {
-        StopKeepalivePing();
         var cts = new CancellationTokenSource();
-        _keepaliveCts = cts;
+        var prev = Interlocked.Exchange(ref _keepaliveCts, cts);
+        if (prev != null)
+        {
+            try { prev.Cancel(); } catch { }
+            prev.Dispose();
+        }
         _ = RunKeepalivePingAsync(cts.Token);
     }
 
@@ -1092,6 +1096,7 @@ public partial class CopilotService : IAsyncDisposable
             Debug("[SERVER-RECOVERY] Attempting persistent server recovery (auth/connectivity failure suspected)...");
 
             // Stop the old server — it's running but broken (e.g., expired auth token cached in-process)
+            StopKeepalivePing();
             _serverManager.StopServer();
 
             // Wait for the old server to fully release the port
@@ -1125,6 +1130,7 @@ public partial class CopilotService : IAsyncDisposable
             FallbackNotice = "Persistent server was automatically restarted due to repeated failures. Your sessions should work again.";
             Interlocked.Exchange(ref _consecutiveWatchdogTimeouts, 0);
             _lastRecoveryCompletedAt = DateTime.UtcNow;
+            StartKeepalivePing();
             InvokeOnUI(() => OnStateChanged?.Invoke());
             return true;
         }
@@ -1162,6 +1168,7 @@ public partial class CopilotService : IAsyncDisposable
         {
             Debug("[SERVER-RESTART] Restarting headless server due to native module failure...");
             ServerHealthNotice = null;
+            StopKeepalivePing();
 
             // 1. Dispose all existing sessions (they hold broken connections)
             foreach (var state in _sessions.Values)
@@ -1231,6 +1238,7 @@ public partial class CopilotService : IAsyncDisposable
             await RestorePreviousSessionsAsync(cancellationToken);
             FlushSaveActiveSessionsToDisk();
             ReconcileOrganization();
+            StartKeepalivePing();
             OnStateChanged?.Invoke();
 
             Debug("[SERVER-RESTART] Server restart complete, all sessions restored");
