@@ -1894,17 +1894,31 @@
 
     private async Task ReloadMcpServersAsync(AgentSessionInfo session)
     {
+        // Strip any existing " (reloaded ...)" suffix to avoid stacking on repeated reloads
+        var baseName = session.Name;
+        var reloadedIdx = baseName.IndexOf(" (reloaded", StringComparison.Ordinal);
+        if (reloadedIdx > 0) baseName = baseName[..reloadedIdx];
+
+        // Add a unique suffix to avoid collision if the user reloads multiple times
+        var newName = baseName + " (reloaded)";
+        var counter = 2;
+        while (CopilotService.GetSession(newName) != null)
+            newName = $"{baseName} (reloaded {counter++})";
+
         try
         {
             var newSession = await CopilotService.CreateSessionAsync(
-                session.Name + " (reloaded)",
+                newName,
                 model: session.Model,
                 workingDirectory: session.WorkingDirectory);
 
-            // Add the success message to the NEW session so the user sees it after switching
+            // Add the success message to the NEW session so the user sees it after switching.
+            // Note: a new session is required because the SDK does not support reloading MCP
+            // servers within an existing session — new sessions pick up fresh configs from disk.
             newSession.History.Add(ChatMessage.SystemMessage(
-                $"✅ Session created with fresh MCP server configuration.\n\n" +
-                "MCP servers have been reloaded from disk. You can re-send your previous prompt here."));
+                $"✅ New session created with fresh MCP server configuration.\n\n" +
+                "MCP servers have been reloaded from disk. You can re-send your previous prompt here.\n\n" +
+                "_A new session was created because the SDK loads MCP configs once at session start._"));
             newSession.MessageCount = newSession.History.Count;
 
             // Switch to the new session
@@ -1916,12 +1930,18 @@
         }
         catch (Exception ex)
         {
-            session.History.Add(ChatMessage.ErrorMessage(
-                $"Failed to reload MCP servers: {ex.Message}\n\n" +
-                "**Troubleshooting tips:**\n" +
-                "- Check that MCP server processes are running (e.g., `npx`, `node`, `python`)\n" +
-                "- Verify your MCP config at `~/.copilot/mcp-servers.json` or `~/.copilot/mcp-config.json`\n" +
-                "- Try Settings → Save & Reconnect to fully restart the connection"));
+            // Only show MCP-specific troubleshooting tips for MCP errors;
+            // for other errors (e.g., connection issues), show a generic message.
+            var isMcpRelated = CopilotService.IsMcpError(ex.Message);
+            var errorMsg = $"Failed to create reloaded session: {ex.Message}";
+            if (isMcpRelated)
+            {
+                errorMsg += "\n\n**Troubleshooting tips:**\n" +
+                    "- Check that MCP server processes are running (e.g., `npx`, `node`, `python`)\n" +
+                    "- Verify your MCP config at `~/.copilot/mcp-servers.json` or `~/.copilot/mcp-config.json`\n" +
+                    "- Try Settings → Save & Reconnect to fully restart the connection";
+            }
+            session.History.Add(ChatMessage.ErrorMessage(errorMsg));
             session.MessageCount = session.History.Count;
             _needsScrollToBottom = true;
             await InvokeAsync(SafeRefreshAsync);
