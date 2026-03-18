@@ -439,3 +439,61 @@
     content: "👷 ";
     font-size: 0.85em;
 }
+
+/* === Last user prompt subtitle === */
+.session-last-prompt {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: var(--type-caption1, 0.65rem);
+    color: var(--text-dim);
+    font-style: italic;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    margin-top: 0.1rem;
+    opacity: 0.85;
+}
+
+.session-last-prompt .attention-icon {
+    font-style: normal;
+    flex-shrink: 0;
+    font-size: var(--type-footnote);
+}
+
+.session-last-prompt span:nth-child(2) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.session-age {
+    font-size: var(--type-caption1, 0.6rem);
+    color: var(--text-dim);
+    opacity: 0.6;
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-style: normal;
+    margin-left: auto;
+}
+
+.session-age-only {
+    font-size: var(--type-caption1, 0.6rem);
+    color: var(--text-dim);
+    opacity: 0.55;
+    margin-top: 0.1rem;
+}
+
+/* Strengthen busy state border */
+.session-item.busy {
+    border-left: 4px solid #fbbf24;
+}
+
+/* NeedsAttention state — agent asked a question */
+.session-item.needs-attention {
+    border-left: 4px solid #ffcc00;
+    background: rgba(255, 204, 0, 0.05);
+}

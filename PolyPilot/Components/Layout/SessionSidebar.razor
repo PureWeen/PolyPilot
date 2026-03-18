@@ -1086,6 +1086,104 @@ else
                     }
                 }
             }
+
+            @{
+                // Show all external sessions including Ended (dimmed) so the user can resume them
+                var externalSessions = CopilotService.ExternalSessions.ToList();
+            }
+            @if (externalSessions.Any())
+            {
+                <div class="sidebar-divider"></div>
+                <div class="section-header" @onclick="ToggleExternalSessions" style="cursor: pointer;">
+                    <span class="section-header-label">🔭 External Sessions (@externalSessions.Count)</span>
+                    <span class="toggle-icon">@(showExternalSessions ? "▼" : "▶")</span>
+                </div>
+
+                @if (showExternalSessions)
+                {
+                    @foreach (var ext in externalSessions)
+                    {
+                        var extStatusClass = ext.Tier switch
+                        {
+                            ExternalSessionTier.Active => ext.NeedsAttention ? "ext-needs-attention" : "ext-active",
+                            ExternalSessionTier.Idle => "ext-idle",
+                            _ => "ext-ended"
+                        };
+                        var extBadge = ext.Tier switch
+                        {
+                            ExternalSessionTier.Active => "🟢",
+                            ExternalSessionTier.Idle => "💤",
+                            _ => "⏹"
+                        };
+                        var extBadgeTitle = ext.Tier switch
+                        {
+                            ExternalSessionTier.Active => "Running — CLI process is active",
+                            ExternalSessionTier.Idle => "Idle — no recent activity, process may still be open",
+                            _ => "Exited — CLI has closed, click send to reopen in PolyPilot"
+                        };
+
+                        <div class="session-item external-session-item @extStatusClass">
+                            <div class="session-info">
+                                <div class="session-name-row">
+                                    <span class="ext-status-dot @extStatusClass"></span>
+                                    <span class="session-name">@ext.DisplayName</span>
+                                    <span class="ext-observer-badge" title="@extBadgeTitle">@extBadge</span>
+                                </div>
+                                <div class="session-meta-row">
+                                    <div class="session-meta-left">
+                                        @if (!string.IsNullOrEmpty(ext.WorkingDirectory))
+                                        {
+                                            <span class="session-meta-dir" title="@ext.WorkingDirectory">@GetShortPath(ext.WorkingDirectory)</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(ext.GitBranch))
+                                        {
+                                            <span class="session-meta-branch"> @ext.GitBranch</span>
+                                        }
+                                    </div>
+                                    <span class="session-meta-time">@GetSidebarRelativeAge(ext.LastEventTime)</span>
+                                </div>
+                                @if (ext.NeedsAttention)
+                                {
+                                    <div class="ext-sidebar-attention">💬 Awaiting response</div>
+                                }
+
+                                @if (ext.Tier != ExternalSessionTier.Active)
+                                {
+                                    <div class="ext-sidebar-send-row">
+                                        <input type="text"
+                                               class="ext-sidebar-input"
+                                               placeholder="Send to reopen in PolyPilot…"
+                                               value="@(_externalInputs.GetValueOrDefault(ext.SessionId, ""))"
+                                               @oninput="e => _externalInputs[ext.SessionId] = e.Value?.ToString() ?? string.Empty"
+                                               @onkeyup="e => HandleExternalKeyUp(e, ext)"
+                                               @onclick:stopPropagation="true"
+                                               disabled="@isExternalResuming" />
+                                        <button class="ext-sidebar-send-btn"
+                                                @onclick="() => SendExternalMessage(ext)"
+                                                @onclick:stopPropagation="true"
+                                                title="CLI has exited — send a message to reopen this session in PolyPilot"
+                                                disabled="@(!HasExternalInput(ext.SessionId) || isExternalResuming)">↑</button>
+                                    </div>
+                                    @if (confirmExternalResumeId == ext.SessionId && !string.IsNullOrEmpty(externalResumeError))
+                                    {
+                                        <div class="resume-error">⚠ @externalResumeError</div>
+                                    }
+                                }
+                                else if (ext.ActiveLockPid.HasValue && WindowFocusHelper.IsSupported)
+                                {
+                                    <div class="ext-sidebar-send-row">
+                                        <button class="ext-sidebar-focus-btn"
+                                                @onclick="() => FocusExternalTerminal(ext)"
+                                                @onclick:stopPropagation="true"
+                                                disabled="@(_focusingExternal == ext.SessionId)"
+                                                title="CLI is running — click to bring its terminal window into focus">📺 Focus Terminal</button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            }
         </div>
     };
 
@@ -1097,6 +1195,7 @@ else
     private string? createError = null;
     private readonly Dictionary<string, string?> _codespaceErrors = new();
     private bool showPersistedSessions = false;
+    private bool showExternalSessions = true; // auto-expand when external sessions exist
     private string? renamingSession = null;
     private string? renamingGroupId = null;
     private string? confirmResumeId = null;
@@ -1352,6 +1451,69 @@ else
     {
         showPersistedSessions = !showPersistedSessions;
         if (showPersistedSessions) LoadPersistedSessions();
+    }
+
+    private void ToggleExternalSessions() => showExternalSessions = !showExternalSessions;
+
+    private string? confirmExternalResumeId; // reused for error display only
+    private bool isExternalResuming;
+    private string? externalResumeError;
+    private readonly Dictionary<string, string> _externalInputs = new();
+
+    private bool HasExternalInput(string sessionId) =>
+        _externalInputs.TryGetValue(sessionId, out var v) && !string.IsNullOrWhiteSpace(v);
+
+    private async Task HandleExternalKeyUp(KeyboardEventArgs e, ExternalSessionInfo ext)
+    {
+        if (e.Key == "Enter" && HasExternalInput(ext.SessionId))
+            await SendExternalMessage(ext);
+    }
+
+    private async Task SendExternalMessage(ExternalSessionInfo ext)
+    {
+        if (!_externalInputs.TryGetValue(ext.SessionId, out var prompt) || string.IsNullOrWhiteSpace(prompt))
+            return;
+
+        isExternalResuming = true;
+        externalResumeError = null;
+        confirmExternalResumeId = ext.SessionId; // track which session shows error
+        try
+        {
+            _externalInputs[ext.SessionId] = "";
+            await CopilotService.ResumeExternalAndSendAsync(ext, prompt.Trim());
+            confirmExternalResumeId = null;
+            await OnSessionSelected.InvokeAsync();
+            if (currentPage != "/") Nav.NavigateTo("/");
+        }
+        catch (Exception ex)
+        {
+            externalResumeError = ex.Message.Length > 120 ? ex.Message[..120] + "…" : ex.Message;
+        }
+        finally
+        {
+            isExternalResuming = false;
+        }
+    }
+
+    private string? _focusingExternal; // session ID currently being focused
+
+    private async Task FocusExternalTerminal(ExternalSessionInfo ext)
+    {
+        if (ext.ActiveLockPid is not { } pid) return;
+        if (_focusingExternal == ext.SessionId) return; // debounce double-clicks
+        _focusingExternal = ext.SessionId;
+        StateHasChanged();
+        try { await Task.Run(() => CopilotService.FocusExternalSessionTerminal(pid)); }
+        finally { _focusingExternal = null; }
+    }
+
+    private static string GetSidebarRelativeAge(DateTimeOffset time)
+    {
+        var elapsed = DateTimeOffset.UtcNow - time;
+        if (elapsed.TotalSeconds < 60) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+        return $"{(int)elapsed.TotalDays}d ago";
     }
 
     private async Task HandleCreateGroup(GroupPreset preset)
@@ -2173,8 +2335,8 @@ else
     private string GetShortPath(string? path)
     {
         if (string.IsNullOrEmpty(path)) return "";
-        var parts = path.Split('/');
-        return parts.Length > 2 ? "~/" + parts[^1] : path;
+        var parts = path.Replace('\\', '/').TrimEnd('/').Split('/');
+        return parts.Length >= 2 ? $"…/{parts[^2]}/{parts[^1]}" : parts[^1];
     }
 
     private async Task AddRepository()

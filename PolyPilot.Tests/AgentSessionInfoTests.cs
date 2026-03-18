@@ -168,6 +168,154 @@ public class AgentSessionInfoTests
         Assert.Equal(0, session.UnreadCount);
     }
 
+    // ── LastUserPrompt tests ─────────────────────────────────────────────────
+
+    [Fact]
+    public void LastUserPrompt_NullWhenHistoryEmpty()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        Assert.Null(session.LastUserPrompt);
+    }
+
+    [Fact]
+    public void LastUserPrompt_NullWhenOnlyAssistantMessages()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.AssistantMessage("hello there"));
+        Assert.Null(session.LastUserPrompt);
+    }
+
+    [Fact]
+    public void LastUserPrompt_ReturnsLastUserMessageContent()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.UserMessage("first prompt"));
+        session.History.Add(ChatMessage.AssistantMessage("response"));
+        session.History.Add(ChatMessage.UserMessage("second prompt"));
+        Assert.Equal("second prompt", session.LastUserPrompt);
+    }
+
+    [Fact]
+    public void LastUserPrompt_SkipsAssistantMessagesAfterLastUser()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.UserMessage("fix the bug"));
+        session.History.Add(ChatMessage.AssistantMessage("I fixed it"));
+        session.History.Add(ChatMessage.AssistantMessage("All done!"));
+        Assert.Equal("fix the bug", session.LastUserPrompt);
+    }
+
+    [Fact]
+    public void LastUserPrompt_ReturnsFullContent()
+    {
+        var longPrompt = new string('a', 200);
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.UserMessage(longPrompt));
+        Assert.Equal(longPrompt, session.LastUserPrompt);
+    }
+
+    // ── NeedsAttention tests ─────────────────────────────────────────────────
+
+    [Fact]
+    public void NeedsAttention_FalseWhenHistoryEmpty()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        Assert.False(session.NeedsAttention);
+    }
+
+    [Fact]
+    public void NeedsAttention_FalseWhenProcessing()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.IsProcessing = true;
+        session.History.Add(ChatMessage.UserMessage("hello"));
+        session.History.Add(ChatMessage.AssistantMessage("What would you like me to do?"));
+        Assert.False(session.NeedsAttention); // IsProcessing suppresses it
+    }
+
+    [Fact]
+    public void NeedsAttention_TrueWhenLastAssistantMessageEndsWithQuestion()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.UserMessage("fix it"));
+        session.History.Add(ChatMessage.AssistantMessage("Should I use option A or B?"));
+        Assert.True(session.NeedsAttention);
+    }
+
+    [Fact]
+    public void NeedsAttention_TrueWithQuestionPhrase_WouldYouLike()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.AssistantMessage("I can refactor this. Would you like me to proceed with the changes?"));
+        Assert.True(session.NeedsAttention);
+    }
+
+    [Fact]
+    public void NeedsAttention_TrueWithQuestionPhrase_LetMeKnow()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.AssistantMessage("I've analyzed the issue. Let me know if you want me to fix it."));
+        Assert.True(session.NeedsAttention);
+    }
+
+    [Fact]
+    public void NeedsAttention_TrueWithQuestionPhrase_ShouldI()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.AssistantMessage("The tests are failing. Should I fix them now?"));
+        Assert.True(session.NeedsAttention);
+    }
+
+    [Fact]
+    public void NeedsAttention_FalseWhenLastAssistantMessageIsStatement()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.UserMessage("fix it"));
+        session.History.Add(ChatMessage.AssistantMessage("I've fixed the bug. The tests are passing now."));
+        Assert.False(session.NeedsAttention);
+    }
+
+    [Fact]
+    public void NeedsAttention_FalseWhenLastMessageIsFromUser()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.AssistantMessage("Done! Let me know if you need anything else."));
+        session.History.Add(ChatMessage.UserMessage("thanks"));
+        Assert.False(session.NeedsAttention); // Last message is user, not assistant
+    }
+
+    [Fact]
+    public void NeedsAttention_FalseWhenLastAssistantMessageIsEmpty()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.AssistantMessage(""));
+        Assert.False(session.NeedsAttention);
+    }
+
+    [Fact]
+    public void NeedsAttention_CaseInsensitivePhrasesMatch()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.AssistantMessage("WOULD YOU LIKE me to continue?"));
+        Assert.True(session.NeedsAttention);
+    }
+
+    [Fact]
+    public void NeedsAttention_TrueWithQuestionPhrase_WhichOption()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5" };
+        session.History.Add(ChatMessage.AssistantMessage("I see two approaches. Which option do you prefer?"));
+        Assert.True(session.NeedsAttention);
+    }
+
+    [Fact]
+    public void NeedsAttention_FalseWhenIsOrchestratorWorker()
+    {
+        var session = new AgentSessionInfo { Name = "test", Model = "gpt-5", IsOrchestratorWorker = true };
+        session.History.Add(ChatMessage.AssistantMessage("Should I proceed with this approach?"));
+        Assert.False(session.NeedsAttention);
+    }
+
     [Fact]
     public void IsCreating_DefaultsToFalse()
     {

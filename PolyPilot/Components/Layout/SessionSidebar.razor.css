@@ -1894,3 +1894,209 @@
     padding: 2px 0 0;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── External Sessions sidebar items ─────────────────────────────────── */
+.session-item.external-session-item {
+    opacity: 0.9;
+    cursor: default;
+}
+
+.session-item.external-session-item:hover {
+    background: rgba(255,255,255,0.03);
+}
+
+.session-item.external-session-item.ext-active {
+    border-left: 3px solid rgba(96, 165, 250, 0.55);
+}
+
+.session-item.external-session-item.ext-needs-attention {
+    border-left: 3px solid rgba(255, 204, 0, 0.7);
+    background: rgba(255, 204, 0, 0.03);
+}
+
+.session-item.external-session-item.ext-ended {
+    opacity: 0.55;
+}
+
+.session-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.ext-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-dim);
+}
+
+.ext-status-dot.ext-active {
+    background: rgba(96, 165, 250, 0.85);
+    animation: pulse-dot-ext 1.5s infinite;
+}
+
+.session-item.external-session-item.ext-idle {
+    border-left: 3px solid rgba(156, 163, 175, 0.35);
+    opacity: 0.75;
+}
+
+.ext-status-dot.ext-idle {
+    background: rgba(156, 163, 175, 0.65);
+}
+
+.ext-status-dot.ext-needs-attention {
+    background: #ffcc00;
+    animation: pulse-dot-ext 1.5s infinite;
+}
+
+.ext-status-dot.ext-ended {
+    background: var(--text-dim);
+}
+
+@keyframes pulse-dot-ext {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+.ext-observer-badge {
+    font-size: var(--type-footnote);
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+
+.session-meta-branch {
+    font-size: var(--type-subhead, 0.65rem);
+    color: var(--accent-primary);
+    opacity: 0.8;
+}
+
+.ext-sidebar-attention {
+    font-size: var(--type-footnote);
+    color: #ffcc00;
+    padding: 0.1rem 0;
+}
+
+.ext-resume-inline-btn {
+    display: none;
+    margin-top: 0.3rem;
+    padding: 0.22rem 0.55rem;
+    background: rgba(96, 165, 250, 0.1);
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    border-radius: 5px;
+    color: rgba(96, 165, 250, 0.9);
+    font-size: var(--type-footnote);
+    cursor: pointer;
+}
+
+.session-item.external-session-item:hover .ext-resume-inline-btn {
+    display: inline-flex;
+}
+
+.session-item.external-session-item.confirm-active .ext-resume-inline-btn {
+    display: none;
+}
+
+.session-item.external-session-item.confirm-active {
+    opacity: 1;
+    border-color: rgba(96, 165, 250, 0.4);
+    background: rgba(96, 165, 250, 0.05);
+}
+
+.resume-confirm-msg {
+    font-size: var(--type-footnote);
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin-bottom: 0.25rem;
+}
+
+.resume-confirm-btns {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+/* ── External session sidebar send input ─────────────────────────────── */
+.ext-sidebar-send-row {
+    display: none;
+    gap: 0.3rem;
+    align-items: center;
+    margin-top: 0.3rem;
+}
+
+.session-item.external-session-item:hover .ext-sidebar-send-row,
+.session-item.external-session-item:focus-within .ext-sidebar-send-row {
+    display: flex;
+}
+
+/* Active sessions always show the focus button row (no hover needed) */
+.session-item.external-session-item.ext-active .ext-sidebar-send-row {
+    display: flex;
+}
+
+.ext-sidebar-input {
+    flex: 1;
+    padding: 0.3rem 0.5rem;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: var(--type-callout);
+    outline: none;
+    min-width: 0;
+}
+
+.ext-sidebar-input:focus {
+    border-color: rgba(96, 165, 250, 0.45);
+}
+
+.ext-sidebar-input::placeholder {
+    color: var(--text-dim);
+}
+
+.ext-sidebar-send-btn {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(96, 165, 250, 0.12);
+    border: 1px solid rgba(96, 165, 250, 0.25);
+    border-radius: 5px;
+    color: rgba(96, 165, 250, 0.85);
+    font-size: var(--type-body);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.ext-sidebar-send-btn:hover:not(:disabled) {
+    background: rgba(96, 165, 250, 0.22);
+}
+
+.ext-sidebar-send-btn:disabled {
+    opacity: 0.25;
+    cursor: default;
+}
+
+.ext-sidebar-focus-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    background: rgba(96, 165, 250, 0.10);
+    border: 1px solid rgba(96, 165, 250, 0.25);
+    border-radius: 5px;
+    color: rgba(96, 165, 250, 0.85);
+    font-size: var(--type-footnote);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.ext-sidebar-focus-btn:hover {
+    background: rgba(96, 165, 250, 0.22);
+}
+

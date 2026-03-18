@@ -1,0 +1,265 @@
+.external-session-card {
+    position: relative;
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    overflow: hidden;
+    min-width: 0;
+    opacity: 0.85;
+}
+
+.external-session-card.active {
+    border-color: rgba(96, 165, 250, 0.3);
+    border-left: 4px solid rgba(96, 165, 250, 0.7);
+}
+
+.external-session-card.idle {
+    border-left: 4px solid rgba(156, 163, 175, 0.4);
+    opacity: 0.8;
+}
+
+.external-session-card.needs-attention {
+    border-left: 4px solid #ffcc00;
+    border-color: rgba(255, 204, 0, 0.4);
+    background: rgba(255, 204, 0, 0.03);
+    opacity: 1;
+}
+
+.external-session-card.ended {
+    border-color: var(--border-subtle);
+    opacity: 0.6;
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.card-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.card-title h3 {
+    margin: 0;
+    font-size: var(--type-title2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-muted);
+}
+
+.card-status-dot.active {
+    background: rgba(96, 165, 250, 0.9);
+    animation: pulse-dot 1.5s infinite;
+}
+
+.card-status-dot.idle {
+    background: rgba(156, 163, 175, 0.7);
+}
+
+.card-status-dot.needs-attention {
+    background: #ffcc00;
+    animation: pulse-dot 1.5s infinite;
+}
+
+.card-status-dot.ended {
+    background: var(--text-dim);
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+.observer-badge {
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+    background: var(--control-bg);
+    padding: 0.1rem 0.4rem;
+    border-radius: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.ext-age {
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.card-context {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.card-dir {
+    font-size: var(--type-caption1, 0.6rem);
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 250px;
+}
+
+.card-branch-sub {
+    font-size: var(--type-caption1, 0.6rem);
+    color: var(--accent-primary);
+}
+
+.attention-banner {
+    background: rgba(255, 200, 0, 0.12);
+    border-left: 3px solid #ffcc00;
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+    font-size: var(--type-footnote);
+    color: #ffcc00;
+    font-weight: 500;
+}
+
+.card-messages {
+    flex: 1;
+    min-height: 60px;
+    max-height: 260px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.5rem;
+    background: rgba(0,0,0,0.2);
+    border-radius: 8px;
+}
+
+.ext-active-note {
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+    font-style: italic;
+    padding: 0.25rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    align-items: flex-start;
+}
+
+.ext-focus-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.35rem 0.7rem;
+    background: rgba(96, 165, 250, 0.12);
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    border-radius: 8px;
+    color: rgba(96, 165, 250, 0.9);
+    font-size: var(--type-callout);
+    font-style: normal;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.ext-focus-btn:hover:not(:disabled) {
+    background: rgba(96, 165, 250, 0.25);
+}
+
+.ext-focus-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.ext-send-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding-top: 0.25rem;
+}
+
+.ext-send-input-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.ext-send-input {
+    flex: 1;
+    padding: 0.4rem 0.6rem;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: var(--type-callout);
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.ext-send-input:focus {
+    border-color: rgba(96, 165, 250, 0.5);
+}
+
+.ext-send-input::placeholder {
+    color: var(--text-dim);
+}
+
+.ext-send-input:disabled {
+    opacity: 0.5;
+}
+
+.ext-send-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(96, 165, 250, 0.15);
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    border-radius: 8px;
+    color: rgba(96, 165, 250, 0.9);
+    font-size: var(--type-title3);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+
+.ext-send-btn:hover:not(:disabled) {
+    background: rgba(96, 165, 250, 0.28);
+}
+
+.ext-send-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.sending-dots {
+    font-size: var(--type-title3);
+    letter-spacing: 2px;
+}
+
+.ext-takeover-note {
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+    opacity: 0.7;
+}
+
+.resume-error {
+    font-size: var(--type-footnote);
+    color: #ff6b6b;
+    padding: 0.25rem 0.4rem;
+    background: rgba(255, 107, 107, 0.08);
+    border-radius: 4px;
+}

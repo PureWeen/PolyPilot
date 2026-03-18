@@ -20,6 +20,8 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _remoteStreamingSessions = new();
     // Sessions for which history has already been requested — prevents duplicate request storms
     private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();
+    // External session IDs currently being resumed — prevents duplicate SDK connections from rapid double-clicks
+    private readonly ConcurrentDictionary<string, byte> _resumingSessionIds = new();
     // Session IDs explicitly closed by the user — excluded from merge-back during SaveActiveSessionsToDisk
     private readonly ConcurrentDictionary<string, byte> _closedSessionIds = new();
     private readonly ConcurrentDictionary<string, byte> _closedSessionNames = new();
@@ -74,6 +76,16 @@ public partial class CopilotService : IAsyncDisposable
     // Tracks when recovery last succeeded so concurrent callers that lose the lock can return true
     // if recovery just completed (within 30s), rather than showing a false-permanent error.
     private DateTime _lastRecoveryCompletedAt = DateTime.MinValue;
+
+    // External session monitoring — observes CLI sessions not owned by PolyPilot
+    private ExternalSessionScanner? _externalSessionScanner;
+
+    /// <summary>
+    /// Read-only list of Copilot CLI sessions running outside PolyPilot (observer mode).
+    /// Only populated on desktop platforms where ~/.copilot/session-state/ is accessible.
+    /// </summary>
+    public IReadOnlyList<ExternalSessionInfo> ExternalSessions =>
+        _externalSessionScanner?.Sessions ?? Array.Empty<ExternalSessionInfo>();
     
     private static readonly object _pathLock = new();
     private static string? _copilotBaseDir;
@@ -779,6 +791,7 @@ public partial class CopilotService : IAsyncDisposable
             IsInitialized = true;
             NeedsConfiguration = false;
             Debug($"Copilot client started in {settings.Mode} mode");
+            // External session scanner starts after restore completes (see RestoreSessionsInBackgroundAsync)
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex) when (settings.Mode == ConnectionMode.Persistent
@@ -946,6 +959,7 @@ public partial class CopilotService : IAsyncDisposable
         IsDemoMode = true;
         NeedsConfiguration = false;
         Debug("Demo mode initialized");
+        StartExternalSessionScannerIfNeeded();
         OnStateChanged?.Invoke();
     }
 
@@ -960,6 +974,7 @@ public partial class CopilotService : IAsyncDisposable
         StopConnectivityMonitoring();
         StopKeepalivePing();
         await StopCodespaceHealthCheckAsync();
+        StopExternalSessionScanner();
 
         // Dispose existing sessions and client
         foreach (var state in _sessions.Values)
@@ -1052,6 +1067,8 @@ public partial class CopilotService : IAsyncDisposable
             StartCodespaceHealthCheck();
         ReconcileOrganization();
         OnStateChanged?.Invoke();
+
+        StartExternalSessionScannerIfNeeded();
 
         // Resume any pending orchestration dispatch
         _ = ResumeOrchestrationIfPendingAsync(cancellationToken);
@@ -4268,6 +4285,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         StopConnectivityMonitoring();
         StopKeepalivePing();
         await StopCodespaceHealthCheckAsync();
+        StopExternalSessionScanner();
 
         // Flush any pending debounced writes immediately
         FlushSaveActiveSessionsToDisk();
@@ -4309,6 +4327,136 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             try { await _client.DisposeAsync(); } catch { }
         }
         _recoveryLock.Dispose();
+    }
+
+    private void StartExternalSessionScannerIfNeeded()
+    {
+#if ANDROID || IOS
+        // No local filesystem access on mobile
+        return;
+#else
+    // UI-thread only -- callers are InitializeAsync, InitializeDemo, and ReconnectAsync
+        if (_externalSessionScanner != null) return; // already running
+
+        // CWD-based exclusion: sessions whose CWD is inside ~/.polypilot/ are typically PolyPilot's own
+        // worker sessions (orchestrator, multi-agent workers, etc.), NOT external CLI sessions.
+        // HOWEVER, if a session has an active lock file (inuse.{PID}.lock with a live PID), the CWD
+        // exclusion is bypassed — the user may be running their CLI from a worktree directory.
+        _externalSessionScanner = new ExternalSessionScanner(
+            SessionStatePath,
+            GetOwnedSessionIds,
+            cwd =>
+            {
+                if (string.IsNullOrEmpty(cwd)) return false;
+                return cwd.Replace('/', '\\').StartsWith(
+                    PolyPilotBaseDir.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase);
+            });
+
+        // Safe from background thread: NotifyStateChangedCoalesced uses Interlocked + Timer.Change
+        // (both thread-safe); the timer callback marshals to UI via InvokeOnUI.
+        _externalSessionScanner.OnChanged += () => NotifyStateChangedCoalesced();
+        _externalSessionScanner.Start();
+        Debug("External session scanner started");
+#endif
+    }
+
+    private void StopExternalSessionScanner()
+    {
+        _externalSessionScanner?.Dispose();
+        _externalSessionScanner = null;
+    }
+
+    private IReadOnlySet<string> GetOwnedSessionIds()
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // 1. In-memory sessions (current process)
+        foreach (var state in _sessions.Values)
+        {
+            if (!string.IsNullOrEmpty(state.Info.SessionId))
+                ids.Add(state.Info.SessionId);
+            if (!string.IsNullOrEmpty(state.Info.Name))
+                ids.Add(state.Info.Name);
+        }
+
+        // 2. Persisted sessions from active-sessions.json — covers historical PolyPilot sessions
+        //    that have been written to disk but may not be loaded into _sessions yet.
+        //    Open with FileShare.ReadWrite to avoid racing with the debounced writer.
+        try
+        {
+            if (File.Exists(ActiveSessionsFile))
+            {
+                string json;
+                using (var fs = new FileStream(ActiveSessionsFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var reader = new StreamReader(fs))
+                    json = reader.ReadToEnd();
+
+                var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
+                if (entries != null)
+                {
+                    foreach (var entry in entries)
+                    {
+                        if (!string.IsNullOrEmpty(entry.SessionId))
+                            ids.Add(entry.SessionId);
+                    }
+                }
+            }
+        }
+        catch { /* Ignore — missing or temporarily unavailable file is non-fatal */ }
+
+        return ids;
+    }
+
+    /// <summary>
+    /// Resume an externally-observed Copilot CLI session in PolyPilot.
+    /// Only valid when the external session is no longer active (IsActive == false).
+    /// </summary>
+    public async Task<AgentSessionInfo> ResumeExternalSessionAsync(ExternalSessionInfo external, string? model = null, CancellationToken cancellationToken = default)
+    {
+        if (external.Tier == ExternalSessionTier.Active)
+            throw new InvalidOperationException("Cannot resume an active session — the CLI process is still running.");
+
+        if (!_resumingSessionIds.TryAdd(external.SessionId, 0))
+            throw new InvalidOperationException("This session is already being resumed.");
+        try
+        {
+            return await ResumeSessionAsync(
+                external.SessionId,
+                external.DisplayName,
+                external.WorkingDirectory,
+                model,
+                cancellationToken);
+        }
+        finally
+        {
+            _resumingSessionIds.TryRemove(external.SessionId, out _);
+        }
+    }
+
+    /// <summary>
+    /// Resumes an external session and immediately sends a prompt. The session transitions
+    /// from "external/observer" to a regular PolyPilot-managed session.
+    ///
+    /// NOTE: If the Copilot CLI process is still running (Tier=Active), both the CLI and
+    /// PolyPilot will have independent SDK connections to the same session ID, each with
+    /// their own server process writing to events.jsonl. The CLI terminal will diverge.
+    /// For Idle/Ended sessions this is safe — the CLI has no live connection.
+    /// </summary>
+    public async Task<AgentSessionInfo> ResumeExternalAndSendAsync(ExternalSessionInfo external, string prompt, string? model = null, CancellationToken cancellationToken = default)
+    {
+        var session = await ResumeExternalSessionAsync(external, model, cancellationToken);
+        await SendPromptAsync(session.Name, prompt, cancellationToken: cancellationToken);
+        return session;
+    }
+
+    /// <summary>
+    /// Attempts to bring the terminal window running the Copilot CLI into focus.
+    /// Only works on Windows where P/Invoke is available; no-ops on other platforms.
+    /// </summary>
+    /// <returns>True if the terminal window was found and focused.</returns>
+    public static bool FocusExternalSessionTerminal(int pid)
+    {
+        return WindowFocusHelper.TryFocusTerminalForProcess(pid);
     }
 }
 

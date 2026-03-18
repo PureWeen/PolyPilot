@@ -13,6 +13,7 @@
     var providerDisplayName = CopilotService.GetProviderSessionDisplayName(Session.Name);
     var cssClass = IsActive ? "active" : 
                    IsCompleted ? "completed" :
+                   Session.NeedsAttention ? "needs-attention" :
                    Session.IsProcessing ? "busy" : "";
     if (IsDisabled) cssClass += " cs-disconnected";
     if (IsWorkerChild) cssClass += " worker-child";
@@ -110,6 +111,26 @@
             <div class="context-bar-row">
                 <span class="context-bar-label">↑@FormatTokenCount(Session.TotalInputTokens) ↓@FormatTokenCount(Session.TotalOutputTokens)</span>
             </div>
+        }
+        @{
+            var lastPrompt = Session.LastUserPrompt;
+            var ageText = GetRelativeAge(Session.LastUpdatedAt);
+        }
+        @if (!string.IsNullOrEmpty(lastPrompt))
+        {
+            var truncated = lastPrompt.Length > 60 ? lastPrompt.Substring(0, 57) + "…" : lastPrompt;
+            <div class="session-last-prompt" title="@lastPrompt">
+                @if (Session.NeedsAttention)
+                {
+                    <span class="attention-icon">💬</span>
+                }
+                <span>@truncated</span>
+                <span class="session-age">@ageText</span>
+            </div>
+        }
+        else if (!string.IsNullOrEmpty(ageText))
+        {
+            <div class="session-age-only">@ageText</div>
         }
     </div>
     <div class="session-actions">
@@ -502,4 +523,13 @@
 
     private static string FormatTokenCount(int count) =>
         count >= 1000 ? $"{count / 1000}k" : count.ToString();
+
+    private static string GetRelativeAge(DateTime lastUpdated)
+    {
+        var age = DateTime.Now - lastUpdated;
+        if (age.TotalSeconds < 60) return "";
+        if (age.TotalMinutes < 60) return $"{(int)age.TotalMinutes}m ago";
+        if (age.TotalHours < 24) return $"{(int)age.TotalHours}h ago";
+        return $"{(int)age.TotalDays}d ago";
+    }
 }

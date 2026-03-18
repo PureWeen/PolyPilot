@@ -233,6 +233,19 @@
         @foreach (var (group, groupSessions) in CopilotService.GetOrganizedSessions())
         {
             var showGroupHeaders = CopilotService.HasMultipleGroups;
+            var isOrchestratorGroup = group.IsMultiAgent &&
+                (group.OrchestratorMode == MultiAgentMode.Orchestrator ||
+                 group.OrchestratorMode == MultiAgentMode.OrchestratorReflect);
+            var workersExpanded = _expandedWorkerGroups.Contains(group.Id);
+            var visibleSessions = isOrchestratorGroup && !workersExpanded
+                ? groupSessions.Where(s => {
+                    var m = CopilotService.GetSessionMeta(s.Name);
+                    return m?.Role != MultiAgentRole.Worker;
+                  }).ToList()
+                : groupSessions;
+            var workerCount = isOrchestratorGroup
+                ? groupSessions.Count(s => CopilotService.GetSessionMeta(s.Name)?.Role == MultiAgentRole.Worker)
+                : 0;
             @if (showGroupHeaders)
             {
                 <div class="group-divider @(group.IsCollapsed ? "collapsed" : "") @(group.IsMultiAgent ? "multi-agent-group" : "")"
@@ -302,8 +315,19 @@
                     </div>
                     }
                 }
+                @* Workers expand/collapse bar — only for Orchestrator/Reflect groups *@
+                @if (isOrchestratorGroup)
+                {
+                    <div class="workers-toggle-bar">
+                        <button class="workers-toggle-btn"
+                                @onclick="() => { if (!_expandedWorkerGroups.Remove(group.Id)) _expandedWorkerGroups.Add(group.Id); StateHasChanged(); }">
+                            👷 @(workerCount > 0 ? $"{workerCount} worker{(workerCount != 1 ? "s" : "")}" : "no workers yet")
+                            @(workersExpanded ? " ▼ hide" : " ▶ show")
+                        </button>
+                    </div>
+                }
                 <div class="session-grid @(isCompactGrid ? "" : "expanded-grid")">
-                @foreach (var session in groupSessions)
+                @foreach (var session in visibleSessions)
                 {
                     var isCompleted = completedSessions.Contains(session.Name);
                     var cardClass = session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
@@ -345,6 +369,35 @@
         }
     }
 
+    @{
+        // Show all external sessions including Ended (dimmed) so the user can resume them
+        var externalSessions = CopilotService.ExternalSessions.ToList();
+        var hasActiveExternal = externalSessions.Any(s => s.IsActive);
+    }
+    @if (externalSessions.Count > 0 && expandedSession == null)
+    {
+        <div class="group-divider @(isExternalCollapsed && !hasActiveExternal ? "collapsed" : "")"
+             @onclick="() => isExternalCollapsed = !isExternalCollapsed">
+            <span class="group-divider-badge">🔭</span>
+            <span class="group-divider-name">External Sessions</span>
+            <span class="group-divider-count">@externalSessions.Count session@(externalSessions.Count != 1 ? "s" : "")</span>
+            @if (hasActiveExternal)
+            {
+                <span class="group-divider-busy">● active</span>
+            }
+            <span class="group-divider-chevron">@((isExternalCollapsed && !hasActiveExternal) ? "▶" : "▼")</span>
+        </div>
+        @if (!isExternalCollapsed || hasActiveExternal)
+        {
+            <div class="session-grid @(isCompactGrid ? "compact" : "")">
+                @foreach (var ext in externalSessions)
+                {
+                    <ExternalSessionCard Session="ext" @key="ext.SessionId" />
+                }
+            </div>
+        }
+    }
+
     @if (_showFontBubble)
     {
         <div class="font-bubble">@(fontSize)px</div>
@@ -379,6 +432,8 @@
     private volatile bool _sessionSwitching; // true during ExpandSession to skip redundant JS interop
     private bool _loadMoreObserverInitialized;
     private bool isCompactGrid;  // true = compact cards, false = spacious cards
+    private bool isExternalCollapsed = true;  // external sessions collapsed by default
+    private HashSet<string> _expandedWorkerGroups = new();  // group IDs where workers are shown
     private bool toolbarMenuOpen;
     private string? cardMenuSession;
     private string? cardRenamingSession;

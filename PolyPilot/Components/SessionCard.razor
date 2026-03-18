@@ -8,14 +8,14 @@
     var displayName = providerDisplayName ?? Session.Name;
 }
 
-<div class="session-card @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : "idle") @(Meta?.IsPinned == true ? "pinned" : "")" data-session="@Session.Name">
+<div class="session-card @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : Session.NeedsAttention ? "needs-attention" : "idle") @(Meta?.IsPinned == true ? "pinned" : "")" data-session="@Session.Name">
     <div class="card-header">
         <div class="card-title" @onclick="GoToSession" style="cursor:pointer">
             @if (Meta?.IsPinned == true)
             {
                 <span class="card-pin-indicator">📌</span>
             }
-            <span class="card-status-dot @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : "idle")"></span>
+            <span class="card-status-dot @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : Session.NeedsAttention ? "needs-attention" : "idle")"></span>
             @if (IsRenaming)
             {
                 <input type="text" class="card-rename-input" id="cardRenameInput"
@@ -67,6 +67,10 @@
         }
         <button class="card-expand" @onclick="ExpandSession" title="Expand">⤢</button>
     </div>
+    @if (Session.NeedsAttention)
+    {
+        <div class="attention-banner">💬 Awaiting your response</div>
+    }
     <div class="card-context">
         <span class="card-model">@GetSessionModel(Session)</span>
         @if (!string.IsNullOrEmpty(Session.WorkingDirectory))

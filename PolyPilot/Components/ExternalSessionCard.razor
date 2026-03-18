@@ -1,0 +1,168 @@
+@using PolyPilot.Services
+@using PolyPilot.Models
+@inject CopilotService CopilotService
+
+@{
+    var statusClass = Session.Tier switch
+    {
+        ExternalSessionTier.Active => Session.NeedsAttention ? "needs-attention" : "active",
+        ExternalSessionTier.Idle => "idle",
+        _ => "ended"
+    };
+    var cardClass = $"external-session-card {statusClass}";
+    var badgeText = Session.Tier switch
+    {
+        ExternalSessionTier.Active => "🟢 Running",
+        ExternalSessionTier.Idle => "💤 Idle",
+        _ => "⏹ Exited"
+    };
+}
+
+<div class="@cardClass">
+    <div class="card-header">
+        <div class="card-title">
+            <span class="card-status-dot @statusClass"></span>
+            <h3>@Session.DisplayName</h3>
+            <span class="observer-badge">@badgeText</span>
+        </div>
+        <span class="ext-age" title="@Session.LastEventTime.ToLocalTime().ToString("g")">@GetRelativeAge(Session.LastEventTime)</span>
+    </div>
+
+    @if (Session.NeedsAttention)
+    {
+        <div class="attention-banner">💬 Awaiting response</div>
+    }
+
+    <div class="card-context">
+        @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
+        {
+            <span class="card-dir" title="@Session.WorkingDirectory">📁 @ShortenPath(Session.WorkingDirectory)</span>
+        }
+        @if (!string.IsNullOrEmpty(Session.GitBranch))
+        {
+            <span class="card-branch-sub"> @Session.GitBranch</span>
+        }
+    </div>
+
+    @if (Session.History.Count > 0)
+    {
+        var msgs = Session.History.TakeLast(5).ToList();
+        <div class="card-messages">
+            <ChatMessageList Messages="msgs"
+                             StreamingContent=""
+                             CurrentToolName=""
+                             ToolActivities="new()"
+                             ActivityText=""
+                             IsProcessing="false"
+                             ProcessingStartedAt="null"
+                             ToolCallCount="0"
+                             ProcessingPhase="0"
+                             LastActivityAt="Session.LastEventTime.LocalDateTime"
+                             Compact="true"
+                             UserAvatarUrl="null"
+                             Layout="ChatLayout.Default"
+                             Style="ChatStyle.Normal"
+                             RepoUrl="null" />
+        </div>
+    }
+
+    @if (Session.Tier == ExternalSessionTier.Active)
+    {
+        <div class="ext-active-note">
+            @if (Session.ActiveLockPid.HasValue && WindowFocusHelper.IsSupported)
+            {
+                <button class="ext-focus-btn" @onclick="FocusTerminal" disabled="@_focusing">
+                    📺 Focus Terminal
+                </button>
+            }
+            <span>CLI process is still running — switch to its terminal to interact.</span>
+        </div>
+    }
+    else
+    {
+        <div class="ext-send-bar">
+            <div class="ext-send-input-row">
+                <input type="text"
+                       class="ext-send-input"
+                       placeholder="Send a message to resume this session…"
+                       value="@_sendText"
+                       @oninput="e => _sendText = e.Value?.ToString() ?? string.Empty"
+                       @onkeyup="HandleKeyUp"
+                       disabled="@_sending" />
+                <button class="ext-send-btn" @onclick="SendMessage" disabled="@(string.IsNullOrWhiteSpace(_sendText) || _sending)">
+                    @if (_sending) { <span class="sending-dots">…</span> } else { <span>↑</span> }
+                </button>
+            </div>
+            @if (!string.IsNullOrEmpty(_sendError))
+            {
+                <div class="resume-error">⚠ @_sendError</div>
+            }
+            <div class="ext-takeover-note">CLI has exited — sending will reopen this session in PolyPilot.</div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public ExternalSessionInfo Session { get; set; } = default!;
+
+    private string _sendText = "";
+    private bool _sending;
+    private string? _sendError;
+    private bool _focusing;
+
+    private async Task FocusTerminal()
+    {
+        if (Session.ActiveLockPid is not { } pid) return;
+        _focusing = true;
+        StateHasChanged();
+        try { await Task.Run(() => CopilotService.FocusExternalSessionTerminal(pid)); }
+        finally { _focusing = false; }
+    }
+
+    private async Task HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_sendText) && !_sending)
+            await SendMessage();
+    }
+
+    private async Task SendMessage()
+    {
+        if (_sending) return;
+        var prompt = _sendText.Trim();
+        if (string.IsNullOrEmpty(prompt)) return;
+
+        _sending = true;
+        _sendError = null;
+        try
+        {
+            await CopilotService.ResumeExternalAndSendAsync(Session, prompt);
+            _sendText = "";
+        }
+        catch (Exception ex)
+        {
+            _sendError = ex.Message.Length > 150 ? ex.Message[..150] + "…" : ex.Message;
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private static string GetRelativeAge(DateTimeOffset time)
+    {
+        var elapsed = DateTimeOffset.UtcNow - time;
+        if (elapsed.TotalSeconds < 60) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+        return $"{(int)elapsed.TotalDays}d ago";
+    }
+
+    private static string ShortenPath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return path;
+        var parts = path.Replace('\\', '/').TrimEnd('/').Split('/');
+        if (parts.Length >= 2)
+            return $"…/{parts[^2]}/{parts[^1]}";
+        return parts[^1];
+    }
+}

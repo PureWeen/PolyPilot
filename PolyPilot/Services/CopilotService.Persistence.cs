@@ -448,6 +448,10 @@ public partial class CopilotService
             if (CodespacesEnabled)
                 StartCodespaceHealthCheck();
 
+            // Start external session scanner AFTER restore is complete — scanning 3K+
+            // session directories would compete with session restoration if started earlier.
+            StartExternalSessionScannerIfNeeded();
+
             // ReconcileOrganization reads/writes Organization.Sessions (a plain List<T>)
             // which is not thread-safe. Now that restore runs on ThreadPool via Task.Run,
             // we must marshal this to the UI thread to avoid concurrent enumeration crashes.

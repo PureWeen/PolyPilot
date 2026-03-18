@@ -19,6 +19,7 @@
 .session-card.processing {
     border-color: rgba(251, 191, 36, 0.5);
     border-left: 4px solid #fbbf24;
+    background: rgba(251, 191, 36, 0.04);
 }
 
 .session-card.completed {
@@ -34,6 +35,28 @@
 
 .session-card.idle {
     border-color: var(--border-subtle);
+    opacity: 0.75;
+}
+
+.session-card.needs-attention {
+    border-left: 4px solid #ffcc00;
+    border-color: rgba(255, 204, 0, 0.4);
+    background: rgba(255, 204, 0, 0.03);
+}
+
+.attention-banner {
+    background: rgba(255, 200, 0, 0.12);
+    border-left: 3px solid #ffcc00;
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+    font-size: var(--type-footnote);
+    color: #ffcc00;
+    font-weight: 500;
+}
+
+.card-status-dot.needs-attention {
+    background: #ffcc00;
+    animation: pulse-dot 1.5s infinite;
 }
 
 .session-card:focus-within {

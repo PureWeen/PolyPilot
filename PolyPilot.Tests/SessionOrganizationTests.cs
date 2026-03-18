@@ -3566,3 +3566,123 @@ public class GroupingStabilityTests
         }
     }
 }
+
+/// <summary>
+/// Tests for urgency-based sort in GetOrganizedSessions:
+/// NeedsAttention sessions float to top, then IsProcessing, then idle.
+/// </summary>
+public class UrgencySortTests
+{
+    private readonly StubChatDatabase _chatDb = new();
+    private readonly StubServerManager _serverManager = new();
+    private readonly StubWsBridgeClient _bridgeClient = new();
+    private readonly StubDemoService _demoService = new();
+    private readonly IServiceProvider _serviceProvider;
+
+    public UrgencySortTests()
+    {
+        var services = new ServiceCollection();
+        _serviceProvider = services.BuildServiceProvider();
+    }
+
+    private CopilotService CreateService() =>
+        new CopilotService(_chatDb, _serverManager, _bridgeClient, new RepoManager(), _serviceProvider, _demoService);
+
+    private static void InjectSession(CopilotService svc, AgentSessionInfo info)
+    {
+        var sessionsField = typeof(CopilotService).GetField("_sessions",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var dict = sessionsField.GetValue(svc)!;
+        var stateType = sessionsField.FieldType.GenericTypeArguments[1];
+        var state = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(stateType);
+        stateType.GetProperty("Info")!.SetValue(state, info);
+        dict.GetType().GetMethod("TryAdd")!.Invoke(dict, new[] { info.Name, state });
+    }
+
+    [Fact]
+    public void GetOrganizedSessions_ProcessingSessionSortsBeforeIdle()
+    {
+        var svc = CreateService();
+
+        var idle = new AgentSessionInfo { Name = "idle-session", Model = "m", IsProcessing = false };
+        idle.LastUpdatedAt = DateTime.Now.AddMinutes(-5);
+
+        var processing = new AgentSessionInfo { Name = "processing-session", Model = "m", IsProcessing = true };
+        processing.LastUpdatedAt = DateTime.Now.AddMinutes(-10);
+
+        InjectSession(svc, idle);
+        InjectSession(svc, processing);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "idle-session", GroupId = SessionGroup.DefaultId });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "processing-session", GroupId = SessionGroup.DefaultId });
+
+        var result = svc.GetOrganizedSessions();
+        var sessions = result.SelectMany(g => g.Sessions).Select(s => s.Name).ToList();
+
+        Assert.Equal("processing-session", sessions[0]);
+        Assert.Equal("idle-session", sessions[1]);
+    }
+
+    [Fact]
+    public void GetOrganizedSessions_NeedsAttentionSortsBeforeProcessing()
+    {
+        var svc = CreateService();
+
+        var processing = new AgentSessionInfo { Name = "processing-session", Model = "m", IsProcessing = true };
+
+        var needsAttention = new AgentSessionInfo { Name = "needs-attention-session", Model = "m", IsProcessing = false };
+        needsAttention.History.Add(ChatMessage.AssistantMessage("Would you like me to proceed with the changes?"));
+
+        InjectSession(svc, processing);
+        InjectSession(svc, needsAttention);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "processing-session", GroupId = SessionGroup.DefaultId });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "needs-attention-session", GroupId = SessionGroup.DefaultId });
+
+        var result = svc.GetOrganizedSessions();
+        var sessions = result.SelectMany(g => g.Sessions).Select(s => s.Name).ToList();
+
+        Assert.Equal("needs-attention-session", sessions[0]);
+        Assert.Equal("processing-session", sessions[1]);
+    }
+
+    [Fact]
+    public void GetOrganizedSessions_PinnedAlwaysFirst_EvenIfNotNeedsAttention()
+    {
+        var svc = CreateService();
+
+        var needsAttention = new AgentSessionInfo { Name = "needs-attention-session", Model = "m", IsProcessing = false };
+        needsAttention.History.Add(ChatMessage.AssistantMessage("Should I fix this?"));
+
+        var pinned = new AgentSessionInfo { Name = "pinned-idle-session", Model = "m", IsProcessing = false };
+
+        InjectSession(svc, needsAttention);
+        InjectSession(svc, pinned);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "needs-attention-session", GroupId = SessionGroup.DefaultId });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "pinned-idle-session", GroupId = SessionGroup.DefaultId, IsPinned = true });
+
+        var result = svc.GetOrganizedSessions();
+        var sessions = result.SelectMany(g => g.Sessions).Select(s => s.Name).ToList();
+
+        Assert.Equal("pinned-idle-session", sessions[0]);
+        Assert.Equal("needs-attention-session", sessions[1]);
+    }
+
+    [Fact]
+    public void GetOrganizedSessions_CacheInvalidatesOnNeedsAttentionChange()
+    {
+        var svc = CreateService();
+
+        var session = new AgentSessionInfo { Name = "a-session", Model = "m", IsProcessing = false };
+        InjectSession(svc, session);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "a-session", GroupId = SessionGroup.DefaultId });
+
+        var before = svc.GetOrganizedSessions();
+        var beforeSession = before.SelectMany(g => g.Sessions).First();
+        Assert.False(beforeSession.NeedsAttention);
+
+        session.History.Add(ChatMessage.AssistantMessage("Would you like me to continue?"));
+
+        var after = svc.GetOrganizedSessions();
+        var afterSession = after.SelectMany(g => g.Sessions).First();
+        Assert.True(afterSession.NeedsAttention);
+    }
+}

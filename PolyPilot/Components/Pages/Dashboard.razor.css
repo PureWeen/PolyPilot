@@ -452,6 +452,32 @@
     font-weight: 500;
 }
 
+/* Workers expand/collapse toggle button in group header */
+.workers-toggle-btn {
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 12px;
+    color: rgba(99, 102, 241, 0.9);
+    cursor: pointer;
+    font-size: var(--type-callout);
+    padding: 2px 8px;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+
+.workers-toggle-btn:hover {
+    background: rgba(99, 102, 241, 0.25);
+    border-color: rgba(99, 102, 241, 0.6);
+}
+
+/* Full-width bar below group header for worker toggle */
+.workers-toggle-bar {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    margin-bottom: 4px;
+}
+
 /* Orchestrator phase indicator */
 .phase-indicator {
     font-size: var(--type-callout);
