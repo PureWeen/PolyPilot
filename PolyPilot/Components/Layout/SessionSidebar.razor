@@ -375,6 +375,17 @@ else
                 @if (addRepoFolderMode && PlatformHelper.IsDesktop)
                 {
                     @* Folder picker mode *@
+                    @if (addFolderMergedIntoGroupName != null)
+                    {
+                        <div class="repo-confirm">
+                            <span>✅ Registered as an existing worktree in the <strong>@addFolderMergedIntoGroupName</strong> group. Use its <strong>⋯ → New Session → 📂 Existing</strong> to open it.</span>
+                        </div>
+                        <div class="add-repo-actions">
+                            <button class="btn-repo-cancel" @onclick="CloseAddRepoForm">Close</button>
+                        </div>
+                    }
+                    else
+                    {
                     <div class="add-repo-folder-row">
                         <input type="text" @bind="addRepoFolderPath"
                                placeholder="Path to a cloned repository…"
@@ -390,6 +401,7 @@ else
                         </button>
                         <button class="btn-repo-cancel" @onclick="CloseAddRepoForm">Cancel</button>
                     </div>
+                    }
                 }
                 else
                 {
@@ -543,6 +555,17 @@ else
                                                     <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForFolder(gId, localFolderPath); }">
                                                         ➕ New Session Here
                                                     </button>
+                                                    @if (!string.IsNullOrEmpty(group.RepoId))
+                                                    {
+                                                        @* 📁 group backed by a bare clone — offer full branch/worktree features *@
+                                                        var lfRepoId = group.RepoId!;
+                                                        <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForRepo(lfRepoId); }">
+                                                            ⚡ Quick Branch + Session
+                                                        </button>
+                                                        <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartQuickBranch(lfRepoId); }">
+                                                            ⑂ Named Branch + Session
+                                                        </button>
+                                                    }
                                                     <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartGroupRename(gId); }">
                                                         ✏️ Rename
                                                     </button>
@@ -1303,6 +1326,8 @@ else
     // true when the user chose "Browse folder" mode instead of typing a URL
     private bool addRepoFolderMode = false;
     private string addRepoFolderPath = "";
+    // When a local folder is merged into an existing repo group instead of getting its own 📁 group
+    private string? addFolderMergedIntoGroupName = null;
 
     // Quick-create inline branch input
     private string? quickBranchRepoId = null;
@@ -2575,6 +2600,7 @@ else
         addRepoError = null;
         addRepoFolderMode = false;
         addRepoFolderPath = "";
+        addFolderMergedIntoGroupName = null;
         newRepoUrl = "";
     }
 
@@ -2603,16 +2629,25 @@ else
     {
         if (isAddingRepo || string.IsNullOrWhiteSpace(addRepoFolderPath)) return;
         addRepoError = null;
+        addFolderMergedIntoGroupName = null;
         isAddingRepo = true;
         addRepoProgress = null;
         try
         {
-            await CopilotService.AddRepoFromLocalFolderAsync(addRepoFolderPath.Trim(), progress =>
+            var result = await CopilotService.AddRepoFromLocalFolderAsync(addRepoFolderPath.Trim(), progress =>
             {
                 addRepoProgress = progress;
                 InvokeAsync(StateHasChanged);
             });
-            CloseAddRepoForm();
+            if (result.ExistingGroupId != null)
+            {
+                // Merged into an existing repo group — show guidance instead of closing
+                addFolderMergedIntoGroupName = result.ExistingGroupName;
+            }
+            else
+            {
+                CloseAddRepoForm();
+            }
         }
         catch (Exception ex)
         {

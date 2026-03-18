@@ -1012,8 +1012,10 @@ public partial class CopilotService
     /// <summary>
     /// Create (or return existing) a sidebar group for a pinned local folder.
     /// The group is distinct from any repo-based group — sessions in it use the local path as CWD.
+    /// When <paramref name="repoId"/> is provided, the group records which repo backs it so the
+    /// full worktree/branch menu can be offered.
     /// </summary>
-    public SessionGroup GetOrCreateLocalFolderGroup(string localPath)
+    public SessionGroup GetOrCreateLocalFolderGroup(string localPath, string? repoId = null)
     {
         var normalized = Path.GetFullPath(localPath)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -1027,12 +1029,11 @@ public partial class CopilotService
                 StringComparison.OrdinalIgnoreCase));
         if (existing != null)
         {
-            if (existing.IsCollapsed)
-            {
-                existing.IsCollapsed = false;
-                SaveOrganization();
-                OnStateChanged?.Invoke();
-            }
+            bool changed = false;
+            if (existing.IsCollapsed) { existing.IsCollapsed = false; changed = true; }
+            // Back-fill RepoId if we now know it
+            if (repoId != null && existing.RepoId == null) { existing.RepoId = repoId; changed = true; }
+            if (changed) { SaveOrganization(); OnStateChanged?.Invoke(); }
             return existing;
         }
 
@@ -1042,6 +1043,7 @@ public partial class CopilotService
             Id = Guid.NewGuid().ToString(),
             Name = folderName,
             LocalPath = normalized,
+            RepoId = repoId,
             SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
         };
         AddGroup(group);

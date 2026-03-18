@@ -583,7 +583,20 @@ public partial class CopilotService
     /// the repo all the same features as if it were cloned through the app.
     /// Desktop (local) mode only — not supported when connected to a remote server.
     /// </summary>
-    public async Task<(string RepoId, string RepoName)> AddRepoFromLocalFolderAsync(
+    /// <summary>
+    /// Result of adding a local folder as a repository.
+    /// </summary>
+    public record AddLocalFolderResult(
+        string RepoId,
+        string RepoName,
+        /// <summary>
+        /// When non-null, the folder was registered as an external worktree under an existing
+        /// repo group rather than creating a new 📁 group. Points to the existing group.
+        /// </summary>
+        string? ExistingGroupId,
+        string? ExistingGroupName);
+
+    public async Task<AddLocalFolderResult> AddRepoFromLocalFolderAsync(
         string localPath,
         Action<string>? onProgress = null,
         CancellationToken ct = default)
@@ -603,14 +616,30 @@ public partial class CopilotService
         if (!Directory.Exists(localPath))
             throw new InvalidOperationException($"Folder not found: '{localPath}'");
 
-        // Register/update the bare clone for the repo (needed for worktree creation later)
-        await _repoManager.AddRepositoryFromLocalAsync(localPath, onProgress, ct);
+        // Register/update the bare clone and external worktree for this local path
+        var repo = await _repoManager.AddRepositoryFromLocalAsync(localPath, onProgress, ct);
 
-        // Create a DISTINCT sidebar group for this local folder so the user sees it explicitly.
-        // This is different from GetOrCreateRepoGroup which merges into the existing repo group.
-        GetOrCreateLocalFolderGroup(localPath);
+        // Check if an existing repo group already covers this repo (added via URL previously).
+        // If so, un-collapse it and return it rather than creating a redundant 📁 group.
+        // The local folder is already registered as a WorktreeInfo and appears in the
+        // "📂 Existing" tab of that group's New Session dialog.
+        var existingRepoGroup = Organization.Groups.FirstOrDefault(
+            g => g.RepoId == repo.Id && !g.IsMultiAgent && !g.IsLocalFolder);
+        if (existingRepoGroup != null)
+        {
+            if (existingRepoGroup.IsCollapsed)
+            {
+                existingRepoGroup.IsCollapsed = false;
+                SaveOrganization();
+            }
+            OnStateChanged?.Invoke();
+            return new AddLocalFolderResult(repo.Id, repo.Name, existingRepoGroup.Id, existingRepoGroup.Name);
+        }
 
-        return (Path.GetFileName(localPath), Path.GetFileName(localPath));
+        // No existing repo group — create a distinct 📁 group for this local folder.
+        // Store the RepoId on the group so it can offer full worktree features.
+        var localGroup = GetOrCreateLocalFolderGroup(localPath, repo.Id);
+        return new AddLocalFolderResult(repo.Id, repo.Name, null, null);
     }
 
     public async Task RemoveRepoRemoteAsync(string repoId, string groupId, bool deleteFromDisk, CancellationToken ct = default)
