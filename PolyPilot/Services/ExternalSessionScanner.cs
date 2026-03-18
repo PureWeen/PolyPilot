@@ -536,7 +536,13 @@ public class ExternalSessionScanner : IDisposable
                     try
                     {
                         using var proc = System.Diagnostics.Process.GetProcessById(pid);
-                        if (!proc.HasExited) return pid;
+                        if (proc.HasExited) continue;
+                        // Guard against PID recycling — only accept processes that look like copilot
+                        var name = proc.ProcessName?.ToLowerInvariant() ?? "";
+                        if (!name.Contains("copilot") && !name.Contains("node") &&
+                            !name.Contains("dotnet") && !name.Contains("github"))
+                            continue;
+                        return pid;
                     }
                     catch { /* PID doesn't exist — stale lock */ }
                 }

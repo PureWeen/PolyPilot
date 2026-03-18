@@ -127,6 +127,7 @@
 
     private async Task SendMessage()
     {
+        if (_sending) return;
         var prompt = _sendText.Trim();
         if (string.IsNullOrEmpty(prompt)) return;
 
