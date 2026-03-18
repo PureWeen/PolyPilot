@@ -658,7 +658,12 @@ public class RepoManager
     /// <summary>
     /// Create a new worktree for a repository on a new branch from origin/main.
     /// </summary>
-    public virtual async Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName, string? baseBranch = null, bool skipFetch = false, CancellationToken ct = default)
+    /// <param name="localPath">
+    /// Optional path to the user's existing local repo clone (added via "Add Existing Folder").
+    /// When provided, the worktree is created at <c>{localPath}/.polypilot/worktrees/{branchName}/</c>
+    /// (nested inside the user's repo) rather than the centralized <c>~/.polypilot/worktrees/</c>.
+    /// </param>
+    public virtual async Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName, string? baseBranch = null, bool skipFetch = false, string? localPath = null, CancellationToken ct = default)
     {
         EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
@@ -677,9 +682,23 @@ public class RepoManager
         var baseRef = baseBranch ?? await GetDefaultBranch(repo.BareClonePath, ct);
         Console.WriteLine($"[RepoManager] Creating worktree from base ref: {baseRef}");
 
-        Directory.CreateDirectory(WorktreesDir);
+        string worktreePath;
         var worktreeId = Guid.NewGuid().ToString()[..8];
-        var worktreePath = Path.Combine(WorktreesDir, $"{repoId}-{worktreeId}");
+
+        if (!string.IsNullOrWhiteSpace(localPath))
+        {
+            // Nested strategy: place worktree inside the user's repo at .polypilot/worktrees/{branch}/
+            var repoWorktreesDir = Path.Combine(Path.GetFullPath(localPath), ".polypilot", "worktrees");
+            Directory.CreateDirectory(repoWorktreesDir);
+            EnsureGitIgnoreEntry(localPath, ".polypilot/");
+            worktreePath = Path.Combine(repoWorktreesDir, branchName);
+        }
+        else
+        {
+            // Centralized strategy: place worktree in ~/.polypilot/worktrees/{repoId}-{guid8}/
+            Directory.CreateDirectory(WorktreesDir);
+            worktreePath = Path.Combine(WorktreesDir, $"{repoId}-{worktreeId}");
+        }
 
         try
         {
@@ -710,6 +729,37 @@ public class RepoManager
         Save();
         OnStateChanged?.Invoke();
         return wt;
+    }
+
+    /// <summary>
+    /// Ensures that <paramref name="entry"/> (e.g. <c>.polypilot/</c>) is present in the
+    /// <c>.gitignore</c> file inside <paramref name="repoPath"/>. Creates <c>.gitignore</c>
+    /// if it does not exist. No-op if the entry is already present.
+    /// </summary>
+    private static void EnsureGitIgnoreEntry(string repoPath, string entry)
+    {
+        try
+        {
+            var gitignorePath = Path.Combine(repoPath, ".gitignore");
+            var lines = File.Exists(gitignorePath)
+                ? File.ReadAllLines(gitignorePath)
+                : [];
+
+            // Check if any existing line matches (exact or without trailing slash variant)
+            var entryTrimmed = entry.TrimEnd('/');
+            if (lines.Any(l => l.Trim() == entry || l.Trim() == entryTrimmed || l.Trim() == $"/{entry}" || l.Trim() == $"/{entryTrimmed}"))
+                return;
+
+            // Append with a leading newline if file doesn't end with one
+            using var sw = new StreamWriter(gitignorePath, append: true);
+            if (lines.Length > 0 && !string.IsNullOrEmpty(lines[^1]))
+                sw.WriteLine();
+            sw.WriteLine(entry);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[RepoManager] Failed to update .gitignore: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -850,10 +900,13 @@ public class RepoManager
         }
         else if (Directory.Exists(wt.Path))
         {
-            // No repo found — only delete if path is within our managed worktrees directory
-            // to prevent accidental deletion of arbitrary directories from corrupted state.
+            // No repo found — only delete if path is within a managed location to prevent
+            // accidental deletion of arbitrary directories from corrupted state.
+            // Managed locations: ~/.polypilot/worktrees/ OR {anyRepo}/.polypilot/worktrees/
             var fullPath = Path.GetFullPath(wt.Path);
-            if (fullPath.StartsWith(Path.GetFullPath(WorktreesDir), StringComparison.OrdinalIgnoreCase))
+            var isCentralized = fullPath.StartsWith(Path.GetFullPath(WorktreesDir), StringComparison.OrdinalIgnoreCase);
+            var isNested = fullPath.Contains(Path.DirectorySeparatorChar + ".polypilot" + Path.DirectorySeparatorChar + "worktrees" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            if (isCentralized || isNested)
                 try { Directory.Delete(wt.Path, recursive: true); } catch { }
         }
 

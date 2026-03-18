@@ -513,6 +513,88 @@ public class RepoManagerTests
         return string.Equals(l, r, StringComparison.OrdinalIgnoreCase);
     }
 
+    #region EnsureGitIgnoreEntry Tests
+
+    [Fact]
+    public void EnsureGitIgnoreEntry_CreatesGitIgnoreIfMissing()
+    {
+        var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
+        try
+        {
+            var method = typeof(RepoManager).GetMethod("EnsureGitIgnoreEntry",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            method.Invoke(null, [tmpDir, ".polypilot/"]);
+
+            var gitignorePath = Path.Combine(tmpDir, ".gitignore");
+            Assert.True(File.Exists(gitignorePath));
+            var content = File.ReadAllText(gitignorePath);
+            Assert.Contains(".polypilot/", content);
+        }
+        finally { Directory.Delete(tmpDir, true); }
+    }
+
+    [Fact]
+    public void EnsureGitIgnoreEntry_AppendsIfNotPresent()
+    {
+        var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
+        try
+        {
+            var gitignorePath = Path.Combine(tmpDir, ".gitignore");
+            File.WriteAllText(gitignorePath, "*.user\nbin/\n");
+
+            var method = typeof(RepoManager).GetMethod("EnsureGitIgnoreEntry",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            method.Invoke(null, [tmpDir, ".polypilot/"]);
+
+            var content = File.ReadAllText(gitignorePath);
+            Assert.Contains(".polypilot/", content);
+            Assert.Contains("*.user", content); // existing content preserved
+        }
+        finally { Directory.Delete(tmpDir, true); }
+    }
+
+    [Fact]
+    public void EnsureGitIgnoreEntry_IdempotentIfAlreadyPresent()
+    {
+        var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
+        try
+        {
+            var gitignorePath = Path.Combine(tmpDir, ".gitignore");
+            File.WriteAllText(gitignorePath, ".polypilot/\n");
+
+            var method = typeof(RepoManager).GetMethod("EnsureGitIgnoreEntry",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            method.Invoke(null, [tmpDir, ".polypilot/"]);
+            method.Invoke(null, [tmpDir, ".polypilot/"]); // call twice
+
+            var lines = File.ReadAllLines(gitignorePath);
+            Assert.Equal(1, lines.Count(l => l.Trim() == ".polypilot/")); // only one entry
+        }
+        finally { Directory.Delete(tmpDir, true); }
+    }
+
+    [Fact]
+    public void EnsureGitIgnoreEntry_MatchesWithoutTrailingSlash()
+    {
+        var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
+        try
+        {
+            var gitignorePath = Path.Combine(tmpDir, ".gitignore");
+            File.WriteAllText(gitignorePath, ".polypilot\n"); // no trailing slash variant
+
+            var method = typeof(RepoManager).GetMethod("EnsureGitIgnoreEntry",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            method.Invoke(null, [tmpDir, ".polypilot/"]);
+
+            var content = File.ReadAllText(gitignorePath);
+            // Should NOT add a duplicate (already covered by ".polypilot" line)
+            Assert.DoesNotContain(".polypilot/", content);
+        }
+        finally { Directory.Delete(tmpDir, true); }
+    }
+
+    #endregion
+
     private static Task RunProcess(string exe, params string[] args)
     {
         var tcs = new TaskCompletionSource();

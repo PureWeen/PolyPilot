@@ -2547,6 +2547,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         string? model = null,
         string? initialPrompt = null,
         string? targetGroupId = null,
+        string? localPath = null,
         CancellationToken ct = default)
     {
         // Remote mode: send the entire operation to the server as a single atomic command.
@@ -2610,7 +2611,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         else
         {
             var branch = branchName ?? $"session-{DateTime.Now:yyyyMMdd-HHmmss}";
-            wt = await _repoManager.CreateWorktreeAsync(repoId, branch, null, ct: ct);
+            wt = await _repoManager.CreateWorktreeAsync(repoId, branch, null, localPath: localPath, ct: ct);
         }
 
         var name = sessionName ?? wt.Branch;

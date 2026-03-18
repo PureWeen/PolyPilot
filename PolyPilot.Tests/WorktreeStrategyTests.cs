@@ -47,7 +47,7 @@ public class WorktreeStrategyTests
         }
 
         public override Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName,
-            string? baseBranch = null, bool skipFetch = false, CancellationToken ct = default)
+            string? baseBranch = null, bool skipFetch = false, string? localPath = null, CancellationToken ct = default)
         {
             CreateCalls.Add((repoId, branchName, skipFetch));
             var id = $"wt-{Interlocked.Increment(ref _worktreeCounter)}";
@@ -560,7 +560,7 @@ public class WorktreeStrategyTests
         }
 
         public override Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName,
-            string? baseBranch = null, bool skipFetch = false, CancellationToken ct = default)
+            string? baseBranch = null, bool skipFetch = false, string? localPath = null, CancellationToken ct = default)
         {
             throw new InvalidOperationException("Simulated git failure");
         }
