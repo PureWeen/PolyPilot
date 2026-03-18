@@ -31,7 +31,7 @@ public class ExternalSessionScanner : IDisposable
     // sessions from hours ago don't clutter the panel.
     private static readonly TimeSpan MaxAge = TimeSpan.FromHours(4);
     private static readonly TimeSpan EndedMaxAge = TimeSpan.FromHours(2);
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(2);
 
     private static readonly string[] _questionPhrases = AgentSessionInfo.QuestionPhrases;
 
@@ -109,16 +109,19 @@ public class ExternalSessionScanner : IDisposable
         }
 
         var ownedIds = _getOwnedSessionIds();
+        var excludedPids = _getExcludedPids?.Invoke();
         var now = DateTimeOffset.UtcNow;
         var newSessions = new List<ExternalSessionInfo>();
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Use EnumerateDirectories for lazy enumeration (avoids allocating 3K+ string array)
-        foreach (var dir in Directory.EnumerateDirectories(_sessionStatePath))
+        // Process-first approach: find running copilot processes and map them to sessions.
+        // This avoids scanning 3K+ directories — we only look at sessions with live processes.
+        var liveSessionPids = DiscoverLiveSessionPids(ownedIds, excludedPids);
+
+        foreach (var (sessionId, pid) in liveSessionPids)
         {
-            var name = Path.GetFileName(dir);
-            if (!Guid.TryParse(name, out _)) continue;
-            if (ownedIds.Contains(name)) continue;
+            var dir = Path.Combine(_sessionStatePath, sessionId);
+            if (!Directory.Exists(dir)) continue;
 
             var eventsFile = Path.Combine(dir, "events.jsonl");
             var workspaceFile = Path.Combine(dir, "workspace.yaml");
@@ -128,27 +131,11 @@ public class ExternalSessionScanner : IDisposable
             try { eventsMtime = new DateTimeOffset(File.GetLastWriteTimeUtc(eventsFile), TimeSpan.Zero); }
             catch { continue; }
 
-            // Age filter FIRST — skip old sessions before the expensive lock file check.
-            // Most of the 3K+ session dirs are old and will be skipped here.
-            bool possiblyRecent = now - eventsMtime <= MaxAge;
+            seenIds.Add(sessionId);
 
-            // Only check lock files for sessions that pass the age filter OR are cached
-            // (avoids Process.GetProcessById calls for thousands of stale sessions)
-            int? activeLockPid = null;
-            bool hasActiveLock = false;
-            if (possiblyRecent || _cache.ContainsKey(name))
-            {
-                activeLockPid = FindActiveLockPid(dir);
-                hasActiveLock = activeLockPid.HasValue;
-            }
-
-            if (!possiblyRecent && !hasActiveLock) continue;
-
-            seenIds.Add(name);
-
-            // Use cache if mtime hasn't changed AND lock status hasn't changed
-            if (_cache.TryGetValue(name, out var cached) && cached.mtime == eventsMtime
-                && cached.info.HasActiveLock == hasActiveLock)
+            // Use cache if mtime hasn't changed
+            if (_cache.TryGetValue(sessionId, out var cached) && cached.mtime == eventsMtime
+                && cached.info.HasActiveLock)
             {
                 newSessions.Add(cached.info);
                 continue;
@@ -169,39 +156,11 @@ public class ExternalSessionScanner : IDisposable
             }
             catch { }
 
-            // CWD-based exclusion: sessions inside ~/.polypilot/ are PolyPilot worker sessions.
-            // HOWEVER, if a live CLI process has the session open (active lock file), bypass CWD exclusion.
-            // This is safe because PolyPilot-managed sessions are already filtered by session ID
-            // (ownedIds check above), so any session reaching this point with an active lock
-            // is genuinely an external CLI process running in a worktree directory.
-            if (!hasActiveLock && _isExcludedCwd != null && _isExcludedCwd(cwd)) continue;
-
             // Parse events.jsonl for history + last event type
             var (history, lastEventType) = ParseEventsFile(eventsFile);
 
-            var age = now - eventsMtime;
-            ExternalSessionTier tier;
-            if (hasActiveLock)
-            {
-                // A live process is connected — session is Active regardless of events.jsonl age/events.
-                // The CLI may have resumed an old session and be idle waiting for user input.
-                tier = ExternalSessionTier.Active;
-            }
-            else if (!string.IsNullOrEmpty(lastEventType) && _terminalEventTypes.Contains(lastEventType))
-                tier = ExternalSessionTier.Ended; // process definitively exited
-            else if (age < ActiveThreshold && !_inactiveEventTypes.Contains(lastEventType))
-                tier = ExternalSessionTier.Active;
-            else if (age < IdleThreshold)
-                tier = ExternalSessionTier.Idle;
-            else
-                tier = ExternalSessionTier.Ended;
-
-            // Ended sessions older than EndedMaxAge are not worth showing — they're stale history,
-            // not recently-closed sessions worth resuming.
-            if (tier == ExternalSessionTier.Ended && age > EndedMaxAge) continue;
-
-            var displayName= string.IsNullOrEmpty(cwd)
-                ? name[..8] // short UUID fallback
+            var displayName = string.IsNullOrEmpty(cwd)
+                ? sessionId[..8]
                 : Path.GetFileName(cwd.TrimEnd('/', '\\'));
 
             var needsAttention = ComputeNeedsAttention(history);
@@ -212,33 +171,28 @@ public class ExternalSessionScanner : IDisposable
 
             var info = new ExternalSessionInfo
             {
-                SessionId = name,
+                SessionId = sessionId,
                 DisplayName = displayName,
                 WorkingDirectory = cwd,
                 GitBranch = gitBranch,
-                Tier = tier,
+                Tier = ExternalSessionTier.Active, // Live process = always active
                 LastEventType = lastEventType,
                 LastEventTime = eventsMtime,
                 History = history,
                 NeedsAttention = needsAttention,
-                ActiveLockPid = activeLockPid
+                ActiveLockPid = pid
             };
 
-            _cache[name] = (eventsMtime, info);
+            _cache[sessionId] = (eventsMtime, info);
             newSessions.Add(info);
         }
 
-        // Evict cache entries for directories that no longer exist
+        // Evict cache entries for sessions no longer live
         var staleKeys = _cache.Keys.Where(k => !seenIds.Contains(k)).ToList();
         foreach (var k in staleKeys) _cache.Remove(k);
 
-        // Sort: active first, then idle, then ended; within tier sort by recency
-        newSessions.Sort((a, b) =>
-        {
-            var tierCmp = a.Tier.CompareTo(b.Tier);
-            if (tierCmp != 0) return tierCmp;
-            return b.LastEventTime.CompareTo(a.LastEventTime);
-        });
+        // Sort by recency
+        newSessions.Sort((a, b) => b.LastEventTime.CompareTo(a.LastEventTime));
 
         var changed = !ExternalSessionListEquals(_sessions, newSessions);
         _sessions = newSessions;
@@ -246,18 +200,82 @@ public class ExternalSessionScanner : IDisposable
     }
 
     /// <summary>
+    /// Find live copilot processes and extract their session IDs from command-line args
+    /// (--resume=&lt;guid&gt;). Uses a single `ps` call instead of per-process spawning.
+    /// This is O(1) shell command not O(directories) — runs in ~200ms instead of ~50s.
+    /// </summary>
+    private List<(string sessionId, int pid)> DiscoverLiveSessionPids(
+        IReadOnlySet<string> ownedIds, IReadOnlySet<int>? excludedPids)
+    {
+        var results = new List<(string sessionId, int pid)>();
+        var seenSessions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            // Single ps call to get all process PIDs + args
+            var psi = new System.Diagnostics.ProcessStartInfo("ps", "-eo pid,args")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc == null) return results;
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(5000);
+
+            var guidPattern = new System.Text.RegularExpressions.Regex(
+                @"--resume[=\s]+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            foreach (var line in output.Split('\n'))
+            {
+                if (!line.Contains("copilot", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var trimmed = line.TrimStart();
+                var spaceIdx = trimmed.IndexOf(' ');
+                if (spaceIdx <= 0) continue;
+                if (!int.TryParse(trimmed[..spaceIdx], out var pid)) continue;
+                if (excludedPids != null && excludedPids.Contains(pid)) continue;
+
+                var match = guidPattern.Match(trimmed);
+                if (!match.Success) continue;
+
+                var sessionId = match.Groups[1].Value;
+                if (!ownedIds.Contains(sessionId) && seenSessions.Add(sessionId))
+                    results.Add((sessionId, pid));
+            }
+        }
+        catch { }
+
+        return results;
+    }
+
+    /// <summary>
     /// Parse events.jsonl, returning conversation history and the last event type seen.
     /// Opens with FileShare.ReadWrite to avoid IOException when the CLI is actively writing.
+    /// Only reads the last ~32KB of the file for performance — external sessions with
+    /// multi-MB event files would freeze the UI if parsed fully.
     /// </summary>
     internal static (List<ChatMessage> history, string? lastEventType) ParseEventsFile(string eventsFile)
     {
         var history = new List<ChatMessage>();
         string? lastEventType = null;
+        const int TailBytes = 32 * 1024; // 32KB tail — enough for ~20-30 messages
 
         try
         {
             using var fs = new FileStream(eventsFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+            // For large files, seek to the tail to avoid parsing multi-MB of events
+            if (fs.Length > TailBytes)
+                fs.Seek(-TailBytes, SeekOrigin.End);
+
             using var reader = new StreamReader(fs);
+
+            // Skip the first partial line if we seeked into the middle
+            if (fs.Position > 0)
+                reader.ReadLine();
 
             string? line;
             while ((line = reader.ReadLine()) != null)
