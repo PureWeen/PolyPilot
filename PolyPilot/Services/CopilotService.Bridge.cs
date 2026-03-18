@@ -593,20 +593,24 @@ public partial class CopilotService
                 "Adding an existing folder is only supported in local mode. " +
                 "In remote mode the server cannot access local paths on this device.");
 
-        var repo = await _repoManager.AddRepositoryFromLocalAsync(localPath, onProgress, ct);
-        var group = GetOrCreateRepoGroup(repo.Id, repo.Name, explicitly: true);
+        // Expand ~ and normalize path before any validation
+        if (localPath.StartsWith("~", StringComparison.Ordinal))
+            localPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                localPath.TrimStart('~').TrimStart('/', '\\'));
+        localPath = Path.GetFullPath(localPath);
 
-        // Un-collapse the group so it's visibly expanded after the user adds a folder.
-        // If the group was already in the sidebar but collapsed, nothing would appear to
-        // change otherwise, leaving the user confused about whether the add succeeded.
-        if (group != null && group.IsCollapsed)
-        {
-            group.IsCollapsed = false;
-            SaveOrganization();
-            OnStateChanged?.Invoke();
-        }
+        if (!Directory.Exists(localPath))
+            throw new InvalidOperationException($"Folder not found: '{localPath}'");
 
-        return (repo.Id, repo.Name);
+        // Register/update the bare clone for the repo (needed for worktree creation later)
+        await _repoManager.AddRepositoryFromLocalAsync(localPath, onProgress, ct);
+
+        // Create a DISTINCT sidebar group for this local folder so the user sees it explicitly.
+        // This is different from GetOrCreateRepoGroup which merges into the existing repo group.
+        GetOrCreateLocalFolderGroup(localPath);
+
+        return (Path.GetFileName(localPath), Path.GetFileName(localPath));
     }
 
     public async Task RemoveRepoRemoteAsync(string repoId, string groupId, bool deleteFromDisk, CancellationToken ct = default)

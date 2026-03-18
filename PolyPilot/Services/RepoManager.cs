@@ -576,9 +576,8 @@ public class RepoManager
 
         var repo = await AddRepositoryAsync(remoteUrl, onProgress, ct);
 
-        // Register the local folder as an external worktree so it appears in the
-        // "Existing" list when creating sessions. This is the visible entry the user
-        // expects after adding their local clone.
+        // Register the local folder as an external worktree so it also appears in the
+        // "📂 Existing" picker when creating repo-based sessions.
         await RegisterExternalWorktreeAsync(repo, localPath, ct);
 
         return repo;

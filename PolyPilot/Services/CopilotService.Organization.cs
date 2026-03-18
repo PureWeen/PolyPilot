@@ -1004,6 +1004,47 @@ public partial class CopilotService
         return group;
     }
 
+    /// <summary>
+    /// Create (or return existing) a sidebar group for a pinned local folder.
+    /// The group is distinct from any repo-based group — sessions in it use the local path as CWD.
+    /// </summary>
+    public SessionGroup GetOrCreateLocalFolderGroup(string localPath)
+    {
+        var normalized = Path.GetFullPath(localPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        var existing = Organization.Groups.FirstOrDefault(g =>
+            g.IsLocalFolder &&
+            !g.IsMultiAgent &&
+            string.Equals(
+                Path.GetFullPath(g.LocalPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                normalized,
+                StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
+        {
+            if (existing.IsCollapsed)
+            {
+                existing.IsCollapsed = false;
+                SaveOrganization();
+                OnStateChanged?.Invoke();
+            }
+            return existing;
+        }
+
+        var folderName = Path.GetFileName(normalized);
+        var group = new SessionGroup
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = folderName,
+            LocalPath = normalized,
+            SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
+        };
+        AddGroup(group);
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+        return group;
+    }
+
     #endregion
 
     #region Multi-Agent Orchestration

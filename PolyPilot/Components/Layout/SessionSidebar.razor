@@ -453,14 +453,16 @@ else
                     @if (showGroupHeaders)
                     {
                         var isRepoGroup = !string.IsNullOrEmpty(group.RepoId);
+                        var isLocalFolderGroup = group.IsLocalFolder;
                         var repoForGroup = isRepoGroup ? RepoManager.Repositories.FirstOrDefault(r => r.Id == group.RepoId) : null;
                         var groupTitle = repoForGroup != null ? $"{repoForGroup.Url}\n{repoForGroup.BareClonePath}" : "";
+                        if (isLocalFolderGroup) groupTitle = group.LocalPath!;
                         var repoDiskSize = repoForGroup != null ? RepoManager.GetRepoDiskSize(repoForGroup.Id) : null;
                         if (repoDiskSize.HasValue)
                             groupTitle += $"\nDisk: {RepoManager.FormatSize(repoDiskSize.Value)}";
                         if (groupProvider != null)
                             groupTitle = groupProvider.GroupDescription;
-                        <div class="group-header @(group.IsCollapsed ? "collapsed" : "") @(isRepoGroup ? "repo-group" : "") @(groupProvider != null ? "provider-group" : "")"
+                        <div class="group-header @(group.IsCollapsed ? "collapsed" : "") @(isRepoGroup || isLocalFolderGroup ? "repo-group" : "") @(groupProvider != null ? "provider-group" : "")"
                              title="@groupTitle"
                              style="@(groupProvider != null ? $"border-left-color: {groupProvider.AccentColor};" : "")"
                              @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
@@ -468,6 +470,10 @@ else
                             @if (groupProvider != null)
                             {
                                 <span class="group-repo-icon" title="@groupProvider.DisplayName">@groupProvider.Icon</span>
+                            }
+                            else if (isLocalFolderGroup)
+                            {
+                                <span class="group-repo-icon" title="Local folder">📁</span>
                             }
                             else if (isRepoGroup)
                             {
@@ -531,7 +537,21 @@ else
                                         {
                                             <div class="group-menu-overlay" @onclick="() => { openGroupMenuId = null; }" @onclick:stopPropagation="true"></div>
                                             <div class="group-menu" @onclick:stopPropagation="true">
-                                                @if (isRepoGroup)
+                                                @if (isLocalFolderGroup)
+                                                {
+                                                    var localFolderPath = group.LocalPath!;
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForFolder(gId, localFolderPath); }">
+                                                        ➕ New Session Here
+                                                    </button>
+                                                    <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartGroupRename(gId); }">
+                                                        ✏️ Rename
+                                                    </button>
+                                                    <div class="group-menu-separator"></div>
+                                                    <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
+                                                        🗑 Remove Folder
+                                                    </button>
+                                                }
+                                                else @if (isRepoGroup)
                                                 {
                                                     var rId = group.RepoId!;
                                                     <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; createSessionFormRef?.ExpandForRepo(rId); }">
@@ -1795,6 +1815,31 @@ else
         catch (Exception ex)
         {
             Console.WriteLine($"Error stopping codespace: {ex.Message}");
+        }
+    }
+
+    private async Task QuickCreateSessionForFolder(string groupId, string localPath)
+    {
+        if (isCreating) return;
+        isCreating = true;
+        createError = null;
+        try
+        {
+            var folderName = Path.GetFileName(localPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            var sessionName = $"{folderName}-{DateTime.Now:yyyyMMdd-HHmmss}";
+            var sessionInfo = await CopilotService.CreateSessionAsync(sessionName, selectedModel, workingDirectory: localPath, groupId: groupId);
+            CopilotService.SwitchSession(sessionInfo.Name);
+            CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
+            await OnSessionSelected.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            createError = ex.Message;
+            Console.WriteLine($"Error creating session for folder: {ex}");
+        }
+        finally
+        {
+            isCreating = false;
         }
     }
 

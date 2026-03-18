@@ -16,6 +16,17 @@ public class SessionGroup
     /// <summary>If set, this group auto-tracks a repository managed by RepoManager.</summary>
     public string? RepoId { get; set; }
 
+    /// <summary>
+    /// When set, this group represents a pinned local folder (e.g. ~/Projects/maui3).
+    /// Sessions in this group are created with this path as the working directory.
+    /// The folder is NOT backed by a PolyPilot-managed bare clone.
+    /// </summary>
+    public string? LocalPath { get; set; }
+
+    /// <summary>True when this group represents a pinned local folder on disk.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsLocalFolder => !string.IsNullOrWhiteSpace(LocalPath);
+
     /// <summary>When true, this group operates as a multi-agent orchestration group.</summary>
     public bool IsMultiAgent { get; set; }
 
