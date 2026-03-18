@@ -240,21 +240,27 @@ else
             }
             else if (isAddingMultiAgentGroup && pendingMultiAgentRepo == null)
             {
-                @* Step 1: Pick a repository *@
+                @* Step 1: Pick a repository — uses dropdown to match CreateSessionForm *@
                 <div class="worktree-picker" @onclick:stopPropagation="true">
                     <div class="worktree-picker-header">
                         <span>Select repository for team:</span>
                         <button class="worktree-cancel-btn" @onclick="CancelMultiAgentCreation">✕</button>
                     </div>
-                    @foreach (var repo in RepoManager.Repositories)
+                    @if (RepoManager.Repositories.Count > 1)
                     {
-                        var r = repo;
-                        <button class="worktree-item" @onclick="() => SelectRepoForGroup(r)" title="@r.Url">
-                            <span class="worktree-branch">@r.Name</span>
-                            <span class="worktree-path">@r.Url</span>
-                        </button>
+                        <select class="ns-repo-select" style="margin: 4px 8px;" @onchange="OnMultiAgentRepoChanged">
+                            <option value="" selected>— Pick a repo —</option>
+                            @foreach (var repo in RepoManager.Repositories)
+                            {
+                                <option value="@repo.Id">@repo.Name</option>
+                            }
+                        </select>
                     }
-                    @if (!RepoManager.Repositories.Any())
+                    else if (RepoManager.Repositories.Count == 1)
+                    {
+                        <div class="ns-repo-label" style="margin: 4px 8px;">📦 @RepoManager.Repositories[0].Name</div>
+                    }
+                    else
                     {
                         <div class="worktree-empty">No repositories available. Add a repository first.</div>
                     }
@@ -1970,12 +1976,24 @@ else
         isAddingGroup = false;
         isAddingMultiAgentGroup = true;
         pendingMultiAgentRepo = null;
+
+        // Auto-advance when there's exactly 1 repo (matches CreateSessionForm behavior)
+        if (RepoManager.Repositories.Count == 1)
+            SelectRepoForGroup(RepoManager.Repositories[0]);
     }
 
     private void CancelMultiAgentCreation()
     {
         isAddingMultiAgentGroup = false;
         pendingMultiAgentRepo = null;
+    }
+
+    private void OnMultiAgentRepoChanged(ChangeEventArgs e)
+    {
+        var repoId = e.Value?.ToString();
+        if (string.IsNullOrEmpty(repoId)) return;
+        var repo = RepoManager.Repositories.FirstOrDefault(r => r.Id == repoId);
+        if (repo != null) SelectRepoForGroup(repo);
     }
 
     private void SelectRepoForGroup(RepositoryInfo repo)
