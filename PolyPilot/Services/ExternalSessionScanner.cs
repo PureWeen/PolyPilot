@@ -66,10 +66,9 @@ public class ExternalSessionScanner : IDisposable
         // Create timer paused, assign to field, THEN arm it.
         // This avoids a race where the callback fires before _pollTimer is assigned,
         // which would skip the re-arm and kill the poll loop forever.
-        // Delay initial scan by 5s so it doesn't compete with session restoration at startup.
         _pollTimer = new Timer(_ => { SafeScan(); RearmTimer(); },
             null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-        _pollTimer.Change(TimeSpan.FromSeconds(5), Timeout.InfiniteTimeSpan);
+        _pollTimer.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
     }
 
     private void RearmTimer()

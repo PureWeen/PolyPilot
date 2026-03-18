@@ -791,7 +791,7 @@ public partial class CopilotService : IAsyncDisposable
             IsInitialized = true;
             NeedsConfiguration = false;
             Debug($"Copilot client started in {settings.Mode} mode");
-            StartExternalSessionScannerIfNeeded();
+            // External session scanner starts after restore completes (see RestoreSessionsInBackgroundAsync)
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex) when (settings.Mode == ConnectionMode.Persistent
