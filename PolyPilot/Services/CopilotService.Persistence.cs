@@ -31,6 +31,7 @@ public partial class CopilotService
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
                         : null,
+                    MessageCount = s.Info.MessageCount,
                     TotalInputTokens = s.Info.TotalInputTokens,
                     TotalOutputTokens = s.Info.TotalOutputTokens,
                     ContextCurrentTokens = s.Info.ContextCurrentTokens,
@@ -430,6 +431,7 @@ public partial class CopilotService
     /// </summary>
     private async Task RestoreSessionsInBackgroundAsync(CancellationToken cancellationToken)
     {
+        var restoreSw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             await RestorePreviousSessionsAsync(cancellationToken);
@@ -440,6 +442,8 @@ public partial class CopilotService
         }
         finally
         {
+            restoreSw.Stop();
+            Debug($"[PERF] Background restore total: {restoreSw.ElapsedMilliseconds}ms");
             IsRestoring = false;
 
             // Flush session list so recreated session IDs are persisted
@@ -463,6 +467,36 @@ public partial class CopilotService
 
             // Resume any pending orchestration dispatch interrupted by relaunch
             _ = ResumeOrchestrationIfPendingAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Load history for a session that was created with deferred history loading.
+    /// Called on-demand when the user views/expands a session for the first time.
+    /// </summary>
+    public async Task EnsureHistoryLoadedAsync(string sessionName)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state)) return;
+        if (!state.Info.HistoryNeedsLoading) return;
+
+        state.Info.HistoryNeedsLoading = false; // Prevent re-entry
+        try
+        {
+            var (history, _) = await LoadBestHistoryAsync(state.Info.SessionId!);
+            foreach (var msg in history)
+                state.Info.History.Add(msg);
+            // Mark stale incomplete tool calls / reasoning as complete
+            foreach (var msg in state.Info.History.Where(m =>
+                (m.MessageType == ChatMessageType.ToolCall || m.MessageType == ChatMessageType.Reasoning) && !m.IsComplete))
+                msg.IsComplete = true;
+            state.Info.MessageCount = state.Info.History.Count;
+            state.Info.LastReadMessageCount = state.Info.History.Count;
+            InvokeOnUI(() => OnStateChanged?.Invoke());
+        }
+        catch (Exception ex)
+        {
+            Debug($"Failed to load history for '{sessionName}': {ex.Message}");
+            state.Info.HistoryNeedsLoading = true; // Allow retry
         }
     }
 
@@ -568,10 +602,10 @@ public partial class CopilotService
                                 continue;
                             }
 
-                            // Create lightweight placeholder — actual SDK resume happens lazily
-                            // when user sends a message (EnsureSessionConnectedAsync).
-                            // This avoids 41 sequential SDK connections blocking app startup.
-                            var (lazyHistory, _) = await LoadBestHistoryAsync(entry.SessionId);
+                            // Create lightweight placeholder — actual SDK resume AND history loading
+                            // happen lazily. History is loaded on-demand when user views the session
+                            // (via EnsureHistoryLoadedAsync). This avoids 47 sequential LoadBestHistoryAsync
+                            // calls (24s total) blocking app startup with a blue screen.
                             var lazyModel = Models.ModelHelper.NormalizeToSlug(entry.Model ?? DefaultModel);
                             if (string.IsNullOrEmpty(lazyModel)) lazyModel = DefaultModel;
                             var lazyWorkDir = entry.WorkingDirectory ?? GetSessionWorkingDirectory(entry.SessionId);
@@ -585,12 +619,10 @@ public partial class CopilotService
                                 WorkingDirectory = lazyWorkDir
                             };
                             lazyInfo.GitBranch = GetGitBranch(lazyInfo.WorkingDirectory);
-                            foreach (var msg in lazyHistory) lazyInfo.History.Add(msg);
-                            lazyInfo.MessageCount = lazyInfo.History.Count;
-                            lazyInfo.LastReadMessageCount = lazyInfo.History.Count;
-                            // Mark stale incomplete tool calls / reasoning as complete
-                            foreach (var msg in lazyInfo.History.Where(m => (m.MessageType == ChatMessageType.ToolCall || m.MessageType == ChatMessageType.Reasoning) && !m.IsComplete))
-                                msg.IsComplete = true;
+                            // Use persisted message count for UI display without loading history
+                            lazyInfo.MessageCount = entry.MessageCount;
+                            lazyInfo.LastReadMessageCount = entry.MessageCount;
+                            lazyInfo.HistoryNeedsLoading = true;
 
                             var lazyState = new SessionState { Session = null!, Info = lazyInfo };
                             _sessions[entry.DisplayName] = lazyState;
@@ -601,7 +633,7 @@ public partial class CopilotService
                                 eagerResumeCandidates.Add((entry.DisplayName, lazyState));
                                 Debug($"Queued eager resume for interrupted session: {entry.DisplayName}");
                             }
-                            Debug($"Loaded session placeholder: {entry.DisplayName} ({lazyHistory.Count} messages)");
+                            Debug($"Loaded session placeholder: {entry.DisplayName} ({entry.MessageCount} messages)");
                         }
                         catch (Exception ex)
                         {
