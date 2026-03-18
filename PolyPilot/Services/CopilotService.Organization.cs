@@ -2408,7 +2408,7 @@ public partial class CopilotService
                 // Dead event stream fallback: in-memory history may be empty if the SDK event
                 // callback stopped firing. Try reading events.jsonl directly from disk.
                 string? diskResponse = null;
-                if (!session.IsProcessing)
+                if (!session.IsProcessing && !string.IsNullOrEmpty(session.SessionId))
                 {
                     try
                     {
