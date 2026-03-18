@@ -22,7 +22,7 @@ public class ExternalSessionScanner : IDisposable
     private volatile bool _disposed;
 
     // Cache: sessionId -> (eventsFileMtime, parsedInfo)
-    private readonly Dictionary<string, (DateTimeOffset mtime, ExternalSessionInfo info)> _cache = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTimeOffset mtime, ExternalSessionInfo info)> _cache = new();
 
     private static readonly TimeSpan ActiveThreshold = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan IdleThreshold = TimeSpan.FromHours(4);
@@ -283,7 +283,7 @@ public class ExternalSessionScanner : IDisposable
 
         // Evict cache entries for sessions no longer live
         var staleKeys = _cache.Keys.Where(k => !seenIds.Contains(k)).ToList();
-        foreach (var k in staleKeys) _cache.Remove(k);
+        foreach (var k in staleKeys) _cache.TryRemove(k, out _);
 
         // Sort by recency
         newSessions.Sort((a, b) => b.LastEventTime.CompareTo(a.LastEventTime));
