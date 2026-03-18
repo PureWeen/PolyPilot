@@ -20,6 +20,9 @@ public class RepoManager
     private string ReposDir => Path.Combine(GetCachedStorageRoot(), "repos");
     private string WorktreesDir => Path.Combine(GetCachedStorageRoot(), "worktrees");
 
+    /// <summary>Returns the directory where PolyPilot-managed worktrees live.</summary>
+    public string GetWorktreesDir() => WorktreesDir;
+
     /// <summary>
     /// Redirect all RepoManager paths to a test directory.
     /// Clears cached paths so they re-resolve from the new base.

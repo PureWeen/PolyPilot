@@ -570,6 +570,30 @@ public partial class CopilotService
             }
         }
 
+        // Migration: back-fill LocalPath/RepoId on groups that were created by an older version
+        // of the code before the LocalPath field existed. Detect them by matching their name against
+        // registered external worktrees (paths NOT under the managed worktrees directory).
+        var managedWorktreesDir = _repoManager.GetWorktreesDir();
+        foreach (var group in Organization.Groups)
+        {
+            if (group.IsLocalFolder || !string.IsNullOrEmpty(group.RepoId) || group.IsMultiAgent
+                || group.Id == SessionGroup.DefaultId || group.IsCodespace)
+                continue;
+
+            // Look for an external worktree whose folder name matches this group name
+            var match = _repoManager.Worktrees.FirstOrDefault(wt =>
+                !wt.Path.StartsWith(managedWorktreesDir, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(Path.GetFileName(wt.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+                    group.Name, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+            {
+                group.LocalPath = match.Path;
+                group.RepoId = match.RepoId;
+                changed = true;
+                Debug($"ReconcileOrganization: back-filled LocalPath='{match.Path}' RepoId='{match.RepoId}' on group '{group.Name}'");
+            }
+        }
+
         // Build the full set of known session names: active sessions + aliases (persisted names)
         var knownNames = new HashSet<string>(activeNames);
         try

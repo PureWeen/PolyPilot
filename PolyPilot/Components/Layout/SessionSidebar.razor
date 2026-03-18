@@ -559,10 +559,10 @@ else
                                                     {
                                                         @* 📁 group backed by a bare clone — offer full branch/worktree features *@
                                                         var lfRepoId = group.RepoId!;
-                                                        <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForRepo(lfRepoId); }">
+                                                        <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForRepo(lfRepoId, gId); }">
                                                             ⚡ Quick Branch + Session
                                                         </button>
-                                                        <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartQuickBranch(lfRepoId); }">
+                                                        <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartQuickBranch(lfRepoId, gId); }">
                                                             ⑂ Named Branch + Session
                                                         </button>
                                                     }
@@ -626,7 +626,7 @@ else
                             }
                         </div>
 
-                        @if (quickBranchRepoId == group.RepoId && isRepoGroup)
+                        @if (quickBranchRepoId == group.RepoId && (isRepoGroup || isLocalFolderGroup))
                         {
                             var qbRepoId = group.RepoId!;
                             <div class="quick-branch-input-bar" @onclick:stopPropagation="true">
@@ -1331,6 +1331,7 @@ else
 
     // Quick-create inline branch input
     private string? quickBranchRepoId = null;
+    private string? quickBranchGroupId = null;
     private string quickBranchInput = "";
     private bool quickBranchIsCreating = false;
     private string? quickBranchError = null;
@@ -1868,7 +1869,7 @@ else
         }
     }
 
-    private async Task QuickCreateSessionForRepo(string repoId)
+    private async Task QuickCreateSessionForRepo(string repoId, string? targetGroupId = null)
     {
         if (isCreating) return;
         isCreating = true;
@@ -1879,7 +1880,8 @@ else
         {
             var sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
                 repoId: repoId,
-                model: selectedModel);
+                model: selectedModel,
+                targetGroupId: targetGroupId);
             CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
             await OnSessionSelected.InvokeAsync();
         }
@@ -1896,9 +1898,10 @@ else
         }
     }
 
-    private void StartQuickBranch(string repoId)
+    private void StartQuickBranch(string repoId, string? targetGroupId = null)
     {
         quickBranchRepoId = repoId;
+        quickBranchGroupId = targetGroupId;
         quickBranchInput = "";
         quickBranchError = null;
     }
@@ -1936,9 +1939,11 @@ else
                 repoId: repoId,
                 branchName: branchName,
                 prNumber: prNumber,
-                model: selectedModel);
+                model: selectedModel,
+                targetGroupId: quickBranchGroupId);
 
             quickBranchRepoId = null;
+            quickBranchGroupId = null;
             quickBranchInput = "";
             CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
             await OnSessionSelected.InvokeAsync();

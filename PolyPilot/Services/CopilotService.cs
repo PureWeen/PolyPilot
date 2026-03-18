@@ -2546,6 +2546,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         string? sessionName = null,
         string? model = null,
         string? initialPrompt = null,
+        string? targetGroupId = null,
         CancellationToken ct = default)
     {
         // Remote mode: send the entire operation to the server as a single atomic command.
@@ -2646,9 +2647,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
         if (repo != null)
         {
-            var group = GetOrCreateRepoGroup(repo.Id, repo.Name, explicitly: true);
-            if (group != null)
-                MoveSession(sessionInfo.Name, group.Id);
+            // If the caller specified a target group (e.g. a 📁 local folder group), use it;
+            // otherwise fall back to the standard repo group.
+            string? resolvedGroupId = targetGroupId;
+            if (resolvedGroupId == null)
+            {
+                var group = GetOrCreateRepoGroup(repo.Id, repo.Name, explicitly: true);
+                resolvedGroupId = group?.Id;
+            }
+            if (resolvedGroupId != null)
+                MoveSession(sessionInfo.Name, resolvedGroupId);
             var meta = GetSessionMeta(sessionInfo.Name);
             if (meta != null) meta.WorktreeId = wt.Id;
         }
