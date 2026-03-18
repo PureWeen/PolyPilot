@@ -528,16 +528,129 @@ public class RepoManager
     }
 
     /// <summary>
-    /// Add a repository from an existing local path (non-bare). Creates a bare clone.
+    /// Add a repository from an existing local path (non-bare). Validates the folder is a
+    /// git repository with an 'origin' remote, then registers and bare-clones it the same
+    /// way as <see cref="AddRepositoryAsync(string,Action{string}?,CancellationToken)"/>.
+    /// The local folder is also registered as an external worktree so it appears in the
+    /// "📂 Existing" list when creating sessions.
     /// </summary>
-    public async Task<RepositoryInfo> AddRepositoryFromLocalAsync(string localPath, CancellationToken ct = default)
+    /// <param name="localPath">Path to an existing non-bare git working directory.</param>
+    /// <param name="onProgress">Optional progress callback forwarded to the clone/fetch step.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<RepositoryInfo> AddRepositoryFromLocalAsync(
+        string localPath,
+        Action<string>? onProgress = null,
+        CancellationToken ct = default)
     {
-        // Get remote URL
-        var remoteUrl = (await RunGitAsync(localPath, ct, "remote", "get-url", "origin")).Trim();
-        if (string.IsNullOrEmpty(remoteUrl))
-            throw new InvalidOperationException($"No 'origin' remote found in {localPath}");
+        // Expand ~ so users can type ~/Projects/myrepo without hitting Directory.Exists failures.
+        if (localPath.StartsWith("~", StringComparison.Ordinal))
+            localPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                localPath.TrimStart('~').TrimStart('/', '\\'));
+        localPath = Path.GetFullPath(localPath);
 
-        return await AddRepositoryAsync(remoteUrl, ct);
+        if (!Directory.Exists(localPath))
+            throw new InvalidOperationException($"Folder not found: '{localPath}'");
+
+        // Confirm the folder is a git repository.
+        if (!await IsGitRepositoryAsync(localPath, ct))
+            throw new InvalidOperationException(
+                $"'{localPath}' is not a git repository. " +
+                "Make sure the folder contains a cloned repository.");
+
+        // Extract the remote URL from the 'origin' remote.
+        string remoteUrl;
+        try
+        {
+            remoteUrl = (await RunGitAsync(localPath, ct, "remote", "get-url", "origin")).Trim();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            remoteUrl = "";
+        }
+
+        if (string.IsNullOrEmpty(remoteUrl))
+            throw new InvalidOperationException(
+                $"No 'origin' remote found in '{localPath}'. " +
+                "The folder must have a remote named 'origin' (e.g. a GitHub clone).");
+
+        var repo = await AddRepositoryAsync(remoteUrl, onProgress, ct);
+
+        // Register the local folder as an external worktree so it appears in the
+        // "Existing" list when creating sessions. This is the visible entry the user
+        // expects after adding their local clone.
+        await RegisterExternalWorktreeAsync(repo, localPath, ct);
+
+        return repo;
+    }
+
+    /// <summary>
+    /// Register an existing local folder as a worktree for the given repo.
+    /// Idempotent — does nothing if the path is already registered.
+    /// </summary>
+    internal async Task RegisterExternalWorktreeAsync(RepositoryInfo repo, string localPath, CancellationToken ct)
+    {
+        EnsureLoaded();
+        var normalizedPath = Path.GetFullPath(localPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        // Already registered for this repo?
+        lock (_stateLock)
+        {
+            if (_state.Worktrees.Any(w => w.RepoId == repo.Id
+                && !string.IsNullOrWhiteSpace(w.Path)
+                && PathsEqual(w.Path, normalizedPath)))
+                return;
+        }
+
+        // Read the current branch of the local clone.
+        string branch;
+        try
+        {
+            branch = (await RunGitAsync(normalizedPath, ct, "branch", "--show-current")).Trim();
+            if (string.IsNullOrWhiteSpace(branch))
+            {
+                // Detached HEAD — use short commit hash as label
+                branch = (await RunGitAsync(normalizedPath, ct, "rev-parse", "--short", "HEAD")).Trim();
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { branch = Path.GetFileName(normalizedPath); }
+
+        var wt = new WorktreeInfo
+        {
+            RepoId = repo.Id,
+            Branch = branch,
+            Path = normalizedPath,
+            BareClonePath = repo.BareClonePath,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        lock (_stateLock)
+        {
+            _state.Worktrees.Add(wt);
+            Save();
+        }
+        OnStateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="path"/> is a git working directory or bare repository.
+    /// </summary>
+    private async Task<bool> IsGitRepositoryAsync(string path, CancellationToken ct)
+    {
+        try
+        {
+            var result = await RunGitAsync(path, ct, "rev-parse", "--git-dir");
+            return !string.IsNullOrWhiteSpace(result);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>

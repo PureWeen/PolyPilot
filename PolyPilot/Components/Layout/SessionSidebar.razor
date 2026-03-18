@@ -345,7 +345,7 @@ else
                 <div class="toolbar-actions">
                     <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
                     <button class="new-group-btn" @onclick="StartAddMultiAgentGroup" title="New multi-agent group">🤖 Multi</button>
-                    <button class="new-group-btn" @onclick="() => showAddRepo = true" title="Add repository">+ Repo</button>
+                    <button class="new-group-btn" @onclick="OpenAddRepoForm" title="Add repository">+ Repo</button>
                     <button class="new-group-btn" @onclick="RefreshSessionsManually" title="Refresh sessions">↻</button>
                 </div>
             }
@@ -357,25 +357,62 @@ else
         @if (showAddRepo)
         {
             <div class="add-repo-form">
-                <input type="text" @bind="newRepoUrl" placeholder="owner/repo or full URL" class="repo-url-input" />
-                @if (confirmRepoReplace)
+                @* Mode tabs: URL vs Existing Folder *@
+                @if (PlatformHelper.IsDesktop && !confirmRepoReplace)
                 {
-                    <div class="repo-confirm">
-                        <span>@confirmRepoName already exists. Re-fetch?</span>
-                        <div class="repo-confirm-actions">
-                            <button class="btn-repo-add" @onclick="ConfirmAddRepository">Yes</button>
-                            <button class="btn-repo-cancel" @onclick="() => { confirmRepoReplace = false; confirmRepoName = null; }">No</button>
-                        </div>
+                    <div class="add-repo-mode-tabs">
+                        <button class="add-repo-tab @(addRepoFolderMode ? "" : "active")"
+                                @onclick="() => { addRepoFolderMode = false; addRepoError = null; }">
+                            🔗 URL
+                        </button>
+                        <button class="add-repo-tab @(addRepoFolderMode ? "active" : "")"
+                                @onclick="() => { addRepoFolderMode = true; addRepoError = null; }">
+                            📂 Existing Folder
+                        </button>
+                    </div>
+                }
+
+                @if (addRepoFolderMode && PlatformHelper.IsDesktop)
+                {
+                    @* Folder picker mode *@
+                    <div class="add-repo-folder-row">
+                        <input type="text" @bind="addRepoFolderPath"
+                               placeholder="Path to a cloned repository…"
+                               class="repo-url-input" />
+                        <button class="btn-repo-browse" @onclick="BrowseExistingRepo"
+                                title="Pick a folder">…</button>
+                    </div>
+                    <div class="add-repo-actions">
+                        <button class="btn-repo-add"
+                                @onclick="AddRepositoryFromFolder"
+                                disabled="@(isAddingRepo || string.IsNullOrWhiteSpace(addRepoFolderPath))">
+                            @(isAddingRepo ? "Adding..." : "Add")
+                        </button>
+                        <button class="btn-repo-cancel" @onclick="CloseAddRepoForm">Cancel</button>
                     </div>
                 }
                 else
                 {
-                    <div class="add-repo-actions">
-                        <button class="btn-repo-add" @onclick="AddRepository" disabled="@(isAddingRepo || string.IsNullOrWhiteSpace(newRepoUrl))">
-                            @(isAddingRepo ? "Cloning..." : "Add")
-                        </button>
-                        <button class="btn-repo-cancel" @onclick="() => { showAddRepo = false; addRepoError = null; }">Cancel</button>
-                    </div>
+                    <input type="text" @bind="newRepoUrl" placeholder="owner/repo or full URL" class="repo-url-input" />
+                    @if (confirmRepoReplace)
+                    {
+                        <div class="repo-confirm">
+                            <span>@confirmRepoName already exists. Re-fetch?</span>
+                            <div class="repo-confirm-actions">
+                                <button class="btn-repo-add" @onclick="ConfirmAddRepository">Yes</button>
+                                <button class="btn-repo-cancel" @onclick="() => { confirmRepoReplace = false; confirmRepoName = null; }">No</button>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="add-repo-actions">
+                            <button class="btn-repo-add" @onclick="AddRepository" disabled="@(isAddingRepo || string.IsNullOrWhiteSpace(newRepoUrl))">
+                                @(isAddingRepo ? "Cloning..." : "Add")
+                            </button>
+                            <button class="btn-repo-cancel" @onclick="CloseAddRepoForm">Cancel</button>
+                        </div>
+                    }
                 }
                 @if (isAddingRepo && !string.IsNullOrEmpty(addRepoProgress))
                 {
@@ -1243,6 +1280,9 @@ else
     private bool confirmRepoReplace = false;
     private string? confirmRepoName = null;
     private string? confirmRemoveRepoId = null;
+    // true when the user chose "Browse folder" mode instead of typing a URL
+    private bool addRepoFolderMode = false;
+    private string addRepoFolderPath = "";
 
     // Quick-create inline branch input
     private string? quickBranchRepoId = null;
@@ -2470,6 +2510,73 @@ else
         catch (Exception ex)
         {
             Console.WriteLine($"Error removing repo: {ex.Message}");
+        }
+    }
+
+    private void OpenAddRepoForm()
+    {
+        showAddRepo = true;
+        addRepoFolderMode = false;
+        addRepoFolderPath = "";
+        addRepoError = null;
+        confirmRepoReplace = false;
+        confirmRepoName = null;
+        newRepoUrl = "";
+    }
+
+    private void CloseAddRepoForm()
+    {
+        showAddRepo = false;
+        addRepoError = null;
+        addRepoFolderMode = false;
+        addRepoFolderPath = "";
+        newRepoUrl = "";
+    }
+
+    private async Task BrowseExistingRepo()
+    {
+#if MACCATALYST || WINDOWS
+        try
+        {
+            var dir = await FolderPickerService.PickFolderAsync();
+            if (!string.IsNullOrEmpty(dir))
+            {
+                addRepoFolderPath = dir;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            addRepoError = $"Could not open folder picker: {ex.Message}";
+        }
+#else
+        await Task.CompletedTask;
+#endif
+    }
+
+    private async Task AddRepositoryFromFolder()
+    {
+        if (isAddingRepo || string.IsNullOrWhiteSpace(addRepoFolderPath)) return;
+        addRepoError = null;
+        isAddingRepo = true;
+        addRepoProgress = null;
+        try
+        {
+            await CopilotService.AddRepoFromLocalFolderAsync(addRepoFolderPath.Trim(), progress =>
+            {
+                addRepoProgress = progress;
+                InvokeAsync(StateHasChanged);
+            });
+            CloseAddRepoForm();
+        }
+        catch (Exception ex)
+        {
+            addRepoError = ex.Message;
+        }
+        finally
+        {
+            isAddingRepo = false;
+            addRepoProgress = null;
         }
     }
 

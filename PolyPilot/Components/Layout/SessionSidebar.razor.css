@@ -681,6 +681,55 @@
     border-bottom: 1px solid var(--control-border);
 }
 
+.add-repo-mode-tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 0.35rem;
+}
+
+.add-repo-tab {
+    all: unset;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: var(--type-body);
+    cursor: pointer;
+    color: var(--text-secondary);
+    border: 1px solid transparent;
+}
+
+.add-repo-tab:hover { color: var(--text-primary); }
+
+.add-repo-tab.active {
+    background: var(--bg-primary);
+    border-color: var(--control-border);
+    color: var(--text-primary);
+}
+
+.add-repo-folder-row {
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+}
+
+.add-repo-folder-row .repo-url-input {
+    flex: 1;
+    width: auto;
+}
+
+.btn-repo-browse {
+    all: unset;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: var(--type-body);
+    cursor: pointer;
+    border: 1px solid var(--control-border);
+    color: var(--text-secondary);
+    background: var(--bg-primary);
+    white-space: nowrap;
+}
+
+.btn-repo-browse:hover { color: var(--text-primary); }
+
 .repo-url-input {
     width: 100%;
     padding: 0.4rem;

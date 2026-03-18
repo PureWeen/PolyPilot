@@ -369,4 +369,171 @@ public class RepoManagerTests
     }
 
     #endregion
+
+    #region AddRepositoryFromLocalAsync Validation Tests
+
+    [Fact]
+    public async Task AddRepositoryFromLocal_NonExistentFolder_ThrowsWithClearMessage()
+    {
+        var rm = new RepoManager();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => rm.AddRepositoryFromLocalAsync("/this/path/does/not/exist"));
+        Assert.Contains("not found", ex.Message);
+    }
+
+    [Fact]
+    public async Task AddRepositoryFromLocal_FolderWithNoGit_ThrowsWithClearMessage()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"not-a-repo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var rm = new RepoManager();
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => rm.AddRepositoryFromLocalAsync(tempDir));
+            Assert.Contains("not a git repository", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task AddRepositoryFromLocal_GitRepoWithNoOrigin_ThrowsWithClearMessage()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"no-origin-repo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            // Initialize a real git repo with no remotes
+            await RunProcess("git", "init", tempDir);
+            var rm = new RepoManager();
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => rm.AddRepositoryFromLocalAsync(tempDir));
+            Assert.Contains("origin", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task RegisterExternalWorktree_AddsWorktreeToState()
+    {
+        // STRUCTURAL: Verifies that RegisterExternalWorktreeAsync stores a WorktreeInfo
+        // and fires OnStateChanged, so the sidebar updates after adding a local folder.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"ext-wt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            await RunProcess("git", "init", tempDir);
+            await RunProcess("git", "-C", tempDir, "commit", "--allow-empty", "-m", "init");
+
+            var rm = new RepoManager();
+            RepoManager.SetBaseDirForTesting(Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}"));
+            try
+            {
+                // Seed a fake repo entry (skip network)
+                var repoId = "test-owner-testrepo";
+                var fakeRepo = new RepositoryInfo { Id = repoId, Name = "testrepo", Url = "https://github.com/test-owner/testrepo.git" };
+                var stateChangedFired = false;
+                rm.OnStateChanged += () => stateChangedFired = true;
+
+                // Directly inject state (bypass load)
+                var stateField = typeof(RepoManager).GetField("_state", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var loadedField = typeof(RepoManager).GetField("_loaded", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var successField = typeof(RepoManager).GetField("_loadedSuccessfully", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = new RepositoryState { Repositories = [fakeRepo] };
+                stateField.SetValue(rm, state);
+                loadedField.SetValue(rm, true);
+                successField.SetValue(rm, true);
+
+                await rm.RegisterExternalWorktreeAsync(fakeRepo, tempDir, default);
+
+                Assert.True(stateChangedFired, "OnStateChanged must fire so the sidebar refreshes");
+                Assert.Single(rm.Worktrees, w => w.RepoId == repoId && PathsEqual(w.Path, tempDir));
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task RegisterExternalWorktree_Idempotent()
+    {
+        // Adding the same path twice should not create duplicate worktree entries.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"ext-wt-idem-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            await RunProcess("git", "init", tempDir);
+            await RunProcess("git", "-C", tempDir, "commit", "--allow-empty", "-m", "init");
+
+            var rm = new RepoManager();
+            RepoManager.SetBaseDirForTesting(Path.Combine(Path.GetTempPath(), $"rmtest2-{Guid.NewGuid():N}"));
+            try
+            {
+                var fakeRepo = new RepositoryInfo { Id = "owner-repo", Name = "repo", Url = "https://github.com/owner/repo.git" };
+                var stateField = typeof(RepoManager).GetField("_state", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var loadedField = typeof(RepoManager).GetField("_loaded", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var successField = typeof(RepoManager).GetField("_loadedSuccessfully", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = new RepositoryState { Repositories = [fakeRepo] };
+                stateField.SetValue(rm, state);
+                loadedField.SetValue(rm, true);
+                successField.SetValue(rm, true);
+
+                await rm.RegisterExternalWorktreeAsync(fakeRepo, tempDir, default);
+                await rm.RegisterExternalWorktreeAsync(fakeRepo, tempDir, default); // second call
+
+                Assert.Single(rm.Worktrees); // exactly one entry
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    private static bool PathsEqual(string left, string right)
+    {
+        var l = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var r = Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(l, r, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Task RunProcess(string exe, params string[] args)
+    {
+        var tcs = new TaskCompletionSource();
+        var psi = new System.Diagnostics.ProcessStartInfo(exe)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        // Set EnableRaisingEvents and subscribe Exited BEFORE Start() to avoid the race
+        // where a fast process exits between Start() and EnableRaisingEvents = true.
+        var p = new System.Diagnostics.Process { StartInfo = psi, EnableRaisingEvents = true };
+        p.Exited += (_, _) =>
+        {
+            if (p.ExitCode == 0) tcs.TrySetResult();
+            else tcs.TrySetException(new Exception($"{exe} exited with {p.ExitCode}"));
+        };
+        p.Start();
+        return tcs.Task;
+    }
+
+    #endregion
 }
