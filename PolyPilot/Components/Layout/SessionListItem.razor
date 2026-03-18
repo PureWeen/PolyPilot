@@ -287,12 +287,25 @@
         await OnCloseMenu.InvokeAsync();
         try
         {
-            bool hasWorktree = !string.IsNullOrEmpty(Meta?.WorktreeId);
+            bool hasWorktree = false;
             string branchName = "";
-            if (hasWorktree)
+            if (!string.IsNullOrEmpty(Meta?.WorktreeId))
             {
                 var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == Meta!.WorktreeId);
-                branchName = wt?.Branch ?? "";
+                // Only offer worktree/branch deletion for PolyPilot-managed worktrees.
+                // External worktrees (added via "Add Existing Folder") are user-owned — we must not delete them.
+                // Managed locations: ~/.polypilot/worktrees/ (centralized) OR {repo}/.polypilot/worktrees/ (nested)
+                var managedDir = RepoManager.GetWorktreesDir();
+                var isNested = wt != null && wt.Path.Contains(
+                    Path.DirectorySeparatorChar + ".polypilot" + Path.DirectorySeparatorChar + "worktrees" + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase);
+                bool isManaged = wt != null &&
+                    (wt.Path.StartsWith(managedDir, StringComparison.OrdinalIgnoreCase) || isNested);
+                if (isManaged)
+                {
+                    hasWorktree = true;
+                    branchName = wt!.Branch ?? "";
+                }
             }
 
             var result = await JS.InvokeAsync<CloseDialogResult>(

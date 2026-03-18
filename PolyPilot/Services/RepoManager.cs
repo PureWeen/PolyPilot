@@ -692,6 +692,14 @@ public class RepoManager
             Directory.CreateDirectory(repoWorktreesDir);
             EnsureGitIgnoreEntry(localPath, ".polypilot/");
             worktreePath = Path.Combine(repoWorktreesDir, branchName);
+
+            // Guard against path traversal: branch names with ".." or leading "/" could escape the directory.
+            var resolved = Path.GetFullPath(worktreePath);
+            if (!resolved.StartsWith(Path.GetFullPath(repoWorktreesDir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                && !resolved.Equals(Path.GetFullPath(repoWorktreesDir), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"Branch name '{branchName}' would create worktree outside the managed directory. " +
+                    "Use a branch name without '..' or leading path separators.");
         }
         else
         {

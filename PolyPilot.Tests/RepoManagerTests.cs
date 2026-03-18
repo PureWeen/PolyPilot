@@ -595,6 +595,48 @@ public class RepoManagerTests
 
     #endregion
 
+    #region Nested Worktree Path Traversal Tests
+
+    [Theory]
+    [InlineData("../../evil")]
+    [InlineData("../sibling")]
+    [InlineData("foo/../../escape")]
+    public void CreateWorktree_PathTraversal_InBranchName_IsRejected(string maliciousBranch)
+    {
+        // Simulate what CreateWorktreeAsync does: combine repoWorktreesDir + branchName then GetFullPath
+        var fakeRepoDir = Path.Combine(Path.GetTempPath(), "fake-repo");
+        var repoWorktreesDir = Path.Combine(fakeRepoDir, ".polypilot", "worktrees");
+        var worktreePath = Path.Combine(repoWorktreesDir, maliciousBranch);
+        var resolved = Path.GetFullPath(worktreePath);
+        var managedBase = Path.GetFullPath(repoWorktreesDir) + Path.DirectorySeparatorChar;
+
+        // The guard condition: resolved must start with managedBase
+        var wouldEscape = !resolved.StartsWith(managedBase, StringComparison.OrdinalIgnoreCase)
+            && !resolved.Equals(Path.GetFullPath(repoWorktreesDir), StringComparison.OrdinalIgnoreCase);
+
+        Assert.True(wouldEscape, $"Branch '{maliciousBranch}' should escape the managed dir but guard says it doesn't. Resolved: {resolved}");
+    }
+
+    [Theory]
+    [InlineData("my-feature")]
+    [InlineData("feature/login")]
+    [InlineData("fix.typo")]
+    public void CreateWorktree_ValidBranchName_StaysInsideDir(string safeBranch)
+    {
+        var fakeRepoDir = Path.Combine(Path.GetTempPath(), "fake-repo");
+        var repoWorktreesDir = Path.Combine(fakeRepoDir, ".polypilot", "worktrees");
+        var worktreePath = Path.Combine(repoWorktreesDir, safeBranch);
+        var resolved = Path.GetFullPath(worktreePath);
+        var managedBase = Path.GetFullPath(repoWorktreesDir) + Path.DirectorySeparatorChar;
+
+        var wouldEscape = !resolved.StartsWith(managedBase, StringComparison.OrdinalIgnoreCase)
+            && !resolved.Equals(Path.GetFullPath(repoWorktreesDir), StringComparison.OrdinalIgnoreCase);
+
+        Assert.False(wouldEscape, $"Branch '{safeBranch}' should NOT escape the managed dir. Resolved: {resolved}");
+    }
+
+    #endregion
+
     private static Task RunProcess(string exe, params string[] args)
     {
         var tcs = new TaskCompletionSource();
