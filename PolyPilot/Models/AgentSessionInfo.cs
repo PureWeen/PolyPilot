@@ -22,9 +22,6 @@ public class AgentSessionInfo
     /// </para>
     /// </summary>
     public readonly object HistoryLock = new();
-    /// <summary>True when this session's History has not been loaded yet (deferred loading).
-    /// Set during startup restore; cleared after LoadBestHistoryAsync populates History.</summary>
-    public bool HistoryNeedsLoading { get; set; }
     public SynchronizedMessageQueue MessageQueue { get; } = new();
     
     public string? WorkingDirectory { get; set; }

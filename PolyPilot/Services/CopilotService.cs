@@ -2831,10 +2831,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
 
-        // Load deferred history before first send
-        if (state.Info.HistoryNeedsLoading)
-            await EnsureHistoryLoadedAsync(sessionName);
-
         if (state.Info.IsCreating)
             throw new InvalidOperationException("Session is still being created. Please wait.");
 
@@ -4158,9 +4154,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (_sessions.ContainsKey(name))
         {
             _activeSessionName = name;
-            // Trigger deferred history load if needed (fire-and-forget — UI updates via OnStateChanged)
-            if (_sessions.TryGetValue(name, out var state) && state.Info.HistoryNeedsLoading)
-                _ = EnsureHistoryLoadedAsync(name);
             if (IsRemoteMode)
                 _ = _bridgeClient.SwitchSessionAsync(name);
         }
@@ -4487,7 +4480,6 @@ public class ActiveSessionEntry
     public string? WorkingDirectory { get; set; }
     public string? LastPrompt { get; set; }
     public string? GroupId { get; set; }
-    public int MessageCount { get; set; }
     // Usage stats persisted across reconnects
     public int TotalInputTokens { get; set; }
     public int TotalOutputTokens { get; set; }
