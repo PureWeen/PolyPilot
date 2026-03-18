@@ -507,13 +507,18 @@ public partial class CopilotService
                         meta.WorktreeId = worktree.Id;
                         _repoManager.LinkSessionToWorktree(worktree.Id, name);
                         
-                        // Move session to repo's group
-                        var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
-                        if (repo != null)
+                        // Move session to repo's group — but skip if the session is already
+                        // in a local folder group (those sessions stay in their local folder group).
+                        var currentGroup = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+                        if (currentGroup?.IsLocalFolder != true)
                         {
-                            var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
-                            if (repoGroup != null)
-                                meta.GroupId = repoGroup.Id;
+                            var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
+                            if (repo != null)
+                            {
+                                var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
+                                if (repoGroup != null)
+                                    meta.GroupId = repoGroup.Id;
+                            }
                         }
                         changed = true;
                     }
