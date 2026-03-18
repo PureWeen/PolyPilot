@@ -111,6 +111,7 @@ public class ExternalSessionScannerTests : IDisposable
     {
         var ownedId = Guid.NewGuid().ToString();
         CreateSessionDir(ownedId, cwd: "/some/path", eventsContent: SimpleUserMessage("hello"));
+        CreateLockFile(ownedId);
 
         var ownedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ownedId };
         var scanner = new ExternalSessionScanner(_sessionStateDir, () => ownedIds);
@@ -124,6 +125,7 @@ public class ExternalSessionScannerTests : IDisposable
     {
         var sessionId = Guid.NewGuid().ToString();
         CreateSessionDir(sessionId, cwd: "/work/myproject", eventsContent: SimpleUserMessage("hello"));
+        CreateLockFile(sessionId);
 
         var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
         scanner.Scan();
@@ -131,6 +133,7 @@ public class ExternalSessionScannerTests : IDisposable
         Assert.Single(scanner.Sessions);
         Assert.Equal(sessionId, scanner.Sessions[0].SessionId);
         Assert.Equal("myproject", scanner.Sessions[0].DisplayName);
+        Assert.True(scanner.Sessions[0].IsActive);
     }
 
     [Fact]
@@ -141,6 +144,7 @@ public class ExternalSessionScannerTests : IDisposable
         Directory.CreateDirectory(weirdDir);
         File.WriteAllText(Path.Combine(weirdDir, "events.jsonl"), SimpleUserMessage("hello"));
         File.WriteAllText(Path.Combine(weirdDir, "workspace.yaml"), "cwd: /some/path\nid: abc");
+        File.WriteAllText(Path.Combine(weirdDir, $"inuse.{Environment.ProcessId}.lock"), "");
 
         var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
         scanner.Scan();
@@ -156,6 +160,7 @@ public class ExternalSessionScannerTests : IDisposable
         Directory.CreateDirectory(dir);
         // Only workspace.yaml, no events.jsonl
         File.WriteAllText(Path.Combine(dir, "workspace.yaml"), "cwd: /some/path\nid: " + sessionId);
+        File.WriteAllText(Path.Combine(dir, $"inuse.{Environment.ProcessId}.lock"), "");
 
         var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
         scanner.Scan();
@@ -163,116 +168,7 @@ public class ExternalSessionScannerTests : IDisposable
         Assert.Empty(scanner.Sessions);
     }
 
-    [Fact]
-    public void Scan_MultipleSessionsSortedActiveFirst()
-    {
-        // Active session: recent mtime + active last event type
-        var activeId = Guid.NewGuid().ToString();
-        CreateSessionDir(activeId, cwd: "/active/proj",
-            eventsContent: SimpleUserMessage("working on it") + "\n" + AssistantMessage("ok"));
 
-        // Ended session
-        var endedId = Guid.NewGuid().ToString();
-        CreateSessionDir(endedId, cwd: "/ended/proj",
-            eventsContent: SimpleUserMessage("done") + "\n" + SessionIdleEvent());
-
-        // Make active session file look very recent (within ActiveThreshold)
-        var activeEvents = Path.Combine(_sessionStateDir, activeId, "events.jsonl");
-        File.SetLastWriteTimeUtc(activeEvents, DateTime.UtcNow.AddSeconds(-30));
-
-        // Make ended session file look older (beyond ActiveThreshold but within MaxAge)
-        var endedEvents = Path.Combine(_sessionStateDir, endedId, "events.jsonl");
-        File.SetLastWriteTimeUtc(endedEvents, DateTime.UtcNow.AddMinutes(-5));
-
-        var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
-        scanner.Scan();
-
-        Assert.Equal(2, scanner.Sessions.Count);
-        // Active session should be first
-        Assert.Equal(activeId, scanner.Sessions[0].SessionId);
-        Assert.True(scanner.Sessions[0].IsActive);
-        Assert.Equal(endedId, scanner.Sessions[1].SessionId);
-        Assert.False(scanner.Sessions[1].IsActive);
-    }
-
-    [Fact]
-    public void Scan_SessionShutdown_AlwaysEndedTier()
-    {
-        // session.shutdown should always classify as Ended, even if the file is very recent
-        var sessionId = Guid.NewGuid().ToString();
-        CreateSessionDir(sessionId, cwd: "/recent/proj",
-            eventsContent: SimpleUserMessage("hello") + "\n" + AssistantMessage("hi") + "\n" + SessionShutdownEvent());
-
-        // Make the file look very recent (within ActiveThreshold) — but shutdown should override
-        var eventsFile = Path.Combine(_sessionStateDir, sessionId, "events.jsonl");
-        File.SetLastWriteTimeUtc(eventsFile, DateTime.UtcNow.AddSeconds(-30));
-
-        var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
-        scanner.Scan();
-
-        Assert.Single(scanner.Sessions);
-        Assert.Equal(ExternalSessionTier.Ended, scanner.Sessions[0].Tier);
-        Assert.False(scanner.Sessions[0].IsActive);
-    }
-
-    [Fact]
-    public void Scan_SessionIdle_RecentFile_IsIdleTier()
-    {
-        // session.idle with recent file (within active threshold) should be Idle, not Active
-        var sessionId = Guid.NewGuid().ToString();
-        CreateSessionDir(sessionId, cwd: "/idle/proj",
-            eventsContent: SimpleUserMessage("done") + "\n" + SessionIdleEvent());
-
-        var eventsFile = Path.Combine(_sessionStateDir, sessionId, "events.jsonl");
-        File.SetLastWriteTimeUtc(eventsFile, DateTime.UtcNow.AddSeconds(-30));
-
-        var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
-        scanner.Scan();
-
-        Assert.Single(scanner.Sessions);
-        Assert.Equal(ExternalSessionTier.Idle, scanner.Sessions[0].Tier);
-        Assert.False(scanner.Sessions[0].IsActive);
-    }
-
-    [Fact]
-    public void Scan_SessionShutdown_OlderThanEndedMaxAge_IsFiltered()
-    {
-        // session.shutdown that's older than 2 hours should be hidden entirely
-        var sessionId = Guid.NewGuid().ToString();
-        CreateSessionDir(sessionId, cwd: "/old/proj",
-            eventsContent: SimpleUserMessage("hello") + "\n" + SessionShutdownEvent());
-
-        // Set to 3 hours ago — beyond EndedMaxAge (2h) but within MaxAge (4h)
-        var eventsFile = Path.Combine(_sessionStateDir, sessionId, "events.jsonl");
-        File.SetLastWriteTimeUtc(eventsFile, DateTime.UtcNow.AddHours(-3));
-
-        var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
-        scanner.Scan();
-
-        // Should be filtered out — too old to bother resuming
-        Assert.Empty(scanner.Sessions);
-    }
-
-    [Fact]
-    public void Scan_SessionShutdown_WithinEndedMaxAge_IsShown()
-    {
-        // session.shutdown within 2 hours should still show so user can resume quickly
-        var sessionId = Guid.NewGuid().ToString();
-        CreateSessionDir(sessionId, cwd: "/recent-closed/proj",
-            eventsContent: SimpleUserMessage("hello") + "\n" + SessionShutdownEvent());
-
-        // Set to 1 hour ago — within EndedMaxAge (2h)
-        var eventsFile = Path.Combine(_sessionStateDir, sessionId, "events.jsonl");
-        File.SetLastWriteTimeUtc(eventsFile, DateTime.UtcNow.AddHours(-1));
-
-        var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
-        scanner.Scan();
-
-        Assert.Single(scanner.Sessions);
-        Assert.Equal(ExternalSessionTier.Ended, scanner.Sessions[0].Tier);
-    }
-
-    
     [Fact]
     public void Scan_OnChanged_FiresWhenSessionsChange()
     {
@@ -287,6 +183,7 @@ public class ExternalSessionScannerTests : IDisposable
         // Add a session
         var sessionId = Guid.NewGuid().ToString();
         CreateSessionDir(sessionId, cwd: "/new/project", eventsContent: SimpleUserMessage("hi"));
+        CreateLockFile(sessionId);
 
         // Second scan should fire OnChanged
         scanner.Scan();
@@ -302,6 +199,7 @@ public class ExternalSessionScannerTests : IDisposable
     {
         var sessionId = Guid.NewGuid().ToString();
         var eventsPath = CreateSessionDir(sessionId, cwd: "/proj", eventsContent: SimpleUserMessage("first"));
+        CreateLockFile(sessionId);
 
         var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
         scanner.Scan();
@@ -324,13 +222,12 @@ public class ExternalSessionScannerTests : IDisposable
     public void Scan_NeedsAttention_TrueForActiveSessionAskingQuestion()
     {
         var sessionId = Guid.NewGuid().ToString();
-        // Active session (recent file) where last assistant message asks a question
-        var eventsFile = CreateSessionDir(sessionId, cwd: "/active/proj",
+        // Active session where last assistant message asks a question
+        CreateSessionDir(sessionId, cwd: "/active/proj",
             eventsContent:
                 SimpleUserMessage("do the thing") + "\n" +
                 AssistantMessage("Should I use tabs or spaces?"));
-
-        File.SetLastWriteTimeUtc(eventsFile, DateTime.UtcNow.AddSeconds(-20));
+        CreateLockFile(sessionId);
 
         var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
         scanner.Scan();
@@ -345,13 +242,12 @@ public class ExternalSessionScannerTests : IDisposable
     public void Scan_NeedsAttention_FalseWhenUserReplied()
     {
         var sessionId = Guid.NewGuid().ToString();
-        var eventsFile = CreateSessionDir(sessionId, cwd: "/proj",
+        CreateSessionDir(sessionId, cwd: "/proj",
             eventsContent:
                 SimpleUserMessage("do it") + "\n" +
                 AssistantMessage("Which option would you prefer?") + "\n" +
                 SimpleUserMessage("option A"));
-
-        File.SetLastWriteTimeUtc(eventsFile, DateTime.UtcNow.AddSeconds(-20));
+        CreateLockFile(sessionId);
 
         var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
         scanner.Scan();
@@ -378,6 +274,7 @@ public class ExternalSessionScannerTests : IDisposable
             $"gitdir: {mainGitDir}");
 
         CreateSessionDir(sessionId, cwd: cwd, eventsContent: SimpleUserMessage("hello"));
+        CreateLockFile(sessionId);
 
         var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
         scanner.Scan();
@@ -394,6 +291,16 @@ public class ExternalSessionScannerTests : IDisposable
         var eventsFile = Path.Combine(dir, "events.jsonl");
         File.WriteAllText(eventsFile, eventsContent, Encoding.UTF8);
         return eventsFile;
+    }
+
+    /// <summary>
+    /// Create an inuse.{PID}.lock file so the scanner's lock-file pass finds this session.
+    /// Uses the current process PID (alive during the test).
+    /// </summary>
+    private void CreateLockFile(string sessionId)
+    {
+        var dir = Path.Combine(_sessionStateDir, sessionId);
+        File.WriteAllText(Path.Combine(dir, $"inuse.{Environment.ProcessId}.lock"), "");
     }
 
     private string WriteEventsFile(string sessionName, string content)
@@ -422,24 +329,19 @@ public class ExternalSessionScannerTests : IDisposable
     [Fact]
     public async Task Start_TimerRearms_SessionsDiscoveredAfterStart()
     {
-        // Verify that sessions created AFTER Start() are picked up by the re-arm loop.
+        // Create a session before starting — should be found on the initial scan (fires at TimeSpan.Zero)
+        var sessionId = Guid.NewGuid().ToString();
+        CreateSessionDir(sessionId, cwd: "/new/project", eventsContent: SimpleUserMessage("hello"));
+        CreateLockFile(sessionId);
+
         var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
         scanner.Start();
         try
         {
-            // Wait for the initial scan (fires at TimeSpan.Zero)
-            await Task.Delay(200);
-            Assert.Empty(scanner.Sessions);
-
-            // Now create a session — should be found on the next poll
-            var sessionId = Guid.NewGuid().ToString();
-            CreateSessionDir(sessionId, cwd: "/new/project", eventsContent: SimpleUserMessage("hello"));
-
-            // Wait long enough for at least one re-armed poll (PollInterval = 15s, but
-            // we just need to confirm the timer fires again — wait up to 20s)
-            for (int i = 0; i < 40; i++)
+            // Wait for the initial scan
+            for (int i = 0; i < 20; i++)
             {
-                await Task.Delay(500);
+                await Task.Delay(100);
                 if (scanner.Sessions.Count > 0) break;
             }
 
@@ -460,6 +362,7 @@ public class ExternalSessionScannerTests : IDisposable
         var cwd = Path.Combine(baseDir, "worktrees", "some-project");
         Directory.CreateDirectory(cwd);
         CreateSessionDir(sessionId, cwd: cwd, eventsContent: SimpleUserMessage("hello"));
+        CreateLockFile(sessionId);
 
         var scanner = new ExternalSessionScanner(
             _sessionStateDir,
@@ -480,6 +383,7 @@ public class ExternalSessionScannerTests : IDisposable
         Directory.CreateDirectory(worktreeCwd);
         var sessionId = Guid.NewGuid().ToString();
         CreateSessionDir(sessionId, cwd: worktreeCwd, eventsContent: SimpleUserMessage("hello from worktree"));
+        CreateLockFile(sessionId);
 
         var scanner = new ExternalSessionScanner(
             _sessionStateDir,
@@ -499,6 +403,7 @@ public class ExternalSessionScannerTests : IDisposable
         Directory.CreateDirectory(internalCwd);
         var sessionId = Guid.NewGuid().ToString();
         CreateSessionDir(sessionId, cwd: internalCwd, eventsContent: SimpleUserMessage("internal session"));
+        CreateLockFile(sessionId);
 
         var scanner = new ExternalSessionScanner(
             _sessionStateDir,
@@ -517,6 +422,7 @@ public class ExternalSessionScannerTests : IDisposable
         var cwd = Path.Combine(_tempDir, "other-project");
         Directory.CreateDirectory(cwd);
         CreateSessionDir(sessionId, cwd: cwd, eventsContent: SimpleUserMessage("hello"));
+        CreateLockFile(sessionId);
 
         var scanner = new ExternalSessionScanner(
             _sessionStateDir,

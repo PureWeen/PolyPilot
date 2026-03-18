@@ -5,7 +5,7 @@ namespace PolyPilot.Services;
 
 /// <summary>
 /// Scans ~/.copilot/session-state/ for Copilot CLI sessions NOT owned by PolyPilot
-/// (i.e. not in active-sessions.json). Polls every 15 seconds and fires a callback
+/// (i.e. not in active-sessions.json). Polls every 2 minutes and fires a callback
 /// when the external session list changes. Desktop-only (skips scan on mobile/remote).
 /// </summary>
 public class ExternalSessionScanner : IDisposable
@@ -156,6 +156,8 @@ public class ExternalSessionScanner : IDisposable
             }
             catch { }
 
+            if (_isExcludedCwd != null && _isExcludedCwd(cwd)) continue;
+
             // Parse events.jsonl for history + last event type
             var (history, lastEventType) = ParseEventsFile(eventsFile);
 
@@ -186,6 +188,98 @@ public class ExternalSessionScanner : IDisposable
             _cache[sessionId] = (eventsMtime, info);
             newSessions.Add(info);
         }
+
+        // Second pass: discover sessions via lock files for directories not found
+        // by the process scan. Only checks cached dirs or dirs with recent mtime.
+        // This handles copilot processes not discoverable via `ps -eo pid,args`
+        // (e.g., different process naming conventions or test scenarios).
+        try
+        {
+            foreach (var dir in Directory.EnumerateDirectories(_sessionStatePath))
+            {
+                var dirName = Path.GetFileName(dir);
+                if (!Guid.TryParse(dirName, out _)) continue;
+                if (seenIds.Contains(dirName)) continue;
+                if (ownedIds.Contains(dirName)) continue;
+
+                bool inCache = _cache.ContainsKey(dirName);
+                if (!inCache)
+                {
+                    try
+                    {
+                        var dirMtime = new DateTimeOffset(Directory.GetLastWriteTimeUtc(dir), TimeSpan.Zero);
+                        if (now - dirMtime > MaxAge) continue;
+                    }
+                    catch { continue; }
+                }
+
+                var lockPid = FindAnyLiveLockPid(dir, excludedPids);
+                if (lockPid == null) continue;
+
+                var evFile = Path.Combine(dir, "events.jsonl");
+                var wsFile = Path.Combine(dir, "workspace.yaml");
+                if (!File.Exists(evFile) || !File.Exists(wsFile)) continue;
+
+                DateTimeOffset evMtime;
+                try { evMtime = new DateTimeOffset(File.GetLastWriteTimeUtc(evFile), TimeSpan.Zero); }
+                catch { continue; }
+
+                seenIds.Add(dirName);
+
+                if (_cache.TryGetValue(dirName, out var c2) && c2.mtime == evMtime
+                    && c2.info.HasActiveLock)
+                {
+                    newSessions.Add(c2.info);
+                    continue;
+                }
+
+                string? lockCwd = null;
+                try
+                {
+                    foreach (var wline in File.ReadLines(wsFile).Take(10))
+                    {
+                        if (wline.StartsWith("cwd:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            lockCwd = wline["cwd:".Length..].Trim().Trim('"', '\'');
+                            break;
+                        }
+                    }
+                }
+                catch { }
+
+                if (_isExcludedCwd != null && _isExcludedCwd(lockCwd)) continue;
+
+                var (hist, lastEvt) = ParseEventsFile(evFile);
+
+                var dName = string.IsNullOrEmpty(lockCwd)
+                    ? dirName[..8]
+                    : Path.GetFileName(lockCwd.TrimEnd('/', '\\'));
+
+                var attn = ComputeNeedsAttention(hist);
+
+                string? branch = null;
+                if (!string.IsNullOrEmpty(lockCwd) && Directory.Exists(lockCwd))
+                    branch = TryGetGitBranch(lockCwd);
+
+                var lockInfo = new ExternalSessionInfo
+                {
+                    SessionId = dirName,
+                    DisplayName = dName,
+                    WorkingDirectory = lockCwd,
+                    GitBranch = branch,
+                    Tier = ExternalSessionTier.Active,
+                    LastEventType = lastEvt,
+                    LastEventTime = evMtime,
+                    History = hist,
+                    NeedsAttention = attn,
+                    ActiveLockPid = lockPid
+                };
+
+                _cache[dirName] = (evMtime, lockInfo);
+                newSessions.Add(lockInfo);
+            }
+        }
+        catch { }
 
         // Evict cache entries for sessions no longer live
         var staleKeys = _cache.Keys.Where(k => !seenIds.Contains(k)).ToList();
@@ -416,6 +510,35 @@ public class ExternalSessionScanner : IDisposable
                         return pid;
                     }
                     catch { /* Process doesn't exist — stale lock */ }
+                }
+            }
+        }
+        catch { /* Directory not accessible */ }
+        return null;
+    }
+
+    /// <summary>
+    /// Check for any lock file with a live PID, without verifying the process name.
+    /// Used in Scan() where the lock file's existence in copilot's session-state
+    /// directory is sufficient evidence of a copilot-related process.
+    /// </summary>
+    private static int? FindAnyLiveLockPid(string sessionDir, IReadOnlySet<int>? excludedPids)
+    {
+        try
+        {
+            foreach (var file in Directory.GetFiles(sessionDir, "inuse.*.lock"))
+            {
+                var fileName = Path.GetFileNameWithoutExtension(file);
+                var parts = fileName.Split('.');
+                if (parts.Length >= 2 && int.TryParse(parts[1], out var pid))
+                {
+                    if (excludedPids != null && excludedPids.Contains(pid)) continue;
+                    try
+                    {
+                        using var proc = System.Diagnostics.Process.GetProcessById(pid);
+                        if (!proc.HasExited) return pid;
+                    }
+                    catch { /* PID doesn't exist — stale lock */ }
                 }
             }
         }

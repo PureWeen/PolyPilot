@@ -85,8 +85,8 @@
                 <input type="text"
                        class="ext-send-input"
                        placeholder="Send a message to resume this session…"
-                       @bind="_sendText"
-                       @bind:event="oninput"
+                       value="@_sendText"
+                       @oninput="e => _sendText = e.Value?.ToString() ?? string.Empty"
                        @onkeyup="HandleKeyUp"
                        disabled="@_sending" />
                 <button class="ext-send-btn" @onclick="SendMessage" disabled="@(string.IsNullOrWhiteSpace(_sendText) || _sending)">
