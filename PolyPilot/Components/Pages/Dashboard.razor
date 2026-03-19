@@ -234,6 +234,7 @@
         @if (expandedSession == null)
         {
             var focusSessions = CopilotService.GetFocusSessions();
+            var focusNames = new HashSet<string>(focusSessions.Select(s => s.Name));
             @if (focusSessions.Count > 0)
             {
             <div class="focus-strip-header">
@@ -289,12 +290,16 @@
                 (group.OrchestratorMode == MultiAgentMode.Orchestrator ||
                  group.OrchestratorMode == MultiAgentMode.OrchestratorReflect);
             var workersExpanded = _expandedWorkerGroups.Contains(group.Id);
+            var focusNamesForGroup = expandedSession == null
+                ? new HashSet<string>(CopilotService.GetFocusSessions().Select(s => s.Name))
+                : new HashSet<string>();
+            var nonFocusGroupSessions = groupSessions.Where(s => !focusNamesForGroup.Contains(s.Name)).ToList();
             var visibleSessions = isOrchestratorGroup && !workersExpanded
-                ? groupSessions.Where(s => {
+                ? nonFocusGroupSessions.Where(s => {
                     var m = CopilotService.GetSessionMeta(s.Name);
                     return m?.Role != MultiAgentRole.Worker;
                   }).ToList()
-                : groupSessions;
+                : nonFocusGroupSessions;
             var workerCount = isOrchestratorGroup
                 ? groupSessions.Count(s => CopilotService.GetSessionMeta(s.Name)?.Role == MultiAgentRole.Worker)
                 : 0;

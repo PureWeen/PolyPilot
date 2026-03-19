@@ -725,7 +725,7 @@ public partial class CopilotService
     /// </summary>
     public IReadOnlyList<AgentSessionInfo> GetFocusSessions()
     {
-        var cutoff = DateTime.UtcNow.AddHours(-48);
+        var cutoff = DateTime.Now.AddHours(-48);
         var metas = Organization.Sessions.ToDictionary(m => m.SessionName);
 
         return GetAllSessions()

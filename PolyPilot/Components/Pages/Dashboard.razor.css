@@ -53,6 +53,11 @@
     padding-bottom: 1rem;
     margin-bottom: 0.75rem;
     border-bottom: 1px solid var(--border-subtle, rgba(128,128,128,0.15));
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    max-height: 30vh;
+    background: var(--bg-primary, #1a1a2e);
     /* Scrollbar styling */
     scrollbar-width: thin;
     scrollbar-color: var(--border-subtle) transparent;
