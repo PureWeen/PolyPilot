@@ -3629,6 +3629,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ProcessingPhase = 0;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
+        state.IsReconnectedSend = false; // INV-1: clear all per-turn flags on abort
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
         // Release send lock — allows a subsequent SteerSessionAsync to acquire it immediately
         Interlocked.Exchange(ref state.SendingFlag, 0);
