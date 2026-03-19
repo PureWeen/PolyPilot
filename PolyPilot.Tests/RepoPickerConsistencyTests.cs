@@ -55,11 +55,8 @@ public class RepoPickerConsistencyTests
         // After the fix, the multi-agent step-1 section should NOT have worktree-item buttons for repos.
         // Extract the step 1 section (between "Step 1" comment and the next else if)
         var step1Match = Regex.Match(content, @"Step 1:.*?(?=else if \(pendingMultiAgentRepo)", RegexOptions.Singleline);
-        if (step1Match.Success)
-        {
-            var step1Content = step1Match.Value;
-            Assert.DoesNotContain("worktree-item", step1Content);
-        }
+        Assert.True(step1Match.Success, "Could not locate Step 1 section in SessionSidebar.razor — regex pattern needs updating if comment or structure changed.");
+        Assert.DoesNotContain("worktree-item", step1Match.Value);
     }
 
     // ── Single-repo auto-advance ────────────────────────────────────────────
