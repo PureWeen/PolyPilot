@@ -111,6 +111,10 @@
                          Layout="@Layout"
                          Style="@Style"
                          RepoUrl="@RepoUrl" />
+        @if (!Session.IsProcessing && string.IsNullOrEmpty(Intent) && cardMsgs.Count == 0 && !string.IsNullOrEmpty(Session.LastUserPrompt))
+        {
+            <div class="card-last-prompt" title="Last prompt sent to this session">💬 @(Session.LastUserPrompt.Length > 80 ? Session.LastUserPrompt[..77] + "…" : Session.LastUserPrompt)</div>
+        }
     </div>
 
     @if (!string.IsNullOrEmpty(Error))
@@ -157,12 +161,7 @@
         <div class="card-stuck-banner">⚠ Stuck · @Session.ConsecutiveStuckCount consecutive failures</div>
     }
 
-    @if (!Session.IsProcessing && string.IsNullOrEmpty(Intent) && Session.History.Count == 0 && !string.IsNullOrEmpty(Session.LastUserPrompt))
-    {
-        <div class="card-last-prompt" title="Last prompt sent to this session">💬 @(Session.LastUserPrompt.Length > 80 ? Session.LastUserPrompt[..77] + "…" : Session.LastUserPrompt)</div>
-    }
-
-
+    @if (PendingImages.Any())
     {
         <div class="attachment-strip">
             @for (var cpi = 0; cpi < PendingImages.Count; cpi++)
