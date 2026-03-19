@@ -27,12 +27,13 @@ Every code path that sets `IsProcessing = false` MUST also:
 5. Clear `ToolCallCount = 0`
 6. Clear `ProcessingPhase = 0`
 7. Clear `SendingFlag = 0` (prevents session deadlock on next send)
-8. Call `ClearPermissionDenials()`
-9. Call `FlushCurrentResponse(state)` BEFORE clearing IsProcessing
-10. Fire `OnSessionComplete` (unblocks orchestrator loops waiting for completion)
-11. Add a diagnostic log entry (`[COMPLETE]`, `[ERROR]`, `[ABORT]`, etc.)
-12. Run on UI thread (via `InvokeOnUI()` or already on UI thread)
-13. After changes, run `ProcessingWatchdogTests.cs` to catch regressions
+8. Clear `IsReconnectedSend = false` (prevents stale 35s timeout on next watchdog start)
+9. Call `ClearPermissionDenials()`
+10. Call `FlushCurrentResponse(state)` BEFORE clearing IsProcessing
+11. Fire `OnSessionComplete` (unblocks orchestrator loops waiting for completion)
+12. Add a diagnostic log entry (`[COMPLETE]`, `[ERROR]`, `[ABORT]`, etc.)
+13. Run on UI thread (via `InvokeOnUI()` or already on UI thread)
+14. After changes, run `ProcessingWatchdogTests.cs` to catch regressions
 
 ## The 16 Paths That Set/Clear IsProcessing
 

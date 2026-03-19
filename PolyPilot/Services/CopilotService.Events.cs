@@ -798,6 +798,7 @@ public partial class CopilotService
                     // (Matches CompleteResponse ordering per INV-O3)
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
+                    state.IsReconnectedSend = false; // INV-1: clear all per-turn flags on termination
                     Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock (INV-1)
                     if (state.Info.ProcessingStartedAt is { } errStarted)
                         state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - errStarted).TotalSeconds;
@@ -2307,6 +2308,7 @@ public partial class CopilotService
                         // Cancel any pending TurnEnd→Idle fallback
                         CancelTurnEndFallback(state);
                         state.Info.IsResumed = false;
+                        state.IsReconnectedSend = false; // INV-1: clear all per-turn flags on termination
                         // Flush any accumulated partial response before clearing processing state.
                         // Wrapped in try-catch: if flush fails, IsProcessing MUST still be cleared
                         // (otherwise the session is permanently stuck — the watchdog has already exited).
