@@ -702,6 +702,48 @@ public partial class CopilotService
         }
     }
 
+    /// <summary>
+    /// Sets whether a session is manually included or excluded from the Focus strip.
+    /// Pass Auto to revert to recency-based detection.
+    /// </summary>
+    public void SetFocusOverride(string sessionName, FocusOverride focusOverride)
+    {
+        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta != null)
+        {
+            meta.FocusOverride = focusOverride;
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// Returns sessions that should appear in the Focus strip:
+    /// - Sessions with FocusOverride.Included always appear.
+    /// - Sessions with activity in the last 48h (LastUpdatedAt) appear unless FocusOverride.Excluded.
+    /// - Sorted by most recent activity first.
+    /// </summary>
+    public IReadOnlyList<AgentSessionInfo> GetFocusSessions()
+    {
+        var cutoff = DateTime.UtcNow.AddHours(-48);
+        var metas = Organization.Sessions.ToDictionary(m => m.SessionName);
+
+        return GetAllSessions()
+            .Where(s =>
+            {
+                if (!metas.TryGetValue(s.Name, out var meta)) return false;
+                return meta.FocusOverride switch
+                {
+                    FocusOverride.Included => true,
+                    FocusOverride.Excluded => false,
+                    _ => s.LastUpdatedAt >= cutoff || s.IsProcessing
+                };
+            })
+            .OrderByDescending(s => s.IsProcessing)
+            .ThenByDescending(s => s.LastUpdatedAt)
+            .ToList();
+    }
+
     public void MoveSession(string sessionName, string groupId)
     {
         if (!Organization.Groups.Any(g => g.Id == groupId))

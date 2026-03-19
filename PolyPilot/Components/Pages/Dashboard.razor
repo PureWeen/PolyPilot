@@ -230,6 +230,58 @@
                 </div>
             </div>
         </div>
+
+        @if (expandedSession == null)
+        {
+            var focusSessions = CopilotService.GetFocusSessions();
+            @if (focusSessions.Count > 0)
+            {
+            <div class="focus-strip-header">
+                <span class="focus-strip-label">🎯 Focus</span>
+                <span class="focus-strip-count">@focusSessions.Count</span>
+                <span class="focus-strip-hint">Sessions active in last 48h</span>
+            </div>
+            <div class="focus-strip">
+                @foreach (var session in focusSessions)
+                {
+                    var isCompleted = completedSessions.Contains(session.Name);
+                    var meta = CopilotService.GetSessionMeta(session.Name);
+                    <SessionCard Session="session"
+                                 @key="@($"focus-{session.Name}")"
+                                 Meta="meta"
+                                 IsCompleted="isCompleted"
+                                 IsInFocusStrip="true"
+                                 MessageCount="15"
+                                 StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var fs) ? fs : "")"
+                                 ActivityText="@(activityBySession.TryGetValue(session.Name, out var fa) ? fa : "")"
+                                 CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var ft) ? ft : "")"
+                                 ToolActivities="@(toolActivitiesBySession.TryGetValue(session.Name, out var fta) ? fta : new())"
+                                 Intent="@(intentBySession.TryGetValue(session.Name, out var fi) ? fi : "")"
+                                 Error="@(errorBySession.TryGetValue(session.Name, out var fe) ? fe : null)"
+                                 PendingImages="@(pendingImagesBySession.TryGetValue(session.Name, out var fpi) ? fpi : new())"
+                                 UserAvatarUrl="@CopilotService.GitHubAvatarUrl"
+                                 RepoUrl="@CopilotService.GetRepoUrlForSession(session.Name)"
+                                 Layout="@CopilotService.ChatLayout"
+                                 Style="@CopilotService.ChatStyle"
+                                 IsRenaming="@(cardRenamingSession == session.Name)"
+                                 IsMenuOpen="@(cardMenuSession == session.Name)"
+                                 OnGoTo="() => GoToSession(session.Name)"
+                                 OnToggleMenu="() => ToggleCardMenu(session.Name)"
+                                 OnExpand="() => ExpandSession(session.Name)"
+                                 OnLoadMore="() => LoadMoreCardMessages(session.Name)"
+                                 OnDismissError="() => DismissError(session.Name)"
+                                 OnClearQueue="() => ClearQueue(session.Name)"
+                                 OnRemovePendingImage="(idx) => RemovePendingImage(session.Name, idx)"
+                                 OnSend="(text) => SendFromCard(session.Name, text)"
+                                 OnStartRename="() => StartCardRename(session.Name)"
+                                 OnCommitRename="(newName) => CommitCardRename()"
+                                 OnCloseMenu="() => { cardMenuSession = null; }"
+                                 OnDismissFromFocus="() => CopilotService.SetFocusOverride(session.Name, FocusOverride.Excluded)" />
+                }
+            </div>
+            }
+        }
+
         @foreach (var (group, groupSessions) in CopilotService.GetOrganizedSessions())
         {
             var showGroupHeaders = CopilotService.HasMultipleGroups;

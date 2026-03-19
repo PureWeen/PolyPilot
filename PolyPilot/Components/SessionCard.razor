@@ -8,7 +8,7 @@
     var displayName = providerDisplayName ?? Session.Name;
 }
 
-<div class="session-card @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : Session.NeedsAttention ? "needs-attention" : "idle") @(Meta?.IsPinned == true ? "pinned" : "")" data-session="@Session.Name">
+<div class="session-card @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : Session.NeedsAttention ? "needs-attention" : "idle") @(Meta?.IsPinned == true ? "pinned" : "") @(IsInFocusStrip ? "in-focus-strip" : "")" data-session="@Session.Name">
     <div class="card-header">
         <div class="card-title" @onclick="GoToSession" style="cursor:pointer">
             @if (Meta?.IsPinned == true)
@@ -55,6 +55,19 @@
                     </button>
                 }
                 <div class="card-menu-separator"></div>
+                @if (Meta?.FocusOverride == FocusOverride.Excluded)
+                {
+                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetFocusOverride(Session.Name, FocusOverride.Auto); }">
+                        🎯 Re-enable auto-focus
+                    </button>
+                }
+                else if (!IsInFocusStrip)
+                {
+                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetFocusOverride(Session.Name, FocusOverride.Included); }">
+                        🎯 Add to Focus
+                    </button>
+                }
+                <div class="card-menu-separator"></div>
                 <button class="card-menu-item destructive" @onclick="async () => { await OnCloseMenu.InvokeAsync(); _ = CopilotService.CloseSessionAsync(Session.Name); }">
                     ✕ Close Session
                 </button>
@@ -64,6 +77,10 @@
         @if (Session.IsProcessing)
         {
             <button class="card-stop" @onclick="() => CopilotService.AbortSessionAsync(Session.Name)" title="Stop">■</button>
+        }
+        @if (IsInFocusStrip)
+        {
+            <button class="card-dismiss-focus" @onclick="() => OnDismissFromFocus.InvokeAsync()" title="Remove from Focus">✕</button>
         }
         <button class="card-expand" @onclick="ExpandSession" title="Expand">⤢</button>
     </div>
@@ -222,6 +239,10 @@
     [Parameter] public EventCallback OnClearQueue { get; set; }
     [Parameter] public EventCallback<int> OnRemovePendingImage { get; set; }
     [Parameter] public EventCallback<string> OnSend { get; set; } // message text
+    /// <summary>When set, shows a dismiss (✕) button in the card header to remove from the Focus strip.</summary>
+    [Parameter] public EventCallback OnDismissFromFocus { get; set; }
+    /// <summary>When true, the card is rendered in the Focus strip (slightly more messages, distinct styling).</summary>
+    [Parameter] public bool IsInFocusStrip { get; set; }
     private async Task HandleRenameKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")

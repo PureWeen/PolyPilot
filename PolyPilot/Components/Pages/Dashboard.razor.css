@@ -12,6 +12,82 @@
     position: relative;
 }
 
+/* Focus strip */
+.focus-strip-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.focus-strip-label {
+    font-size: var(--type-body);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.focus-strip-count {
+    font-size: var(--type-caption1);
+    background: rgba(99, 102, 241, 0.15);
+    color: rgba(99, 102, 241, 0.9);
+    border-radius: 10px;
+    padding: 0 0.4rem;
+    min-width: 1.4rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.focus-strip-hint {
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+    font-style: italic;
+}
+
+.focus-strip {
+    display: flex;
+    flex-direction: row;
+    gap: 1rem;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding-bottom: 1rem;
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-subtle, rgba(128,128,128,0.15));
+    /* Scrollbar styling */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-subtle) transparent;
+}
+
+.focus-strip .session-card {
+    flex: 0 0 min(380px, 85vw);
+    min-width: 0;
+    max-height: 55vh;
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
+.focus-strip .session-card.in-focus-strip {
+    border-color: rgba(99, 102, 241, 0.2);
+    background: var(--bg-secondary);
+}
+
+/* Dismiss button on focus cards */
+.card-dismiss-focus {
+    all: unset;
+    font-size: var(--type-caption1);
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 0.15rem 0.3rem;
+    border-radius: 4px;
+    opacity: 0.6;
+    flex-shrink: 0;
+    transition: opacity 0.15s, color 0.15s;
+}
+.card-dismiss-focus:hover {
+    opacity: 1;
+    color: #ef4444;
+}
+
 /* Quick-switcher */
 .qs-backdrop {
     position: fixed;
