@@ -84,6 +84,20 @@ public class RepoManagerTests
         method.Invoke(rm, null);
     }
 
+    /// <summary>
+    /// Deletes a directory tree including files marked read-only.
+    /// Git creates read-only object files on Windows, which causes plain
+    /// Directory.Delete to throw UnauthorizedAccessException in test cleanup.
+    /// </summary>
+    private static void ForceDeleteDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+            return;
+        foreach (var f in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+            File.SetAttributes(f, FileAttributes.Normal);
+        Directory.Delete(path, true);
+    }
+
     [Fact]
     public void Save_AfterFailedLoad_DoesNotOverwriteWithEmptyState()
     {
@@ -121,7 +135,7 @@ public class RepoManagerTests
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            ForceDeleteDirectory(tempDir);
         }
     }
 
@@ -158,7 +172,7 @@ public class RepoManagerTests
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            ForceDeleteDirectory(tempDir);
         }
     }
 
@@ -230,7 +244,7 @@ public class RepoManagerTests
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            ForceDeleteDirectory(tempDir);
         }
     }
 
@@ -277,7 +291,7 @@ public class RepoManagerTests
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            ForceDeleteDirectory(tempDir);
         }
     }
 
@@ -322,7 +336,7 @@ public class RepoManagerTests
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            ForceDeleteDirectory(tempDir);
         }
     }
 
@@ -364,7 +378,7 @@ public class RepoManagerTests
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            ForceDeleteDirectory(tempDir);
         }
     }
 
@@ -395,7 +409,7 @@ public class RepoManagerTests
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            ForceDeleteDirectory(tempDir);
         }
     }
 
@@ -415,7 +429,7 @@ public class RepoManagerTests
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            ForceDeleteDirectory(tempDir);
         }
     }
 
@@ -462,7 +476,7 @@ public class RepoManagerTests
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            ForceDeleteDirectory(tempDir);
         }
     }
 
@@ -502,7 +516,7 @@ public class RepoManagerTests
         }
         finally
         {
-            Directory.Delete(tempDir, true);
+            ForceDeleteDirectory(tempDir);
         }
     }
 
@@ -530,7 +544,7 @@ public class RepoManagerTests
             var content = File.ReadAllText(gitignorePath);
             Assert.Contains(".polypilot/", content);
         }
-        finally { Directory.Delete(tmpDir, true); }
+        finally { ForceDeleteDirectory(tmpDir); }
     }
 
     [Fact]
@@ -550,7 +564,7 @@ public class RepoManagerTests
             Assert.Contains(".polypilot/", content);
             Assert.Contains("*.user", content); // existing content preserved
         }
-        finally { Directory.Delete(tmpDir, true); }
+        finally { ForceDeleteDirectory(tmpDir); }
     }
 
     [Fact]
@@ -570,7 +584,7 @@ public class RepoManagerTests
             var lines = File.ReadAllLines(gitignorePath);
             Assert.Equal(1, lines.Count(l => l.Trim() == ".polypilot/")); // only one entry
         }
-        finally { Directory.Delete(tmpDir, true); }
+        finally { ForceDeleteDirectory(tmpDir); }
     }
 
     [Fact]
@@ -590,7 +604,7 @@ public class RepoManagerTests
             // Should NOT add a duplicate (already covered by ".polypilot" line)
             Assert.DoesNotContain(".polypilot/", content);
         }
-        finally { Directory.Delete(tmpDir, true); }
+        finally { ForceDeleteDirectory(tmpDir); }
     }
 
     #endregion
@@ -661,3 +675,4 @@ public class RepoManagerTests
 
     #endregion
 }
+
