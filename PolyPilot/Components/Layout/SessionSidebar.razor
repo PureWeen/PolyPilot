@@ -512,15 +512,9 @@ else
                                                     <div class="group-menu-separator"></div>
                                                     @if (group.IsMultiAgent)
                                                     {
-                                                        <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
-                                                            🗑 Delete Team
+                                                        <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; ShowDeleteGroupConfirm(gId, group.Name ?? gId, group.WorktreeId); }">
+                                                            🗑 Delete Team…
                                                         </button>
-                                                        @if (!string.IsNullOrEmpty(group.WorktreeId))
-                                                        {
-                                                            <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; DeleteGroupAndWorktree(gId, group.WorktreeId); }">
-                                                                🗑 Delete Team &amp; Worktree
-                                                            </button>
-                                                        }
                                                     }
                                                     @if (!group.IsMultiAgent)
                                                     {
@@ -541,15 +535,9 @@ else
                                                         </button>
                                                         <div class="group-menu-separator"></div>
                                                     }
-                                                    <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; CopilotService.DeleteGroup(gId); }">
-                                                        🗑 @(group.IsMultiAgent ? "Delete Team" : "Delete Group")
+                                                    <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; ShowDeleteGroupConfirm(gId, group.Name ?? gId, group.WorktreeId); }">
+                                                        🗑 @(group.IsMultiAgent ? "Delete Team…" : "Delete Group…")
                                                     </button>
-                                                    @if (!string.IsNullOrEmpty(group.WorktreeId))
-                                                    {
-                                                        <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; DeleteGroupAndWorktree(gId, group.WorktreeId); }">
-                                                            🗑 @(group.IsMultiAgent ? "Delete Team" : "Delete Group") &amp; Worktree
-                                                        </button>
-                                                    }
                                                 }
                                             </div>
                                         }
@@ -2055,7 +2043,7 @@ else
         }
     }
 
-    private async Task DeleteGroupAndWorktree(string groupId, string worktreeId)
+    private async Task DeleteGroupAndWorktree(string groupId, string worktreeId, bool deleteBranch = true)
     {
         // Collect session names being deleted so we can exclude them from the guard
         var deletedSessions = CopilotService.Organization.Sessions
@@ -2066,7 +2054,37 @@ else
         // Only delete worktree if no remaining sessions or groups still reference it
         if (!IsWorktreeInUse(worktreeId, excludeSessions: deletedSessions))
         {
-            await DeleteWorktreeAsync(worktreeId);
+            await DeleteWorktreeAsync(worktreeId, deleteBranch);
+        }
+    }
+
+    private record DeleteGroupDialogResult(bool Confirmed, bool DeleteWorktree, bool DeleteBranch);
+
+    private async Task ShowDeleteGroupConfirm(string groupId, string groupName, string? worktreeId)
+    {
+        try
+        {
+            bool hasWorktree = !string.IsNullOrEmpty(worktreeId);
+            string branchName = "";
+            if (hasWorktree)
+            {
+                var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
+                branchName = wt?.Branch ?? "";
+            }
+
+            var result = await JS.InvokeAsync<DeleteGroupDialogResult>(
+                "showDeleteGroupDialog", groupName, hasWorktree, branchName);
+
+            if (!result.Confirmed) return;
+
+            if (hasWorktree && (result.DeleteWorktree || result.DeleteBranch))
+                await DeleteGroupAndWorktree(groupId, worktreeId!, result.DeleteBranch);
+            else
+                CopilotService.DeleteGroup(groupId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SessionSidebar] ShowDeleteGroupConfirm error: {ex.Message}");
         }
     }
 
