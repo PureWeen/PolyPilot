@@ -720,12 +720,12 @@ public partial class CopilotService
     /// <summary>
     /// Returns sessions that should appear in the Focus strip:
     /// - Sessions with FocusOverride.Included always appear.
-    /// - Sessions with activity in the last 48h (LastUpdatedAt) appear unless FocusOverride.Excluded.
-    /// - Sorted by most recent activity first.
+    /// - Sessions currently processing appear (unless FocusOverride.Excluded).
+    /// - Sessions with unread messages appear (unless FocusOverride.Excluded).
+    /// - Sorted by processing first, then most recent activity.
     /// </summary>
     public IReadOnlyList<AgentSessionInfo> GetFocusSessions()
     {
-        var cutoff = DateTime.Now.AddHours(-48);
         var metas = Organization.Sessions.ToDictionary(m => m.SessionName);
 
         return GetAllSessions()
@@ -736,7 +736,7 @@ public partial class CopilotService
                 {
                     FocusOverride.Included => true,
                     FocusOverride.Excluded => false,
-                    _ => s.LastUpdatedAt >= cutoff || s.IsProcessing
+                    _ => s.IsProcessing || s.UnreadCount > 0
                 };
             })
             .OrderByDescending(s => s.IsProcessing)

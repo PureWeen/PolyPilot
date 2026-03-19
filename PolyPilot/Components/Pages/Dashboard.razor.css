@@ -49,13 +49,14 @@
     flex-direction: row;
     gap: 1rem;
     overflow-x: auto;
-    overflow-y: visible;
+    overflow-y: hidden;
     padding-bottom: 1rem;
     margin-bottom: 0.75rem;
     border-bottom: 1px solid var(--border-subtle, rgba(128,128,128,0.15));
     position: sticky;
     top: 0;
     z-index: 100;
+    min-height: 200px;
     max-height: 30vh;
     background: var(--bg-primary, #1a1a2e);
     /* Scrollbar styling */
@@ -63,21 +64,22 @@
     scrollbar-color: var(--border-subtle) transparent;
 }
 
-.focus-strip .session-card {
-    flex: 0 0 min(380px, 85vw);
-    min-width: 0;
+::deep .focus-strip .session-card {
+    flex: 0 0 380px;
+    min-width: 380px;
+    flex-shrink: 0;
     max-height: 55vh;
     overflow-y: auto;
     scrollbar-width: thin;
 }
 
-.focus-strip .session-card.in-focus-strip {
+::deep .focus-strip .session-card.in-focus-strip {
     border-color: rgba(99, 102, 241, 0.2);
     background: var(--bg-secondary);
 }
 
 /* Dismiss button on focus cards */
-.card-dismiss-focus {
+::deep .card-dismiss-focus {
     all: unset;
     font-size: var(--type-caption1);
     color: var(--text-dim);
@@ -88,7 +90,7 @@
     flex-shrink: 0;
     transition: opacity 0.15s, color 0.15s;
 }
-.card-dismiss-focus:hover {
+::deep .card-dismiss-focus:hover {
     opacity: 1;
     color: #ef4444;
 }
