@@ -331,6 +331,70 @@ public class WorktreeStrategyTests
 
     #endregion
 
+    #region GroupShared Strategy
+
+    [Fact]
+    public async Task GroupShared_CreatesExactlyOneWorktree()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.GroupShared);
+
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/fallback",
+            repoId: "repo-1");
+
+        Assert.NotNull(group);
+        Assert.Equal(WorktreeStrategy.GroupShared, group!.WorktreeStrategy);
+
+        // Exactly 1 worktree created (the orchestrator/group worktree)
+        Assert.Single(rm.CreateCalls);
+        Assert.Single(group.CreatedWorktreeIds);
+        Assert.NotNull(group.WorktreeId);
+    }
+
+    [Fact]
+    public async Task GroupShared_AllSessionsShareSameWorktreeId()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.GroupShared);
+
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/fallback",
+            repoId: "repo-1");
+
+        var allMetas = svc.Organization.Sessions
+            .Where(s => s.GroupId == group!.Id)
+            .ToList();
+
+        Assert.Equal(3, allMetas.Count); // 1 orch + 2 workers
+        // All sessions (orchestrator + workers) share the same worktree ID
+        Assert.All(allMetas, m => Assert.Equal(group!.WorktreeId, m.WorktreeId));
+    }
+
+    [Fact]
+    public async Task GroupShared_TwoGroupsGetDifferentWorktrees()
+    {
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.GroupShared);
+
+        var group1 = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/fallback",
+            repoId: "repo-1");
+        var group2 = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/fallback",
+            repoId: "repo-1");
+
+        Assert.NotNull(group1);
+        Assert.NotNull(group2);
+        Assert.NotEqual(group1!.WorktreeId, group2!.WorktreeId);
+        Assert.Equal(2, rm.CreateCalls.Count); // 1 worktree per group
+    }
+
+    #endregion
+
     #region StrategyOverride
 
     [Fact]

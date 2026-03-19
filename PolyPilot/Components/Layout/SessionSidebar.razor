@@ -283,6 +283,7 @@ else
                             <option value="" selected="@(selectedStrategy == null)">📋 Preset default</option>
                             <option value="FullyIsolated" selected="@(selectedStrategy == WorktreeStrategy.FullyIsolated)">🔒 Each agent gets own worktree</option>
                             <option value="OrchestratorIsolated" selected="@(selectedStrategy == WorktreeStrategy.OrchestratorIsolated)">🔀 Manager isolated, workers share</option>
+                            <option value="GroupShared" selected="@(selectedStrategy == WorktreeStrategy.GroupShared)">🌿 One worktree per group</option>
                             <option value="Shared" selected="@(selectedStrategy == WorktreeStrategy.Shared)">📁 Everyone shares one worktree</option>
                         </select>
                     </div>

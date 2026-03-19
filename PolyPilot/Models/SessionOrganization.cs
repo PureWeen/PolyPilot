@@ -182,6 +182,8 @@ public enum WorktreeStrategy
 {
     /// <summary>All sessions share one worktree (current default behavior).</summary>
     Shared,
+    /// <summary>One worktree per group, shared by orchestrator and all workers.</summary>
+    GroupShared,
     /// <summary>Orchestrator gets its own worktree; all workers share a separate one.</summary>
     OrchestratorIsolated,
     /// <summary>Every session (orchestrator + each worker) gets its own worktree.</summary>

@@ -2651,10 +2651,10 @@ public partial class CopilotService
             var meta = GetSessionMeta(workerName);
             if (meta != null)
             {
-                meta.WorktreeId = workerWtIds[i] ?? worktreeId;
+                meta.WorktreeId = workerWtIds[i] ?? orchWtId ?? worktreeId;
                 if (systemPrompt != null) meta.SystemPrompt = systemPrompt;
             }
-            var effectiveWtId = workerWtIds[i] ?? worktreeId;
+            var effectiveWtId = workerWtIds[i] ?? orchWtId ?? worktreeId;
             if (effectiveWtId != null && _sessions.TryGetValue(workerName, out var workerState))
                 workerState.Info.WorktreeId = effectiveWtId;
         }

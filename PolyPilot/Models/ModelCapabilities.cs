@@ -350,7 +350,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 - Each response you give MUST contain exactly one @worker: block
                 """,
             MaxReflectIterations = 10,
-            DefaultWorktreeStrategy = WorktreeStrategy.FullyIsolated,
+            DefaultWorktreeStrategy = WorktreeStrategy.GroupShared,
         },
 
         new GroupPreset(
@@ -764,7 +764,6 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 - NEVER emit [[GROUP_REFLECT_COMPLETE]] until all dispatched workers have responded and a consensus report is produced
                 """,
             MaxReflectIterations = 6,
-            DefaultWorktreeStrategy = WorktreeStrategy.FullyIsolated,
             WorkerDisplayNames = new[] { "dotnet-validator", "anthropic-validator", "eval-generator" },
         },
     };
