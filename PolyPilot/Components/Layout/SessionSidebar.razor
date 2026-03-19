@@ -512,7 +512,7 @@ else
                                                     <div class="group-menu-separator"></div>
                                                     @if (group.IsMultiAgent)
                                                     {
-                                                        <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; ShowDeleteGroupConfirm(gId, group.Name ?? gId, group.WorktreeId); }">
+                                                        <button class="group-menu-item destructive" @onclick="async () => { openGroupMenuId = null; await ShowDeleteGroupConfirm(gId, group.Name ?? gId, group.WorktreeId); }">
                                                             🗑 Delete Team…
                                                         </button>
                                                     }
@@ -535,7 +535,7 @@ else
                                                         </button>
                                                         <div class="group-menu-separator"></div>
                                                     }
-                                                    <button class="group-menu-item destructive" @onclick="() => { openGroupMenuId = null; ShowDeleteGroupConfirm(gId, group.Name ?? gId, group.WorktreeId); }">
+                                                    <button class="group-menu-item destructive" @onclick="async () => { openGroupMenuId = null; await ShowDeleteGroupConfirm(gId, group.Name ?? gId, group.WorktreeId); }">
                                                         🗑 @(group.IsMultiAgent ? "Delete Team…" : "Delete Group…")
                                                     </button>
                                                 }
@@ -693,6 +693,7 @@ else
                                                  IsDisabled="@(group.IsCodespace && group.ConnectionState != CodespaceConnectionState.Connected)"
                                                  IsRenaming="@(renamingSession == orchSession.Name)"
                                                  IsMenuOpen="@(openMenuSession == orchSession.Name)"
+                                                 IsMultiAgentMember="true"
                                                  ShortcutIndex="orchIdx"
                                                  Groups="CopilotService.Organization.Groups"
                                                  UsageInfo="@(usageBySession.TryGetValue(orchSession.Name, out var orchUsg) ? orchUsg : null)"
@@ -732,6 +733,7 @@ else
                                                          IsCompleted="@completedSessions.Contains(session.Name)"
                                                          IsDisabled="@(group.IsCodespace && group.ConnectionState != CodespaceConnectionState.Connected)"
                                                          IsWorkerChild="true"
+                                                         IsMultiAgentMember="true"
                                                          IsRenaming="@(renamingSession == session.Name)"
                                                          IsMenuOpen="@(openMenuSession == session.Name)"
                                                          ShortcutIndex="wIdx"

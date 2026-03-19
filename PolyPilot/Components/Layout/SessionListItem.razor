@@ -162,7 +162,7 @@
                     // Also exclude codespace groups as move targets for regular sessions.
                     var moveTargets = Groups?.Where(g => g.Id != Meta?.GroupId && !g.IsCodespace).ToList();
                 }
-                @if (!isInCodespace && moveTargets != null && moveTargets.Count > 0)
+                @if (!isInCodespace && !IsMultiAgentMember && moveTargets != null && moveTargets.Count > 0)
                 {
                     <div class="menu-separator"></div>
                     <div class="menu-submenu">
@@ -239,9 +239,12 @@
                     </button>
                     <div class="menu-separator"></div>
                 }
+                @if (!IsMultiAgentMember)
+                {
                 <button class="menu-item destructive" @onclick="ShowCloseConfirm">
                     🗑 Close Session…
                 </button>
+                }
             </div>
         }
     </div>
@@ -259,6 +262,7 @@
     [Parameter] public List<SessionGroup>? Groups { get; set; }
     [Parameter] public SessionUsageInfo? UsageInfo { get; set; }
     [Parameter] public bool IsWorkerChild { get; set; }
+    [Parameter] public bool IsMultiAgentMember { get; set; }
 
     [Parameter] public EventCallback OnSelect { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
