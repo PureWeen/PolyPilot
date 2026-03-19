@@ -892,18 +892,22 @@ public class ProcessingWatchdogTests
     /// Mirrors the three-tier timeout selection logic from RunProcessingWatchdogAsync.
     /// Kept in sync so tests validate the actual production formula.
     /// </summary>
-    private static int ComputeEffectiveTimeout(bool hasActiveTool, bool isResumed, bool hasReceivedEvents, bool hasUsedTools, bool isMultiAgent = false)
+    private static int ComputeEffectiveTimeout(bool hasActiveTool, bool isResumed, bool hasReceivedEvents, bool hasUsedTools, bool isMultiAgent = false, bool isReconnectedSend = false)
     {
         var useResumeQuiescence = isResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
         // NOTE: isMultiAgent no longer extends the timeout (PR #332 fix).
         // Workers actively streaming have tiny elapsed values (delta events reset the timer).
         // Only tool execution silence (hasActiveTool or hasUsedTools) warrants 600s.
         var useToolTimeout = hasActiveTool || (isResumed && !useResumeQuiescence) || hasUsedTools;
+        var useUsedToolsTimeout = !useToolTimeout && hasUsedTools && !hasActiveTool;
+        var useReconnectTimeout = isReconnectedSend && !useToolTimeout && !useUsedToolsTimeout && !useResumeQuiescence;
         return useResumeQuiescence
             ? CopilotService.WatchdogResumeQuiescenceTimeoutSeconds
             : useToolTimeout
                 ? CopilotService.WatchdogToolExecutionTimeoutSeconds
-                : CopilotService.WatchdogInactivityTimeoutSeconds;
+                : useReconnectTimeout
+                    ? CopilotService.WatchdogReconnectInactivityTimeoutSeconds
+                    : CopilotService.WatchdogInactivityTimeoutSeconds;
     }
 
     [Fact]
@@ -2780,5 +2784,98 @@ public class ProcessingWatchdogTests
         Assert.Equal(0, info.ToolCallCount);
         Assert.Equal(0, info.ProcessingPhase);
         Assert.Equal(1, info.ConsecutiveStuckCount);
+    }
+
+    // ===== Tests for IsReconnectedSend / WatchdogReconnectInactivityTimeoutSeconds (#406) =====
+
+    [Fact]
+    public void WatchdogReconnectTimeout_IsWithinValidRange()
+    {
+        // Reconnect timeout must be shorter than normal inactivity (so we detect
+        // dead event streams faster) but longer than the resume quiescence timeout
+        // (so a legitimately slow reconnect isn't killed too quickly).
+        Assert.True(
+            CopilotService.WatchdogReconnectInactivityTimeoutSeconds < CopilotService.WatchdogInactivityTimeoutSeconds,
+            $"WatchdogReconnectInactivityTimeoutSeconds ({CopilotService.WatchdogReconnectInactivityTimeoutSeconds}s) " +
+            $"must be less than WatchdogInactivityTimeoutSeconds ({CopilotService.WatchdogInactivityTimeoutSeconds}s)");
+        Assert.True(
+            CopilotService.WatchdogReconnectInactivityTimeoutSeconds > CopilotService.WatchdogResumeQuiescenceTimeoutSeconds,
+            $"WatchdogReconnectInactivityTimeoutSeconds ({CopilotService.WatchdogReconnectInactivityTimeoutSeconds}s) " +
+            $"must be greater than WatchdogResumeQuiescenceTimeoutSeconds ({CopilotService.WatchdogResumeQuiescenceTimeoutSeconds}s)");
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_ReconnectedSend_NoTools_UsesReconnectTimeout()
+    {
+        // After a reconnect, IsReconnectedSend=true with no tool activity →
+        // use the shorter reconnect timeout (35s) to detect dead event streams quickly.
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false,
+            hasUsedTools: false, isReconnectedSend: true);
+
+        Assert.Equal(CopilotService.WatchdogReconnectInactivityTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(35, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_ReconnectedSend_WithActiveTool_UsesToolTimeout()
+    {
+        // Reconnected send with an active tool → tool timeout takes priority over
+        // reconnect timeout. Don't kill a legitimately running tool early.
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: true, isResumed: false, hasReceivedEvents: false,
+            hasUsedTools: false, isReconnectedSend: true);
+
+        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(600, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_ReconnectedSend_Resumed_NoEvents_UsesQuiescenceTimeout()
+    {
+        // If a session is both resumed AND reconnected with no events, the resume
+        // quiescence path takes priority — it's the most specific short-circuit.
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: true, hasReceivedEvents: false,
+            hasUsedTools: false, isReconnectedSend: true);
+
+        Assert.Equal(CopilotService.WatchdogResumeQuiescenceTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(30, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_NotReconnectedSend_UsesInactivityTimeout()
+    {
+        // Normal (non-reconnected) send with no tool flags → standard 120s inactivity timeout.
+        // IsReconnectedSend=false must not activate the shorter reconnect path.
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false,
+            hasUsedTools: false, isReconnectedSend: false);
+
+        Assert.Equal(CopilotService.WatchdogInactivityTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(120, effectiveTimeout);
+    }
+
+    [Fact]
+    public void IsReconnectedSend_IsDeclaredVolatile()
+    {
+        // Verify IsReconnectedSend is declared as volatile bool on SessionState.
+        // Volatile is required for correctness: the watchdog reads it on a background
+        // thread while the event handler clears it on the SDK callback thread.
+        // Reflection check mirrors the existing HasUsedToolsThisTurn volatile test.
+        var sessionStateType = typeof(CopilotService).GetNestedTypes(
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            .FirstOrDefault(t => t.Name == "SessionState");
+        Assert.NotNull(sessionStateType);
+
+        var field = sessionStateType!.GetField("IsReconnectedSend",
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(field);
+        Assert.Equal(typeof(bool), field!.FieldType);
+
+        // Check for the volatile modifier via custom modifiers
+        var requiredMods = field.GetRequiredCustomModifiers();
+        var isVolatile = requiredMods.Any(t => t.FullName == "System.Runtime.CompilerServices.IsVolatile");
+        Assert.True(isVolatile, "IsReconnectedSend must be declared as 'volatile bool' (field has volatile modifier)");
     }
 }

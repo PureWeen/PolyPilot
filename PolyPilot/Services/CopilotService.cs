@@ -2884,6 +2884,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ClearPermissionDenials();
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
+        state.IsReconnectedSend = false; // Clear reconnect flag — new turn starts fresh (see watchdog reconnect timeout)
         state.PrematureIdleSignal.Reset(); // Clear premature idle detection from previous turn
         state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -3119,9 +3120,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 // Acquire semaphore slot — at most 3 siblings resume concurrently.
                                                 // This prevents flooding the server and keeps the primary
                                                 // session's newly-registered event stream healthy.
-                                                await siblingThrottle.WaitAsync(cancellationToken).ConfigureAwait(false);
+                                                // Guard: only Release() if WaitAsync() actually acquired the slot.
+                                                // If WaitAsync throws OperationCanceledException (token cancelled
+                                                // before acquiring), the finally block must NOT call Release()
+                                                // or it would over-release and throw SemaphoreFullException.
+                                                var acquired = false;
                                                 try
                                                 {
+                                                    await siblingThrottle.WaitAsync(cancellationToken).ConfigureAwait(false);
+                                                    acquired = true;
                                                     var settings = _currentSettings ?? ConnectionSettings.Load();
                                                     var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
                                                     var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
@@ -3186,18 +3193,23 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 }
                                                 catch (Exception reEx)
                                                 {
-                                                    Debug($"[RECONNECT] Failed to re-resume sibling '{capturedKey}': {reEx.Message}");
-                                                    // Mark as orphaned so stale handlers from the old (now-dead)
-                                                    // CopilotSession stop processing events. Without this, the
-                                                    // session becomes a zombie with a dead SDK handle.
-                                                    capturedOtherState.IsOrphaned = true;
-                                                    Interlocked.Exchange(ref capturedOtherState.ProcessingGeneration, long.MaxValue);
-                                                    // Unblock any orchestrator worker awaiting this session's TCS
-                                                    capturedOtherState.ResponseCompletion?.TrySetCanceled();
+                                                    if (reEx is not OperationCanceledException)
+                                                    {
+                                                        Debug($"[RECONNECT] Failed to re-resume sibling '{capturedKey}': {reEx.Message}");
+                                                        // Mark as orphaned so stale handlers from the old (now-dead)
+                                                        // CopilotSession stop processing events. Without this, the
+                                                        // session becomes a zombie with a dead SDK handle.
+                                                        capturedOtherState.IsOrphaned = true;
+                                                        Interlocked.Exchange(ref capturedOtherState.ProcessingGeneration, long.MaxValue);
+                                                        // Unblock any orchestrator worker awaiting this session's TCS
+                                                        capturedOtherState.ResponseCompletion?.TrySetCanceled();
+                                                    }
                                                 }
                                                 finally
                                                 {
-                                                    siblingThrottle.Release();
+                                                    // Only release if WaitAsync actually acquired the slot.
+                                                    // OperationCanceledException before acquire must not release.
+                                                    if (acquired) siblingThrottle.Release();
                                                 }
                                             });
                                             siblingTasks.Add(siblingTask);
