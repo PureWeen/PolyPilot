@@ -580,15 +580,21 @@ public class WsBridgeIntegrationTests : IDisposable
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var orgUpdated = new TaskCompletionSource<OrganizationState>();
         var client = new WsBridgeClient();
-        var callCount = 0;
+        var initialReceived = new TaskCompletionSource();
         client.OnOrganizationStateReceived += org =>
         {
-            callCount++;
-            // Skip the initial state sent on connect
-            if (callCount > 1) orgUpdated.TrySetResult(org);
+            // Always signal initialReceived on any broadcast so the test
+            // doesn't hang if BroadcastGroup arrives in the first message.
+            initialReceived.TrySetResult();
+
+            // Wait for the broadcast that contains BroadcastGroup — spurious
+            // broadcasts from the external session scanner can arrive between
+            // the initial connect state and the create_group response.
+            if (org.Groups.Any(g => g.Name == "BroadcastGroup"))
+                orgUpdated.TrySetResult(org);
         };
         await client.ConnectAsync($"ws://localhost:{_port}/", null, cts.Token);
-        await WaitForAsync(() => callCount >= 1, cts.Token); // wait for initial state
+        await initialReceived.Task.WaitAsync(TimeSpan.FromSeconds(5)); // wait for initial state
 
         await client.SendOrganizationCommandAsync(
             new OrganizationCommandPayload { Command = "create_group", Name = "BroadcastGroup" }, cts.Token);
