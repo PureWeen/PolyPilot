@@ -529,6 +529,12 @@ public partial class CopilotService : IAsyncDisposable
         /// event handlers (still registered on the old CopilotSession) from processing events
         /// or clearing IsProcessing on the shared Info object.</summary>
         public volatile bool IsOrphaned;
+
+        /// <summary>Set to true when the current SendAsync was issued on a freshly-reconnected
+        /// client (after a connection error). The watchdog uses a shorter inactivity timeout
+        /// for reconnected sends so a dead event stream (CLI event writer broken after re-resume)
+        /// is detected in ~30s rather than waiting the full 120s.</summary>
+        public volatile bool IsReconnectedSend;
     }
 
     private static void DisposePrematureIdleSignal(SessionState? state)
@@ -3079,6 +3085,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                     var groupSnapshots = Organization.Groups.ToList();
                                     _ = Task.Run(async () =>
                                     {
+                                        // Throttle concurrency to avoid overwhelming the server with
+                                        // many simultaneous ResumeSessionAsync calls. Flooding the server
+                                        // with 35-47 concurrent resumes can break the event delivery
+                                        // mechanism for the triggering session — events are accepted
+                                        // by SendAsync but never arrive at the handler (dead event stream).
+                                        // Limit to 3 concurrent sibling resumes. The primary session's
+                                        // event stream is registered before this Task.Run starts, so it
+                                        // has priority and siblings wait their turn.
+                                        using var siblingThrottle = new SemaphoreSlim(3, 3);
+                                        var siblingTasks = new List<Task>();
                                         foreach (var kvp in _sessions)
                                         {
                                             if (kvp.Key == sessionName) continue;
@@ -3094,82 +3110,102 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 continue;
                                             // Check cancellation between siblings for clean shutdown
                                             if (cancellationToken.IsCancellationRequested) break;
-                                            try
+
+                                            // Capture loop variables for the closure
+                                            var capturedKey = kvp.Key;
+                                            var capturedOtherState = otherState;
+                                            var siblingTask = Task.Run(async () =>
                                             {
-                                                var settings = _currentSettings ?? ConnectionSettings.Load();
-                                                var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
-                                                var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
-                                                var cfg = new ResumeSessionConfig
+                                                // Acquire semaphore slot — at most 3 siblings resume concurrently.
+                                                // This prevents flooding the server and keeps the primary
+                                                // session's newly-registered event stream healthy.
+                                                await siblingThrottle.WaitAsync(cancellationToken).ConfigureAwait(false);
+                                                try
                                                 {
-                                                    Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
-                                                    OnPermissionRequest = AutoApprovePermissions,
-                                                    McpServers = mcpServers,
-                                                    SkillDirectories = skillDirs,
-                                                };
-                                                var m = Models.ModelHelper.NormalizeToSlug(otherState.Info.Model);
-                                                if (!string.IsNullOrEmpty(m)) cfg.Model = m;
-                                                if (!string.IsNullOrEmpty(otherState.Info.WorkingDirectory))
-                                                    cfg.WorkingDirectory = otherState.Info.WorkingDirectory;
-                                                var resumed = await newClient.ResumeSessionAsync(
-                                                    otherState.Info.SessionId, cfg, cancellationToken);
-                                                // Re-check after await — a concurrent SendPromptAsync
-                                                // may have started processing while we were resuming.
-                                                // Orphan the just-resumed session rather than cancel a live turn.
-                                                if (otherState.Info.IsProcessing)
-                                                {
-                                                    Debug($"[RECONNECT] Sibling '{kvp.Key}' started processing during re-resume — skipping");
-                                                    try { await resumed.DisposeAsync(); } catch { }
-                                                    continue;
+                                                    var settings = _currentSettings ?? ConnectionSettings.Load();
+                                                    var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+                                                    var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
+                                                    var cfg = new ResumeSessionConfig
+                                                    {
+                                                        Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
+                                                        OnPermissionRequest = AutoApprovePermissions,
+                                                        McpServers = mcpServers,
+                                                        SkillDirectories = skillDirs,
+                                                    };
+                                                    var m = Models.ModelHelper.NormalizeToSlug(capturedOtherState.Info.Model);
+                                                    if (!string.IsNullOrEmpty(m)) cfg.Model = m;
+                                                    if (!string.IsNullOrEmpty(capturedOtherState.Info.WorkingDirectory))
+                                                        cfg.WorkingDirectory = capturedOtherState.Info.WorkingDirectory;
+                                                    var resumed = await newClient.ResumeSessionAsync(
+                                                        capturedOtherState.Info.SessionId, cfg, cancellationToken);
+                                                    // Re-check after await — a concurrent SendPromptAsync
+                                                    // may have started processing while we were resuming.
+                                                    // Orphan the just-resumed session rather than cancel a live turn.
+                                                    if (capturedOtherState.Info.IsProcessing)
+                                                    {
+                                                        Debug($"[RECONNECT] Sibling '{capturedKey}' started processing during re-resume — skipping");
+                                                        try { await resumed.DisposeAsync(); } catch { }
+                                                        return;
+                                                    }
+                                                    // Mark old state orphaned so stale handlers from the
+                                                    // previous CopilotSession stop processing events.
+                                                    // Create a new state (like the primary reconnect path)
+                                                    // instead of mutating otherState in place.
+                                                    capturedOtherState.IsOrphaned = true;
+                                                    Interlocked.Exchange(ref capturedOtherState.ProcessingGeneration, long.MaxValue);
+                                                    // Cancel old TCS so any awaiter (orchestrator worker) doesn't hang
+                                                    capturedOtherState.ResponseCompletion?.TrySetCanceled();
+                                                    var siblingState = new SessionState
+                                                    {
+                                                        Session = resumed,
+                                                        Info = capturedOtherState.Info,
+                                                        IsMultiAgentSession = capturedOtherState.IsMultiAgentSession,
+                                                    };
+                                                    // Mirror primary reconnect: reset tool tracking for new connection
+                                                    siblingState.HasUsedToolsThisTurn = false;
+                                                    Interlocked.Exchange(ref siblingState.ActiveToolCallCount, 0);
+                                                    Interlocked.Exchange(ref siblingState.SuccessfulToolCountThisTurn, 0);
+                                                    Interlocked.Exchange(ref siblingState.ToolHealthStaleChecks, 0);
+                                                    Interlocked.Exchange(ref siblingState.EventCountThisTurn, 0);
+                                                    Interlocked.Exchange(ref siblingState.TurnEndReceivedAtTicks, 0);
+                                                    // Register handler BEFORE publishing to dictionary —
+                                                    // no window where events arrive with no handler.
+                                                    resumed.On(evt => HandleSessionEvent(siblingState, evt));
+                                                    // Use TryUpdate to prevent a stale Task.Run from overwriting
+                                                    // a newer reconnect's state on rapid back-to-back reconnects.
+                                                    if (!_sessions.TryUpdate(capturedKey, siblingState, capturedOtherState))
+                                                    {
+                                                        Debug($"[RECONNECT] Sibling '{capturedKey}' already replaced by another reconnect — discarding");
+                                                        siblingState.IsOrphaned = true;
+                                                        try { await resumed.DisposeAsync(); } catch { }
+                                                        DisposePrematureIdleSignal(capturedOtherState);
+                                                        return;
+                                                    }
+                                                    DisposePrematureIdleSignal(capturedOtherState);
+                                                    Debug($"[RECONNECT] Re-resumed sibling session '{capturedKey}' after client recreation");
                                                 }
-                                                // Mark old state orphaned so stale handlers from the
-                                                // previous CopilotSession stop processing events.
-                                                // Create a new state (like the primary reconnect path)
-                                                // instead of mutating otherState in place.
-                                                otherState.IsOrphaned = true;
-                                                Interlocked.Exchange(ref otherState.ProcessingGeneration, long.MaxValue);
-                                                // Cancel old TCS so any awaiter (orchestrator worker) doesn't hang
-                                                otherState.ResponseCompletion?.TrySetCanceled();
-                                                var siblingState = new SessionState
+                                                catch (Exception reEx)
                                                 {
-                                                    Session = resumed,
-                                                    Info = otherState.Info,
-                                                    IsMultiAgentSession = otherState.IsMultiAgentSession,
-                                                };
-                                                // Mirror primary reconnect: reset tool tracking for new connection
-                                                siblingState.HasUsedToolsThisTurn = false;
-                                                Interlocked.Exchange(ref siblingState.ActiveToolCallCount, 0);
-                                                Interlocked.Exchange(ref siblingState.SuccessfulToolCountThisTurn, 0);
-                                                Interlocked.Exchange(ref siblingState.ToolHealthStaleChecks, 0);
-                                                Interlocked.Exchange(ref siblingState.EventCountThisTurn, 0);
-                                                Interlocked.Exchange(ref siblingState.TurnEndReceivedAtTicks, 0);
-                                                // Register handler BEFORE publishing to dictionary —
-                                                // no window where events arrive with no handler.
-                                                resumed.On(evt => HandleSessionEvent(siblingState, evt));
-                                                // Use TryUpdate to prevent a stale Task.Run from overwriting
-                                                // a newer reconnect's state on rapid back-to-back reconnects.
-                                                if (!_sessions.TryUpdate(kvp.Key, siblingState, otherState))
-                                                {
-                                                    Debug($"[RECONNECT] Sibling '{kvp.Key}' already replaced by another reconnect — discarding");
-                                                    siblingState.IsOrphaned = true;
-                                                    try { await resumed.DisposeAsync(); } catch { }
-                                                    DisposePrematureIdleSignal(otherState);
-                                                    continue;
+                                                    Debug($"[RECONNECT] Failed to re-resume sibling '{capturedKey}': {reEx.Message}");
+                                                    // Mark as orphaned so stale handlers from the old (now-dead)
+                                                    // CopilotSession stop processing events. Without this, the
+                                                    // session becomes a zombie with a dead SDK handle.
+                                                    capturedOtherState.IsOrphaned = true;
+                                                    Interlocked.Exchange(ref capturedOtherState.ProcessingGeneration, long.MaxValue);
+                                                    // Unblock any orchestrator worker awaiting this session's TCS
+                                                    capturedOtherState.ResponseCompletion?.TrySetCanceled();
                                                 }
-                                                DisposePrematureIdleSignal(otherState);
-                                                Debug($"[RECONNECT] Re-resumed sibling session '{kvp.Key}' after client recreation");
-                                            }
-                                            catch (Exception reEx)
-                                            {
-                                                Debug($"[RECONNECT] Failed to re-resume sibling '{kvp.Key}': {reEx.Message}");
-                                                // Mark as orphaned so stale handlers from the old (now-dead)
-                                                // CopilotSession stop processing events. Without this, the
-                                                // session becomes a zombie with a dead SDK handle.
-                                                otherState.IsOrphaned = true;
-                                                Interlocked.Exchange(ref otherState.ProcessingGeneration, long.MaxValue);
-                                                // Unblock any orchestrator worker awaiting this session's TCS
-                                                otherState.ResponseCompletion?.TrySetCanceled();
-                                            }
+                                                finally
+                                                {
+                                                    siblingThrottle.Release();
+                                                }
+                                            });
+                                            siblingTasks.Add(siblingTask);
                                         }
+                                        // Wait for all sibling resumes to complete so the semaphore
+                                        // lifetime covers all in-flight tasks. Per-task exceptions
+                                        // are observed inside each task's catch block above.
+                                        try { await Task.WhenAll(siblingTasks); } catch { }
                                     });
                                 }
                                 catch (OperationCanceledException)
@@ -3356,9 +3392,28 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // the fallback path in RestorePreviousSessionsAsync handles it gracefully.
                     SaveActiveSessionsToDisk();
 
-                    // Start fresh watchdog for the new connection
+                    // Start fresh watchdog for the new connection.
+                    // Mark as a reconnected send so the watchdog uses a shorter inactivity
+                    // timeout (WatchdogReconnectInactivityTimeoutSeconds) to detect dead event
+                    // streams quickly — the SDK's file writer can silently break after re-resume.
+                    state.IsReconnectedSend = true;
+                    // Re-snapshot events.jsonl size so the watchdog's "dead send" detection
+                    // (Case D) works correctly after reconnect. The stale snapshot from the
+                    // failed primary send is no longer valid.
+                    state.WatchdogAbortAttempted = false;
+                    try
+                    {
+                        var sid = state.Info.SessionId;
+                        if (!string.IsNullOrEmpty(sid))
+                        {
+                            var eventsPath = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                            if (File.Exists(eventsPath))
+                                Interlocked.Exchange(ref state.EventsFileSizeAtSend, new FileInfo(eventsPath).Length);
+                        }
+                    }
+                    catch { /* filesystem errors — watchdog will skip dead-send check */ }
                     StartProcessingWatchdog(state, sessionName);
-                    
+
                     Debug($"[RECONNECT] '{sessionName}' retrying prompt (len={prompt.Length})...");
                     var retryOptions = new MessageOptions
                     {

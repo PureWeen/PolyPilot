@@ -231,6 +231,8 @@ public partial class CopilotService
             // JSON-RPC connection is alive, so future Case A resets are legitimate.
             Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
             Interlocked.Exchange(ref state.WatchdogCaseBResets, 0);
+            // Clear the reconnect flag — event stream is alive for this session.
+            state.IsReconnectedSend = false;
             state.Info.LastUpdatedAt = DateTime.Now;
         }
         // Count every event for zero-idle diagnostics (#299)
@@ -1568,6 +1570,11 @@ public partial class CopilotService
     /// finished when the app restarted. Short enough that users don't have to click Stop, long enough
     /// for the SDK to start streaming if the turn is genuinely still active.</summary>
     internal const int WatchdogResumeQuiescenceTimeoutSeconds = 30;
+    /// <summary>If a reconnected session (IsReconnectedSend=true) receives zero SDK events for this many
+    /// seconds, the event stream is likely dead (SDK event writer broken after client recreation + mass
+    /// sibling re-resume). Shorter than the normal 120s so the reconnect triggers sooner and the user
+    /// gets a second retry attempt, rather than waiting the full 2 minutes for the watchdog kill.</summary>
+    internal const int WatchdogReconnectInactivityTimeoutSeconds = 35;
     /// <summary>Absolute maximum processing time in seconds. Even if events keep arriving,
     /// no single turn should run longer than this. This is a safety net for scenarios where
     /// non-progress events (like repeated SessionUsageInfoEvent) keep arriving without a terminal event.</summary>
@@ -2002,7 +2009,13 @@ public partial class CopilotService
                 // tools, but speeds up dead connection detection on subsequent checks.
                 var caseAResets = Volatile.Read(ref state.WatchdogCaseAResets);
                 var useEscalationTimeout = useToolTimeout && caseAResets > 0;
-                
+
+                // Reconnected sessions without tools get a shorter inactivity timeout so the dead
+                // event stream pattern (SDK file writer broken after mass sibling re-resume) is
+                // detected in ~35s rather than the full 120s. Once the first real event arrives,
+                // IsReconnectedSend is cleared and we fall back to the normal 120s timeout.
+                var useReconnectTimeout = state.IsReconnectedSend && !useToolTimeout && !useUsedToolsTimeout && !useResumeQuiescence;
+
                 var effectiveTimeout = useResumeQuiescence
                     ? WatchdogResumeQuiescenceTimeoutSeconds
                     : useEscalationTimeout
@@ -2011,7 +2024,9 @@ public partial class CopilotService
                             ? WatchdogToolExecutionTimeoutSeconds
                             : useUsedToolsTimeout
                                 ? WatchdogUsedToolsIdleTimeoutSeconds
-                                : WatchdogInactivityTimeoutSeconds;
+                                : useReconnectTimeout
+                                    ? WatchdogReconnectInactivityTimeoutSeconds
+                                    : WatchdogInactivityTimeoutSeconds;
 
                 // Safety net: check absolute max processing time, but only if events have also
                 // gone stale. If events are still flowing (elapsed < effectiveTimeout), the session
