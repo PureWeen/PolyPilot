@@ -895,19 +895,21 @@ public class ProcessingWatchdogTests
     private static int ComputeEffectiveTimeout(bool hasActiveTool, bool isResumed, bool hasReceivedEvents, bool hasUsedTools, bool isMultiAgent = false, bool isReconnectedSend = false)
     {
         var useResumeQuiescence = isResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
+        // Mirrors production formula in RunProcessingWatchdogAsync exactly.
         // NOTE: isMultiAgent no longer extends the timeout (PR #332 fix).
-        // Workers actively streaming have tiny elapsed values (delta events reset the timer).
-        // Only tool execution silence (hasActiveTool or hasUsedTools) warrants 600s.
-        var useToolTimeout = hasActiveTool || (isResumed && !useResumeQuiescence) || hasUsedTools;
+        // hasUsedTools goes through useUsedToolsTimeout (180s), NOT useToolTimeout (600s).
+        var useToolTimeout = hasActiveTool || (isResumed && !useResumeQuiescence);
         var useUsedToolsTimeout = !useToolTimeout && hasUsedTools && !hasActiveTool;
         var useReconnectTimeout = isReconnectedSend && !useToolTimeout && !useUsedToolsTimeout && !useResumeQuiescence;
         return useResumeQuiescence
             ? CopilotService.WatchdogResumeQuiescenceTimeoutSeconds
             : useToolTimeout
                 ? CopilotService.WatchdogToolExecutionTimeoutSeconds
-                : useReconnectTimeout
-                    ? CopilotService.WatchdogReconnectInactivityTimeoutSeconds
-                    : CopilotService.WatchdogInactivityTimeoutSeconds;
+                : useUsedToolsTimeout
+                    ? CopilotService.WatchdogUsedToolsIdleTimeoutSeconds
+                    : useReconnectTimeout
+                        ? CopilotService.WatchdogReconnectInactivityTimeoutSeconds
+                        : CopilotService.WatchdogInactivityTimeoutSeconds;
     }
 
     [Fact]
@@ -957,15 +959,18 @@ public class ProcessingWatchdogTests
     }
 
     [Fact]
-    public void WatchdogTimeoutSelection_HasUsedTools_UsesToolTimeout()
+    public void WatchdogTimeoutSelection_HasUsedTools_UsesUsedToolsTimeout()
     {
-        // When tools have been used this turn (HasUsedToolsThisTurn=true) → use longer
-        // tool timeout even between tool rounds when the model is thinking
+        // When tools have been used this turn (HasUsedToolsThisTurn=true) but no tool
+        // is currently active, the session is between tool rounds (model is thinking).
+        // Production routes this through WatchdogUsedToolsIdleTimeoutSeconds (180s) —
+        // longer than inactivity (120s) to give the model time to respond, but shorter
+        // than the full tool execution timeout (600s) since no tool is actually running.
         var effectiveTimeout = ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: true);
 
-        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, effectiveTimeout);
-        Assert.Equal(600, effectiveTimeout);
+        Assert.Equal(CopilotService.WatchdogUsedToolsIdleTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(180, effectiveTimeout);
     }
 
     [Fact]
@@ -1214,7 +1219,7 @@ public class ProcessingWatchdogTests
             hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: false));
         Assert.Equal(600, ComputeEffectiveTimeout(
             hasActiveTool: true, isResumed: false, hasReceivedEvents: false, hasUsedTools: false));
-        Assert.Equal(600, ComputeEffectiveTimeout(
+        Assert.Equal(180, ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: true));
         // Multi-agent without tools now uses 120s (not 600s) — see WatchdogTimeoutSelection_MultiAgent_NoTools_UsesInactivityTimeout
         Assert.Equal(120, ComputeEffectiveTimeout(
@@ -1256,7 +1261,7 @@ public class ProcessingWatchdogTests
     [InlineData(false, true,  false, true,  false, 600)]   // Resumed, used tools: tool timeout
     [InlineData(false, false, false, false, true,  120)]   // Multi-agent no-tools: inactivity (PR #332 fix)
     [InlineData(false, true,  false, false, true,  30)]    // Resumed+multiAgent, no events: quiescence wins
-    [InlineData(false, false, false, true,  false, 600)]   // HasUsedTools: tool timeout
+    [InlineData(false, false, false, true,  false, 180)]   // HasUsedTools, no active tool: 180s (used-tools idle)
     [InlineData(true,  true,  true,  true,  true,  600)]   // All flags: tool timeout
     public void WatchdogTimeoutSelection_ExhaustiveMatrix(
         bool hasActiveTool, bool isResumed, bool hasReceivedEvents,
@@ -1780,18 +1785,20 @@ public class ProcessingWatchdogTests
     // --- PR #148 sub-fix: watchdog using 120s during tool-call loops ---
 
     [Fact]
-    public void Regression_PR148_ToolLoops_Use600sNotInactivity()
+    public void Regression_PR148_ToolLoops_UseUsedToolsTimeoutNotInactivity()
     {
         // AssistantTurnStartEvent resets ActiveToolCallCount to 0 between
         // tool rounds, making "thinking" gaps look like inactivity. The fix:
         // HasUsedToolsThisTurn stays true for the entire processing cycle.
         // Without it, the watchdog would use 120s (inactivity) between tool
         // rounds, killing sessions doing legitimate multi-step work.
+        // HasUsedTools routes to WatchdogUsedToolsIdleTimeoutSeconds (180s),
+        // not the full 600s tool-execution timeout.
 
         // During tool loop: ActiveToolCallCount=0 but HasUsedToolsThisTurn=true
         var timeout = ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: true, hasUsedTools: true);
-        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, timeout);
+        Assert.Equal(CopilotService.WatchdogUsedToolsIdleTimeoutSeconds, timeout);
         Assert.NotEqual(CopilotService.WatchdogInactivityTimeoutSeconds, timeout);
     }
 
@@ -2060,12 +2067,14 @@ public class ProcessingWatchdogTests
     [Fact]
     public void Invariant_INV5_HasUsedToolsThisTurn_PreventsDowngrade()
     {
-        // INV-5: HasUsedToolsThisTurn alone is sufficient to keep 600s timeout.
-        // ActiveToolCallCount resets to 0 between tool rounds, so
-        // HasUsedToolsThisTurn is the reliable signal.
+        // INV-5: HasUsedToolsThisTurn alone is sufficient to prevent downgrade to
+        // 120s inactivity timeout. ActiveToolCallCount resets to 0 between tool
+        // rounds, so HasUsedToolsThisTurn is the reliable signal.
+        // Routes to WatchdogUsedToolsIdleTimeoutSeconds (180s), not inactivity (120s).
         var withHasUsed = ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: false, hasUsedTools: true);
-        Assert.Equal(CopilotService.WatchdogToolExecutionTimeoutSeconds, withHasUsed);
+        Assert.Equal(CopilotService.WatchdogUsedToolsIdleTimeoutSeconds, withHasUsed);
+        Assert.NotEqual(CopilotService.WatchdogInactivityTimeoutSeconds, withHasUsed);
     }
 
     [Fact]
@@ -2154,10 +2163,10 @@ public class ProcessingWatchdogTests
         // Expected: watchdog doesn't fire because LastEventAtTicks keeps resetting
         // from real progress events (tool starts, tool completes, message deltas).
 
-        // With tool activity, timeout is 600s
+        // With tool activity between rounds (hasUsedTools=true, no active tool), timeout is 180s
         var timeout = ComputeEffectiveTimeout(
             hasActiveTool: false, isResumed: false, hasReceivedEvents: true, hasUsedTools: true);
-        Assert.Equal(600, timeout);
+        Assert.Equal(180, timeout);
 
         // Even at 59 minutes, max processing time hasn't been exceeded (it's 60 min)
         var processingStart = DateTime.UtcNow.AddMinutes(-59);
@@ -2854,6 +2863,22 @@ public class ProcessingWatchdogTests
 
         Assert.Equal(CopilotService.WatchdogInactivityTimeoutSeconds, effectiveTimeout);
         Assert.Equal(120, effectiveTimeout);
+    }
+
+    [Fact]
+    public void WatchdogTimeoutSelection_ReconnectedSend_WithUsedTools_UsesUsedToolsTimeout()
+    {
+        // isReconnectedSend=true AND hasUsedTools=true (tools ran during this turn, none active).
+        // hasUsedTools (180s) takes priority over the reconnect timeout (35s) because
+        // the session did real work and the model may be thinking between tool rounds.
+        // The reconnect-fast-fail logic only applies when NO tools have been used.
+        var effectiveTimeout = ComputeEffectiveTimeout(
+            hasActiveTool: false, isResumed: false, hasReceivedEvents: false,
+            hasUsedTools: true, isReconnectedSend: true);
+
+        Assert.Equal(CopilotService.WatchdogUsedToolsIdleTimeoutSeconds, effectiveTimeout);
+        Assert.Equal(180, effectiveTimeout);
+        Assert.NotEqual(CopilotService.WatchdogReconnectInactivityTimeoutSeconds, effectiveTimeout);
     }
 
     [Fact]
