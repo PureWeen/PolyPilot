@@ -43,6 +43,7 @@ else if (IsFlyoutPanel)
 
         <div class="sidebar-divider"></div>
         @RenderSortToolbar
+        @RenderFilterBar
         @RenderSessionList
     </div>
 }
@@ -105,6 +106,7 @@ else
 
         <div class="sidebar-divider"></div>
         @RenderSortToolbar
+        @RenderFilterBar
         @RenderSessionList
 
         <div class="sidebar-footer">
@@ -442,7 +444,9 @@ else
                 var organized = CopilotService.GetOrganizedSessions();
                 var showGroupHeaders = CopilotService.HasMultipleGroups;
                 var sessionIndex = 0;
-                var regularGroups = organized.Where(g => !g.Group.IsCodespace).ToList();
+                var regularGroups = organized.Where(g => !g.Group.IsCodespace)
+                    .Select(g => (g.Group, Sessions: ApplyStatusFilter(g.Sessions)))
+                    .ToList();
                 var codespaceGroups = organized.Where(g => g.Group.IsCodespace).ToList();
             }
 
@@ -450,6 +454,11 @@ else
             {
                 <div class="section-header"><span class="section-header-label">Active Sessions</span></div>
                 <p class="no-sessions">No active sessions.<br/>Create one above or resume below.</p>
+            }
+
+            @if (sessions.Any() && _statusFilter != SessionStatusFilter.All && !regularGroups.Any(g => g.Sessions.Any()))
+            {
+                <p class="no-sessions" style="padding:1rem 0.5rem;font-style:italic;color:var(--text-dim)">No @(_statusFilter.ToString().ToLowerInvariant()) sessions</p>
             }
 
             @if (sessions.Any() || CopilotService.HasMultipleGroups)
@@ -1287,6 +1296,72 @@ else
     private bool showDirectoryPicker;
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
+
+    // --- Status filter ---
+    private enum SessionStatusFilter { All, Processing, NeedsAttention, Stuck, Idle }
+    private SessionStatusFilter _statusFilter = SessionStatusFilter.All;
+
+    private static SessionStatusFilter GetSessionStatus(AgentSessionInfo session)
+    {
+        if (session.IsProcessing) return SessionStatusFilter.Processing;
+        if (session.ConsecutiveStuckCount >= 1 || session.HasPermissionIssue) return SessionStatusFilter.Stuck;
+        if (session.UnreadCount > 0) return SessionStatusFilter.NeedsAttention;
+        return SessionStatusFilter.Idle;
+    }
+
+    private List<AgentSessionInfo> ApplyStatusFilter(List<AgentSessionInfo> all)
+    {
+        if (_statusFilter == SessionStatusFilter.All) return all;
+        return all.Where(s => GetSessionStatus(s) == _statusFilter).ToList();
+    }
+
+    private int CountByStatus(SessionStatusFilter filter)
+    {
+        if (filter == SessionStatusFilter.All) return sessions.Count;
+        return sessions.Count(s => GetSessionStatus(s) == filter);
+    }
+
+    private RenderFragment RenderFilterBar => __builder =>
+    {
+        var processingCount = CountByStatus(SessionStatusFilter.Processing);
+        var attentionCount  = CountByStatus(SessionStatusFilter.NeedsAttention);
+        var stuckCount      = CountByStatus(SessionStatusFilter.Stuck);
+
+        // Only show when there are interesting non-idle sessions
+        if (processingCount == 0 && attentionCount == 0 && stuckCount == 0) return;
+
+        <div class="status-filter-bar">
+            <button class="filter-chip filter-chip-all @(_statusFilter == SessionStatusFilter.All ? "active" : "")"
+                    @onclick="() => { _statusFilter = SessionStatusFilter.All; StateHasChanged(); }">
+                All <span class="filter-count">@sessions.Count</span>
+            </button>
+            @if (processingCount > 0)
+            {
+                <button class="filter-chip filter-chip-processing @(_statusFilter == SessionStatusFilter.Processing ? "active" : "")"
+                        @onclick="() => { _statusFilter = SessionStatusFilter.Processing; StateHasChanged(); }">
+                    ⚙ Working <span class="filter-count">@processingCount</span>
+                </button>
+            }
+            @if (attentionCount > 0)
+            {
+                <button class="filter-chip filter-chip-attention @(_statusFilter == SessionStatusFilter.NeedsAttention ? "active" : "")"
+                        @onclick="() => { _statusFilter = SessionStatusFilter.NeedsAttention; StateHasChanged(); }">
+                    ● Attention <span class="filter-count">@attentionCount</span>
+                </button>
+            }
+            @if (stuckCount > 0)
+            {
+                <button class="filter-chip filter-chip-stuck @(_statusFilter == SessionStatusFilter.Stuck ? "active" : "")"
+                        @onclick="() => { _statusFilter = SessionStatusFilter.Stuck; StateHasChanged(); }">
+                    ⚠ Stuck <span class="filter-count">@stuckCount</span>
+                </button>
+            }
+            <button class="filter-chip filter-chip-idle @(_statusFilter == SessionStatusFilter.Idle ? "active" : "")"
+                    @onclick="() => { _statusFilter = SessionStatusFilter.Idle; StateHasChanged(); }">
+                Idle <span class="filter-count">@CountByStatus(SessionStatusFilter.Idle)</span>
+            </button>
+        </div>
+    };
 
     private List<AgentSessionInfo> GetFilteredSessions(List<AgentSessionInfo> all, SessionGroup group, bool pinnedPass)
     {
