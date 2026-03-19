@@ -134,7 +134,35 @@
         <div class="intent-pill compact">💭 @Intent</div>
     }
 
-    @if (PendingImages.Any())
+    @if (Session.ReflectionCycle is { IsActive: true, IsPaused: false } rc)
+    {
+        var progress = rc.MaxIterations > 0 ? (double)rc.CurrentIteration / rc.MaxIterations * 100 : 0;
+        var truncGoal = rc.Goal.Length > 30 ? rc.Goal[..27] + "…" : rc.Goal;
+        <div class="card-reflection-pill">
+            <span class="card-reflection-progress" style="width: @progress.ToString("F0")%"></span>
+            <span class="card-reflection-text">🔄 @rc.CurrentIteration/@rc.MaxIterations · @truncGoal</span>
+            <button class="card-reflection-stop" @onclick="() => CopilotService.StopReflectionCycle(Session.Name)" @onclick:stopPropagation="true" title="Stop reflection cycle">■</button>
+        </div>
+    }
+    else if (Session.ReflectionCycle is { IsPaused: true } rp)
+    {
+        var truncGoal = rp.Goal.Length > 30 ? rp.Goal[..27] + "…" : rp.Goal;
+        <div class="card-reflection-pill paused">
+            <span class="card-reflection-text">⏸️ @rp.CurrentIteration/@rp.MaxIterations · @truncGoal</span>
+        </div>
+    }
+
+    @if (Session.ConsecutiveStuckCount >= 1 && !Session.IsProcessing)
+    {
+        <div class="card-stuck-banner">⚠ Stuck · @Session.ConsecutiveStuckCount consecutive failures</div>
+    }
+
+    @if (!Session.IsProcessing && string.IsNullOrEmpty(Intent) && Session.History.Count == 0 && !string.IsNullOrEmpty(Session.LastUserPrompt))
+    {
+        <div class="card-last-prompt" title="Last prompt sent to this session">💬 @(Session.LastUserPrompt.Length > 80 ? Session.LastUserPrompt[..77] + "…" : Session.LastUserPrompt)</div>
+    }
+
+
     {
         <div class="attachment-strip">
             @for (var cpi = 0; cpi < PendingImages.Count; cpi++)

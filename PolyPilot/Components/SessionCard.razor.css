@@ -384,7 +384,72 @@
     padding: 0.1rem 0.4rem;
 }
 
-.attachment-strip {
+/* Reflection cycle pill on card */
+.card-reflection-pill {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    overflow: hidden;
+    border-radius: 6px;
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    padding: 0.2rem 0.5rem;
+    font-size: var(--type-footnote);
+    color: #60a5fa;
+}
+.card-reflection-pill.paused {
+    background: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.25);
+    color: #f59e0b;
+}
+.card-reflection-progress {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: rgba(59, 130, 246, 0.15);
+    transition: width 0.4s ease;
+    pointer-events: none;
+}
+.card-reflection-text {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.card-reflection-stop {
+    all: unset;
+    position: relative;
+    font-size: var(--type-footnote);
+    opacity: 0.6;
+    cursor: pointer;
+    padding: 0 0.1rem;
+    flex-shrink: 0;
+}
+.card-reflection-stop:hover { opacity: 1; }
+
+/* Stuck indicator */
+.card-stuck-banner {
+    background: rgba(239, 68, 68, 0.1);
+    border-left: 3px solid #ef4444;
+    border-radius: 4px;
+    padding: 0.25rem 0.55rem;
+    font-size: var(--type-footnote);
+    color: #f87171;
+}
+
+/* Last prompt preview on idle cards */
+.card-last-prompt {
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+    padding: 0.25rem 0.1rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-style: italic;
+}
+
+
     display: flex;
     gap: 0.5rem;
     padding: 0.25rem 0;
