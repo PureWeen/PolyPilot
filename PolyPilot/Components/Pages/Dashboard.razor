@@ -411,7 +411,7 @@
                    placeholder="Jump to session…"
                    value="@_quickSwitcherQuery"
                    @oninput="@(e => QuickSwitcherQuery = e.Value?.ToString() ?? "")"
-                   @onkeydown="HandleQuickSwitcherKeyDown"
+                   @onkeyup="HandleQuickSwitcherKeyDown"
                    autofocus />
             <div class="qs-results">
                 @{
@@ -543,6 +543,7 @@
     private void CloseQuickSwitcher()
     {
         _quickSwitcherOpen = false;
+        StateHasChanged();
     }
 
     private List<AgentSessionInfo> GetQuickSwitcherResults()
@@ -591,7 +592,7 @@
         }
         else if (e.Key == "Enter" && results.Count > 0)
         {
-            SelectQuickSwitcherSession(results[_quickSwitcherIndex].Name);
+            await SelectQuickSwitcherSession(results[_quickSwitcherIndex].Name);
         }
         else if (e.Key == "Escape")
         {
