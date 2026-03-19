@@ -512,7 +512,7 @@ else
                                                     <div class="group-menu-separator"></div>
                                                     @if (group.IsMultiAgent)
                                                     {
-                                                        <button class="group-menu-item destructive" @onclick="async () => { openGroupMenuId = null; await ShowDeleteGroupConfirm(gId, group.Name ?? gId, group.WorktreeId); }">
+                                                        <button class="group-menu-item destructive" @onclick="async () => { openGroupMenuId = null; await ShowDeleteGroupConfirm(gId, group.Name ?? gId); }">
                                                             🗑 Delete Team…
                                                         </button>
                                                     }
@@ -535,7 +535,7 @@ else
                                                         </button>
                                                         <div class="group-menu-separator"></div>
                                                     }
-                                                    <button class="group-menu-item destructive" @onclick="async () => { openGroupMenuId = null; await ShowDeleteGroupConfirm(gId, group.Name ?? gId, group.WorktreeId); }">
+                                                    <button class="group-menu-item destructive" @onclick="async () => { openGroupMenuId = null; await ShowDeleteGroupConfirm(gId, group.Name ?? gId); }">
                                                         🗑 @(group.IsMultiAgent ? "Delete Team…" : "Delete Group…")
                                                     </button>
                                                 }
@@ -2086,7 +2086,7 @@ else
 
     private record DeleteGroupDialogResult(bool Confirmed, bool DeleteWorktree, bool DeleteBranch);
 
-    private async Task ShowDeleteGroupConfirm(string groupId, string groupName, string? worktreeId)
+    private async Task ShowDeleteGroupConfirm(string groupId, string groupName)
     {
         try
         {

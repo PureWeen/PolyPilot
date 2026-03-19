@@ -136,6 +136,20 @@ public class WorktreeStrategyTests
         Assert.Equal(WorktreeStrategy.FullyIsolated, prSquad.DefaultWorktreeStrategy);
     }
 
+    [Fact]
+    public void ImplementAndChallenge_DefaultsToGroupShared()
+    {
+        var preset = GroupPreset.BuiltIn.First(p => p.Name == "Implement & Challenge");
+        Assert.Equal(WorktreeStrategy.GroupShared, preset.DefaultWorktreeStrategy);
+    }
+
+    [Fact]
+    public void SkillValidator_DefaultsToFullyIsolated()
+    {
+        var preset = GroupPreset.BuiltIn.First(p => p.Name == "Skill Validator");
+        Assert.Equal(WorktreeStrategy.FullyIsolated, preset.DefaultWorktreeStrategy);
+    }
+
     #endregion
 
     #region FullyIsolated Strategy
