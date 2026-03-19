@@ -2045,7 +2045,7 @@ else
         }
     }
 
-    private async Task DeleteGroupAndWorktree(string groupId, string worktreeId, bool deleteBranch = true)
+    private async Task DeleteGroupAndWorktrees(string groupId, HashSet<string> worktreeIds, bool deleteBranch = true)
     {
         // Collect session names being deleted so we can exclude them from the guard
         var deletedSessions = CopilotService.Organization.Sessions
@@ -2053,11 +2053,35 @@ else
             .Select(m => m.SessionName)
             .ToHashSet();
         CopilotService.DeleteGroup(groupId);
-        // Only delete worktree if no remaining sessions or groups still reference it
-        if (!IsWorktreeInUse(worktreeId, excludeSessions: deletedSessions))
+        // Delete each worktree if no remaining sessions or groups still reference it
+        foreach (var wtId in worktreeIds)
         {
-            await DeleteWorktreeAsync(worktreeId, deleteBranch);
+            if (!IsWorktreeInUse(wtId, excludeSessions: deletedSessions))
+            {
+                await DeleteWorktreeAsync(wtId, deleteBranch);
+            }
         }
+    }
+
+    /// <summary>Collect all worktree IDs associated with a group (group-level + session-level + CreatedWorktreeIds).</summary>
+    private HashSet<string> CollectGroupWorktreeIds(string groupId)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var group = CopilotService.Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        if (group != null)
+        {
+            if (!string.IsNullOrEmpty(group.WorktreeId))
+                ids.Add(group.WorktreeId);
+            foreach (var id in group.CreatedWorktreeIds)
+                if (!string.IsNullOrEmpty(id)) ids.Add(id);
+        }
+        // Also check session-level worktree assignments
+        foreach (var session in CopilotService.Organization.Sessions.Where(s => s.GroupId == groupId))
+        {
+            if (!string.IsNullOrEmpty(session.WorktreeId))
+                ids.Add(session.WorktreeId);
+        }
+        return ids;
     }
 
     private record DeleteGroupDialogResult(bool Confirmed, bool DeleteWorktree, bool DeleteBranch);
@@ -2066,11 +2090,15 @@ else
     {
         try
         {
-            bool hasWorktree = !string.IsNullOrEmpty(worktreeId);
+            // Gather all worktree IDs from group + sessions + CreatedWorktreeIds
+            var allWorktreeIds = CollectGroupWorktreeIds(groupId);
+            bool hasWorktree = allWorktreeIds.Count > 0;
             string branchName = "";
             if (hasWorktree)
             {
-                var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
+                // Show branch name from the first worktree found
+                var firstWtId = allWorktreeIds.First();
+                var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == firstWtId);
                 branchName = wt?.Branch ?? "";
             }
 
@@ -2080,7 +2108,7 @@ else
             if (!result.Confirmed) return;
 
             if (hasWorktree && (result.DeleteWorktree || result.DeleteBranch))
-                await DeleteGroupAndWorktree(groupId, worktreeId!, result.DeleteBranch);
+                await DeleteGroupAndWorktrees(groupId, allWorktreeIds, result.DeleteBranch);
             else
                 CopilotService.DeleteGroup(groupId);
         }
