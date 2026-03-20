@@ -4566,6 +4566,7 @@ public class ActiveSessionEntry
     public int PremiumRequestsUsed { get; set; }
     public double TotalApiTimeSeconds { get; set; }
     public DateTime? CreatedAt { get; set; }
+    public DateTime? LastUpdatedAt { get; set; }
 }
 
 public class PersistedSessionInfo

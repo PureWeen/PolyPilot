@@ -727,7 +727,7 @@ public partial class CopilotService
     public IReadOnlyList<AgentSessionInfo> GetFocusSessions()
     {
         var metas = Organization.Sessions.ToDictionary(m => m.SessionName);
-        var recentCutoff = DateTime.Now.AddMinutes(-2);
+        var recentCutoff = DateTime.Now.AddHours(-24);
 
         return GetAllSessions()
             .Where(s =>
@@ -739,7 +739,7 @@ public partial class CopilotService
                 {
                     FocusOverride.Included => true,
                     FocusOverride.Excluded => false,
-                    // Active = processing, has unread messages, or had activity in last 2 min
+                    // Active = processing, has unread messages, or had activity in last 24h
                     _ => s.IsProcessing || s.UnreadCount > 0 || s.LastUpdatedAt > recentCutoff
                 };
             })

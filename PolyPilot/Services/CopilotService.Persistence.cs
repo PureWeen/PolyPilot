@@ -38,6 +38,7 @@ public partial class CopilotService
                     PremiumRequestsUsed = s.Info.PremiumRequestsUsed,
                     TotalApiTimeSeconds = s.Info.TotalApiTimeSeconds,
                     CreatedAt = s.Info.CreatedAt,
+                    LastUpdatedAt = s.Info.LastUpdatedAt,
                 })
                 .ToList();
         }
@@ -83,6 +84,7 @@ public partial class CopilotService
                     PremiumRequestsUsed = s.Info.PremiumRequestsUsed,
                     TotalApiTimeSeconds = s.Info.TotalApiTimeSeconds,
                     CreatedAt = s.Info.CreatedAt,
+                    LastUpdatedAt = s.Info.LastUpdatedAt,
                 })
                 .ToList();
             WriteActiveSessionsFile(entries);
@@ -202,6 +204,9 @@ public partial class CopilotService
         state.Info.TotalApiTimeSeconds = Math.Max(state.Info.TotalApiTimeSeconds, entry.TotalApiTimeSeconds);
         if (entry.CreatedAt.HasValue)
             state.Info.CreatedAt = entry.CreatedAt.Value;
+        // Restore real LastUpdatedAt so focus detection uses actual activity time, not restore time
+        if (entry.LastUpdatedAt.HasValue)
+            state.Info.LastUpdatedAt = entry.LastUpdatedAt.Value;
 
         // Backfill from events.jsonl only when ALL tracked fields are zero (indicating "never tracked")
         if (entry.PremiumRequestsUsed == 0 && entry.TotalApiTimeSeconds == 0 && !entry.CreatedAt.HasValue)
