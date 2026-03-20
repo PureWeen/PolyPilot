@@ -5,7 +5,7 @@ namespace PolyPilot.Models;
 /// <summary>Controls whether a session appears in the Focus strip.</summary>
 public enum FocusOverride
 {
-    /// <summary>Determined automatically by recency (last 48h activity).</summary>
+    /// <summary>Determined automatically by recency (last 24h activity).</summary>
     Auto,
     /// <summary>Manually added to Focus regardless of activity time.</summary>
     Included,
@@ -154,7 +154,7 @@ public class SessionMeta
     public string GroupId { get; set; } = SessionGroup.DefaultId;
     public bool IsPinned { get; set; }
     public int ManualOrder { get; set; }
-    /// <summary>Focus strip override. Auto = determined by 48h recency.</summary>
+    /// <summary>Focus strip override. Auto = determined by 24h recency.</summary>
     public FocusOverride FocusOverride { get; set; } = FocusOverride.Auto;
     /// <summary>Worktree ID if this session was created from a worktree.</summary>
     public string? WorktreeId { get; set; }

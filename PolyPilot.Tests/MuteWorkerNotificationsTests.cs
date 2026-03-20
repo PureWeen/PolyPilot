@@ -126,10 +126,10 @@ public class MuteWorkerNotificationsTests
     }
 
     [Fact]
-    public void DefaultSessionMeta_RoleIsWorker()
+    public void DefaultSessionMeta_RoleIsNone()
     {
         var meta = new SessionMeta();
-        Assert.Equal(MultiAgentRole.Worker, meta.Role);
+        Assert.Equal(MultiAgentRole.None, meta.Role);
     }
 
     // ── Notification filtering logic (unit) ─────────────────────────
