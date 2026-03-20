@@ -50,9 +50,6 @@
     padding-bottom: 1rem;
     margin-bottom: 0.75rem;
     border-bottom: 1px solid var(--border-subtle, rgba(128,128,128,0.15));
-    position: sticky;
-    top: 0;
-    z-index: 100;
     background: var(--bg-primary, #1a1a2e);
 }
 

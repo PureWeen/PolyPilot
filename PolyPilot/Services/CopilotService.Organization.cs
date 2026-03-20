@@ -732,16 +732,14 @@ public partial class CopilotService
         return GetAllSessions()
             .Where(s =>
             {
-                if (!metas.TryGetValue(s.Name, out var meta)) return false;
+                var hasMeta = metas.TryGetValue(s.Name, out var meta);
                 // Skip workers in multi-agent groups — they show under their orchestrator
-                if (meta.Role == MultiAgentRole.Worker) return false;
-                return meta.FocusOverride switch
-                {
-                    FocusOverride.Included => true,
-                    FocusOverride.Excluded => false,
-                    // Active = processing, has unread messages, or had activity in last 24h
-                    _ => s.IsProcessing || s.UnreadCount > 0 || s.LastUpdatedAt > recentCutoff
-                };
+                if (hasMeta && meta!.Role == MultiAgentRole.Worker) return false;
+                // Check explicit override if meta exists
+                if (hasMeta && meta!.FocusOverride == FocusOverride.Included) return true;
+                if (hasMeta && meta!.FocusOverride == FocusOverride.Excluded) return false;
+                // Active = processing, has unread messages, or had real activity in last 24h
+                return s.IsProcessing || s.UnreadCount > 0 || s.LastUpdatedAt > recentCutoff;
             })
             .OrderByDescending(s => s.IsProcessing)
             .ThenByDescending(s => s.UnreadCount > 0)
