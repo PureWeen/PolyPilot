@@ -754,12 +754,12 @@ public partial class CopilotService
                 // Check explicit override first (takes priority over everything)
                 if (hasMeta && meta!.FocusOverride == FocusOverride.Included) return true;
                 if (hasMeta && meta!.FocusOverride == FocusOverride.Excluded) return false;
-                // Workers in ACTUAL multi-agent groups only show if they have direct activity.
-                // A session with Role=Worker in a non-multi-agent group is mislabeled — treat normally.
+                // Workers in ACTUAL multi-agent groups never show in Focus —
+                // they appear under their orchestrator in the group grid.
                 if (hasMeta && meta!.Role == MultiAgentRole.Worker
                     && groups.TryGetValue(meta.GroupId, out var workerGroup)
                     && workerGroup.IsMultiAgent)
-                    return s.IsProcessing || s.LastUpdatedAt > recentCutoff;
+                    return false;
                 // Active = processing, has unread messages, or had real activity in last 24h
                 return s.IsProcessing || s.UnreadCount > 0 || s.LastUpdatedAt > recentCutoff;
             })
