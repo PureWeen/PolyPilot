@@ -733,11 +733,13 @@ public partial class CopilotService
             .Where(s =>
             {
                 var hasMeta = metas.TryGetValue(s.Name, out var meta);
-                // Skip workers in multi-agent groups — they show under their orchestrator
-                if (hasMeta && meta!.Role == MultiAgentRole.Worker) return false;
-                // Check explicit override if meta exists
+                // Check explicit override first (takes priority over everything)
                 if (hasMeta && meta!.FocusOverride == FocusOverride.Included) return true;
                 if (hasMeta && meta!.FocusOverride == FocusOverride.Excluded) return false;
+                // Workers in multi-agent groups only show if they have direct user activity
+                // (processing or recent interaction). Idle workers stay under their orchestrator.
+                if (hasMeta && meta!.Role == MultiAgentRole.Worker)
+                    return s.IsProcessing || s.LastUpdatedAt > recentCutoff;
                 // Active = processing, has unread messages, or had real activity in last 24h
                 return s.IsProcessing || s.UnreadCount > 0 || s.LastUpdatedAt > recentCutoff;
             })
