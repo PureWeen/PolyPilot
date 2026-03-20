@@ -54,10 +54,15 @@
 }
 
 ::deep .focus-strip .session-card {
-    min-height: 250px;
+    min-height: var(--card-min-height, 250px);
     max-height: 45vh;
     overflow-y: auto;
     scrollbar-width: thin;
+}
+
+/* Apply card min-height to regular grid cards too */
+::deep .session-grid .session-card {
+    min-height: var(--card-min-height, 250px);
 }
 
 ::deep .focus-strip .session-card.in-focus-strip {

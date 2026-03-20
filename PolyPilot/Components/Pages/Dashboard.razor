@@ -13,7 +13,7 @@
 @inject FiestaService FiestaService
 @implements IAsyncDisposable
 
-<div class="dashboard @(expandedSession != null ? "expanded-mode" : "")">
+<div class="dashboard @(expandedSession != null ? "expanded-mode" : "")" style="--card-min-height: @(_cardMinHeight)px">
     @if (!sessions.Any())
     {
         <div class="no-sessions-dash">
@@ -217,6 +217,11 @@
                         <button class="grid-col-btn" @onclick="DecrementGridColumns" disabled="@(_gridColumns <= 2)" title="Fewer columns">−</button>
                         <span class="grid-col-label" title="Cards per row">@_gridColumns col</span>
                         <button class="grid-col-btn" @onclick="IncrementGridColumns" disabled="@(_gridColumns >= 6)" title="More columns">+</button>
+                    </span>
+                    <span class="grid-columns-control">
+                        <button class="grid-col-btn" @onclick="DecrementCardHeight" disabled="@(_cardMinHeight <= 150)" title="Shorter cards">−</button>
+                        <span class="grid-col-label" title="Card min height">↕ @(_cardMinHeight)px</span>
+                        <button class="grid-col-btn" @onclick="IncrementCardHeight" disabled="@(_cardMinHeight >= 600)" title="Taller cards">+</button>
                     </span>
                     <span class="font-size-controls">
                         <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)" title="Decrease font size (⌘−)">A−</button>
@@ -488,6 +493,7 @@
     private bool _loadMoreObserverInitialized;
     private bool isCompactGrid;  // true = compact cards, false = spacious cards
     private int _gridColumns = 3;  // number of cards per row (2-6)
+    private int _cardMinHeight = 250;  // card minimum height in px (150-600, step 50)
     private bool isExternalCollapsed = true;  // external sessions collapsed by default
     private HashSet<string> _expandedWorkerGroups = new();  // group IDs where workers are shown
     private bool toolbarMenuOpen;
@@ -580,6 +586,9 @@
                 
                 // Restore grid columns (default 3, minimum 2)
                 _gridColumns = uiState.GridColumns is >= 2 and <= 6 ? uiState.GridColumns : 3;
+                
+                // Restore card min height (default 250, range 150-600)
+                _cardMinHeight = uiState.CardMinHeight is >= 150 and <= 600 ? uiState.CardMinHeight : 250;
                 
                 // Restore expanded session state
                 if (!string.IsNullOrEmpty(uiState.ExpandedSession))
@@ -1126,6 +1135,9 @@
                 }
             }
             catch { }
+
+            // Save card-messages scroll positions before re-render so they survive DOM diffing.
+            try { _ = JS.InvokeVoidAsync("saveCardScrollPositions"); } catch { }
         }
 
         _sessionSwitching = false;
@@ -2805,6 +2817,24 @@
         {
             _gridColumns--;
             CopilotService.SaveUiState("/dashboard", gridColumns: _gridColumns, expandedSession: expandedSession);
+        }
+    }
+
+    private void IncrementCardHeight()
+    {
+        if (_cardMinHeight < 600)
+        {
+            _cardMinHeight += 50;
+            CopilotService.SaveUiState("/dashboard", cardMinHeight: _cardMinHeight, expandedSession: expandedSession);
+        }
+    }
+
+    private void DecrementCardHeight()
+    {
+        if (_cardMinHeight > 150)
+        {
+            _cardMinHeight -= 50;
+            CopilotService.SaveUiState("/dashboard", cardMinHeight: _cardMinHeight, expandedSession: expandedSession);
         }
     }
 

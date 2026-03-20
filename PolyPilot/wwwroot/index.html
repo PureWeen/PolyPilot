@@ -638,6 +638,19 @@
             window.switchKeepAliveSlot(slotId, name);
         }, true);
 
+        window.saveCardScrollPositions = function() {
+            window.__cardScrollPositions = {};
+            document.querySelectorAll('.card-messages').forEach(function(el) {
+                var card = el.closest('[data-session]');
+                var key = card ? card.getAttribute('data-session') : null;
+                if (key) {
+                    window.__cardScrollPositions[key] = el.scrollTop;
+                    // Clear __scrollInit so the restored position is applied on next render
+                    el.__scrollInit = false;
+                }
+            });
+        };
+
         window.restoreDraftsAndFocus = function(draftsJson, focusId, selStart, selEnd, forceScroll) {
             window.ensureFiestaMentionAutocomplete();
             window.ensureSlashCommandAutocomplete();
@@ -665,13 +678,24 @@
                         el.scrollTop = el.scrollHeight;
                     }
                 });
-                // Grid cards: only scroll to bottom on init, never fight user scrolling
+                // Grid cards: restore saved position or init to bottom on first render
                 document.querySelectorAll('.card-messages').forEach(function(el) {
+                    var card = el.closest('[data-session]');
+                    var key = card ? card.getAttribute('data-session') : null;
                     if (!el.__scrollInit) {
                         el.__scrollInit = true;
+                        // Restore saved position if available, else scroll to bottom
+                        if (key && window.__cardScrollPositions && window.__cardScrollPositions[key] != null) {
+                            el.scrollTop = window.__cardScrollPositions[key];
+                        } else {
+                            el.scrollTop = el.scrollHeight;
+                        }
+                    } else if (forceScroll) {
                         el.scrollTop = el.scrollHeight;
                     }
                 });
+                // Clear saved positions after restoring
+                window.__cardScrollPositions = null;
             }
             doScroll();
             // Single rAF follow-up is sufficient — content is rendered synchronously by Blazor
