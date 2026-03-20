@@ -465,8 +465,6 @@
                    id="qs-input"
                    placeholder="Jump to session…"
                    @oninput="@(e => QuickSwitcherQuery = e.Value?.ToString() ?? "")"
-                   @onkeydown="HandleQuickSwitcherKeyDown"
-                   @onkeydown:preventDefault="@_qsPreventDefault"
                    autofocus />
             <div class="qs-results">
                 @{
@@ -571,7 +569,6 @@
     private bool _quickSwitcherOpen;
     private string _quickSwitcherQuery = "";
     private int _quickSwitcherIndex;
-    private bool _qsPreventDefault;
 
     private string QuickSwitcherQuery
     {
@@ -585,7 +582,51 @@
         _quickSwitcherOpen = true;
         _quickSwitcherQuery = "";
         _quickSwitcherIndex = 0;
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            // Install JS keydown handler after render
+            await Task.Yield();
+            try { await JS.InvokeVoidAsync("eval", @"
+                (function() {
+                    var el = document.getElementById('qs-input');
+                    if (!el || el.__qsHandler) return;
+                    el.__qsHandler = function(e) {
+                        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Escape') {
+                            e.preventDefault();
+                            if (window.__dashRef) window.__dashRef.invokeMethodAsync('JsQuickSwitcherKey', e.key);
+                        }
+                    };
+                    el.addEventListener('keydown', el.__qsHandler);
+                })()"); }
+            catch { }
+        });
+    }
+
+    [JSInvokable]
+    public async Task JsQuickSwitcherKey(string key)
+    {
+        var results = GetQuickSwitcherResults();
+        if (key == "ArrowDown")
+        {
+            _quickSwitcherIndex = Math.Min(_quickSwitcherIndex + 1, results.Count - 1);
+        }
+        else if (key == "ArrowUp")
+        {
+            _quickSwitcherIndex = Math.Max(_quickSwitcherIndex - 1, 0);
+        }
+        else if (key == "Enter" && results.Count > 0)
+        {
+            await SelectQuickSwitcherSession(results[_quickSwitcherIndex].Name);
+            return;
+        }
+        else if (key == "Escape")
+        {
+            CloseQuickSwitcher();
+            return;
+        }
+        StateHasChanged();
+        await ScrollQsSelectedIntoView();
     }
 
     [JSInvokable]
@@ -647,38 +688,6 @@
         _quickSwitcherOpen = false;
         await ExpandSession(sessionName);
     }
-
-    private async Task HandleQuickSwitcherKeyDown(KeyboardEventArgs e)
-    {
-        var results = GetQuickSwitcherResults();
-        if (e.Key == "ArrowDown")
-        {
-            _quickSwitcherIndex = Math.Min(_quickSwitcherIndex + 1, results.Count - 1);
-            _qsPreventDefault = true;
-            _ = ScrollQsSelectedIntoView();
-        }
-        else if (e.Key == "ArrowUp")
-        {
-            _quickSwitcherIndex = Math.Max(_quickSwitcherIndex - 1, 0);
-            _qsPreventDefault = true;
-            _ = ScrollQsSelectedIntoView();
-        }
-        else if (e.Key == "Enter" && results.Count > 0)
-        {
-            _qsPreventDefault = true;
-            await SelectQuickSwitcherSession(results[_quickSwitcherIndex].Name);
-        }
-        else if (e.Key == "Escape")
-        {
-            _qsPreventDefault = true;
-            CloseQuickSwitcher();
-        }
-        else
-        {
-            _qsPreventDefault = false;
-        }
-    }
-
 
     protected override async Task OnInitializedAsync()
     {
