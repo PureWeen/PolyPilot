@@ -952,6 +952,14 @@
         // Restore drafts, focus, and scroll position — fire-and-forget to avoid blocking render pipeline
         _ = JS.InvokeVoidAsync("restoreDraftsAndFocus", draftsJson, focusId, selStart, selEnd, forceScroll);
 
+        // Restore dashboard grid scroll position after Blazor re-render
+        if (_pendingScrollTop > 0 && expandedSession == null)
+        {
+            var scrollTop = _pendingScrollTop;
+            _pendingScrollTop = 0;
+            _ = JS.InvokeVoidAsync("eval", $"var d = document.querySelector('.dashboard'); if (d) d.scrollTop = {scrollTop};");
+        }
+
         // Set initial active slot on first render (MutationObserver will maintain it after user interactions)
         if (expandedSession != null)
         {
@@ -1101,6 +1109,25 @@
             catch { }
             Interlocked.Exchange(ref _lastDraftCaptureTickMs, Environment.TickCount64);
         }
+
+        // Save scroll position before re-render so it can be restored in OnAfterRenderAsync.
+        // Without this, Blazor DOM diffs cause the browser to reset scroll to top.
+        if (expandedSession == null) // Only in grid view — expanded mode has its own scroll
+        {
+            try
+            {
+                var scrollJson = await JS.InvokeAsync<string>("eval",
+                    "JSON.stringify({ top: document.querySelector('.dashboard')?.scrollTop ?? 0 })");
+                if (!string.IsNullOrEmpty(scrollJson))
+                {
+                    var scrollData = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, double>>(scrollJson);
+                    if (scrollData != null && scrollData.TryGetValue("top", out var top) && top > 0)
+                        _pendingScrollTop = top;
+                }
+            }
+            catch { }
+        }
+
         _sessionSwitching = false;
         StateHasChanged();
     }
@@ -1108,6 +1135,7 @@
     private bool _explicitlyCollapsed;
     private bool _initialGridSet;
     private bool _refreshing;
+    private double _pendingScrollTop;
 
     private void RefreshState()
     {
