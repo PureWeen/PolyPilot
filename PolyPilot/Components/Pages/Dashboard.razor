@@ -214,7 +214,7 @@
                         <button class="grid-density-btn multi-agent-btn" @onclick="() => { isAddingMultiAgentGroup = true; }" title="New multi-agent group">🤖 + Multi-Agent</button>
                     }
                     <span class="grid-columns-control">
-                        <button class="grid-col-btn" @onclick="DecrementGridColumns" disabled="@(_gridColumns <= 1)" title="Fewer columns">−</button>
+                        <button class="grid-col-btn" @onclick="DecrementGridColumns" disabled="@(_gridColumns <= 2)" title="Fewer columns">−</button>
                         <span class="grid-col-label" title="Cards per row">@_gridColumns col</span>
                         <button class="grid-col-btn" @onclick="IncrementGridColumns" disabled="@(_gridColumns >= 6)" title="More columns">+</button>
                     </span>
@@ -243,7 +243,7 @@
                 <span class="focus-strip-count">@focusSessions.Count</span>
                 <span class="focus-strip-hint">Processing or unread</span>
             </div>
-            <div class="focus-strip">
+            <div class="focus-strip" style="grid-template-columns: repeat(@_gridColumns, 1fr)">
                 @foreach (var session in focusSessions)
                 {
                     var isCompleted = completedSessions.Contains(session.Name);
@@ -547,7 +547,7 @@
     private volatile bool _sessionSwitching; // true during ExpandSession to skip redundant JS interop
     private bool _loadMoreObserverInitialized;
     private bool isCompactGrid;  // true = compact cards, false = spacious cards
-    private int _gridColumns = 3;  // number of cards per row (2-5)
+    private int _gridColumns = 3;  // number of cards per row (2-6)
     private bool isExternalCollapsed = true;  // external sessions collapsed by default
     private HashSet<string> _expandedWorkerGroups = new();  // group IDs where workers are shown
     private bool toolbarMenuOpen;
@@ -730,8 +730,8 @@
                 isCompactGrid = !uiState.ExpandedGrid;
                 Console.WriteLine($"[Dashboard] Set isCompactGrid = {isCompactGrid} (from ExpandedGrid={uiState.ExpandedGrid})");
                 
-                // Restore grid columns (default 3 if not set)
-                _gridColumns = uiState.GridColumns is >= 1 and <= 6 ? uiState.GridColumns : 3;
+                // Restore grid columns (default 3, minimum 2)
+                _gridColumns = uiState.GridColumns is >= 2 and <= 6 ? uiState.GridColumns : 3;
                 
                 // Restore expanded session state
                 if (!string.IsNullOrEmpty(uiState.ExpandedSession))
@@ -2935,7 +2935,7 @@
 
     private void DecrementGridColumns()
     {
-        if (_gridColumns > 1)
+        if (_gridColumns > 2)
         {
             _gridColumns--;
             CopilotService.SaveUiState("/dashboard", gridColumns: _gridColumns, expandedSession: expandedSession);
