@@ -269,7 +269,7 @@
 .card-messages {
     flex: 1;
     min-height: 80px;
-    max-height: 400px;
+    max-height: var(--card-min-height, 400px);
     overflow-y: auto;
     display: flex;
     flex-direction: column;

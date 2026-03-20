@@ -8,7 +8,7 @@
     var displayName = providerDisplayName ?? Session.Name;
 }
 
-<div class="session-card @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : Session.NeedsAttention ? "needs-attention" : "idle") @(Meta?.IsPinned == true ? "pinned" : "") @(IsInFocusStrip ? "in-focus-strip" : "")" data-session="@Session.Name">
+<div class="session-card @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : Session.NeedsAttention ? "needs-attention" : "idle") @(Meta?.IsPinned == true ? "pinned" : "") @(IsInFocusStrip ? "in-focus-strip" : "")" data-session="@Session.Name" style="@(MinHeight > 0 ? $"min-height:{MinHeight}px" : "")">
     <div class="card-header">
         <div class="card-title" @onclick="GoToSession" style="cursor:pointer">
             @if (Meta?.IsPinned == true)
@@ -243,6 +243,8 @@
     [Parameter] public EventCallback OnDismissFromFocus { get; set; }
     /// <summary>When true, the card is rendered in the Focus strip (slightly more messages, distinct styling).</summary>
     [Parameter] public bool IsInFocusStrip { get; set; }
+    /// <summary>Minimum height in px for the card. 0 = use CSS default.</summary>
+    [Parameter] public int MinHeight { get; set; } = 0;
     private async Task HandleRenameKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
