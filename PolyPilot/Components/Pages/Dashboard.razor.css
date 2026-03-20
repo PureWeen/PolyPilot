@@ -472,10 +472,6 @@
     margin-bottom: 1.5rem;
 }
 
-.session-grid.expanded-grid {
-    /* expanded-grid just keeps the same column count; cards get taller via content */
-}
-
 .toolbar-actions {
     margin-left: auto;
     display: flex;

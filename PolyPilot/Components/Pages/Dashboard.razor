@@ -213,9 +213,6 @@
                         <button class="grid-density-btn" @onclick="() => { isAddingDashGroup = true; }" title="New group">+ Group</button>
                         <button class="grid-density-btn multi-agent-btn" @onclick="() => { isAddingMultiAgentGroup = true; }" title="New multi-agent group">🤖 + Multi-Agent</button>
                     }
-                    <button class="grid-density-btn" @onclick="ToggleGridDensity" title="@(isCompactGrid ? "Expanded grid" : "Compact grid")">
-                        @(isCompactGrid ? "▤ Expanded" : "▦ Compact")
-                    </button>
                     <span class="grid-columns-control">
                         <button class="grid-col-btn" @onclick="DecrementGridColumns" disabled="@(_gridColumns <= 1)" title="Fewer columns">−</button>
                         <span class="grid-col-label" title="Cards per row">@_gridColumns col</span>
@@ -244,7 +241,7 @@
             <div class="focus-strip-header">
                 <span class="focus-strip-label">🎯 Focus</span>
                 <span class="focus-strip-count">@focusSessions.Count</span>
-                <span class="focus-strip-hint">Sessions active in last 48h</span>
+                <span class="focus-strip-hint">Processing or unread</span>
             </div>
             <div class="focus-strip">
                 @foreach (var session in focusSessions)
@@ -383,7 +380,7 @@
                         </button>
                     </div>
                 }
-                <div class="session-grid @(isCompactGrid ? "" : "expanded-grid")" style="grid-template-columns: repeat(@_gridColumns, 1fr)">
+                <div class="session-grid" style="grid-template-columns: repeat(@_gridColumns, 1fr)">
                 @foreach (var session in visibleSessions)
                 {
                     var isCompleted = completedSessions.Contains(session.Name);
@@ -446,7 +443,7 @@
         </div>
         @if (!isExternalCollapsed || hasActiveExternal)
         {
-            <div class="session-grid @(isCompactGrid ? "compact" : "")">
+            <div class="session-grid" style="grid-template-columns: repeat(@_gridColumns, 1fr)">">
                 @foreach (var ext in externalSessions)
                 {
                     <ExternalSessionCard Session="ext" @key="ext.SessionId" />
@@ -2927,18 +2924,12 @@
         CopilotService.SaveUiState("/dashboard", activeSession: null, expandedSession: null, expandedGrid: !isCompactGrid);
     }
 
-    private void ToggleGridDensity()
-    {
-        isCompactGrid = !isCompactGrid;
-        CopilotService.SaveUiState("/dashboard", expandedGrid: !isCompactGrid, expandedSession: expandedSession);
-    }
-
     private void IncrementGridColumns()
     {
         if (_gridColumns < 6)
         {
             _gridColumns++;
-            CopilotService.SaveUiState("/dashboard", gridColumns: _gridColumns, expandedGrid: !isCompactGrid, expandedSession: expandedSession);
+            CopilotService.SaveUiState("/dashboard", gridColumns: _gridColumns, expandedSession: expandedSession);
         }
     }
 
@@ -2947,7 +2938,7 @@
         if (_gridColumns > 1)
         {
             _gridColumns--;
-            CopilotService.SaveUiState("/dashboard", gridColumns: _gridColumns, expandedGrid: !isCompactGrid, expandedSession: expandedSession);
+            CopilotService.SaveUiState("/dashboard", gridColumns: _gridColumns, expandedSession: expandedSession);
         }
     }
 
