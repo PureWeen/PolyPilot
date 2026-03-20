@@ -629,6 +629,11 @@ public class RepoManager
 
         lock (_stateLock)
         {
+            // Re-check for duplicates under the lock to handle concurrent registrations (TOCTOU).
+            if (_state.Worktrees.Any(w => w.RepoId == repo.Id
+                && !string.IsNullOrWhiteSpace(w.Path)
+                && PathsEqual(w.Path, normalizedPath)))
+                return;
             _state.Worktrees.Add(wt);
             Save();
         }
@@ -693,10 +698,11 @@ public class RepoManager
             EnsureGitIgnoreEntry(localPath, ".polypilot/");
             worktreePath = Path.Combine(repoWorktreesDir, branchName);
 
-            // Guard against path traversal: branch names with ".." or leading "/" could escape the directory.
+            // Guard against path traversal: branch names with ".." or leading "/" could escape
+            // the directory. Equality with repoWorktreesDir itself is also invalid — an empty
+            // branch name or a name that normalises to "." would trigger that case.
             var resolved = Path.GetFullPath(worktreePath);
-            if (!resolved.StartsWith(Path.GetFullPath(repoWorktreesDir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                && !resolved.Equals(Path.GetFullPath(repoWorktreesDir), StringComparison.OrdinalIgnoreCase))
+            if (!resolved.StartsWith(Path.GetFullPath(repoWorktreesDir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException(
                     $"Branch name '{branchName}' would create worktree outside the managed directory. " +
                     "Use a branch name without '..' or leading path separators.");
@@ -897,8 +903,13 @@ public class RepoManager
             }
             catch
             {
-                // Force cleanup if git worktree remove fails
-                if (Directory.Exists(wt.Path))
+                // Force cleanup if git worktree remove fails — but only if the directory is
+                // inside a PolyPilot-managed location. External folders added via "Add Existing
+                // Folder" have BareClonePath set but must NEVER be deleted; only unregister them.
+                var fullPath = Path.GetFullPath(wt.Path);
+                var isCentralized = fullPath.StartsWith(Path.GetFullPath(WorktreesDir), StringComparison.OrdinalIgnoreCase);
+                var isNested = fullPath.Contains(Path.DirectorySeparatorChar + ".polypilot" + Path.DirectorySeparatorChar + "worktrees" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+                if ((isCentralized || isNested) && Directory.Exists(wt.Path))
                     try { Directory.Delete(wt.Path, recursive: true); } catch { }
                 try { await RunGitAsync(bareClonePath, ct, "worktree", "prune"); } catch { }
             }
