@@ -619,25 +619,10 @@ public partial class CopilotService
         // Register/update the bare clone and external worktree for this local path
         var repo = await _repoManager.AddRepositoryFromLocalAsync(localPath, onProgress, ct);
 
-        // Check if an existing repo group already covers this repo (added via URL previously).
-        // If so, un-collapse it and return it rather than creating a redundant 📁 group.
-        // The local folder is already registered as a WorktreeInfo and appears in the
-        // "📂 Existing" tab of that group's New Session dialog.
-        var existingRepoGroup = Organization.Groups.FirstOrDefault(
-            g => g.RepoId == repo.Id && !g.IsMultiAgent && !g.IsLocalFolder);
-        if (existingRepoGroup != null)
-        {
-            if (existingRepoGroup.IsCollapsed)
-            {
-                existingRepoGroup.IsCollapsed = false;
-                SaveOrganization();
-            }
-            OnStateChanged?.Invoke();
-            return new AddLocalFolderResult(repo.Id, repo.Name, existingRepoGroup.Id, existingRepoGroup.Name);
-        }
-
-        // No existing repo group — create a distinct 📁 group for this local folder.
-        // Store the RepoId on the group so it can offer full worktree features.
+        // Always create a distinct 📁 group for this local folder, even if the repo was
+        // previously added via URL. The user explicitly chose "Add Existing Folder" for a
+        // specific local path — they want a dedicated sidebar entry for it, not to be
+        // silently merged into an existing URL-based group.
         var localGroup = GetOrCreateLocalFolderGroup(localPath, repo.Id);
         return new AddLocalFolderResult(repo.Id, repo.Name, null, null);
     }
