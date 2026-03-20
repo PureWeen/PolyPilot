@@ -188,14 +188,23 @@ public partial class CopilotService
     {
         bool healed = false;
 
-        // Phase 1: Restore Role=Orchestrator for sessions identifiable by name pattern.
-        // Session names follow conventions: "TeamName-orchestrator" or "TeamName-Orchestrator-N"
+        // Phase 1: Restore Role=Orchestrator for sessions identifiable by name pattern,
+        // but ONLY if matching workers also exist. This prevents false-positives on user
+        // sessions coincidentally named "*-orchestrator" (e.g., "deploy-orchestrator").
         var orchestratorPattern = new Regex(@"-[Oo]rchestrator(-\d+)?$", RegexOptions.Compiled);
+        var workerPattern = new Regex(@"-[Ww]orker-\d+(-\d+)?$", RegexOptions.Compiled);
         var nameHealedSessions = new HashSet<string>();
         foreach (var meta in Organization.Sessions)
         {
             if (meta.Role != MultiAgentRole.Orchestrator && orchestratorPattern.IsMatch(meta.SessionName))
             {
+                // Only promote if there are matching worker sessions with the same team prefix
+                var teamPrefix = orchestratorPattern.Replace(meta.SessionName, "");
+                bool hasMatchingWorkers = Organization.Sessions.Any(m =>
+                    m.SessionName.StartsWith(teamPrefix + "-", StringComparison.OrdinalIgnoreCase)
+                    && workerPattern.IsMatch(m.SessionName));
+                if (!hasMatchingWorkers) continue;
+
                 Debug($"LoadOrganization: healing role for '{meta.SessionName}' — name matches orchestrator pattern, Role was {meta.Role}");
                 meta.Role = MultiAgentRole.Orchestrator;
                 nameHealedSessions.Add(meta.SessionName);
@@ -230,9 +239,10 @@ public partial class CopilotService
                 continue;
             }
 
-            // Role was name-detected — only heal if group name matches the team prefix
-            var teamPrefix = orchestratorPattern.Replace(orchInGroup[0].SessionName, "");
-            if (string.Equals(group.Name, teamPrefix, StringComparison.OrdinalIgnoreCase))
+            // Role was name-detected — only heal if group name matches ANY orchestrator's team prefix
+            bool nameMatches = orchInGroup.Any(m =>
+                string.Equals(orchestratorPattern.Replace(m.SessionName, ""), group.Name, StringComparison.OrdinalIgnoreCase));
+            if (nameMatches)
             {
                 Debug($"LoadOrganization: healing group '{group.Name}' (Id={group.Id}) — has orchestrator session with matching name");
                 group.IsMultiAgent = true;
@@ -244,8 +254,8 @@ public partial class CopilotService
         // If an orchestrator session's GroupId points to a non-multi-agent group, the
         // original team group was lost. Find all team members by name prefix and create
         // a new multi-agent group for them.
-        var workerPattern = new Regex(@"-[Ww]orker-\d+(-\d+)?$", RegexOptions.Compiled);
         var orchSessions = Organization.Sessions.Where(m => m.Role == MultiAgentRole.Orchestrator).ToList();
+        var processedPrefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var orchMeta in orchSessions)
         {
@@ -258,22 +268,43 @@ public partial class CopilotService
             if (string.IsNullOrEmpty(teamPrefix))
                 continue;
 
-            // Find all worker sessions belonging to this team (by name prefix)
+            // Skip if we already reconstructed a group for this team prefix
+            // (handles multiple orchestrators like TeamA-orchestrator + TeamA-orchestrator-1)
+            if (!processedPrefixes.Add(teamPrefix))
+            {
+                // Move this orchestrator into the already-created group
+                var existingGroup = Organization.Groups.FirstOrDefault(g =>
+                    g.Name == teamPrefix && g.IsMultiAgent);
+                if (existingGroup != null)
+                    orchMeta.GroupId = existingGroup.Id;
+                continue;
+            }
+
+            // Find all worker sessions belonging to this team (by name prefix),
+            // only from non-multi-agent groups to avoid stealing workers from other teams
+            var nonMultiAgentGroupIds = Organization.Groups
+                .Where(g => !g.IsMultiAgent)
+                .Select(g => g.Id)
+                .ToHashSet();
             var teamWorkers = Organization.Sessions
                 .Where(m => m.SessionName.StartsWith(teamPrefix + "-", StringComparison.OrdinalIgnoreCase)
                             && workerPattern.IsMatch(m.SessionName)
-                            && m.SessionName != orchMeta.SessionName)
+                            && m.SessionName != orchMeta.SessionName
+                            && nonMultiAgentGroupIds.Contains(m.GroupId))
+                .ToList();
+
+            // Also gather any other orchestrators for the same team prefix
+            var otherOrchs = orchSessions
+                .Where(m => m != orchMeta
+                            && orchestratorPattern.Replace(m.SessionName, "")
+                                .Equals(teamPrefix, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             if (teamWorkers.Count == 0)
                 continue;
 
-            // Determine orchestrator mode from session count and naming patterns
-            var mode = MultiAgentMode.OrchestratorReflect; // Default for reconstructed groups
-
             // Gather properties from the original group if available (worktree, repo, etc.)
-            var representativeGroup = currentGroup;
-            var repoId = representativeGroup?.RepoId;
+            var repoId = currentGroup?.RepoId;
             var worktreeId = orchMeta.WorktreeId;
 
             // Create the reconstructed multi-agent group
@@ -282,7 +313,7 @@ public partial class CopilotService
                 Id = Guid.NewGuid().ToString(),
                 Name = teamPrefix,
                 IsMultiAgent = true,
-                OrchestratorMode = mode,
+                OrchestratorMode = MultiAgentMode.OrchestratorReflect,
                 RepoId = repoId,
                 WorktreeId = worktreeId,
                 SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
@@ -290,8 +321,10 @@ public partial class CopilotService
             AddGroup(newGroup);
             Debug($"LoadOrganization: reconstructed multi-agent group '{teamPrefix}' (Id={newGroup.Id}) with {teamWorkers.Count} workers");
 
-            // Move orchestrator and workers into the new group
+            // Move orchestrator(s) and workers into the new group
             orchMeta.GroupId = newGroup.Id;
+            foreach (var otherOrch in otherOrchs)
+                otherOrch.GroupId = newGroup.Id;
             foreach (var workerMeta in teamWorkers)
             {
                 workerMeta.GroupId = newGroup.Id;
@@ -324,8 +357,6 @@ public partial class CopilotService
         SaveOrganizationCore();
     }
 
-    private DateTime _lastOrgSaveTime;
-
     private void SaveOrganizationCore()
     {
         try
@@ -344,7 +375,6 @@ public partial class CopilotService
             }
             var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
             WriteOrgFile(json);
-            _lastOrgSaveTime = DateTime.UtcNow;
         }
         catch (Exception ex)
         {

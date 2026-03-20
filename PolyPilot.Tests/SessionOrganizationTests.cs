@@ -3734,11 +3734,12 @@ public class UrgencySortTests
     [Fact]
     public void HealMultiAgentGroups_RestoresOrchestratorRole_WithSuffixNumber()
     {
-        // Session named "TeamName-Orchestrator-1" (with numeric suffix)
+        // Session named "TeamName-Orchestrator-1" (with numeric suffix) + matching workers
         var org = new OrganizationState();
         var group = new SessionGroup { Id = "g1", Name = "IC" };
         org.Groups.Add(group);
         org.Sessions.Add(new SessionMeta { SessionName = "IC-orchestrator-1", GroupId = "g1", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "IC-worker-1", GroupId = "g1", Role = MultiAgentRole.Worker });
 
         var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
@@ -3849,10 +3850,13 @@ public class UrgencySortTests
     [Fact]
     public void HealMultiAgentGroups_DoesNotFalsePositive_OnRegularSessionNames()
     {
-        // Session names that contain "orchestrator" as a substring but don't match the pattern
+        // Session names that contain "orchestrator" but aren't real orchestrators
         var org = new OrganizationState();
         org.Sessions.Add(new SessionMeta { SessionName = "orchestrator-tips", GroupId = "_default", Role = MultiAgentRole.Worker });
         org.Sessions.Add(new SessionMeta { SessionName = "my-orchestrator-notes", GroupId = "_default", Role = MultiAgentRole.Worker });
+        // This one ENDS with -orchestrator but has no matching workers — should NOT be promoted
+        org.Sessions.Add(new SessionMeta { SessionName = "deploy-orchestrator", GroupId = "_default", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "notes-orchestrator", GroupId = "_default", Role = MultiAgentRole.Worker });
 
         var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
@@ -3867,7 +3871,7 @@ public class UrgencySortTests
                 new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
             svc.LoadOrganization();
 
-            // These should NOT be detected as orchestrator sessions
+            // None should be detected as orchestrator sessions (no matching workers)
             Assert.All(svc.Organization.Sessions, m => Assert.Equal(MultiAgentRole.Worker, m.Role));
             // No new multi-agent groups should be created (only default group)
             Assert.Single(svc.Organization.Groups);
@@ -3922,6 +3926,52 @@ public class UrgencySortTests
             // Each team should have its sessions
             Assert.Equal(2, svc.Organization.Sessions.Count(m => m.GroupId == teamA.Id));
             Assert.Equal(3, svc.Organization.Sessions.Count(m => m.GroupId == teamB.Id));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void HealMultiAgentGroups_MultipleOrchestrators_NoDuplicateGroups()
+    {
+        // Team with two orchestrators: TeamA-orchestrator and TeamA-orchestrator-1
+        // Should create exactly ONE group, not two
+        var org = new OrganizationState();
+        var repoGroup = new SessionGroup { Id = "rg1", Name = "Repo1" };
+        org.Groups.Add(repoGroup);
+
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamA-orchestrator", GroupId = "rg1", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamA-orchestrator-1", GroupId = "rg1", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamA-worker-1", GroupId = "rg1", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamA-worker-2", GroupId = "rg1", Role = MultiAgentRole.Worker });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "organization.json"),
+                JsonSerializer.Serialize(org, new JsonSerializerOptions { WriteIndented = true }));
+
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+            svc.LoadOrganization();
+
+            // Exactly ONE multi-agent group named "TeamA"
+            var maGroups = svc.Organization.Groups.Where(g => g.IsMultiAgent).ToList();
+            Assert.Single(maGroups);
+            Assert.Equal("TeamA", maGroups[0].Name);
+
+            // All 4 sessions should be in that group
+            var teamSessions = svc.Organization.Sessions.Where(m => m.GroupId == maGroups[0].Id).ToList();
+            Assert.Equal(4, teamSessions.Count);
+
+            // Both orchestrators should have Orchestrator role
+            var orchs = teamSessions.Where(m => m.Role == MultiAgentRole.Orchestrator).ToList();
+            Assert.Equal(2, orchs.Count);
         }
         finally
         {
