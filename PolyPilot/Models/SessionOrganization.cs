@@ -160,7 +160,7 @@ public class SessionMeta
     public string? WorktreeId { get; set; }
 
     /// <summary>Role of this session within a multi-agent group.</summary>
-    public MultiAgentRole Role { get; set; } = MultiAgentRole.Worker;
+    public MultiAgentRole Role { get; set; } = MultiAgentRole.None;
 
     /// <summary>
     /// Preferred model for this session in multi-agent context.
@@ -218,6 +218,8 @@ public enum WorktreeStrategy
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum MultiAgentRole
 {
+    /// <summary>No multi-agent role — regular standalone session.</summary>
+    None,
     /// <summary>Regular worker session that receives prompts.</summary>
     Worker,
     /// <summary>Orchestrator session that delegates work (used in Orchestrator mode).</summary>

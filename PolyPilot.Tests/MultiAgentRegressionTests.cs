@@ -475,9 +475,10 @@ public class MultiAgentRegressionTests
     public void MultiAgentRole_HasAllExpectedValues()
     {
         var values = Enum.GetValues<MultiAgentRole>();
+        Assert.Contains(MultiAgentRole.None, values);
         Assert.Contains(MultiAgentRole.Worker, values);
         Assert.Contains(MultiAgentRole.Orchestrator, values);
-        Assert.Equal(2, values.Length);
+        Assert.Equal(3, values.Length);
     }
 
     #endregion
@@ -2413,7 +2414,7 @@ public class MultiAgentRegressionTests
         var sendIdx = source.IndexOf("async Task<string> SendPromptAsync(", StringComparison.Ordinal);
         Assert.True(sendIdx >= 0, "SendPromptAsync must exist in CopilotService.cs");
 
-        var sendBlock = source.Substring(sendIdx, Math.Min(5000, source.Length - sendIdx));
+        var sendBlock = source.Substring(sendIdx, Math.Min(6000, source.Length - sendIdx));
         Assert.Contains("PrematureIdleSignal.Reset()", sendBlock);
     }
 

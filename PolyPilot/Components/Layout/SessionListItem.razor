@@ -194,7 +194,7 @@
                         </select>
                         @{
                             var effectiveModel = CopilotService.GetEffectiveModel(Session.Name);
-                            var warnings = ModelCapabilities.GetRoleWarnings(effectiveModel, Meta?.Role ?? MultiAgentRole.Worker);
+                            var warnings = ModelCapabilities.GetRoleWarnings(effectiveModel, Meta?.Role ?? MultiAgentRole.None);
                         }
                         @if (warnings.Count > 0)
                         {

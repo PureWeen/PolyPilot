@@ -148,10 +148,10 @@ public class SessionOrganizationTests
     }
 
     [Fact]
-    public void SessionMeta_Role_DefaultsToWorker()
+    public void SessionMeta_Role_DefaultsToNone()
     {
         var meta = new SessionMeta { SessionName = "test" };
-        Assert.Equal(MultiAgentRole.Worker, meta.Role);
+        Assert.Equal(MultiAgentRole.None, meta.Role);
     }
 
     [Fact]
@@ -258,7 +258,7 @@ public class SessionOrganizationTests
         Assert.False(state!.Groups[0].IsMultiAgent);
         Assert.Equal(MultiAgentMode.Broadcast, state.Groups[0].OrchestratorMode);
         Assert.Null(state.Groups[0].OrchestratorPrompt);
-        Assert.Equal(MultiAgentRole.Worker, state.Sessions[0].Role);
+        Assert.Equal(MultiAgentRole.None, state.Sessions[0].Role);
     }
 
     [Fact]
@@ -4425,7 +4425,7 @@ public class UrgencySortTests
             svc.LoadOrganization();
 
             // None should be detected as orchestrator sessions (no matching workers)
-            Assert.All(svc.Organization.Sessions, m => Assert.Equal(MultiAgentRole.Worker, m.Role));
+            Assert.All(svc.Organization.Sessions, m => Assert.Equal(MultiAgentRole.None, m.Role));
             // No new multi-agent groups should be created (only default group)
             Assert.Single(svc.Organization.Groups);
         }

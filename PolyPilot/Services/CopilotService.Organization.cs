@@ -355,6 +355,22 @@ public partial class CopilotService
             healed = true;
         }
 
+        // Phase 4: Clear stale Worker/Orchestrator roles from non-multi-agent groups.
+        // Sessions can get mislabeled (e.g., moved from a multi-agent group to a regular
+        // group but their Role wasn't reset). A Worker role in a non-multi-agent group
+        // causes the session to be hidden from Focus and other UI surfaces.
+        var groupLookup = Organization.Groups.ToDictionary(g => g.Id);
+        foreach (var meta in Organization.Sessions)
+        {
+            if (meta.Role == MultiAgentRole.None) continue;
+            if (!groupLookup.TryGetValue(meta.GroupId, out var grp) || !grp.IsMultiAgent)
+            {
+                Debug($"LoadOrganization: clearing stale Role={meta.Role} from '{meta.SessionName}' (group '{grp?.Name ?? meta.GroupId}' is not multi-agent)");
+                meta.Role = MultiAgentRole.None;
+                healed = true;
+            }
+        }
+
         } // end lock
 
         if (healed)
@@ -729,6 +745,8 @@ public partial class CopilotService
         var metas = Organization.Sessions.ToDictionary(m => m.SessionName);
         var recentCutoff = DateTime.Now.AddHours(-24);
 
+        var groups = Organization.Groups.ToDictionary(g => g.Id);
+
         return GetAllSessions()
             .Where(s =>
             {
@@ -736,9 +754,11 @@ public partial class CopilotService
                 // Check explicit override first (takes priority over everything)
                 if (hasMeta && meta!.FocusOverride == FocusOverride.Included) return true;
                 if (hasMeta && meta!.FocusOverride == FocusOverride.Excluded) return false;
-                // Workers in multi-agent groups only show if they have direct user activity
-                // (processing or recent interaction). Idle workers stay under their orchestrator.
-                if (hasMeta && meta!.Role == MultiAgentRole.Worker)
+                // Workers in ACTUAL multi-agent groups only show if they have direct activity.
+                // A session with Role=Worker in a non-multi-agent group is mislabeled — treat normally.
+                if (hasMeta && meta!.Role == MultiAgentRole.Worker
+                    && groups.TryGetValue(meta.GroupId, out var workerGroup)
+                    && workerGroup.IsMultiAgent)
                     return s.IsProcessing || s.LastUpdatedAt > recentCutoff;
                 // Active = processing, has unread messages, or had real activity in last 24h
                 return s.IsProcessing || s.UnreadCount > 0 || s.LastUpdatedAt > recentCutoff;
@@ -1422,7 +1442,7 @@ public partial class CopilotService
     private string BuildMultiAgentPrefix(string sessionName, SessionGroup group, List<string> allMembers)
     {
         var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
-        var role = meta?.Role ?? MultiAgentRole.Worker;
+        var role = meta?.Role ?? MultiAgentRole.None;
         var roleName = role == MultiAgentRole.Orchestrator ? "orchestrator" : "worker";
         var memberDetails = allMembers.Where(m => m != sessionName)
             .Select(m => $"'{m}' ({GetEffectiveModel(m)})")
@@ -3882,7 +3902,7 @@ public partial class CopilotService
             .Select(name =>
             {
                 var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
-                return (name, GetEffectiveModel(name), meta?.Role ?? MultiAgentRole.Worker);
+                return (name, GetEffectiveModel(name), meta?.Role ?? MultiAgentRole.None);
             })
             .ToList();
 
