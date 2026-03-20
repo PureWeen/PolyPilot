@@ -300,8 +300,10 @@ public partial class CopilotService
                 .ToList();
 
             // Also gather any other orchestrators for the same team prefix
+            // (exclude those already in multi-agent groups to avoid stealing them)
             var otherOrchs = orchSessions
                 .Where(m => m != orchMeta
+                            && nonMultiAgentGroupIds.Contains(m.GroupId)
                             && orchestratorPattern.Replace(m.SessionName, "")
                                 .Equals(teamPrefix, StringComparison.OrdinalIgnoreCase))
                 .ToList();
@@ -317,27 +319,37 @@ public partial class CopilotService
             var repoId = currentGroup?.RepoId;
             var worktreeId = orchMeta.WorktreeId;
 
-            // Create the reconstructed multi-agent group
-            var newGroup = new SessionGroup
-            {
-                Id = Guid.NewGuid().ToString(),
-                Name = teamPrefix,
-                IsMultiAgent = true,
-                OrchestratorMode = MultiAgentMode.OrchestratorReflect,
-                RepoId = repoId,
-                WorktreeId = worktreeId,
-                SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
-            };
-            AddGroup(newGroup);
-            Debug($"LoadOrganization: reconstructed multi-agent group '{teamPrefix}' (Id={newGroup.Id}) with {teamWorkers.Count} workers");
+            // Check if a multi-agent group for this team already exists
+            var targetGroup = Organization.Groups.FirstOrDefault(g => 
+                string.Equals(g.Name, teamPrefix, StringComparison.OrdinalIgnoreCase) && g.IsMultiAgent);
 
-            // Move orchestrator(s) and workers into the new group
-            orchMeta.GroupId = newGroup.Id;
+            if (targetGroup == null)
+            {
+                targetGroup = new SessionGroup
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Name = teamPrefix,
+                    IsMultiAgent = true,
+                    OrchestratorMode = MultiAgentMode.OrchestratorReflect,
+                    RepoId = repoId,
+                    WorktreeId = worktreeId,
+                    SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
+                };
+                AddGroup(targetGroup);
+                Debug($"LoadOrganization: reconstructed multi-agent group '{teamPrefix}' (Id={targetGroup.Id}) with {teamWorkers.Count} workers");
+            }
+            else
+            {
+                Debug($"LoadOrganization: merging {teamWorkers.Count} workers into existing group '{teamPrefix}' (Id={targetGroup.Id})");
+            }
+
+            // Move orchestrator(s) and workers into the target group
+            orchMeta.GroupId = targetGroup.Id;
             foreach (var otherOrch in otherOrchs)
-                otherOrch.GroupId = newGroup.Id;
+                otherOrch.GroupId = targetGroup.Id;
             foreach (var workerMeta in teamWorkers)
             {
-                workerMeta.GroupId = newGroup.Id;
+                workerMeta.GroupId = targetGroup.Id;
                 workerMeta.Role = MultiAgentRole.Worker;
             }
             healed = true;
