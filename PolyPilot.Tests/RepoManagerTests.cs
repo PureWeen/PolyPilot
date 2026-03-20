@@ -615,6 +615,8 @@ public class RepoManagerTests
     [InlineData("../../evil")]
     [InlineData("../sibling")]
     [InlineData("foo/../../escape")]
+    [InlineData("")]        // empty branch name resolves to repoWorktreesDir itself
+    [InlineData(".")]       // dot resolves to repoWorktreesDir itself
     public void CreateWorktree_PathTraversal_InBranchName_IsRejected(string maliciousBranch)
     {
         // Simulate what CreateWorktreeAsync does: combine repoWorktreesDir + branchName then GetFullPath
@@ -624,9 +626,10 @@ public class RepoManagerTests
         var resolved = Path.GetFullPath(worktreePath);
         var managedBase = Path.GetFullPath(repoWorktreesDir) + Path.DirectorySeparatorChar;
 
-        // The guard condition: resolved must start with managedBase
-        var wouldEscape = !resolved.StartsWith(managedBase, StringComparison.OrdinalIgnoreCase)
-            && !resolved.Equals(Path.GetFullPath(repoWorktreesDir), StringComparison.OrdinalIgnoreCase);
+        // Production guard (single condition): resolved must start with managedBase.
+        // "" and "." both resolve to repoWorktreesDir itself, which does NOT start with
+        // repoWorktreesDir + separator — so they are correctly rejected.
+        var wouldEscape = !resolved.StartsWith(managedBase, StringComparison.OrdinalIgnoreCase);
 
         Assert.True(wouldEscape, $"Branch '{maliciousBranch}' should escape the managed dir but guard says it doesn't. Resolved: {resolved}");
     }
@@ -643,8 +646,8 @@ public class RepoManagerTests
         var resolved = Path.GetFullPath(worktreePath);
         var managedBase = Path.GetFullPath(repoWorktreesDir) + Path.DirectorySeparatorChar;
 
-        var wouldEscape = !resolved.StartsWith(managedBase, StringComparison.OrdinalIgnoreCase)
-            && !resolved.Equals(Path.GetFullPath(repoWorktreesDir), StringComparison.OrdinalIgnoreCase);
+        // Production guard (single condition)
+        var wouldEscape = !resolved.StartsWith(managedBase, StringComparison.OrdinalIgnoreCase);
 
         Assert.False(wouldEscape, $"Branch '{safeBranch}' should NOT escape the managed dir. Resolved: {resolved}");
     }

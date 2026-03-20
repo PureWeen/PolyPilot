@@ -573,6 +573,9 @@ public partial class CopilotService
         // Migration: back-fill LocalPath/RepoId on groups that were created by an older version
         // of the code before the LocalPath field existed. Detect them by matching their name against
         // registered external worktrees (paths NOT under the managed worktrees directory).
+        // Only back-fill when exactly one worktree matches — if multiple external worktrees share
+        // the same folder name (e.g., ~/projects/myapp and ~/work/myapp), the match is ambiguous
+        // and we leave the group alone rather than risk assigning the wrong repo.
         var managedWorktreesDir = _repoManager.GetWorktreesDir();
         foreach (var group in Organization.Groups)
         {
@@ -580,18 +583,21 @@ public partial class CopilotService
                 || group.Id == SessionGroup.DefaultId || group.IsCodespace)
                 continue;
 
-            // Look for an external worktree whose folder name matches this group name
-            var match = _repoManager.Worktrees.FirstOrDefault(wt =>
+            // Collect all external worktrees whose folder name matches this group name
+            var candidates = _repoManager.Worktrees.Where(wt =>
                 !wt.Path.StartsWith(managedWorktreesDir, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(Path.GetFileName(wt.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
-                    group.Name, StringComparison.OrdinalIgnoreCase));
-            if (match != null)
-            {
-                group.LocalPath = match.Path;
-                group.RepoId = match.RepoId;
-                changed = true;
-                Debug($"ReconcileOrganization: back-filled LocalPath='{match.Path}' RepoId='{match.RepoId}' on group '{group.Name}'");
-            }
+                    group.Name, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            // Skip if ambiguous (multiple repos share the same folder name)
+            if (candidates.Count != 1)
+                continue;
+
+            var match = candidates[0];
+            group.LocalPath = match.Path;
+            group.RepoId = match.RepoId;
+            changed = true;
+            Debug($"ReconcileOrganization: back-filled LocalPath='{match.Path}' RepoId='{match.RepoId}' on group '{group.Name}'");
         }
 
         // Build the full set of known session names: active sessions + aliases (persisted names)
