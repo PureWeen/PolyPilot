@@ -116,7 +116,9 @@
 
     <!--
          Privacy usage descriptions.
-         MAUI strips NS*UsageDescription keys from Info.plist, so we re-inject them after build.
+         MAUI strips NS*UsageDescription keys from the output Info.plist during build,
+         even though they exist in the source Platforms/*/Info.plist files.
+         Re-inject them after build via PlistBuddy.
     -->
     <PropertyGroup Condition="$(TargetFramework.Contains('ios')) Or $(TargetFramework.Contains('maccatalyst'))">
         <_MicrophoneUsage>PolyPilot needs microphone access for speech-to-text input.</_MicrophoneUsage>
