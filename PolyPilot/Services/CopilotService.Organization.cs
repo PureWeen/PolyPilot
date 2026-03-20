@@ -727,17 +727,19 @@ public partial class CopilotService
     public IReadOnlyList<AgentSessionInfo> GetFocusSessions()
     {
         var metas = Organization.Sessions.ToDictionary(m => m.SessionName);
-        var recentCutoff = DateTime.Now.AddMinutes(-10);
+        var recentCutoff = DateTime.Now.AddMinutes(-2);
 
         return GetAllSessions()
             .Where(s =>
             {
                 if (!metas.TryGetValue(s.Name, out var meta)) return false;
+                // Skip workers in multi-agent groups — they show under their orchestrator
+                if (meta.Role == MultiAgentRole.Worker) return false;
                 return meta.FocusOverride switch
                 {
                     FocusOverride.Included => true,
                     FocusOverride.Excluded => false,
-                    // Active = processing, has unread messages, or had activity in last 10 min
+                    // Active = processing, has unread messages, or had activity in last 2 min
                     _ => s.IsProcessing || s.UnreadCount > 0 || s.LastUpdatedAt > recentCutoff
                 };
             })
