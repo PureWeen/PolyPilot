@@ -1013,9 +1013,11 @@ public partial class CopilotService
     {
         // Skip multi-agent groups — they have a RepoId for worktree context but are
         // not the "repo group" that regular sessions should auto-join.
+        // Also skip local folder groups — they are a separate concept from URL-based repo groups,
+        // and coexist with them when the same repo is added both ways.
         // Also skip groups that have orchestrator/worker sessions (defensive: protects against
         // IsMultiAgent being lost due to stale writes or serialization issues).
-        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent
+        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent && !g.IsLocalFolder
             && !Organization.Sessions.Any(m => m.GroupId == g.Id && m.Role == MultiAgentRole.Orchestrator));
         if (existing != null) return existing;
 
