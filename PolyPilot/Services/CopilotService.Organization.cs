@@ -276,11 +276,11 @@ public partial class CopilotService
 
             // Skip if we already reconstructed a group for this team prefix
             // (handles multiple orchestrators like TeamA-orchestrator + TeamA-orchestrator-1)
-            if (!processedPrefixes.Add(teamPrefix))
+            if (processedPrefixes.Contains(teamPrefix))
             {
                 // Move this orchestrator into the already-created group
                 var existingGroup = Organization.Groups.FirstOrDefault(g =>
-                    g.Name == teamPrefix && g.IsMultiAgent);
+                    string.Equals(g.Name, teamPrefix, StringComparison.OrdinalIgnoreCase) && g.IsMultiAgent);
                 if (existingGroup != null)
                     orchMeta.GroupId = existingGroup.Id;
                 continue;
@@ -308,6 +308,10 @@ public partial class CopilotService
 
             if (teamWorkers.Count == 0)
                 continue;
+
+            // Claim prefix AFTER verifying workers exist — if we claimed before the
+            // workers check, a second orchestrator would find no existing group to join
+            processedPrefixes.Add(teamPrefix);
 
             // Gather properties from the original group if available (worktree, repo, etc.)
             var repoId = currentGroup?.RepoId;
