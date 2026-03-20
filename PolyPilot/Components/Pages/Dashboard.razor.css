@@ -47,20 +47,18 @@
 .focus-strip {
     display: grid;
     gap: 1rem;
-    overflow-y: hidden;
     padding-bottom: 1rem;
     margin-bottom: 0.75rem;
     border-bottom: 1px solid var(--border-subtle, rgba(128,128,128,0.15));
     position: sticky;
     top: 0;
     z-index: 100;
-    min-height: 200px;
-    max-height: 40vh;
     background: var(--bg-primary, #1a1a2e);
 }
 
 ::deep .focus-strip .session-card {
-    max-height: 55vh;
+    min-height: 250px;
+    max-height: 45vh;
     overflow-y: auto;
     scrollbar-width: thin;
 }
