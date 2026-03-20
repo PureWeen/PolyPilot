@@ -3685,4 +3685,299 @@ public class UrgencySortTests
         var afterSession = after.SelectMany(g => g.Sessions).First();
         Assert.True(afterSession.NeedsAttention);
     }
+
+    #region Multi-agent group self-healing tests
+
+    [Fact]
+    public void HealMultiAgentGroups_RestoresOrchestratorRole_ByNamePattern()
+    {
+        // Scenario: orchestrator session has Role=Worker (the default) but name ends with "-orchestrator"
+        var org = new OrganizationState();
+        var group = new SessionGroup
+        {
+            Id = "team-group",
+            Name = "MyTeam",
+            IsMultiAgent = false
+        };
+        org.Groups.Add(group);
+        org.Sessions.Add(new SessionMeta { SessionName = "MyTeam-orchestrator", GroupId = "team-group", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "MyTeam-worker-1", GroupId = "team-group", Role = MultiAgentRole.Worker });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var orgFile = Path.Combine(tempDir, "organization.json");
+            File.WriteAllText(orgFile, JsonSerializer.Serialize(org, new JsonSerializerOptions { WriteIndented = true }));
+
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+
+            svc.LoadOrganization();
+
+            // Orchestrator role should be restored by name pattern
+            var orchMeta = svc.Organization.Sessions.First(m => m.SessionName == "MyTeam-orchestrator");
+            Assert.Equal(MultiAgentRole.Orchestrator, orchMeta.Role);
+
+            // Group should be healed to IsMultiAgent=true (Phase 2 follows Phase 1)
+            var healed = svc.Organization.Groups.First(g => g.Id == "team-group");
+            Assert.True(healed.IsMultiAgent);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void HealMultiAgentGroups_RestoresOrchestratorRole_WithSuffixNumber()
+    {
+        // Session named "TeamName-Orchestrator-1" (with numeric suffix) + matching workers
+        var org = new OrganizationState();
+        var group = new SessionGroup { Id = "g1", Name = "IC" };
+        org.Groups.Add(group);
+        org.Sessions.Add(new SessionMeta { SessionName = "IC-orchestrator-1", GroupId = "g1", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "IC-worker-1", GroupId = "g1", Role = MultiAgentRole.Worker });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "organization.json"),
+                JsonSerializer.Serialize(org, new JsonSerializerOptions { WriteIndented = true }));
+
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+            svc.LoadOrganization();
+
+            var meta = svc.Organization.Sessions.First(m => m.SessionName == "IC-orchestrator-1");
+            Assert.Equal(MultiAgentRole.Orchestrator, meta.Role);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void HealMultiAgentGroups_ReconstructsMissingGroup_FromScatteredSessions()
+    {
+        // Scenario: multi-agent group was deleted, sessions scattered to repo groups
+        var org = new OrganizationState();
+        var repoGroup = new SessionGroup { Id = "repo-group", Name = "PolyPilot", RepoId = "PureWeen-PolyPilot" };
+        org.Groups.Add(repoGroup);
+
+        // Orchestrator and workers all assigned to the repo group (wrong!)
+        org.Sessions.Add(new SessionMeta { SessionName = "PR Review Squad-orchestrator", GroupId = "repo-group", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "PR Review Squad-worker-1", GroupId = "repo-group", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "PR Review Squad-worker-2", GroupId = "repo-group", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "PR Review Squad-worker-3", GroupId = "repo-group", Role = MultiAgentRole.Worker });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "organization.json"),
+                JsonSerializer.Serialize(org, new JsonSerializerOptions { WriteIndented = true }));
+
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+            svc.LoadOrganization();
+
+            // A new multi-agent group "PR Review Squad" should have been reconstructed
+            var reconstructed = svc.Organization.Groups.FirstOrDefault(g => g.Name == "PR Review Squad" && g.IsMultiAgent);
+            Assert.NotNull(reconstructed);
+
+            // All team sessions should be in the reconstructed group
+            var teamSessions = svc.Organization.Sessions.Where(m => m.GroupId == reconstructed.Id).ToList();
+            Assert.Equal(4, teamSessions.Count);
+
+            // Orchestrator should have correct role
+            var orch = teamSessions.First(m => m.SessionName == "PR Review Squad-orchestrator");
+            Assert.Equal(MultiAgentRole.Orchestrator, orch.Role);
+
+            // Workers should remain as workers
+            var workers = teamSessions.Where(m => m.Role == MultiAgentRole.Worker).ToList();
+            Assert.Equal(3, workers.Count);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void HealMultiAgentGroups_DoesNothing_WhenGroupsAlreadyCorrect()
+    {
+        // Scenario: everything is fine, no healing needed
+        var org = new OrganizationState();
+        var group = new SessionGroup { Id = "good-group", Name = "MyTeam", IsMultiAgent = true, OrchestratorMode = MultiAgentMode.OrchestratorReflect };
+        org.Groups.Add(group);
+        org.Sessions.Add(new SessionMeta { SessionName = "MyTeam-orchestrator", GroupId = "good-group", Role = MultiAgentRole.Orchestrator });
+        org.Sessions.Add(new SessionMeta { SessionName = "MyTeam-worker-1", GroupId = "good-group", Role = MultiAgentRole.Worker });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "organization.json"),
+                JsonSerializer.Serialize(org, new JsonSerializerOptions { WriteIndented = true }));
+
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+            svc.LoadOrganization();
+
+            // Should still be correct — no new groups created
+            Assert.Equal(2, svc.Organization.Groups.Count); // default + good-group
+            var g = svc.Organization.Groups.First(x => x.Id == "good-group");
+            Assert.True(g.IsMultiAgent);
+            Assert.Equal(MultiAgentMode.OrchestratorReflect, g.OrchestratorMode);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void HealMultiAgentGroups_DoesNotFalsePositive_OnRegularSessionNames()
+    {
+        // Session names that contain "orchestrator" but aren't real orchestrators
+        var org = new OrganizationState();
+        org.Sessions.Add(new SessionMeta { SessionName = "orchestrator-tips", GroupId = "_default", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "my-orchestrator-notes", GroupId = "_default", Role = MultiAgentRole.Worker });
+        // This one ENDS with -orchestrator but has no matching workers — should NOT be promoted
+        org.Sessions.Add(new SessionMeta { SessionName = "deploy-orchestrator", GroupId = "_default", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "notes-orchestrator", GroupId = "_default", Role = MultiAgentRole.Worker });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "organization.json"),
+                JsonSerializer.Serialize(org, new JsonSerializerOptions { WriteIndented = true }));
+
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+            svc.LoadOrganization();
+
+            // None should be detected as orchestrator sessions (no matching workers)
+            Assert.All(svc.Organization.Sessions, m => Assert.Equal(MultiAgentRole.Worker, m.Role));
+            // No new multi-agent groups should be created (only default group)
+            Assert.Single(svc.Organization.Groups);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void HealMultiAgentGroups_HandlesMultipleScatteredTeams()
+    {
+        // Two teams scattered across different repo groups
+        var org = new OrganizationState();
+        var repoGroup1 = new SessionGroup { Id = "rg1", Name = "Repo1" };
+        var repoGroup2 = new SessionGroup { Id = "rg2", Name = "Repo2" };
+        org.Groups.Add(repoGroup1);
+        org.Groups.Add(repoGroup2);
+
+        // Team A scattered in rg1
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamA-orchestrator", GroupId = "rg1", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamA-worker-1", GroupId = "rg1", Role = MultiAgentRole.Worker });
+
+        // Team B scattered in rg2
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamB-orchestrator", GroupId = "rg2", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamB-worker-1", GroupId = "rg2", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamB-worker-2", GroupId = "rg2", Role = MultiAgentRole.Worker });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "organization.json"),
+                JsonSerializer.Serialize(org, new JsonSerializerOptions { WriteIndented = true }));
+
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+            svc.LoadOrganization();
+
+            // Two new multi-agent groups should have been created
+            var maGroups = svc.Organization.Groups.Where(g => g.IsMultiAgent).ToList();
+            Assert.Equal(2, maGroups.Count);
+
+            var teamA = maGroups.FirstOrDefault(g => g.Name == "TeamA");
+            var teamB = maGroups.FirstOrDefault(g => g.Name == "TeamB");
+            Assert.NotNull(teamA);
+            Assert.NotNull(teamB);
+
+            // Each team should have its sessions
+            Assert.Equal(2, svc.Organization.Sessions.Count(m => m.GroupId == teamA.Id));
+            Assert.Equal(3, svc.Organization.Sessions.Count(m => m.GroupId == teamB.Id));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void HealMultiAgentGroups_MultipleOrchestrators_NoDuplicateGroups()
+    {
+        // Team with two orchestrators: TeamA-orchestrator and TeamA-orchestrator-1
+        // Should create exactly ONE group, not two
+        var org = new OrganizationState();
+        var repoGroup = new SessionGroup { Id = "rg1", Name = "Repo1" };
+        org.Groups.Add(repoGroup);
+
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamA-orchestrator", GroupId = "rg1", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamA-orchestrator-1", GroupId = "rg1", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamA-worker-1", GroupId = "rg1", Role = MultiAgentRole.Worker });
+        org.Sessions.Add(new SessionMeta { SessionName = "TeamA-worker-2", GroupId = "rg1", Role = MultiAgentRole.Worker });
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "organization.json"),
+                JsonSerializer.Serialize(org, new JsonSerializerOptions { WriteIndented = true }));
+
+            CopilotService.SetBaseDirForTesting(tempDir);
+            var svc = new CopilotService(
+                new StubChatDatabase(), new StubServerManager(), new StubWsBridgeClient(),
+                new RepoManager(), new ServiceCollection().BuildServiceProvider(), new StubDemoService());
+            svc.LoadOrganization();
+
+            // Exactly ONE multi-agent group named "TeamA"
+            var maGroups = svc.Organization.Groups.Where(g => g.IsMultiAgent).ToList();
+            Assert.Single(maGroups);
+            Assert.Equal("TeamA", maGroups[0].Name);
+
+            // All 4 sessions should be in that group
+            var teamSessions = svc.Organization.Sessions.Where(m => m.GroupId == maGroups[0].Id).ToList();
+            Assert.Equal(4, teamSessions.Count);
+
+            // Both orchestrators should have Orchestrator role
+            var orchs = teamSessions.Where(m => m.Role == MultiAgentRole.Orchestrator).ToList();
+            Assert.Equal(2, orchs.Count);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    #endregion
 }
