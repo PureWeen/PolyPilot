@@ -114,17 +114,23 @@
         </ItemGroup>
     </Target>
 
-    <!-- Inject privacy keys into Mac Catalyst Info.plist (MAUI build strips NS*UsageDescription keys) -->
-    <Target Name="InjectMacCatalystPrivacyKeys" AfterTargets="Build" Condition="$(TargetFramework.Contains('maccatalyst'))">
-        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSMicrophoneUsageDescription 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot; 2&gt;/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSMicrophoneUsageDescription string 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot;" />
-        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSSpeechRecognitionUsageDescription 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot; 2&gt;/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSSpeechRecognitionUsageDescription string 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Contents/Info.plist&quot;" />
-    </Target>
+    <!--
+         Privacy usage descriptions.
+         MAUI strips NS*UsageDescription keys from Info.plist, so we re-inject them after build.
+    -->
+    <PropertyGroup Condition="$(TargetFramework.Contains('ios')) Or $(TargetFramework.Contains('maccatalyst'))">
+        <_MicrophoneUsage>PolyPilot needs microphone access for speech-to-text input.</_MicrophoneUsage>
+        <_SpeechUsage>PolyPilot uses speech recognition to convert your voice into text messages.</_SpeechUsage>
+    </PropertyGroup>
 
-    <!-- Inject privacy keys into iOS Info.plist (MAUI build strips NS*UsageDescription keys here too) -->
-    <Target Name="InjectIOSPrivacyKeys" AfterTargets="Build" Condition="$(TargetFramework.Contains('ios'))">
-        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSMicrophoneUsageDescription 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot; 2&gt;/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSMicrophoneUsageDescription string 'PolyPilot needs microphone access for speech-to-text input.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot;" />
-        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSSpeechRecognitionUsageDescription 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot; 2&gt;/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSSpeechRecognitionUsageDescription string 'PolyPilot uses speech recognition to convert your voice into text messages.'&quot; &quot;$(OutputPath)$(AssemblyName).app/Info.plist&quot;" />
-        <Exec Command="codesign --force --sign &quot;Apple Development: Jakub Florkowski (8MT3Q77PP8)&quot; --entitlements &quot;$(MSBuildProjectDirectory)/obj/Debug/$(TargetFramework)/ios-arm64/Entitlements.xcent&quot; &quot;$(OutputPath)$(AssemblyName).app&quot;" />
+    <Target Name="_InjectPrivacyKeys" AfterTargets="Build"
+            Condition="$(TargetFramework.Contains('ios')) Or $(TargetFramework.Contains('maccatalyst'))">
+        <PropertyGroup>
+            <_Plist Condition="$(TargetFramework.Contains('maccatalyst'))">$(OutputPath)$(AssemblyName).app/Contents/Info.plist</_Plist>
+            <_Plist Condition="$(TargetFramework.Contains('ios'))">$(OutputPath)$(AssemblyName).app/Info.plist</_Plist>
+        </PropertyGroup>
+        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSMicrophoneUsageDescription '$(_MicrophoneUsage)'&quot; &quot;$(_Plist)&quot; 2&gt;/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSMicrophoneUsageDescription string '$(_MicrophoneUsage)'&quot; &quot;$(_Plist)&quot;" />
+        <Exec Command="/usr/libexec/PlistBuddy -c &quot;Set :NSSpeechRecognitionUsageDescription '$(_SpeechUsage)'&quot; &quot;$(_Plist)&quot; 2&gt;/dev/null || /usr/libexec/PlistBuddy -c &quot;Add :NSSpeechRecognitionUsageDescription string '$(_SpeechUsage)'&quot; &quot;$(_Plist)&quot;" />
     </Target>
 
 </Project>
