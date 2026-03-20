@@ -188,6 +188,12 @@ public partial class CopilotService
     {
         bool healed = false;
 
+        // All reads/writes to Organization.Sessions and Organization.Groups must hold
+        // _organizationLock to prevent SaveOrganizationCore (which snapshots under lock)
+        // from observing partially-healed state.
+        lock (_organizationLock)
+        {
+
         // Phase 1: Restore Role=Orchestrator for sessions identifiable by name pattern,
         // but ONLY if matching workers also exist. This prevents false-positives on user
         // sessions coincidentally named "*-orchestrator" (e.g., "deploy-orchestrator").
@@ -332,6 +338,8 @@ public partial class CopilotService
             }
             healed = true;
         }
+
+        } // end lock
 
         if (healed)
         {
