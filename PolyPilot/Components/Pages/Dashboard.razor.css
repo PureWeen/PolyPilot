@@ -467,13 +467,13 @@
 
 .session-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr));
+    grid-template-columns: repeat(3, 1fr); /* overridden by inline style from _gridColumns */
     gap: 1rem;
     margin-bottom: 1.5rem;
 }
 
 .session-grid.expanded-grid {
-    grid-template-columns: repeat(auto-fill, minmax(min(600px, 100%), 1fr));
+    /* expanded-grid just keeps the same column count; cards get taller via content */
 }
 
 .toolbar-actions {
@@ -535,6 +535,43 @@
 
 .dashboard-header .font-size-label {
     font-size: var(--type-caption1);
+}
+
+/* Grid column count control */
+.grid-columns-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.grid-col-btn {
+    background: var(--hover-bg);
+    border: 1px solid var(--hover-bg);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--type-footnote);
+    font-weight: 600;
+    padding: 0.1rem 0.4rem;
+    line-height: 1;
+}
+
+.grid-col-btn:hover:not(:disabled) {
+    background: var(--hover-bg);
+    color: var(--text-bright);
+}
+
+.grid-col-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.grid-col-label {
+    font-size: var(--type-caption1);
+    color: var(--text-secondary);
+    min-width: 3.5ch;
+    text-align: center;
+    cursor: default;
 }
 
 /* Sort select in dashboard header */

@@ -4547,6 +4547,7 @@ public class UiState
     public string? ExpandedSession { get; set; }
     public Dictionary<string, string> InputModes { get; set; } = new();
     public HashSet<string> CompletedTutorials { get; set; } = new();
+    public int GridColumns { get; set; } = 3;
 }
 
 public class ActiveSessionEntry
