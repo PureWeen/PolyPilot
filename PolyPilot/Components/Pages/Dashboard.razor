@@ -462,10 +462,11 @@
         <div class="qs-backdrop" @onclick="CloseQuickSwitcher"></div>
         <div class="qs-modal" @onclick:stopPropagation>
             <input class="qs-input"
+                   id="qs-input"
                    placeholder="Jump to session…"
-                   value="@_quickSwitcherQuery"
                    @oninput="@(e => QuickSwitcherQuery = e.Value?.ToString() ?? "")"
-                   @onkeyup="HandleQuickSwitcherKeyDown"
+                   @onkeydown="HandleQuickSwitcherKeyDown"
+                   @onkeydown:preventDefault="@_qsPreventDefault"
                    autofocus />
             <div class="qs-results">
                 @{
@@ -477,6 +478,7 @@
                     var isSelected = idx == _quickSwitcherIndex;
                     <div class="qs-item @(isSelected ? "selected" : "")"
                          @onclick="() => SelectQuickSwitcherSession(session.Name)"
+                         data-qs-idx="@idx"
                          @key="session.Name">
                         <div class="qs-item-row">
                             <span class="qs-status-dot @cls">@icon</span>
@@ -569,6 +571,7 @@
     private bool _quickSwitcherOpen;
     private string _quickSwitcherQuery = "";
     private int _quickSwitcherIndex;
+    private bool _qsPreventDefault;
 
     private string QuickSwitcherQuery
     {
@@ -628,6 +631,17 @@
         return ("○", "qs-idle");
     }
 
+    private async Task ScrollQsSelectedIntoView()
+    {
+        await Task.Yield(); // let Blazor re-render first
+        try
+        {
+            await JS.InvokeVoidAsync("eval",
+                $"document.querySelector('[data-qs-idx=\"{_quickSwitcherIndex}\"]')?.scrollIntoView({{block:'nearest'}})");
+        }
+        catch { /* JS interop may fail if modal closed */ }
+    }
+
     private async Task SelectQuickSwitcherSession(string sessionName)
     {
         _quickSwitcherOpen = false;
@@ -640,20 +654,29 @@
         if (e.Key == "ArrowDown")
         {
             _quickSwitcherIndex = Math.Min(_quickSwitcherIndex + 1, results.Count - 1);
+            _qsPreventDefault = true;
+            _ = ScrollQsSelectedIntoView();
         }
         else if (e.Key == "ArrowUp")
         {
             _quickSwitcherIndex = Math.Max(_quickSwitcherIndex - 1, 0);
+            _qsPreventDefault = true;
+            _ = ScrollQsSelectedIntoView();
         }
         else if (e.Key == "Enter" && results.Count > 0)
         {
+            _qsPreventDefault = true;
             await SelectQuickSwitcherSession(results[_quickSwitcherIndex].Name);
         }
         else if (e.Key == "Escape")
         {
+            _qsPreventDefault = true;
             CloseQuickSwitcher();
         }
-        await Task.CompletedTask;
+        else
+        {
+            _qsPreventDefault = false;
+        }
     }
 
 
