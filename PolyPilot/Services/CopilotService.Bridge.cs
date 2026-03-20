@@ -619,11 +619,11 @@ public partial class CopilotService
         // Register/update the bare clone and external worktree for this local path
         var repo = await _repoManager.AddRepositoryFromLocalAsync(localPath, onProgress, ct);
 
-        // Always create a distinct 📁 group for this local folder, even if the repo was
-        // previously added via URL. The user explicitly chose "Add Existing Folder" for a
-        // specific local path — they want a dedicated sidebar entry for it, not to be
-        // silently merged into an existing URL-based group.
-        var localGroup = GetOrCreateLocalFolderGroup(localPath, repo.Id);
+        // Ensure a dedicated 📁 local folder group exists for this path.
+        // Use PromoteOrCreateLocalFolderGroup so that if there's an existing URL-based group
+        // for this repo (created by an older code version that lacked LocalPath support),
+        // we update that group in-place rather than creating a redundant duplicate.
+        PromoteOrCreateLocalFolderGroup(localPath, repo.Id);
         return new AddLocalFolderResult(repo.Id, repo.Name, null, null);
     }
 

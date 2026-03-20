@@ -600,6 +600,46 @@ public partial class CopilotService
             Debug($"ReconcileOrganization: back-filled LocalPath='{match.Path}' RepoId='{match.RepoId}' on group '{group.Name}'");
         }
 
+        // Migration: ensure that repos with registered external worktrees (user-added local
+        // folders) have a corresponding 📁 local folder group. An external worktree is any
+        // worktree whose path is NOT under the managed worktrees directory AND does NOT contain
+        // ".polypilot/worktrees" (which marks nested worktrees inside local folders).
+        // When a local folder group is missing, promote the most-recently-created URL-based
+        // group for that repo to a local folder group rather than creating a duplicate.
+        var sep = Path.DirectorySeparatorChar;
+        var polypilotWorktreesMarker = $".polypilot{sep}worktrees";
+        var externalWorktrees = _repoManager.Worktrees.Where(wt =>
+            !wt.Path.StartsWith(managedWorktreesDir, StringComparison.OrdinalIgnoreCase) &&
+            wt.Path.IndexOf(polypilotWorktreesMarker, StringComparison.OrdinalIgnoreCase) < 0).ToList();
+
+        foreach (var ext in externalWorktrees)
+        {
+            var normalizedExtPath = Path.GetFullPath(ext.Path)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            // Already have a local folder group for this exact path?
+            var hasLocalGroup = Organization.Groups.Any(g =>
+                g.IsLocalFolder && !g.IsMultiAgent && g.LocalPath != null &&
+                string.Equals(
+                    Path.GetFullPath(g.LocalPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    normalizedExtPath, StringComparison.OrdinalIgnoreCase));
+            if (hasLocalGroup) continue;
+
+            // Promote the most-recently-added URL-based group for this repo.
+            var groupToPromote = Organization.Groups
+                .Where(g => g.RepoId == ext.RepoId && !g.IsLocalFolder && !g.IsMultiAgent)
+                .OrderByDescending(g => g.SortOrder)
+                .FirstOrDefault();
+
+            if (groupToPromote != null)
+            {
+                groupToPromote.LocalPath = normalizedExtPath;
+                groupToPromote.Name = Path.GetFileName(normalizedExtPath);
+                changed = true;
+                Debug($"ReconcileOrganization: promoted group '{groupToPromote.Id}' to local folder group for '{normalizedExtPath}'");
+            }
+        }
+
         // Build the full set of known session names: active sessions + aliases (persisted names)
         var knownNames = new HashSet<string>(activeNames);
         try
@@ -1084,9 +1124,59 @@ public partial class CopilotService
         return group;
     }
 
-    #endregion
+    /// <summary>
+    /// Ensures a 📁 local folder group exists for <paramref name="localPath"/>.
+    /// Unlike <see cref="GetOrCreateLocalFolderGroup"/>, this first tries to <em>promote</em>
+    /// an existing URL-based group for the same repo to a local folder group (by setting its
+    /// <see cref="SessionGroup.LocalPath"/>). This preserves session history when the group was
+    /// created by an older version of the code that lacked local-folder support.
+    /// Falls back to <see cref="GetOrCreateLocalFolderGroup"/> if no promotable group is found.
+    /// </summary>
+    public SessionGroup PromoteOrCreateLocalFolderGroup(string localPath, string? repoId = null)
+    {
+        var normalized = Path.GetFullPath(localPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-    #region Multi-Agent Orchestration
+        // If a local folder group already exists for this exact path, just update it.
+        var alreadyLocal = Organization.Groups.FirstOrDefault(g =>
+            g.IsLocalFolder && !g.IsMultiAgent &&
+            string.Equals(
+                Path.GetFullPath(g.LocalPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                normalized, StringComparison.OrdinalIgnoreCase));
+        if (alreadyLocal != null)
+        {
+            bool changed = false;
+            if (alreadyLocal.IsCollapsed) { alreadyLocal.IsCollapsed = false; changed = true; }
+            if (repoId != null && alreadyLocal.RepoId == null) { alreadyLocal.RepoId = repoId; changed = true; }
+            if (changed) { SaveOrganization(); OnStateChanged?.Invoke(); }
+            return alreadyLocal;
+        }
+
+        // Look for an existing URL-based group for this repo to promote in-place.
+        // Pick the most recently created (highest SortOrder) non-multi-agent group.
+        // This handles migration from older code versions that created URL-based groups
+        // instead of local folder groups when the user added an existing folder.
+        if (repoId != null)
+        {
+            var candidate = Organization.Groups
+                .Where(g => g.RepoId == repoId && !g.IsLocalFolder && !g.IsMultiAgent)
+                .OrderByDescending(g => g.SortOrder)
+                .FirstOrDefault();
+            if (candidate != null)
+            {
+                candidate.LocalPath = normalized;
+                candidate.Name = Path.GetFileName(normalized);
+                SaveOrganization();
+                OnStateChanged?.Invoke();
+                Debug($"PromoteOrCreateLocalFolderGroup: promoted '{candidate.Id}' to local folder group for '{normalized}'");
+                return candidate;
+            }
+        }
+
+        // No existing group to promote — create a fresh local folder group.
+        return GetOrCreateLocalFolderGroup(localPath, repoId);
+    }
+
 
     /// <summary>
     /// Create a multi-agent group and optionally move existing sessions into it.
