@@ -2887,6 +2887,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // (0 != actual_generation) to incorrectly skip the SendingFlag release → session deadlock.
         myGeneration = Interlocked.Increment(ref state.ProcessingGeneration);
         state.Info.IsProcessing = true;
+        state.Info.LastUpdatedAt = DateTime.Now;
         state.Info.ProcessingStartedAt = DateTime.UtcNow;
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0; // Sending
@@ -4228,9 +4229,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             OnStateChanged?.Invoke();
             return;
         }
-        if (_sessions.ContainsKey(name))
+        if (_sessions.TryGetValue(name, out var activeState))
         {
             _activeSessionName = name;
+            activeState.Info.LastUpdatedAt = DateTime.Now;
             if (IsRemoteMode)
                 _ = _bridgeClient.SwitchSessionAsync(name);
         }
