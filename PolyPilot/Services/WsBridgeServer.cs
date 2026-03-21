@@ -182,11 +182,26 @@ public class WsBridgeServer : IDisposable
 
     private async Task AcceptLoopAsync(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested && _listener?.IsListening == true)
+        int restartDelayMs = 1000;
+        while (!ct.IsCancellationRequested)
         {
+            // Restart listener if it stopped (e.g. after Mac lock-screen suspend).
+            if (_listener?.IsListening != true)
+            {
+                bool restarted = await TryRestartListenerAsync(ct);
+                if (!restarted)
+                {
+                    // Back off and retry; give up after ~60 s of repeated failures.
+                    restartDelayMs = Math.Min(restartDelayMs * 2, 30_000);
+                    await Task.Delay(restartDelayMs, ct).ConfigureAwait(false);
+                    continue;
+                }
+                restartDelayMs = 1000;
+            }
+
             try
             {
-                var context = await _listener.GetContextAsync();
+                var context = await _listener!.GetContextAsync();
 
                 if (context.Request.IsWebSocketRequest)
                 {
@@ -233,12 +248,55 @@ public class WsBridgeServer : IDisposable
                 }
             }
             catch (ObjectDisposedException) { break; }
-            catch (HttpListenerException) { break; }
+            catch (OperationCanceledException) { break; }
+            catch (HttpListenerException ex)
+            {
+                if (ct.IsCancellationRequested) break;
+                // Listener can be killed by macOS when the screen locks or the machine
+                // sleeps. Mark it as stopped and let the restart path above revive it.
+                Console.WriteLine($"[WsBridge] Listener error ({ex.ErrorCode}): {ex.Message} — will restart");
+                try { _listener?.Stop(); } catch { }
+                _listener = null;
+            }
             catch (Exception ex)
             {
                 Console.WriteLine($"[WsBridge] Accept error: {ex.Message}");
             }
         }
+    }
+
+    /// <summary>
+    /// Attempt to (re)start the HttpListener on the bridge port.
+    /// Tries the wildcard prefix first, falls back to localhost.
+    /// Returns true if the listener is now listening.
+    /// </summary>
+    private async Task<bool> TryRestartListenerAsync(CancellationToken ct)
+    {
+        try { _listener?.Stop(); } catch { }
+        _listener = null;
+
+        // Brief pause so the OS has time to release the port after a crash.
+        try { await Task.Delay(500, ct); } catch (OperationCanceledException) { return false; }
+
+        // Try wildcard binding first (allows LAN / Tailscale access).
+        foreach (var prefix in new[] { $"http://+:{_bridgePort}/", $"http://localhost:{_bridgePort}/" })
+        {
+            try
+            {
+                var listener = new HttpListener();
+                listener.Prefixes.Add(prefix);
+                listener.Start();
+                _listener = listener;
+                Console.WriteLine($"[WsBridge] Restarted listening on {prefix}");
+                OnStateChanged?.Invoke();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WsBridge] Restart on {prefix} failed: {ex.Message}");
+            }
+        }
+        return false;
     }
 
     /// <summary>

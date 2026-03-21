@@ -207,8 +207,7 @@ public partial class CopilotService
                 // Only promote if there are matching worker sessions with the same team prefix
                 var teamPrefix = orchestratorPattern.Replace(meta.SessionName, "");
                 bool hasMatchingWorkers = Organization.Sessions.Any(m =>
-                    m.SessionName.StartsWith(teamPrefix + "-", StringComparison.OrdinalIgnoreCase)
-                    && workerPattern.IsMatch(m.SessionName));
+                    IsWorkerForTeamPrefix(m.SessionName, teamPrefix, workerPattern));
                 if (!hasMatchingWorkers) continue;
 
                 Debug($"LoadOrganization: healing role for '{meta.SessionName}' — name matches orchestrator pattern, Role was {meta.Role}");
@@ -293,8 +292,7 @@ public partial class CopilotService
                 .Select(g => g.Id)
                 .ToHashSet();
             var teamWorkers = Organization.Sessions
-                .Where(m => m.SessionName.StartsWith(teamPrefix + "-", StringComparison.OrdinalIgnoreCase)
-                            && workerPattern.IsMatch(m.SessionName)
+                .Where(m => IsWorkerForTeamPrefix(m.SessionName, teamPrefix, workerPattern)
                             && m.SessionName != orchMeta.SessionName
                             && nonMultiAgentGroupIds.Contains(m.GroupId))
                 .ToList();
@@ -1062,6 +1060,35 @@ public partial class CopilotService
         _organizedSessionsCache = result;
         _organizedSessionsCacheKey = key;
         return result;
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="sessionName"/> is a worker session that belongs to
+    /// the team identified by <paramref name="orchTeamPrefix"/> (the orchestrator's name
+    /// with the trailing "-orchestrator" suffix removed).
+    ///
+    /// Two matching strategies are tried in order:
+    /// 1. Exact prefix: worker name starts with "{orchTeamPrefix}-"
+    /// 2. Suffix fallback: the worker's own team prefix is a SUFFIX of the orchestrator
+    ///    team prefix.  This handles the case where the orchestrator was created with a
+    ///    scoped namespace prefix that the workers lack, e.g.:
+    ///      orchestrator: "PP- PR Review Squad-orchestrator" → prefix "PP- PR Review Squad"
+    ///      workers:      "PR Review Squad-worker-1"         → prefix "PR Review Squad"
+    ///    "PP- PR Review Squad" ends with "PR Review Squad" → match.
+    /// </summary>
+    private static bool IsWorkerForTeamPrefix(string sessionName, string orchTeamPrefix, Regex workerPattern)
+    {
+        if (!workerPattern.IsMatch(sessionName)) return false;
+
+        // Strategy 1: exact prefix match
+        if (sessionName.StartsWith(orchTeamPrefix + "-", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Strategy 2: worker's prefix is a proper suffix of the orchestrator's prefix
+        var workerPrefix = workerPattern.Replace(sessionName, "");
+        return workerPrefix.Length > 0
+            && orchTeamPrefix.Length > workerPrefix.Length
+            && orchTeamPrefix.EndsWith(workerPrefix, StringComparison.OrdinalIgnoreCase);
     }
 
     private static int UrgencyScore(AgentSessionInfo session) =>

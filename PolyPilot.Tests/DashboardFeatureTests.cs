@@ -542,3 +542,147 @@ internal class MultiAgentModeWrapper
 {
     public MultiAgentMode Mode { get; set; }
 }
+
+/// <summary>
+/// Tests for Phase 1 healer suffix-match fix (PP- prefix bug).
+/// The orchestrator "PP- PR Review Squad-orchestrator" had workers named
+/// "PR Review Squad-worker-N" (missing the "PP- " prefix on the workers).
+/// Phase 1 used to reject the match because the exact prefix didn't match,
+/// leaving the orchestrator without its role and preventing Phase 3 reconstruction.
+/// </summary>
+public class HealerPrefixMatchTests
+{
+    private readonly StubChatDatabase _chatDb = new();
+    private readonly StubServerManager _serverManager = new();
+    private readonly StubWsBridgeClient _bridgeClient = new();
+    private readonly StubDemoService _demoService = new();
+    private readonly IServiceProvider _serviceProvider;
+
+    public HealerPrefixMatchTests()
+    {
+        _serviceProvider = new ServiceCollection().BuildServiceProvider();
+    }
+
+    private (CopilotService svc, string tempDir) CreateServiceWithOrg(OrganizationState org)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-healer-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        File.WriteAllText(Path.Combine(tempDir, "organization.json"),
+            JsonSerializer.Serialize(org, new JsonSerializerOptions { WriteIndented = true }));
+        CopilotService.SetBaseDirForTesting(tempDir);
+        var svc = new CopilotService(_chatDb, _serverManager, _bridgeClient, new RepoManager(), _serviceProvider, _demoService);
+        svc.LoadOrganization();
+        return (svc, tempDir);
+    }
+
+    [Fact]
+    public void Phase1_ExactPrefixMatch_RestoresOrchestratorRole()
+    {
+        // Standard case: "MyTeam-orchestrator" + "MyTeam-worker-1"
+        var org = new OrganizationState();
+        var nonMultiGroup = new SessionGroup { Id = "g1", Name = "General", IsMultiAgent = false };
+        org.Groups.Add(nonMultiGroup);
+        org.Sessions.Add(new SessionMeta { SessionName = "MyTeam-orchestrator", GroupId = "g1", Role = MultiAgentRole.None });
+        org.Sessions.Add(new SessionMeta { SessionName = "MyTeam-worker-1", GroupId = "g1", Role = MultiAgentRole.None });
+        org.Sessions.Add(new SessionMeta { SessionName = "MyTeam-worker-2", GroupId = "g1", Role = MultiAgentRole.None });
+
+        var (svc, tempDir) = CreateServiceWithOrg(org);
+        try
+        {
+            var orch = svc.Organization.Sessions.First(s => s.SessionName == "MyTeam-orchestrator");
+            Assert.Equal(MultiAgentRole.Orchestrator, orch.Role);
+        }
+        finally { try { Directory.Delete(tempDir, recursive: true); } catch { } }
+    }
+
+    [Fact]
+    public void Phase1_SuffixMatch_RestoresOrchestratorRole_WhenOrchestratorHasNamespacePrefix()
+    {
+        // "PP- PR Review Squad-orchestrator" (prefix "PP- PR Review Squad")
+        // workers are "PR Review Squad-worker-N" (prefix "PR Review Squad")
+        // "PP- PR Review Squad".EndsWith("PR Review Squad") → should match
+        var org = new OrganizationState();
+        var nonMultiGroup = new SessionGroup { Id = "g1", Name = "PolyPilot", IsMultiAgent = false };
+        org.Groups.Add(nonMultiGroup);
+        org.Sessions.Add(new SessionMeta { SessionName = "PP- PR Review Squad-orchestrator", GroupId = "g1", Role = MultiAgentRole.None });
+        org.Sessions.Add(new SessionMeta { SessionName = "PR Review Squad-worker-1", GroupId = "g1", Role = MultiAgentRole.None });
+        org.Sessions.Add(new SessionMeta { SessionName = "PR Review Squad-worker-2", GroupId = "g1", Role = MultiAgentRole.None });
+
+        var (svc, tempDir) = CreateServiceWithOrg(org);
+        try
+        {
+            var orch = svc.Organization.Sessions.First(s => s.SessionName == "PP- PR Review Squad-orchestrator");
+            Assert.Equal(MultiAgentRole.Orchestrator, orch.Role);
+        }
+        finally { try { Directory.Delete(tempDir, recursive: true); } catch { } }
+    }
+
+    [Fact]
+    public void Phase3_SuffixMatch_ReconstructsGroup_WhenOrchestratorHasNamespacePrefix()
+    {
+        // Full reconstruction: Phase 1 restores role, Phase 3 creates new multi-agent group.
+        var org = new OrganizationState();
+        var nonMultiGroup = new SessionGroup { Id = "g1", Name = "PolyPilot", IsMultiAgent = false };
+        org.Groups.Add(nonMultiGroup);
+        org.Sessions.Add(new SessionMeta { SessionName = "PP- PR Review Squad-orchestrator", GroupId = "g1", Role = MultiAgentRole.None });
+        org.Sessions.Add(new SessionMeta { SessionName = "PR Review Squad-worker-1", GroupId = "g1", Role = MultiAgentRole.None });
+        org.Sessions.Add(new SessionMeta { SessionName = "PR Review Squad-worker-2", GroupId = "g1", Role = MultiAgentRole.None });
+
+        var (svc, tempDir) = CreateServiceWithOrg(org);
+        try
+        {
+            // A new multi-agent group should have been created
+            var newGroup = svc.Organization.Groups.FirstOrDefault(g => g.IsMultiAgent);
+            Assert.NotNull(newGroup);
+
+            var orch = svc.Organization.Sessions.First(s => s.SessionName == "PP- PR Review Squad-orchestrator");
+            Assert.Equal(newGroup.Id, orch.GroupId);
+            Assert.Equal(MultiAgentRole.Orchestrator, orch.Role);
+
+            var w1 = svc.Organization.Sessions.First(s => s.SessionName == "PR Review Squad-worker-1");
+            Assert.Equal(newGroup.Id, w1.GroupId);
+            Assert.Equal(MultiAgentRole.Worker, w1.Role);
+        }
+        finally { try { Directory.Delete(tempDir, recursive: true); } catch { } }
+    }
+
+    [Fact]
+    public void Phase1_NoFalsePositive_WhenOrchestratorHasNoMatchingWorkers()
+    {
+        // A session named "*-orchestrator" with no matching workers should NOT be promoted
+        var org = new OrganizationState();
+        var nonMultiGroup = new SessionGroup { Id = "g1", Name = "General", IsMultiAgent = false };
+        org.Groups.Add(nonMultiGroup);
+        org.Sessions.Add(new SessionMeta { SessionName = "deploy-orchestrator", GroupId = "g1", Role = MultiAgentRole.None });
+
+        var (svc, tempDir) = CreateServiceWithOrg(org);
+        try
+        {
+            var orch = svc.Organization.Sessions.First(s => s.SessionName == "deploy-orchestrator");
+            // Must NOT have been promoted — user session coincidentally named "*-orchestrator"
+            Assert.Equal(MultiAgentRole.None, orch.Role);
+        }
+        finally { try { Directory.Delete(tempDir, recursive: true); } catch { } }
+    }
+
+    [Fact]
+    public void Phase1_SuffixMatch_NoDuplicateGroupCreation_WhenOrchestratorAlreadyInMultiAgentGroup()
+    {
+        // If the orchestrator is already in a multi-agent group, no new group should be created.
+        var org = new OrganizationState();
+        var multiGroup = new SessionGroup { Id = "ma1", Name = "PP- PR Review Squad", IsMultiAgent = true };
+        org.Groups.Add(multiGroup);
+        org.Sessions.Add(new SessionMeta { SessionName = "PP- PR Review Squad-orchestrator", GroupId = "ma1", Role = MultiAgentRole.Orchestrator });
+        org.Sessions.Add(new SessionMeta { SessionName = "PR Review Squad-worker-1", GroupId = "ma1", Role = MultiAgentRole.Worker });
+
+        var (svc, tempDir) = CreateServiceWithOrg(org);
+        try
+        {
+            // No additional multi-agent groups should have been created (only "ma1" should be multi-agent)
+            var multiAgentGroups = svc.Organization.Groups.Where(g => g.IsMultiAgent).ToList();
+            Assert.Single(multiAgentGroups);
+            Assert.Equal("ma1", multiAgentGroups[0].Id);
+        }
+        finally { try { Directory.Delete(tempDir, recursive: true); } catch { } }
+    }
+}

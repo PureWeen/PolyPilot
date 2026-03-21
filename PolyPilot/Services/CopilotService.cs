@@ -574,8 +574,20 @@ public partial class CopilotService : IAsyncDisposable
         {
             while (!ct.IsCancellationRequested)
             {
+                var beforeDelay = DateTime.UtcNow;
                 await Task.Delay(TimeSpan.FromSeconds(KeepalivePingIntervalSeconds), ct);
                 if (ct.IsCancellationRequested) break;
+
+                // If the actual elapsed time is significantly longer than the intended delay,
+                // the process was suspended (e.g. Mac lock screen or sleep). The headless
+                // server may have shut down during the gap — trigger a health check.
+                var elapsed = DateTime.UtcNow - beforeDelay;
+                if (elapsed.TotalSeconds > KeepalivePingIntervalSeconds * 1.5)
+                {
+                    Debug($"[KEEPALIVE] Process was suspended for {elapsed.TotalSeconds:F0}s — triggering connection health check");
+                    _ = Task.Run(() => CheckConnectionHealthAsync(ct), ct);
+                    continue; // CheckConnectionHealthAsync will send a ping if healthy
+                }
 
                 var client = _client;
                 if (client == null || IsDemoMode || IsRemoteMode) continue;
@@ -594,6 +606,32 @@ public partial class CopilotService : IAsyncDisposable
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { Debug($"[KEEPALIVE] Loop exited: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Lightweight connection health check. Sends a ping to the headless server; if it fails
+    /// (e.g. after the Mac was locked and the server shut down), triggers persistent server
+    /// recovery. Safe to call from <c>App.OnResume()</c> or after detecting a long sleep gap.
+    /// No-op in Demo or Remote mode.
+    /// </summary>
+    public async Task CheckConnectionHealthAsync(CancellationToken ct = default)
+    {
+        if (IsDemoMode || IsRemoteMode) return;
+        var client = _client;
+        if (client == null) return;
+
+        try
+        {
+            await client.PingAsync("health-check", ct);
+            Debug("[HEALTH] Connection healthy after resume/wake");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Debug($"[HEALTH] Ping failed after resume/wake ({ex.Message}) — attempting persistent server recovery");
+            if (CurrentMode == ConnectionMode.Persistent)
+                _ = Task.Run(() => TryRecoverPersistentServerAsync(), CancellationToken.None);
+        }
     }
 
     private void Debug(string message)

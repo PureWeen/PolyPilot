@@ -47,6 +47,9 @@ public partial class App : Application
 		base.OnResume();
 		// Belt-and-suspenders for mobile / platforms where Activated may not fire.
 		CheckPendingNavigation();
+		// The Mac may have been locked or slept, during which the headless server may have
+		// stopped. Trigger a lightweight ping so sessions reconnect immediately on unlock.
+		_ = _copilotService.CheckConnectionHealthAsync();
 	}
 
 	private void CheckPendingNavigation()
