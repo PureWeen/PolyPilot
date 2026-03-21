@@ -780,9 +780,9 @@ public partial class CopilotService
             {
                 var hasMeta = metas.TryGetValue(s.Name, out var meta);
                 var handledAt = hasMeta ? meta!.HandledAt : null;
-                if (s.IsProcessing) return s.LastUpdatedAt; // Processing: most recent first
-                if (handledAt == null) return s.LastUpdatedAt; // Unhandled: oldest first (ascending = longest wait at top)
-                return handledAt.Value; // Handled: most recently handled at bottom (ascending)
+                if (s.IsProcessing) return DateTime.MaxValue.Ticks - s.LastUpdatedAt.Ticks; // Processing: most recent first (descending via inversion)
+                if (handledAt == null) return s.LastUpdatedAt.Ticks; // Unhandled: oldest first (ascending = longest wait at top)
+                return handledAt.Value.Ticks; // Handled: most recently handled at bottom (ascending)
             })
             .ToList();
     }
@@ -795,10 +795,15 @@ public partial class CopilotService
     {
         SessionMeta? meta;
         lock (_organizationLock)
+        {
             meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+            if (meta != null)
+            {
+                meta.HandledAt = DateTime.Now;
+            }
+        }
         if (meta != null)
         {
-            meta.HandledAt = DateTime.Now;
             SaveOrganization();
             OnStateChanged?.Invoke();
         }
