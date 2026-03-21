@@ -51,7 +51,9 @@ public class StateChangeCoalescerTests
         svc.OnStateChanged += () => Interlocked.Increment(ref fireCount);
 
         svc.NotifyStateChangedCoalesced();
-        await Task.Delay(300);
+        // Wait well beyond the coalesce window (150ms) to ensure the timer has fired,
+        // even under heavy CI load. Single call can only ever produce exactly 1 fire.
+        await Task.Delay(600);
 
         Assert.Equal(1, fireCount);
     }

@@ -12,6 +12,7 @@ namespace PolyPilot.Tests;
 /// - TolerantEnumConverter (unknown enum values fall back to default)
 /// - UiState persistence (GridColumns and CardMinHeight round-trip)
 /// </summary>
+[Collection("BaseDir")]
 public class DashboardFeatureTests
 {
     private readonly StubChatDatabase _chatDb = new();
@@ -550,6 +551,7 @@ internal class MultiAgentModeWrapper
 /// Phase 1 used to reject the match because the exact prefix didn't match,
 /// leaving the orchestrator without its role and preventing Phase 3 reconstruction.
 /// </summary>
+[Collection("BaseDir")]
 public class HealerPrefixMatchTests
 {
     private readonly StubChatDatabase _chatDb = new();
@@ -572,6 +574,8 @@ public class HealerPrefixMatchTests
         CopilotService.SetBaseDirForTesting(tempDir);
         var svc = new CopilotService(_chatDb, _serverManager, _bridgeClient, new RepoManager(), _serviceProvider, _demoService);
         svc.LoadOrganization();
+        // Restore shared test base dir so parallel tests in the same collection aren't affected
+        CopilotService.SetBaseDirForTesting(TestSetup.TestBaseDir);
         return (svc, tempDir);
     }
 
