@@ -38,5 +38,14 @@
     <string>PolyPilot needs microphone access for speech-to-text input.</string>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <true/>
+    <!-- Required by App Store validation (ITMS-90683) — referenced by linked frameworks -->
+    <key>NSCalendarsUsageDescription</key>
+    <string>PolyPilot does not access your calendar data.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>PolyPilot does not access your contacts.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>PolyPilot does not use your location.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>PolyPilot does not use your location.</string>
 </dict>
 </plist>
