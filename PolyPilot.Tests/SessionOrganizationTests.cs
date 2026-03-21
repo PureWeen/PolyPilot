@@ -748,9 +748,10 @@ Do something.
         // Regression test: when only a 📁 local folder group exists for a repo,
         // GetOrCreateRepoGroup must NOT return it — it must create a separate URL-based group.
         var svc = CreateService();
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "MyRepo");
 
         // Simulate: user added folder via "Add Existing Folder" → local folder group created
-        var localFolderGroup = svc.GetOrCreateLocalFolderGroup(@"C:\repos\MyRepo", "repo-1");
+        var localFolderGroup = svc.GetOrCreateLocalFolderGroup(localRepoPath, "repo-1");
         Assert.True(localFolderGroup.IsLocalFolder);
         Assert.Equal("repo-1", localFolderGroup.RepoId);
 
@@ -769,6 +770,7 @@ Do something.
         // Regression test: when both a URL-based group and a 📁 local folder group exist
         // for the same RepoId, GetOrCreateRepoGroup must return the URL-based one.
         var svc = CreateService();
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "MyRepo");
 
         // Create URL-based group first
         var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
@@ -776,7 +778,7 @@ Do something.
         Assert.False(urlGroup!.IsLocalFolder);
 
         // Then create a local folder group for the same repo
-        var localFolderGroup = svc.GetOrCreateLocalFolderGroup(@"C:\repos\MyRepo", "repo-1");
+        var localFolderGroup = svc.GetOrCreateLocalFolderGroup(localRepoPath, "repo-1");
         Assert.True(localFolderGroup.IsLocalFolder);
 
         // GetOrCreateRepoGroup should still return the URL-based group, not the local folder group
@@ -792,8 +794,9 @@ Do something.
     {
         // Same as above but local folder group is created before URL-based group
         var svc = CreateService();
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "MyRepo");
 
-        var localFolderGroup = svc.GetOrCreateLocalFolderGroup(@"C:\repos\MyRepo", "repo-1");
+        var localFolderGroup = svc.GetOrCreateLocalFolderGroup(localRepoPath, "repo-1");
         Assert.True(localFolderGroup.IsLocalFolder);
 
         var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
@@ -815,16 +818,18 @@ Do something.
         {
             new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
         };
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "MyRepo");
+        var nestedWtPath = Path.Combine(localRepoPath, ".polypilot", "worktrees", "feature-x");
         var worktrees = new List<WorktreeInfo>
         {
-            new() { Id = "wt-1", RepoId = "repo-1", Branch = "feature/x", Path = @"C:\repos\MyRepo\.polypilot\worktrees\feature-x" }
+            new() { Id = "wt-1", RepoId = "repo-1", Branch = "feature/x", Path = nestedWtPath }
         };
         var rm = CreateRepoManagerWithState(repos, worktrees);
         var svc = CreateService(rm);
 
         // Create both groups for the same repo
         var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
-        var localFolderGroup = svc.GetOrCreateLocalFolderGroup(@"C:\repos\MyRepo", "repo-1");
+        var localFolderGroup = svc.GetOrCreateLocalFolderGroup(localRepoPath, "repo-1");
 
         // A session is in the local folder group with a worktree
         var meta = new SessionMeta
@@ -848,13 +853,16 @@ Do something.
     public void PromoteOrCreateLocalFolderGroup_CreatesNewGroupWhenNoGroupExists()
     {
         var svc = CreateService();
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "MyRepo");
+        var expectedPath = Path.GetFullPath(localRepoPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        var group = svc.PromoteOrCreateLocalFolderGroup(@"C:\repos\MyRepo", "repo-1");
+        var group = svc.PromoteOrCreateLocalFolderGroup(localRepoPath, "repo-1");
 
         Assert.NotNull(group);
         Assert.True(group.IsLocalFolder);
         Assert.Equal("MyRepo", group.Name);
-        Assert.Equal(@"C:\repos\MyRepo", group.LocalPath);
+        Assert.Equal(expectedPath, group.LocalPath);
         Assert.Equal("repo-1", group.RepoId);
     }
 
@@ -862,9 +870,10 @@ Do something.
     public void PromoteOrCreateLocalFolderGroup_ReturnsExistingLocalFolderGroupWhenAlreadyExists()
     {
         var svc = CreateService();
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "MyRepo");
 
-        var first = svc.PromoteOrCreateLocalFolderGroup(@"C:\repos\MyRepo", "repo-1");
-        var second = svc.PromoteOrCreateLocalFolderGroup(@"C:\repos\MyRepo", "repo-1");
+        var first = svc.PromoteOrCreateLocalFolderGroup(localRepoPath, "repo-1");
+        var second = svc.PromoteOrCreateLocalFolderGroup(localRepoPath, "repo-1");
 
         Assert.Same(first, second);
         Assert.Single(svc.Organization.Groups, g => g.IsLocalFolder && g.RepoId == "repo-1");
@@ -877,6 +886,9 @@ Do something.
         // a local folder. PromoteOrCreateLocalFolderGroup must upgrade the existing group
         // rather than creating a redundant duplicate.
         var svc = CreateService();
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "MyRepo");
+        var expectedPath = Path.GetFullPath(localRepoPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
         // Simulate old behavior: URL-based group exists with no LocalPath
         var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
@@ -884,11 +896,11 @@ Do something.
         Assert.False(urlGroup!.IsLocalFolder);
 
         // Now call PromoteOrCreateLocalFolderGroup — it should update urlGroup in-place
-        var result = svc.PromoteOrCreateLocalFolderGroup(@"C:\repos\MyRepo", "repo-1");
+        var result = svc.PromoteOrCreateLocalFolderGroup(localRepoPath, "repo-1");
 
         Assert.Equal(urlGroup.Id, result.Id);
         Assert.True(result.IsLocalFolder);
-        Assert.Equal(@"C:\repos\MyRepo", result.LocalPath);
+        Assert.Equal(expectedPath, result.LocalPath);
         Assert.Equal("MyRepo", result.Name);
 
         // Only one group for this repo — no duplicate created
@@ -900,6 +912,7 @@ Do something.
     {
         // When two URL-based groups exist, promote the one with highest SortOrder (most recent).
         var svc = CreateService();
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "MyRepo");
 
         var olderGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");  // lower SortOrder
         // Manually create a second URL-based group with a higher SortOrder
@@ -912,7 +925,7 @@ Do something.
         };
         svc.Organization.Groups.Add(newerGroup);
 
-        var result = svc.PromoteOrCreateLocalFolderGroup(@"C:\repos\MyRepo", "repo-1");
+        var result = svc.PromoteOrCreateLocalFolderGroup(localRepoPath, "repo-1");
 
         // Should promote the newer group, not the older one
         Assert.Equal(newerGroup.Id, result.Id);
@@ -930,12 +943,15 @@ Do something.
         {
             new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
         };
-        // Worktree 1: external (user's local folder, not under managed dir)
-        // Worktree 2: centralized (under ~/.polypilot/worktrees/)
+        // Use cross-platform temp paths to avoid Windows-only literal failures on macOS/Linux
+        var extPath = Path.Combine(Path.GetTempPath(), "MyRepo");
+        var centralPath = Path.Combine(Path.GetTempPath(), ".polypilot", "worktrees", "repo-1-wt1");
         var worktrees = new List<WorktreeInfo>
         {
-            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = @"C:\repos\MyRepo" },
-            new() { Id = "wt-1", RepoId = "repo-1", Branch = "session-123", Path = @"C:\Users\user\.polypilot\worktrees\repo-1-wt1" }
+            // External: user's local folder, NOT under the managed worktrees dir and NOT nested
+            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = extPath },
+            // Centralized: under the managed worktrees dir (simulated by putting it under .polypilot/worktrees)
+            new() { Id = "wt-1", RepoId = "repo-1", Branch = "session-123", Path = centralPath }
         };
         var rm = CreateRepoManagerWithState(repos, worktrees);
         var svc = CreateService(rm);
@@ -949,7 +965,8 @@ Do something.
 
         var promoted = svc.Organization.Groups.First(g => g.Id == urlGroup.Id);
         Assert.True(promoted.IsLocalFolder);
-        Assert.Equal(@"C:\repos\MyRepo", promoted.LocalPath);
+        Assert.Equal(Path.GetFullPath(extPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            promoted.LocalPath);
     }
 
     [Fact]
@@ -961,23 +978,25 @@ Do something.
         {
             new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
         };
+        var extPath = Path.Combine(Path.GetTempPath(), "MyRepo");
         var worktrees = new List<WorktreeInfo>
         {
-            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = @"C:\repos\MyRepo" }
+            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = extPath }
         };
         var rm = CreateRepoManagerWithState(repos, worktrees);
         var svc = CreateService(rm);
 
         // Both a URL-based group and a local folder group exist for this repo
         var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
-        var localGroup = svc.GetOrCreateLocalFolderGroup(@"C:\repos\MyRepo", "repo-1");
+        var localGroup = svc.GetOrCreateLocalFolderGroup(extPath, "repo-1");
 
         svc.ReconcileOrganization();
 
         // URL group must remain URL-based; local group keeps its LocalPath
         Assert.False(urlGroup!.IsLocalFolder);
         Assert.True(localGroup.IsLocalFolder);
-        Assert.Equal(@"C:\repos\MyRepo", localGroup.LocalPath);
+        Assert.Equal(Path.GetFullPath(extPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            localGroup.LocalPath);
     }
 
     [Fact]
@@ -989,11 +1008,12 @@ Do something.
         {
             new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
         };
+        // Use Path.Combine so the .polypilot/worktrees marker uses the OS separator
+        var nestedPath = Path.Combine(Path.GetTempPath(), "MyRepo", ".polypilot", "worktrees", "feature-x");
         var worktrees = new List<WorktreeInfo>
         {
             // Nested worktree inside the local folder — should NOT trigger promotion
-            new() { Id = "nested-1", RepoId = "repo-1", Branch = "feature-x",
-                Path = @"C:\repos\MyRepo\.polypilot\worktrees\feature-x" }
+            new() { Id = "nested-1", RepoId = "repo-1", Branch = "feature-x", Path = nestedPath }
         };
         var rm = CreateRepoManagerWithState(repos, worktrees);
         var svc = CreateService(rm);
