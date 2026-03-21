@@ -1253,6 +1253,15 @@ public partial class CopilotService
                 }
             });
         }
+
+        // Clear "Handled" state after new activity — fire-and-forget, non-critical path.
+        // Done after OnStateChanged to avoid interfering with the source-order test assertions.
+        var sessionMeta = GetSessionMeta(state.Info.Name);
+        if (sessionMeta?.HandledAt != null)
+        {
+            sessionMeta.HandledAt = null;
+            SaveOrganization();
+        }
     }
 
     private static string BuildNotificationBody(string? content, int messageCount)

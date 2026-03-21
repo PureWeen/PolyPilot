@@ -740,7 +740,10 @@ public partial class CopilotService
     /// - Sessions with FocusOverride.Included always appear.
     /// - Sessions currently processing appear (unless FocusOverride.Excluded).
     /// - Sessions with unread messages appear (unless FocusOverride.Excluded).
-    /// - Sorted by processing first, then most recent activity.
+    /// - Sort order (triage-first):
+    ///   1. Processing sessions (active work)
+    ///   2. NeedsAttention (awaiting user) — oldest first (longest waiting at top)
+    ///   3. Handled sessions (sorted to bottom, most recently handled last)
     /// </summary>
     public IReadOnlyList<AgentSessionInfo> GetFocusSessions()
     {
@@ -765,10 +768,43 @@ public partial class CopilotService
                 // Active = processing, has unread messages, or had real activity in last 24h
                 return s.IsProcessing || s.UnreadCount > 0 || s.LastUpdatedAt > recentCutoff;
             })
-            .OrderByDescending(s => s.IsProcessing)
-            .ThenByDescending(s => s.UnreadCount > 0)
-            .ThenByDescending(s => s.LastUpdatedAt)
+            .OrderBy(s =>
+            {
+                var hasMeta = metas.TryGetValue(s.Name, out var meta);
+                var handledAt = hasMeta ? meta!.HandledAt : null;
+                // Tier 0: Processing (active work) — always at top regardless of Handled
+                if (s.IsProcessing) return 0;
+                // Tier 1: Unhandled, needs attention or unread — oldest first (longest waiting)
+                if (handledAt == null) return 1;
+                // Tier 2: Handled — sorted to bottom
+                return 2;
+            })
+            .ThenBy(s =>
+            {
+                var hasMeta = metas.TryGetValue(s.Name, out var meta);
+                var handledAt = hasMeta ? meta!.HandledAt : null;
+                if (s.IsProcessing) return s.LastUpdatedAt; // Processing: most recent first
+                if (handledAt == null) return s.LastUpdatedAt; // Unhandled: oldest first (ascending = longest wait at top)
+                return handledAt.Value; // Handled: most recently handled at bottom (ascending)
+            })
             .ToList();
+    }
+
+    /// <summary>
+    /// Marks a session as "handled" in the Focus strip — moves it to the bottom of the list.
+    /// Cleared automatically when the session gets new activity.
+    /// </summary>
+    public void MarkFocusHandled(string sessionName)
+    {
+        SessionMeta? meta;
+        lock (_organizationLock)
+            meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        if (meta != null)
+        {
+            meta.HandledAt = DateTime.Now;
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
     }
 
     public void MoveSession(string sessionName, string groupId)

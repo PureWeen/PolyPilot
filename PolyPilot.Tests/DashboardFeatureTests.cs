@@ -311,9 +311,86 @@ public class DashboardFeatureTests
             "Processing session should sort before unread session");
     }
 
-    #endregion
+    [Fact]
+    public void GetFocusSessions_HandledSessions_SortToBottom()
+    {
+        var svc = CreateService();
 
-    #region TolerantEnumConverter — unknown enum values fall back to default
+        var unhandled = new AgentSessionInfo { Name = "unhandled", Model = "m", IsProcessing = false };
+        unhandled.LastUpdatedAt = DateTime.Now.AddMinutes(-30);
+        unhandled.History.Add(ChatMessage.AssistantMessage("Needs attention"));
+
+        var handled = new AgentSessionInfo { Name = "handled", Model = "m", IsProcessing = false };
+        handled.LastUpdatedAt = DateTime.Now.AddMinutes(-5); // More recent but handled
+
+        InjectSession(svc, unhandled);
+        InjectSession(svc, handled);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "unhandled", GroupId = SessionGroup.DefaultId });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "handled",
+            GroupId = SessionGroup.DefaultId,
+            HandledAt = DateTime.Now.AddMinutes(-10)
+        });
+
+        var focus = svc.GetFocusSessions();
+        var names = focus.Select(s => s.Name).ToList();
+
+        // Unhandled (even with older activity) sorts before handled
+        Assert.True(names.IndexOf("unhandled") < names.IndexOf("handled"),
+            "Unhandled sessions should sort before handled sessions");
+    }
+
+    [Fact]
+    public void GetFocusSessions_OldestWaitingFirst_WithinUnhandled()
+    {
+        var svc = CreateService();
+
+        // "newer" session updated 5 min ago (less urgent — user saw it more recently)
+        var newer = new AgentSessionInfo { Name = "newer", Model = "m", IsProcessing = false };
+        newer.LastUpdatedAt = DateTime.Now.AddMinutes(-5);
+        newer.History.Add(ChatMessage.AssistantMessage("Recent message"));
+
+        // "older" session waiting 60 min (more urgent — waiting longest)
+        var older = new AgentSessionInfo { Name = "older", Model = "m", IsProcessing = false };
+        older.LastUpdatedAt = DateTime.Now.AddMinutes(-60);
+        older.History.Add(ChatMessage.AssistantMessage("Waiting a long time"));
+
+        InjectSession(svc, newer);
+        InjectSession(svc, older);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "newer", GroupId = SessionGroup.DefaultId });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "older", GroupId = SessionGroup.DefaultId });
+
+        var focus = svc.GetFocusSessions();
+        var names = focus.Select(s => s.Name).ToList();
+
+        // Oldest waiting session sorts first (triage order)
+        Assert.True(names.IndexOf("older") < names.IndexOf("newer"),
+            "Oldest waiting session should sort before more recently active sessions");
+    }
+
+    [Fact]
+    public void MarkFocusHandled_SetsHandledAtOnMeta()
+    {
+        var svc = CreateService();
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "my-session", GroupId = SessionGroup.DefaultId });
+
+        var before = DateTime.Now;
+        svc.MarkFocusHandled("my-session");
+        var after = DateTime.Now;
+
+        var meta = svc.Organization.Sessions.First(m => m.SessionName == "my-session");
+        Assert.NotNull(meta.HandledAt);
+        Assert.InRange(meta.HandledAt!.Value, before, after);
+    }
+
+    [Fact]
+    public void MarkFocusHandled_NonExistentSession_DoesNotThrow()
+    {
+        var svc = CreateService();
+        // Should not throw
+        svc.MarkFocusHandled("non-existent-session");
+    }
 
     [Fact]
     public void TolerantEnumConverter_UnknownStringValue_FallsBackToDefault()

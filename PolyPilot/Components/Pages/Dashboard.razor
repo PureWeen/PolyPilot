@@ -285,7 +285,7 @@
                                  OnStartRename="() => StartCardRename(focusKey)"
                                  OnCommitRename="(newName) => CommitCardRename()"
                                  OnCloseMenu="() => { cardMenuSession = null; }"
-                                 OnDismissFromFocus="() => CopilotService.SetFocusOverride(session.Name, FocusOverride.Excluded)" />
+                                 OnHandledInFocus="() => CopilotService.MarkFocusHandled(session.Name)" />
                 }
             </div>
             }

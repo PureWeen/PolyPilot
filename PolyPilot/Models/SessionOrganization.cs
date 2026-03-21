@@ -188,6 +188,11 @@ public class SessionMeta
     public int ManualOrder { get; set; }
     /// <summary>Focus strip override. Auto = determined by 24h recency.</summary>
     public FocusOverride FocusOverride { get; set; } = FocusOverride.Auto;
+    /// <summary>
+    /// When the user marks this session as "Handled" in the Focus strip.
+    /// Handled sessions sort to the bottom of the Focus list until new activity clears this.
+    /// </summary>
+    public DateTime? HandledAt { get; set; }
     /// <summary>Worktree ID if this session was created from a worktree.</summary>
     public string? WorktreeId { get; set; }
 

@@ -80,7 +80,7 @@
         }
         @if (IsInFocusStrip)
         {
-            <button class="card-dismiss-focus" @onclick="() => OnDismissFromFocus.InvokeAsync()" title="Remove from Focus">✕</button>
+            <button class="card-handled-focus" @onclick="() => OnHandledInFocus.InvokeAsync()" title="Mark as handled — moves to bottom of Focus list">✓</button>
         }
         <button class="card-expand" @onclick="ExpandSession" title="Expand">⤢</button>
     </div>
@@ -239,7 +239,9 @@
     [Parameter] public EventCallback OnClearQueue { get; set; }
     [Parameter] public EventCallback<int> OnRemovePendingImage { get; set; }
     [Parameter] public EventCallback<string> OnSend { get; set; } // message text
-    /// <summary>When set, shows a dismiss (✕) button in the card header to remove from the Focus strip.</summary>
+    /// <summary>When set, shows a checkmark "Handled" button that marks this session as handled in the Focus strip.</summary>
+    [Parameter] public EventCallback OnHandledInFocus { get; set; }
+    /// <summary>Kept for backward compatibility — use OnHandledInFocus instead.</summary>
     [Parameter] public EventCallback OnDismissFromFocus { get; set; }
     /// <summary>When true, the card is rendered in the Focus strip (slightly more messages, distinct styling).</summary>
     [Parameter] public bool IsInFocusStrip { get; set; }
