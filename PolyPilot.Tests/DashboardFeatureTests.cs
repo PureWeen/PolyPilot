@@ -685,4 +685,36 @@ public class HealerPrefixMatchTests
         }
         finally { try { Directory.Delete(tempDir, recursive: true); } catch { } }
     }
+
+    [Fact]
+    public void Phase1_SuffixMatch_NoFalsePositive_WithoutDashSpaceNamespace()
+    {
+        // "Review Squad-orchestrator" should NOT pick up "Squad-worker-1" via suffix match,
+        // because "Review " doesn't end with "- " (it's not a PolyPilot namespace prefix).
+        // Both sessions are in the same non-multi-agent group (lost their original groups).
+        var org = new OrganizationState();
+        var nonMultiGroup = new SessionGroup { Id = "g1", Name = "General", IsMultiAgent = false };
+        org.Groups.Add(nonMultiGroup);
+        org.Sessions.Add(new SessionMeta { SessionName = "Review Squad-orchestrator", GroupId = "g1", Role = MultiAgentRole.None });
+        org.Sessions.Add(new SessionMeta { SessionName = "Squad-worker-1", GroupId = "g1", Role = MultiAgentRole.None });
+        // Also add a matching "Review Squad-worker-1" so the orchestrator DOES get promoted
+        // (we need to confirm Squad-worker-1 is NOT pulled into the Review Squad group)
+        org.Sessions.Add(new SessionMeta { SessionName = "Review Squad-worker-1", GroupId = "g1", Role = MultiAgentRole.None });
+
+        var (svc, tempDir) = CreateServiceWithOrg(org);
+        try
+        {
+            // "Squad-worker-1" must remain in g1 or wherever it was — NOT in the Review Squad group
+            var squadWorker = svc.Organization.Sessions.First(s => s.SessionName == "Squad-worker-1");
+            var reviewSquadGroup = svc.Organization.Groups.FirstOrDefault(g => g.IsMultiAgent);
+
+            // If a multi-agent group was created, Squad-worker-1 must NOT be in it
+            if (reviewSquadGroup != null)
+                Assert.NotEqual(reviewSquadGroup.Id, squadWorker.GroupId);
+
+            // Squad-worker-1 should have Role=None (not Worker in Review Squad's group)
+            Assert.Equal(MultiAgentRole.None, squadWorker.Role);
+        }
+        finally { try { Directory.Delete(tempDir, recursive: true); } catch { } }
+    }
 }

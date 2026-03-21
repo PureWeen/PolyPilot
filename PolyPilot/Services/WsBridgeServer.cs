@@ -191,7 +191,9 @@ public class WsBridgeServer : IDisposable
                 bool restarted = await TryRestartListenerAsync(ct);
                 if (!restarted)
                 {
-                    // Back off and retry; give up after ~60 s of repeated failures.
+                    // Back off and retry. Delay is capped at 30 s (about 2 minutes of cumulative
+                // back-off before stabilizing at 30 s intervals). The loop runs indefinitely
+                // until either the listener restarts successfully or Stop() is called.
                     restartDelayMs = Math.Min(restartDelayMs * 2, 30_000);
                     await Task.Delay(restartDelayMs, ct).ConfigureAwait(false);
                     continue;

@@ -757,11 +757,10 @@ public partial class CopilotService
                 // Check explicit override first (takes priority over everything)
                 if (hasMeta && meta!.FocusOverride == FocusOverride.Included) return true;
                 if (hasMeta && meta!.FocusOverride == FocusOverride.Excluded) return false;
-                // Workers in ACTUAL multi-agent groups never show in Focus —
-                // they appear under their orchestrator in the group grid.
-                if (hasMeta && meta!.Role == MultiAgentRole.Worker
-                    && groups.TryGetValue(meta.GroupId, out var workerGroup)
-                    && workerGroup.IsMultiAgent)
+                // Workers never appear in the Focus strip — they run under their orchestrator.
+                // This covers both workers in proper multi-agent groups AND workers whose group
+                // was lost but Role=Worker wasn't yet cleared by the healer.
+                if (hasMeta && meta!.Role == MultiAgentRole.Worker)
                     return false;
                 // Active = processing, has unread messages, or had real activity in last 24h
                 return s.IsProcessing || s.UnreadCount > 0 || s.LastUpdatedAt > recentCutoff;
@@ -1069,12 +1068,13 @@ public partial class CopilotService
     ///
     /// Two matching strategies are tried in order:
     /// 1. Exact prefix: worker name starts with "{orchTeamPrefix}-"
-    /// 2. Suffix fallback: the worker's own team prefix is a SUFFIX of the orchestrator
-    ///    team prefix.  This handles the case where the orchestrator was created with a
-    ///    scoped namespace prefix that the workers lack, e.g.:
+    /// 2. Namespace-prefix fallback: the orchestrator prefix is a scoped version of the
+    ///    worker's prefix, where the scope is a short "XX- " (dash-space) prefix, e.g.:
     ///      orchestrator: "PP- PR Review Squad-orchestrator" → prefix "PP- PR Review Squad"
     ///      workers:      "PR Review Squad-worker-1"         → prefix "PR Review Squad"
-    ///    "PP- PR Review Squad" ends with "PR Review Squad" → match.
+    ///    The namespace "PP- " ends with "- " → this IS a scoped prefix → match.
+    ///    This prevents false matches like "Review Squad" picking up "Squad-worker-1",
+    ///    because "Review " does not end with "- " and is therefore not a namespace prefix.
     /// </summary>
     private static bool IsWorkerForTeamPrefix(string sessionName, string orchTeamPrefix, Regex workerPattern)
     {
@@ -1084,11 +1084,19 @@ public partial class CopilotService
         if (sessionName.StartsWith(orchTeamPrefix + "-", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        // Strategy 2: worker's prefix is a proper suffix of the orchestrator's prefix
+        // Strategy 2: worker's prefix is a suffix of the orchestrator's prefix, and the
+        // difference (the "namespace") ends with "- " (dash-space) — PolyPilot convention
+        // for squad namespacing (e.g. "PP- ", "WQ- "). This prevents "Review Squad" from
+        // incorrectly claiming "Squad-worker-1" via a bare EndsWith check.
         var workerPrefix = workerPattern.Replace(sessionName, "");
-        return workerPrefix.Length > 0
-            && orchTeamPrefix.Length > workerPrefix.Length
-            && orchTeamPrefix.EndsWith(workerPrefix, StringComparison.OrdinalIgnoreCase);
+        if (workerPrefix.Length > 0 && orchTeamPrefix.Length > workerPrefix.Length
+            && orchTeamPrefix.EndsWith(workerPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var namespacePrefix = orchTeamPrefix[..^workerPrefix.Length];
+            return namespacePrefix.EndsWith("- ", StringComparison.Ordinal);
+        }
+
+        return false;
     }
 
     private static int UrgencyScore(AgentSessionInfo session) =>
