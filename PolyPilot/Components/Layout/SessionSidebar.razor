@@ -1328,7 +1328,15 @@ else
         var stuckCount      = CountByStatus(SessionStatusFilter.Stuck);
 
         // Only show when there are interesting non-idle sessions
-        if (processingCount == 0 && attentionCount == 0 && stuckCount == 0) return;
+        if (processingCount == 0 && attentionCount == 0 && stuckCount == 0)
+        {
+            // Auto-reset the filter so the sidebar doesn't show zero results with no recovery path
+            if (_statusFilter != SessionStatusFilter.All)
+            {
+                _statusFilter = SessionStatusFilter.All;
+            }
+            return;
+        }
 
         <div class="status-filter-bar">
             <button class="filter-chip filter-chip-all @(_statusFilter == SessionStatusFilter.All ? "active" : "")"

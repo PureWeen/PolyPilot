@@ -724,7 +724,9 @@ public partial class CopilotService
     /// </summary>
     public void SetFocusOverride(string sessionName, FocusOverride focusOverride)
     {
-        var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
+        SessionMeta? meta;
+        lock (_organizationLock)
+            meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
         if (meta != null)
         {
             meta.FocusOverride = focusOverride;
@@ -742,10 +744,10 @@ public partial class CopilotService
     /// </summary>
     public IReadOnlyList<AgentSessionInfo> GetFocusSessions()
     {
-        var metas = Organization.Sessions.ToDictionary(m => m.SessionName);
+        var metas = SnapshotSessionMetas().ToDictionary(m => m.SessionName);
         var recentCutoff = DateTime.Now.AddHours(-24);
 
-        var groups = Organization.Groups.ToDictionary(g => g.Id);
+        var groups = SnapshotGroups().ToDictionary(g => g.Id);
 
         return GetAllSessions()
             .Where(s =>

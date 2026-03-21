@@ -253,12 +253,13 @@
                 {
                     var isCompleted = completedSessions.Contains(session.Name);
                     var meta = CopilotService.GetSessionMeta(session.Name);
+                    var focusKey = "focus:" + session.Name;
                     <SessionCard Session="session"
                                  @key="@($"focus-{session.Name}")"
                                  Meta="meta"
                                  IsCompleted="isCompleted"
                                  IsInFocusStrip="true"
-                                 MessageCount="15"
+                                 MessageCount="@(cardMessageCounts.TryGetValue(session.Name, out var fmc) ? fmc : DefaultCardMessageWindow)"
                                  MinHeight="@_cardMinHeight"
                                  StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var fs) ? fs : "")"
                                  ActivityText="@(activityBySession.TryGetValue(session.Name, out var fa) ? fa : "")"
@@ -271,17 +272,17 @@
                                  RepoUrl="@CopilotService.GetRepoUrlForSession(session.Name)"
                                  Layout="@CopilotService.ChatLayout"
                                  Style="@CopilotService.ChatStyle"
-                                 IsRenaming="@(cardRenamingSession == session.Name)"
-                                 IsMenuOpen="@(cardMenuSession == session.Name)"
+                                 IsRenaming="@(cardRenamingSession == focusKey)"
+                                 IsMenuOpen="@(cardMenuSession == focusKey)"
                                  OnGoTo="() => GoToSession(session.Name)"
-                                 OnToggleMenu="() => ToggleCardMenu(session.Name)"
+                                 OnToggleMenu="() => ToggleCardMenu(focusKey)"
                                  OnExpand="() => ExpandSession(session.Name)"
                                  OnLoadMore="() => LoadMoreCardMessages(session.Name)"
                                  OnDismissError="() => DismissError(session.Name)"
                                  OnClearQueue="() => ClearQueue(session.Name)"
                                  OnRemovePendingImage="(idx) => RemovePendingImage(session.Name, idx)"
                                  OnSend="(text) => SendFromCard(session.Name, text)"
-                                 OnStartRename="() => StartCardRename(session.Name)"
+                                 OnStartRename="() => StartCardRename(focusKey)"
                                  OnCommitRename="(newName) => CommitCardRename()"
                                  OnCloseMenu="() => { cardMenuSession = null; }"
                                  OnDismissFromFocus="() => CopilotService.SetFocusOverride(session.Name, FocusOverride.Excluded)" />
@@ -968,7 +969,7 @@
         {
             var scrollTop = _pendingScrollTop;
             _pendingScrollTop = 0;
-            _ = JS.InvokeVoidAsync("eval", $"var d = document.querySelector('.dashboard'); if (d) d.scrollTop = {scrollTop};");
+            _ = JS.InvokeVoidAsync("eval", $"var d = document.querySelector('.dashboard'); if (d) d.scrollTop = {scrollTop.ToString(System.Globalization.CultureInfo.InvariantCulture)};");
         }
 
         // Set initial active slot on first render (MutationObserver will maintain it after user interactions)
@@ -2865,8 +2866,10 @@
     private async Task CommitCardRename()
     {
         if (cardRenamingSession == null) return;
-        var oldName = cardRenamingSession;
+        var key = cardRenamingSession;
         cardRenamingSession = null;
+        // Strip focus strip prefix if present — the key is "focus:name" for focus strip cards
+        var oldName = key.StartsWith("focus:", StringComparison.Ordinal) ? key["focus:".Length..] : key;
 
         var newName = await JS.InvokeAsync<string>("getElementValue", "cardRenameInput");
         if (!string.IsNullOrWhiteSpace(newName) && newName.Trim() != oldName)
