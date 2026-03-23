@@ -662,7 +662,8 @@ public partial class CopilotService
                     {
                         if (meta.WorktreeId == null) continue;
                         var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
-                        if (wt != null && !wt.Path.StartsWith(normalizedExtPath, StringComparison.OrdinalIgnoreCase))
+                        if (wt != null && !wt.Path.StartsWith(normalizedExtPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(wt.Path, normalizedExtPath, StringComparison.OrdinalIgnoreCase))
                         {
                             Debug($"ReconcileOrganization: migrating '{meta.SessionName}' from promoted local folder group to URL group '{urlGroup.Id}'");
                             meta.GroupId = urlGroup.Id;
@@ -684,7 +685,8 @@ public partial class CopilotService
                 if (meta.WorktreeId == null) continue;
                 if (protectedGroupIds.Contains(meta.GroupId)) continue;
                 var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
-                if (wt != null && !wt.Path.StartsWith(normalizedLocalPath, StringComparison.OrdinalIgnoreCase))
+                if (wt != null && !wt.Path.StartsWith(normalizedLocalPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(wt.Path, normalizedLocalPath, StringComparison.OrdinalIgnoreCase))
                 {
                     var urlGroup = GetOrCreateRepoGroup(localGroup.RepoId!, localGroup.RepoId!);
                     if (urlGroup != null)

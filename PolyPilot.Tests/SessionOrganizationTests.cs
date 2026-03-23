@@ -1157,6 +1157,44 @@ Do something.
         Assert.False(urlGroup.IsLocalFolder);
         Assert.Equal("repo-1", urlGroup.RepoId);
     }
+
+    [Fact]
+    public void ReconcileOrganization_HealsStrandedSessions_SiblingDirectoryNotConfused()
+    {
+        // Regression test: /dev/maui3 (LocalPath) should NOT match /dev/maui3-worktree
+        // as "under" the local folder. The StartsWith check must include a trailing separator.
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        var localPath = Path.Combine(Path.GetTempPath(), "maui");
+        var siblingPath = Path.Combine(Path.GetTempPath(), "maui3", ".polypilot", "worktrees", "branch-x");
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = localPath },
+            new() { Id = "wt-sibling", RepoId = "repo-1", Branch = "branch-x", Path = siblingPath }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+
+        // Simulate: local folder group for "maui", with a session whose worktree is under "maui3"
+        var localGroup = svc.GetOrCreateLocalFolderGroup(localPath, "repo-1");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "sibling-session",
+            GroupId = localGroup.Id,
+            WorktreeId = "wt-sibling"
+        });
+
+        typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+        svc.ReconcileOrganization(allowPruning: false);
+
+        // The session's worktree is under /tmp/maui3, NOT /tmp/maui — it should be migrated out
+        var meta = svc.Organization.Sessions.First(m => m.SessionName == "sibling-session");
+        Assert.NotEqual(localGroup.Id, meta.GroupId);
+        var urlGroup = svc.Organization.Groups.First(g => g.Id == meta.GroupId);
+        Assert.False(urlGroup.IsLocalFolder);
+    }
 }
 
 /// <summary>
