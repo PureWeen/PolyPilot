@@ -2247,9 +2247,17 @@ public partial class CopilotService
                 Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response?.Length ?? 0}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
                 return new WorkerResult(workerName, response, true, null, sw.Elapsed);
             }
-            catch (Exception ex) when (attempt < maxRetries && IsConnectionError(ex))
+            catch (Exception ex) when (attempt < maxRetries && (IsConnectionError(ex) || IsInitializationError(ex)))
             {
                 Debug($"[DISPATCH] Worker '{workerName}' attempt {attempt} failed with {ex.GetType().Name} — retrying in 2s");
+                // If the service became uninitialized (e.g., a concurrent worker's connection
+                // error set IsInitialized=false), attempt lazy re-init before the next try.
+                if (!IsInitialized || _client == null)
+                {
+                    Debug($"[DISPATCH] Worker '{workerName}': service uninitialized — attempting lazy re-init before retry");
+                    try { await InitializeAsync(cancellationToken); }
+                    catch (Exception reinitEx) { Debug($"[DISPATCH] Worker '{workerName}': lazy re-init failed: {reinitEx.Message}"); }
+                }
                 await Task.Delay(2000, cancellationToken);
                 continue;
             }

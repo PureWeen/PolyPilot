@@ -318,3 +318,89 @@ public class PermissionDenialDetectionTests
         return dir ?? throw new InvalidOperationException("Could not find repo root");
     }
 }
+
+/// <summary>
+/// Tests for CopilotService.IsInitializationError — the helper that detects
+/// "Service not initialized" exceptions so worker dispatch can retry them
+/// with a lazy re-init attempt instead of failing immediately (PR #422).
+/// </summary>
+public class InitializationErrorDetectionTests
+{
+    [Fact]
+    public void IsInitializationError_ServiceNotInitialized_ReturnsTrue()
+    {
+        var ex = new InvalidOperationException("Service not initialized. Call InitializeAsync first.");
+        Assert.True(CopilotService.IsInitializationError(ex));
+    }
+
+    [Fact]
+    public void IsInitializationError_ClientNotInitialized_ReturnsTrue()
+    {
+        var ex = new InvalidOperationException("Client is not initialized");
+        Assert.True(CopilotService.IsInitializationError(ex));
+    }
+
+    [Theory]
+    [InlineData("Service not initialized. Call InitializeAsync first.")]
+    [InlineData("Client is not initialized")]
+    [InlineData("NOT INITIALIZED")]   // case-insensitive
+    public void IsInitializationError_Variants_ReturnsTrue(string message)
+    {
+        var ex = new InvalidOperationException(message);
+        Assert.True(CopilotService.IsInitializationError(ex));
+    }
+
+    [Fact]
+    public void IsInitializationError_ConnectionRefused_ReturnsFalse()
+    {
+        // Connection errors are handled by IsConnectionError, not IsInitializationError
+        var ex = new InvalidOperationException("connection refused");
+        Assert.False(CopilotService.IsInitializationError(ex));
+    }
+
+    [Fact]
+    public void IsInitializationError_WrongExceptionType_ReturnsFalse()
+    {
+        // Only InvalidOperationException matches — not base Exception
+        var ex = new Exception("Service not initialized");
+        Assert.False(CopilotService.IsInitializationError(ex));
+    }
+
+    [Fact]
+    public void IsInitializationError_ArbitraryInvalidOperation_ReturnsFalse()
+    {
+        var ex = new InvalidOperationException("Session 'foo' already exists.");
+        Assert.False(CopilotService.IsInitializationError(ex));
+    }
+
+    [Fact]
+    public void IsInitializationError_HelperIsInternal_CanBeTestedViaPublicSurface()
+    {
+        // The helper is internal — verify it's accessible from tests (InternalsVisibleTo).
+        // Also verify the helper exists in CopilotService.Utilities.cs at the right location.
+        var repoRoot = GetRepoRoot();
+        var source = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.Utilities.cs"));
+        Assert.Contains("internal static bool IsInitializationError(Exception ex)", source);
+        Assert.Contains("not initialized", source);
+    }
+
+    [Fact]
+    public void ExecuteWorkerAsync_RetryGate_IncludesInitializationError()
+    {
+        // Structural: the retry catch in ExecuteWorkerAsync must check IsInitializationError
+        // so "Service not initialized" triggers a retry with lazy re-init, not an immediate fail.
+        var repoRoot = GetRepoRoot();
+        var source = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.Organization.cs"));
+        Assert.Contains("IsInitializationError(ex)", source);
+        // The retry gate must combine both checks
+        Assert.Contains("IsConnectionError(ex) || IsInitializationError(ex)", source);
+    }
+
+    private static string GetRepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return dir ?? throw new InvalidOperationException("Could not find repo root");
+    }
+}
