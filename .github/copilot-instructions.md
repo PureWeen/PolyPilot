@@ -19,6 +19,8 @@ The test project lives at `../PolyPilot.Tests/` (sibling directory). It includes
 
 **Always run tests after modifying models, bridge messages, or serialization logic.** When adding new features or changing existing behavior, update or add tests to match. The tests serve as a living specification of the app's data contracts and parsing logic.
 
+> ⚠️ **Zero tolerance for test failures.** When you encounter test failures — whether caused by your changes or pre-existing — **always fix them**. Never dismiss failures as "pre-existing" or "unrelated". If tests fail, they must be fixed before the task is complete. A green test suite is a hard requirement for every PR.
+
 ### Android
 ```bash
 dotnet build -f net10.0-android                  # Build only
