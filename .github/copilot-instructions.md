@@ -20,6 +20,8 @@ The test project lives at `../PolyPilot.Tests/` (sibling directory). It includes
 **Always run tests after modifying models, bridge messages, or serialization logic.** When adding new features or changing existing behavior, update or add tests to match. The tests serve as a living specification of the app's data contracts and parsing logic.
 
 > ⚠️ **Zero tolerance for test failures.** When you encounter test failures — whether caused by your changes or pre-existing — **always fix them**. Never dismiss failures as "pre-existing" or "unrelated". If tests fail, they must be fixed before the task is complete. A green test suite is a hard requirement for every PR.
+>
+> **For worker/implementer agents specifically:** You are NEVER allowed to report a test failure as "pre-existing" and move on. If you discover a test failure that existed before your change, you must still fix it as part of your task. Saying "pre-existing failure, not caused by my changes" without fixing it is a task failure. Fix the test or fix the production code — whichever is correct — then verify the suite is green.
 
 ### Android
 ```bash
