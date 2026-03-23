@@ -655,7 +655,8 @@ public partial class CopilotService
                 // Migrate sessions whose worktrees are NOT under the new LocalPath to the
                 // URL-based repo group. Without this, sessions linked to managed worktrees
                 // (~/.polypilot/worktrees/...) get stranded in the promoted local folder group.
-                var urlGroup = GetOrCreateRepoGroup(ext.RepoId, ext.RepoId);
+                var repoName = _repoManager.Repositories.FirstOrDefault(r => r.Id == ext.RepoId)?.Name ?? ext.RepoId;
+                var urlGroup = GetOrCreateRepoGroup(ext.RepoId, repoName);
                 if (urlGroup != null)
                 {
                     foreach (var meta in Organization.Sessions.Where(m => m.GroupId == groupToPromote.Id))
@@ -688,7 +689,8 @@ public partial class CopilotService
                 if (wt != null && !wt.Path.StartsWith(normalizedLocalPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                     && !string.Equals(wt.Path, normalizedLocalPath, StringComparison.OrdinalIgnoreCase))
                 {
-                    var urlGroup = GetOrCreateRepoGroup(localGroup.RepoId!, localGroup.RepoId!);
+                    var repoName = _repoManager.Repositories.FirstOrDefault(r => r.Id == localGroup.RepoId)?.Name ?? localGroup.RepoId;
+                    var urlGroup = GetOrCreateRepoGroup(localGroup.RepoId!, repoName!);
                     if (urlGroup != null)
                     {
                         Debug($"ReconcileOrganization: healing '{meta.SessionName}' from local folder group '{localGroup.Name}' to URL group '{urlGroup.Id}'");
