@@ -2480,7 +2480,7 @@ public class MultiAgentRegressionTests
         // Find the method definition (not a call site)
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
         Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
-        var methodBlock = source.Substring(methodIdx, Math.Min(8000, source.Length - methodIdx));
+        var methodBlock = source.Substring(methodIdx, Math.Min(12000, source.Length - methodIdx));
 
         Assert.Contains("LoadHistoryFromDisk", methodBlock);
     }
@@ -2586,6 +2586,93 @@ public class MultiAgentRegressionTests
         // Verify it's a constant (internal const int)
         var constIdx = source.IndexOf("internal const int PrematureIdleEventsFileFreshnessSeconds", StringComparison.Ordinal);
         Assert.True(constIdx >= 0, "Must be an internal const int");
+    }
+
+    [Fact]
+    public void PrematureIdleEventsGracePeriodMs_ConstantExists()
+    {
+        // Grace period constant must exist and be in a sensible range (500ms–5s).
+        // Too short → still false-positives; too long → adds unnecessary latency.
+        Assert.True(CopilotService.PrematureIdleEventsGracePeriodMs >= 500,
+            "Grace period must be >= 500ms to observe mtime change");
+        Assert.True(CopilotService.PrematureIdleEventsGracePeriodMs <= 5000,
+            "Grace period must be <= 5s to not delay normal completions excessively");
+
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+        var constIdx = source.IndexOf("internal const int PrematureIdleEventsGracePeriodMs", StringComparison.Ordinal);
+        Assert.True(constIdx >= 0, "PrematureIdleEventsGracePeriodMs must be an internal const int");
+    }
+
+    [Fact]
+    public void GetEventsFileMtime_HelperExists()
+    {
+        // GetEventsFileMtime must exist as an internal helper returning DateTime?
+        // Used by RecoverFromPrematureIdleIfNeededAsync for mtime-comparison detection.
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        var helperIdx = source.IndexOf("internal DateTime? GetEventsFileMtime(", StringComparison.Ordinal);
+        Assert.True(helperIdx >= 0, "GetEventsFileMtime helper must exist as internal DateTime?");
+
+        var helperBlock = source.Substring(helperIdx, Math.Min(600, source.Length - helperIdx));
+        Assert.Contains("GetLastWriteTimeUtc", helperBlock);
+        Assert.Contains("events.jsonl", helperBlock);
+    }
+
+    [Fact]
+    public void RecoverFromPrematureIdleIfNeededAsync_UsesMtimeComparisonForInitialDetection()
+    {
+        // Structural: instead of raw IsEventsFileActive (which sees the idle event's own write
+        // as "fresh" and false-positives), the method must snapshot mtime, wait the grace period,
+        // then compare mtimes. Only a changed mtime proves the CLI is still writing.
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync must exist");
+        var methodBlock = source.Substring(methodIdx, Math.Min(4000, source.Length - methodIdx));
+
+        // Must use mtime comparison in the detection phase
+        Assert.Contains("GetEventsFileMtime", methodBlock);
+        Assert.Contains("PrematureIdleEventsGracePeriodMs", methodBlock);
+        Assert.Contains("stableMtime", methodBlock);
+
+        // The grace period delay must appear before the stableMtime assignment
+        var delayIdx = methodBlock.IndexOf("PrematureIdleEventsGracePeriodMs", StringComparison.Ordinal);
+        var assignIdx = methodBlock.IndexOf("stableMtime = GetEventsFileMtime", StringComparison.Ordinal);
+        Assert.True(assignIdx >= 0, "stableMtime must be assigned from GetEventsFileMtime after the delay");
+        Assert.True(delayIdx < assignIdx, "Grace period delay must precede stable-mtime assignment");
+    }
+
+    [Fact]
+    public void RecoverFromPrematureIdleIfNeededAsync_PollingLoopUsesMtimeComparison()
+    {
+        // Structural: the secondary polling loop must also use mtime comparison (not raw
+        // IsEventsFileActive) so that a stale-but-fresh file doesn't trigger false detection
+        // in subsequent poll cycles.
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync must exist");
+        var methodBlock = source.Substring(methodIdx, Math.Min(5000, source.Length - methodIdx));
+
+        // The polling loop must compare currentMtime against stableMtime
+        Assert.Contains("currentMtime", methodBlock);
+        Assert.Contains("stableMtime", methodBlock);
+
+        // Both GetEventsFileMtime calls should appear in the method
+        var calls = 0;
+        var searchFrom = 0;
+        while (true)
+        {
+            var idx = methodBlock.IndexOf("GetEventsFileMtime", searchFrom, StringComparison.Ordinal);
+            if (idx < 0) break;
+            calls++;
+            searchFrom = idx + 1;
+        }
+        Assert.True(calls >= 2, $"GetEventsFileMtime must be called at least twice (grace + polling), found {calls}");
     }
 
     #endregion
