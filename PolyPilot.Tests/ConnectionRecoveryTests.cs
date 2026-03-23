@@ -629,7 +629,7 @@ public class ConnectionRecoveryTests
     public void ResumeSession_Structural_NeverAutoDeletesOnCorruptError()
     {
         // STRUCTURAL REGRESSION GUARD: The ResumeSession handler in SessionSidebar
-        // must NOT call DeletePersistedSession when a corrupt-session error occurs.
+        // must NOT call DeletePersistedSession when any error occurs.
         // Auto-deleting session data causes irreversible data loss.
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Components", "Layout", "SessionSidebar.razor"));
@@ -640,8 +640,11 @@ public class ConnectionRecoveryTests
         // Must NOT contain DeletePersistedSession call
         Assert.DoesNotContain("DeletePersistedSession", resumeMethod);
 
-        // Must still detect corrupt errors (for the error message)
-        Assert.Contains("IsCorruptSessionError", resumeMethod);
+        // Must check for active lock files before calling the SDK
+        Assert.Contains("FindLiveLockPid", resumeMethod);
+
+        // Must pass errors through FriendlyResumeError (not guess at causes)
+        Assert.Contains("FriendlyResumeError", resumeMethod);
     }
 
     [Fact]

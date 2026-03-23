@@ -518,9 +518,55 @@ public class ExternalSessionScanner : IDisposable
     }
 
     /// <summary>
-    /// Check for any lock file with a live PID, without verifying the process name.
-    /// Used in Scan() where the lock file's existence in copilot's session-state
-    /// directory is sufficient evidence of a copilot-related process.
+    /// Check if a session directory has an active inuse.{PID}.lock file with a live
+    /// copilot-related process. Returns the PID or null. This is a static utility
+    /// usable outside the scanner (e.g., pre-resume lock checks).
+    /// Optionally cleans up stale lock files (dead process PIDs).
+    /// </summary>
+    internal static int? FindLiveLockPid(string sessionDir, IReadOnlySet<int>? excludedPids = null, bool cleanupStale = false)
+    {
+        try
+        {
+            foreach (var file in Directory.GetFiles(sessionDir, "inuse.*.lock"))
+            {
+                var fileName = Path.GetFileNameWithoutExtension(file);
+                var parts = fileName.Split('.');
+                if (parts.Length >= 2 && int.TryParse(parts[1], out var pid))
+                {
+                    if (excludedPids != null && excludedPids.Contains(pid)) continue;
+                    try
+                    {
+                        using var proc = System.Diagnostics.Process.GetProcessById(pid);
+                        if (proc.HasExited)
+                        {
+                            if (cleanupStale) try { File.Delete(file); } catch { }
+                            continue;
+                        }
+                        var name = proc.ProcessName?.ToLowerInvariant() ?? "";
+                        if (!name.Contains("copilot") && !name.Contains("node") &&
+                            !name.Contains("dotnet") && !name.Contains("github"))
+                        {
+                            if (cleanupStale) try { File.Delete(file); } catch { }
+                            continue;
+                        }
+                        return pid;
+                    }
+                    catch
+                    {
+                        // Process doesn't exist — stale lock
+                        if (cleanupStale) try { File.Delete(file); } catch { }
+                    }
+                }
+            }
+        }
+        catch { /* Directory not accessible */ }
+        return null;
+    }
+
+    /// <summary>
+    /// Check for any lock file with a live PID from a copilot-related process
+    /// (copilot/node/dotnet/github). Used in Scan() as a fallback when the
+    /// process-first discovery didn't find the session.
     /// </summary>
     private static int? FindAnyLiveLockPid(string sessionDir, IReadOnlySet<int>? excludedPids)
     {
