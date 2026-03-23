@@ -8,6 +8,7 @@ public class ExternalSessionScannerTests : IDisposable
 {
     private readonly string _tempDir;
     private readonly string _sessionStateDir;
+    private readonly List<System.Diagnostics.Process> _childProcesses = new();
 
     public ExternalSessionScannerTests()
     {
@@ -18,6 +19,8 @@ public class ExternalSessionScannerTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var p in _childProcesses)
+            try { if (!p.HasExited) p.Kill(); p.Dispose(); } catch { }
         try { Directory.Delete(_tempDir, recursive: true); } catch { }
     }
 
@@ -295,12 +298,22 @@ public class ExternalSessionScannerTests : IDisposable
 
     /// <summary>
     /// Create an inuse.{PID}.lock file so the scanner's lock-file pass finds this session.
-    /// Uses the current process PID (alive during the test).
+    /// Spawns a real "dotnet" child process so the PID passes the scanner's process name
+    /// validation (which rejects non-copilot/node/dotnet/github process names).
+    /// The test runner process (testhost) doesn't match these patterns.
     /// </summary>
     private void CreateLockFile(string sessionId)
     {
         var dir = Path.Combine(_sessionStateDir, sessionId);
-        File.WriteAllText(Path.Combine(dir, $"inuse.{Environment.ProcessId}.lock"), "");
+        var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("dotnet", "--list-runtimes")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        })!;
+        _childProcesses.Add(child);
+        File.WriteAllText(Path.Combine(dir, $"inuse.{child.Id}.lock"), "");
     }
 
     private string WriteEventsFile(string sessionName, string content)
