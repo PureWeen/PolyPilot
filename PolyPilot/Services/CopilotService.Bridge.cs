@@ -103,12 +103,14 @@ public partial class CopilotService
         };
         _bridgeClient.OnToolStarted += (s, tool, id, input) =>
         {
+            _remoteStreamingSessions[s] = 0;
             var session = GetRemoteSession(s);
             session?.History.Add(ChatMessage.ToolCallMessage(tool, id, input));
             InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id, input));
         };
         _bridgeClient.OnToolCompleted += (s, id, result, success) =>
         {
+            _remoteStreamingSessions[s] = 0; // keep guard alive during tool execution
             var session = GetRemoteSession(s);
             var toolMsg = session?.History.LastOrDefault(m => m.ToolCallId == id);
             if (toolMsg != null)
@@ -181,6 +183,9 @@ public partial class CopilotService
         _bridgeClient.OnUsageInfoChanged += (s, u) => InvokeOnUI(() => OnUsageInfoChanged?.Invoke(s, u));
         _bridgeClient.OnTurnStart += (s) =>
         {
+            // Set streaming guard immediately so SyncRemoteSessions won't overwrite
+            // incrementally-built history before the first ContentDelta arrives.
+            _remoteStreamingSessions[s] = 0;
             var session = GetRemoteSession(s);
             if (session != null) { session.IsProcessing = true; }
             InvokeOnUI(() => OnTurnStart?.Invoke(s));
@@ -208,20 +213,25 @@ public partial class CopilotService
                 OnTurnEnd?.Invoke(s);
             });
             // Request fresh history (capped to avoid massive payloads for long conversations),
-            // then clear the streaming guard so SyncRemoteSessions
+            // then clear the streaming guard and force a sync so SyncRemoteSessions
             // uses the up-to-date history instead of a stale cache.
             _ = Task.Run(async () =>
             {
                 try
                 {
                     await _bridgeClient.RequestHistoryAsync(s, limit: TurnEndHistoryLimit);
-                    // Small delay to let the history response arrive before unguarding
-                    await Task.Delay(500);
+                    // Wait for the history response to arrive via the WebSocket receive loop.
+                    // 2s is generous enough for LAN/tunnel round-trips.
+                    await Task.Delay(2000);
                 }
                 catch { }
                 finally
                 {
                     _remoteStreamingSessions.TryRemove(s, out _);
+                    // Force sync now that the guard is down — ensures fresh history
+                    // from the server replaces incrementally-built content.
+                    SyncRemoteSessions();
+                    NotifyStateChangedCoalesced();
                 }
             });
         };
@@ -448,8 +458,8 @@ public partial class CopilotService
                     state.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
                     state.Info.ToolCallCount = rs.ToolCallCount;
                     state.Info.ProcessingPhase = rs.ProcessingPhase;
+                    state.Info.MessageCount = rs.MessageCount;
                 }
-                state.Info.MessageCount = rs.MessageCount;
                 if (!string.IsNullOrEmpty(rs.Model))
                     state.Info.Model = rs.Model;
             }

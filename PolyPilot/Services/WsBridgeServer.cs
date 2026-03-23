@@ -23,6 +23,12 @@ public class WsBridgeServer : IDisposable
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
 
+    // Debounce timers to prevent flooding mobile clients during streaming
+    private Timer? _sessionsListDebounce;
+    private Timer? _orgStateDebounce;
+    private const int SessionsListDebounceMs = 500;
+    private const int OrgStateDebounceMs = 2000;
+
     public int BridgePort => _bridgePort;
     public bool IsRunning => _listener?.IsListening == true;
 
@@ -86,7 +92,9 @@ public class WsBridgeServer : IDisposable
         if (_copilot != null) return;
         _copilot = copilot;
 
-        _copilot.OnStateChanged += () => { BroadcastSessionsList(); BroadcastOrganizationState(); };
+        _sessionsListDebounce = new Timer(_ => BroadcastSessionsList(), null, Timeout.Infinite, Timeout.Infinite);
+        _orgStateDebounce = new Timer(_ => BroadcastOrganizationState(), null, Timeout.Infinite, Timeout.Infinite);
+        _copilot.OnStateChanged += () => DebouncedBroadcastState();
         _copilot.OnContentReceived += (session, content) =>
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ContentDelta,
                 new ContentDeltaPayload { SessionName = session, Content = content }));
@@ -1100,6 +1108,12 @@ public class WsBridgeServer : IDisposable
         };
     }
 
+    private void DebouncedBroadcastState()
+    {
+        try { _sessionsListDebounce?.Change(SessionsListDebounceMs, Timeout.Infinite); } catch (ObjectDisposedException) { }
+        try { _orgStateDebounce?.Change(OrgStateDebounceMs, Timeout.Infinite); } catch (ObjectDisposedException) { }
+    }
+
     private void BroadcastSessionsList()
     {
         if (_copilot == null || _clients.IsEmpty) return;
@@ -1198,6 +1212,8 @@ public class WsBridgeServer : IDisposable
     public void Dispose()
     {
         Stop();
+        _sessionsListDebounce?.Dispose();
+        _orgStateDebounce?.Dispose();
         _cts?.Dispose();
         GC.SuppressFinalize(this);
     }
