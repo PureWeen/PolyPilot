@@ -670,11 +670,18 @@ public partial class CopilotService
                     {
                         if (meta.WorktreeId == null) continue;
                         var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
-                        if (wt != null && !wt.Path.StartsWith(normalizedExtPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                            && !string.Equals(wt.Path, normalizedExtPath, StringComparison.OrdinalIgnoreCase))
+                        if (wt != null)
                         {
-                            Debug($"ReconcileOrganization: migrating '{meta.SessionName}' from promoted local folder group to URL group '{urlGroup.Id}'");
-                            meta.GroupId = urlGroup.Id;
+                            // Normalize wt.Path before comparing: on Windows, stored paths may use
+                            // forward slashes or relative forms that differ from the GetFullPath result.
+                            var normalizedWtPath = Path.GetFullPath(wt.Path)
+                                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                            if (!normalizedWtPath.StartsWith(normalizedExtPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                                && !string.Equals(normalizedWtPath, normalizedExtPath, StringComparison.OrdinalIgnoreCase))
+                            {
+                                Debug($"ReconcileOrganization: migrating '{meta.SessionName}' from promoted local folder group to URL group '{urlGroup.Id}'");
+                                meta.GroupId = urlGroup.Id;
+                            }
                         }
                     }
                 }
@@ -693,16 +700,23 @@ public partial class CopilotService
                 if (meta.WorktreeId == null) continue;
                 if (protectedGroupIds.Contains(meta.GroupId)) continue;
                 var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
-                if (wt != null && !wt.Path.StartsWith(normalizedLocalPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(wt.Path, normalizedLocalPath, StringComparison.OrdinalIgnoreCase))
+                if (wt != null)
                 {
-                    var repoName = _repoManager.Repositories.FirstOrDefault(r => r.Id == localGroup.RepoId)?.Name ?? localGroup.RepoId;
-                    var urlGroup = GetOrCreateRepoGroup(localGroup.RepoId!, repoName!);
-                    if (urlGroup != null)
+                    // Normalize wt.Path before comparing: on Windows, stored paths may use
+                    // forward slashes or relative forms that differ from the GetFullPath result.
+                    var normalizedWtPath = Path.GetFullPath(wt.Path)
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (!normalizedWtPath.StartsWith(normalizedLocalPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(normalizedWtPath, normalizedLocalPath, StringComparison.OrdinalIgnoreCase))
                     {
-                        Debug($"ReconcileOrganization: healing '{meta.SessionName}' from local folder group '{localGroup.Name}' to URL group '{urlGroup.Id}'");
-                        meta.GroupId = urlGroup.Id;
-                        changed = true;
+                        var repoName = _repoManager.Repositories.FirstOrDefault(r => r.Id == localGroup.RepoId)?.Name ?? localGroup.RepoId;
+                        var urlGroup = GetOrCreateRepoGroup(localGroup.RepoId!, repoName!);
+                        if (urlGroup != null)
+                        {
+                            Debug($"ReconcileOrganization: healing '{meta.SessionName}' from local folder group '{localGroup.Name}' to URL group '{urlGroup.Id}'");
+                            meta.GroupId = urlGroup.Id;
+                            changed = true;
+                        }
                     }
                 }
             }
