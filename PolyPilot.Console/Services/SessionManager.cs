@@ -59,7 +59,7 @@ public class SessionManager : IAsyncDisposable
         if (_sessions.ContainsKey(displayName))
             throw new InvalidOperationException($"Session '{displayName}' already exists.");
 
-        var copilotSession = await _client.ResumeSessionAsync(sessionId, cancellationToken: cancellationToken);
+        var copilotSession = await _client.ResumeSessionAsync(sessionId, new ResumeSessionConfig(), cancellationToken);
 
         var agentSession = new AgentSession(displayName, "resumed", copilotSession, sessionId, isResumed: true);
         
