@@ -89,6 +89,37 @@ xcrun simctl delete unavailable               # clean up old sims
 ## Building and Deploying
 
 ### Mac Catalyst
+
+**⚠️ Entitlements required:** Mac Catalyst apps are sandboxed by default and need the
+`com.apple.security.network.server` entitlement for MauiDevFlow's in-app HTTP server.
+Without it, the agent fails to bind its port and the app may crash silently.
+
+**Quick fix (disable sandbox for Debug):** Create `Platforms/MacCatalyst/Entitlements.Debug.plist`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+  </dict>
+</plist>
+```
+
+Then reference it in `.csproj` for Debug only:
+```xml
+<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)'))
+    == 'maccatalyst' and '$(Configuration)' == 'Debug'">
+  <CodeSignEntitlements>Platforms/MacCatalyst/Entitlements.Debug.plist</CodeSignEntitlements>
+</PropertyGroup>
+```
+
+If sandbox must stay enabled (e.g. testing App Store builds), add `network.server` explicitly.
+See [setup.md Step 5](setup.md#5-mac-catalyst-entitlements) for the full sandbox-enabled plist.
+
 ```bash
 dotnet build -f net10.0-maccatalyst                          # build only
 dotnet build -f net10.0-maccatalyst -t:Run                   # build + run

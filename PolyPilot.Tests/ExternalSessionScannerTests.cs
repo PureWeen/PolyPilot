@@ -8,6 +8,7 @@ public class ExternalSessionScannerTests : IDisposable
 {
     private readonly string _tempDir;
     private readonly string _sessionStateDir;
+    private readonly List<System.Diagnostics.Process> _childProcesses = new();
 
     public ExternalSessionScannerTests()
     {
@@ -18,6 +19,8 @@ public class ExternalSessionScannerTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var p in _childProcesses)
+            try { if (!p.HasExited) p.Kill(); p.Dispose(); } catch { }
         try { Directory.Delete(_tempDir, recursive: true); } catch { }
     }
 
@@ -295,12 +298,26 @@ public class ExternalSessionScannerTests : IDisposable
 
     /// <summary>
     /// Create an inuse.{PID}.lock file so the scanner's lock-file pass finds this session.
-    /// Uses the current process PID (alive during the test).
+    /// Uses <c>node -e "setTimeout(()=>{},60000)"</c> which blocks for 60s and has process
+    /// name "node" — one of the scanner's accepted names (copilot/node/dotnet/github).
+    /// The test runner process (testhost) doesn't match these patterns.
     /// </summary>
     private void CreateLockFile(string sessionId)
     {
         var dir = Path.Combine(_sessionStateDir, sessionId);
-        File.WriteAllText(Path.Combine(dir, $"inuse.{Environment.ProcessId}.lock"), "");
+        var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "node",
+            Arguments = "-e \"setTimeout(()=>{},60000)\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        }) ?? throw new InvalidOperationException("Failed to start node process for lock file test");
+        _childProcesses.Add(child);
+        if (child.HasExited)
+            throw new InvalidOperationException($"node process exited too fast (exit code {child.ExitCode}) — cannot create stable lock file for test");
+        File.WriteAllText(Path.Combine(dir, $"inuse.{child.Id}.lock"), "");
     }
 
     private string WriteEventsFile(string sessionName, string content)
