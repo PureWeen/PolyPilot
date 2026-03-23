@@ -298,21 +298,25 @@ public class ExternalSessionScannerTests : IDisposable
 
     /// <summary>
     /// Create an inuse.{PID}.lock file so the scanner's lock-file pass finds this session.
-    /// Spawns a real "dotnet" child process so the PID passes the scanner's process name
-    /// validation (which rejects non-copilot/node/dotnet/github process names).
+    /// Uses <c>node -e "setTimeout(()=>{},60000)"</c> which blocks for 60s and has process
+    /// name "node" — one of the scanner's accepted names (copilot/node/dotnet/github).
     /// The test runner process (testhost) doesn't match these patterns.
     /// </summary>
     private void CreateLockFile(string sessionId)
     {
         var dir = Path.Combine(_sessionStateDir, sessionId);
-        var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("dotnet", "--list-runtimes")
+        var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
+            FileName = "node",
+            Arguments = "-e \"setTimeout(()=>{},60000)\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
-        })!;
+        }) ?? throw new InvalidOperationException("Failed to start node process for lock file test");
         _childProcesses.Add(child);
+        if (child.HasExited)
+            throw new InvalidOperationException($"node process exited too fast (exit code {child.ExitCode}) — cannot create stable lock file for test");
         File.WriteAllText(Path.Combine(dir, $"inuse.{child.Id}.lock"), "");
     }
 
