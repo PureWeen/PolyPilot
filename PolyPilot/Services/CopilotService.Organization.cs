@@ -651,6 +651,49 @@ public partial class CopilotService
                 groupToPromote.Name = Path.GetFileName(normalizedExtPath);
                 changed = true;
                 Debug($"ReconcileOrganization: promoted group '{groupToPromote.Id}' to local folder group for '{normalizedExtPath}'");
+
+                // Migrate sessions whose worktrees are NOT under the new LocalPath to the
+                // URL-based repo group. Without this, sessions linked to managed worktrees
+                // (~/.polypilot/worktrees/...) get stranded in the promoted local folder group.
+                var urlGroup = GetOrCreateRepoGroup(ext.RepoId, ext.RepoId);
+                if (urlGroup != null)
+                {
+                    foreach (var meta in Organization.Sessions.Where(m => m.GroupId == groupToPromote.Id))
+                    {
+                        if (meta.WorktreeId == null) continue;
+                        var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
+                        if (wt != null && !wt.Path.StartsWith(normalizedExtPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Debug($"ReconcileOrganization: migrating '{meta.SessionName}' from promoted local folder group to URL group '{urlGroup.Id}'");
+                            meta.GroupId = urlGroup.Id;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Heal sessions stranded in local folder groups: if a session's worktree path
+        // is NOT under the group's LocalPath, move it to the URL-based repo group.
+        // This fixes state from before the promotion migration was added.
+        foreach (var localGroup in Organization.Groups.Where(g => g.IsLocalFolder && !g.IsMultiAgent && g.RepoId != null).ToList())
+        {
+            var normalizedLocalPath = Path.GetFullPath(localGroup.LocalPath!)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            foreach (var meta in Organization.Sessions.Where(m => m.GroupId == localGroup.Id).ToList())
+            {
+                if (meta.WorktreeId == null) continue;
+                if (protectedGroupIds.Contains(meta.GroupId)) continue;
+                var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
+                if (wt != null && !wt.Path.StartsWith(normalizedLocalPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    var urlGroup = GetOrCreateRepoGroup(localGroup.RepoId!, localGroup.RepoId!);
+                    if (urlGroup != null)
+                    {
+                        Debug($"ReconcileOrganization: healing '{meta.SessionName}' from local folder group '{localGroup.Name}' to URL group '{urlGroup.Id}'");
+                        meta.GroupId = urlGroup.Id;
+                        changed = true;
+                    }
+                }
             }
         }
 

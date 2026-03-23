@@ -1025,6 +1025,138 @@ Do something.
         Assert.False(urlGroup!.IsLocalFolder);
         Assert.Null(urlGroup.LocalPath);
     }
+
+    [Fact]
+    public void ReconcileOrganization_Promotion_MigratesNonLocalSessions()
+    {
+        // When a URL-based group is promoted to a local folder group, sessions whose
+        // worktree paths are NOT under the new LocalPath should be migrated to a
+        // fresh URL-based group instead of being stranded in the local folder group.
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        var extPath = Path.Combine(Path.GetTempPath(), "MyRepo");
+        var managedPath = Path.Combine(Path.GetTempPath(), ".polypilot", "worktrees", "repo-1-wt1");
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = extPath },
+            new() { Id = "managed-1", RepoId = "repo-1", Branch = "feature-x", Path = managedPath }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+
+        // Create URL-based group and put a session with a managed worktree in it
+        var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "managed-session",
+            GroupId = urlGroup!.Id,
+            WorktreeId = "managed-1"
+        });
+
+        // Must set IsInitialized or the guard skips reconciliation when Sessions.Count > 0
+        typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+
+        // Run reconcile — should promote urlGroup to local folder AND migrate managed-session out
+        svc.ReconcileOrganization(allowPruning: false);
+
+        // The promoted group should now be a local folder
+        var promoted = svc.Organization.Groups.First(g => g.Id == urlGroup.Id);
+        Assert.True(promoted.IsLocalFolder);
+
+        // managed-session should NOT be in the promoted group — it should be in a new URL-based group
+        var meta = svc.Organization.Sessions.First(m => m.SessionName == "managed-session");
+        Assert.NotEqual(urlGroup.Id, meta.GroupId);
+        var newGroup = svc.Organization.Groups.First(g => g.Id == meta.GroupId);
+        Assert.False(newGroup.IsLocalFolder);
+        Assert.Equal("repo-1", newGroup.RepoId);
+    }
+
+    [Fact]
+    public void ReconcileOrganization_Promotion_SessionUnderLocalPath_StaysInPromotedGroup()
+    {
+        // Sessions whose worktree IS under the LocalPath should stay in the promoted group.
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        var extPath = Path.Combine(Path.GetTempPath(), "MyRepo");
+        var nestedPath = Path.Combine(extPath, ".polypilot", "worktrees", "feature-y");
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = extPath },
+            new() { Id = "nested-1", RepoId = "repo-1", Branch = "feature-y", Path = nestedPath }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+
+        var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "nested-session",
+            GroupId = urlGroup!.Id,
+            WorktreeId = "nested-1"
+        });
+
+        typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+        svc.ReconcileOrganization(allowPruning: false);
+
+        // The session's worktree is under the local path — it should stay in the promoted group
+        var meta = svc.Organization.Sessions.First(m => m.SessionName == "nested-session");
+        Assert.Equal(urlGroup.Id, meta.GroupId);
+    }
+
+    [Fact]
+    public void ReconcileOrganization_HealsStrandedSessions_InLocalFolderGroup()
+    {
+        // Regression test for the exact bug: sessions with managed worktrees (not under LocalPath)
+        // are stuck in a local folder group and should be healed into a URL-based group.
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        var localPath = Path.Combine(Path.GetTempPath(), "maui3");
+        var managedPath1 = Path.Combine(Path.GetTempPath(), ".polypilot", "worktrees", "repo-1-aaa");
+        var managedPath2 = Path.Combine(Path.GetTempPath(), ".polypilot", "worktrees", "repo-1-bbb");
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = localPath },
+            new() { Id = "wt-aaa", RepoId = "repo-1", Branch = "agent-reviews", Path = managedPath1 },
+            new() { Id = "wt-bbb", RepoId = "repo-1", Branch = "ci-agentic", Path = managedPath2 }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+
+        // Simulate broken state: local folder group with stranded sessions
+        var localGroup = svc.GetOrCreateLocalFolderGroup(localPath, "repo-1");
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "Agent-Reviews",
+            GroupId = localGroup.Id,
+            WorktreeId = "wt-aaa"
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "ci-agentic",
+            GroupId = localGroup.Id,
+            WorktreeId = "wt-bbb"
+        });
+
+        typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+        svc.ReconcileOrganization(allowPruning: false);
+
+        // Both sessions should be healed into a URL-based group
+        var meta1 = svc.Organization.Sessions.First(m => m.SessionName == "Agent-Reviews");
+        var meta2 = svc.Organization.Sessions.First(m => m.SessionName == "ci-agentic");
+        Assert.NotEqual(localGroup.Id, meta1.GroupId);
+        Assert.NotEqual(localGroup.Id, meta2.GroupId);
+        Assert.Equal(meta1.GroupId, meta2.GroupId); // both in the same URL group
+
+        var urlGroup = svc.Organization.Groups.First(g => g.Id == meta1.GroupId);
+        Assert.False(urlGroup.IsLocalFolder);
+        Assert.Equal("repo-1", urlGroup.RepoId);
+    }
 }
 
 /// <summary>
@@ -1159,9 +1291,13 @@ public class AddExistingFolderScenarioTests
             Path.GetFullPath(sourceReposPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
             promotedGroup.LocalPath);
 
-        // Existing sessions in that group must NOT be moved — they stay put
+        // Existing session has a centralized worktree (not under the local folder path),
+        // so it should be migrated to a new URL-based group by the promotion migration logic.
         var oldSession = svc.Organization.Sessions.First(m => m.SessionName == "my-old-session");
-        Assert.Equal(oldUrlGroup.Id, oldSession.GroupId);
+        Assert.NotEqual(oldUrlGroup.Id, oldSession.GroupId);
+        var urlGroup = svc.Organization.Groups.First(g => g.Id == oldSession.GroupId);
+        Assert.False(urlGroup.IsLocalFolder);
+        Assert.Equal("owner-polypilot", urlGroup.RepoId);
     }
 
     [Fact]
