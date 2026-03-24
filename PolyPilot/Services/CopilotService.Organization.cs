@@ -1985,6 +1985,8 @@ public partial class CopilotService
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
                 Interlocked.Exchange(ref state.WatchdogCaseBResets, 0);
+                Interlocked.Exchange(ref state.WatchdogCaseBLastFileSize, 0);
+                Interlocked.Exchange(ref state.WatchdogCaseBStaleCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 state.FallbackCanceledByTurnStart = false;
                 state.Info.IsResumed = false;
