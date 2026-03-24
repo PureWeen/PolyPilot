@@ -230,10 +230,10 @@ public partial class CopilotService
                 finally
                 {
                     // Only remove guard if no new sub-turn has started since this TurnEnd.
-                    // A new TurnStart increments the generation, so if it changed, a newer
-                    // sub-turn is streaming and we must not remove its guard.
-                    if (_remoteStreamingSessions.TryGetValue(s, out var currentGen) && currentGen == turnEndGen)
-                        _remoteStreamingSessions.TryRemove(s, out _);
+                    // Atomic removal: only succeeds if both key and value match, preventing
+                    // a TOCTOU race where TurnStart increments the generation between
+                    // TryGetValue and TryRemove.
+                    _remoteStreamingSessions.TryRemove(new KeyValuePair<string, byte>(s, turnEndGen));
                     // Force sync now that the guard is down — ensures fresh history
                     // from the server replaces incrementally-built content.
                     SyncRemoteSessions();
