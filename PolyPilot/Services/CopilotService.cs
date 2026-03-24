@@ -902,7 +902,7 @@ public partial class CopilotService : IAsyncDisposable
                     _client = null;
                     IsInitialized = false;
                     NeedsConfiguration = true;
-                    FallbackNotice = $"Protocol version mismatch and restart failed — go to Settings to reconnect.";
+                    FallbackNotice = BuildServerFallbackNotice(null, Path.Combine(PolyPilotBaseDir, "event-diagnostics.log"), "version mismatch restart failed — reconnection failed");
                     OnStateChanged?.Invoke();
                     return;
                 }
@@ -911,7 +911,7 @@ public partial class CopilotService : IAsyncDisposable
             {
                 Debug("Server restart failed, falling back to Embedded mode");
                 CurrentMode = ConnectionMode.Embedded;
-                FallbackNotice = "Persistent server had a version mismatch and couldn't restart — fell back to Embedded mode.";
+                FallbackNotice = BuildServerFallbackNotice(null, Path.Combine(PolyPilotBaseDir, "event-diagnostics.log"), "had a version mismatch and couldn't restart");
                 var embeddedSettings = new ConnectionSettings { Mode = ConnectionMode.Embedded, Host = settings.Host, Port = settings.Port };
                 _client = CreateClient(embeddedSettings);
                 try
@@ -1200,7 +1200,6 @@ public partial class CopilotService : IAsyncDisposable
                 var recoveryLogPath = Path.Combine(PolyPilotBaseDir, "event-diagnostics.log");
                 var recoveryError = _serverManager.LastError;
                 FallbackNotice = BuildServerFallbackNotice(recoveryError, recoveryLogPath, "recovery failed — all sessions may be affected");
-                FallbackNotice += "\n\nGo to Settings → Save & Reconnect.";
                 InvokeOnUI(() => OnStateChanged?.Invoke());
                 return false;
             }
@@ -1225,7 +1224,7 @@ public partial class CopilotService : IAsyncDisposable
         catch (Exception ex)
         {
             Debug($"[SERVER-RECOVERY] Recovery failed: {ex.Message}");
-            FallbackNotice = "Persistent server recovery failed — go to Settings → Save & Reconnect to fix.";
+            FallbackNotice = BuildServerFallbackNotice(ex.Message, Path.Combine(PolyPilotBaseDir, "event-diagnostics.log"), "recovery failed");
             InvokeOnUI(() => OnStateChanged?.Invoke());
             return false;
         }
@@ -1298,7 +1297,6 @@ public partial class CopilotService : IAsyncDisposable
                 var restartLogPath = Path.Combine(PolyPilotBaseDir, "event-diagnostics.log");
                 var restartError = _serverManager.LastError;
                 FallbackNotice = BuildServerFallbackNotice(restartError, restartLogPath, "restart failed — could not reconnect");
-                FallbackNotice += "\n\nGo to Settings to reconnect.";
                 IsInitialized = false;
                 OnStateChanged?.Invoke();
                 return;
@@ -1319,7 +1317,7 @@ public partial class CopilotService : IAsyncDisposable
                 try { await _client.DisposeAsync(); } catch { }
                 _client = null;
                 IsInitialized = false;
-                FallbackNotice = "Server restarted but connection failed — go to Settings to reconnect.";
+                FallbackNotice = BuildServerFallbackNotice(ex.Message, Path.Combine(PolyPilotBaseDir, "event-diagnostics.log"), "restarted but connection failed");
                 OnStateChanged?.Invoke();
                 return;
             }
