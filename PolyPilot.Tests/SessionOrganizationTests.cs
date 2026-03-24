@@ -4298,6 +4298,7 @@ public class GroupingStabilityTests
 /// Tests for urgency-based sort in GetOrganizedSessions:
 /// NeedsAttention sessions float to top, then IsProcessing, then idle.
 /// </summary>
+[Collection("BaseDir")]
 public class UrgencySortTests
 {
     private readonly StubChatDatabase _chatDb = new();

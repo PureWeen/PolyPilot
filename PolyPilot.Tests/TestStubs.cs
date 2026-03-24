@@ -40,6 +40,7 @@ internal class StubServerManager : IServerManager
     public int? ServerPid { get; set; }
     public int ServerPort { get; set; } = 4321;
     public bool StartServerResult { get; set; }
+    public string? LastError { get; set; }
 
     public event Action? OnStatusChanged;
 

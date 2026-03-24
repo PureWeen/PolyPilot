@@ -8,6 +8,8 @@ public interface IServerManager
     bool IsServerRunning { get; }
     int? ServerPid { get; }
     int ServerPort { get; }
+    /// <summary>Last error message from a failed StartServerAsync call, including any stderr output.</summary>
+    string? LastError { get; }
     event Action? OnStatusChanged;
 
     bool CheckServerRunning(string host = "127.0.0.1", int? port = null);

@@ -40,6 +40,10 @@
                     <span class="init-error-icon">⚠️</span>
                     <p class="init-error-text">@CopilotService.FallbackNotice</p>
                     <button class="retry-btn" @onclick="GoToSettings">Settings</button>
+                    @if (PlatformHelper.IsDesktop)
+                    {
+                        <button class="retry-btn" @onclick="OpenLogsFolder" title="Open log folder in Finder">View Logs</button>
+                    }
                     <button class="dismiss-btn" @onclick="DismissFallbackNotice">Dismiss</button>
                 </div>
             }
@@ -717,6 +721,22 @@
     private void GoToSettings()
     {
         Nav.NavigateTo("/settings");
+    }
+
+    private void OpenLogsFolder()
+    {
+        try
+        {
+            var logDir = CopilotService.BaseDir;
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+                System.Diagnostics.Process.Start("open", logDir);
+            else if (OperatingSystem.IsWindows())
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", logDir) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Dashboard] Failed to open logs folder: {ex.Message}");
+        }
     }
 
     private void DismissFallbackNotice()
