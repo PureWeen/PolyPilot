@@ -119,6 +119,7 @@
                          ToolActivities="@ToolActivities"
                          ActivityText="@ActivityText"
                          IsProcessing="Session.IsProcessing"
+                         IsRemoteStreaming="IsRemoteStreaming"
                          ProcessingStartedAt="Session.ProcessingStartedAt"
                          ToolCallCount="Session.ToolCallCount"
                          ProcessingPhase="Session.ProcessingPhase"
@@ -212,6 +213,7 @@
     [Parameter] public SessionMeta? Meta { get; set; }
     [Parameter] public bool IsCompleted { get; set; }
     [Parameter] public string StreamingContent { get; set; } = "";
+    [Parameter] public bool IsRemoteStreaming { get; set; }
     [Parameter] public string ActivityText { get; set; } = "";
     [Parameter] public string CurrentToolName { get; set; } = "";
     [Parameter] public List<ToolActivity> ToolActivities { get; set; } = new();

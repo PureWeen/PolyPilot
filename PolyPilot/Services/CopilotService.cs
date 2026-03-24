@@ -18,6 +18,12 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _recentlyClosedRemoteSessions = new();
     // Sessions currently receiving streaming content via bridge events — history sync skipped to avoid duplicates
     private readonly ConcurrentDictionary<string, byte> _remoteStreamingSessions = new();
+
+    /// <summary>
+    /// Whether a session's history is still being synced after a turn completed (streaming guard active).
+    /// Used by the UI to avoid clearing streaming content before the history sync replaces it.
+    /// </summary>
+    public bool IsRemoteStreamingGuardActive(string sessionName) => _remoteStreamingSessions.ContainsKey(sessionName);
     // Sessions for which history has already been requested — prevents duplicate request storms
     private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();
     // External session IDs currently being resumed — prevents duplicate SDK connections from rapid double-clicks

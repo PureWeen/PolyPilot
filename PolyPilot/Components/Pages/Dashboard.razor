@@ -140,6 +140,7 @@
                                      IsLoadingHistory="@(CopilotService.IsRemoteMode && session.MessageCount > 0 && session.History.Count == 0)"
                                      HasMoreRemoteHistory="@CopilotService.HasMoreRemoteHistory(session.Name)"
                                      StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s2) ? s2 : "")"
+                                     IsRemoteStreaming="@CopilotService.IsRemoteStreamingGuardActive(session.Name)"
                                      ActivityText="@(activityBySession.TryGetValue(session.Name, out var a2) ? a2 : "")"
                                      CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t2) ? t2 : "")"
                                      ToolActivities="@(toolActivitiesBySession.TryGetValue(session.Name, out var ta2) ? ta2 : new())"
@@ -262,6 +263,7 @@
                                  MessageCount="@(cardMessageCounts.TryGetValue(session.Name, out var fmc) ? fmc : DefaultCardMessageWindow)"
                                  MinHeight="@_cardMinHeight"
                                  StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var fs) ? fs : "")"
+                                 IsRemoteStreaming="@CopilotService.IsRemoteStreamingGuardActive(session.Name)"
                                  ActivityText="@(activityBySession.TryGetValue(session.Name, out var fa) ? fa : "")"
                                  CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var ft) ? ft : "")"
                                  ToolActivities="@(toolActivitiesBySession.TryGetValue(session.Name, out var fta) ? fta : new())"
@@ -401,6 +403,7 @@
                                  MinHeight="@_cardMinHeight"
                                  MessageCount="@(cardMessageCounts.TryGetValue(session.Name, out var mc) ? mc : DefaultCardMessageWindow)"
                                  StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var s) ? s : "")"
+                                 IsRemoteStreaming="@CopilotService.IsRemoteStreamingGuardActive(session.Name)"
                                  ActivityText="@(activityBySession.TryGetValue(session.Name, out var a) ? a : "")"
                                  CurrentToolName="@(currentToolBySession.TryGetValue(session.Name, out var t) ? t : "")"
                                  ToolActivities="@(toolActivitiesBySession.TryGetValue(session.Name, out var ta) ? ta : new())"
@@ -1224,7 +1227,10 @@
             }
             foreach (var s in sessions)
             {
-                if (!s.IsProcessing && streamingBySession.ContainsKey(s.Name))
+                // Don't clear streaming content while the remote history sync is still in progress —
+                // the 2s guard window ensures fresh history replaces the streaming content.
+                if (!s.IsProcessing && streamingBySession.ContainsKey(s.Name)
+                    && !CopilotService.IsRemoteStreamingGuardActive(s.Name))
                     streamingBySession.Remove(s.Name);
             }
             if (sessionSwitched && active != null)
@@ -1283,8 +1289,11 @@
 
     private void HandleToolStarted(string sessionName, string toolName, string callId, string? inputSummary)
     {
-        // Clear streaming content when tool starts - the text was flushed to history
-        streamingBySession.Remove(sessionName);
+        // Clear streaming content when tool starts — on desktop, text was flushed to history.
+        // In remote mode, keep it: the text is only in streamingBySession and the local history
+        // may not have synced yet (guard blocks SyncRemoteSessions during streaming).
+        if (!CopilotService.IsRemoteMode)
+            streamingBySession.Remove(sessionName);
         
         currentToolBySession[sessionName] = toolName;
         if (!toolActivitiesBySession.ContainsKey(sessionName))

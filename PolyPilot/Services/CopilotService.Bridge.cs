@@ -186,9 +186,17 @@ public partial class CopilotService
             // Increment generation counter — each sub-turn gets a new generation so
             // a delayed guard removal from a previous sub-turn won't kill this one.
             _remoteStreamingSessions.AddOrUpdate(s, 1, (_, prev) => (byte)(prev + 1));
-            var session = GetRemoteSession(s);
-            if (session != null) { session.IsProcessing = true; }
-            InvokeOnUI(() => OnTurnStart?.Invoke(s));
+            // Set IsProcessing on the UI thread to avoid race with TurnEnd:
+            // When TurnEnd and TurnStart arrive back-to-back, both InvokeOnUI callbacks
+            // are queued. TurnEnd fires first (sets false), then TurnStart fires (sets true).
+            // Previously, TurnStart set true on the background thread which was overwritten
+            // by TurnEnd's UI callback.
+            InvokeOnUI(() =>
+            {
+                var session = GetRemoteSession(s);
+                if (session != null) { session.IsProcessing = true; }
+                OnTurnStart?.Invoke(s);
+            });
         };
         _bridgeClient.OnTurnEnd += (s) =>
         {
@@ -503,14 +511,19 @@ public partial class CopilotService
         // Don't overwrite if local history has messages not yet reflected by server
         // Skip sessions that are actively streaming — content_delta handlers update history
         // incrementally; replacing it with the (stale) SessionHistories cache would cause duplicates.
+        // Exception: allow sync when local history is very small (initial load) — the guard is up
+        // because TurnStart fired but the full history hasn't been loaded yet.
         var sessionsNeedingHistory = new List<string>();
         foreach (var (name, messages) in _bridgeClient.SessionHistories)
         {
             if (_sessions.TryGetValue(name, out var s))
             {
                 // Skip history sync for sessions currently receiving streaming content —
-                // the incremental content_delta/tool events are more up-to-date than the cached history
-                if (_remoteStreamingSessions.ContainsKey(name))
+                // the incremental content_delta/tool events are more up-to-date than the cached history.
+                // But allow initial full-history sync through even with the guard up:
+                // when local history is tiny (< 10), we're still in the initial load phase and
+                // the guard is only active because TurnStart fired before history arrived.
+                if (_remoteStreamingSessions.ContainsKey(name) && s.Info.History.Count >= 10)
                     continue;
 
                 if (messages.Count >= s.Info.History.Count)
