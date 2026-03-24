@@ -192,6 +192,41 @@ Blindly waiting the full 600s tool timeout when `ActiveToolCallCount == 0`
 This prevents the "10-minute kill" where tools ran successfully but the session
 was murdered because the SDK dropped the follow-up `SessionIdleEvent`.
 
+### INV-11b: Case B file-size-growth dead-connection detection
+When Case B defers because `events.jsonl` modification time is within the freshness
+window (1800s for multi-agent sessions), it ALSO checks whether the file has actually
+grown since the last deferral. A stale modification time (e.g., after
+`ConnectionLostException` kills the JSON-RPC connection) can keep sessions stuck for
+up to 30 minutes without this guard.
+
+**Fields and constant:**
+
+| Name | Type | Purpose |
+|------|------|---------|
+| `WatchdogCaseBLastFileSize` | `long` | File size (bytes) at previous deferral check |
+| `WatchdogCaseBStaleCount` | `int` | Consecutive watchdog checks with no file growth |
+| `WatchdogCaseBMaxStaleChecks` | `const int = 2` | Max stale checks before deferral stops |
+
+**Logic:** On each Case B deferral, compare the current `events.jsonl` file size to
+`WatchdogCaseBLastFileSize`. If the file has grown → reset `WatchdogCaseBStaleCount`
+to 0 and update `WatchdogCaseBLastFileSize`. If the file has NOT grown → increment
+`WatchdogCaseBStaleCount`. When `WatchdogCaseBStaleCount >= WatchdogCaseBMaxStaleChecks`,
+stop deferring — the connection is dead even though the file's modification time
+looks fresh.
+
+**Detection time:** ~6 minutes (1 baseline cycle + 2 stale checks × ~120s each) instead of 30 minutes.
+
+**Resets:** Both `WatchdogCaseBLastFileSize` and `WatchdogCaseBStaleCount` are reset
+to 0 in three places:
+1. When real SDK events arrive (line 233-235 in Events.cs) — connection is alive
+2. In `StartProcessingWatchdog` — new watchdog cycle begins
+3. In `ForceCompleteProcessingAsync` — orchestration forces completion
+
+**Why not just shorten the freshness window?** Multi-agent sessions legitimately have
+long periods between events (workers running tools for minutes). The freshness window
+must stay large for correctness. File-size growth is the right signal: a live
+connection always appends to `events.jsonl`, a dead one never does.
+
 ### INV-12: All background→UI dispatches must capture ProcessingGeneration (PR #332)
 Any code that posts work to the UI thread from a background thread (watchdog loop,
 `Task.Run`, timer callbacks) must:

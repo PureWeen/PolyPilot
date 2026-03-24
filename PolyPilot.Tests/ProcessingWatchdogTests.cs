@@ -2910,7 +2910,7 @@ public class ProcessingWatchdogTests
     public void WatchdogCaseBMaxStaleChecks_Value()
     {
         // After this many consecutive Case B checks with no file growth, deferral stops.
-        // 2 checks × ~120s cycle = ~240s (4 min) to detect a dead connection.
+        // 3 cycles × ~120s = ~360s (6 min) — 1 baseline + 2 stale checks.
         Assert.Equal(2, CopilotService.WatchdogCaseBMaxStaleChecks);
         Assert.True(CopilotService.WatchdogCaseBMaxStaleChecks >= 1,
             "Need at least 1 stale check to confirm — 0 would disable Case B entirely");

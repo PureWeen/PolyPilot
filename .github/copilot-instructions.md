@@ -209,6 +209,8 @@ The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.
   - The session was resumed mid-turn after app restart (`IsResumed`)
   - Tools have been used this turn (`HasUsedToolsThisTurn`) — even between tool rounds when the model is thinking
 
+For multi-agent sessions, Case B also checks **file-size-growth**: if events.jsonl hasn't grown for `WatchdogCaseBMaxStaleChecks` (2) consecutive deferrals, the session is force-completed — the connection is dead. This catches `ConnectionLostException` scenarios where mtime stays fresh but no new data arrives, reducing detection from 30+ min to ~360s (3 cycles: 1 baseline + 2 stale checks). The 1800s freshness window is preserved.
+
 Note: Some sessions never receive `session.idle` events (SDK/CLI bug). In these "zero-idle" cases, `IsProcessing` is only cleared by the watchdog or user abort. The turn_end flush (see Content Persistence above) ensures response content is not lost.
 
 When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message.

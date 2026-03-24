@@ -437,8 +437,11 @@ Every event/timer entry point checks `state.IsOrphaned` first:
 These are **legitimate** long pauses that must NOT trigger watchdog kills:
 
 1. **Model thinking between tool rounds** (30s-5 min): After tool output, the LLM
-   decides its next action. No events written. `events.jsonl` mtime frozen.
-   ❌ Detecting "mtime unchanged for N checks" WILL kill this.
+   decides its next action. Mtime may appear frozen on some filesystems.
+   ❌ Detecting "mtime unchanged for N checks" WILL false-positive here.
+   ✅ File-size-growth check (INV-O16) is safe: the CLI writes
+   `AssistantMessageDeltaEvent` entries while the model streams tokens, so the file
+   keeps growing. Only a dead connection stops all writes.
 
 2. **Large context ingestion** (1-3 min): Worker receives 60K+ char diff, model
    processes before first response. Zero events between prompt send and first delta.
@@ -464,7 +467,8 @@ These are **legitimate** long pauses that must NOT trigger watchdog kills:
 |--------|-------|-----|
 | Fix missing `.On(evt => ...)` handler registration | ✅ | Root cause fix, no timeout change |
 | Reduce `WatchdogMultiAgentCaseBFreshnessSeconds` | ❌ | Workers genuinely run 20+ min |
-| Add mtime staleness counter (kill after N unchanged checks) | ❌ | Model thinking pauses freeze mtime for 5+ min |
+| Add mtime staleness counter (kill after N unchanged checks) | ❌ | mtime may not reflect rapid writes during model thinking; use file-size growth (INV-O16) instead |
+| Add file-size-growth check (`WatchdogCaseBMaxStaleChecks`) | ✅ | Detects dead connections without tightening the 1800s window; see below |
 | Reduce `WatchdogMaxCaseBResets` from 40 | ❌ | 40 × 120s = 80 min, matches worker execution timeout |
 | Add `IsOrphaned` flag to skip stale callbacks | ✅ | Guards stale state, no timeout change |
 | Add event handler on revival path | ✅ | Root cause fix, no timeout change |
@@ -481,6 +485,35 @@ session lifecycle (revival, reconnect, dispose) **MUST** run
 - events.jsonl written once then frozen
 
 If a test fails, the change would kill a legitimate long-running session in production.
+
+### INV-O16: Case B File-Size-Growth Check (Dead Connection Detection)
+
+Case B now checks **both** events.jsonl modification time freshness **and** file size
+growth to detect dead connections. This addresses the scenario where
+`ConnectionLostException` kills the JSON-RPC connection but the CLI process has
+already written events to the file — so mtime stays fresh but no new data arrives.
+
+**Constant**: `WatchdogCaseBMaxStaleChecks = 2`
+
+**Mechanism**: On each Case B deferral, the watchdog records the current file size
+of events.jsonl. If the file has not grown for `WatchdogCaseBMaxStaleChecks` (2)
+consecutive deferrals, the session is force-completed — the connection is dead.
+
+**Why this is safe (unlike mtime staleness)**:
+- **mtime** can appear frozen during model thinking pauses (5+ min) due to
+  filesystem timestamp granularity, causing false positives if used as a staleness
+  signal.
+- **File size** only stops growing when the CLI truly stops appending events. During
+  model thinking between tool rounds, the CLI writes `AssistantMessageDeltaEvent`
+  entries as the model streams tokens — the file keeps growing. Only a genuinely
+  dead connection (e.g., `ConnectionLostException`) stops all writes.
+- The 1800s freshness window (`WatchdogMultiAgentCaseBFreshnessSeconds`) is
+  preserved — no regression for long-running workers (issue #365). The growth
+  check is an **additional** safety layer that fires only when the file is fresh
+  (mtime-wise) but not growing (dead connection).
+
+**Timeline for dead connection detection**: ~240s (2 × 120s Case B check interval)
+instead of 30+ minutes under the old mtime-only approach.
 
 ---
 
@@ -572,9 +605,21 @@ it deferred for 30 min before the file aged out.
 
 **Why NOT mtime staleness detection**: Initially considered tracking mtime
 changes across consecutive checks to detect "wrote once then stopped." But
-legitimate workers pause for 5+ minutes between tool rounds (model thinking),
-which would trigger false positives. The root cause fix (register handler)
-is the correct approach. See **Long-Running Session Safety** section.
+mtime-based detection risks false positives during long model thinking pauses
+where filesystem timestamp granularity may not reflect ongoing writes.
+The root cause fix (register handler) is the correct approach.
+
+> **Note**: This concern is specific to **mtime-based** staleness. The **file-size-
+> growth** check (INV-O16 / `WatchdogCaseBMaxStaleChecks`) does NOT share this
+> false-positive risk: during model thinking, the CLI writes
+> `AssistantMessageDeltaEvent` entries as tokens stream, so the file keeps growing.
+> Only a dead connection stops all writes. See **Long-Running Session Safety** section.
+
+**Additional mitigation (file-size-growth check)**: Even with the handler fix,
+dead connections from `ConnectionLostException` can still cause 30+ min delays
+under the mtime-only approach. The Case B file-size-growth check
+(`WatchdogCaseBMaxStaleChecks = 2`) now detects this in ~360s (3 cycles: 1 baseline + 2 stale checks) by verifying
+events.jsonl is actually growing, not just recently modified. See **INV-O16**.
 
 ### Bug: Steering cancels in-flight orchestration (PR #375)
 
@@ -872,6 +917,7 @@ Reflect mode runs multiple iterations. Expect this pattern:
    - [ ] Each worker actively processes (TurnStart/TurnEnd cycling)
    - [ ] Workers with sub-agents show [IDLE-DEFER] entries (expected)
    - [ ] Watchdog Case B correctly defers when events.jsonl is fresh
+   - [ ] File-size-growth check does NOT fire during active workers (file is growing)
    - [ ] No [ERROR] entries
    - [ ] Each worker eventually gets SessionIdleEvent (no BackgroundTasks) → CompleteResponse
 
@@ -913,6 +959,7 @@ Reflect mode runs multiple iterations. Expect this pattern:
 | Orchestration hangs on reconnect | Check for missing TrySetCanceled | TCS not canceled; see INV-O9 |
 | Many IDLE-DEFER entries | `grep "IDLE-DEFER" diagnostics.log` | Normal — worker has active sub-agents; wait for completion |
 | IDLE-DEFER but worker never completes | Check if background tasks are leaking | Sub-agent/shell not terminating; check CLI logs |
+| Worker stuck 30+ min, events.jsonl fresh | Check file size across watchdog cycles | Dead connection — file-size-growth check should catch in ~240s (INV-O16) |
 
 ---
 

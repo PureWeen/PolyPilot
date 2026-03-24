@@ -1627,8 +1627,9 @@ public partial class CopilotService
     /// grown before the watchdog stops deferring. When the JSON-RPC connection is lost (ConnectionLostException),
     /// events.jsonl stops growing but its modification time stays within the freshness window. Without
     /// this check, multi-agent sessions with 1800s freshness stay stuck for up to 30 minutes. With this
-    /// check, dead connections are detected within 2 deferral cycles (~4 minutes). The file size growth
-    /// check is a direct signal: if the CLI is actively writing events, the file grows; if dead, it doesn't.</summary>
+    /// check, dead connections are detected within 3 watchdog cycles (~6 minutes) — 1 baseline cycle to
+    /// record the initial file size, then 2 consecutive stale checks. The file size growth check is a
+    /// direct signal: if the CLI is actively writing events, the file grows; if dead, it doesn't.</summary>
     internal const int WatchdogCaseBMaxStaleChecks = 2;
 
     /// <summary>
