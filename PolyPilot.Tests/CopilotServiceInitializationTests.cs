@@ -941,4 +941,51 @@ public class CopilotServiceInitializationTests
 
         Assert.Empty(svc.GetAllSessions());
     }
+
+    [Fact]
+    public void BuildServerFallbackNotice_WithError_ContainsErrorMessage()
+    {
+        const string error = "Port 4321 already in use by another process";
+        const string logPath = "/tmp/.polypilot/event-diagnostics.log";
+
+        var notice = CopilotService.BuildServerFallbackNotice(error, logPath);
+
+        Assert.Contains(error, notice, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(logPath, notice, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Settings", notice, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildServerFallbackNotice_WithoutError_ContainsLogPathAndGuidance()
+    {
+        const string logPath = "/tmp/.polypilot/event-diagnostics.log";
+
+        var notice = CopilotService.BuildServerFallbackNotice(null, logPath);
+
+        Assert.DoesNotContain("\n\nError:", notice, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(logPath, notice, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Settings", notice, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildServerFallbackNotice_EmptyError_TreatsAsNoError()
+    {
+        const string logPath = "/tmp/.polypilot/event-diagnostics.log";
+
+        var notice = CopilotService.BuildServerFallbackNotice("", logPath);
+
+        // Empty error should be treated the same as null — no "Error:" prefix
+        Assert.DoesNotContain("\n\nError:", notice, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(logPath, notice, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildServerFallbackNotice_CustomReason_UsesReason()
+    {
+        const string logPath = "/tmp/.polypilot/event-diagnostics.log";
+
+        var notice = CopilotService.BuildServerFallbackNotice(null, logPath, "recovery failed — all sessions may be affected");
+
+        Assert.Contains("recovery failed", notice, StringComparison.OrdinalIgnoreCase);
+    }
 }
