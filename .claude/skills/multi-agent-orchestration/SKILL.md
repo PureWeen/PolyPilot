@@ -512,7 +512,7 @@ consecutive deferrals, the session is force-completed — the connection is dead
   check is an **additional** safety layer that fires only when the file is fresh
   (mtime-wise) but not growing (dead connection).
 
-**Timeline for dead connection detection**: ~240s (2 × 120s Case B check interval)
+**Timeline for dead connection detection**: ~360s (3 cycles: 1 baseline + 2 stale checks × ~120s each)
 instead of 30+ minutes under the old mtime-only approach.
 
 ---
@@ -959,7 +959,7 @@ Reflect mode runs multiple iterations. Expect this pattern:
 | Orchestration hangs on reconnect | Check for missing TrySetCanceled | TCS not canceled; see INV-O9 |
 | Many IDLE-DEFER entries | `grep "IDLE-DEFER" diagnostics.log` | Normal — worker has active sub-agents; wait for completion |
 | IDLE-DEFER but worker never completes | Check if background tasks are leaking | Sub-agent/shell not terminating; check CLI logs |
-| Worker stuck 30+ min, events.jsonl fresh | Check file size across watchdog cycles | Dead connection — file-size-growth check should catch in ~240s (INV-O16) |
+| Worker stuck 30+ min, events.jsonl fresh | Check file size across watchdog cycles | Dead connection — file-size-growth check should catch in ~360s (INV-O16) |
 
 ---
 
