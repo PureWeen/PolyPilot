@@ -86,8 +86,8 @@ public partial class CopilotService
         };
         _bridgeClient.OnContentReceived += (s, c) =>
         {
-            // Track that this session is actively streaming
-            _remoteStreamingSessions[s] = 0;
+            // Ensure streaming guard is present (don't overwrite generation counter)
+            _remoteStreamingSessions.TryAdd(s, 0);
 
             // Update local session history from remote events
             var session = GetRemoteSession(s);
@@ -103,14 +103,14 @@ public partial class CopilotService
         };
         _bridgeClient.OnToolStarted += (s, tool, id, input) =>
         {
-            _remoteStreamingSessions[s] = 0;
+            _remoteStreamingSessions.TryAdd(s, 0); // ensure guard present, don't reset generation
             var session = GetRemoteSession(s);
             session?.History.Add(ChatMessage.ToolCallMessage(tool, id, input));
             InvokeOnUI(() => OnToolStarted?.Invoke(s, tool, id, input));
         };
         _bridgeClient.OnToolCompleted += (s, id, result, success) =>
         {
-            _remoteStreamingSessions[s] = 0; // keep guard alive during tool execution
+            _remoteStreamingSessions.TryAdd(s, 0); // ensure guard present, don't reset generation
             var session = GetRemoteSession(s);
             var toolMsg = session?.History.LastOrDefault(m => m.ToolCallId == id);
             if (toolMsg != null)
@@ -183,9 +183,9 @@ public partial class CopilotService
         _bridgeClient.OnUsageInfoChanged += (s, u) => InvokeOnUI(() => OnUsageInfoChanged?.Invoke(s, u));
         _bridgeClient.OnTurnStart += (s) =>
         {
-            // Set streaming guard immediately so SyncRemoteSessions won't overwrite
-            // incrementally-built history before the first ContentDelta arrives.
-            _remoteStreamingSessions[s] = 0;
+            // Increment generation counter — each sub-turn gets a new generation so
+            // a delayed guard removal from a previous sub-turn won't kill this one.
+            _remoteStreamingSessions.AddOrUpdate(s, 1, (_, prev) => (byte)(prev + 1));
             var session = GetRemoteSession(s);
             if (session != null) { session.IsProcessing = true; }
             InvokeOnUI(() => OnTurnStart?.Invoke(s));
@@ -215,6 +215,8 @@ public partial class CopilotService
             // Request fresh history (capped to avoid massive payloads for long conversations),
             // then clear the streaming guard and force a sync so SyncRemoteSessions
             // uses the up-to-date history instead of a stale cache.
+            // Capture generation so the delayed removal doesn't kill a newer sub-turn's guard.
+            _remoteStreamingSessions.TryGetValue(s, out var turnEndGen);
             _ = Task.Run(async () =>
             {
                 try
@@ -227,7 +229,11 @@ public partial class CopilotService
                 catch { }
                 finally
                 {
-                    _remoteStreamingSessions.TryRemove(s, out _);
+                    // Only remove guard if no new sub-turn has started since this TurnEnd.
+                    // A new TurnStart increments the generation, so if it changed, a newer
+                    // sub-turn is streaming and we must not remove its guard.
+                    if (_remoteStreamingSessions.TryGetValue(s, out var currentGen) && currentGen == turnEndGen)
+                        _remoteStreamingSessions.TryRemove(s, out _);
                     // Force sync now that the guard is down — ensures fresh history
                     // from the server replaces incrementally-built content.
                     SyncRemoteSessions();
