@@ -9,15 +9,16 @@ public class AppDelegate : MauiUIApplicationDelegate
 
 	protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
 
-	public override bool FinishedLaunching(UIKit.UIApplication application, NSDictionary launchOptions)
+	public override bool FinishedLaunching(UIKit.UIApplication application, NSDictionary? launchOptions)
 	{
 		var result = base.FinishedLaunching(application, launchOptions);
 
 		// Disable App Nap — keeps timers, network I/O, and background threads running
 		// while the Mac lock screen is active. Without this, WsBridge debounce timers
 		// freeze, keepalive pings never fire, and clients see the app as dead.
-		// NSActivityOptions.UserInitiatedAllowingIdleSystemSleep = 0x00FFFFFF
-		// (prevents App Nap but allows system sleep — not in .NET Catalyst bindings by name)
+		// NSActivityOptions.UserInitiated = 0x00FFFFFF (per Apple NSProcessInfo.h)
+		// More aggressive than AllowingIdleSystemSleep (0x00EFFFFF) but necessary
+		// to keep WebSocket bridge alive during idle. Not in .NET Catalyst bindings.
 		_activityToken = NSProcessInfo.ProcessInfo.BeginActivity(
 			(NSActivityOptions)0x00FFFFFF,
 			"PolyPilot manages Copilot CLI sessions and serves remote clients via WebSocket");

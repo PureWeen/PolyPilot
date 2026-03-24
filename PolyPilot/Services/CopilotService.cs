@@ -17,7 +17,7 @@ public partial class CopilotService : IAsyncDisposable
     // before the server processes the close and removes them from its broadcast
     private readonly ConcurrentDictionary<string, byte> _recentlyClosedRemoteSessions = new();
     // Sessions currently receiving streaming content via bridge events — history sync skipped to avoid duplicates
-    private readonly ConcurrentDictionary<string, byte> _remoteStreamingSessions = new();
+    private readonly ConcurrentDictionary<string, int> _remoteStreamingSessions = new();
 
     /// <summary>
     /// Whether a session's history is still being synced after a turn completed (streaming guard active).

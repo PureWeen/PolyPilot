@@ -14,6 +14,12 @@ public partial class CopilotService
     private const int TurnEndHistoryLimit = 200;
 
     /// <summary>
+    /// When local history has fewer messages than this, allow SyncRemoteSessions to load
+    /// history even while the streaming guard is active (initial load phase).
+    /// </summary>
+    private const int InitialHistoryLoadThreshold = 10;
+
+    /// <summary>
     /// Convert an HTTP(S) URL to its WebSocket equivalent. Returns null for null/empty input.
     /// </summary>
     private static string? ToWebSocketUrl(string? url)
@@ -185,7 +191,7 @@ public partial class CopilotService
         {
             // Increment generation counter — each sub-turn gets a new generation so
             // a delayed guard removal from a previous sub-turn won't kill this one.
-            _remoteStreamingSessions.AddOrUpdate(s, 1, (_, prev) => (byte)(prev + 1));
+            _remoteStreamingSessions.AddOrUpdate(s, 1, (_, prev) => prev + 1);
             // Set IsProcessing on the UI thread to avoid race with TurnEnd:
             // When TurnEnd and TurnStart arrive back-to-back, both InvokeOnUI callbacks
             // are queued. TurnEnd fires first (sets false), then TurnStart fires (sets true).
@@ -241,7 +247,7 @@ public partial class CopilotService
                     // Atomic removal: only succeeds if both key and value match, preventing
                     // a TOCTOU race where TurnStart increments the generation between
                     // TryGetValue and TryRemove.
-                    _remoteStreamingSessions.TryRemove(new KeyValuePair<string, byte>(s, turnEndGen));
+                    _remoteStreamingSessions.TryRemove(new KeyValuePair<string, int>(s, turnEndGen));
                     // Force sync now that the guard is down — ensures fresh history
                     // from the server replaces incrementally-built content.
                     SyncRemoteSessions();
@@ -523,7 +529,7 @@ public partial class CopilotService
                 // But allow initial full-history sync through even with the guard up:
                 // when local history is tiny (< 10), we're still in the initial load phase and
                 // the guard is only active because TurnStart fired before history arrived.
-                if (_remoteStreamingSessions.ContainsKey(name) && s.Info.History.Count >= 10)
+                if (_remoteStreamingSessions.ContainsKey(name) && s.Info.History.Count >= InitialHistoryLoadThreshold)
                     continue;
 
                 if (messages.Count >= s.Info.History.Count)
