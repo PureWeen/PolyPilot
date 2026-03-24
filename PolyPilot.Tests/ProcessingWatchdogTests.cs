@@ -2903,4 +2903,163 @@ public class ProcessingWatchdogTests
         var isVolatile = requiredMods.Any(t => t.FullName == "System.Runtime.CompilerServices.IsVolatile");
         Assert.True(isVolatile, "IsReconnectedSend must be declared as 'volatile bool' (field has volatile modifier)");
     }
+
+    // ===== Case B file size growth check (ConnectionLostException dead-connection detection) =====
+
+    [Fact]
+    public void WatchdogCaseBMaxStaleChecks_Value()
+    {
+        // After this many consecutive Case B checks with no file growth, deferral stops.
+        // 2 checks × ~120s cycle = ~240s (4 min) to detect a dead connection.
+        Assert.Equal(2, CopilotService.WatchdogCaseBMaxStaleChecks);
+        Assert.True(CopilotService.WatchdogCaseBMaxStaleChecks >= 1,
+            "Need at least 1 stale check to confirm — 0 would disable Case B entirely");
+        Assert.True(CopilotService.WatchdogCaseBMaxStaleChecks <= 5,
+            "More than 5 stale checks means dead connections take too long to detect");
+    }
+
+    [Fact]
+    public void WatchdogCaseB_FileSizeGrowthCheck_InSource()
+    {
+        // Regression test: Case B must check events.jsonl file size growth, not just
+        // modification time. When a ConnectionLostException kills the JSON-RPC connection,
+        // events.jsonl stops growing but its modification time stays within the freshness
+        // window (especially the 1800s multi-agent window). Without a growth check,
+        // multi-agent sessions stay stuck for up to 30 minutes.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // Must reference the max stale checks constant
+        Assert.True(watchdogBody.Contains("WatchdogCaseBMaxStaleChecks"),
+            "Case B must reference WatchdogCaseBMaxStaleChecks to cap stale file checks");
+
+        // Must track file size across deferrals
+        Assert.True(watchdogBody.Contains("WatchdogCaseBLastFileSize"),
+            "Case B must track events.jsonl file size for growth detection");
+
+        // Must track stale count
+        Assert.True(watchdogBody.Contains("WatchdogCaseBStaleCount"),
+            "Case B must track consecutive stale checks");
+
+        // Must compare current size to previous
+        Assert.True(watchdogBody.Contains("currentFileSize <= prevSize"),
+            "Case B must compare current file size against previous to detect stale file");
+    }
+
+    [Fact]
+    public void WatchdogCaseB_StaleDetection_SkipsDeferral_InSource()
+    {
+        // When stale checks exceed the max, caseBEventsActive must be set to false
+        // so the deferral is skipped and the session is force-completed.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // When stale, caseBEventsActive must be set to false
+        Assert.True(watchdogBody.Contains("caseBEventsActive = false"),
+            "Case B must set caseBEventsActive=false when stale checks exceed the max");
+
+        // Must log the detection for diagnostics
+        Assert.True(watchdogBody.Contains("connection likely dead"),
+            "Case B stale detection must log 'connection likely dead' for diagnostics");
+    }
+
+    [Fact]
+    public void WatchdogCaseB_GrowthResetsStaleCount_InSource()
+    {
+        // When events.jsonl grows between Case B checks, the stale counter must reset.
+        // This prevents false positives when the CLI is actively writing but slowly.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // Must reset stale counter when file grows
+        Assert.True(watchdogBody.Contains("WatchdogCaseBStaleCount, 0"),
+            "Case B must reset WatchdogCaseBStaleCount to 0 when file size grows");
+    }
+
+    [Fact]
+    public void SessionState_HasCaseBFileSizeFields()
+    {
+        // SessionState must have fields for tracking Case B file size growth.
+        var sessionStateType = typeof(CopilotService).GetNestedTypes(
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public)
+            .FirstOrDefault(t => t.Name == "SessionState");
+        Assert.NotNull(sessionStateType);
+
+        var lastFileSize = sessionStateType!.GetField("WatchdogCaseBLastFileSize",
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(lastFileSize);
+        Assert.Equal(typeof(long), lastFileSize!.FieldType);
+
+        var staleCount = sessionStateType.GetField("WatchdogCaseBStaleCount",
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(staleCount);
+        Assert.Equal(typeof(int), staleCount!.FieldType);
+    }
+
+    [Fact]
+    public void WatchdogCaseB_StaleFieldsResetOnEventArrival_InSource()
+    {
+        // When real SDK events arrive, the Case B stale tracking must reset alongside
+        // WatchdogCaseBResets. This ensures a revived connection clears stale state.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+
+        // Find the event handler section where CaseBResets is reset on real event arrival
+        var handlerSection = source.Substring(0, source.IndexOf("private async Task RunProcessingWatchdogAsync"));
+
+        // Both stale tracking fields must be reset alongside WatchdogCaseBResets
+        Assert.True(handlerSection.Contains("WatchdogCaseBLastFileSize, 0"),
+            "WatchdogCaseBLastFileSize must be reset to 0 when real SDK events arrive");
+        Assert.True(handlerSection.Contains("WatchdogCaseBStaleCount, 0"),
+            "WatchdogCaseBStaleCount must be reset to 0 when real SDK events arrive");
+    }
+
+    [Fact]
+    public void WatchdogCaseB_StaleFieldsResetOnWatchdogStart_InSource()
+    {
+        // StartProcessingWatchdog must reset the new stale tracking fields
+        // alongside the existing WatchdogCaseBResets reset.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+
+        // Find the StartProcessingWatchdog method
+        var startIdx = source.IndexOf("private void StartProcessingWatchdog(");
+        var endIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync", startIdx);
+        var startBody = source.Substring(startIdx, endIdx - startIdx);
+
+        Assert.True(startBody.Contains("WatchdogCaseBLastFileSize, 0"),
+            "StartProcessingWatchdog must reset WatchdogCaseBLastFileSize");
+        Assert.True(startBody.Contains("WatchdogCaseBStaleCount, 0"),
+            "StartProcessingWatchdog must reset WatchdogCaseBStaleCount");
+    }
+
+    [Fact]
+    public void WatchdogCaseB_UsesFileInfoForSizeAndTime_InSource()
+    {
+        // Case B must use FileInfo to get both size and modification time in a single
+        // filesystem call, avoiding a TOCTOU race between separate File.GetLastWriteTimeUtc
+        // and FileInfo.Length calls.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // Must use new FileInfo(ep) to read both properties atomically
+        Assert.True(watchdogBody.Contains("new FileInfo(ep)"),
+            "Case B must use FileInfo to get size and time together");
+        Assert.True(watchdogBody.Contains("fileInfo.LastWriteTimeUtc"),
+            "Case B must read LastWriteTimeUtc from FileInfo");
+        Assert.True(watchdogBody.Contains("fileInfo.Length"),
+            "Case B must read Length from FileInfo");
+    }
 }

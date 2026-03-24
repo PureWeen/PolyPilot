@@ -492,6 +492,15 @@ public partial class CopilotService : IAsyncDisposable
         /// deferred completion. Capped by WatchdogMaxCaseBResets to prevent infinite deferrals
         /// when events.jsonl was written during the turn but the CLI has actually finished.</summary>
         public int WatchdogCaseBResets;
+        /// <summary>Events.jsonl file size (bytes) at the last Case B deferral check. Used to detect
+        /// dead connections: if the file hasn't grown across consecutive deferrals, the CLI is no
+        /// longer writing events and the session should be force-completed. Reset to 0 when real
+        /// SDK events arrive (WatchdogCaseBResets reset) or when a new watchdog starts.</summary>
+        public long WatchdogCaseBLastFileSize;
+        /// <summary>Number of consecutive Case B deferrals where events.jsonl file size didn't grow.
+        /// When this reaches WatchdogCaseBMaxStaleChecks, deferral is stopped even if the file
+        /// modification time is within the freshness window (dead connection detected).</summary>
+        public int WatchdogCaseBStaleCount;
         /// <summary>True if the TurnEnd→Idle fallback was canceled by an AssistantTurnStartEvent.
         /// Used for diagnostic logging: when the next TurnEnd re-arms the fallback, the log shows
         /// the self-healing loop in action (TurnEnd → TurnStart cancel → TurnEnd re-arm).</summary>

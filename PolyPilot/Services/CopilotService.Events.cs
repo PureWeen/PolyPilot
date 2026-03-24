@@ -231,6 +231,8 @@ public partial class CopilotService
             // JSON-RPC connection is alive, so future Case A resets are legitimate.
             Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
             Interlocked.Exchange(ref state.WatchdogCaseBResets, 0);
+            Interlocked.Exchange(ref state.WatchdogCaseBLastFileSize, 0);
+            Interlocked.Exchange(ref state.WatchdogCaseBStaleCount, 0);
             // Clear the reconnect flag — event stream is alive for this session.
             state.IsReconnectedSend = false;
             state.Info.LastUpdatedAt = DateTime.Now;
@@ -1621,6 +1623,14 @@ public partial class CopilotService
     /// 1800s (30 min) aligns with the 60-min worker execution timeout as the ultimate backstop.</summary>
     internal const int WatchdogMultiAgentCaseBFreshnessSeconds = 1800;
 
+    /// <summary>Maximum number of consecutive Case B deferrals where events.jsonl file size has NOT
+    /// grown before the watchdog stops deferring. When the JSON-RPC connection is lost (ConnectionLostException),
+    /// events.jsonl stops growing but its modification time stays within the freshness window. Without
+    /// this check, multi-agent sessions with 1800s freshness stay stuck for up to 30 minutes. With this
+    /// check, dead connections are detected within 2 deferral cycles (~4 minutes). The file size growth
+    /// check is a direct signal: if the CLI is actively writing events, the file grows; if dead, it doesn't.</summary>
+    internal const int WatchdogCaseBMaxStaleChecks = 2;
+
     /// <summary>
     /// Milliseconds after a tool starts to perform the first health check. If no events have
     /// arrived since tool start, we verify the connection is still alive. This detects dead
@@ -1933,6 +1943,8 @@ public partial class CopilotService
         Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
         Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
         Interlocked.Exchange(ref state.WatchdogCaseBResets, 0);
+        Interlocked.Exchange(ref state.WatchdogCaseBLastFileSize, 0);
+        Interlocked.Exchange(ref state.WatchdogCaseBStaleCount, 0);
         state.ProcessingWatchdog = new CancellationTokenSource();
         var ct = state.ProcessingWatchdog.Token;
         _ = RunProcessingWatchdogAsync(state, sessionName, ct);
@@ -2179,7 +2191,9 @@ public partial class CopilotService
                                         var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
                                         if (File.Exists(ep))
                                         {
-                                            var lastWrite = File.GetLastWriteTimeUtc(ep);
+                                            var fileInfo = new FileInfo(ep);
+                                            var lastWrite = fileInfo.LastWriteTimeUtc;
+                                            var currentFileSize = fileInfo.Length;
                                             var age = (DateTime.UtcNow - lastWrite).TotalSeconds;
                                             // File must be: (1) written after this turn started AND
                                             // (2) written within the freshness window (CLI is still active).
@@ -2201,6 +2215,37 @@ public partial class CopilotService
                                                           $"skipping deferral (server killed session)");
                                                     caseBEventsActive = false;
                                                 }
+                                            }
+
+                                            // File size growth check: if the file hasn't grown since the
+                                            // last Case B deferral, the CLI is no longer writing events —
+                                            // the session's JSON-RPC connection is likely dead (ConnectionLostException).
+                                            // The freshness window (especially 1800s for multi-agent) keeps
+                                            // caseBEventsActive=true based on modification time alone, but
+                                            // a truly active CLI would be appending new events. After
+                                            // WatchdogCaseBMaxStaleChecks consecutive checks with no growth,
+                                            // override the freshness signal and force completion.
+                                            if (caseBEventsActive)
+                                            {
+                                                var prevSize = Interlocked.Read(ref state.WatchdogCaseBLastFileSize);
+                                                if (prevSize > 0 && currentFileSize <= prevSize)
+                                                {
+                                                    var staleCount = Interlocked.Increment(ref state.WatchdogCaseBStaleCount);
+                                                    if (staleCount >= WatchdogCaseBMaxStaleChecks)
+                                                    {
+                                                        Debug($"[WATCHDOG] '{sessionName}' Case B — events.jsonl not growing " +
+                                                              $"(size={currentFileSize}, staleChecks={staleCount}/{WatchdogCaseBMaxStaleChecks}) " +
+                                                              $"— connection likely dead, skipping deferral " +
+                                                              $"(elapsed={elapsed:F0}s, totalProcessing={totalProcessingSeconds:F0}s)");
+                                                        caseBEventsActive = false;
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    // File grew — CLI is actively writing, reset stale counter
+                                                    Interlocked.Exchange(ref state.WatchdogCaseBStaleCount, 0);
+                                                }
+                                                Interlocked.Exchange(ref state.WatchdogCaseBLastFileSize, currentFileSize);
                                             }
                                         }
                                     }
