@@ -126,7 +126,8 @@ public class ServerManager : IServerManager
                 }
             }
 
-            // Server didn't become ready — collect any stderr output for diagnostics
+            // Server didn't become ready — wait briefly for any final stderr output then collect diagnostics
+            await Task.WhenAny(t2, Task.Delay(500));
             var stderr = string.Join("\n", stderrLines).Trim();
             LastError = string.IsNullOrEmpty(stderr)
                 ? $"Server process started (PID {process.Id}) but did not respond on port {port} after 15 seconds."

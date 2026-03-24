@@ -988,4 +988,29 @@ public class CopilotServiceInitializationTests
 
         Assert.Contains("recovery failed", notice, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void BuildServerFallbackNotice_EmbeddedFallback_True_IncludesFallbackClause()
+    {
+        const string logPath = "/tmp/.polypilot/event-diagnostics.log";
+
+        var notice = CopilotService.BuildServerFallbackNotice(null, logPath, embeddedFallback: true);
+
+        Assert.Contains("fell back to Embedded mode", notice, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("sessions won't persist", notice, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildServerFallbackNotice_EmbeddedFallback_False_OmitsFallbackClause()
+    {
+        const string logPath = "/tmp/.polypilot/event-diagnostics.log";
+
+        var notice = CopilotService.BuildServerFallbackNotice(null, logPath, "recovery failed", embeddedFallback: false);
+
+        Assert.DoesNotContain("Embedded mode", notice, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("sessions won't persist", notice, StringComparison.OrdinalIgnoreCase);
+        // Still shows log path and Settings guidance
+        Assert.Contains(logPath, notice, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Settings", notice, StringComparison.OrdinalIgnoreCase);
+    }
 }
