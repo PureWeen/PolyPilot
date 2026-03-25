@@ -382,6 +382,53 @@ public static class SettingsRegistry
             SearchKeywords = "auto update main git watch relaunch rebuild developer",
         });
 
+        // ── Integrations ─────────────────────────────────────────────────────
+
+        list.Add(new SettingDescriptor
+        {
+            Id = "ha.enabled",
+            Label = "Enable Home Assistant reporting",
+            Description = "Post PolyPilot status (mode, session count, active session) to a Home Assistant sensor whenever state changes.",
+            Category = "Integrations",
+            Section = "Home Assistant",
+            Type = SettingType.Bool,
+            Order = 10,
+            SearchKeywords = "home assistant ha integration webhook sensor status report",
+            GetValue = ctx => ctx.Settings.HomeAssistantEnabled,
+            SetValue = (ctx, v) => { if (v is bool b) ctx.Settings.HomeAssistantEnabled = b; },
+        });
+
+        list.Add(new SettingDescriptor
+        {
+            Id = "ha.url",
+            Label = "Home Assistant URL",
+            Description = "Base URL of your Home Assistant instance, e.g. http://homeassistant.local:8123",
+            Category = "Integrations",
+            Section = "Home Assistant",
+            Type = SettingType.String,
+            Order = 20,
+            SearchKeywords = "home assistant ha url address host",
+            GetValue = ctx => ctx.Settings.HomeAssistantUrl ?? "",
+            SetValue = (ctx, v) => ctx.Settings.HomeAssistantUrl = v as string,
+            IsVisible = ctx => ctx.Settings.HomeAssistantEnabled,
+        });
+
+        list.Add(new SettingDescriptor
+        {
+            Id = "ha.token",
+            Label = "Long-Lived Access Token",
+            Description = "Token generated in Home Assistant under Profile → Long-Lived Access Tokens.",
+            Category = "Integrations",
+            Section = "Home Assistant",
+            Type = SettingType.String,
+            IsSecret = true,
+            Order = 30,
+            SearchKeywords = "home assistant ha token secret api key auth",
+            GetValue = ctx => ctx.Settings.HomeAssistantToken ?? "",
+            SetValue = (ctx, v) => ctx.Settings.HomeAssistantToken = v as string,
+            IsVisible = ctx => ctx.Settings.HomeAssistantEnabled,
+        });
+
         return list;
     }
 

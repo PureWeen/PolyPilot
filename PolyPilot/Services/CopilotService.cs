@@ -224,6 +224,12 @@ public partial class CopilotService : IAsyncDisposable
 
     public string DefaultModel { get; set; } = "claude-opus-4.6";
     public bool IsInitialized { get; private set; }
+
+    /// <summary>Number of sessions currently processing a prompt.</summary>
+    public int ProcessingSessionCount => _sessions.Values.Count(s => s.Info.IsProcessing);
+
+    /// <summary>The most recently applied connection settings (null before first initialization).</summary>
+    public ConnectionSettings? CurrentSettings => _currentSettings;
     public bool IsRestoring { get; private set; }
     public bool NeedsConfiguration { get; private set; }
     public bool IsRemoteMode { get; private set; }

@@ -68,6 +68,10 @@
                     Diagnostics
                 </button>
             }
+            <button class="settings-nav-item @(activeCategory == "integrations" ? "active" : "")" @onclick='() => ScrollToCategory("integrations")'>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                Integrations
+            </button>
         </nav>
         }
 
@@ -597,6 +601,20 @@
         </div>
     </div>
     }
+
+    @{ var integrationSettings = SettingsRegistry.ForCategory("Integrations", settingsCtx).ToList(); }
+    <div id="settings-integrations" class="settings-group @(GroupVisible("integrations") ? "" : "search-hidden")">
+        <h2 class="group-title">Integrations</h2>
+        <div class="settings-section">
+            @foreach (var desc in integrationSettings)
+            {
+                @if (SettingMatchesSearch(desc))
+                {
+                    <PolyPilot.Components.Settings.SettingEditor Descriptor="desc" Context="settingsCtx" OnChanged="OnSettingChanged" />
+                }
+            }
+        </div>
+    </div>
 
     @if (!string.IsNullOrEmpty(statusMessage))
     {

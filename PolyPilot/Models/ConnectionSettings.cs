@@ -127,6 +127,23 @@ public class ConnectionSettings
     /// </summary>
     public bool EnableVerboseEventTracing { get; set; } = false;
 
+    // ── Home Assistant integration ─────────────────────────────────────────────
+    public bool HomeAssistantEnabled { get; set; } = false;
+    public string? HomeAssistantUrl { get; set; }
+
+    // HomeAssistantToken: secret on iOS/Android (stored in SecureStorage), plain JSON on desktop.
+#if IOS || ANDROID
+    private string? _homeAssistantToken;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? HomeAssistantToken
+    {
+        get => _homeAssistantToken;
+        set { if (_homeAssistantToken != value) { _homeAssistantToken = value; _secretsDirty = true; } }
+    }
+#else
+    public string? HomeAssistantToken { get; set; }
+#endif
+
     /// <summary>
     /// Normalizes a remote URL by ensuring it has an http(s):// scheme.
     /// Plain IPs/hostnames get http://, devtunnels/known TLS hosts get https://.
@@ -338,6 +355,7 @@ public class ConnectionSettings
     private const string RemoteTokenKey = "polypilot.connection.remoteToken";
     private const string LanTokenKey = "polypilot.connection.lanToken";
     private const string ServerPasswordKey = "polypilot.connection.serverPassword";
+    private const string HomeAssistantTokenKey = "polypilot.connection.homeAssistantToken";
 
     private void MigrateAndLoadMobileSecrets(string? loadedJson)
     {
@@ -361,6 +379,7 @@ public class ConnectionSettings
             var storedRemote = GetSecureStorageSync(RemoteTokenKey);
             var storedLan    = GetSecureStorageSync(LanTokenKey);
             var storedPass   = GetSecureStorageSync(ServerPasswordKey);
+            var storedHaToken = GetSecureStorageSync(HomeAssistantTokenKey);
 
             // Migrate legacy plaintext values to SecureStorage on first run.
             // Per-field tracking: only scrub a field from JSON after confirming its write succeeded,
@@ -384,6 +403,7 @@ public class ConnectionSettings
             _remoteToken = storedRemote;
             _lanToken    = storedLan;
             _serverPassword = storedPass;
+            _homeAssistantToken = storedHaToken;
             _secretsDirty = false;
 
             // Only scrub legacy JSON if every field that existed was successfully migrated.
@@ -409,7 +429,8 @@ public class ConnectionSettings
         {
             bool ok = SetSecureStorageSync(RemoteTokenKey, _remoteToken)
                     & SetSecureStorageSync(LanTokenKey, _lanToken)
-                    & SetSecureStorageSync(ServerPasswordKey, _serverPassword);
+                    & SetSecureStorageSync(ServerPasswordKey, _serverPassword)
+                    & SetSecureStorageSync(HomeAssistantTokenKey, _homeAssistantToken);
             // Only clear dirty flag if all writes succeeded; leave true to retry on next save
             if (ok) _secretsDirty = false;
         }

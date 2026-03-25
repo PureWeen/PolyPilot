@@ -1547,6 +1547,87 @@
           "note": "After recovery, a notice should inform the user the server was restarted"
         }
       ]
+    },
+    {
+      "id": "home-assistant-integration-enable-disable",
+      "name": "Home Assistant integration can be enabled and configured in Settings",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/settings']"
+        },
+        {
+          "action": "wait",
+          "ms": 800
+        },
+        {
+          "action": "click",
+          "selector": "#nav-integrations",
+          "note": "Navigate to Integrations section in Settings"
+        },
+        {
+          "action": "wait",
+          "ms": 400
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('#settings-integrations') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Integrations section must be present in the Settings page"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('#settings-integrations input[type=checkbox]') !== null",
+          "expect": {
+            "equals": true
+          },
+          "note": "Home Assistant enable toggle must be visible"
+        },
+        {
+          "action": "click",
+          "selector": "#settings-integrations input[type=checkbox]",
+          "note": "Enable Home Assistant integration"
+        },
+        {
+          "action": "wait",
+          "ms": 400
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('#settings-integrations input[type=checkbox]').checked",
+          "expect": {
+            "equals": true
+          },
+          "note": "Toggle should now be checked"
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelectorAll('#settings-integrations input[type=text]').length >= 1",
+          "expect": {
+            "equals": true
+          },
+          "note": "HA URL and token fields should appear after enabling"
+        },
+        {
+          "action": "click",
+          "selector": "#settings-integrations input[type=checkbox]",
+          "note": "Disable Home Assistant integration"
+        },
+        {
+          "action": "wait",
+          "ms": 400
+        },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('#settings-integrations input[type=checkbox]').checked",
+          "expect": {
+            "equals": false
+          },
+          "note": "Toggle should now be unchecked; HA URL/token fields hidden"
+        }
+      ]
     }
   ]
 }

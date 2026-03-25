@@ -7,7 +7,7 @@ public partial class App : Application
 	private readonly CopilotService _copilotService;
 	private readonly WsBridgeServer _bridgeServer;
 
-	public App(INotificationManagerService notificationService, CopilotService copilotService, WsBridgeServer bridgeServer)
+	public App(INotificationManagerService notificationService, CopilotService copilotService, WsBridgeServer bridgeServer, HomeAssistantReporterService haReporter)
 	{
 		_copilotService = copilotService;
 		_bridgeServer = bridgeServer;

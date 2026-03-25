@@ -399,9 +399,24 @@ public class ChatDatabaseResilienceTests : IDisposable
         var id = await db.AddMessageAsync("s1", ChatMessage.UserMessage("before-corrupt"));
         Assert.True(id > 0);
 
-        // Corrupt the file and reset connection to force a fresh open
+        // Corrupt the file and reset connection to force a fresh open.
+        // ResetConnection fires CloseAsync fire-and-forget; on Windows the file
+        // handle isn't released immediately, so retry with a brief delay.
         db.ResetConnection();
-        await File.WriteAllBytesAsync(dbPath, new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            try
+            {
+                await File.WriteAllBytesAsync(dbPath, new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
+                break;
+            }
+            catch (IOException) when (attempt < 9)
+            {
+                await Task.Delay(200);
+            }
+        }
 
         var id2 = await db.AddMessageAsync("s1", ChatMessage.UserMessage("after-corrupt"));
         Assert.Equal(-1, id2);
