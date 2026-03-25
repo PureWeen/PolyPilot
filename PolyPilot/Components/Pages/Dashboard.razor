@@ -1102,7 +1102,7 @@
                         var result = {};
                         var active = document.activeElement;
                         document.querySelectorAll('.card-input input, .card-input textarea, .expanded-card .input-area textarea').forEach(function(el) {
-                            if (el.id && el.value) result[el.id] = el.value;
+                            if (el.id) result[el.id] = el.value || '';
                         });
                         if (active && active.id) result['__focused'] = active.id;
                         if (active) { result['__selStart'] = active.selectionStart || 0; result['__selEnd'] = active.selectionEnd || 0; }
@@ -1120,6 +1120,8 @@
                             var sessionName = id.Replace("input-", "").Replace("-", " ");
                             if (!string.IsNullOrEmpty(val))
                                 draftBySession[sessionName] = val;
+                            else
+                                draftBySession.Remove(sessionName);
                         }
                         if (saved.TryGetValue("__focused", out var fid))
                             _focusedInputId = fid;
