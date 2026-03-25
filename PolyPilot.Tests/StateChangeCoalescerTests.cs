@@ -29,15 +29,22 @@ public class StateChangeCoalescerTests
     public async Task RapidCalls_CoalesceIntoSingleNotification()
     {
         var svc = CreateService();
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int fireCount = 0;
-        svc.OnStateChanged += () => Interlocked.Increment(ref fireCount);
+        svc.OnStateChanged += () =>
+        {
+            Interlocked.Increment(ref fireCount);
+            tcs.TrySetResult();
+        };
 
         // Fire 20 rapid coalesced notifications
         for (int i = 0; i < 20; i++)
             svc.NotifyStateChangedCoalesced();
 
-        // Wait for the coalesce timer to fire (150ms + margin)
-        await Task.Delay(300);
+        // Wait for at least one notification to fire (with generous timeout for CI)
+        await Task.WhenAny(tcs.Task, Task.Delay(2000));
+        // Small additional window for any extra coalesced fires
+        await Task.Delay(100);
 
         // Should have coalesced into 1 notification (not 20)
         Assert.InRange(fireCount, 1, 3);
