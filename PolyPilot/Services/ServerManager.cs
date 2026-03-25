@@ -231,10 +231,7 @@ public class ServerManager : IServerManager
         // System-installed CLIs may have been updated independently and could have a mismatched protocol.
         var bundledPath = CopilotService.ResolveBundledCliPath();
         if (bundledPath != null)
-        {
-            Console.WriteLine($"[ServerManager] Using bundled copilot binary: {bundledPath}");
             return bundledPath;
-        }
 
         Console.WriteLine($"[ServerManager] Bundled copilot binary not found. " +
             $"Assembly.Location='{typeof(CopilotClient).Assembly.Location}', " +

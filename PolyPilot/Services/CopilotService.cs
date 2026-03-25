@@ -659,14 +659,9 @@ public partial class CopilotService : IAsyncDisposable
         }
     }
 
-    private void Debug(string message)
+    internal static bool ShouldPersistDiagnostic(string message)
     {
-        LastDebugMessage = message;
-        Console.WriteLine($"[DEBUG] {message}");
-        OnDebug?.Invoke(message);
-
-        // Persist lifecycle diagnostics to file for post-mortem analysis
-        if (message.StartsWith("[EVT") || message.StartsWith("[IDLE") ||
+        return message.StartsWith("[EVT") || message.StartsWith("[IDLE") ||
             message.StartsWith("[COMPLETE") || message.StartsWith("[SEND") ||
             message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
             message.StartsWith("[DISPATCH") || message.StartsWith("[WATCHDOG") ||
@@ -674,7 +669,17 @@ public partial class CopilotService : IAsyncDisposable
             message.StartsWith("[PERMISSION") || message.StartsWith("[RESUME-ABORT") ||
             message.StartsWith("[KEEPALIVE") || message.StartsWith("[ERROR") ||
             message.StartsWith("[ABORT") || message.StartsWith("[BRIDGE") ||
-            message.Contains("watchdog") || message.Contains("Failed to"))
+            message.Contains("watchdog") || message.Contains("Failed to");
+    }
+
+    private void Debug(string message)
+    {
+        LastDebugMessage = message;
+        Console.WriteLine($"[DEBUG] {message}");
+        OnDebug?.Invoke(message);
+
+        // Persist lifecycle diagnostics to file for post-mortem analysis
+        if (ShouldPersistDiagnostic(message))
         {
             try
             {

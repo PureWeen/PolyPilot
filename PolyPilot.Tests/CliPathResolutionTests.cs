@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using GitHub.Copilot.SDK;
 using PolyPilot.Models;
+using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
@@ -355,5 +356,70 @@ public class CliPathResolutionTests
         // Either way, ResolveBundledCliPath should find the binary using one of the paths.
         Assert.NotNull(assemblyDir);
         Assert.False(string.IsNullOrEmpty(baseDir));
+    }
+
+    // ================================================================
+    // Direct CopilotService resolution tests (regression tests)
+    // ================================================================
+
+    [Fact]
+    public void ResolveBundledCliPath_ReturnsNonNull()
+    {
+        // Critical regression test: the bundled CLI binary must always be discoverable.
+        // ResolveBundledCliPath checks runtimes/{rid}/native/copilot, MonoBundle fallback,
+        // and AppContext.BaseDirectory fallback.
+        var path = CopilotService.ResolveBundledCliPath();
+
+        Assert.NotNull(path);
+        Assert.False(string.IsNullOrWhiteSpace(path),
+            "ResolveBundledCliPath() returned empty/whitespace — the bundled copilot binary was not found");
+    }
+
+    [Fact]
+    public void ResolveBundledCliPath_ReturnedPath_FileExists()
+    {
+        // The path returned by ResolveBundledCliPath must point to an actual file on disk.
+        var path = CopilotService.ResolveBundledCliPath();
+        Assert.NotNull(path);
+
+        Assert.True(File.Exists(path),
+            $"ResolveBundledCliPath() returned '{path}' but the file does not exist");
+    }
+
+    [Fact]
+    public void ResolveCopilotCliPath_BuiltIn_ReturnsNonNull()
+    {
+        // CliSourceMode.BuiltIn resolves the bundled binary first, then falls back to system.
+        var path = CopilotService.ResolveCopilotCliPath(CliSourceMode.BuiltIn);
+
+        Assert.NotNull(path);
+        Assert.False(string.IsNullOrWhiteSpace(path),
+            "ResolveCopilotCliPath(BuiltIn) should find the bundled copilot binary");
+    }
+
+    [Fact]
+    public void ResolveCopilotCliPath_System_ReturnsNonNull()
+    {
+        // CliSourceMode.System checks system paths first (homebrew, npm) then falls back
+        // to the bundled binary. Since the bundled binary exists, this should always succeed.
+        var path = CopilotService.ResolveCopilotCliPath(CliSourceMode.System);
+
+        Assert.NotNull(path);
+        Assert.False(string.IsNullOrWhiteSpace(path),
+            "ResolveCopilotCliPath(System) should find a copilot binary " +
+            "(system install or bundled fallback)");
+    }
+
+    [Fact]
+    public void GetCliSourceInfo_ReturnsBuiltInPath()
+    {
+        // GetCliSourceInfo returns a tuple with builtInPath, builtInVersion,
+        // systemPath, and systemVersion. The builtInPath must always be non-null
+        // because the SDK ships the bundled binary.
+        var info = CopilotService.GetCliSourceInfo();
+
+        Assert.NotNull(info.builtInPath);
+        Assert.False(string.IsNullOrWhiteSpace(info.builtInPath),
+            "GetCliSourceInfo().builtInPath should point to the bundled copilot binary");
     }
 }
