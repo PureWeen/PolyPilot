@@ -638,6 +638,16 @@
             window.switchKeepAliveSlot(slotId, name);
         }, true);
 
+        // Pause auto-scroll when user clicks inside a chat message area (not on interactive elements)
+        document.addEventListener('click', function(e) {
+            var target = e.target;
+            if (target.closest('button, a, input, textarea, select, .chat-input, .input-area, .card-input')) return;
+            var msgContainer = target.closest('.messages');
+            if (msgContainer) msgContainer.__userPaused = true;
+            var cardContainer = target.closest('.card-messages');
+            if (cardContainer) cardContainer.__userPaused = true;
+        }, true);
+
         window.saveCardScrollPositions = function() {
             window.__cardScrollPositions = {};
             document.querySelectorAll('.card-messages').forEach(function(el) {
@@ -660,12 +670,18 @@
             window.ensureSlashCommandAutocomplete();
             function doScroll() {
                 // Expanded chat: auto-follow with near-bottom tracking
+                // __userPaused is set when the user clicks inside the chat area;
+                // forceScroll (new message sent) or scrolling back to bottom re-enables it.
                 document.querySelectorAll('.messages').forEach(function(el) {
                     if (!el.__scrollInit) {
                         el.__scrollInit = true;
                         el.__wasAtBottom = true;
+                        el.__userPaused = false;
                         el.scrollTop = el.scrollHeight;
                         return;
+                    }
+                    if (forceScroll) {
+                        el.__userPaused = false;
                     }
                     var threshold = 300;
                     var distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -673,12 +689,13 @@
                     
                     if (isNearBottom) {
                         el.__wasAtBottom = true;
+                        el.__userPaused = false;
                     }
                     if (distFromBottom > 500) {
                         el.__wasAtBottom = false;
                     }
                     
-                    if (forceScroll || isNearBottom || el.__wasAtBottom) {
+                    if (!el.__userPaused && (forceScroll || isNearBottom || el.__wasAtBottom)) {
                         el.scrollTop = el.scrollHeight;
                     }
                 });
@@ -688,6 +705,7 @@
                     var key = card ? card.getAttribute('data-session') : null;
                     if (!el.__scrollInit) {
                         el.__scrollInit = true;
+                        el.__userPaused = false;
                         // Restore: if card was at bottom, snap to bottom (handles new content)
                         // Otherwise restore exact position
                         if (key && window.__cardScrollPositions && window.__cardScrollPositions[key] != null) {
@@ -701,6 +719,7 @@
                             el.scrollTop = el.scrollHeight;
                         }
                     } else if (forceScroll) {
+                        el.__userPaused = false;
                         el.scrollTop = el.scrollHeight;
                     }
                 });
