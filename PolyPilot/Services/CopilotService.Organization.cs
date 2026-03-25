@@ -1915,7 +1915,7 @@ public partial class CopilotService
         sb.AppendLine("Assign the MINIMUM number of workers needed. For single-item requests (one PR, one bug, one question), prefer assigning just ONE worker — the one with the best context from previous turns.");
         sb.AppendLine("Only fan out to multiple workers when the request genuinely contains multiple INDEPENDENT tasks (e.g., 'review PR #100 and PR #200' = 2 workers).");
         sb.AppendLine("Do NOT split a single task into micro-tasks across workers (e.g., one worker to check commits, another to build, another to grep — that's all one worker's job).");
-        sb.AppendLine("If you assign multiple workers, produce all @worker blocks in THIS SINGLE RESPONSE — not one at a time.");
+        sb.AppendLine("IMPORTANT: Produce all @worker blocks in THIS SINGLE RESPONSE — not one at a time.");
         sb.AppendLine("Each worker retains conversation history from previous turns, so prefer the worker who already worked on the relevant topic.");
         sb.AppendLine("You may include brief analysis before the @worker blocks, but every response MUST contain @worker blocks for all workers you intend to use.");
         sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
@@ -1958,7 +1958,7 @@ public partial class CopilotService
         sb.AppendLine("Describe the task here on a separate line.");
         sb.AppendLine("@end");
         sb.AppendLine();
-        sb.AppendLine("Produce @worker blocks for ALL workers now. Do NOT explain, do NOT summarize previous work, ONLY output @worker blocks.");
+        sb.AppendLine("Produce @worker blocks for the workers you need. Do NOT explain, do NOT summarize previous work, ONLY output @worker blocks.");
         return sb.ToString();
     }
 
