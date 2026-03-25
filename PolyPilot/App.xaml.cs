@@ -5,10 +5,14 @@ namespace PolyPilot;
 public partial class App : Application
 {
 	private readonly CopilotService _copilotService;
+	private readonly WsBridgeServer _bridgeServer;
+	private readonly DevTunnelService _devTunnelService;
 
-	public App(INotificationManagerService notificationService, CopilotService copilotService)
+	public App(INotificationManagerService notificationService, CopilotService copilotService, WsBridgeServer bridgeServer, DevTunnelService devTunnelService)
 	{
 		_copilotService = copilotService;
+		_bridgeServer = bridgeServer;
+		_devTunnelService = devTunnelService;
 		InitializeComponent();
 		_ = notificationService.InitializeAsync();
 
@@ -41,10 +45,11 @@ public partial class App : Application
 		}
 
 #if MACCATALYST
-		// Subscribe to NSWorkspace sleep/wake notifications so we can proactively recover
-		// the copilot connection immediately after the Mac wakes from sleep (App.OnResume
-		// only fires when the app is re-activated, not on system wake).
-		PolyPilot.Platforms.MacCatalyst.MacSleepWakeMonitor.Register(_copilotService);
+		// Subscribe to NSWorkspace sleep/wake and screen-lock/unlock notifications so we
+		// can proactively recover the copilot connection and re-sync mobile clients.
+		// App.OnResume() only fires when the app is re-activated by the user, not on
+		// system wake or lock-screen unlock without clicking PolyPilot.
+		PolyPilot.Platforms.MacCatalyst.MacSleepWakeMonitor.Register(_copilotService, _bridgeServer, _devTunnelService);
 #endif
 
 		return window;

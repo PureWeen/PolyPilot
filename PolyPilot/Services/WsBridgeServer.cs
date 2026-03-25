@@ -1114,6 +1114,18 @@ public class WsBridgeServer : IDisposable
         try { _orgStateDebounce?.Change(OrgStateDebounceMs, Timeout.Infinite); } catch (ObjectDisposedException) { }
     }
 
+    /// <summary>
+    /// Immediately broadcasts current session list and organization state to all connected mobile clients.
+    /// Call after Mac unlock/wake to re-sync clients that reconnected during the lock screen gap.
+    /// </summary>
+    public void BroadcastStateToClients()
+    {
+        if (_clients.IsEmpty) return;
+        Console.WriteLine("[WsBridge] Broadcasting state to clients after unlock/wake");
+        BroadcastSessionsList();
+        BroadcastOrganizationState();
+    }
+
     private void BroadcastSessionsList()
     {
         if (_copilot == null || _clients.IsEmpty) return;
