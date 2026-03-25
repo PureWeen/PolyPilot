@@ -3315,8 +3315,9 @@ public partial class CopilotService
             {
                 Debug($"Failed to create worker session '{workerName}': {ex.Message}");
             }
-            // Assign group/model/prompt even if session already existed from a previous run
+            // Assign group/role/model/prompt even if session already existed from a previous run
             MoveSession(workerName, group.Id);
+            SetSessionRole(workerName, MultiAgentRole.Worker);
             SetSessionPreferredModel(workerName, workerModel);
             var systemPrompt = preset.WorkerSystemPrompts != null && i < preset.WorkerSystemPrompts.Length
                 ? preset.WorkerSystemPrompts[i] : null;
