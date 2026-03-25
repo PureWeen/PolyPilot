@@ -3349,6 +3349,7 @@ public partial class CopilotService
             }
             // Assign group/model/prompt even if session already existed from a previous run
             MoveSession(workerName, group.Id);
+            SetSessionRole(workerName, MultiAgentRole.Worker);
             SetSessionPreferredModel(workerName, workerModel);
             var systemPrompt = preset.WorkerSystemPrompts != null && i < preset.WorkerSystemPrompts.Length
                 ? preset.WorkerSystemPrompts[i] : null;
