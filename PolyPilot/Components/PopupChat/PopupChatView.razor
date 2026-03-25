@@ -1,0 +1,72 @@
+@using PolyPilot.Services
+
+<div class="popup-root">
+    <div class="popup-header">
+        <span class="popup-session-name">@Request.SessionName</span>
+        <div class="popup-header-actions">
+            <button class="popup-btn-open" @onclick="OpenInFullApp" title="Open in full app">⬡ Open</button>
+            <button class="popup-btn-dismiss" @onclick="Dismiss" title="Dismiss">✕</button>
+        </div>
+    </div>
+
+    <div class="popup-response" id="popup-response">
+        @if (!string.IsNullOrWhiteSpace(Request.LastResponse))
+        {
+            <div class="popup-response-text">@Request.LastResponse</div>
+        }
+        else
+        {
+            <div class="popup-response-empty">Session completed.</div>
+        }
+    </div>
+
+    <div class="popup-input-row">
+        <input id="popup-input"
+               class="popup-input"
+               type="text"
+               placeholder="Follow-up message…"
+               @onkeydown="OnKeyDown"
+               autofocus />
+        <button class="popup-btn-send" @onclick="Send" disabled="@_sending">
+            @if (_sending)
+            {
+                <span>…</span>
+            }
+            else
+            {
+                <span>Send ↵</span>
+            }
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public PopupRequest Request { get; set; } = null!;
+    [Parameter] public MinimizedModeService Service { get; set; } = null!;
+
+    [Inject] private IJSRuntime JS { get; set; } = null!;
+
+    private bool _sending;
+
+    private async Task Send()
+    {
+        var prompt = await JS.InvokeAsync<string?>("eval", "document.getElementById('popup-input')?.value?.trim()");
+        if (string.IsNullOrWhiteSpace(prompt)) return;
+
+        _sending = true;
+        StateHasChanged();
+
+        Service.SendAndDismiss(Request.SessionName, prompt);
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+            await Send();
+        else if (e.Key == "Escape")
+            Dismiss();
+    }
+
+    private void Dismiss() => Service.DismissPopup();
+    private void OpenInFullApp() => Service.OpenInFullApp(Request.SessionName);
+}

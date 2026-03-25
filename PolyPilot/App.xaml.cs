@@ -5,10 +5,12 @@ namespace PolyPilot;
 public partial class App : Application
 {
 	private readonly CopilotService _copilotService;
+	private readonly MinimizedModeService _minimizedModeService;
 
-	public App(INotificationManagerService notificationService, CopilotService copilotService)
+	public App(INotificationManagerService notificationService, CopilotService copilotService, MinimizedModeService minimizedModeService)
 	{
 		_copilotService = copilotService;
+		_minimizedModeService = minimizedModeService;
 		InitializeComponent();
 		_ = notificationService.InitializeAsync();
 
@@ -29,16 +31,26 @@ public partial class App : Application
 	{
 		var window = new Window(new MainPage()) { Title = "" };
 
-		// When the window is brought to the foreground (e.g. via AppleScript from a second
-		// instance that started because macOS resolved a different bundle for a notification
-		// tap), check whether there is a pending deep-link navigation queued in the sidecar.
-		window.Activated += (_, _) => CheckPendingNavigation();
+		// Track whether the main window is focused for minimized mode popup logic
+		window.Activated += (_, _) =>
+		{
+			_minimizedModeService.IsMainWindowFocused = true;
+			CheckPendingNavigation();
+		};
+		window.Deactivated += (_, _) => _minimizedModeService.IsMainWindowFocused = false;
 
 		if (OperatingSystem.IsLinux())
 		{
 			window.Width = 1400;
 			window.Height = 900;
 		}
+
+#if MACCATALYST
+		// Register Mac sleep/wake observer so we reconnect immediately after the Mac wakes,
+		// even if the user doesn't click on PolyPilot (OnResume only fires on app activation).
+		PolyPilot.Platforms.MacCatalyst.MacSleepWakeMonitor.Register(_copilotService);
+#endif
+
 		return window;
 	}
 

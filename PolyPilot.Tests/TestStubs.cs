@@ -221,3 +221,12 @@ internal class StubDemoService : IDemoService
     }
 }
 #pragma warning restore CS0067
+
+internal class StubMinimizedModeService : IMinimizedModeService
+{
+    public bool IsMainWindowFocused { get; set; } = true;
+    public List<(string SessionName, string SessionId, string? LastResponse)> Completions { get; } = new();
+
+    public void OnSessionCompleted(string sessionName, string sessionId, string? lastResponse)
+        => Completions.Add((sessionName, sessionId, lastResponse));
+}

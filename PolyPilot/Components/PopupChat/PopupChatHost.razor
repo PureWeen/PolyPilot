@@ -1,0 +1,11 @@
+@using PolyPilot.Services
+
+@* Root component for the minimized mode popup window.
+   Mounted directly via RootComponent (no router) so it owns the full #app div. *@
+
+<PopupChatView Request="Request" Service="Service" />
+
+@code {
+    [Parameter] public PopupRequest Request { get; set; } = null!;
+    [Parameter] public MinimizedModeService Service { get; set; } = null!;
+}
