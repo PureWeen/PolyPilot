@@ -83,6 +83,7 @@ public static class BridgeMessageTypes
     public const string ListDirectories = "list_directories";
     public const string MultiAgentBroadcast = "multi_agent_broadcast";
     public const string MultiAgentCreateGroup = "multi_agent_create_group";
+    public const string MultiAgentCreateGroupFromPreset = "multi_agent_create_group_from_preset";
     public const string MultiAgentSetRole = "multi_agent_set_role";
     public const string ChangeModel = "change_model";
     public const string RenameSession = "rename_session";
@@ -369,6 +370,27 @@ public class MultiAgentCreateGroupPayload
     public string Mode { get; set; } = "Broadcast";
     public string? OrchestratorPrompt { get; set; }
     public List<string>? SessionNames { get; set; }
+}
+
+public class CreateGroupFromPresetPayload
+{
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+    public string? Emoji { get; set; }
+    public string Mode { get; set; } = "Broadcast";
+    public string OrchestratorModel { get; set; } = "";
+    public string[] WorkerModels { get; set; } = Array.Empty<string>();
+    public string?[]? WorkerSystemPrompts { get; set; }
+    public string?[]? WorkerDisplayNames { get; set; }
+    public string? SharedContext { get; set; }
+    public string? RoutingContext { get; set; }
+    public string? DefaultWorktreeStrategy { get; set; }
+    public int? MaxReflectIterations { get; set; }
+    public string? WorkingDirectory { get; set; }
+    public string? WorktreeId { get; set; }
+    public string? RepoId { get; set; }
+    public string? NameOverride { get; set; }
+    public string? StrategyOverride { get; set; }
 }
 
 public class MultiAgentProgressPayload

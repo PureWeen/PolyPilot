@@ -723,6 +723,44 @@ public class WsBridgeServer : IDisposable
                     }
                     break;
 
+                case BridgeMessageTypes.MultiAgentCreateGroupFromPreset:
+                    var presetReq = msg.GetPayload<CreateGroupFromPresetPayload>();
+                    if (presetReq != null && _copilot != null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var presetMode = Enum.TryParse<MultiAgentMode>(presetReq.Mode, out var pm) ? pm : MultiAgentMode.Broadcast;
+                                WorktreeStrategy? strategy = presetReq.StrategyOverride != null && Enum.TryParse<WorktreeStrategy>(presetReq.StrategyOverride, out var ws) ? ws : null;
+                                var preset = new Models.GroupPreset(
+                                    presetReq.Name, presetReq.Description ?? "", presetReq.Emoji ?? "🤖", presetMode,
+                                    presetReq.OrchestratorModel, presetReq.WorkerModels)
+                                {
+                                    WorkerSystemPrompts = presetReq.WorkerSystemPrompts,
+                                    WorkerDisplayNames = presetReq.WorkerDisplayNames,
+                                    SharedContext = presetReq.SharedContext,
+                                    RoutingContext = presetReq.RoutingContext,
+                                    DefaultWorktreeStrategy = presetReq.DefaultWorktreeStrategy != null && Enum.TryParse<WorktreeStrategy>(presetReq.DefaultWorktreeStrategy, out var dws) ? dws : null,
+                                    MaxReflectIterations = presetReq.MaxReflectIterations,
+                                };
+                                await _copilot.CreateGroupFromPresetAsync(preset,
+                                    workingDirectory: presetReq.WorkingDirectory,
+                                    worktreeId: presetReq.WorktreeId,
+                                    repoId: presetReq.RepoId,
+                                    nameOverride: presetReq.NameOverride,
+                                    strategyOverride: strategy,
+                                    ct: ct);
+                                BroadcastOrganizationState();
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"[WsBridge] CreateGroupFromPreset failed: {ex.Message}");
+                            }
+                        });
+                    }
+                    break;
+
                 case BridgeMessageTypes.PushOrganization:
                     var pushOrg = msg.GetPayload<OrganizationState>();
                     if (pushOrg != null && _copilot != null)

@@ -3166,6 +3166,36 @@ public partial class CopilotService
     /// </summary>
     public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, string? worktreeId = null, string? repoId = null, string? nameOverride = null, WorktreeStrategy? strategyOverride = null, CancellationToken ct = default)
     {
+        // In remote mode, delegate entirely to the server so it creates the group,
+        // sessions, roles, and worktrees atomically. Without this, the mobile creates
+        // the group locally but sessions are created on the server in the default group,
+        // and the server's org broadcast races with mobile's local mutations.
+        if (IsRemoteMode)
+        {
+            var payload = new CreateGroupFromPresetPayload
+            {
+                Name = preset.Name,
+                Description = preset.Description,
+                Emoji = preset.Emoji,
+                Mode = preset.Mode.ToString(),
+                OrchestratorModel = preset.OrchestratorModel,
+                WorkerModels = preset.WorkerModels,
+                WorkerSystemPrompts = preset.WorkerSystemPrompts,
+                WorkerDisplayNames = preset.WorkerDisplayNames,
+                SharedContext = preset.SharedContext,
+                RoutingContext = preset.RoutingContext,
+                DefaultWorktreeStrategy = preset.DefaultWorktreeStrategy?.ToString(),
+                MaxReflectIterations = preset.MaxReflectIterations,
+                WorkingDirectory = workingDirectory,
+                WorktreeId = worktreeId,
+                RepoId = repoId,
+                NameOverride = nameOverride,
+                StrategyOverride = strategyOverride?.ToString(),
+            };
+            await _bridgeClient.CreateGroupFromPresetAsync(payload, ct);
+            return null; // server will broadcast the updated organization state
+        }
+
         var teamName = nameOverride ?? preset.Name;
         var strategy = strategyOverride ?? preset.DefaultWorktreeStrategy ?? WorktreeStrategy.Shared;
         var group = CreateMultiAgentGroup(teamName, preset.Mode, worktreeId: worktreeId, repoId: repoId);
