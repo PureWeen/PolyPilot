@@ -421,10 +421,7 @@ public class WsBridgeServer : IDisposable
             {
                 var active = _copilot.GetActiveSession();
                 if (active != null && active.History.Count > 0)
-                    // Send full history on initial connection (up to 200 messages), not just last 10.
-                    // This ensures text responses between/after tool calls are visible on mobile.
-                    // Subsequent syncs use incremental content_delta and periodic history requests.
-                    await SendSessionHistoryToClient(clientId, ws, active.Name, 200, ct);
+                    await SendSessionHistoryToClient(clientId, ws, active.Name, CopilotService.HistoryLimitForBridge, ct);
             }
 
             // Read client commands (with fragmentation support)
@@ -558,7 +555,7 @@ public class WsBridgeServer : IDisposable
                     {
                         _copilot.SetActiveSession(switchReq.SessionName);
                         BroadcastSessionsList();
-                        await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, 10, ct);
+                        await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, CopilotService.HistoryLimitForBridge, ct);
                     }
                     break;
 
