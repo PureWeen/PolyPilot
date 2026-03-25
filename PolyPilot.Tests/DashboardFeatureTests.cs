@@ -182,23 +182,27 @@ public class DashboardFeatureTests
     #region GetFocusSessions logic
 
     [Fact]
-    public void GetFocusSessions_ReturnsProcessingSessions()
+    public void GetFocusSessions_Bootstrap_IncludesAllNonWorkerSessions()
     {
         var svc = CreateService();
 
-        var processing = new AgentSessionInfo { Name = "active-session", Model = "m", IsProcessing = true };
+        var active = new AgentSessionInfo { Name = "active-session", Model = "m", IsProcessing = true };
         var idle = new AgentSessionInfo { Name = "idle-session", Model = "m", IsProcessing = false };
-        idle.LastUpdatedAt = DateTime.Now.AddDays(-2); // old, not in 24h window
 
-        InjectSession(svc, processing);
+        InjectSession(svc, active);
         InjectSession(svc, idle);
         svc.Organization.Sessions.Add(new SessionMeta { SessionName = "active-session", GroupId = SessionGroup.DefaultId });
         svc.Organization.Sessions.Add(new SessionMeta { SessionName = "idle-session", GroupId = SessionGroup.DefaultId });
+        // FocusOrder is empty — bootstraps from all sessions
 
         var focus = svc.GetFocusSessions();
 
+        // Both sessions appear (no filtering by processing status)
         Assert.Contains(focus, s => s.Name == "active-session");
-        Assert.DoesNotContain(focus, s => s.Name == "idle-session");
+        Assert.Contains(focus, s => s.Name == "idle-session");
+        // FocusOrder was populated
+        Assert.Contains(svc.Organization.FocusOrder, n => n == "active-session");
+        Assert.Contains(svc.Organization.FocusOrder, n => n == "idle-session");
     }
 
     [Fact]
@@ -207,62 +211,125 @@ public class DashboardFeatureTests
         var svc = CreateService();
 
         var unread = new AgentSessionInfo { Name = "unread-session", Model = "m", IsProcessing = false };
-        unread.LastUpdatedAt = DateTime.Now.AddDays(-2); // old
         unread.History.Add(ChatMessage.AssistantMessage("Response pending your attention"));
 
-        var idle = new AgentSessionInfo { Name = "idle-session", Model = "m", IsProcessing = false };
-        idle.LastUpdatedAt = DateTime.Now.AddDays(-2);
-
         InjectSession(svc, unread);
-        InjectSession(svc, idle);
         svc.Organization.Sessions.Add(new SessionMeta { SessionName = "unread-session", GroupId = SessionGroup.DefaultId });
-        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "idle-session", GroupId = SessionGroup.DefaultId });
 
         var focus = svc.GetFocusSessions();
 
         Assert.Contains(focus, s => s.Name == "unread-session");
-        Assert.DoesNotContain(focus, s => s.Name == "idle-session");
     }
 
     [Fact]
-    public void GetFocusSessions_FocusOverrideIncluded_AlwaysShows()
+    public void AddToFocus_AddsSessionToBottom()
     {
         var svc = CreateService();
-
-        var session = new AgentSessionInfo { Name = "pinned-session", Model = "m", IsProcessing = false };
-        session.LastUpdatedAt = DateTime.Now.AddDays(-10); // very old, would not appear normally
-
+        svc.Organization.FocusOrder.AddRange(["first", "second"]);
+        var session = new AgentSessionInfo { Name = "new-session", Model = "m" };
         InjectSession(svc, session);
-        svc.Organization.Sessions.Add(new SessionMeta
-        {
-            SessionName = "pinned-session",
-            GroupId = SessionGroup.DefaultId,
-            FocusOverride = FocusOverride.Included
-        });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "new-session", GroupId = SessionGroup.DefaultId });
 
-        var focus = svc.GetFocusSessions();
+        svc.AddToFocus("new-session");
 
-        Assert.Contains(focus, s => s.Name == "pinned-session");
+        Assert.Equal(["first", "second", "new-session"], svc.Organization.FocusOrder);
     }
 
     [Fact]
-    public void GetFocusSessions_FocusOverrideExcluded_NeverShows()
+    public void AddToFocus_AlreadyPresent_IsIdempotent()
+    {
+        var svc = CreateService();
+        svc.Organization.FocusOrder.AddRange(["first", "second"]);
+
+        svc.AddToFocus("first");
+
+        Assert.Equal(["first", "second"], svc.Organization.FocusOrder);
+    }
+
+    [Fact]
+    public void RemoveFromFocus_RemovesSession()
+    {
+        var svc = CreateService();
+        svc.Organization.FocusOrder.AddRange(["first", "second", "third"]);
+
+        svc.RemoveFromFocus("second");
+
+        Assert.Equal(["first", "third"], svc.Organization.FocusOrder);
+    }
+
+    [Fact]
+    public void RemoveFromFocus_NonExistent_DoesNotThrow()
+    {
+        var svc = CreateService();
+        svc.Organization.FocusOrder.Add("only");
+
+        svc.RemoveFromFocus("ghost");
+
+        Assert.Equal(["only"], svc.Organization.FocusOrder);
+    }
+
+    [Fact]
+    public void PromoteFocusSession_MovesUp()
+    {
+        var svc = CreateService();
+        svc.Organization.FocusOrder.AddRange(["a", "b", "c"]);
+
+        svc.PromoteFocusSession("b");
+
+        Assert.Equal(["b", "a", "c"], svc.Organization.FocusOrder);
+    }
+
+    [Fact]
+    public void PromoteFocusSession_AlreadyFirst_NoChange()
+    {
+        var svc = CreateService();
+        svc.Organization.FocusOrder.AddRange(["a", "b", "c"]);
+
+        svc.PromoteFocusSession("a");
+
+        Assert.Equal(["a", "b", "c"], svc.Organization.FocusOrder);
+    }
+
+    [Fact]
+    public void DemoteFocusSession_MovesDown()
+    {
+        var svc = CreateService();
+        svc.Organization.FocusOrder.AddRange(["a", "b", "c"]);
+
+        svc.DemoteFocusSession("b");
+
+        Assert.Equal(["a", "c", "b"], svc.Organization.FocusOrder);
+    }
+
+    [Fact]
+    public void DemoteFocusSession_AlreadyLast_NoChange()
+    {
+        var svc = CreateService();
+        svc.Organization.FocusOrder.AddRange(["a", "b", "c"]);
+
+        svc.DemoteFocusSession("c");
+
+        Assert.Equal(["a", "b", "c"], svc.Organization.FocusOrder);
+    }
+
+    [Fact]
+    public void GetFocusSessions_RespectsManualFocusOrder()
     {
         var svc = CreateService();
 
-        // This session IS processing, but is explicitly excluded from Focus
-        var session = new AgentSessionInfo { Name = "excluded-session", Model = "m", IsProcessing = true };
-        InjectSession(svc, session);
-        svc.Organization.Sessions.Add(new SessionMeta
-        {
-            SessionName = "excluded-session",
-            GroupId = SessionGroup.DefaultId,
-            FocusOverride = FocusOverride.Excluded
-        });
+        var a = new AgentSessionInfo { Name = "a", Model = "m", IsProcessing = true };
+        var b = new AgentSessionInfo { Name = "b", Model = "m", IsProcessing = false };
+        InjectSession(svc, a);
+        InjectSession(svc, b);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "a", GroupId = SessionGroup.DefaultId });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "b", GroupId = SessionGroup.DefaultId });
+        // Manually put b before a — no auto-sort should override this
+        svc.Organization.FocusOrder.AddRange(["b", "a"]);
 
         var focus = svc.GetFocusSessions();
+        var names = focus.Select(s => s.Name).ToList();
 
-        Assert.DoesNotContain(focus, s => s.Name == "excluded-session");
+        Assert.Equal(["b", "a"], names);
     }
 
     [Fact]
@@ -280,109 +347,63 @@ public class DashboardFeatureTests
 
         svc.Organization.Sessions.Add(new SessionMeta { SessionName = "MyTeam-worker-1", GroupId = "ma-group", Role = MultiAgentRole.Worker });
         svc.Organization.Sessions.Add(new SessionMeta { SessionName = "MyTeam-orchestrator", GroupId = "ma-group", Role = MultiAgentRole.Orchestrator });
+        // Workers must not bootstrap into FocusOrder
+        // Orchestrator should be in FocusOrder (bootstrap adds non-workers)
 
         var focus = svc.GetFocusSessions();
 
         // Workers should not appear in Focus (they're managed by orchestrator)
         Assert.DoesNotContain(focus, s => s.Name == "MyTeam-worker-1");
-        // Orchestrator (Role != Worker) should appear since it's processing
+        // Orchestrator (Role != Worker) should appear
         Assert.Contains(focus, s => s.Name == "MyTeam-orchestrator");
     }
 
     [Fact]
-    public void GetFocusSessions_ProcessingFirstInSort()
+    public void GetFocusSessions_WorkerByNamePattern_ExcludedFromFocusEvenIfRoleNone()
     {
         var svc = CreateService();
-
-        var processing = new AgentSessionInfo { Name = "processing", Model = "m", IsProcessing = true };
-        var unread = new AgentSessionInfo { Name = "unread", Model = "m", IsProcessing = false };
-        unread.History.Add(ChatMessage.AssistantMessage("Pending attention"));
-        unread.LastUpdatedAt = DateTime.Now.AddMinutes(-5);
-
-        InjectSession(svc, processing);
-        InjectSession(svc, unread);
-        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "processing", GroupId = SessionGroup.DefaultId });
-        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "unread", GroupId = SessionGroup.DefaultId });
+        // Worker session with Role=None (corruption — should still be excluded by name pattern)
+        var worker = new AgentSessionInfo { Name = "AGR-worker-1", Model = "m", IsProcessing = true };
+        InjectSession(svc, worker);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "AGR-worker-1", GroupId = SessionGroup.DefaultId, Role = MultiAgentRole.None });
 
         var focus = svc.GetFocusSessions();
-        var names = focus.Select(s => s.Name).ToList();
 
-        // Processing comes before unread
-        Assert.True(names.IndexOf("processing") < names.IndexOf("unread"),
-            "Processing session should sort before unread session");
+        Assert.DoesNotContain(focus, s => s.Name == "AGR-worker-1");
+        Assert.DoesNotContain(svc.Organization.FocusOrder, n => n == "AGR-worker-1");
     }
 
     [Fact]
-    public void GetFocusSessions_HandledSessions_SortToBottom()
+    public void GetFocusSessions_SessionsRemovedFromFocusOrder_NotReturned()
     {
         var svc = CreateService();
 
-        var unhandled = new AgentSessionInfo { Name = "unhandled", Model = "m", IsProcessing = false };
-        unhandled.LastUpdatedAt = DateTime.Now.AddMinutes(-30);
-        unhandled.History.Add(ChatMessage.AssistantMessage("Needs attention"));
+        var a = new AgentSessionInfo { Name = "a", Model = "m" };
+        var b = new AgentSessionInfo { Name = "b", Model = "m" };
+        InjectSession(svc, a);
+        InjectSession(svc, b);
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "a", GroupId = SessionGroup.DefaultId });
+        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "b", GroupId = SessionGroup.DefaultId });
+        svc.Organization.FocusOrder.AddRange(["a", "b"]);
 
-        var handled = new AgentSessionInfo { Name = "handled", Model = "m", IsProcessing = false };
-        handled.LastUpdatedAt = DateTime.Now.AddMinutes(-5); // More recent but handled
-
-        InjectSession(svc, unhandled);
-        InjectSession(svc, handled);
-        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "unhandled", GroupId = SessionGroup.DefaultId });
-        svc.Organization.Sessions.Add(new SessionMeta
-        {
-            SessionName = "handled",
-            GroupId = SessionGroup.DefaultId,
-            HandledAt = DateTime.Now.AddMinutes(-10)
-        });
-
+        svc.RemoveFromFocus("b");
         var focus = svc.GetFocusSessions();
-        var names = focus.Select(s => s.Name).ToList();
 
-        // Unhandled (even with older activity) sorts before handled
-        Assert.True(names.IndexOf("unhandled") < names.IndexOf("handled"),
-            "Unhandled sessions should sort before handled sessions");
+        Assert.Contains(focus, s => s.Name == "a");
+        Assert.DoesNotContain(focus, s => s.Name == "b");
     }
 
     [Fact]
-    public void GetFocusSessions_OldestWaitingFirst_WithinUnhandled()
-    {
-        var svc = CreateService();
-
-        // "newer" session updated 5 min ago (less urgent — user saw it more recently)
-        var newer = new AgentSessionInfo { Name = "newer", Model = "m", IsProcessing = false };
-        newer.LastUpdatedAt = DateTime.Now.AddMinutes(-5);
-        newer.History.Add(ChatMessage.AssistantMessage("Recent message"));
-
-        // "older" session waiting 60 min (more urgent — waiting longest)
-        var older = new AgentSessionInfo { Name = "older", Model = "m", IsProcessing = false };
-        older.LastUpdatedAt = DateTime.Now.AddMinutes(-60);
-        older.History.Add(ChatMessage.AssistantMessage("Waiting a long time"));
-
-        InjectSession(svc, newer);
-        InjectSession(svc, older);
-        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "newer", GroupId = SessionGroup.DefaultId });
-        svc.Organization.Sessions.Add(new SessionMeta { SessionName = "older", GroupId = SessionGroup.DefaultId });
-
-        var focus = svc.GetFocusSessions();
-        var names = focus.Select(s => s.Name).ToList();
-
-        // Oldest waiting session sorts first (triage order)
-        Assert.True(names.IndexOf("older") < names.IndexOf("newer"),
-            "Oldest waiting session should sort before more recently active sessions");
-    }
-
-    [Fact]
-    public void MarkFocusHandled_SetsHandledAtOnMeta()
+    public void MarkFocusHandled_DemotesSession()
     {
         var svc = CreateService();
         svc.Organization.Sessions.Add(new SessionMeta { SessionName = "my-session", GroupId = SessionGroup.DefaultId });
+        svc.Organization.FocusOrder.AddRange(["my-session", "other"]);
 
-        var before = DateTime.Now;
         svc.MarkFocusHandled("my-session");
-        var after = DateTime.Now;
 
-        var meta = svc.Organization.Sessions.First(m => m.SessionName == "my-session");
-        Assert.NotNull(meta.HandledAt);
-        Assert.InRange(meta.HandledAt!.Value, before, after);
+        // MarkFocusHandled demotes (moves to bottom), does NOT remove
+        Assert.Equal(["other", "my-session"], svc.Organization.FocusOrder);
     }
 
     [Fact]

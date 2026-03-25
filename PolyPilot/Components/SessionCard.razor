@@ -55,15 +55,15 @@
                     </button>
                 }
                 <div class="card-menu-separator"></div>
-                @if (Meta?.FocusOverride == FocusOverride.Excluded)
+                @if (IsInFocusStrip)
                 {
-                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetFocusOverride(Session.Name, FocusOverride.Auto); }">
-                        🎯 Re-enable auto-focus
+                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.RemoveFromFocus(Session.Name); }">
+                        🎯 Remove from Focus
                     </button>
                 }
-                else if (!IsInFocusStrip)
+                else
                 {
-                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.SetFocusOverride(Session.Name, FocusOverride.Included); }">
+                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.AddToFocus(Session.Name); }">
                         🎯 Add to Focus
                     </button>
                 }
@@ -80,13 +80,19 @@
         }
         @if (IsInFocusStrip)
         {
-            <button class="card-handled-focus" @onclick="() => OnHandledInFocus.InvokeAsync()" title="Mark as handled — moves to bottom of Focus list">✓</button>
+            <button class="card-focus-up" @onclick="() => OnPromote.InvokeAsync()" title="Move up in Focus">⬆</button>
+            <button class="card-focus-down" @onclick="() => OnDemote.InvokeAsync()" title="Move down in Focus">⬇</button>
+            <button class="card-focus-remove" @onclick="() => OnRemoveFromFocus.InvokeAsync()" title="Remove from Focus">✕</button>
         }
         <button class="card-expand" @onclick="ExpandSession" title="Expand">⤢</button>
     </div>
     @if (Session.NeedsAttention)
     {
         <div class="attention-banner">💬 Awaiting your response</div>
+    }
+    @if (ActiveWorkerCount > 0)
+    {
+        <div class="worker-active-banner">⚙️ @ActiveWorkerCount worker@(ActiveWorkerCount != 1 ? "s" : "") active</div>
     }
     <div class="card-context">
         <span class="card-model">@GetSessionModel(Session)</span>
@@ -241,12 +247,19 @@
     [Parameter] public EventCallback OnClearQueue { get; set; }
     [Parameter] public EventCallback<int> OnRemovePendingImage { get; set; }
     [Parameter] public EventCallback<string> OnSend { get; set; } // message text
-    /// <summary>When set, shows a checkmark "Handled" button that marks this session as handled in the Focus strip.</summary>
+    /// <summary>When in Focus strip, removes this session from Focus.</summary>
+    [Parameter] public EventCallback OnRemoveFromFocus { get; set; }
+    /// <summary>Moves session up one position in Focus order.</summary>
+    [Parameter] public EventCallback OnPromote { get; set; }
+    /// <summary>Moves session down one position in Focus order.</summary>
+    [Parameter] public EventCallback OnDemote { get; set; }
+    /// <summary>Kept for backward compatibility.</summary>
     [Parameter] public EventCallback OnHandledInFocus { get; set; }
-    /// <summary>Kept for backward compatibility — use OnHandledInFocus instead.</summary>
+    /// <summary>Kept for backward compatibility — use OnRemoveFromFocus instead.</summary>
     [Parameter] public EventCallback OnDismissFromFocus { get; set; }
     /// <summary>When true, the card is rendered in the Focus strip (slightly more messages, distinct styling).</summary>
     [Parameter] public bool IsInFocusStrip { get; set; }
+    [Parameter] public int ActiveWorkerCount { get; set; } = 0;
     /// <summary>Minimum height in px for the card. 0 = use CSS default.</summary>
     [Parameter] public int MinHeight { get; set; } = 0;
     private async Task HandleRenameKeyUp(KeyboardEventArgs e)

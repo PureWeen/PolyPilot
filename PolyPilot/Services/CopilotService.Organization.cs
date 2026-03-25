@@ -36,6 +36,7 @@ public partial class CopilotService
     /// session detection in ~90s. This is only an absolute backstop.</summary>
     private static readonly TimeSpan WorkerExecutionTimeout = TimeSpan.FromMinutes(60);
     private static readonly TimeSpan WorkerExecutionTimeoutRemote = TimeSpan.FromMinutes(10);
+    private static readonly Regex WorkerNamePattern = new(@"-[Ww]orker-\d+(-\d+)?$", RegexOptions.Compiled);
 
     /// <summary>How long to poll for premature idle indicators after the initial TCS completes.
     /// Checks both WasPrematurelyIdled flag (set by EVT-REARM) and events.jsonl freshness
@@ -205,7 +206,7 @@ public partial class CopilotService
         // but ONLY if matching workers also exist. This prevents false-positives on user
         // sessions coincidentally named "*-orchestrator" (e.g., "deploy-orchestrator").
         var orchestratorPattern = new Regex(@"-[Oo]rchestrator(-\d+)?$", RegexOptions.Compiled);
-        var workerPattern = new Regex(@"-[Ww]orker-\d+(-\d+)?$", RegexOptions.Compiled);
+        var workerPattern = WorkerNamePattern;
         var nameHealedSessions = new HashSet<string>();
         foreach (var meta in Organization.Sessions)
         {
@@ -222,6 +223,34 @@ public partial class CopilotService
                 nameHealedSessions.Add(meta.SessionName);
                 healed = true;
             }
+        }
+
+        // Phase 1b: Restore Role=Worker for sessions identifiable by name pattern.
+        // Workers whose Role wasn't persisted correctly (e.g. created with custom system
+        // prompts, or during orchestration before the Role assignment ran) still have
+        // "*-worker-*" names. Heal them so GetFocusSessions and other Role checks work.
+        // Only heal if the session belongs to a multi-agent group, or if a matching
+        // orchestrator exists — prevents false-positives on user-named sessions.
+        var multiAgentGroupIds = Organization.Groups
+            .Where(g => g.IsMultiAgent)
+            .Select(g => g.Id)
+            .ToHashSet();
+        var orchestratorNames = Organization.Sessions
+            .Where(m => m.Role == MultiAgentRole.Orchestrator)
+            .Select(m => orchestratorPattern.Replace(m.SessionName, ""))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var meta in Organization.Sessions)
+        {
+            if (meta.Role == MultiAgentRole.Worker) continue; // already correct
+            if (!workerPattern.IsMatch(meta.SessionName)) continue;
+            // Only heal if in a multi-agent group OR a matching orchestrator exists
+            bool inMultiAgentGroup = multiAgentGroupIds.Contains(meta.GroupId);
+            var workerTeamPrefix = workerPattern.Replace(meta.SessionName, "");
+            bool hasMatchingOrch = orchestratorNames.Contains(workerTeamPrefix);
+            if (!inMultiAgentGroup && !hasMatchingOrch) continue;
+            Debug($"LoadOrganization: healing role for '{meta.SessionName}' — name matches worker pattern, Role was {meta.Role}");
+            meta.Role = MultiAgentRole.Worker;
+            healed = true;
         }
 
         // Phase 2: Restore IsMultiAgent on groups that have orchestrator sessions.
@@ -415,6 +444,7 @@ public partial class CopilotService
                     Groups = Organization.Groups.ToList(),
                     Sessions = Organization.Sessions.ToList(),
                     SortMode = Organization.SortMode,
+                    FocusOrder = Organization.FocusOrder.ToList(),
                     DeletedRepoGroupRepoIds = new HashSet<string>(Organization.DeletedRepoGroupRepoIds)
                 };
             }
@@ -788,99 +818,134 @@ public partial class CopilotService
     /// Sets whether a session is manually included or excluded from the Focus strip.
     /// Pass Auto to revert to recency-based detection.
     /// </summary>
-    public void SetFocusOverride(string sessionName, FocusOverride focusOverride)
-    {
-        SessionMeta? meta;
-        lock (_organizationLock)
-            meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
-        if (meta != null)
-        {
-            meta.FocusOverride = focusOverride;
-            SaveOrganization();
-            OnStateChanged?.Invoke();
-        }
-    }
-
     /// <summary>
-    /// Returns sessions that should appear in the Focus strip:
-    /// - Sessions with FocusOverride.Included always appear.
-    /// - Sessions currently processing appear (unless FocusOverride.Excluded).
-    /// - Sessions with unread messages appear (unless FocusOverride.Excluded).
-    /// - Sort order (triage-first):
-    ///   1. Processing sessions (active work)
-    ///   2. NeedsAttention (awaiting user) — oldest first (longest waiting at top)
-    ///   3. Handled sessions (sorted to bottom, most recently handled last)
+    /// Returns sessions in the Focus strip in the user-defined order (FocusOrder).
+    /// Workers in multi-agent groups are never included.
+    /// On first call with an empty FocusOrder, all non-worker sessions are added.
     /// </summary>
     public IReadOnlyList<AgentSessionInfo> GetFocusSessions()
     {
         var metas = SnapshotSessionMetas().ToDictionary(m => m.SessionName);
-        var recentCutoff = DateTime.Now.AddHours(-24);
+        var allSessions = GetAllSessions();
 
-        var groups = SnapshotGroups().ToDictionary(g => g.Id);
+        bool IsWorkerSession(AgentSessionInfo s)
+        {
+            if (metas.TryGetValue(s.Name, out var m) && m.Role == MultiAgentRole.Worker) return true;
+            return WorkerNamePattern.IsMatch(s.Name);
+        }
 
-        return GetAllSessions()
-            .Where(s =>
+        List<string> focusOrder;
+        lock (_organizationLock)
+        {
+            // Bootstrap: if FocusOrder is empty, populate with all non-worker sessions
+            if (Organization.FocusOrder.Count == 0)
             {
-                var hasMeta = metas.TryGetValue(s.Name, out var meta);
-                // Check explicit override first (takes priority over everything)
-                if (hasMeta && meta!.FocusOverride == FocusOverride.Included) return true;
-                if (hasMeta && meta!.FocusOverride == FocusOverride.Excluded) return false;
-                // Workers never appear in the Focus strip — they run under their orchestrator.
-                // This covers both workers in proper multi-agent groups AND workers whose group
-                // was lost but Role=Worker wasn't yet cleared by the healer.
-                if (hasMeta && meta!.Role == MultiAgentRole.Worker)
-                    return false;
-                // Active = processing, has unread messages, or had real activity in last 24h
-                return s.IsProcessing || s.UnreadCount > 0 || s.LastUpdatedAt > recentCutoff;
-            })
-            .OrderBy(s =>
-            {
-                var hasMeta = metas.TryGetValue(s.Name, out var meta);
-                var handledAt = hasMeta ? meta!.HandledAt : null;
-                // Tier 0: Processing (active work) — always at top regardless of Handled
-                if (s.IsProcessing) return 0;
-                // Tier 1: Unhandled, needs attention or unread — oldest first (longest waiting)
-                if (handledAt == null) return 1;
-                // Tier 2: Handled — sorted to bottom
-                return 2;
-            })
-            .ThenBy(s =>
-            {
-                var hasMeta = metas.TryGetValue(s.Name, out var meta);
-                var handledAt = hasMeta ? meta!.HandledAt : null;
-                if (s.IsProcessing) return DateTime.MaxValue.Ticks - s.LastUpdatedAt.Ticks; // Processing: most recent first (descending via inversion)
-                if (handledAt == null) return s.LastUpdatedAt.Ticks; // Unhandled: oldest first (ascending = longest wait at top)
-                return handledAt.Value.Ticks; // Handled: most recently handled at bottom (ascending)
-            })
+                Organization.FocusOrder.AddRange(
+                    allSessions.Where(s => !IsWorkerSession(s)).Select(s => s.Name));
+                SaveOrganization();
+            }
+            focusOrder = Organization.FocusOrder.ToList(); // snapshot under lock
+        }
+
+        var sessionByName = allSessions.ToDictionary(s => s.Name);
+
+        return focusOrder
+            .Where(name => sessionByName.ContainsKey(name))
+            .Select(name => sessionByName[name])
             .ToList();
     }
 
-    /// <summary>
-    /// Marks a session as "handled" in the Focus strip — moves it to the bottom of the list.
-    /// Cleared automatically when the session gets new activity.
-    /// </summary>
-    public void MarkFocusHandled(string sessionName)
+    /// <summary>Adds a session to the bottom of the Focus list, if not already present and not a worker.</summary>
+    public void AddToFocus(string sessionName)
     {
-        SessionMeta? meta;
+        var metas = SnapshotSessionMetas().ToDictionary(m => m.SessionName);
+        if (metas.TryGetValue(sessionName, out var meta) && meta.Role == MultiAgentRole.Worker) return;
+        if (WorkerNamePattern.IsMatch(sessionName)) return;
+
+        bool changed = false;
         lock (_organizationLock)
         {
-            meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
-            if (meta != null)
+            if (!Organization.FocusOrder.Contains(sessionName))
             {
-                meta.HandledAt = DateTime.Now;
+                Organization.FocusOrder.Add(sessionName);
+                changed = true;
             }
         }
-        if (meta != null)
+        if (changed)
         {
             SaveOrganization();
             OnStateChanged?.Invoke();
         }
     }
+
+    /// <summary>Removes a session from the Focus list.</summary>
+    public void RemoveFromFocus(string sessionName)
+    {
+        bool changed = false;
+        lock (_organizationLock)
+        {
+            changed = Organization.FocusOrder.Remove(sessionName);
+        }
+        if (changed)
+        {
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    /// <summary>Moves a session one position up (toward index 0) in the Focus list.</summary>
+    public void PromoteFocusSession(string sessionName)
+    {
+        bool changed = false;
+        lock (_organizationLock)
+        {
+            var idx = Organization.FocusOrder.IndexOf(sessionName);
+            if (idx > 0)
+            {
+                Organization.FocusOrder.RemoveAt(idx);
+                Organization.FocusOrder.Insert(idx - 1, sessionName);
+                changed = true;
+            }
+        }
+        if (changed)
+        {
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    /// <summary>Moves a session one position down (toward end) in the Focus list.</summary>
+    public void DemoteFocusSession(string sessionName)
+    {
+        bool changed = false;
+        lock (_organizationLock)
+        {
+            var idx = Organization.FocusOrder.IndexOf(sessionName);
+            if (idx >= 0 && idx < Organization.FocusOrder.Count - 1)
+            {
+                Organization.FocusOrder.RemoveAt(idx);
+                Organization.FocusOrder.Insert(idx + 1, sessionName);
+                changed = true;
+            }
+        }
+        if (changed)
+        {
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// Marks a session as "handled" in the Focus strip — moves it to the bottom of the list.
+    /// Kept for backward compatibility; prefer RemoveFromFocus for the new UI.
+    /// </summary>
+    public void MarkFocusHandled(string sessionName) => DemoteFocusSession(sessionName);
 
     public void MoveSession(string sessionName, string groupId)
     {
         if (!Organization.Groups.Any(g => g.Id == groupId))
             return;
+
 
         var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
         if (meta == null)

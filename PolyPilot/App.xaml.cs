@@ -39,6 +39,14 @@ public partial class App : Application
 			window.Width = 1400;
 			window.Height = 900;
 		}
+
+#if MACCATALYST
+		// Subscribe to NSWorkspace sleep/wake notifications so we can proactively recover
+		// the copilot connection immediately after the Mac wakes from sleep (App.OnResume
+		// only fires when the app is re-activated, not on system wake).
+		PolyPilot.Platforms.MacCatalyst.MacSleepWakeMonitor.Register(_copilotService);
+#endif
+
 		return window;
 	}
 

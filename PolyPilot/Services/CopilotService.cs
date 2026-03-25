@@ -2956,6 +2956,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Cancel any pending TurnEnd→Idle fallback from the previous turn
         CancelTurnEndFallback(state);
         state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName); // Cache for watchdog (UI thread safe)
+        // Auto-add to Focus when user sends a message (re-adds if previously removed)
+        AddToFocus(sessionName);
         Debug($"[SEND] '{sessionName}' IsProcessing=true gen={Interlocked.Read(ref state.ProcessingGeneration)} (thread={Environment.CurrentManagedThreadId})");
         state.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         state.CurrentResponse.Clear();

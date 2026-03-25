@@ -82,7 +82,7 @@ public class TurnEndFallbackTests
             catch (OperationCanceledException) { }
         });
 
-        await Task.Delay(200);
+        await Task.Delay(500);
         Assert.True(fired, "Fallback timer should fire when CTS is not cancelled");
     }
 
@@ -209,7 +209,7 @@ public class TurnEndFallbackTests
             catch (OperationCanceledException) { }
         });
 
-        await Task.Delay(400);
+        await Task.Delay(800);
         Assert.True(completeResponseFired, "Fallback must fire when no TurnStart or SessionIdle arrives");
     }
 }

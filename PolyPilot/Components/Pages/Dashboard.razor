@@ -247,7 +247,7 @@
             <div class="focus-strip-header">
                 <span class="focus-strip-label">🎯 Focus</span>
                 <span class="focus-strip-count">@focusSessions.Count</span>
-                <span class="focus-strip-hint">Recently active</span>
+                <span class="focus-strip-hint">Use ⬆⬇ to reorder · ✕ to remove</span>
             </div>
             <div class="focus-strip" style="grid-template-columns: repeat(@_gridColumns, 1fr)">
                 @foreach (var session in focusSessions)
@@ -255,11 +255,18 @@
                     var isCompleted = completedSessions.Contains(session.Name);
                     var meta = CopilotService.GetSessionMeta(session.Name);
                     var focusKey = "focus:" + session.Name;
+                    // Show active worker count for orchestrators in multi-agent groups
+                    var focusGroupId = meta?.GroupId;
+                    var focusIsOrch = meta?.Role == MultiAgentRole.Orchestrator;
+                    var focusWorkerCount = (focusIsOrch && focusGroupId != null)
+                        ? CopilotService.GetMultiAgentProgress(focusGroupId).Processing
+                        : 0;
                     <SessionCard Session="session"
                                  @key="@($"focus-{session.Name}")"
                                  Meta="meta"
                                  IsCompleted="isCompleted"
                                  IsInFocusStrip="true"
+                                 ActiveWorkerCount="focusWorkerCount"
                                  MessageCount="@(cardMessageCounts.TryGetValue(session.Name, out var fmc) ? fmc : DefaultCardMessageWindow)"
                                  MinHeight="@_cardMinHeight"
                                  StreamingContent="@(streamingBySession.TryGetValue(session.Name, out var fs) ? fs : "")"
@@ -287,7 +294,9 @@
                                  OnStartRename="() => StartCardRename(focusKey)"
                                  OnCommitRename="(newName) => CommitCardRename()"
                                  OnCloseMenu="() => { cardMenuSession = null; }"
-                                 OnHandledInFocus="() => CopilotService.MarkFocusHandled(session.Name)" />
+                                 OnRemoveFromFocus="() => CopilotService.RemoveFromFocus(session.Name)"
+                                 OnPromote="() => CopilotService.PromoteFocusSession(session.Name)"
+                                 OnDemote="() => CopilotService.DemoteFocusSession(session.Name)" />
                 }
             </div>
             }

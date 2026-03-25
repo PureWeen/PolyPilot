@@ -766,7 +766,7 @@ public partial class CopilotService
                     : existing?.InputModes ?? new Dictionary<string, string>(),
                 CompletedTutorials = existing?.CompletedTutorials ?? new HashSet<string>(),
                 GridColumns = gridColumns ?? existing?.GridColumns ?? 3,
-                CardMinHeight = cardMinHeight ?? existing?.CardMinHeight ?? 250
+                CardMinHeight = cardMinHeight ?? existing?.CardMinHeight ?? 250,
             };
 
             lock (_uiStateLock)

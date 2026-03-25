@@ -644,8 +644,12 @@
                 var card = el.closest('[data-session]');
                 var key = card ? card.getAttribute('data-session') : null;
                 if (key) {
-                    window.__cardScrollPositions[key] = el.scrollTop;
-                    // Clear __scrollInit so the restored position is applied on next render
+                    var distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                    // Save both position and whether card was near bottom
+                    window.__cardScrollPositions[key] = {
+                        top: el.scrollTop,
+                        wasAtBottom: distFromBottom < 80
+                    };
                     el.__scrollInit = false;
                 }
             });
@@ -684,9 +688,15 @@
                     var key = card ? card.getAttribute('data-session') : null;
                     if (!el.__scrollInit) {
                         el.__scrollInit = true;
-                        // Restore saved position if available, else scroll to bottom
+                        // Restore: if card was at bottom, snap to bottom (handles new content)
+                        // Otherwise restore exact position
                         if (key && window.__cardScrollPositions && window.__cardScrollPositions[key] != null) {
-                            el.scrollTop = window.__cardScrollPositions[key];
+                            var saved = window.__cardScrollPositions[key];
+                            if (saved.wasAtBottom) {
+                                el.scrollTop = el.scrollHeight;
+                            } else {
+                                el.scrollTop = saved.top;
+                            }
                         } else {
                             el.scrollTop = el.scrollHeight;
                         }

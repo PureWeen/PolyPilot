@@ -272,6 +272,13 @@ public class OrganizationState
     public List<SessionMeta> Sessions { get; set; } = new();
     public SessionSortMode SortMode { get; set; } = SessionSortMode.LastActive;
     /// <summary>
+    /// Manually ordered list of session names in the Focus strip.
+    /// Sessions appear in this exact order. Users can promote/demote/remove entries.
+    /// New sessions are appended to the bottom when a message is sent to them.
+    /// Workers in multi-agent groups are never added.
+    /// </summary>
+    public List<string> FocusOrder { get; set; } = new();
+    /// <summary>
     /// Repo IDs whose auto-created sidebar groups were explicitly deleted by the user.
     /// ReconcileOrganization skips these to prevent resurrection.
     /// Cleared when the repo is re-added via GetOrCreateRepoGroup with explicit=true.

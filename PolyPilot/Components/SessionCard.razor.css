@@ -54,6 +54,16 @@
     font-weight: 500;
 }
 
+.worker-active-banner {
+    background: rgba(99, 102, 241, 0.12);
+    border-left: 3px solid rgba(99, 102, 241, 0.8);
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+    font-size: var(--type-footnote);
+    color: rgba(99, 102, 241, 0.9);
+    font-weight: 500;
+}
+
 .card-status-dot.needs-attention {
     background: #ffcc00;
     animation: pulse-dot 1.5s infinite;
@@ -216,26 +226,38 @@
     background: rgba(239, 68, 68, 0.15);
 }
 
-.card-handled-focus {
+.card-focus-up,
+.card-focus-down,
+.card-focus-remove {
     background: transparent;
-    border: 1px solid rgba(34, 197, 94, 0.5);
-    color: rgba(34, 197, 94, 0.8);
-    font-size: var(--type-body);
+    border: none;
+    color: var(--text-dim);
+    font-size: var(--type-callout);
     padding: 0;
-    border-radius: 50%;
+    border-radius: 4px;
     cursor: pointer;
     flex-shrink: 0;
-    height: 36px;
-    width: 36px;
+    height: 28px;
+    width: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: all 0.15s ease;
 }
 
-.card-handled-focus:hover {
-    background: rgba(34, 197, 94, 0.15);
-    border-color: rgba(34, 197, 94, 0.8);
+.card-focus-up:hover,
+.card-focus-down:hover {
+    background: rgba(var(--accent-rgb, 99, 102, 241), 0.15);
+    color: var(--text-primary);
+}
+
+.card-focus-remove {
+    color: rgba(239, 68, 68, 0.6);
+}
+
+.card-focus-remove:hover {
+    background: rgba(239, 68, 68, 0.15);
+    color: rgba(239, 68, 68, 1);
 }
 
 .card-expand {
