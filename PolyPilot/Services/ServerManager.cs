@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Sockets;
+using GitHub.Copilot.SDK;
 using PolyPilot.Models;
 
 namespace PolyPilot.Services;
@@ -229,7 +230,15 @@ public class ServerManager : IServerManager
         // Prefer the SDK-bundled binary — it's guaranteed to match the SDK's protocol version.
         // System-installed CLIs may have been updated independently and could have a mismatched protocol.
         var bundledPath = CopilotService.ResolveBundledCliPath();
-        if (bundledPath != null) return bundledPath;
+        if (bundledPath != null)
+        {
+            Console.WriteLine($"[ServerManager] Using bundled copilot binary: {bundledPath}");
+            return bundledPath;
+        }
+
+        Console.WriteLine($"[ServerManager] Bundled copilot binary not found. " +
+            $"Assembly.Location='{typeof(CopilotClient).Assembly.Location}', " +
+            $"AppContext.BaseDirectory='{AppContext.BaseDirectory}'");
 
         // Fall back to platform-specific native binaries (system-installed)
         var nativePaths = new List<string>();
@@ -256,10 +265,15 @@ public class ServerManager : IServerManager
 
         foreach (var path in nativePaths)
         {
-            if (File.Exists(path)) return path;
+            if (File.Exists(path))
+            {
+                Console.WriteLine($"[ServerManager] Using system copilot binary: {path}");
+                return path;
+            }
         }
 
         // Fallback to node wrapper (works if copilot is on PATH)
+        Console.WriteLine("[ServerManager] WARNING: No copilot binary found at any known path, falling back to PATH lookup");
         return OperatingSystem.IsWindows() ? "copilot.cmd" : "copilot";
     }
 }
