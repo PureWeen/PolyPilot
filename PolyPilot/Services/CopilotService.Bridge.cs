@@ -14,12 +14,6 @@ public partial class CopilotService
     private const int TurnEndHistoryLimit = 200;
 
     /// <summary>
-    /// When local history has fewer messages than this, allow SyncRemoteSessions to load
-    /// history even while the streaming guard is active (initial load phase).
-    /// </summary>
-    private const int InitialHistoryLoadThreshold = 10;
-
-    /// <summary>
     /// Convert an HTTP(S) URL to its WebSocket equivalent. Returns null for null/empty input.
     /// </summary>
     private static string? ToWebSocketUrl(string? url)
@@ -95,15 +89,22 @@ public partial class CopilotService
             // Ensure streaming guard is present (don't overwrite generation counter)
             _remoteStreamingSessions.TryAdd(s, 0);
 
-            // Update local session history from remote events
+            // Update local session history from remote events.
+            // Only append to the LAST incomplete assistant message (active streaming).
+            // If previous message is complete, content_delta signals the start of a new turn.
             var session = GetRemoteSession(s);
             if (session != null)
             {
                 var existing = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
                 if (existing != null)
+                {
                     existing.Content += c;
+                }
                 else
+                {
+                    // No incomplete message — this is the start of a new text response
                     session.History.Add(new ChatMessage("assistant", c, DateTime.Now, ChatMessageType.Assistant) { IsComplete = false });
+                }
             }
             InvokeOnUI(() => OnContentReceived?.Invoke(s, c));
         };
@@ -526,10 +527,9 @@ public partial class CopilotService
             {
                 // Skip history sync for sessions currently receiving streaming content —
                 // the incremental content_delta/tool events are more up-to-date than the cached history.
-                // But allow initial full-history sync through even with the guard up:
-                // when local history is tiny (< 10), we're still in the initial load phase and
-                // the guard is only active because TurnStart fired before history arrived.
-                if (_remoteStreamingSessions.ContainsKey(name) && s.Info.History.Count >= InitialHistoryLoadThreshold)
+                // BUT: Always sync if server has newer messages (messages.Count > local.Count), even with guard active.
+                // This ensures text responses that arrive between tool calls are not lost.
+                if (_remoteStreamingSessions.ContainsKey(name) && messages.Count <= s.Info.History.Count)
                     continue;
 
                 if (messages.Count >= s.Info.History.Count)
