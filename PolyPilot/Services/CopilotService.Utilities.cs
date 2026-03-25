@@ -25,8 +25,30 @@ public partial class CopilotService
         var d = new DirectoryInfo(dir);
         while (d != null)
         {
-            var head = Path.Combine(d.FullName, ".git", "HEAD");
+            var dotGitPath = Path.Combine(d.FullName, ".git");
+
+            // Normal repo: .git is a directory containing HEAD
+            var head = Path.Combine(dotGitPath, "HEAD");
             if (File.Exists(head)) return head;
+
+            // Worktree: .git is a file containing "gitdir: /path/to/real/gitdir"
+            if (File.Exists(dotGitPath))
+            {
+                try
+                {
+                    var firstLine = File.ReadLines(dotGitPath).FirstOrDefault()?.Trim();
+                    if (firstLine != null && firstLine.StartsWith("gitdir:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var gitdir = firstLine["gitdir:".Length..].Trim();
+                        if (!Path.IsPathRooted(gitdir))
+                            gitdir = Path.GetFullPath(Path.Combine(d.FullName, gitdir));
+                        var worktreeHead = Path.Combine(gitdir, "HEAD");
+                        if (File.Exists(worktreeHead)) return worktreeHead;
+                    }
+                }
+                catch { /* fall through to parent */ }
+            }
+
             d = d.Parent;
         }
         return null;
