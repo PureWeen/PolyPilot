@@ -666,6 +666,59 @@
     margin: 0;
 }
 
+.pair-request-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: rgba(var(--accent-rgb, 59,130,246), 0.12);
+    border: 1px solid rgba(var(--accent-rgb, 59,130,246), 0.35);
+    border-radius: 8px;
+}
+
+.pair-request-banner p {
+    margin: 0;
+    font-size: var(--type-body);
+}
+
+.pair-request-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.onboarding-steps {
+    padding: 0.75rem 1rem;
+    background: rgba(var(--accent-rgb, 59,130,246), 0.07);
+    border: 1px solid rgba(var(--accent-rgb, 59,130,246), 0.2);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.onboarding-heading {
+    margin: 0;
+    font-size: var(--type-body);
+}
+
+.onboarding-list {
+    margin: 0;
+    padding-left: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: var(--type-body);
+    color: var(--text-dim);
+}
+
+.onboarding-list li {
+    line-height: 1.5;
+}
+
+.onboarding-list code {
+    font-size: 0.85em;
+}
+
 .tunnel-url-section {
     display: flex;
     flex-direction: column;

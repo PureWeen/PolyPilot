@@ -464,6 +464,66 @@ public class ConnectionRecoveryTests
             "IsProcessError must be included in the RestorePreviousSessionsAsync fallback condition (not found after the 'Session not found' anchor)");
     }
 
+    // ===== Behavior test: process error → CreateSessionAsync fallback =====
+    // Proves that when RestorePreviousSessionsAsync encounters a stale CLI server process,
+    // the session is recreated via CreateSessionAsync rather than silently dropped.
+    //
+    // Architecture note: CopilotClient is a concrete SDK class (not mockable), and
+    // ResumeSessionAsync is not virtual, so we can't inject a throwing client through
+    // the full RestorePreviousSessionsAsync pipeline. Instead, this test verifies the
+    // behavioral contract at the seam: IsProcessError detects the exception, and
+    // CreateSessionAsync (the fallback) successfully creates the replacement session.
+    // The structural test above guarantees these are wired together in RestorePreviousSessionsAsync.
+
+    [Fact]
+    public async Task ProcessError_DuringRestore_FallbackCreatesSession()
+    {
+        // GIVEN: a process error exception (CLI server died, stale handle)
+        var processError = new InvalidOperationException("No process is associated with this object.");
+
+        // WHEN: IsProcessError evaluates it
+        Assert.True(CopilotService.IsProcessError(processError));
+        // Also detected as a connection error (broader category)
+        Assert.True(CopilotService.IsConnectionError(processError));
+
+        // THEN: the CreateSessionAsync fallback path works — session is created and accessible
+        var svc = CreateService();
+        await svc.ReconnectAsync(new PolyPilot.Models.ConnectionSettings
+        {
+            Mode = PolyPilot.Models.ConnectionMode.Demo
+        });
+
+        var fallbackSession = await svc.CreateSessionAsync("Recovered Session", "gpt-4");
+        Assert.NotNull(fallbackSession);
+        Assert.Equal("Recovered Session", fallbackSession.Name);
+
+        var allSessions = svc.GetAllSessions().Select(s => s.Name).ToList();
+        Assert.Contains("Recovered Session", allSessions);
+    }
+
+    [Fact]
+    public async Task ProcessError_WrappedInAggregate_FallbackCreatesSession()
+    {
+        // GIVEN: a process error wrapped in AggregateException (from TaskScheduler.UnobservedTaskException)
+        var inner = new InvalidOperationException("No process is associated with this object.");
+        var aggregate = new AggregateException("A Task's exception(s) were not observed", inner);
+
+        // WHEN: IsProcessError evaluates the wrapped exception
+        Assert.True(CopilotService.IsProcessError(aggregate));
+        Assert.True(CopilotService.IsConnectionError(aggregate));
+
+        // THEN: the fallback path works
+        var svc = CreateService();
+        await svc.ReconnectAsync(new PolyPilot.Models.ConnectionSettings
+        {
+            Mode = PolyPilot.Models.ConnectionMode.Demo
+        });
+
+        var session = await svc.CreateSessionAsync("Recovered Aggregate", "gpt-4");
+        Assert.NotNull(session);
+        Assert.Equal("Recovered Aggregate", session.Name);
+    }
+
     // ===== SafeFireAndForget task observation =====
     // Prevents UnobservedTaskException from fire-and-forget _chatDb calls.
     // See crash log: "A Task's exception(s) were not observed" wrapping ConnectionLostException.

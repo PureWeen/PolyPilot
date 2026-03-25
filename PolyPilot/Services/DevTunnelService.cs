@@ -295,11 +295,7 @@ public partial class DevTunnelService : IDisposable
     private async Task<bool> TryHostTunnelAsync(ConnectionSettings settings)
     {
         // Kill any existing host process from a previous attempt
-        if (_hostProcess != null && !_hostProcess.HasExited)
-        {
-            try { _hostProcess.Kill(entireProcessTree: true); } catch { }
-        }
-        _hostProcess?.Dispose();
+        ProcessHelper.SafeKillAndDispose(_hostProcess);
         _hostProcess = null;
 
         var hostArgs = _tunnelId != null
@@ -323,6 +319,9 @@ public partial class DevTunnelService : IDisposable
             return false;
         }
 
+        // Capture in local variable — fire-and-forget tasks must not access _hostProcess
+        // field, which can be nulled/disposed by Stop() or a subsequent TryHostTunnelAsync().
+        var process = _hostProcess;
         var urlFound = new TaskCompletionSource<bool>();
         var lastErrorLine = "";
 
@@ -330,9 +329,9 @@ public partial class DevTunnelService : IDisposable
         {
             try
             {
-                while (!_hostProcess.HasExited)
+                while (!ProcessHelper.SafeHasExited(process))
                 {
-                    var line = await _hostProcess.StandardOutput.ReadLineAsync();
+                    var line = await process.StandardOutput.ReadLineAsync();
                     if (line == null) break;
                     Console.WriteLine($"[DevTunnel] {line}");
                     if (!string.IsNullOrWhiteSpace(line))
@@ -347,9 +346,9 @@ public partial class DevTunnelService : IDisposable
         {
             try
             {
-                while (!_hostProcess.HasExited)
+                while (!ProcessHelper.SafeHasExited(process))
                 {
-                    var line = await _hostProcess.StandardError.ReadLineAsync();
+                    var line = await process.StandardError.ReadLineAsync();
                     if (line == null) break;
                     Console.WriteLine($"[DevTunnel ERR] {line}");
                     if (!string.IsNullOrWhiteSpace(line))
@@ -475,12 +474,9 @@ public partial class DevTunnelService : IDisposable
         _ = _auditLog?.LogSessionClosed(null, 0, cleanClose, cleanClose ? "DevTunnel stopped" : "DevTunnel stopped after error");
         try
         {
-            if (_hostProcess != null && !_hostProcess.HasExited)
-            {
-                _hostProcess.Kill(entireProcessTree: true);
+            if (!ProcessHelper.SafeHasExited(_hostProcess))
                 Console.WriteLine("[DevTunnel] Host process killed");
-            }
-            _hostProcess?.Dispose();
+            ProcessHelper.SafeKillAndDispose(_hostProcess);
         }
         catch (Exception ex)
         {

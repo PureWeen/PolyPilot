@@ -32,6 +32,7 @@ public partial class CodespaceService
         public int LocalPort { get; }
         public bool IsSshTunnel { get; }
         private readonly Process _process;
+        private volatile bool _disposed;
 
         internal TunnelHandle(int localPort, Process process, bool isSshTunnel = false)
         {
@@ -40,18 +41,19 @@ public partial class CodespaceService
             IsSshTunnel = isSshTunnel;
         }
 
-        public bool IsAlive => !_process.HasExited;
+        public bool IsAlive => !_disposed && !ProcessHelper.SafeHasExited(_process);
 
         public async ValueTask DisposeAsync()
         {
+            _disposed = true;
             try
             {
-                if (!_process.HasExited)
+                if (!ProcessHelper.SafeHasExited(_process))
                     _process.Kill(entireProcessTree: true);
                 await _process.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(3));
             }
             catch { }
-            _process.Dispose();
+            try { _process.Dispose(); } catch { }
         }
     }
     /// <summary>
@@ -137,6 +139,11 @@ public partial class CodespaceService
     public async Task<TunnelHandle?> OpenSshTunnelAsync(
         string codespaceName, int remotePort = 4321, int connectTimeoutSeconds = 30)
     {
+        if (codespaceName.Length > 255 || !System.Text.RegularExpressions.Regex.IsMatch(codespaceName, @"^[a-zA-Z0-9\-]+$"))
+            throw new ArgumentException("Invalid codespace name.", nameof(codespaceName));
+        if (remotePort < 1 || remotePort > 65535)
+            throw new ArgumentOutOfRangeException(nameof(remotePort), "Port must be between 1 and 65535.");
+
         var localPort = FindFreePort();
 
         var psi = new ProcessStartInfo
@@ -236,7 +243,10 @@ public partial class CodespaceService
                 var authCmd = "";
                 if (!string.IsNullOrEmpty(localToken))
                 {
-                    authCmd = $"gh auth login --with-token <<< '{localToken.Replace("'", "'\\''")}' 2>/dev/null; ";
+                    // Base64-encode the token so it can be safely embedded in a shell command
+                    // with no quoting or escaping needed (base64 output is [A-Za-z0-9+/=] only).
+                    var b64Token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(localToken));
+                    authCmd = $"echo {b64Token} | base64 -d | gh auth login --with-token 2>/dev/null; ";
                     Console.WriteLine($"[CodespaceService] Injecting gh auth token into codespace SSH session");
                 }
 

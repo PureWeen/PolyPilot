@@ -56,6 +56,11 @@ public partial class QrScannerPage : ContentPage
         overlayRight.WidthRequest = pageWidth - left - cutoutSize;
         overlayRight.HeightRequest = cutoutSize;
         overlayRight.Margin = new Thickness(0, top, 0, 0);
+
+        overlayTop.IsVisible = true;
+        overlayBottom.IsVisible = true;
+        overlayLeft.IsVisible = true;
+        overlayRight.IsVisible = true;
     }
 
     protected override async void OnAppearing()

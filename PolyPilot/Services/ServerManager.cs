@@ -155,8 +155,7 @@ public class ServerManager : IServerManager
             try
             {
                 var process = Process.GetProcessById(pid.Value);
-                process.Kill();
-                process.Dispose();
+                ProcessHelper.SafeKillAndDispose(process, entireProcessTree: false);
                 Console.WriteLine($"[ServerManager] Killed server PID {pid}");
             }
             catch (Exception ex)

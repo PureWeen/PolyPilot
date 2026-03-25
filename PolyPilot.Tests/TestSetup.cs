@@ -29,5 +29,6 @@ internal static class TestSetup
         RepoManager.SetBaseDirForTesting(TestBaseDir);
         AuditLogService.SetLogDirForTesting(Path.Combine(TestBaseDir, "audit_logs"));
         PromptLibraryService.SetUserPromptsDirForTesting(Path.Combine(TestBaseDir, "prompts"));
+        FiestaService.SetStateFilePathForTesting(Path.Combine(TestBaseDir, "fiesta.json"));
     }
 }
