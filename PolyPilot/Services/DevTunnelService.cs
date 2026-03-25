@@ -27,7 +27,6 @@ public partial class DevTunnelService : IDisposable
     private string? _accessToken;
     private TunnelState _state = TunnelState.NotStarted;
     private string? _errorMessage;
-    private int _lastCopilotPort;
 
     public const int BridgePort = 4322;
 
@@ -198,7 +197,6 @@ public partial class DevTunnelService : IDisposable
 
         SetState(TunnelState.Starting);
         _tunnelUrl = null;
-        _lastCopilotPort = copilotPort;
         var hostStopwatch = Stopwatch.StartNew();
 
         // Load saved tunnel ID for reuse (keeps same URL across restarts)
@@ -466,21 +464,6 @@ public partial class DevTunnelService : IDisposable
             Console.WriteLine($"[DevTunnel] Token error: {ex.Message}");
             return null;
         }
-    }
-
-    /// <summary>
-    /// Restart the DevTunnel after it becomes stale (e.g., after Mac sleep/lock).
-    /// Stops the existing tunnel process and re-hosts on the same copilot port.
-    /// </summary>
-    public async Task RestartAsync()
-    {
-        Console.WriteLine("[DevTunnel] Restarting stale tunnel...");
-        var port = _lastCopilotPort;
-        Stop(cleanClose: false);
-        if (port > 0)
-            await HostAsync(port);
-        else
-            Console.WriteLine("[DevTunnel] Cannot restart — no previous copilot port recorded");
     }
 
     /// <summary>

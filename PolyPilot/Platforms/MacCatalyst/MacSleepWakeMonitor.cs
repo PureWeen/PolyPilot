@@ -39,6 +39,20 @@ public static class MacSleepWakeMonitor
     private static CopilotService? _copilotService;
     private static WsBridgeServer? _bridgeServer;
 
+    // Cache the notification center used during Register() so Unregister() uses the same one.
+    // (V4-M4: GetWorkspaceNotificationCenter() could return null at teardown time and fall back
+    // to DefaultCenter, leaving observers permanently subscribed in the workspace center.)
+    private static NSNotificationCenter? _registeredCenter;
+
+    // Debounce: a single wake/unlock emits DidWake + ScreensDidWake + SessionDidBecomeActive
+    // within ~200ms. Guard with a 5-second window so we only run one recovery per event cluster.
+    // (V4-M1)
+    private static DateTime _lastRecovery = DateTime.MinValue;
+    private static readonly object _recoveryGate = new();
+
+    private const int RecoveryDebounceSecs = 5;
+    private const int BroadcastDelayMs = 2000;
+
     /// <summary>
     /// Returns NSWorkspace.sharedWorkspace.notificationCenter as a managed NSNotificationCenter.
     /// NSWorkspace is AppKit-only and has no direct .NET binding on Mac Catalyst.
@@ -66,10 +80,19 @@ public static class MacSleepWakeMonitor
     /// mobile clients after unlock so they re-sync any state missed during the lock.</param>
     public static void Register(CopilotService copilotService, WsBridgeServer? bridgeServer = null)
     {
+        // V4-M2: guard against double-registration (CreateWindow() can be called more than once)
+        if (_wakeObserver != null)
+        {
+            Console.WriteLine("[SleepWake] Already registered — skipping duplicate Register() call");
+            return;
+        }
+
         _copilotService = copilotService;
         _bridgeServer = bridgeServer;
 
-        var notifCenter = GetWorkspaceNotificationCenter() ?? NSNotificationCenter.DefaultCenter;
+        // Cache the center so Unregister() uses the exact same instance (V4-M4)
+        _registeredCenter = GetWorkspaceNotificationCenter() ?? NSNotificationCenter.DefaultCenter;
+        var notifCenter = _registeredCenter;
 
         // --- Sleep / Wake (system sleep, not just screen off) ---
         _sleepObserver = notifCenter.AddObserver(
@@ -93,7 +116,6 @@ public static class MacSleepWakeMonitor
             null, NSOperationQueue.MainQueue, OnScreensDidSleep);
 
         // --- Fast user switching / session lock ---
-        // NSWorkspaceSessionDidBecomeActiveNotification: this session's user logged back in.
         _sessionActiveObserver = notifCenter.AddObserver(
             new NSString("NSWorkspaceSessionDidBecomeActiveNotification"),
             null, NSOperationQueue.MainQueue, OnSessionDidBecomeActive);
@@ -107,7 +129,8 @@ public static class MacSleepWakeMonitor
 
     public static void Unregister()
     {
-        var notifCenter = GetWorkspaceNotificationCenter() ?? NSNotificationCenter.DefaultCenter;
+        // V4-M4: use cached center so we remove from the same one we registered on
+        var notifCenter = _registeredCenter ?? NSNotificationCenter.DefaultCenter;
         foreach (var obs in new[] { _wakeObserver, _sleepObserver, _screensWakeObserver,
                                     _screensSleepObserver, _sessionActiveObserver, _sessionResignObserver })
         {
@@ -116,6 +139,7 @@ public static class MacSleepWakeMonitor
         }
         _wakeObserver = _sleepObserver = _screensWakeObserver =
             _screensSleepObserver = _sessionActiveObserver = _sessionResignObserver = null;
+        _registeredCenter = null;
     }
 
     // ----- Sleep -----
@@ -128,7 +152,7 @@ public static class MacSleepWakeMonitor
     private static void OnDidWake(NSNotification notification)
     {
         Console.WriteLine("[SleepWake] Mac woke from sleep — triggering connection health check");
-        TriggerRecovery();
+        TriggerRecovery("DidWake");
     }
 
     // ----- Screen lock / screensaver -----
@@ -141,7 +165,7 @@ public static class MacSleepWakeMonitor
     private static void OnScreensDidWake(NSNotification notification)
     {
         Console.WriteLine("[SleepWake] Screens turned on (unlock/screensaver dismissed) — triggering connection health check");
-        TriggerRecovery();
+        TriggerRecovery("ScreensDidWake");
     }
 
     // ----- Fast user switching / session lock -----
@@ -154,29 +178,51 @@ public static class MacSleepWakeMonitor
     private static void OnSessionDidBecomeActive(NSNotification notification)
     {
         Console.WriteLine("[SleepWake] Session became active (screen unlocked or fast-user-switch back)");
-        TriggerRecovery();
+        TriggerRecovery("SessionDidBecomeActive");
     }
 
     // ----- Shared recovery logic -----
 
-    private static void TriggerRecovery()
+    private static void TriggerRecovery(string source)
     {
+        // V4-M1: debounce — DidWake + ScreensDidWake + SessionDidBecomeActive all fire
+        // within ~200ms of a single unlock. Only run recovery once per 5-second window.
+        lock (_recoveryGate)
+        {
+            var now = DateTime.UtcNow;
+            if ((now - _lastRecovery).TotalSeconds < RecoveryDebounceSecs)
+            {
+                Console.WriteLine($"[SleepWake] Recovery suppressed (debounce, source={source})");
+                return;
+            }
+            _lastRecovery = now;
+        }
+
+        Console.WriteLine($"[SleepWake] Running recovery (source={source})");
+
         var svc = _copilotService;
         var bridge = _bridgeServer;
 
-        if (svc != null)
+        if (svc == null) return;
+
+        Task.Run(async () =>
         {
-            Task.Run(async () =>
+            try
             {
                 await svc.CheckConnectionHealthAsync();
-                // After connection is confirmed healthy, broadcast state to re-sync mobile clients
-                // that may have reconnected during the lock but missed state updates.
+
+                // V4-C1: BroadcastOrganizationState reads Organization (UI-thread-only List<T>).
+                // Must marshal to UI thread to avoid concurrent modification with Add/Remove calls.
                 if (bridge != null)
                 {
-                    await Task.Delay(2000); // give mobile client time to reconnect first
-                    bridge.BroadcastStateToClients();
+                    await Task.Delay(BroadcastDelayMs); // give mobile client time to reconnect first
+                    await svc.InvokeOnUIAsync(() => bridge.BroadcastStateToClients());
                 }
-            }).ContinueWith(_ => { });
-        }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SleepWake] Recovery failed: {ex.Message}");
+            }
+        });
     }
 }
