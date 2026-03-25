@@ -2647,6 +2647,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             var branch = branchName ?? $"session-{DateTime.Now:yyyyMMdd-HHmmss}";
             var remoteName = sessionName ?? branch;
+            // Use repo short name instead of auto-generated session timestamp
+            if (sessionName == null && branch.StartsWith("session-", StringComparison.Ordinal))
+            {
+                var repoInfo = _repoManager.Repositories.FirstOrDefault(r => r.Id == repoId);
+                if (repoInfo != null)
+                {
+                    var shortName = repoInfo.Name.Contains('/')
+                        ? repoInfo.Name[(repoInfo.Name.LastIndexOf('/') + 1)..]
+                        : repoInfo.Name;
+                    remoteName = shortName;
+                }
+            }
 
             // Optimistic local add so the UI shows the session immediately
             var remoteInfo = new AgentSessionInfo { Name = remoteName, Model = model ?? DefaultModel };
@@ -2703,7 +2715,21 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             wt = await _repoManager.CreateWorktreeAsync(repoId, branch, null, localPath: localPath, ct: ct);
         }
 
+        // Derive a friendly display name: prefer explicit sessionName, then branch name,
+        // but fall back to repo short name when the branch is an auto-generated session timestamp.
         var name = sessionName ?? wt.Branch;
+        if (sessionName == null && wt.Branch.StartsWith("session-", StringComparison.Ordinal))
+        {
+            var repoInfo = _repoManager.Repositories.FirstOrDefault(r => r.Id == wt.RepoId);
+            if (repoInfo != null)
+            {
+                // Use last segment of repo name (e.g., "dotnet/maui" → "maui")
+                var shortName = repoInfo.Name.Contains('/')
+                    ? repoInfo.Name[(repoInfo.Name.LastIndexOf('/') + 1)..]
+                    : repoInfo.Name;
+                name = shortName;
+            }
+        }
 
         // Ensure unique session name
         if (_sessions.ContainsKey(name))
