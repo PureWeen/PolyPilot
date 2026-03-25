@@ -142,6 +142,14 @@ public static class MauiProgram
 		if (ex == null) return;
 		try
 		{
+			// Rotate at 5 MB to prevent unbounded growth
+			var fi = new FileInfo(CrashLogPath);
+			if (fi.Exists && fi.Length > 5 * 1024 * 1024)
+			{
+				var backup = CrashLogPath + ".old";
+				try { File.Delete(backup); } catch { }
+				try { File.Move(CrashLogPath, backup); } catch { }
+			}
 			var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 			var logEntry = $"\n=== {timestamp} [{source}] ===\n{ex}\n";
 			File.AppendAllText(CrashLogPath, logEntry);

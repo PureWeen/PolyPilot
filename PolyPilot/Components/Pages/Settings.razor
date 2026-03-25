@@ -63,6 +63,10 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6l3-3"/><path d="M12 2v6l-3-3"/><rect x="3" y="14" width="18" height="8" rx="2"/><circle cx="8" cy="18" r="1"/><circle cx="16" cy="18" r="1"/></svg>
                     Plugins
                 </button>
+                <button class="settings-nav-item @(activeCategory == "diagnostics" ? "active" : "")" @onclick='() => ScrollToCategory("diagnostics")'>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    Diagnostics
+                </button>
             }
         </nav>
         }
@@ -564,6 +568,36 @@
     </div>
     }
 
+    @if (PlatformHelper.IsDesktop)
+    {
+    <div id="settings-diagnostics" class="settings-group @(GroupVisible("diagnostics") ? "" : "search-hidden")">
+        <h2 class="group-title">Diagnostics</h2>
+
+        <div class="settings-section @(SectionVisible("logs diagnostics troubleshoot crash event console") ? "" : "search-hidden")">
+            <h3>Log Files</h3>
+            <p class="section-desc">PolyPilot writes diagnostic logs to <code>~/.polypilot/</code>. Open the folder to find them.</p>
+            <button class="settings-link-btn" @onclick="OpenLogsFolder" title="Open ~/.polypilot/ log folder">
+                <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                Open Log Folder
+            </button>
+            <div class="log-file-guide">
+                <div class="log-file-entry">
+                    <code class="log-filename">event-diagnostics.log</code>
+                    <span class="log-desc">Session &amp; server diagnostics — look here for connection issues or "Failed to start server" errors</span>
+                </div>
+                <div class="log-file-entry">
+                    <code class="log-filename">crash.log</code>
+                    <span class="log-desc">Unhandled exceptions — look here if the app crashed or behaved unexpectedly</span>
+                </div>
+                <div class="log-file-entry">
+                    <code class="log-filename">console.log</code>
+                    <span class="log-desc">General app output — verbose debug logging from the running app</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    }
+
     @if (!string.IsNullOrEmpty(statusMessage))
     {
         <div class="status-toast @statusClass">@(statusClass == "success" ? "✓ " : statusClass == "error" ? "✗ " : "")@statusMessage</div>
@@ -652,6 +686,7 @@
             "ui" => SectionVisible("chat message layout default reversed both left theme font size text zoom"),
             "developer" => SectionVisible("auto update main git watch relaunch rebuild cli source built-in system repository repo clone worktree storage root directory dev drive"),
             "plugins" => SectionVisible("plugins provider extension dll assembly trust enable disable"),
+            "diagnostics" => SectionVisible("logs diagnostics troubleshoot crash event console"),
             _ => true
         };
     }
@@ -1117,8 +1152,19 @@
         serverAlive = success;
         starting = false;
 
-        ShowStatus(success ? $"Server started on port {settings.Port}" : "Failed to start server",
-            success ? "success" : "error");
+        if (success)
+        {
+            ShowStatus($"Server started on port {settings.Port}", "success");
+        }
+        else
+        {
+            var error = ServerManager.LastError;
+            var logPath = CopilotService.BaseDir;
+            var msg = string.IsNullOrEmpty(error)
+                ? $"Failed to start server. Check logs at {logPath}"
+                : $"Failed to start server: {error}";
+            ShowStatus(msg, "error", 10000);
+        }
     }
 
     private void StopServer()
@@ -1128,6 +1174,24 @@
         ServerManager.StopServer();
         serverAlive = false;
         ShowStatus("Server stopped", "success");
+    }
+
+    private void OpenLogsFolder()
+    {
+        try
+        {
+            var logDir = CopilotService.BaseDir;
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+                System.Diagnostics.Process.Start("open", logDir);
+            else if (OperatingSystem.IsWindows())
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", logDir) { UseShellExecute = true });
+            else
+                ShowStatus($"Logs at: {logDir}", "success", 8000);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Could not open log folder: {ex.Message}", "error", 5000);
+        }
     }
 
     private void SetChatLayout(ChatLayout layout)

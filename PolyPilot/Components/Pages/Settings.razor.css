@@ -1485,3 +1485,32 @@
     color: var(--text-dim);
 }
 
+
+.log-file-guide {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.log-file-entry {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: var(--type-body);
+}
+
+.log-filename {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: var(--type-callout);
+    color: var(--text-secondary);
+    background: var(--control-bg, rgba(128,128,128,0.1));
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+.log-desc {
+    color: var(--text-tertiary);
+    font-size: var(--type-callout);
+}

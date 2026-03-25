@@ -252,6 +252,13 @@ else
         nameManuallyEdited = false;
     }
 
+    /// <summary>Called by the parent on successful session creation to close the form.</summary>
+    public void CollapseOnSuccess()
+    {
+        Collapse();
+        StateHasChanged();
+    }
+
     private void SetMode(FormMode newMode)
     {
         mode = newMode;
@@ -386,11 +393,9 @@ else
 
         worktreeError = null;
         await OnCreate.InvokeAsync((SessionName, SelectedModel, dir, wtId, prompt, repoId, branchName, prNumber));
-
-        // Reset form
-        branchInput = ""; prInput = ""; sessionDirectory = ""; initialPrompt = "";
-        selectedWorktreeId = null; nameManuallyEdited = false;
-        isExpanded = false;
+        // Note: form collapse is handled by the parent calling CollapseOnSuccess() on success.
+        // On error, the parent sets CreateError which is displayed in this form — we intentionally
+        // stay open so the user can see the error without needing to click "New Session" again.
     }
 
     private async Task BrowseDirectory()

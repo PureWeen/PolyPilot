@@ -23,6 +23,7 @@ public class ServerManager : IServerManager
     public bool IsServerRunning => CheckServerRunning();
     public int? ServerPid => ReadPidFile();
     public int ServerPort { get; private set; } = 4321;
+    public string? LastError { get; private set; }
 
     public event Action? OnStatusChanged;
 
@@ -51,6 +52,7 @@ public class ServerManager : IServerManager
     public async Task<bool> StartServerAsync(int port = 4321)
     {
         ServerPort = port;
+        LastError = null;
 
         if (CheckServerRunning("127.0.0.1", port))
         {
@@ -88,19 +90,28 @@ public class ServerManager : IServerManager
             var process = Process.Start(psi);
             if (process == null)
             {
-                Console.WriteLine("[ServerManager] Failed to start copilot process");
+                LastError = "Failed to launch the copilot process (Process.Start returned null).";
+                Console.WriteLine($"[ServerManager] {LastError}");
                 return false;
             }
 
             SavePidFile(process.Id, port);
             Console.WriteLine($"[ServerManager] Started copilot server PID {process.Id} on port {port}");
 
-            // Drain stdout/stderr in parallel; dispose process handle when both streams close.
-            // The server process itself keeps running — we only release the OS handle.
-            // Must be parallel: sequential draining deadlocks if stderr fills its pipe buffer
-            // while stdout drain blocks waiting for the process to exit.
+            // Collect stderr lines for diagnostics while also draining the pipe to prevent deadlock.
+            // stdout is drained silently; stderr is captured for error reporting.
+            var stderrLines = new System.Collections.Concurrent.ConcurrentQueue<string>();
             var t1 = Task.Run(async () => { try { while (await process.StandardOutput.ReadLineAsync() != null) { } } catch { } });
-            var t2 = Task.Run(async () => { try { while (await process.StandardError.ReadLineAsync() != null) { } } catch { } });
+            var t2 = Task.Run(async () =>
+            {
+                try
+                {
+                    string? line;
+                    while ((line = await process.StandardError.ReadLineAsync()) != null)
+                        stderrLines.Enqueue(line);
+                }
+                catch { }
+            });
             _ = Task.WhenAll(t1, t2).ContinueWith(_ => process.Dispose());
 
             // Wait for server to become available
@@ -115,12 +126,19 @@ public class ServerManager : IServerManager
                 }
             }
 
-            Console.WriteLine("[ServerManager] Server started but not responding on port");
+            // Server didn't become ready — wait briefly for any final stderr output then collect diagnostics
+            await Task.WhenAny(t2, Task.Delay(500));
+            var stderr = string.Join("\n", stderrLines).Trim();
+            LastError = string.IsNullOrEmpty(stderr)
+                ? $"Server process started (PID {process.Id}) but did not respond on port {port} after 15 seconds."
+                : $"Server process started (PID {process.Id}) but did not respond on port {port} after 15 seconds.\nProcess output:\n{stderr}";
+            Console.WriteLine($"[ServerManager] {LastError}");
             OnStatusChanged?.Invoke();
             return false;
         }
         catch (Exception ex)
         {
+            LastError = ex.Message;
             Console.WriteLine($"[ServerManager] Error starting server: {ex.Message}");
             return false;
         }
