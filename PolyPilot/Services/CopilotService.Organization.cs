@@ -1912,8 +1912,10 @@ public partial class CopilotService
         sb.AppendLine("Detailed task description for this worker.");
         sb.AppendLine("@end");
         sb.AppendLine();
-        sb.AppendLine($"IMPORTANT: Assign ALL workers that have relevant work IN THIS SINGLE RESPONSE — produce multiple @worker blocks now, not one at a time.");
-        sb.AppendLine("However, only assign workers that have RELEVANT work to do. If the task only needs one worker (e.g., a follow-up on a specific PR), assign just that one worker — the one with the right context.");
+        sb.AppendLine("Assign the MINIMUM number of workers needed. For single-item requests (one PR, one bug, one question), prefer assigning just ONE worker — the one with the best context from previous turns.");
+        sb.AppendLine("Only fan out to multiple workers when the request genuinely contains multiple INDEPENDENT tasks (e.g., 'review PR #100 and PR #200' = 2 workers).");
+        sb.AppendLine("Do NOT split a single task into micro-tasks across workers (e.g., one worker to check commits, another to build, another to grep — that's all one worker's job).");
+        sb.AppendLine("If you assign multiple workers, produce all @worker blocks in THIS SINGLE RESPONSE — not one at a time.");
         sb.AppendLine("Each worker retains conversation history from previous turns, so prefer the worker who already worked on the relevant topic.");
         sb.AppendLine("You may include brief analysis before the @worker blocks, but every response MUST contain @worker blocks for all workers you intend to use.");
         sb.AppendLine("NEVER attempt to do the work yourself. ALWAYS delegate via @worker blocks.");
