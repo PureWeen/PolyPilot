@@ -665,16 +665,16 @@ public partial class CopilotService : IAsyncDisposable
         Console.WriteLine($"[DEBUG] {message}");
         OnDebug?.Invoke(message);
 
-        // Persist lifecycle diagnostics to file for post-mortem analysis (DEBUG builds only)
-#if DEBUG
+        // Persist lifecycle diagnostics to file for post-mortem analysis
         if (message.StartsWith("[EVT") || message.StartsWith("[IDLE") ||
             message.StartsWith("[COMPLETE") || message.StartsWith("[SEND") ||
             message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
             message.StartsWith("[DISPATCH") || message.StartsWith("[WATCHDOG") ||
             message.StartsWith("[HEALTH") || message.StartsWith("[ZERO-IDLE") ||
             message.StartsWith("[PERMISSION") || message.StartsWith("[RESUME-ABORT") ||
-            message.StartsWith("[KEEPALIVE") ||
-            message.Contains("watchdog"))
+            message.StartsWith("[KEEPALIVE") || message.StartsWith("[ERROR") ||
+            message.StartsWith("[ABORT") || message.StartsWith("[BRIDGE") ||
+            message.Contains("watchdog") || message.Contains("Failed to"))
         {
             try
             {
@@ -691,7 +691,6 @@ public partial class CopilotService : IAsyncDisposable
             }
             catch { /* Don't let logging failures cascade */ }
         }
-#endif
     }
 
     internal void InvokeOnUI(Action action)
