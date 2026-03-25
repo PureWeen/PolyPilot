@@ -681,15 +681,29 @@ public partial class CopilotService
                     try
                     {
                         var currentSettings = ConnectionSettings.Load();
+                        var isWorker = currentSettings.MuteWorkerNotifications && IsWorkerInMultiAgentGroup(sessionName);
+                        var lastMsg = state.Info.History.LastOrDefault(m => m.Role == "assistant");
+
+                        // Minimized mode popup (desktop only, fires when main window is not focused)
+                        if (currentSettings.EnableMinimizedMode && !isWorker && PlatformHelper.IsDesktop)
+                        {
+                            var minimizedService = _serviceProvider?.GetService<IMinimizedModeService>();
+                            if (minimizedService != null && !minimizedService.IsMainWindowFocused)
+                            {
+                                var body = BuildNotificationBody(lastMsg?.Content, state.Info.History.Count);
+                                minimizedService.OnSessionCompleted(sessionName, state.Info.SessionId ?? "", body);
+                                return; // popup replaces system notification
+                            }
+                        }
+
                         if (!currentSettings.EnableSessionNotifications) return;
-                        if (currentSettings.MuteWorkerNotifications && IsWorkerInMultiAgentGroup(sessionName)) return;
+                        if (isWorker) return;
                         var notifService = _serviceProvider?.GetService<INotificationManagerService>();
                         if (notifService == null || !notifService.HasPermission) return;
-                        var lastMsg = state.Info.History.LastOrDefault(m => m.Role == "assistant");
-                        var body = BuildNotificationBody(lastMsg?.Content, state.Info.History.Count);
+                        var body2 = BuildNotificationBody(lastMsg?.Content, state.Info.History.Count);
                         await notifService.SendNotificationAsync(
                             $"✓ {sessionName}",
-                            body,
+                            body2,
                             state.Info.SessionId);
                     }
                     catch { }

@@ -4604,6 +4604,7 @@ public class UiState
     public HashSet<string> CompletedTutorials { get; set; } = new();
     public int GridColumns { get; set; } = 3;
     public int CardMinHeight { get; set; } = 250;
+    public bool IsAlwaysOnTop { get; set; } = false;
 }
 
 public class ActiveSessionEntry

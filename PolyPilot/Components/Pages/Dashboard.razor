@@ -192,6 +192,14 @@
                 </span>
             }
             <div class="toolbar-actions">
+                @if (PlatformHelper.IsDesktop)
+                {
+                    <button class="always-on-top-btn @(_isAlwaysOnTop ? "active" : "")"
+                            @onclick="ToggleAlwaysOnTop"
+                            title="@(_isAlwaysOnTop ? "Exit always-on-top mode" : "Always on top: focus one session at a time")">
+                        📌
+                    </button>
+                }
                 <button class="toolbar-overflow-btn" @onclick="() => toolbarMenuOpen = !toolbarMenuOpen"
                         @onclick:stopPropagation="true" title="More options">⋯</button>
                 <div class="toolbar-controls @(toolbarMenuOpen ? "open" : "")">
@@ -239,7 +247,68 @@
             </div>
         </div>
 
-        @if (expandedSession == null)
+        @if (_isAlwaysOnTop)
+        {
+            var focusSessions = CopilotService.GetFocusSessions();
+            var topSession = focusSessions.FirstOrDefault();
+            if (topSession != null)
+            {
+                var topMeta = CopilotService.GetSessionMeta(topSession.Name);
+                var aotWorkerCount = (topMeta?.Role == MultiAgentRole.Orchestrator && topMeta?.GroupId != null)
+                    ? CopilotService.GetMultiAgentProgress(topMeta.GroupId).Processing
+                    : 0;
+                <div class="aot-view">
+                    @if (focusSessions.Count > 1)
+                    {
+                        <div class="aot-queue-badge">+@(focusSessions.Count - 1) more waiting</div>
+                    }
+                    <SessionCard Session="topSession"
+                                 @key="@($"aot-{topSession.Name}")"
+                                 Meta="topMeta"
+                                 IsCompleted="completedSessions.Contains(topSession.Name)"
+                                 IsInFocusStrip="true"
+                                 ActiveWorkerCount="aotWorkerCount"
+                                 MessageCount="@(cardMessageCounts.TryGetValue(topSession.Name, out var aotmc) ? aotmc : DefaultCardMessageWindow)"
+                                 MinHeight="@Math.Max(_cardMinHeight, 300)"
+                                 StreamingContent="@(streamingBySession.TryGetValue(topSession.Name, out var aots) ? aots : "")"
+                                 ActivityText="@(activityBySession.TryGetValue(topSession.Name, out var aota) ? aota : "")"
+                                 CurrentToolName="@(currentToolBySession.TryGetValue(topSession.Name, out var aott) ? aott : "")"
+                                 ToolActivities="@(toolActivitiesBySession.TryGetValue(topSession.Name, out var aotta) ? aotta : new())"
+                                 Intent="@(intentBySession.TryGetValue(topSession.Name, out var aoti) ? aoti : "")"
+                                 Error="@(errorBySession.TryGetValue(topSession.Name, out var aote) ? aote : null)"
+                                 PendingImages="@(pendingImagesBySession.TryGetValue(topSession.Name, out var aotpi) ? aotpi : new())"
+                                 UserAvatarUrl="@CopilotService.GitHubAvatarUrl"
+                                 RepoUrl="@CopilotService.GetRepoUrlForSession(topSession.Name)"
+                                 Layout="@CopilotService.ChatLayout"
+                                 Style="@CopilotService.ChatStyle"
+                                 IsRenaming="false"
+                                 IsMenuOpen="false"
+                                 OnGoTo="() => GoToSession(topSession.Name)"
+                                 OnToggleMenu="() => InvokeAsync(StateHasChanged)"
+                                 OnExpand="() => ExpandSession(topSession.Name)"
+                                 OnLoadMore="() => LoadMoreCardMessages(topSession.Name)"
+                                 OnDismissError="() => DismissError(topSession.Name)"
+                                 OnClearQueue="() => ClearQueue(topSession.Name)"
+                                 OnRemovePendingImage="(idx) => RemovePendingImage(topSession.Name, idx)"
+                                 OnSend="(text) => SendFromCard(topSession.Name, text)"
+                                 OnStartRename="() => InvokeAsync(StateHasChanged)"
+                                 OnCommitRename="(newName) => InvokeAsync(StateHasChanged)"
+                                 OnCloseMenu="() => InvokeAsync(StateHasChanged)"
+                                 OnRemoveFromFocus="() => CopilotService.RemoveFromFocus(topSession.Name)"
+                                 OnPromote="() => CopilotService.PromoteFocusSession(topSession.Name)"
+                                 OnDemote="() => CopilotService.DemoteFocusSession(topSession.Name)" />
+                </div>
+            }
+            else
+            {
+                <div class="aot-empty">
+                    <span class="aot-empty-icon">✓</span>
+                    <span class="aot-empty-text">All caught up!</span>
+                    <span class="aot-empty-hint">No sessions waiting for attention</span>
+                </div>
+            }
+        }
+        else @if (expandedSession == null)
         {
             var focusSessions = CopilotService.GetFocusSessions();
             @if (focusSessions.Count > 0)
@@ -439,7 +508,7 @@
         var externalSessions = CopilotService.ExternalSessions.ToList();
         var hasActiveExternal = externalSessions.Any(s => s.IsActive);
     }
-    @if (externalSessions.Count > 0 && expandedSession == null)
+    @if (externalSessions.Count > 0 && expandedSession == null && !_isAlwaysOnTop)
     {
         <div class="group-divider @(isExternalCollapsed && !hasActiveExternal ? "collapsed" : "")"
              @onclick="() => isExternalCollapsed = !isExternalCollapsed">
@@ -500,6 +569,7 @@
     private bool isCompactGrid;  // true = compact cards, false = spacious cards
     private int _gridColumns = 3;  // number of cards per row (2-6)
     private int _cardMinHeight = 250;  // card minimum height in px (150-600, step 50)
+    private bool _isAlwaysOnTop = false;  // always-on-top focus mode
     private bool isExternalCollapsed = true;  // external sessions collapsed by default
     private HashSet<string> _expandedWorkerGroups = new();  // group IDs where workers are shown
     private bool toolbarMenuOpen;
@@ -595,6 +665,15 @@
                 
                 // Restore card min height (default 250, range 150-600)
                 _cardMinHeight = uiState.CardMinHeight is >= 150 and <= 600 ? uiState.CardMinHeight : 250;
+
+                // Restore always-on-top mode
+                _isAlwaysOnTop = uiState.IsAlwaysOnTop;
+                if (_isAlwaysOnTop)
+                {
+#if MACCATALYST
+                    PolyPilot.Platforms.MacCatalyst.WindowLevelHelper.SetAlwaysOnTop(true);
+#endif
+                }
                 
                 // Restore expanded session state
                 if (!string.IsNullOrEmpty(uiState.ExpandedSession))
@@ -2812,6 +2891,15 @@
         _explicitlyCollapsed = true;
         CopilotService.SetActiveSession(null);
         CopilotService.SaveUiState("/dashboard", activeSession: null, expandedSession: null, expandedGrid: !isCompactGrid);
+    }
+
+    private void ToggleAlwaysOnTop()
+    {
+        _isAlwaysOnTop = !_isAlwaysOnTop;
+        CopilotService.SaveUiState("/dashboard", isAlwaysOnTop: _isAlwaysOnTop);
+#if MACCATALYST
+        PolyPilot.Platforms.MacCatalyst.WindowLevelHelper.SetAlwaysOnTop(_isAlwaysOnTop);
+#endif
     }
 
     private void IncrementGridColumns()

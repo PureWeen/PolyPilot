@@ -116,6 +116,8 @@ public static class MauiProgram
 	builder.Services.AddSingleton<INotificationManagerService, NotificationManagerService>();
 	builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
 	builder.Services.AddSingleton<EfficiencyAnalysisService>();
+	builder.Services.AddSingleton<MinimizedModeService>();
+	builder.Services.AddSingleton<IMinimizedModeService>(sp => sp.GetRequiredService<MinimizedModeService>());
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();

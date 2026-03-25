@@ -1581,3 +1581,65 @@
 .ma-expanded-toolbar-input::placeholder {
     color: var(--text-muted);
 }
+
+/* Always On Top mode */
+.always-on-top-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: var(--type-body);
+    color: var(--text-secondary);
+    transition: all 0.15s;
+    opacity: 0.7;
+}
+.always-on-top-btn:hover {
+    background: var(--hover-bg);
+    opacity: 1;
+}
+.always-on-top-btn.active {
+    background: rgba(99, 102, 241, 0.2);
+    border-color: rgba(99, 102, 241, 0.5);
+    color: rgba(120, 100, 240, 1);
+    opacity: 1;
+}
+
+/* Always On Top compact view */
+.aot-view {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 0;
+}
+.aot-queue-badge {
+    font-size: var(--type-callout);
+    color: var(--text-secondary);
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    border-radius: 12px;
+    padding: 2px 10px;
+    align-self: flex-start;
+    margin-left: 4px;
+}
+.aot-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+}
+.aot-empty-icon {
+    font-size: var(--type-title1);
+    color: rgba(99, 102, 241, 0.7);
+}
+.aot-empty-text {
+    font-size: var(--type-title2);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.aot-empty-hint {
+    font-size: var(--type-callout);
+}

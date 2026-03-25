@@ -120,6 +120,7 @@ public class ConnectionSettings
     public PluginSettings Plugins { get; set; } = new();
     public bool EnableSessionNotifications { get; set; } = false;
     public bool MuteWorkerNotifications { get; set; } = false;
+    public bool EnableMinimizedMode { get; set; } = false;
     public bool CodespacesEnabled { get; set; } = false;
     /// <summary>
     /// When true, logs every SDK event type to event-diagnostics.log (not just lifecycle events).

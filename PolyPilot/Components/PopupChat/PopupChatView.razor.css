@@ -1,0 +1,143 @@
+/* Popup Chat View — compact UI for minimized mode popup window */
+
+.popup-root {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: #0f0f22;
+    color: #e8e8f0;
+    font-family: var(--font-base);
+    font-size: var(--type-body, 0.85rem);
+}
+
+/* Header */
+.popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px 10px;
+    background: #16162a;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    gap: 8px;
+}
+
+.popup-session-name {
+    font-size: var(--type-title3, 1.0rem);
+    font-weight: 600;
+    color: #c8b4f8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.popup-header-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.popup-btn-open {
+    background: rgba(120, 80, 220, 0.2);
+    border: 1px solid rgba(120, 80, 220, 0.4);
+    color: #c8b4f8;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: var(--type-callout, 0.8rem);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.popup-btn-open:hover {
+    background: rgba(120, 80, 220, 0.35);
+}
+
+.popup-btn-dismiss {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #888;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: var(--type-callout, 0.8rem);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.popup-btn-dismiss:hover {
+    background: rgba(255,255,255,0.08);
+    color: #ccc;
+}
+
+/* Response area */
+.popup-response {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    line-height: 1.6;
+}
+
+.popup-response-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #d0d0e8;
+    font-size: var(--type-body, 0.85rem);
+}
+
+.popup-response-empty {
+    color: #666;
+    font-style: italic;
+    font-size: var(--type-body, 0.85rem);
+}
+
+/* Input row */
+.popup-input-row {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px 14px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    background: #12122a;
+}
+
+.popup-input {
+    flex: 1;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: #e8e8f0;
+    font-size: var(--type-body, 0.85rem);
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.popup-input:focus {
+    border-color: rgba(120, 80, 220, 0.6);
+    background: rgba(255,255,255,0.08);
+}
+
+.popup-input::placeholder {
+    color: #555;
+}
+
+.popup-btn-send {
+    background: rgba(120, 80, 220, 0.8);
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    color: #fff;
+    font-size: var(--type-body, 0.85rem);
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+
+.popup-btn-send:hover:not(:disabled) {
+    background: rgba(120, 80, 220, 1.0);
+}
+
+.popup-btn-send:disabled {
+    opacity: 0.5;
+    cursor: default;
+}

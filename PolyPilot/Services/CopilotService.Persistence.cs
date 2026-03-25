@@ -746,7 +746,7 @@ public partial class CopilotService
 
     }
 
-    public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null, bool? expandedGrid = null, string? expandedSession = "<<unspecified>>", Dictionary<string, string>? inputModes = null, int? gridColumns = null, int? cardMinHeight = null)
+    public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null, bool? expandedGrid = null, string? expandedSession = "<<unspecified>>", Dictionary<string, string>? inputModes = null, int? gridColumns = null, int? cardMinHeight = null, bool? isAlwaysOnTop = null)
     {
         try
         {
@@ -766,7 +766,8 @@ public partial class CopilotService
                     : existing?.InputModes ?? new Dictionary<string, string>(),
                 CompletedTutorials = existing?.CompletedTutorials ?? new HashSet<string>(),
                 GridColumns = gridColumns ?? existing?.GridColumns ?? 3,
-                CardMinHeight = cardMinHeight ?? existing?.CardMinHeight ?? 250
+                CardMinHeight = cardMinHeight ?? existing?.CardMinHeight ?? 250,
+                IsAlwaysOnTop = isAlwaysOnTop ?? existing?.IsAlwaysOnTop ?? false,
             };
 
             lock (_uiStateLock)
