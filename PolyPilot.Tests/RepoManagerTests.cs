@@ -640,6 +640,71 @@ public class RepoManagerTests
         finally { ForceDeleteDirectory(tmpDir); }
     }
 
+    [Fact]
+    public void EnsureGitExcludeEntry_HandlesRelativeGitdirPointer()
+    {
+        var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
+        try
+        {
+            // Simulate a worktree with a relative gitdir pointer (e.g., ../.git/worktrees/name)
+            var bareGitDir = Path.Combine(tmpDir, "bare-repo.git");
+            var worktreeGitDir = Path.Combine(bareGitDir, "worktrees", "my-branch");
+            Directory.CreateDirectory(Path.Combine(worktreeGitDir, "info"));
+
+            var worktreeDir = Path.Combine(tmpDir, "my-worktree");
+            Directory.CreateDirectory(worktreeDir);
+            // Write a relative gitdir pointer
+            var relativePath = Path.GetRelativePath(worktreeDir, worktreeGitDir);
+            File.WriteAllText(Path.Combine(worktreeDir, ".git"), $"gitdir: {relativePath}\n");
+
+            var method = typeof(RepoManager).GetMethod("EnsureGitExcludeEntry",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            method.Invoke(null, [worktreeDir, ".polypilot/"]);
+
+            var excludePath = Path.Combine(worktreeGitDir, "info", "exclude");
+            Assert.True(File.Exists(excludePath));
+            var content = File.ReadAllText(excludePath);
+            Assert.Contains(".polypilot/", content);
+        }
+        finally { ForceDeleteDirectory(tmpDir); }
+    }
+
+    [Fact]
+    public void EnsureGitExcludeEntry_NoGitDirectory_NoOp()
+    {
+        var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
+        try
+        {
+            // No .git file or directory — should be a no-op, not create spurious directories
+            var method = typeof(RepoManager).GetMethod("EnsureGitExcludeEntry",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            method.Invoke(null, [tmpDir, ".polypilot/"]);
+
+            Assert.False(Directory.Exists(Path.Combine(tmpDir, ".git")));
+            Assert.False(File.Exists(Path.Combine(tmpDir, ".git", "info", "exclude")));
+        }
+        finally { ForceDeleteDirectory(tmpDir); }
+    }
+
+    [Fact]
+    public void EnsureGitExcludeEntry_MalformedGitFile_NoOp()
+    {
+        var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
+        try
+        {
+            // .git is a file but doesn't contain gitdir: prefix — should be a no-op
+            File.WriteAllText(Path.Combine(tmpDir, ".git"), "this is not a valid gitdir pointer\n");
+
+            var method = typeof(RepoManager).GetMethod("EnsureGitExcludeEntry",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            method.Invoke(null, [tmpDir, ".polypilot/"]);
+
+            // Should not have created any info/exclude anywhere
+            Assert.False(Directory.Exists(Path.Combine(tmpDir, ".git", "info")));
+        }
+        finally { ForceDeleteDirectory(tmpDir); }
+    }
+
     #endregion
 
     #region Nested Worktree Path Traversal Tests

@@ -755,23 +755,40 @@ public class RepoManager
     {
         try
         {
-            var excludePath = Path.Combine(repoPath, ".git", "info", "exclude");
-            // .git might be a file (worktree pointer) — only proceed if .git/info exists or can be created
+            var dotGitPath = Path.Combine(repoPath, ".git");
+
+            // Early return if no .git file or directory exists (not a valid repo)
+            if (!Directory.Exists(dotGitPath) && !File.Exists(dotGitPath))
+                return;
+
+            var excludePath = Path.Combine(dotGitPath, "info", "exclude");
             var infoDir = Path.GetDirectoryName(excludePath)!;
             if (!Directory.Exists(infoDir))
             {
                 // If .git is a file (worktree), resolve the real gitdir
-                var dotGitPath = Path.Combine(repoPath, ".git");
                 if (File.Exists(dotGitPath))
                 {
-                    var content = File.ReadAllText(dotGitPath).Trim();
-                    if (content.StartsWith("gitdir:", StringComparison.OrdinalIgnoreCase))
+                    var firstLine = File.ReadLines(dotGitPath).FirstOrDefault()?.Trim();
+                    if (firstLine != null && firstLine.StartsWith("gitdir:", StringComparison.OrdinalIgnoreCase))
                     {
-                        var gitdir = content["gitdir:".Length..].Trim();
+                        var gitdir = firstLine["gitdir:".Length..].Trim();
                         if (!Path.IsPathRooted(gitdir))
                             gitdir = Path.GetFullPath(Path.Combine(repoPath, gitdir));
-                        excludePath = Path.Combine(gitdir, "info", "exclude");
+                        var resolvedGitdir = Path.GetFullPath(gitdir);
+
+                        // Validate the resolved gitdir is within the repo or a legitimate .git/worktrees/ subtree
+                        var repoFull = Path.GetFullPath(repoPath) + Path.DirectorySeparatorChar;
+                        if (!resolvedGitdir.StartsWith(repoFull, StringComparison.Ordinal)
+                            && !resolvedGitdir.Contains(Path.Combine(".git", "worktrees"), StringComparison.Ordinal))
+                            return;
+
+                        excludePath = Path.Combine(resolvedGitdir, "info", "exclude");
                         infoDir = Path.GetDirectoryName(excludePath)!;
+                    }
+                    else
+                    {
+                        // Malformed .git file — cannot resolve gitdir
+                        return;
                     }
                 }
                 Directory.CreateDirectory(infoDir);
