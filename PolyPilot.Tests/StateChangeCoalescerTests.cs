@@ -70,12 +70,12 @@ public class StateChangeCoalescerTests
             svc.NotifyStateChangedCoalesced();
         // Wait well beyond the coalesce window (150ms) to ensure the timer fires,
         // even under heavy CI/GC load. Previous 300ms was flaky under load.
-        await Task.Delay(500);
+        await Task.Delay(800);
 
         // Second burst after timer has fired
         for (int i = 0; i < 10; i++)
             svc.NotifyStateChangedCoalesced();
-        await Task.Delay(500);
+        await Task.Delay(800);
 
         // Each burst should produce ~1 notification
         Assert.InRange(fireCount, 2, 4);

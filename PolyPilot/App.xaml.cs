@@ -6,13 +6,11 @@ public partial class App : Application
 {
 	private readonly CopilotService _copilotService;
 	private readonly WsBridgeServer _bridgeServer;
-	private readonly DevTunnelService _devTunnelService;
 
-	public App(INotificationManagerService notificationService, CopilotService copilotService, WsBridgeServer bridgeServer, DevTunnelService devTunnelService)
+	public App(INotificationManagerService notificationService, CopilotService copilotService, WsBridgeServer bridgeServer)
 	{
 		_copilotService = copilotService;
 		_bridgeServer = bridgeServer;
-		_devTunnelService = devTunnelService;
 		InitializeComponent();
 		_ = notificationService.InitializeAsync();
 
@@ -49,7 +47,7 @@ public partial class App : Application
 		// can proactively recover the copilot connection and re-sync mobile clients.
 		// App.OnResume() only fires when the app is re-activated by the user, not on
 		// system wake or lock-screen unlock without clicking PolyPilot.
-		PolyPilot.Platforms.MacCatalyst.MacSleepWakeMonitor.Register(_copilotService, _bridgeServer, _devTunnelService);
+		PolyPilot.Platforms.MacCatalyst.MacSleepWakeMonitor.Register(_copilotService, _bridgeServer);
 #endif
 
 		return window;
