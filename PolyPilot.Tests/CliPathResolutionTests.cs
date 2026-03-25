@@ -312,4 +312,48 @@ public class CliPathResolutionTests
         var primaryPath = Path.Combine(assemblyDir!, "runtimes", rid, "native", CopilotBinaryName);
         Assert.NotEqual(primaryPath, monoBundlePath);
     }
+
+    [Fact]
+    public void AppContextBaseDirectory_IsNotEmpty()
+    {
+        // AppContext.BaseDirectory is the third fallback for finding the bundled copilot binary.
+        // In Release/AOT Mac Catalyst builds, Assembly.Location resolves to a .xamarin/{arch}/
+        // subdirectory rather than the MonoBundle root. AppContext.BaseDirectory always
+        // points to the MonoBundle root, making it a reliable fallback.
+        var baseDir = AppContext.BaseDirectory;
+        Assert.False(string.IsNullOrEmpty(baseDir),
+            "AppContext.BaseDirectory should never be empty — it's used as a fallback " +
+            "for finding the bundled copilot binary in AOT builds");
+    }
+
+    [Fact]
+    public void AppContextBaseDirectory_FallbackPath_IsWellFormed()
+    {
+        // Verify the AppContext.BaseDirectory fallback constructs a valid path.
+        // In a Mac Catalyst .app bundle, this would be Contents/MonoBundle/copilot.
+        var baseDir = AppContext.BaseDirectory;
+        Assert.NotNull(baseDir);
+
+        var fallbackPath = Path.Combine(baseDir, CopilotBinaryName);
+        Assert.Equal(baseDir, Path.GetDirectoryName(fallbackPath) + Path.DirectorySeparatorChar);
+        Assert.Equal(CopilotBinaryName, Path.GetFileName(fallbackPath));
+    }
+
+    [Fact]
+    public void AotBuild_AssemblyLocation_MayDifferFromBaseDir()
+    {
+        // Documents the AOT build issue: Assembly.Location can point to a different
+        // directory than AppContext.BaseDirectory. In Release/AOT Mac Catalyst builds,
+        // Assembly.Location → .xamarin/maccatalyst-arm64/GitHub.Copilot.SDK.dll
+        // AppContext.BaseDirectory → Contents/MonoBundle/
+        // The copilot binary is in MonoBundle root, so AppContext.BaseDirectory is correct.
+        var assemblyDir = Path.GetDirectoryName(typeof(CopilotClient).Assembly.Location);
+        var baseDir = AppContext.BaseDirectory;
+
+        // In test context (non-AOT), these are typically the same.
+        // In AOT builds, assemblyDir would be a .xamarin/ subdirectory.
+        // Either way, ResolveBundledCliPath should find the binary using one of the paths.
+        Assert.NotNull(assemblyDir);
+        Assert.False(string.IsNullOrEmpty(baseDir));
+    }
 }

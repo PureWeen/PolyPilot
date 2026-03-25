@@ -1407,16 +1407,32 @@ public partial class CopilotService : IAsyncDisposable
         if (bundledPath != null && File.Exists(bundledPath))
             return bundledPath;
 
+        var binaryName = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
+
         // 2. MonoBundle/copilot (MAUI flattens runtimes/ into MonoBundle on Mac Catalyst)
         try
         {
             var assemblyDir = Path.GetDirectoryName(typeof(CopilotClient).Assembly.Location);
             if (assemblyDir != null)
             {
-                var binaryName = OperatingSystem.IsWindows() ? "copilot.exe" : "copilot";
                 var monoBundlePath = Path.Combine(assemblyDir, binaryName);
                 if (File.Exists(monoBundlePath))
                     return monoBundlePath;
+            }
+        }
+        catch { }
+
+        // 3. AppContext.BaseDirectory fallback — in Release/AOT builds, Assembly.Location
+        //    resolves to .xamarin/{arch}/ subdirectory, but the copilot binary is in the
+        //    MonoBundle root. AppContext.BaseDirectory always points to MonoBundle/.
+        try
+        {
+            var baseDir = AppContext.BaseDirectory;
+            if (!string.IsNullOrEmpty(baseDir))
+            {
+                var baseDirPath = Path.Combine(baseDir, binaryName);
+                if (File.Exists(baseDirPath))
+                    return baseDirPath;
             }
         }
         catch { }
