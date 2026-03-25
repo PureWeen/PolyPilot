@@ -695,7 +695,7 @@ public class RepoManager
             // Nested strategy: place worktree inside the user's repo at .polypilot/worktrees/{branch}/
             var repoWorktreesDir = Path.Combine(Path.GetFullPath(localPath), ".polypilot", "worktrees");
             Directory.CreateDirectory(repoWorktreesDir);
-            EnsureGitIgnoreEntry(localPath, ".polypilot/");
+            EnsureGitExcludeEntry(localPath, ".polypilot/");
             worktreePath = Path.Combine(repoWorktreesDir, branchName);
 
             // Guard against path traversal: branch names with ".." or leading "/" could escape
@@ -747,32 +747,52 @@ public class RepoManager
 
     /// <summary>
     /// Ensures that <paramref name="entry"/> (e.g. <c>.polypilot/</c>) is present in the
-    /// <c>.gitignore</c> file inside <paramref name="repoPath"/>. Creates <c>.gitignore</c>
-    /// if it does not exist. No-op if the entry is already present.
+    /// <c>.git/info/exclude</c> file inside <paramref name="repoPath"/>. This is a local-only
+    /// exclusion that is never tracked by git, unlike <c>.gitignore</c>.
+    /// Creates the file if it does not exist. No-op if the entry is already present.
     /// </summary>
-    private static void EnsureGitIgnoreEntry(string repoPath, string entry)
+    private static void EnsureGitExcludeEntry(string repoPath, string entry)
     {
         try
         {
-            var gitignorePath = Path.Combine(repoPath, ".gitignore");
-            var lines = File.Exists(gitignorePath)
-                ? File.ReadAllLines(gitignorePath)
+            var excludePath = Path.Combine(repoPath, ".git", "info", "exclude");
+            // .git might be a file (worktree pointer) — only proceed if .git/info exists or can be created
+            var infoDir = Path.GetDirectoryName(excludePath)!;
+            if (!Directory.Exists(infoDir))
+            {
+                // If .git is a file (worktree), resolve the real gitdir
+                var dotGitPath = Path.Combine(repoPath, ".git");
+                if (File.Exists(dotGitPath))
+                {
+                    var content = File.ReadAllText(dotGitPath).Trim();
+                    if (content.StartsWith("gitdir:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var gitdir = content["gitdir:".Length..].Trim();
+                        if (!Path.IsPathRooted(gitdir))
+                            gitdir = Path.GetFullPath(Path.Combine(repoPath, gitdir));
+                        excludePath = Path.Combine(gitdir, "info", "exclude");
+                        infoDir = Path.GetDirectoryName(excludePath)!;
+                    }
+                }
+                Directory.CreateDirectory(infoDir);
+            }
+
+            var lines = File.Exists(excludePath)
+                ? File.ReadAllLines(excludePath)
                 : [];
 
-            // Check if any existing line matches (exact or without trailing slash variant)
             var entryTrimmed = entry.TrimEnd('/');
             if (lines.Any(l => l.Trim() == entry || l.Trim() == entryTrimmed || l.Trim() == $"/{entry}" || l.Trim() == $"/{entryTrimmed}"))
                 return;
 
-            // Append with a leading newline if file doesn't end with one
-            using var sw = new StreamWriter(gitignorePath, append: true);
+            using var sw = new StreamWriter(excludePath, append: true);
             if (lines.Length > 0 && !string.IsNullOrEmpty(lines[^1]))
                 sw.WriteLine();
             sw.WriteLine(entry);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[RepoManager] Failed to update .gitignore: {ex.Message}");
+            Console.WriteLine($"[RepoManager] Failed to update .git/info/exclude: {ex.Message}");
         }
     }
 

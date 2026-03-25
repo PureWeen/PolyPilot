@@ -527,40 +527,46 @@ public class RepoManagerTests
         return string.Equals(l, r, StringComparison.OrdinalIgnoreCase);
     }
 
-    #region EnsureGitIgnoreEntry Tests
+    #region EnsureGitExcludeEntry Tests
 
     [Fact]
-    public void EnsureGitIgnoreEntry_CreatesGitIgnoreIfMissing()
+    public void EnsureGitExcludeEntry_CreatesExcludeIfMissing()
     {
         var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
         try
         {
-            var method = typeof(RepoManager).GetMethod("EnsureGitIgnoreEntry",
+            // Create a .git/info directory to simulate a real repo
+            var infoDir = Path.Combine(tmpDir, ".git", "info");
+            Directory.CreateDirectory(infoDir);
+
+            var method = typeof(RepoManager).GetMethod("EnsureGitExcludeEntry",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
             method.Invoke(null, [tmpDir, ".polypilot/"]);
 
-            var gitignorePath = Path.Combine(tmpDir, ".gitignore");
-            Assert.True(File.Exists(gitignorePath));
-            var content = File.ReadAllText(gitignorePath);
+            var excludePath = Path.Combine(infoDir, "exclude");
+            Assert.True(File.Exists(excludePath));
+            var content = File.ReadAllText(excludePath);
             Assert.Contains(".polypilot/", content);
         }
         finally { ForceDeleteDirectory(tmpDir); }
     }
 
     [Fact]
-    public void EnsureGitIgnoreEntry_AppendsIfNotPresent()
+    public void EnsureGitExcludeEntry_AppendsIfNotPresent()
     {
         var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
         try
         {
-            var gitignorePath = Path.Combine(tmpDir, ".gitignore");
-            File.WriteAllText(gitignorePath, "*.user\nbin/\n");
+            var infoDir = Path.Combine(tmpDir, ".git", "info");
+            Directory.CreateDirectory(infoDir);
+            var excludePath = Path.Combine(infoDir, "exclude");
+            File.WriteAllText(excludePath, "*.user\nbin/\n");
 
-            var method = typeof(RepoManager).GetMethod("EnsureGitIgnoreEntry",
+            var method = typeof(RepoManager).GetMethod("EnsureGitExcludeEntry",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
             method.Invoke(null, [tmpDir, ".polypilot/"]);
 
-            var content = File.ReadAllText(gitignorePath);
+            var content = File.ReadAllText(excludePath);
             Assert.Contains(".polypilot/", content);
             Assert.Contains("*.user", content); // existing content preserved
         }
@@ -568,41 +574,68 @@ public class RepoManagerTests
     }
 
     [Fact]
-    public void EnsureGitIgnoreEntry_IdempotentIfAlreadyPresent()
+    public void EnsureGitExcludeEntry_IdempotentIfAlreadyPresent()
     {
         var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
         try
         {
-            var gitignorePath = Path.Combine(tmpDir, ".gitignore");
-            File.WriteAllText(gitignorePath, ".polypilot/\n");
+            var infoDir = Path.Combine(tmpDir, ".git", "info");
+            Directory.CreateDirectory(infoDir);
+            var excludePath = Path.Combine(infoDir, "exclude");
+            File.WriteAllText(excludePath, ".polypilot/\n");
 
-            var method = typeof(RepoManager).GetMethod("EnsureGitIgnoreEntry",
+            var method = typeof(RepoManager).GetMethod("EnsureGitExcludeEntry",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
             method.Invoke(null, [tmpDir, ".polypilot/"]);
             method.Invoke(null, [tmpDir, ".polypilot/"]); // call twice
 
-            var lines = File.ReadAllLines(gitignorePath);
+            var lines = File.ReadAllLines(excludePath);
             Assert.Equal(1, lines.Count(l => l.Trim() == ".polypilot/")); // only one entry
         }
         finally { ForceDeleteDirectory(tmpDir); }
     }
 
     [Fact]
-    public void EnsureGitIgnoreEntry_MatchesWithoutTrailingSlash()
+    public void EnsureGitExcludeEntry_MatchesWithoutTrailingSlash()
     {
         var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
         try
         {
-            var gitignorePath = Path.Combine(tmpDir, ".gitignore");
-            File.WriteAllText(gitignorePath, ".polypilot\n"); // no trailing slash variant
+            var infoDir = Path.Combine(tmpDir, ".git", "info");
+            Directory.CreateDirectory(infoDir);
+            var excludePath = Path.Combine(infoDir, "exclude");
+            File.WriteAllText(excludePath, ".polypilot\n"); // no trailing slash variant
 
-            var method = typeof(RepoManager).GetMethod("EnsureGitIgnoreEntry",
+            var method = typeof(RepoManager).GetMethod("EnsureGitExcludeEntry",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
             method.Invoke(null, [tmpDir, ".polypilot/"]);
 
-            var content = File.ReadAllText(gitignorePath);
+            var content = File.ReadAllText(excludePath);
             // Should NOT add a duplicate (already covered by ".polypilot" line)
             Assert.DoesNotContain(".polypilot/", content);
+        }
+        finally { ForceDeleteDirectory(tmpDir); }
+    }
+
+    [Fact]
+    public void EnsureGitExcludeEntry_HandlesWorktreeGitdirPointer()
+    {
+        var tmpDir = Directory.CreateTempSubdirectory("polypilot-test-").FullName;
+        try
+        {
+            // Simulate a worktree where .git is a file pointing to the real gitdir
+            var realGitDir = Path.Combine(tmpDir, "real-gitdir");
+            Directory.CreateDirectory(Path.Combine(realGitDir, "info"));
+            File.WriteAllText(Path.Combine(tmpDir, ".git"), $"gitdir: {realGitDir}\n");
+
+            var method = typeof(RepoManager).GetMethod("EnsureGitExcludeEntry",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            method.Invoke(null, [tmpDir, ".polypilot/"]);
+
+            var excludePath = Path.Combine(realGitDir, "info", "exclude");
+            Assert.True(File.Exists(excludePath));
+            var content = File.ReadAllText(excludePath);
+            Assert.Contains(".polypilot/", content);
         }
         finally { ForceDeleteDirectory(tmpDir); }
     }
