@@ -60,8 +60,11 @@ public class ProviderHostContext : IProviderHostContext
         var isWindows = OperatingSystem.IsWindows();
         var pathSeparator = isWindows ? ';' : ':';
 
-        // Start with the full inherited environment
-        var env = new Dictionary<string, string>();
+        // Start with the full inherited environment.
+        // Windows env var names are case-insensitive (Path vs PATH), so use
+        // OrdinalIgnoreCase to avoid duplicate keys when augmenting PATH.
+        var env = new Dictionary<string, string>(
+            isWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
             if (entry.Key is string key && entry.Value is string val)
@@ -90,8 +93,8 @@ public class ProviderHostContext : IProviderHostContext
         pathParts.Add(Path.Combine(home, ".dotnet", "tools"));
         env["PATH"] = string.Join(pathSeparator, pathParts);
 
-        // Ensure HOME and AZURE_CONFIG_DIR are set
-        env["HOME"] = home;
+        // Ensure HOME and AZURE_CONFIG_DIR are set (TryAdd preserves user overrides)
+        env.TryAdd("HOME", home);
         env.TryAdd("AZURE_CONFIG_DIR", Path.Combine(home, ".azure"));
 
         options.Environment = env;
