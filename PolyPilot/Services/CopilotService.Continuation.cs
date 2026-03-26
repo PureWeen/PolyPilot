@@ -23,11 +23,11 @@ public partial class CopilotService
         }
 
         var transcript = BuildContinuationTranscript(history, sourceSessionName, info.SessionId);
-        var newName = GenerateContinuationName(sourceSessionName);
 
         // Inherit model, working directory, and group from source session
         var groupId = Organization.Sessions.FirstOrDefault(m => m.SessionName == sourceSessionName)?.GroupId;
-        var newSession = await CreateSessionAsync(newName, info.Model, info.WorkingDirectory, ct, groupId);
+        var newName = GenerateContinuationName(sourceSessionName, _sessions.Keys);
+        _ = await CreateSessionAsync(newName, info.Model, info.WorkingDirectory, ct, groupId);
 
         return (newName, transcript);
     }
@@ -115,13 +115,32 @@ public partial class CopilotService
     }
 
     /// <summary>
-    /// Generates a continuation session name, stripping existing " (cont'd)" suffix to prevent nesting.
+    /// Generates a continuation session name. Strips existing " (cont'd)" or " (cont'd N)" suffix,
+    /// then appends a counter if the name already exists among active sessions.
     /// </summary>
-    internal static string GenerateContinuationName(string sourceName)
+    internal static string GenerateContinuationName(string sourceName, IEnumerable<string>? existingNames = null)
     {
         const string suffix = " (cont'd)";
-        var baseName = sourceName.EndsWith(suffix) ? sourceName[..^suffix.Length] : sourceName;
-        return baseName + suffix;
+        // Strip existing continuation suffixes: " (cont'd)" or " (cont'd 2)", " (cont'd 3)", etc.
+        var baseName = sourceName;
+        if (baseName.EndsWith(suffix))
+            baseName = baseName[..^suffix.Length];
+        else if (System.Text.RegularExpressions.Regex.Match(baseName, @" \(cont'd \d+\)$") is { Success: true } m)
+            baseName = baseName[..m.Index];
+
+        var existing = existingNames != null ? new HashSet<string>(existingNames) : new HashSet<string>();
+        var candidate = baseName + suffix;
+        if (!existing.Contains(candidate))
+            return candidate;
+
+        for (int i = 2; i < 100; i++)
+        {
+            candidate = $"{baseName} (cont'd {i})";
+            if (!existing.Contains(candidate))
+                return candidate;
+        }
+
+        return $"{baseName} (cont'd {DateTime.UtcNow.Ticks})";
     }
 
     private static int EstimateLength(List<string> turns, string sourceName, string? sessionId)

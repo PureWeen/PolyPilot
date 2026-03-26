@@ -1205,14 +1205,18 @@ public class WsBridgeServer : IDisposable
     /// </summary>
     private async Task BroadcastSessionHistoryAsync(string sessionName)
     {
-        if (_copilot == null || _clients.IsEmpty) return;
+        try
+        {
+            if (_copilot == null || _clients.IsEmpty) return;
 
-        var session = _copilot.GetSession(sessionName);
-        if (session == null) return;
+            var session = _copilot.GetSession(sessionName);
+            if (session == null) return;
 
         ChatMessage[] snapshot;
-        try { snapshot = session.History.ToArray(); }
-        catch { return; } // concurrent modification — skip this broadcast
+        lock (session.HistoryLock)
+        {
+            snapshot = session.History.ToArray();
+        }
 
         var totalCount = snapshot.Length;
         List<ChatMessage> messagesToSend;
@@ -1228,9 +1232,10 @@ public class WsBridgeServer : IDisposable
             hasMore = false;
         }
 
-        // Populate ImageDataUri for Image messages
-        foreach (var m in messagesToSend)
+        // Populate ImageDataUri for Image messages — clone to avoid mutating shared History objects
+        for (int i = 0; i < messagesToSend.Count; i++)
         {
+            var m = messagesToSend[i];
             if (m.MessageType == ChatMessageType.Image && string.IsNullOrEmpty(m.ImageDataUri) && !string.IsNullOrEmpty(m.ImagePath))
             {
                 try
@@ -1238,7 +1243,17 @@ public class WsBridgeServer : IDisposable
                     if (File.Exists(m.ImagePath))
                     {
                         var bytes = await File.ReadAllBytesAsync(m.ImagePath);
-                        m.ImageDataUri = $"data:{ImageMimeType(m.ImagePath)};base64,{Convert.ToBase64String(bytes)}";
+                        var clone = new ChatMessage(m.Role, m.Content, m.Timestamp, m.MessageType)
+                        {
+                            ImagePath = m.ImagePath,
+                            Caption = m.Caption,
+                            ToolCallId = m.ToolCallId,
+                            ToolName = m.ToolName,
+                            IsComplete = m.IsComplete,
+                            IsSuccess = m.IsSuccess,
+                            ImageDataUri = $"data:{ImageMimeType(m.ImagePath)};base64,{Convert.ToBase64String(bytes)}"
+                        };
+                        messagesToSend[i] = clone;
                     }
                 }
                 catch { /* best effort */ }
@@ -1253,6 +1268,11 @@ public class WsBridgeServer : IDisposable
             HasMore = hasMore
         };
         Broadcast(BridgeMessage.Create(BridgeMessageTypes.SessionHistory, payload));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WsBridge] BroadcastSessionHistory error for '{sessionName}': {ex.Message}");
+        }
     }
 
     private async Task HandleOrganizationCommandAsync(OrganizationCommandPayload cmd)

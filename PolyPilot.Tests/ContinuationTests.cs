@@ -20,6 +20,38 @@ public class ContinuationTests
     }
 
     [Fact]
+    public void GenerateContinuationName_IncrementsWhenNameExists()
+    {
+        var existing = new[] { "my-session (cont'd)" };
+        var result = CopilotService.GenerateContinuationName("my-session", existing);
+        Assert.Equal("my-session (cont'd 2)", result);
+    }
+
+    [Fact]
+    public void GenerateContinuationName_IncrementsMultipleTimes()
+    {
+        var existing = new[] { "my-session (cont'd)", "my-session (cont'd 2)", "my-session (cont'd 3)" };
+        var result = CopilotService.GenerateContinuationName("my-session", existing);
+        Assert.Equal("my-session (cont'd 4)", result);
+    }
+
+    [Fact]
+    public void GenerateContinuationName_FromContdSourceWithExisting()
+    {
+        // Continuing from an already-continued session when the base name also exists
+        var existing = new[] { "my-session (cont'd)" };
+        var result = CopilotService.GenerateContinuationName("my-session (cont'd)", existing);
+        Assert.Equal("my-session (cont'd 2)", result);
+    }
+
+    [Fact]
+    public void GenerateContinuationName_StripsNumberedSuffix()
+    {
+        var result = CopilotService.GenerateContinuationName("my-session (cont'd 3)");
+        Assert.Equal("my-session (cont'd)", result);
+    }
+
+    [Fact]
     public void BuildContinuationTranscript_IncludesUserMessages()
     {
         var history = new List<ChatMessage>
