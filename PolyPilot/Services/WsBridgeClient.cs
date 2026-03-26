@@ -884,17 +884,19 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
 
     private async Task SendAsync(BridgeMessage msg, CancellationToken ct)
     {
-        if (_ws?.State != WebSocketState.Open) return;
+        if (_ws?.State != WebSocketState.Open)
+            throw new InvalidOperationException("Not connected to server");
         var bytes = Encoding.UTF8.GetBytes(msg.Serialize());
         try
         {
             await _sendLock.WaitAsync(ct);
         }
-        catch (ObjectDisposedException) { return; }
+        catch (ObjectDisposedException) { throw new InvalidOperationException("Bridge client has been disposed"); }
         try
         {
-            if (_ws?.State == WebSocketState.Open)
-                await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
+            if (_ws?.State != WebSocketState.Open)
+                throw new InvalidOperationException("Server disconnected during send");
+            await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
         }
         finally
         {

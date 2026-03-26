@@ -60,6 +60,7 @@ internal class StubServerManager : IServerManager
 internal class StubWsBridgeClient : IWsBridgeClient
 {
     public bool IsConnected { get; set; }
+    public bool ThrowOnSend { get; set; }
     public bool HasReceivedSessionsList { get; set; }
     public List<SessionSummary> Sessions { get; set; } = new();
     public string? ActiveSessionName { get; set; }
@@ -98,7 +99,12 @@ internal class StubWsBridgeClient : IWsBridgeClient
         return Task.CompletedTask;
     }
     public Task RequestHistoryAsync(string sessionName, int? limit = null, CancellationToken ct = default) => Task.CompletedTask;
-    public Task SendMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task SendMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default)
+    {
+        if (ThrowOnSend)
+            throw new InvalidOperationException("Not connected to server");
+        return Task.CompletedTask;
+    }
     public Task CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken ct = default) => Task.CompletedTask;
     public string? LastSwitchedSession { get; private set; }
     public int SwitchSessionCallCount { get; private set; }

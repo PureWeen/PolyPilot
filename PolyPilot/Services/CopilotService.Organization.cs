@@ -1019,7 +1019,9 @@ public partial class CopilotService
             RemoveGroupsWhere(g => g.Id == groupId);
             OnStateChanged?.Invoke();
             // Tell server to do the real cleanup
-            _ = _bridgeClient.SendOrganizationCommandAsync(new OrganizationCommandPayload { Command = "delete_group", GroupId = groupId });
+            _ = _bridgeClient.SendOrganizationCommandAsync(new OrganizationCommandPayload { Command = "delete_group", GroupId = groupId })
+                .ContinueWith(t => Console.WriteLine($"[CopilotService] DeleteGroup bridge error: {t.Exception?.InnerException?.Message}"),
+                    TaskContinuationOptions.OnlyOnFaulted);
             return;
         }
 

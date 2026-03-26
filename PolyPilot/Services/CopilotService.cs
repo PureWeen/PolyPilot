@@ -2951,6 +2951,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // In remote mode, delegate to WsBridgeClient
         if (IsRemoteMode)
         {
+            if (!_bridgeClient.IsConnected)
+                throw new InvalidOperationException("Not connected to server. Reconnecting…");
+
             // Add user message locally for immediate UI feedback
             var session = GetRemoteSession(sessionName);
             if (session != null && !skipHistoryMessage)
@@ -2962,7 +2965,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             if (session != null)
                 session.IsProcessing = true;
             OnStateChanged?.Invoke();
-            await _bridgeClient.SendMessageAsync(sessionName, prompt, agentMode, cancellationToken);
+            try
+            {
+                await _bridgeClient.SendMessageAsync(sessionName, prompt, agentMode, cancellationToken);
+            }
+            catch
+            {
+                // Send failed (disconnected) — clean up processing state
+                if (session != null)
+                {
+                    session.IsProcessing = false;
+                    OnStateChanged?.Invoke();
+                }
+                throw;
+            }
             return ""; // Response comes via events
         }
 
@@ -4244,7 +4260,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         _activeSessionName = name;
         if (IsRemoteMode)
-            _ = _bridgeClient.SwitchSessionAsync(name);
+            _ = _bridgeClient.SwitchSessionAsync(name)
+                .ContinueWith(t => Console.WriteLine($"[CopilotService] SwitchSession bridge error: {t.Exception?.InnerException?.Message}"),
+                    TaskContinuationOptions.OnlyOnFaulted);
         OnStateChanged?.Invoke();
         return true;
     }
@@ -4359,7 +4377,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             _activeSessionName = name;
             activeState.Info.LastUpdatedAt = DateTime.Now;
             if (IsRemoteMode)
-                _ = _bridgeClient.SwitchSessionAsync(name);
+                _ = _bridgeClient.SwitchSessionAsync(name)
+                    .ContinueWith(t => Console.WriteLine($"[CopilotService] SwitchSession bridge error: {t.Exception?.InnerException?.Message}"),
+                        TaskContinuationOptions.OnlyOnFaulted);
         }
     }
 
