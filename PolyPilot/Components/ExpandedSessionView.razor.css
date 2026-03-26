@@ -196,6 +196,30 @@
     color: var(--accent-primary);
 }
 
+.sync-btn {
+    border: none;
+    background: transparent;
+    color: inherit;
+    padding: 0.1rem 0.2rem;
+    transition: transform 0.3s ease;
+}
+
+.sync-btn.syncing {
+    animation: spin 0.8s linear infinite;
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.sync-btn.has-message {
+    color: var(--accent-primary);
+    opacity: 1;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .fiesta-panel-inline {
     margin: 0.5rem 1rem 0;
     border: 1px solid var(--control-border);

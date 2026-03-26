@@ -622,6 +622,108 @@ public partial class CopilotService
         await _bridgeClient.RequestHistoryAsync(sessionName, limit: null);
     }
 
+    /// <summary>
+    /// Force a full sync of sessions and history from the remote server.
+    /// Returns diagnostic info about what changed (for the sync button on mobile).
+    /// </summary>
+    public async Task<SyncResult> ForceRefreshRemoteAsync(string? activeSessionName = null)
+    {
+        if (!IsRemoteMode || !_bridgeClient.IsConnected)
+            return new SyncResult { Success = false, Message = "Not connected" };
+
+        var result = new SyncResult();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        try
+        {
+            // Snapshot pre-sync state
+            var preSyncSessionCount = _sessions.Count;
+            var preSyncMessageCount = 0;
+            AgentSessionInfo? activeInfo = null;
+            if (activeSessionName != null && _sessions.TryGetValue(activeSessionName, out var activeState))
+            {
+                activeInfo = activeState.Info;
+                lock (activeInfo.HistoryLock)
+                    preSyncMessageCount = activeInfo.History.Count;
+            }
+
+            // Request fresh sessions + full history for active session
+            await _bridgeClient.RequestSessionsAsync();
+            if (activeSessionName != null)
+                await _bridgeClient.RequestHistoryAsync(activeSessionName, limit: null);
+
+            // Wait briefly for WsBridgeClient to process the responses
+            await Task.Delay(500);
+
+            // Snapshot post-sync state
+            var postSyncSessionCount = _sessions.Count;
+            var postSyncMessageCount = 0;
+            if (activeInfo != null)
+            {
+                lock (activeInfo.HistoryLock)
+                    postSyncMessageCount = activeInfo.History.Count;
+            }
+
+            var sessionDelta = postSyncSessionCount - preSyncSessionCount;
+            var messageDelta = postSyncMessageCount - preSyncMessageCount;
+
+            result.Success = true;
+            result.SessionCountBefore = preSyncSessionCount;
+            result.SessionCountAfter = postSyncSessionCount;
+            result.MessageCountBefore = preSyncMessageCount;
+            result.MessageCountAfter = postSyncMessageCount;
+            result.ElapsedMs = sw.ElapsedMilliseconds;
+
+            // Build user-facing message
+            var parts = new List<string>();
+            if (messageDelta > 0)
+                parts.Add($"{messageDelta} new message{(messageDelta != 1 ? "s" : "")}");
+            if (sessionDelta > 0)
+                parts.Add($"{sessionDelta} new session{(sessionDelta != 1 ? "s" : "")}");
+            result.Message = parts.Count > 0
+                ? $"Synced: {string.Join(", ", parts)}"
+                : "Already up to date";
+
+            // Diagnostic logging: detect missed messages
+            if (messageDelta > 0)
+            {
+                Debug($"[SYNC] Force refresh for '{activeSessionName}': " +
+                      $"{preSyncMessageCount}→{postSyncMessageCount} messages " +
+                      $"(+{messageDelta}), {sw.ElapsedMilliseconds}ms. " +
+                      $"⚠️ {messageDelta} messages were missed during streaming.");
+            }
+            else
+            {
+                Debug($"[SYNC] Force refresh for '{activeSessionName}': " +
+                      $"{postSyncMessageCount} messages, up to date, {sw.ElapsedMilliseconds}ms");
+            }
+        }
+        catch (Exception ex)
+        {
+            result.Success = false;
+            result.Message = $"Sync failed: {ex.Message}";
+            result.ElapsedMs = sw.ElapsedMilliseconds;
+            Debug($"[SYNC] Force refresh failed: {ex.Message}");
+        }
+
+        OnStateChanged?.Invoke();
+        return result;
+    }
+
+    /// <summary>
+    /// Result of a forced remote sync operation.
+    /// </summary>
+    public class SyncResult
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = "";
+        public int SessionCountBefore { get; set; }
+        public int SessionCountAfter { get; set; }
+        public int MessageCountBefore { get; set; }
+        public int MessageCountAfter { get; set; }
+        public long ElapsedMs { get; set; }
+    }
+
     // --- Remote repo operations ---
 
     public async Task<(string RepoId, string RepoName)?> AddRepoRemoteAsync(string url, Action<string>? onProgress = null, CancellationToken ct = default)

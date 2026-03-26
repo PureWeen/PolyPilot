@@ -669,6 +669,7 @@ public partial class CopilotService : IAsyncDisposable
             message.StartsWith("[PERMISSION") || message.StartsWith("[RESUME-ABORT") ||
             message.StartsWith("[KEEPALIVE") || message.StartsWith("[ERROR") ||
             message.StartsWith("[ABORT") || message.StartsWith("[BRIDGE") ||
+            message.StartsWith("[SYNC") ||
             message.Contains("watchdog") || message.Contains("Failed to");
     }
 

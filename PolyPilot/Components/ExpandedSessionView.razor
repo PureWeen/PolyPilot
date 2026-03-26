@@ -64,6 +64,14 @@
                     }
                 </div>
             </div>
+            @if (CopilotService.IsRemoteMode)
+            {
+                <button class="icon-badge sync-btn @(_syncing ? "syncing" : "") @(!string.IsNullOrEmpty(_syncMessage) ? "has-message" : "")"
+                        data-tooltip="@(_syncMessage ?? "Sync messages")"
+                        disabled="@_syncing"
+                        @onclick="ForceSync"
+                        @onclick:stopPropagation="true">@(_syncing ? "⟳" : "🔄")</button>
+            }
             <button class="icon-badge fiesta-btn @(FiestaActive ? "active" : "")"
                     data-tooltip="Fiesta workers"
                     @onclick="ToggleFiestaPicker">🎉</button>
@@ -362,6 +370,37 @@
     private bool _isListening;
     private string _partialText = "";
     private CancellationTokenSource? _listenCts;
+    private bool _syncing;
+    private string? _syncMessage;
+    private System.Threading.Timer? _syncMessageTimer;
+
+    private async Task ForceSync()
+    {
+        if (_syncing) return;
+        _syncing = true;
+        _syncMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await CopilotService.ForceRefreshRemoteAsync(Session.Name);
+            _syncMessage = result.Message;
+            StateHasChanged();
+
+            // Clear the message after 4 seconds
+            _syncMessageTimer?.Dispose();
+            _syncMessageTimer = new System.Threading.Timer(_ =>
+            {
+                _syncMessage = null;
+                InvokeAsync(StateHasChanged);
+            }, null, 4000, Timeout.Infinite);
+        }
+        finally
+        {
+            _syncing = false;
+            StateHasChanged();
+        }
+    }
 
     private async Task ToggleListening()
     {
@@ -1026,5 +1065,6 @@
         try { await JS.InvokeVoidAsync("eval", "window.__ppRef = null;"); } catch { }
         _promptDotNetRef?.Dispose();
         _promptDotNetRef = null;
+        _syncMessageTimer?.Dispose();
     }
 }
