@@ -996,19 +996,46 @@ public partial class CopilotService
         // Provider groups are managed by their plugin — can't be deleted while plugin is loaded
         if (GetProviderForGroup(groupId) != null) return;
 
-        var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
-        var isMultiAgent = group?.IsMultiAgent ?? false;
+        // In remote mode, delegate to the server which owns the sessions and worktrees.
+        // The server will close sessions, clean up worktrees, remove the group, and
+        // broadcast the updated org state back to mobile.
+        if (IsRemoteMode)
+        {
+            // Remove locally first so UI updates immediately
+            var remoteGroup = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+            var remoteIsMultiAgent = remoteGroup?.IsMultiAgent ?? false;
+            if (remoteIsMultiAgent || remoteGroup?.IsCodespace == true)
+            {
+                var sessionNames = Organization.Sessions.Where(m => m.GroupId == groupId).Select(m => m.SessionName).ToList();
+                RemoveSessionMetasWhere(m => sessionNames.Contains(m.SessionName));
+                foreach (var name in sessionNames)
+                    _sessions.TryRemove(name, out _);
+            }
+            else
+            {
+                foreach (var meta in Organization.Sessions.Where(m => m.GroupId == groupId))
+                    meta.GroupId = SessionGroup.DefaultId;
+            }
+            RemoveGroupsWhere(g => g.Id == groupId);
+            OnStateChanged?.Invoke();
+            // Tell server to do the real cleanup
+            _ = _bridgeClient.SendOrganizationCommandAsync(new OrganizationCommandPayload { Command = "delete_group", GroupId = groupId });
+            return;
+        }
+
+        var group2 = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        var isMultiAgent = group2?.IsMultiAgent ?? false;
 
         // Collect all worktree IDs for cleanup before removing metadata
         var worktreeIds = new HashSet<string>();
-        if (group?.WorktreeId != null) worktreeIds.Add(group.WorktreeId);
+        if (group2?.WorktreeId != null) worktreeIds.Add(group2.WorktreeId);
         // CreatedWorktreeIds is the authoritative list (covers cases where session creation failed)
-        if (group?.CreatedWorktreeIds != null)
-            foreach (var id in group.CreatedWorktreeIds) worktreeIds.Add(id);
+        if (group2?.CreatedWorktreeIds != null)
+            foreach (var id in group2.CreatedWorktreeIds) worktreeIds.Add(id);
         foreach (var m in Organization.Sessions.Where(m => m.GroupId == groupId))
             if (m.WorktreeId != null) worktreeIds.Add(m.WorktreeId);
 
-        if (isMultiAgent || group?.IsCodespace == true)
+        if (isMultiAgent || group2?.IsCodespace == true)
         {
             // Multi-agent and codespace sessions are bound to their group — close them
             var sessionNames = Organization.Sessions
@@ -1064,7 +1091,7 @@ public partial class CopilotService
                 meta.GroupId = SessionGroup.DefaultId;
                 // Clear worktree link for repo groups so ReconcileOrganization
                 // won't reassign these sessions back to a recreated repo group
-                if (group?.RepoId != null)
+                if (group2?.RepoId != null)
                     meta.WorktreeId = null;
             }
         }
@@ -1072,8 +1099,8 @@ public partial class CopilotService
         // Track deleted repo groups so ReconcileOrganization won't resurrect them.
         // Only tombstone for regular repo groups — multi-agent groups share the same RepoId key
         // but are tracked separately, so deleting a squad must not suppress the regular sidebar group.
-        if (group?.RepoId != null && !isMultiAgent)
-            Organization.DeletedRepoGroupRepoIds.Add(group.RepoId);
+        if (group2?.RepoId != null && !isMultiAgent)
+            Organization.DeletedRepoGroupRepoIds.Add(group2.RepoId);
 
         RemoveGroupsWhere(g => g.Id == groupId);
 
@@ -3166,6 +3193,36 @@ public partial class CopilotService
     /// </summary>
     public async Task<SessionGroup?> CreateGroupFromPresetAsync(Models.GroupPreset preset, string? workingDirectory = null, string? worktreeId = null, string? repoId = null, string? nameOverride = null, WorktreeStrategy? strategyOverride = null, CancellationToken ct = default)
     {
+        // In remote mode, delegate entirely to the server so it creates the group,
+        // sessions, roles, and worktrees atomically. Without this, the mobile creates
+        // the group locally but sessions are created on the server in the default group,
+        // and the server's org broadcast races with mobile's local mutations.
+        if (IsRemoteMode)
+        {
+            var payload = new CreateGroupFromPresetPayload
+            {
+                Name = preset.Name,
+                Description = preset.Description,
+                Emoji = preset.Emoji,
+                Mode = preset.Mode.ToString(),
+                OrchestratorModel = preset.OrchestratorModel,
+                WorkerModels = preset.WorkerModels,
+                WorkerSystemPrompts = preset.WorkerSystemPrompts,
+                WorkerDisplayNames = preset.WorkerDisplayNames,
+                SharedContext = preset.SharedContext,
+                RoutingContext = preset.RoutingContext,
+                DefaultWorktreeStrategy = preset.DefaultWorktreeStrategy?.ToString(),
+                MaxReflectIterations = preset.MaxReflectIterations,
+                WorkingDirectory = workingDirectory,
+                WorktreeId = worktreeId,
+                RepoId = repoId,
+                NameOverride = nameOverride,
+                StrategyOverride = strategyOverride?.ToString(),
+            };
+            await _bridgeClient.CreateGroupFromPresetAsync(payload, ct);
+            return null; // server will broadcast the updated organization state
+        }
+
         var teamName = nameOverride ?? preset.Name;
         var strategy = strategyOverride ?? preset.DefaultWorktreeStrategy ?? WorktreeStrategy.Shared;
         var group = CreateMultiAgentGroup(teamName, preset.Mode, worktreeId: worktreeId, repoId: repoId);
@@ -3319,6 +3376,7 @@ public partial class CopilotService
             }
             // Assign group/model/prompt even if session already existed from a previous run
             MoveSession(workerName, group.Id);
+            SetSessionRole(workerName, MultiAgentRole.Worker);
             SetSessionPreferredModel(workerName, workerModel);
             var systemPrompt = preset.WorkerSystemPrompts != null && i < preset.WorkerSystemPrompts.Length
                 ? preset.WorkerSystemPrompts[i] : null;

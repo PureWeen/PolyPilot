@@ -525,6 +525,49 @@ public class BridgePayloadTests
     {
         Assert.Equal("multi_agent_broadcast", BridgeMessageTypes.MultiAgentBroadcast);
         Assert.Equal("multi_agent_create_group", BridgeMessageTypes.MultiAgentCreateGroup);
+        Assert.Equal("multi_agent_create_group_from_preset", BridgeMessageTypes.MultiAgentCreateGroupFromPreset);
         Assert.Equal("multi_agent_progress", BridgeMessageTypes.MultiAgentProgress);
+    }
+
+    [Fact]
+    public void CreateGroupFromPresetPayload_RoundTrips()
+    {
+        var payload = new CreateGroupFromPresetPayload
+        {
+            Name = "Review Squad",
+            Description = "Code review team",
+            Emoji = "🔍",
+            Mode = "OrchestratorReflect",
+            OrchestratorModel = "claude-opus-4.6",
+            WorkerModels = new[] { "claude-sonnet-4.6", "claude-opus-4.6" },
+            WorkerSystemPrompts = new string?[] { "You are a reviewer", null },
+            WorkerDisplayNames = new string?[] { "reviewer", "challenger" },
+            SharedContext = "shared decisions",
+            RoutingContext = "routing rules",
+            DefaultWorktreeStrategy = "Shared",
+            MaxReflectIterations = 10,
+            WorkingDirectory = "/tmp/work",
+            WorktreeId = "wt-123",
+            RepoId = "repo-1",
+            NameOverride = "My Squad",
+            StrategyOverride = "GroupShared",
+        };
+        var msg = BridgeMessage.Create(BridgeMessageTypes.MultiAgentCreateGroupFromPreset, payload);
+        var json = msg.Serialize();
+        var restored = BridgeMessage.Deserialize(json)!.GetPayload<CreateGroupFromPresetPayload>();
+
+        Assert.NotNull(restored);
+        Assert.Equal("Review Squad", restored!.Name);
+        Assert.Equal("OrchestratorReflect", restored.Mode);
+        Assert.Equal("claude-opus-4.6", restored.OrchestratorModel);
+        Assert.Equal(2, restored.WorkerModels.Length);
+        Assert.Equal("claude-sonnet-4.6", restored.WorkerModels[0]);
+        Assert.Equal("reviewer", restored.WorkerDisplayNames![0]);
+        Assert.Equal("shared decisions", restored.SharedContext);
+        Assert.Equal("routing rules", restored.RoutingContext);
+        Assert.Equal(10, restored.MaxReflectIterations);
+        Assert.Equal("My Squad", restored.NameOverride);
+        Assert.Equal("GroupShared", restored.StrategyOverride);
+        Assert.Equal("repo-1", restored.RepoId);
     }
 }

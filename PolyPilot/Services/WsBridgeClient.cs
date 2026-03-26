@@ -370,6 +370,9 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.MultiAgentCreateGroup,
             new MultiAgentCreateGroupPayload { Name = name, Mode = mode, OrchestratorPrompt = orchestratorPrompt, SessionNames = sessionNames }), ct);
 
+    public async Task CreateGroupFromPresetAsync(CreateGroupFromPresetPayload payload, CancellationToken ct = default) =>
+        await SendAsync(BridgeMessage.Create(BridgeMessageTypes.MultiAgentCreateGroupFromPreset, payload), ct);
+
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<DirectoriesListPayload>> _dirListRequests = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<RepoAddedPayload>> _addRepoRequests = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Action<string>> _repoProgressCallbacks = new();

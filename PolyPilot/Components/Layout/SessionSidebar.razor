@@ -1692,9 +1692,10 @@ else
         try
         {
             var group = await CopilotService.CreateGroupFromPresetAsync(preset);
+            if (group != null || CopilotService.IsRemoteMode)
+                createSessionFormRef?.CollapseOnSuccess();
             if (group != null)
             {
-                createSessionFormRef?.CollapseOnSuccess();
                 CopilotService.ToggleGroupCollapsed(group.Id);
                 CopilotService.SaveUiState(currentPage);
             }
