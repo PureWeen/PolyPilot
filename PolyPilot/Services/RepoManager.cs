@@ -183,6 +183,13 @@ public class RepoManager
 
                 if (trackedIds.Contains(repoId)) continue;
 
+                // Skip corrupted bare clones (e.g. only objects/ survived)
+                if (!IsValidBareRepository(bareDir))
+                {
+                    Console.WriteLine($"[RepoManager] Skipping corrupted bare clone during heal: {bareDir}");
+                    continue;
+                }
+
                 // Read remote URL from bare clone's git config
                 var url = "";
                 try
@@ -385,6 +392,17 @@ public class RepoManager
 
     private string GetDesiredBareClonePath(string repoId) => Path.Combine(ReposDir, $"{repoId}.git");
 
+    /// <summary>
+    /// Quick sanity check: a valid bare repo must have HEAD and refs/.
+    /// Detects corruption where only objects/ survives.
+    /// </summary>
+    private static bool IsValidBareRepository(string barePath)
+    {
+        if (!Directory.Exists(barePath)) return false;
+        return File.Exists(Path.Combine(barePath, "HEAD"))
+            && Directory.Exists(Path.Combine(barePath, "refs"));
+    }
+
     private static bool PathsEqual(string left, string right)
     {
         var normalizedLeft = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -405,11 +423,19 @@ public class RepoManager
         var targetBarePath = GetDesiredBareClonePath(repo.Id);
         if (!string.IsNullOrWhiteSpace(repo.BareClonePath)
             && PathsEqual(repo.BareClonePath, targetBarePath)
-            && Directory.Exists(targetBarePath))
+            && IsValidBareRepository(targetBarePath))
             return;
 
         lock (_stateLock) BackfillWorktreeClonePaths(repo);
         Directory.CreateDirectory(ReposDir);
+
+        // If the directory exists but is corrupt (e.g. only objects/ survived),
+        // nuke it so we can re-clone cleanly.
+        if (Directory.Exists(targetBarePath) && !IsValidBareRepository(targetBarePath))
+        {
+            Console.WriteLine($"[RepoManager] Bare clone corrupted (missing HEAD/refs), removing: {targetBarePath}");
+            try { Directory.Delete(targetBarePath, recursive: true); } catch { }
+        }
 
         if (Directory.Exists(targetBarePath))
         {
@@ -419,6 +445,11 @@ public class RepoManager
         }
         else
         {
+            if (string.IsNullOrWhiteSpace(repo.Url))
+                throw new InvalidOperationException(
+                    $"Cannot clone repository '{repo.Id}': no URL configured. " +
+                    "Re-add the repository with a valid URL.");
+
             onProgress?.Invoke($"Cloning {repo.Url}…");
             await RunGitWithProgressAsync(null, onProgress, ct, "clone", "--bare", "--progress", repo.Url, targetBarePath);
             await RunGitAsync(targetBarePath, ct, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
@@ -724,6 +755,15 @@ public class RepoManager
             if (Directory.Exists(worktreePath))
                 try { Directory.Delete(worktreePath, recursive: true); } catch { }
             throw;
+        }
+
+        // On Windows, enable long paths in the worktree so files with deep directory
+        // structures (e.g., MAUI repo) can be checked out. The bare clone already has
+        // this set, but worktree-local operations may need it explicitly.
+        if (OperatingSystem.IsWindows())
+        {
+            try { await RunGitAsync(worktreePath, ct, "config", "core.longpaths", "true"); }
+            catch { /* best-effort — bare clone config is inherited as fallback */ }
         }
 
         var wt = new WorktreeInfo
