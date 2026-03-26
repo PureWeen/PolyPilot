@@ -52,34 +52,49 @@ public class ProviderHostContext : IProviderHostContext
         if (workingDirectory != null)
             options.Cwd = workingDirectory;
 
-        // Forward shell environment so spawned tools (az, gh, git, etc.)
-        // can find binaries and auth state. MAUI apps don't inherit terminal PATH.
+        // Forward the full system environment so the CLI child process can find
+        // binaries, spawn shells (ConPTY needs COMSPEC, SystemRoot, etc.), and
+        // access auth state. MAUI apps don't inherit terminal PATH, so we also
+        // ensure common tool directories are present.
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var envPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+        var isWindows = OperatingSystem.IsWindows();
+        var pathSeparator = isWindows ? ';' : ':';
+
+        // Start with the full inherited environment
+        var env = new Dictionary<string, string>();
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is string key && entry.Value is string val)
+                env[key] = val;
+        }
 
         // Ensure common tool directories are on PATH
-        var extraPaths = new[]
-        {
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/usr/bin",
-            "/bin",
-            "/usr/sbin",
-            "/sbin",
-            Path.Combine(home, ".dotnet", "tools"),
-        };
-        var pathParts = new HashSet<string>(envPath.Split(':', StringSplitOptions.RemoveEmptyEntries));
-        foreach (var p in extraPaths)
-            pathParts.Add(p);
-        var fullPath = string.Join(":", pathParts);
+        var envPath = env.GetValueOrDefault("PATH", "");
+        var pathParts = new HashSet<string>(
+            envPath.Split(pathSeparator, StringSplitOptions.RemoveEmptyEntries));
 
-        options.Environment = new Dictionary<string, string>
+        if (!isWindows)
         {
-            ["PATH"] = fullPath,
-            ["HOME"] = home,
-            ["AZURE_CONFIG_DIR"] = Environment.GetEnvironmentVariable("AZURE_CONFIG_DIR")
-                ?? Path.Combine(home, ".azure"),
-        };
+            foreach (var p in new[]
+            {
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "/usr/bin",
+                "/bin",
+                "/usr/sbin",
+                "/sbin",
+            })
+                pathParts.Add(p);
+        }
+
+        pathParts.Add(Path.Combine(home, ".dotnet", "tools"));
+        env["PATH"] = string.Join(pathSeparator, pathParts);
+
+        // Ensure HOME and AZURE_CONFIG_DIR are set
+        env["HOME"] = home;
+        env.TryAdd("AZURE_CONFIG_DIR", Path.Combine(home, ".azure"));
+
+        options.Environment = env;
 
         return options;
     }
