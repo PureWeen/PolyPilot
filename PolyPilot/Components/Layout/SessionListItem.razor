@@ -228,7 +228,7 @@
                 @if (!string.IsNullOrEmpty(Session.SessionId) && !IsMultiAgentMember)
                 {
                     <button class="menu-item" @onclick="async () => { await OnCloseMenu.InvokeAsync(); await OnContinueInNewSession.InvokeAsync(); }">
-                        🔄 Continue in new session
+                        🔄 Continue in new session (same worktree)
                     </button>
                 }
                 <div class="menu-separator"></div>

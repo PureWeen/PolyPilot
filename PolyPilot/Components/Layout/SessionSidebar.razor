@@ -2869,11 +2869,12 @@ else
         try
         {
             var (newName, transcript) = await CopilotService.ContinueInNewSessionAsync(sessionName);
-            CopilotService.PendingDrafts[newName] = transcript;
             CopilotService.SwitchSession(newName);
             CopilotService.SaveUiState(currentPage);
             await OnSessionSelected.InvokeAsync();
-            footerStatus = $"✓ Created '{newName}' — draft pre-filled";
+            // Send the transcript as the first message automatically
+            await CopilotService.SendPromptAsync(newName, transcript);
+            footerStatus = $"✓ Created '{newName}' — context sent";
             StateHasChanged();
         }
         catch (Exception ex)
