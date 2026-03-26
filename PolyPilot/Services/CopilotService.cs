@@ -663,7 +663,7 @@ public partial class CopilotService : IAsyncDisposable
             message.StartsWith("[DISPATCH") || message.StartsWith("[WATCHDOG") ||
             message.StartsWith("[HEALTH") || message.StartsWith("[ZERO-IDLE") ||
             message.StartsWith("[PERMISSION") || message.StartsWith("[RESUME-ABORT") ||
-            message.StartsWith("[KEEPALIVE") ||
+            message.StartsWith("[KEEPALIVE") || message.StartsWith("[SYNC") ||
             message.Contains("watchdog"))
         {
             try
