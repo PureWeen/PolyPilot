@@ -143,8 +143,16 @@ public class WsBridgeServer : IDisposable
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.TurnStart,
                 new SessionNamePayload { SessionName = session }));
         _copilot.OnTurnEnd += (session) =>
+        {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.TurnEnd,
                 new SessionNamePayload { SessionName = session }));
+            // Push updated history to all clients after each sub-turn flush.
+            // FlushCurrentResponse runs before OnTurnEnd, so History is up-to-date.
+            // Without this, mobile only has content_delta-built messages — if any
+            // deltas were missed (WS buffering, timing), the text is permanently lost
+            // until the user manually requests a history sync.
+            _ = BroadcastSessionHistoryAsync(session);
+        };
         _copilot.OnSessionComplete += (session, summary) =>
         {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.SessionComplete,
@@ -1188,6 +1196,63 @@ public class WsBridgeServer : IDisposable
         if (_copilot == null) return;
         var msg = BridgeMessage.Create(BridgeMessageTypes.OrganizationState, _copilot.Organization);
         Broadcast(msg);
+    }
+
+    /// <summary>
+    /// Push the current session history to all connected clients.
+    /// Called after FlushCurrentResponse on each sub-turn end so mobile clients
+    /// have authoritative history even if content_delta events were missed.
+    /// </summary>
+    private async Task BroadcastSessionHistoryAsync(string sessionName)
+    {
+        if (_copilot == null || _clients.IsEmpty) return;
+
+        var session = _copilot.GetSession(sessionName);
+        if (session == null) return;
+
+        ChatMessage[] snapshot;
+        try { snapshot = session.History.ToArray(); }
+        catch { return; } // concurrent modification — skip this broadcast
+
+        var totalCount = snapshot.Length;
+        List<ChatMessage> messagesToSend;
+        bool hasMore;
+        if (totalCount > CopilotService.HistoryLimitForBridge)
+        {
+            messagesToSend = snapshot.Skip(totalCount - CopilotService.HistoryLimitForBridge).ToList();
+            hasMore = true;
+        }
+        else
+        {
+            messagesToSend = snapshot.ToList();
+            hasMore = false;
+        }
+
+        // Populate ImageDataUri for Image messages
+        foreach (var m in messagesToSend)
+        {
+            if (m.MessageType == ChatMessageType.Image && string.IsNullOrEmpty(m.ImageDataUri) && !string.IsNullOrEmpty(m.ImagePath))
+            {
+                try
+                {
+                    if (File.Exists(m.ImagePath))
+                    {
+                        var bytes = await File.ReadAllBytesAsync(m.ImagePath);
+                        m.ImageDataUri = $"data:{ImageMimeType(m.ImagePath)};base64,{Convert.ToBase64String(bytes)}";
+                    }
+                }
+                catch { /* best effort */ }
+            }
+        }
+
+        var payload = new SessionHistoryPayload
+        {
+            SessionName = sessionName,
+            Messages = messagesToSend,
+            TotalCount = totalCount,
+            HasMore = hasMore
+        };
+        Broadcast(BridgeMessage.Create(BridgeMessageTypes.SessionHistory, payload));
     }
 
     private async Task HandleOrganizationCommandAsync(OrganizationCommandPayload cmd)
