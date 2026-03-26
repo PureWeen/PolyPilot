@@ -623,7 +623,11 @@ public class WsBridgeServer : IDisposable
                     if (abortReq != null && !string.IsNullOrWhiteSpace(abortReq.SessionName))
                     {
                         Console.WriteLine($"[WsBridge] Client aborting session '{abortReq.SessionName}'");
-                        await _copilot.AbortSessionAsync(abortReq.SessionName);
+                        // AbortSessionAsync mutates IsProcessing/History — must run on UI thread
+                        _copilot.InvokeOnUI(() =>
+                        {
+                            _ = _copilot.AbortSessionAsync(abortReq.SessionName);
+                        });
                     }
                     break;
 
