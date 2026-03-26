@@ -727,12 +727,15 @@ public class WsBridgeServer : IDisposable
                     var presetReq = msg.GetPayload<CreateGroupFromPresetPayload>();
                     if (presetReq != null && _copilot != null)
                     {
+                        // Capture clientId/ws for error feedback
+                        var presetClientId = clientId;
+                        var presetWs = ws;
                         _ = Task.Run(async () =>
                         {
                             try
                             {
                                 var presetMode = Enum.TryParse<MultiAgentMode>(presetReq.Mode, out var pm) ? pm : MultiAgentMode.Broadcast;
-                                WorktreeStrategy? strategy = presetReq.StrategyOverride != null && Enum.TryParse<WorktreeStrategy>(presetReq.StrategyOverride, out var ws) ? ws : null;
+                                WorktreeStrategy? strategy = presetReq.StrategyOverride != null && Enum.TryParse<WorktreeStrategy>(presetReq.StrategyOverride, out var wts) ? wts : null;
                                 var preset = new Models.GroupPreset(
                                     presetReq.Name, presetReq.Description ?? "", presetReq.Emoji ?? "🤖", presetMode,
                                     presetReq.OrchestratorModel, presetReq.WorkerModels)
@@ -744,20 +747,29 @@ public class WsBridgeServer : IDisposable
                                     DefaultWorktreeStrategy = presetReq.DefaultWorktreeStrategy != null && Enum.TryParse<WorktreeStrategy>(presetReq.DefaultWorktreeStrategy, out var dws) ? dws : null,
                                     MaxReflectIterations = presetReq.MaxReflectIterations,
                                 };
-                                await _copilot.CreateGroupFromPresetAsync(preset,
-                                    workingDirectory: presetReq.WorkingDirectory,
-                                    worktreeId: presetReq.WorktreeId,
-                                    repoId: presetReq.RepoId,
-                                    nameOverride: presetReq.NameOverride,
-                                    strategyOverride: strategy,
-                                    ct: ct);
+                                // CreateGroupFromPresetAsync mutates Organization.Sessions (plain List<T>) — must run on UI thread
+                                await _copilot.InvokeOnUIAsync(async () =>
+                                    await _copilot.CreateGroupFromPresetAsync(preset,
+                                        workingDirectory: presetReq.WorkingDirectory,
+                                        worktreeId: presetReq.WorktreeId,
+                                        repoId: presetReq.RepoId,
+                                        nameOverride: presetReq.NameOverride,
+                                        strategyOverride: strategy,
+                                        ct: ct));
                                 BroadcastOrganizationState();
                             }
                             catch (Exception ex)
                             {
                                 Console.WriteLine($"[WsBridge] CreateGroupFromPreset failed: {ex.Message}");
+                                try
+                                {
+                                    await SendToClientAsync(presetClientId, presetWs,
+                                        BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                                            new ErrorPayload { SessionName = "", Error = $"Failed to create multi-agent group: {ex.Message}" }), ct);
+                                }
+                                catch { }
                             }
-                        });
+                        }, ct);
                     }
                     break;
 
