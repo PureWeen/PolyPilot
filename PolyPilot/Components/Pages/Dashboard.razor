@@ -952,6 +952,13 @@
             catch (ObjectDisposedException) { }
         }
 
+        // Consume any pending drafts from "Continue in new session"
+        foreach (var kvp in CopilotService.PendingDrafts)
+        {
+            if (CopilotService.PendingDrafts.TryRemove(kvp.Key, out var draft))
+                draftBySession[kvp.Key] = draft;
+        }
+
         // Auto-scroll all card message containers to bottom
         // Restore draft text, focus, and cursor position — all in ONE JS call
         var draftsJson = "{}";

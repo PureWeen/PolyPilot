@@ -798,7 +798,8 @@ else
                                                  OnCloseMenu="() => { openMenuSession = null; }"
                                                  OnReportBug="() => OpenBugReportForSession(orchSName)"
                                                  OnFixWithCopilot="() => OpenFixItForSession(orchSName)"
-                                                 OnAnalyze="() => AnalyzeSessionEfficiency(orchSName)" />
+                                                 OnAnalyze="() => AnalyzeSessionEfficiency(orchSName)"
+                                                 OnContinueInNewSession="() => ContinueInNewSession(orchSName)" />
                             }
                             var workerSessions = groupSessions.Where(s => s.Name != orchName).ToList();
                             var workerCount = workerSessions.Count;
@@ -840,7 +841,8 @@ else
                                                          OnCloseMenu="() => { openMenuSession = null; }"
                                                          OnReportBug="() => OpenBugReportForSession(wSName)"
                                                          OnFixWithCopilot="() => OpenFixItForSession(wSName)"
-                                                         OnAnalyze="() => AnalyzeSessionEfficiency(wSName)" />
+                                                         OnAnalyze="() => AnalyzeSessionEfficiency(wSName)"
+                                                         OnContinueInNewSession="() => ContinueInNewSession(wSName)" />
                                     }
                                 }
                             }
@@ -874,7 +876,8 @@ else
                                              OnCloseMenu="() => { openMenuSession = null; }"
                                              OnReportBug="() => OpenBugReportForSession(sName)"
                                              OnFixWithCopilot="() => OpenFixItForSession(sName)"
-                                             OnAnalyze="() => AnalyzeSessionEfficiency(sName)" />
+                                             OnAnalyze="() => AnalyzeSessionEfficiency(sName)"
+                                             OnContinueInNewSession="() => ContinueInNewSession(sName)" />
                         }
                         @if (HasUnpinnedToggle(groupSessions))
                         {
@@ -911,7 +914,8 @@ else
                                              OnCloseMenu="() => { openMenuSession = null; }"
                                              OnReportBug="() => OpenBugReportForSession(sName)"
                                              OnFixWithCopilot="() => OpenFixItForSession(sName)"
-                                             OnAnalyze="() => AnalyzeSessionEfficiency(sName)" />
+                                             OnAnalyze="() => AnalyzeSessionEfficiency(sName)"
+                                             OnContinueInNewSession="() => ContinueInNewSession(sName)" />
                         }
                         }
                     }
@@ -1098,7 +1102,8 @@ else
                                                  OnCloseMenu="() => { openMenuSession = null; }"
                                                  OnReportBug="() => OpenBugReportForSession(sName)"
                                                  OnFixWithCopilot="() => OpenFixItForSession(sName)"
-                                                 OnAnalyze="() => AnalyzeSessionEfficiency(sName)" />
+                                                 OnAnalyze="() => AnalyzeSessionEfficiency(sName)"
+                                                 OnContinueInNewSession="() => ContinueInNewSession(sName)" />
                             }
                             @if (!string.IsNullOrEmpty(_codespaceErrors.GetValueOrDefault(group.Id)))
                             {
@@ -2855,6 +2860,25 @@ else
         catch (Exception ex)
         {
             footerStatus = $"✗ Efficiency analysis failed: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ContinueInNewSession(string sessionName)
+    {
+        try
+        {
+            var (newName, transcript) = await CopilotService.ContinueInNewSessionAsync(sessionName);
+            CopilotService.PendingDrafts[newName] = transcript;
+            CopilotService.SwitchSession(newName);
+            CopilotService.SaveUiState(currentPage);
+            await OnSessionSelected.InvokeAsync();
+            footerStatus = $"✓ Created '{newName}' — draft pre-filled";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            footerStatus = $"✗ Continue in new session failed: {ex.Message}";
             StateHasChanged();
         }
     }

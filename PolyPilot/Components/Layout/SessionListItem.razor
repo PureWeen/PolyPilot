@@ -225,6 +225,12 @@
                         📊 Analyze Efficiency
                     </button>
                 }
+                @if (!string.IsNullOrEmpty(Session.SessionId) && !IsMultiAgentMember)
+                {
+                    <button class="menu-item" @onclick="async () => { await OnCloseMenu.InvokeAsync(); await OnContinueInNewSession.InvokeAsync(); }">
+                        🔄 Continue in new session
+                    </button>
+                }
                 <div class="menu-separator"></div>
                 @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(Session.SessionId) && currentGroup?.IsCodespace != true)
                 {
@@ -276,6 +282,7 @@
     [Parameter] public EventCallback OnReportBug { get; set; }
     [Parameter] public EventCallback OnFixWithCopilot { get; set; }
     [Parameter] public EventCallback OnAnalyze { get; set; }
+    [Parameter] public EventCallback OnContinueInNewSession { get; set; }
 
     /// <summary>
     /// Show close confirmation via a JS-created dialog (outside Blazor's DOM tree).

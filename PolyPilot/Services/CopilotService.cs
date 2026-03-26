@@ -20,6 +20,13 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, int> _remoteStreamingSessions = new();
 
     /// <summary>
+    /// Drafts queued by "Continue in new session" for the Dashboard to pick up.
+    /// Key = session name, Value = pre-filled prompt text.
+    /// Dashboard consumes entries when it renders the session's input.
+    /// </summary>
+    internal readonly ConcurrentDictionary<string, string> PendingDrafts = new();
+
+    /// <summary>
     /// Whether a session's history is still being synced after a turn completed (streaming guard active).
     /// Used by the UI to avoid clearing streaming content before the history sync replaces it.
     /// </summary>
