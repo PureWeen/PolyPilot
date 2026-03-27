@@ -285,13 +285,19 @@
     [Parameter] public EventCallback OnContinueInNewSession { get; set; }
 
     private ElementReference _moreBtnRef;
+    private bool _menuPositioned;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (IsMenuOpen)
+        if (IsMenuOpen && !_menuPositioned)
         {
+            _menuPositioned = true;
             try { await JS.InvokeVoidAsync("positionSessionMenu", _moreBtnRef); }
             catch { /* element may not be in DOM yet */ }
+        }
+        else if (!IsMenuOpen)
+        {
+            _menuPositioned = false;
         }
     }
 

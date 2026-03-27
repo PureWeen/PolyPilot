@@ -696,6 +696,10 @@
                     }
                     
                     if (forceScroll || isNearBottom || el.__wasAtBottom) {
+                        if (forceScroll) {
+                            el.__userScrolledUp = false;
+                            el.__wasAtBottom = true;
+                        }
                         el.__programmaticScroll = true;
                         el.scrollTop = el.scrollHeight;
                         requestAnimationFrame(function() { el.__programmaticScroll = false; });
@@ -1400,6 +1404,15 @@
             if (left + mw > window.innerWidth) left = window.innerWidth - mw - 4;
             menu.style.top = top + 'px';
             menu.style.left = left + 'px';
+            // Close menu if sidebar scrolls (fixed-position menu would drift)
+            var scrollParent = buttonEl.closest('.session-list');
+            if (scrollParent && !scrollParent.__menuScrollHandler) {
+                scrollParent.__menuScrollHandler = function() {
+                    var overlay = document.querySelector('.menu-overlay');
+                    if (overlay) overlay.click();
+                };
+                scrollParent.addEventListener('scroll', scrollParent.__menuScrollHandler, { passive: true });
+            }
         };
     </script>
 
