@@ -1513,7 +1513,7 @@ public partial class CopilotService
                 var ctxPct = (double)state.Info.ContextCurrentTokens.Value / state.Info.ContextTokenLimit.Value;
                 if (ctxPct > 0.9)
                 {
-                    var ctxWarning = ChatMessage.SystemMessage($"🔴 Context {ctxPct:P0} full — reflection may lose earlier history. Consider `/reflect stop`.");
+                    var ctxWarning = ChatMessage.SystemMessage($"🔴 Context {ctxPct:P0} full — reflection may lose earlier history.");
                     state.Info.History.Add(ctxWarning);
                     state.Info.MessageCount = state.Info.History.Count;
                     if (!string.IsNullOrEmpty(state.Info.SessionId))
