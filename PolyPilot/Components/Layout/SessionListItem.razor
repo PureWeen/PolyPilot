@@ -134,7 +134,7 @@
         }
     </div>
     <div class="session-actions">
-        <button class="more-btn" @onclick:stopPropagation="true"
+        <button class="more-btn" @ref="_moreBtnRef" @onclick:stopPropagation="true"
                 @onclick="() => OnToggleMenu.InvokeAsync()" title="More actions">⋯</button>
         @if (IsMenuOpen)
         {
@@ -228,7 +228,7 @@
                 @if (!string.IsNullOrEmpty(Session.SessionId) && !IsMultiAgentMember)
                 {
                     <button class="menu-item" @onclick="async () => { await OnCloseMenu.InvokeAsync(); await OnContinueInNewSession.InvokeAsync(); }">
-                        🔄 Continue in new session (same worktree)
+                        🔄 Continue in new session
                     </button>
                 }
                 <div class="menu-separator"></div>
@@ -283,6 +283,17 @@
     [Parameter] public EventCallback OnFixWithCopilot { get; set; }
     [Parameter] public EventCallback OnAnalyze { get; set; }
     [Parameter] public EventCallback OnContinueInNewSession { get; set; }
+
+    private ElementReference _moreBtnRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsMenuOpen)
+        {
+            try { await JS.InvokeVoidAsync("positionSessionMenu", _moreBtnRef); }
+            catch { /* element may not be in DOM yet */ }
+        }
+    }
 
     /// <summary>
     /// Show close confirmation via a JS-created dialog (outside Blazor's DOM tree).

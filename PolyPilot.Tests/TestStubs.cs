@@ -98,7 +98,13 @@ internal class StubWsBridgeClient : IWsBridgeClient
         RequestSessionsCallCount++;
         return Task.CompletedTask;
     }
-    public Task RequestHistoryAsync(string sessionName, int? limit = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task RequestHistoryAsync(string sessionName, int? limit = null, CancellationToken ct = default)
+    {
+        // Simulate server response by replacing the reference so the polling loop detects the change
+        if (SessionHistories.TryGetValue(sessionName, out var existing))
+            SessionHistories[sessionName] = new List<ChatMessage>(existing);
+        return Task.CompletedTask;
+    }
     public Task SendMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default)
     {
         if (ThrowOnSend)

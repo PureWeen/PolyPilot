@@ -157,11 +157,10 @@
 }
 
 .session-menu {
-    position: absolute;
-    right: 0.5rem;
-    top: 100%;
-    z-index: 100;
-    min-width: 140px;
+    position: fixed;
+    z-index: 10000;
+    min-width: 180px;
+    width: max-content;
     background: var(--bg-tertiary);
     border: 1px solid var(--hover-bg);
     border-radius: 8px;

@@ -1379,6 +1379,28 @@
                 }
             });
         });
+
+        // Position a session context menu (position:fixed) relative to its trigger button.
+        // Called from SessionListItem.razor after the menu is rendered.
+        window.positionSessionMenu = function(buttonEl) {
+            var menu = buttonEl.closest('.session-list-item, .session-list-item-wrapper, [b-sessionlistitem]')?.querySelector('.session-menu');
+            if (!menu) menu = buttonEl.parentElement?.querySelector('.session-menu');
+            if (!menu) return;
+            var r = buttonEl.getBoundingClientRect();
+            // Cap menu height to viewport with scrolling
+            var maxH = window.innerHeight - 8;
+            menu.style.maxHeight = maxH + 'px';
+            menu.style.overflowY = 'auto';
+            var mw = menu.offsetWidth, mh = Math.min(menu.scrollHeight, maxH);
+            var top = r.bottom + mh > window.innerHeight ? r.top - mh : r.bottom;
+            top = Math.max(4, Math.min(top, window.innerHeight - mh - 4));
+            // Try right-aligning to button; if that goes off-screen left, left-align instead
+            var left = r.right - mw;
+            if (left < 4) left = Math.max(4, r.left);
+            if (left + mw > window.innerWidth) left = window.innerWidth - mw - 4;
+            menu.style.top = top + 'px';
+            menu.style.left = left + 'px';
+        };
     </script>
 
 </body>

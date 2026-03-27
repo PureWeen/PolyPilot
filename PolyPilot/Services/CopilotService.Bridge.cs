@@ -687,19 +687,16 @@ public partial class CopilotService
                 && _sessions.TryGetValue(activeSessionName, out var forceState))
             {
                 var isActivelyStreaming = _remoteStreamingSessions.ContainsKey(activeSessionName);
-                int localCount;
                 lock (forceState.Info.HistoryLock)
-                    localCount = forceState.Info.History.Count;
-
-                if (!isActivelyStreaming || serverMessages.Count > localCount)
                 {
-                    lock (forceState.Info.HistoryLock)
+                    var localCount = forceState.Info.History.Count;
+                    if (!isActivelyStreaming || serverMessages.Count > localCount)
                     {
                         forceState.Info.History.Clear();
                         forceState.Info.History.AddRange(serverMessages);
                         forceState.Info.MessageCount = forceState.Info.History.Count;
+                        Debug($"[SYNC] Force-applied {serverMessages.Count} messages for '{activeSessionName}' (streaming={isActivelyStreaming}, local={localCount})");
                     }
-                    Debug($"[SYNC] Force-applied {serverMessages.Count} messages for '{activeSessionName}' (streaming={isActivelyStreaming}, local={localCount})");
                 }
             }
 

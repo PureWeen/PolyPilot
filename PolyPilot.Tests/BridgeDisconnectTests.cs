@@ -201,6 +201,40 @@ public class BridgeDisconnectTests
     }
 
     [Fact]
+    public async Task ForceSync_WhenStreamingGuardActive_SameCount_SkipsApply()
+    {
+        var svc = CreateRemoteService();
+        await AddRemoteSession(svc, "test-session");
+
+        // Add 3 local messages
+        var session = svc.GetSession("test-session");
+        Assert.NotNull(session);
+        session!.History.Add(ChatMessage.UserMessage("local-msg1"));
+        session.History.Add(ChatMessage.AssistantMessage("local-reply1"));
+        session.History.Add(ChatMessage.UserMessage("local-msg2"));
+        session.MessageCount = 3;
+
+        // Activate streaming guard
+        svc.SetRemoteStreamingGuardForTesting("test-session", true);
+
+        // Server has same count but different content (stale snapshot)
+        var serverHistory = new List<ChatMessage>
+        {
+            ChatMessage.UserMessage("server-msg1"),
+            ChatMessage.AssistantMessage("server-reply1"),
+            ChatMessage.UserMessage("server-msg2")
+        };
+        _bridgeClient.SessionHistories["test-session"] = serverHistory;
+
+        var result = await svc.ForceRefreshRemoteAsync("test-session");
+
+        Assert.True(result.Success);
+        // Should NOT replace — same count during active streaming means server snapshot is stale
+        Assert.Equal(3, session.History.Count);
+        Assert.Equal("local-msg1", session.History[0].Content);
+    }
+
+    [Fact]
     public async Task ForceSync_WhenNotStreaming_AlwaysAppliesServerHistory()
     {
         var svc = CreateRemoteService();
