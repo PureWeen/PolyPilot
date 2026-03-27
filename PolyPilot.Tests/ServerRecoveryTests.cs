@@ -89,6 +89,65 @@ public class ServerRecoveryTests
         Assert.False(CopilotService.IsAuthError(agg));
     }
 
+    // ===== IsAuthError string overload =====
+
+    [Theory]
+    [InlineData("Unauthorized")]
+    [InlineData("Not authenticated")]
+    [InlineData("not created with authentication info")]
+    [InlineData("Token expired")]
+    [InlineData("HTTP 401")]
+    public void IsAuthError_StringOverload_DetectsAuthMessages(string message)
+    {
+        Assert.True(CopilotService.IsAuthError(message));
+    }
+
+    [Theory]
+    [InlineData("Session not found")]
+    [InlineData("Connection refused")]
+    [InlineData("")]
+    public void IsAuthError_StringOverload_ReturnsFalseForNonAuth(string message)
+    {
+        Assert.False(CopilotService.IsAuthError(message));
+    }
+
+    // ===== GetLoginCommand =====
+
+    [Fact]
+    public void GetLoginCommand_ReturnsFallback_WhenNoSettings()
+    {
+        var svc = CreateService();
+        var cmd = svc.GetLoginCommand();
+        // Without settings or resolved path, returns the generic fallback
+        Assert.Contains("login", cmd);
+    }
+
+    // ===== ClearAuthNotice =====
+
+    [Fact]
+    public async Task ClearAuthNotice_ClearsNoticeAndStopsPolling()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        // ClearAuthNotice should not throw even when no notice is set
+        svc.ClearAuthNotice();
+        Assert.Null(svc.AuthNotice);
+    }
+
+    // ===== ReauthenticateAsync =====
+
+    [Fact]
+    public async Task ReauthenticateAsync_NonPersistentMode_SetsFailureNotice()
+    {
+        var svc = CreateService();
+        // Initialize in Demo mode — TryRecoverPersistentServerAsync returns false
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        await svc.ReauthenticateAsync();
+        // Should set a failure notice since recovery isn't available in demo mode
+        Assert.NotNull(svc.AuthNotice);
+        Assert.Contains("restart failed", svc.AuthNotice!, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ===== IsConnectionError now catches auth errors =====
 
     [Theory]

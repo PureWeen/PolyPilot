@@ -510,8 +510,16 @@ public partial class CopilotService
     /// </summary>
     internal static bool IsAuthError(Exception ex)
     {
-        var msg = ex.Message;
-        if (msg.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+        if (IsAuthError(ex.Message))
+            return true;
+        if (ex is AggregateException agg)
+            return agg.InnerExceptions.Any(IsAuthError);
+        return ex.InnerException != null && IsAuthError(ex.InnerException);
+    }
+
+    internal static bool IsAuthError(string msg)
+    {
+        return msg.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("not authenticated", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("authentication failed", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("authentication required", StringComparison.OrdinalIgnoreCase)
@@ -524,11 +532,7 @@ public partial class CopilotService
             || msg.Contains("HTTP 401", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("not authorized", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("bad credentials", StringComparison.OrdinalIgnoreCase)
-            || msg.Contains("login required", StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (ex is AggregateException agg)
-            return agg.InnerExceptions.Any(IsAuthError);
-        return ex.InnerException != null && IsAuthError(ex.InnerException);
+            || msg.Contains("login required", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -848,21 +852,31 @@ public partial class CopilotService
             var status = await _client.GetAuthStatusAsync();
             if (status.IsAuthenticated)
             {
-                AuthNotice = null;
                 StopAuthPolling();
+                InvokeOnUI(() =>
+                {
+                    AuthNotice = null;
+                    OnStateChanged?.Invoke();
+                });
                 Debug($"[AUTH] Authenticated as {status.Login} via {status.AuthType}");
             }
             else
             {
-                AuthNotice = "Not authenticated — run the login command below, then click Re-authenticate.";
+                InvokeOnUI(() =>
+                {
+                    AuthNotice = "Not authenticated — run the login command below, then click Re-authenticate.";
+                    OnStateChanged?.Invoke();
+                });
                 Debug($"[AUTH] Not authenticated: {status.StatusMessage}");
                 StartAuthPolling();
             }
-            InvokeOnUI(() => OnStateChanged?.Invoke());
         }
         catch (Exception ex)
         {
-            Debug($"[AUTH] Failed to check auth status: {ex.Message}");
+            Debug($"[AUTH] Failed to check auth status: {ex.Message} — scheduling retry");
+            // Treat a thrown exception (server not ready, transient error) as possibly unauthenticated
+            // and start polling so the banner can appear once the server is reachable.
+            StartAuthPolling();
         }
     }
 
@@ -872,52 +886,59 @@ public partial class CopilotService
     /// </summary>
     private void StartAuthPolling()
     {
-        if (_authPollCts != null) return; // already polling
-        var cts = new CancellationTokenSource();
-        _authPollCts = cts;
-        _ = Task.Run(async () =>
+        lock (_authPollLock)
         {
-            Debug("[AUTH-POLL] Started polling for re-authentication");
-            while (!cts.Token.IsCancellationRequested)
+            if (_authPollCts != null) return; // already polling
+            var cts = new CancellationTokenSource();
+            _authPollCts = cts;
+            _ = Task.Run(async () =>
             {
-                try
+                Debug("[AUTH-POLL] Started polling for re-authentication");
+                while (!cts.Token.IsCancellationRequested)
                 {
-                    await Task.Delay(10_000, cts.Token);
-                    if (_client == null) continue;
-                    var status = await _client.GetAuthStatusAsync(cts.Token);
-                    if (status.IsAuthenticated)
+                    try
                     {
-                        Debug($"[AUTH-POLL] Auth detected ({status.Login}) — triggering server restart");
-                        var recovered = await TryRecoverPersistentServerAsync();
-                        if (recovered)
+                        await Task.Delay(10_000, cts.Token);
+                        if (_client == null) continue;
+                        var status = await _client.GetAuthStatusAsync(cts.Token);
+                        if (status.IsAuthenticated)
                         {
-                            InvokeOnUI(() =>
+                            Debug($"[AUTH-POLL] Auth detected ({status.Login}) — triggering server restart");
+                            StopAuthPolling();
+                            var recovered = await TryRecoverPersistentServerAsync();
+                            if (recovered)
                             {
-                                AuthNotice = null;
-                                _ = FetchGitHubUserInfoAsync();
-                                OnStateChanged?.Invoke();
-                            });
+                                InvokeOnUI(() =>
+                                {
+                                    AuthNotice = null;
+                                    _ = FetchGitHubUserInfoAsync();
+                                    OnStateChanged?.Invoke();
+                                });
+                            }
+                            return;
                         }
-                        break;
+                    }
+                    catch (OperationCanceledException) { break; }
+                    catch (Exception ex)
+                    {
+                        Debug($"[AUTH-POLL] Error: {ex.Message}");
                     }
                 }
-                catch (OperationCanceledException) { break; }
-                catch (Exception ex)
-                {
-                    Debug($"[AUTH-POLL] Error: {ex.Message}");
-                }
-            }
-            Debug("[AUTH-POLL] Stopped polling");
-        }, cts.Token);
+                Debug("[AUTH-POLL] Stopped polling");
+            }, cts.Token);
+        }
     }
 
     private void StopAuthPolling()
     {
-        if (_authPollCts != null)
+        lock (_authPollLock)
         {
-            _authPollCts.Cancel();
-            _authPollCts.Dispose();
-            _authPollCts = null;
+            if (_authPollCts != null)
+            {
+                _authPollCts.Cancel();
+                _authPollCts.Dispose();
+                _authPollCts = null;
+            }
         }
     }
 }
