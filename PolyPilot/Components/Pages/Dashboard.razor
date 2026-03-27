@@ -54,6 +54,15 @@
                     <button class="dismiss-btn" @onclick="DismissServerHealthNotice">Dismiss</button>
                 </div>
             }
+            @if (!string.IsNullOrEmpty(CopilotService.AuthNotice))
+            {
+                <div class="init-error-card auth-notice">
+                    <span class="init-error-icon">🔑</span>
+                    <p class="init-error-text">@CopilotService.AuthNotice</p>
+                    <button class="retry-btn" @onclick="GoToSettings">Reconnect</button>
+                    <button class="dismiss-btn" @onclick="DismissAuthNotice">Dismiss</button>
+                </div>
+            }
             @if (PlatformHelper.IsMobile && !CopilotService.IsInitialized && !_initializationComplete)
             {
                 <div class="restoring-indicator">
@@ -750,6 +759,12 @@
     private void DismissServerHealthNotice()
     {
         CopilotService.ClearServerHealthNotice();
+        StateHasChanged();
+    }
+
+    private void DismissAuthNotice()
+    {
+        CopilotService.ClearAuthNotice();
         StateHasChanged();
     }
 

@@ -515,6 +515,7 @@ public partial class CopilotService
             || msg.Contains("not authenticated", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("authentication failed", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("authentication required", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("not created with authentication info", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("token expired", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("token is invalid", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("invalid token", StringComparison.OrdinalIgnoreCase)
@@ -832,6 +833,34 @@ public partial class CopilotService
         catch (Exception ex)
         {
             Debug($"Failed to fetch GitHub user info: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Checks the CLI server's authentication status via the SDK and surfaces a
+    /// dismissible banner if the server is not authenticated.
+    /// </summary>
+    private async Task CheckAuthStatusAsync()
+    {
+        if (IsDemoMode || IsRemoteMode || _client == null) return;
+        try
+        {
+            var status = await _client.GetAuthStatusAsync();
+            if (status.IsAuthenticated)
+            {
+                AuthNotice = null;
+                Debug($"[AUTH] Authenticated as {status.Login} via {status.AuthType}");
+            }
+            else
+            {
+                AuthNotice = "Not authenticated — run `copilot login` in your terminal, then click Reconnect.";
+                Debug($"[AUTH] Not authenticated: {status.StatusMessage}");
+            }
+            InvokeOnUI(() => OnStateChanged?.Invoke());
+        }
+        catch (Exception ex)
+        {
+            Debug($"[AUTH] Failed to check auth status: {ex.Message}");
         }
     }
 }

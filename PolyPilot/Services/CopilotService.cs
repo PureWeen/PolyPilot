@@ -292,6 +292,10 @@ public partial class CopilotService : IAsyncDisposable
     public void ClearServerHealthNotice() => ServerHealthNotice = null;
     public void SetServerHealthNotice(string notice) => ServerHealthNotice = notice;
 
+    // Auth notice — shown when the CLI server is not authenticated
+    public string? AuthNotice { get; private set; }
+    public void ClearAuthNotice() => AuthNotice = null;
+
     // GitHub user info
     public string? GitHubAvatarUrl { get; private set; }
     public string? GitHubLogin { get; private set; }
@@ -987,6 +991,9 @@ public partial class CopilotService : IAsyncDisposable
         // Fetch GitHub user info for avatar
         _ = FetchGitHubUserInfoAsync();
 
+        // Check auth status — surface a banner if not authenticated
+        _ = CheckAuthStatusAsync();
+
         // Load organization state FIRST (groups, pinning, sorting) so reconcile during restore doesn't wipe it
         LoadOrganization();
 
@@ -1115,6 +1122,7 @@ public partial class CopilotService : IAsyncDisposable
         IsRemoteMode = false;
         IsDemoMode = false;
         FallbackNotice = null; // Clear any previous fallback notice
+        AuthNotice = null; // Clear any previous auth notice
         CurrentMode = settings.Mode;
         CodespacesEnabled = settings.CodespacesEnabled && settings.Mode == ConnectionMode.Embedded;
         OnStateChanged?.Invoke();
