@@ -649,11 +649,34 @@ public partial class CopilotService
 
             // Request fresh sessions + full history for active session
             await _bridgeClient.RequestSessionsAsync();
-            if (activeSessionName != null)
-                await _bridgeClient.RequestHistoryAsync(activeSessionName, limit: null);
 
-            // Wait briefly for WsBridgeClient to process the responses
-            await Task.Delay(500);
+            // Snapshot the existing history cache entry so we can detect when the server responds
+            List<ChatMessage>? preSyncCachedHistory = null;
+            if (activeSessionName != null)
+            {
+                _bridgeClient.SessionHistories.TryGetValue(activeSessionName, out preSyncCachedHistory);
+                await _bridgeClient.RequestHistoryAsync(activeSessionName, limit: null);
+            }
+
+            // Wait for the server response to populate SessionHistories, with timeout.
+            // The old Task.Delay(500) was racy — if the response took >500ms the sync silently
+            // reported "Already up to date". Poll for the cache reference to change instead.
+            if (activeSessionName != null)
+            {
+                var deadline = sw.ElapsedMilliseconds + 3000; // 3s timeout
+                while (sw.ElapsedMilliseconds < deadline)
+                {
+                    if (_bridgeClient.SessionHistories.TryGetValue(activeSessionName, out var current)
+                        && !ReferenceEquals(current, preSyncCachedHistory))
+                        break;
+                    await Task.Delay(50);
+                }
+            }
+            else
+            {
+                // No active session — just wait briefly for sessions list
+                await Task.Delay(500);
+            }
 
             // Force-apply server history for the active session, conditionally bypassing the streaming guard.
             // SyncRemoteSessions skips sessions in _remoteStreamingSessions to avoid overwriting

@@ -31,6 +31,12 @@ public partial class CopilotService : IAsyncDisposable
     /// Used by the UI to avoid clearing streaming content before the history sync replaces it.
     /// </summary>
     public bool IsRemoteStreamingGuardActive(string sessionName) => _remoteStreamingSessions.ContainsKey(sessionName);
+    /// <summary>Test-only: activate or deactivate the streaming guard for a session.</summary>
+    internal void SetRemoteStreamingGuardForTesting(string sessionName, bool active)
+    {
+        if (active) _remoteStreamingSessions.TryAdd(sessionName, 0);
+        else _remoteStreamingSessions.TryRemove(sessionName, out _);
+    }
     // Sessions for which history has already been requested — prevents duplicate request storms
     private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();
     // External session IDs currently being resumed — prevents duplicate SDK connections from rapid double-clicks
