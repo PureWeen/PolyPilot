@@ -664,9 +664,26 @@
                     if (!el.__scrollInit) {
                         el.__scrollInit = true;
                         el.__wasAtBottom = true;
+                        el.__userScrolledUp = false;
                         el.scrollTop = el.scrollHeight;
+                        // Track user-initiated scroll to suppress auto-scroll
+                        el.addEventListener('scroll', function() {
+                            if (el.__programmaticScroll) return;
+                            var dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+                            if (dist > 150) {
+                                el.__userScrolledUp = true;
+                                el.__wasAtBottom = false;
+                            } else if (dist < 50) {
+                                el.__userScrolledUp = false;
+                                el.__wasAtBottom = true;
+                            }
+                        }, { passive: true });
                         return;
                     }
+                    
+                    // If user has manually scrolled up, don't auto-scroll
+                    if (el.__userScrolledUp && !forceScroll) return;
+                    
                     var threshold = 300;
                     var distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
                     var isNearBottom = distFromBottom < threshold;
@@ -679,7 +696,9 @@
                     }
                     
                     if (forceScroll || isNearBottom || el.__wasAtBottom) {
+                        el.__programmaticScroll = true;
                         el.scrollTop = el.scrollHeight;
+                        requestAnimationFrame(function() { el.__programmaticScroll = false; });
                     }
                 });
                 // Grid cards: restore saved position or init to bottom on first render

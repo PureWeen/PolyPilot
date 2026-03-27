@@ -655,20 +655,29 @@ public partial class CopilotService
             // Wait briefly for WsBridgeClient to process the responses
             await Task.Delay(500);
 
-            // Force-apply server history for the active session, bypassing the streaming guard.
-            // SyncRemoteSessions skips sessions in _remoteStreamingSessions, but a user-initiated
-            // force sync should always replace local history with the server's authoritative copy.
+            // Force-apply server history for the active session, conditionally bypassing the streaming guard.
+            // SyncRemoteSessions skips sessions in _remoteStreamingSessions to avoid overwriting
+            // incrementally-built content. But a user-initiated force sync should replace local history
+            // when the server has more messages (missed during disconnect) or the session isn't streaming.
             if (activeSessionName != null
                 && _bridgeClient.SessionHistories.TryGetValue(activeSessionName, out var serverMessages)
                 && _sessions.TryGetValue(activeSessionName, out var forceState))
             {
+                var isActivelyStreaming = _remoteStreamingSessions.ContainsKey(activeSessionName);
+                int localCount;
                 lock (forceState.Info.HistoryLock)
+                    localCount = forceState.Info.History.Count;
+
+                if (!isActivelyStreaming || serverMessages.Count > localCount)
                 {
-                    forceState.Info.History.Clear();
-                    forceState.Info.History.AddRange(serverMessages);
+                    lock (forceState.Info.HistoryLock)
+                    {
+                        forceState.Info.History.Clear();
+                        forceState.Info.History.AddRange(serverMessages);
+                        forceState.Info.MessageCount = forceState.Info.History.Count;
+                    }
+                    Debug($"[SYNC] Force-applied {serverMessages.Count} messages for '{activeSessionName}' (streaming={isActivelyStreaming}, local={localCount})");
                 }
-                forceState.Info.MessageCount = forceState.Info.History.Count;
-                Debug($"[SYNC] Force-applied {serverMessages.Count} messages for '{activeSessionName}' (bypassed streaming guard)");
             }
 
             // Snapshot post-sync state
