@@ -935,24 +935,6 @@ public partial class CopilotService
                 break;
             }
 
-            case CommandsChangedEvent commandsChanged:
-            {
-                var commands = commandsChanged.Data?.Commands;
-                if (commands != null && commands.Length > 0)
-                {
-                    var list = commands
-                        .Where(c => !string.IsNullOrEmpty(c?.Name))
-                        .Select(c => (c!.Name!, c.Description ?? ""))
-                        .ToList();
-                    Invoke(() =>
-                    {
-                        state.Info.CliSlashCommands = list;
-                        NotifyStateChangedCoalesced();
-                    });
-                }
-                break;
-            }
-
             default:
                 LogUnhandledSessionEvent(sessionName, evt);
                 break;
