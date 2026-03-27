@@ -793,6 +793,12 @@ public partial class CopilotService
                 {
                     if (state.IsOrphaned) return;
                     OnError?.Invoke(sessionName, errMsg);
+                    // Surface auth errors as a dismissible banner
+                    if (IsAuthError(new Exception(err.Data?.Message ?? "")))
+                    {
+                        AuthNotice = "Not authenticated — run the login command below, then click Re-authenticate.";
+                        StartAuthPolling();
+                    }
                     // Flush any accumulated partial response before clearing the accumulator
                     FlushCurrentResponse(state);
                     state.FlushedResponse.Clear();

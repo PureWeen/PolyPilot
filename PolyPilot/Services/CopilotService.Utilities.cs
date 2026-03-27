@@ -849,18 +849,75 @@ public partial class CopilotService
             if (status.IsAuthenticated)
             {
                 AuthNotice = null;
+                StopAuthPolling();
                 Debug($"[AUTH] Authenticated as {status.Login} via {status.AuthType}");
             }
             else
             {
-                AuthNotice = "Not authenticated — run `copilot login` in your terminal, then click Reconnect.";
+                AuthNotice = "Not authenticated — run the login command below, then click Re-authenticate.";
                 Debug($"[AUTH] Not authenticated: {status.StatusMessage}");
+                StartAuthPolling();
             }
             InvokeOnUI(() => OnStateChanged?.Invoke());
         }
         catch (Exception ex)
         {
             Debug($"[AUTH] Failed to check auth status: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Starts background polling of auth status every 10s. When auth is detected
+    /// (user completed `copilot login`), automatically restarts the server and clears the banner.
+    /// </summary>
+    private void StartAuthPolling()
+    {
+        if (_authPollCts != null) return; // already polling
+        var cts = new CancellationTokenSource();
+        _authPollCts = cts;
+        _ = Task.Run(async () =>
+        {
+            Debug("[AUTH-POLL] Started polling for re-authentication");
+            while (!cts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(10_000, cts.Token);
+                    if (_client == null) continue;
+                    var status = await _client.GetAuthStatusAsync(cts.Token);
+                    if (status.IsAuthenticated)
+                    {
+                        Debug($"[AUTH-POLL] Auth detected ({status.Login}) — triggering server restart");
+                        var recovered = await TryRecoverPersistentServerAsync();
+                        if (recovered)
+                        {
+                            InvokeOnUI(() =>
+                            {
+                                AuthNotice = null;
+                                _ = FetchGitHubUserInfoAsync();
+                                OnStateChanged?.Invoke();
+                            });
+                        }
+                        break;
+                    }
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    Debug($"[AUTH-POLL] Error: {ex.Message}");
+                }
+            }
+            Debug("[AUTH-POLL] Stopped polling");
+        }, cts.Token);
+    }
+
+    private void StopAuthPolling()
+    {
+        if (_authPollCts != null)
+        {
+            _authPollCts.Cancel();
+            _authPollCts.Dispose();
+            _authPollCts = null;
         }
     }
 }

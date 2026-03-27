@@ -80,6 +80,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, CodespaceService.TunnelHandle> _tunnelHandles = new();
     // Codespace health-check background task
     private CancellationTokenSource? _codespaceHealthCts;
+    private CancellationTokenSource? _authPollCts;
     private Task? _codespaceHealthTask;
     // Cached dotfiles status — checked once when first SetupRequired state is encountered
     private CodespaceService.DotfilesStatus? _dotfilesStatus;
@@ -294,7 +295,49 @@ public partial class CopilotService : IAsyncDisposable
 
     // Auth notice — shown when the CLI server is not authenticated
     public string? AuthNotice { get; private set; }
-    public void ClearAuthNotice() => AuthNotice = null;
+    public void ClearAuthNotice()
+    {
+        AuthNotice = null;
+        StopAuthPolling();
+    }
+
+    /// <summary>Returns the full `copilot login` command using the resolved CLI path.</summary>
+    public string GetLoginCommand()
+    {
+        var cliPath = ResolveCopilotCliPath(_currentSettings?.CliSource ?? CliSourceMode.BuiltIn);
+        return string.IsNullOrEmpty(cliPath) ? "copilot login" : $"{cliPath} login";
+    }
+
+    /// <summary>
+    /// Force-restarts the headless server to pick up fresh credentials, then re-checks auth.
+    /// Called from the Dashboard "Re-authenticate" button after the user runs `copilot login`.
+    /// </summary>
+    public async Task ReauthenticateAsync()
+    {
+        StopAuthPolling();
+        Debug("[AUTH] Re-authenticate requested — forcing server restart to pick up new credentials");
+        var recovered = await TryRecoverPersistentServerAsync();
+        if (recovered)
+        {
+            await CheckAuthStatusAsync();
+            if (AuthNotice == null)
+            {
+                Debug("[AUTH] Re-authentication successful");
+                _ = FetchGitHubUserInfoAsync();
+            }
+            else
+            {
+                Debug("[AUTH] Server restarted but still not authenticated");
+                AuthNotice = "Server restarted but still not authenticated. Please ensure `copilot login` completed successfully and try again.";
+                StartAuthPolling();
+            }
+        }
+        else
+        {
+            AuthNotice = "Server restart failed — please try running `copilot login` again.";
+        }
+        InvokeOnUI(() => OnStateChanged?.Invoke());
+    }
 
     // GitHub user info
     public string? GitHubAvatarUrl { get; private set; }
@@ -1129,6 +1172,7 @@ public partial class CopilotService : IAsyncDisposable
         IsDemoMode = false;
         FallbackNotice = null; // Clear any previous fallback notice
         AuthNotice = null; // Clear any previous auth notice
+        StopAuthPolling();
         CurrentMode = settings.Mode;
         CodespacesEnabled = settings.CodespacesEnabled && settings.Mode == ConnectionMode.Embedded;
         OnStateChanged?.Invoke();
@@ -4643,6 +4687,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         StopKeepalivePing();
         await StopCodespaceHealthCheckAsync();
         StopExternalSessionScanner();
+        StopAuthPolling();
 
         // Flush any pending debounced writes immediately
         FlushSaveActiveSessionsToDisk();
