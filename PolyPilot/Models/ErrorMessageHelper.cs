@@ -67,8 +67,7 @@ public static class ErrorMessageHelper
             return "The server appears to be down. Try again later.";
 
         // Authentication errors from the CLI SDK
-        if (message.Contains("not created with authentication info", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("not created with authentication", StringComparison.OrdinalIgnoreCase))
+        if (message.Contains("not created with authentication info", StringComparison.OrdinalIgnoreCase))
             return "Not authenticated — run `copilot login` in your terminal, then reconnect in Settings.";
 
         // Catch-all for any other net_webstatus_ codes we haven't mapped

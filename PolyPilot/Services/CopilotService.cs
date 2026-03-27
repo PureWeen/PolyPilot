@@ -81,6 +81,7 @@ public partial class CopilotService : IAsyncDisposable
     // Codespace health-check background task
     private CancellationTokenSource? _codespaceHealthCts;
     private CancellationTokenSource? _authPollCts;
+    private readonly object _authPollLock = new();
     private Task? _codespaceHealthTask;
     // Cached dotfiles status — checked once when first SetupRequired state is encountered
     private CodespaceService.DotfilesStatus? _dotfilesStatus;
@@ -299,6 +300,7 @@ public partial class CopilotService : IAsyncDisposable
     {
         AuthNotice = null;
         StopAuthPolling();
+        InvokeOnUI(() => OnStateChanged?.Invoke());
     }
 
     /// <summary>Returns the full `copilot login` command using the resolved CLI path.</summary>
@@ -328,15 +330,21 @@ public partial class CopilotService : IAsyncDisposable
             else
             {
                 Debug("[AUTH] Server restarted but still not authenticated");
-                AuthNotice = "Server restarted but still not authenticated. Please ensure `copilot login` completed successfully and try again.";
-                StartAuthPolling();
+                InvokeOnUI(() =>
+                {
+                    AuthNotice = "Server restarted but still not authenticated. Please ensure `copilot login` completed successfully and try again.";
+                    OnStateChanged?.Invoke();
+                });
             }
         }
         else
         {
-            AuthNotice = "Server restart failed — please try running `copilot login` again.";
+            InvokeOnUI(() =>
+            {
+                AuthNotice = "Server restart failed — please try running `copilot login` again.";
+                OnStateChanged?.Invoke();
+            });
         }
-        InvokeOnUI(() => OnStateChanged?.Invoke());
     }
 
     // GitHub user info
