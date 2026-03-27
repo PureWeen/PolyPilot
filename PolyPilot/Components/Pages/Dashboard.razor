@@ -1018,6 +1018,7 @@
 
     private DateTime _lastRefresh = DateTime.MinValue;
     private volatile bool _renderDirty;
+    private volatile bool _contentDirty; // Set when content_delta arrives, cleared after render
     private Timer? _renderTimer;
     private Timer? _heartbeatTimer;
     private readonly ConcurrentDictionary<string, (int MessageCount, bool IsProcessing, int ToolCallCount, int ProcessingPhase, DateTime LastUpdatedAt)> _lastRenderedSnapshot = new();
@@ -1183,8 +1184,11 @@
             var active = CopilotService.ActiveSessionName;
             bool sessionSwitched = active != _lastActiveSession;
             
-            // Throttle non-switch state changes to max 2/sec, but always allow completed sessions through
-            if (!_refreshThrottle.ShouldRefresh(sessionSwitched, completedSessions.Count > 0))
+            // Throttle non-switch state changes to max 2/sec, but always allow completed sessions
+            // and active streaming content through
+            var isStreaming = _contentDirty;
+            if (isStreaming) _contentDirty = false;
+            if (!_refreshThrottle.ShouldRefresh(sessionSwitched, completedSessions.Count > 0, isStreaming))
                 return;
 
             sessions = CopilotService.GetAllSessions().ToList();
@@ -1294,6 +1298,7 @@
         if (!streamingBySession.ContainsKey(sessionName))
             streamingBySession[sessionName] = "";
         streamingBySession[sessionName] += content;
+        _contentDirty = true;
         if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
     }

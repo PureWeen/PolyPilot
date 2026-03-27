@@ -16,10 +16,10 @@ public class RenderThrottle
 
     /// <summary>
     /// Returns true if the refresh should proceed, false if throttled.
-    /// A refresh always proceeds when hasCompletedSessions is true (turn just finished)
-    /// or when isSessionSwitch is true.
+    /// A refresh always proceeds when hasCompletedSessions is true (turn just finished),
+    /// when isSessionSwitch is true, or when isStreaming is true (content is actively arriving).
     /// </summary>
-    public bool ShouldRefresh(bool isSessionSwitch, bool hasCompletedSessions)
+    public bool ShouldRefresh(bool isSessionSwitch, bool hasCompletedSessions, bool isStreaming = false)
     {
         if (isSessionSwitch)
             return true;
@@ -28,6 +28,13 @@ public class RenderThrottle
 
         // Always allow when a session just completed — ensures final message renders
         if (hasCompletedSessions)
+        {
+            _lastRefresh = now;
+            return true;
+        }
+
+        // Always allow during active streaming — content deltas must render promptly
+        if (isStreaming)
         {
             _lastRefresh = now;
             return true;

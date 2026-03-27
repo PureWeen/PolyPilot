@@ -89,6 +89,33 @@ public class RenderThrottleTests
     }
 
     [Fact]
+    public void Streaming_BypassesThrottle()
+    {
+        var throttle = new RenderThrottle(500);
+        // First call goes through normally
+        Assert.True(throttle.ShouldRefresh(isSessionSwitch: false, hasCompletedSessions: false));
+
+        // Immediately after, normal refresh is throttled
+        Assert.False(throttle.ShouldRefresh(isSessionSwitch: false, hasCompletedSessions: false));
+
+        // But streaming content always gets through
+        Assert.True(throttle.ShouldRefresh(isSessionSwitch: false, hasCompletedSessions: false, isStreaming: true));
+    }
+
+    [Fact]
+    public void Streaming_UpdatesLastRefreshTime()
+    {
+        var throttle = new RenderThrottle(500);
+        throttle.SetLastRefresh(DateTime.UtcNow.AddSeconds(-10));
+
+        // Streaming bypass updates the timestamp
+        Assert.True(throttle.ShouldRefresh(isSessionSwitch: false, hasCompletedSessions: false, isStreaming: true));
+
+        // So a normal refresh immediately after is still throttled
+        Assert.False(throttle.ShouldRefresh(isSessionSwitch: false, hasCompletedSessions: false));
+    }
+
+    [Fact]
     public void CompletionRace_OnStateChangedThrottledButHandleCompleteRenders()
     {
         // Documents the race condition that caused stuck "Thinking" indicators:
