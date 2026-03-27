@@ -282,6 +282,11 @@
                 <span class="status-sep">·</span>
                 <span class="skills-trigger" data-trigger="agents" @onclick="ShowAgentsPopup" title="View available agents">@availableAgents.Count agents</span>
             }
+            @if (!string.IsNullOrEmpty(Session.ActiveAgentDisplayName ?? Session.ActiveAgentName))
+            {
+                <span class="status-sep">·</span>
+                <span class="active-agent-badge" title="Active CLI agent">🤖 @(Session.ActiveAgentDisplayName ?? Session.ActiveAgentName)</span>
+            }
             @if (availablePrompts != null)
             {
                 <span class="status-sep">·</span>

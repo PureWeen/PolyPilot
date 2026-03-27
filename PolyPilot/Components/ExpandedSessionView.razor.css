@@ -682,6 +682,14 @@
     cursor: pointer;
 }
 
+.active-agent-badge {
+    font-size: var(--type-footnote);
+    color: var(--text-secondary, #888);
+    background: var(--hover-bg, rgba(124,92,252,0.08));
+    border-radius: 4px;
+    padding: 0 0.3rem;
+}
+
 /* === Mobile responsive === */
 @media (max-width: 640px) {
     .status-extra { display: none; }

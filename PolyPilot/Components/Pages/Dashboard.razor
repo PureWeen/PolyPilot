@@ -1799,6 +1799,7 @@
                     "- `/status` — Show git status\n" +
                     "- `/prompt` — List saved prompts (`/prompt use|save|edit|show|delete`)\n" +
                     "- `/usage` — Show token usage and quota for this session\n" +
+                    "- `/agent [name]` — List or select a CLI agent\n" +
                     "- `/mcp` — List MCP servers (`/mcp enable|disable <name>`, `/mcp reload` to restart)\n" +
                     "- `/plugin` — List installed plugins (enable/disable with `/plugin enable|disable <name>`)\n" +
                     "- `/reflect <goal>` — Start a reflection cycle (`/reflect help` for details)\n" +
@@ -1808,6 +1809,10 @@
             case "clear":
                 CopilotService.ClearHistory(sessionName);
                 session.History.Add(ChatMessage.SystemMessage("Chat history cleared."));
+                break;
+
+            case "agent":
+                await HandleAgentCommand(session, sessionName, arg);
                 break;
 
             case "version":
@@ -2145,6 +2150,55 @@
             default:
                 session.History.Add(ChatMessage.SystemMessage(GetPluginInfo()));
                 break;
+        }
+    }
+
+    private async Task HandleAgentCommand(AgentSessionInfo session, string sessionName, string arg)
+    {
+        // /agent — list available agents
+        // /agent <name> — select agent
+        // /agent deselect — deselect current agent
+        if (string.IsNullOrWhiteSpace(arg))
+        {
+            // List agents from the API and from local discovery
+            var apiAgents = await CopilotService.ListAgentsFromApiAsync(sessionName);
+            var localAgents = session.AvailableAgents ?? [];
+
+            var lines = new List<string> { "**Available agents:**" };
+
+            if (apiAgents.Count > 0)
+            {
+                lines.Add("*CLI agents:*");
+                foreach (var a in apiAgents)
+                    lines.Add($"- `{a.Name}` — {a.Description}");
+            }
+
+            if (localAgents.Count > 0)
+            {
+                lines.Add("*Local agents (from repo):*");
+                foreach (var a in localAgents)
+                    lines.Add($"- `{a.Name}` — {a.Description}");
+            }
+
+            if (apiAgents.Count == 0 && localAgents.Count == 0)
+                lines.Add("No agents found. Try adding agent markdown files in `.github/agents/` or `.claude/agents/`.");
+            else
+                lines.Add("\nUse `/agent <name>` to select an agent, or `/agent deselect` to deselect.");
+
+            session.History.Add(ChatMessage.SystemMessage(string.Join("\n", lines)));
+        }
+        else if (string.Equals(arg, "deselect", StringComparison.OrdinalIgnoreCase))
+        {
+            await CopilotService.DeselectAgentAsync(sessionName);
+            session.History.Add(ChatMessage.SystemMessage("Agent deselected."));
+        }
+        else
+        {
+            var success = await CopilotService.SelectAgentAsync(sessionName, arg);
+            if (success)
+                session.History.Add(ChatMessage.SystemMessage($"Agent **{arg}** selected."));
+            else
+                session.History.Add(ChatMessage.ErrorMessage($"Failed to select agent '{arg}'. Is the agent name correct?"));
         }
     }
 
