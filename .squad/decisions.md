@@ -22,6 +22,6 @@ These rules apply to every worker on every PR fix task. Deviating from them caus
 
 5. When reviewing only (no fix), use `gh pr diff <N>` — never check out the branch.
 
-6. Consensus filter: include a finding in the final report only if flagged by 2+ of the 5 sub-agent models.
+6. Consensus filter: include a finding in the final report only if flagged by 2+ of the 3 sub-agent models (Opus, Sonnet, Codex).
 
 7. Do not comment on style, naming, or formatting. Flag only: bugs, data loss, race conditions, security issues, logic errors.
