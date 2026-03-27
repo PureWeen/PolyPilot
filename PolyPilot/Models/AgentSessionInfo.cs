@@ -216,12 +216,6 @@ public class AgentSessionInfo
     /// </summary>
     public string? ActiveAgentDisplayName { get; set; }
 
-    /// <summary>
-    /// Slash commands announced by the CLI session via CommandsChangedEvent.
-    /// These augment the static slash-command list in the autocomplete.
-    /// </summary>
-    public IReadOnlyList<(string Name, string Description)> CliSlashCommands { get; set; } = [];
-
     internal static readonly string[] QuestionPhrases =
     [
         "let me know", "which would you prefer", "would you like", "should i", "do you want",
