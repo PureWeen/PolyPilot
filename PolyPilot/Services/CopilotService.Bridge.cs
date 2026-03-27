@@ -655,6 +655,22 @@ public partial class CopilotService
             // Wait briefly for WsBridgeClient to process the responses
             await Task.Delay(500);
 
+            // Force-apply server history for the active session, bypassing the streaming guard.
+            // SyncRemoteSessions skips sessions in _remoteStreamingSessions, but a user-initiated
+            // force sync should always replace local history with the server's authoritative copy.
+            if (activeSessionName != null
+                && _bridgeClient.SessionHistories.TryGetValue(activeSessionName, out var serverMessages)
+                && _sessions.TryGetValue(activeSessionName, out var forceState))
+            {
+                lock (forceState.Info.HistoryLock)
+                {
+                    forceState.Info.History.Clear();
+                    forceState.Info.History.AddRange(serverMessages);
+                }
+                forceState.Info.MessageCount = forceState.Info.History.Count;
+                Debug($"[SYNC] Force-applied {serverMessages.Count} messages for '{activeSessionName}' (bypassed streaming guard)");
+            }
+
             // Snapshot post-sync state
             var postSyncSessionCount = _sessions.Count;
             var postSyncMessageCount = 0;
