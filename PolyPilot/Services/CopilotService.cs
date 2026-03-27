@@ -1956,6 +1956,27 @@ The user can also check configured servers with the /mcp command.
         }
     }
 
+    /// <summary>
+    /// Starts fleet mode (parallel subagent execution) for the given session with the provided prompt.
+    /// Returns true if the fleet was started successfully, false otherwise.
+    /// </summary>
+    public async Task<bool> StartFleetAsync(string sessionName, string prompt)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state) || state.Session == null)
+            return false;
+
+        try
+        {
+            var result = await state.Session.Rpc.Fleet.StartAsync(prompt, CancellationToken.None);
+            return result?.Started ?? false;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Fleet] StartAsync failed for '{sessionName}': {ex.Message}");
+            return false;
+        }
+    }
+
     private static void ScanAgentDirectory(string agentsDir, string source, List<AgentInfo> agents, HashSet<string> seen)
     {
         foreach (var file in Directory.GetFiles(agentsDir, "*.md"))
