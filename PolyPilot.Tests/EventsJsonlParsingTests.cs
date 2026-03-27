@@ -1,3 +1,4 @@
+using PolyPilot.Models;
 using System.Text.Json;
 
 namespace PolyPilot.Tests;
@@ -198,7 +199,6 @@ public class EventsJsonlParsingTests
     [Fact]
     public void ParseSessionStart_ExtractsModel_FromMultipleEvents()
     {
-        // Mirrors GetSessionModelFromDisk: scan first few lines for session.start
         var lines = new[]
         {
             """{"type":"session.start","data":{"sessionId":"abc-123","selectedModel":"claude-sonnet-4","context":{"cwd":"/tmp"}}}""",
@@ -206,19 +206,25 @@ public class EventsJsonlParsingTests
             """{"type":"assistant.turn_start","data":{}}"""
         };
 
-        string? model = null;
-        foreach (var line in lines.Take(5))
-        {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            using var doc = JsonDocument.Parse(line);
-            var root = doc.RootElement;
-            if (!root.TryGetProperty("type", out var t) || t.GetString() != "session.start") continue;
-            if (root.TryGetProperty("data", out var data) &&
-                data.TryGetProperty("selectedModel", out var m))
-                model = m.GetString();
-        }
+        var model = ModelHelper.ExtractLatestModelFromEvents(lines);
 
         Assert.Equal("claude-sonnet-4", model);
+    }
+
+    [Fact]
+    public void ExtractLatestModelFromEvents_LaterModelChangeWins()
+    {
+        var lines = new[]
+        {
+            """{"type":"session.start","data":{"selectedModel":"gpt-5.3-codex","context":{"cwd":"/tmp"}}}""",
+            """{"type":"session.usage","data":{"model":"gpt-5.3-codex"}}""",
+            """{"type":"session.model_change","data":{"newModel":"GPT-5.4"}}""",
+            """{"type":"assistant.usage","data":{"model":"gpt-5.4"}}""",
+        };
+
+        var model = ModelHelper.ExtractLatestModelFromEvents(lines);
+
+        Assert.Equal("gpt-5.4", model);
     }
 
     [Fact]
@@ -230,17 +236,7 @@ public class EventsJsonlParsingTests
             """{"type":"assistant.message","data":{"content":"hi"}}"""
         };
 
-        string? model = null;
-        foreach (var line in lines.Take(5))
-        {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            using var doc = JsonDocument.Parse(line);
-            var root = doc.RootElement;
-            if (!root.TryGetProperty("type", out var t) || t.GetString() != "session.start") continue;
-            if (root.TryGetProperty("data", out var data) &&
-                data.TryGetProperty("selectedModel", out var m))
-                model = m.GetString();
-        }
+        var model = ModelHelper.ExtractLatestModelFromEvents(lines);
 
         Assert.Null(model);
     }

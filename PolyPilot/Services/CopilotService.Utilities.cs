@@ -65,20 +65,7 @@ public partial class CopilotService
         {
             var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
             if (!File.Exists(eventsFile)) return null;
-            foreach (var line in File.ReadLines(eventsFile).Take(5))
-            {
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                using var doc = JsonDocument.Parse(line);
-                var root = doc.RootElement;
-                if (!root.TryGetProperty("type", out var t) || t.GetString() != "session.start") continue;
-                if (root.TryGetProperty("data", out var data) &&
-                    data.TryGetProperty("selectedModel", out var model))
-                {
-                    var modelStr = model.GetString();
-                    // Normalize display names to slugs
-                    return string.IsNullOrEmpty(modelStr) ? null : Models.ModelHelper.NormalizeToSlug(modelStr);
-                }
-            }
+            return Models.ModelHelper.ExtractLatestModelFromEvents(File.ReadLines(eventsFile));
         }
         catch { }
         return null;

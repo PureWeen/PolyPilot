@@ -152,6 +152,17 @@ public class ScenarioReferenceTests
     }
 
     /// <summary>
+    /// Scenario: "create-session-model-picker-includes-gpt-5-4"
+    /// Unit test equivalents: ModelSelectionTests.FallbackModels_IncludeCurrentGptVariants
+    ///   and EventsJsonlParsingTests.ExtractLatestModelFromEvents_LaterModelChangeWins
+    /// </summary>
+    [Fact]
+    public void Scenario_ModelPickerIncludesGpt54_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ModelSelectionTests.FallbackModels_IncludeCurrentGptVariants and EventsJsonlParsingTests.ExtractLatestModelFromEvents_LaterModelChangeWins");
+    }
+
+    /// <summary>
     /// Scenario: "stuck-session-recovery-after-server-disconnect"
     /// Unit test equivalents: ProcessingWatchdogTests.WatchdogCheckInterval_IsReasonable,
     ///   ProcessingWatchdogTests.WatchdogInactivityTimeout_IsReasonable,

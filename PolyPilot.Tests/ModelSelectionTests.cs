@@ -11,6 +11,9 @@ public class ModelSelectionTests
     [InlineData("claude-opus-4.6", "claude-opus-4.6")]
     [InlineData("claude-sonnet-4.5", "claude-sonnet-4.5")]
     [InlineData("gemini-3-pro-preview", "gemini-3-pro-preview")]
+    [InlineData("gpt-5.4", "gpt-5.4")]
+    [InlineData("gpt-5.4-mini", "gpt-5.4-mini")]
+    [InlineData("gpt-5.3-codex", "gpt-5.3-codex")]
     [InlineData("gpt-5.1-codex", "gpt-5.1-codex")]
     [InlineData("claude-haiku-4.5", "claude-haiku-4.5")]
     public void NormalizeToSlug_AlreadySlug_ReturnsUnchanged(string input, string expected)
@@ -30,6 +33,8 @@ public class ModelSelectionTests
     }
 
     [Theory]
+    [InlineData("GPT-5.4", "gpt-5.4")]
+    [InlineData("GPT-5.4-Mini", "gpt-5.4-mini")]
     [InlineData("GPT-5.2", "gpt-5.2")]
     [InlineData("GPT-5.1-Codex", "gpt-5.1-codex")]
     [InlineData("GPT-5.1-Codex-Max", "gpt-5.1-codex-max")]
@@ -95,20 +100,19 @@ public class ModelSelectionTests
     [Fact]
     public void NormalizeToSlug_AllFallbackModels_AreAlreadySlugs()
     {
-        var fallbackModels = new[]
-        {
-            "claude-opus-4.6", "claude-opus-4.6-fast", "claude-opus-4.5",
-            "claude-sonnet-4.5", "claude-sonnet-4", "claude-haiku-4.5",
-            "gpt-5.2", "gpt-5.2-codex", "gpt-5.1", "gpt-5.1-codex",
-            "gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5", "gpt-5-mini", "gpt-4.1",
-            "gemini-3-pro-preview",
-        };
-
-        foreach (var model in fallbackModels)
+        foreach (var model in ModelHelper.FallbackModels)
         {
             var normalized = ModelHelper.NormalizeToSlug(model);
             Assert.Equal(model, normalized);
         }
+    }
+
+    [Fact]
+    public void FallbackModels_IncludeCurrentGptVariants()
+    {
+        Assert.Contains("gpt-5.4", ModelHelper.FallbackModels);
+        Assert.Contains("gpt-5.4-mini", ModelHelper.FallbackModels);
+        Assert.Contains("gpt-5.3-codex", ModelHelper.FallbackModels);
     }
 
     [Fact]
@@ -245,6 +249,29 @@ public class ModelSelectionTests
 
         var resumeModel = ModelHelper.NormalizeToSlug(persistedModel ?? defaultModel);
         Assert.Equal("claude-opus-4.6", resumeModel);
+    }
+
+    [Fact]
+    public void ResumeFlow_LatestEventModel_WinsOverPersistedEntry()
+    {
+        var entry = new ActiveSessionEntry
+        {
+            SessionId = "some-guid",
+            DisplayName = "MySession",
+            Model = "gpt-5.3-codex",
+            WorkingDirectory = "/some/worktree/path"
+        };
+
+        var lines = new[]
+        {
+            """{"type":"session.start","data":{"selectedModel":"gpt-5.3-codex","context":{"cwd":"/tmp"}}}""",
+            """{"type":"session.model_change","data":{"newModel":"GPT-5.4"}}""",
+        };
+
+        var resumeModel = ModelHelper.ExtractLatestModelFromEvents(lines)
+            ?? ModelHelper.NormalizeToSlug(entry.Model);
+
+        Assert.Equal("gpt-5.4", resumeModel);
     }
 
     [Fact]
