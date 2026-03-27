@@ -217,6 +217,9 @@ public partial class CopilotService
             // Increment generation counter — each sub-turn gets a new generation so
             // a delayed guard removal from a previous sub-turn won't kill this one.
             _remoteStreamingSessions.AddOrUpdate(s, 1, (_, prev) => prev + 1);
+            // Clear the TurnEnd guard — a new turn is starting, so sessions_list should be
+            // allowed to sync IsProcessing=true again.
+            _recentTurnEndSessions.TryRemove(s, out _);
             // Set IsProcessing on the UI thread to avoid race with TurnEnd:
             // When TurnEnd and TurnStart arrive back-to-back, both InvokeOnUI callbacks
             // are queued. TurnEnd fires first (sets false), then TurnStart fires (sets true).
@@ -245,6 +248,8 @@ public partial class CopilotService
                     session.ProcessingStartedAt = null;
                     session.ToolCallCount = 0;
                     session.ProcessingPhase = 0;
+                    // Guard against stale sessions_list re-setting IsProcessing=true
+                    _recentTurnEndSessions[s] = DateTime.UtcNow;
                     // Mark last assistant message as complete
                     var lastAssistant = session.History.LastOrDefault(m => m.IsAssistant && !m.IsComplete);
                     if (lastAssistant != null) { lastAssistant.IsComplete = true; lastAssistant.Model = session.Model; }
@@ -280,7 +285,22 @@ public partial class CopilotService
                 }
             });
         };
-        _bridgeClient.OnSessionComplete += (s, sum) => InvokeOnUI(() => OnSessionComplete?.Invoke(s, sum));
+        _bridgeClient.OnSessionComplete += (s, sum) => InvokeOnUI(() =>
+        {
+            // Belt-and-suspenders: also clear IsProcessing on session_complete in case
+            // the turn_end message was lost or arrived out of order.
+            var session = GetRemoteSession(s);
+            if (session != null && session.IsProcessing)
+            {
+                Debug($"[BRIDGE-SESSION-COMPLETE] '{session.Name}' clearing stale IsProcessing");
+                session.IsProcessing = false;
+                session.ProcessingStartedAt = null;
+                session.ToolCallCount = 0;
+                session.ProcessingPhase = 0;
+                _recentTurnEndSessions[s] = DateTime.UtcNow;
+            }
+            OnSessionComplete?.Invoke(s, sum);
+        });
         _bridgeClient.OnError += (s, e) => InvokeOnUI(() =>
         {
             // Ignore errors for sessions already deleted locally (e.g., SDK error during dispose)
@@ -452,7 +472,7 @@ public partial class CopilotService
     /// <summary>
     /// Sync remote session list from WsBridgeClient into our local _sessions dictionary.
     /// </summary>
-    private void SyncRemoteSessions()
+    internal void SyncRemoteSessions()
     {
         var remoteSessions = _bridgeClient.Sessions;
         var remoteActive = _bridgeClient.ActiveSessionName;
@@ -499,10 +519,20 @@ public partial class CopilotService
                 // sessions list, which may be stale by the time it arrives.
                 if (!_remoteStreamingSessions.ContainsKey(rs.Name))
                 {
-                    state.Info.IsProcessing = rs.IsProcessing;
-                    state.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
-                    state.Info.ToolCallCount = rs.ToolCallCount;
-                    state.Info.ProcessingPhase = rs.ProcessingPhase;
+                    // Don't let a stale sessions_list snapshot re-set IsProcessing=true after
+                    // TurnEnd already cleared it. The debounced sessions_list may have been
+                    // captured before CompleteResponse ran on the server.
+                    bool turnEndGuardActive = rs.IsProcessing &&
+                        _recentTurnEndSessions.TryGetValue(rs.Name, out var turnEndTime) &&
+                        (DateTime.UtcNow - turnEndTime).TotalSeconds < 5;
+
+                    if (!turnEndGuardActive)
+                    {
+                        state.Info.IsProcessing = rs.IsProcessing;
+                        state.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
+                        state.Info.ToolCallCount = rs.ToolCallCount;
+                        state.Info.ProcessingPhase = rs.ProcessingPhase;
+                    }
                     state.Info.MessageCount = rs.MessageCount;
                 }
                 if (!string.IsNullOrEmpty(rs.Model))

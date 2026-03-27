@@ -265,4 +265,87 @@ public class BridgeDisconnectTests
         Assert.Equal(2, session.History.Count);
         Assert.Equal(2, session.MessageCount);
     }
+
+    // ===== Stale IsProcessing guard tests =====
+
+    [Fact]
+    public async Task SyncRemoteSessions_DoesNotResetIsProcessing_AfterTurnEnd()
+    {
+        // Scenario: TurnEnd clears IsProcessing=false on mobile, then a stale
+        // sessions_list arrives (debounced on server) with IsProcessing=true.
+        // The TurnEnd guard should prevent re-setting to true.
+        var svc = CreateRemoteService();
+        await AddRemoteSession(svc, "orchestrator");
+        var session = svc.GetSession("orchestrator")!;
+
+        // Server starts processing — sessions_list sets IsProcessing=true
+        _bridgeClient.Sessions = new() { new SessionSummary { Name = "orchestrator", IsProcessing = true } };
+        svc.SyncRemoteSessions();
+        Assert.True(session.IsProcessing);
+
+        // TurnEnd arrives — clears IsProcessing and sets the guard
+        session.IsProcessing = false;
+        svc.SetTurnEndGuardForTesting("orchestrator", true);
+
+        // Stale sessions_list snapshot arrives with IsProcessing=true
+        _bridgeClient.Sessions = new() { new SessionSummary { Name = "orchestrator", IsProcessing = true } };
+        svc.SyncRemoteSessions();
+
+        // Guard should prevent overwrite — still false
+        Assert.False(session.IsProcessing);
+    }
+
+    [Fact]
+    public async Task SyncRemoteSessions_AllowsIsProcessingTrue_OnInitialSync()
+    {
+        // Scenario: Fresh connection — no prior TurnEnd. sessions_list with
+        // IsProcessing=true should be accepted (no guard entry exists).
+        var svc = CreateRemoteService();
+        _bridgeClient.Sessions = new() { new SessionSummary { Name = "new-session", IsProcessing = true } };
+        svc.SyncRemoteSessions();
+
+        var session = svc.GetSession("new-session");
+        Assert.NotNull(session);
+        Assert.True(session!.IsProcessing);
+    }
+
+    [Fact]
+    public async Task TurnStart_ClearsGuard_AllowsSessionsListToSetProcessing()
+    {
+        // Scenario: After TurnEnd guard is set, a new TurnStart clears it.
+        // sessions_list should then be able to set IsProcessing=true.
+        var svc = CreateRemoteService();
+        await AddRemoteSession(svc, "session1");
+        var session = svc.GetSession("session1")!;
+
+        // Turn completes — guard is set
+        session.IsProcessing = false;
+        svc.SetTurnEndGuardForTesting("session1", true);
+
+        // New turn starts — clear the guard (simulating TurnStart handler)
+        svc.SetTurnEndGuardForTesting("session1", false);
+        session.IsProcessing = true; // TurnStart sets this
+
+        // sessions_list confirms processing — guard is gone, should succeed
+        _bridgeClient.Sessions = new() { new SessionSummary { Name = "session1", IsProcessing = true } };
+        svc.SyncRemoteSessions();
+        Assert.True(session.IsProcessing);
+    }
+
+    [Fact]
+    public async Task SyncRemoteSessions_AllowsSessionsListToClearProcessing()
+    {
+        // Scenario: Server says session is done (IsProcessing=false).
+        // SyncRemoteSessions should always accept false from the server.
+        var svc = CreateRemoteService();
+        await AddRemoteSession(svc, "session1");
+        var session = svc.GetSession("session1")!;
+
+        // Session is processing
+        session.IsProcessing = true;
+        _bridgeClient.Sessions = new() { new SessionSummary { Name = "session1", IsProcessing = false } };
+        svc.SyncRemoteSessions();
+
+        Assert.False(session.IsProcessing);
+    }
 }

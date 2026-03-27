@@ -18,6 +18,10 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, byte> _recentlyClosedRemoteSessions = new();
     // Sessions currently receiving streaming content via bridge events — history sync skipped to avoid duplicates
     private readonly ConcurrentDictionary<string, int> _remoteStreamingSessions = new();
+    // Sessions whose IsProcessing was recently cleared by a TurnEnd bridge event.
+    // Prevents SyncRemoteSessions (debounced sessions_list) from overwriting the authoritative
+    // TurnEnd state with a stale snapshot. Entries auto-expire after 5 seconds.
+    private readonly ConcurrentDictionary<string, DateTime> _recentTurnEndSessions = new();
 
     /// <summary>
     /// Drafts queued by "Continue in new session" for the Dashboard to pick up.
@@ -36,6 +40,12 @@ public partial class CopilotService : IAsyncDisposable
     {
         if (active) _remoteStreamingSessions.TryAdd(sessionName, 0);
         else _remoteStreamingSessions.TryRemove(sessionName, out _);
+    }
+    /// <summary>Test-only: set or clear the TurnEnd guard that prevents stale sessions_list from re-setting IsProcessing.</summary>
+    internal void SetTurnEndGuardForTesting(string sessionName, bool active)
+    {
+        if (active) _recentTurnEndSessions[sessionName] = DateTime.UtcNow;
+        else _recentTurnEndSessions.TryRemove(sessionName, out _);
     }
     // Sessions for which history has already been requested — prevents duplicate request storms
     private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();

@@ -190,6 +190,12 @@ internal class StubWsBridgeClient : IWsBridgeClient
 
     public Task<FetchImageResponsePayload> FetchImageAsync(string path, CancellationToken ct = default)
         => Task.FromResult(new FetchImageResponsePayload { Error = "Stub" });
+
+    // Test helpers for firing events
+    public void FireTurnStart(string sessionName) => OnTurnStart?.Invoke(sessionName);
+    public void FireTurnEnd(string sessionName) => OnTurnEnd?.Invoke(sessionName);
+    public void FireSessionComplete(string sessionName, string summary = "") => OnSessionComplete?.Invoke(sessionName, summary);
+    public void FireStateChanged() => OnStateChanged?.Invoke();
 }
 
 internal class StubDemoService : IDemoService
