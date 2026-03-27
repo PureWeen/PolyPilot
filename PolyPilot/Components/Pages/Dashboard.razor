@@ -58,9 +58,19 @@
             {
                 <div class="init-error-card auth-notice">
                     <span class="init-error-icon">🔑</span>
-                    <p class="init-error-text">@CopilotService.AuthNotice</p>
-                    <button class="retry-btn" @onclick="GoToSettings">Reconnect</button>
-                    <button class="dismiss-btn" @onclick="DismissAuthNotice">Dismiss</button>
+                    <div class="auth-notice-content">
+                        <p class="init-error-text">@CopilotService.AuthNotice</p>
+                        <div class="auth-command-row">
+                            <code class="auth-command">@CopilotService.GetLoginCommand()</code>
+                            <button class="copy-cmd-btn" @onclick="CopyLoginCommand" title="Copy to clipboard">📋</button>
+                        </div>
+                    </div>
+                    <div class="auth-notice-actions">
+                        <button class="retry-btn" @onclick="ReauthenticateAsync" disabled="@_isReauthenticating">
+                            @(_isReauthenticating ? "Restarting…" : "Re-authenticate")
+                        </button>
+                        <button class="dismiss-btn" @onclick="DismissAuthNotice">Dismiss</button>
+                    </div>
                 </div>
             }
             @if (PlatformHelper.IsMobile && !CopilotService.IsInitialized && !_initializationComplete)
@@ -766,6 +776,28 @@
     {
         CopilotService.ClearAuthNotice();
         StateHasChanged();
+    }
+
+    private bool _isReauthenticating;
+    private async Task ReauthenticateAsync()
+    {
+        if (_isReauthenticating) return;
+        _isReauthenticating = true;
+        StateHasChanged();
+        try
+        {
+            await CopilotService.ReauthenticateAsync();
+        }
+        finally
+        {
+            _isReauthenticating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CopyLoginCommand()
+    {
+        await CopyToClipboard(CopilotService.GetLoginCommand());
     }
 
     private async Task DashboardScanQr()
