@@ -144,7 +144,7 @@ public class SlashCommandAutocompleteTests
         }
 
         // Commands with args should have hasArgs: true
-        var withArgs = new[] { "/new", "/rename", "/diff", "/reflect", "/mcp", "/plugin", "/prompt", "/status" };
+        var withArgs = new[] { "/new", "/rename", "/diff", "/reflect", "/mcp", "/plugin", "/prompt", "/status", "/agent" };
         foreach (var cmd in withArgs)
         {
             var pattern = $"cmd: '{cmd}',";

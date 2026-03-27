@@ -759,6 +759,7 @@
             window.__slashCmdSetup = true;
 
             var COMMANDS = [
+                { cmd: '/agent', usage: '[name]', desc: 'List or select a CLI agent', hasArgs: true },
                 { cmd: '/clear', desc: 'Clear chat history', hasArgs: false },
                 { cmd: '/compact', desc: 'Summarize conversation', hasArgs: false },
                 { cmd: '/diff', usage: '[args]', desc: 'Show git diff', hasArgs: true },
