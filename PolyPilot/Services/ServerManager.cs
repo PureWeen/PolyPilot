@@ -82,8 +82,8 @@ public class ServerManager : IServerManager
             // be shown for a background process).
             if (!string.IsNullOrEmpty(githubToken))
             {
-                psi.Environment["GITHUB_TOKEN"] = githubToken;
-                Console.WriteLine("[ServerManager] Passing GITHUB_TOKEN to headless server");
+                psi.Environment["COPILOT_GITHUB_TOKEN"] = githubToken;
+                Console.WriteLine("[ServerManager] Passing COPILOT_GITHUB_TOKEN to headless server");
             }
 
             // Use ArgumentList for proper escaping (especially MCP JSON)
