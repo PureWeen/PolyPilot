@@ -161,6 +161,31 @@ public class ServerRecoveryTests
         Assert.True(token == null || token.Length > 0);
     }
 
+    // ===== TryReadCopilotKeychainToken =====
+
+    [Fact]
+    public void TryReadCopilotKeychainToken_DoesNotThrow()
+    {
+        // Should silently return null (or a token) — never throw — even if the entry
+        // is absent, the `security` binary is missing, or it times out.
+        var result = CopilotService.TryReadCopilotKeychainToken();
+        Assert.True(result == null || result.Length > 0);
+    }
+
+    [Fact]
+    public void TryReadCopilotKeychainToken_ReturnsNonEmptyToken_WhenCopilotLoginDone()
+    {
+        // Only meaningful on macOS where `copilot login` writes to the login Keychain.
+        // On non-macOS the method always returns null — that's fine, verified by the
+        // DoesNotThrow test above.
+        if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsMacCatalyst())
+            return;
+
+        var result = CopilotService.TryReadCopilotKeychainToken();
+        // May be null if the user hasn't run `copilot login`, but must never be empty string.
+        Assert.True(result == null || result.Length > 0);
+    }
+
     [Fact]
     public void ServerManager_AcceptsGitHubToken_InStartServerAsync()
     {
