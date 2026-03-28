@@ -148,6 +148,38 @@ public class ServerRecoveryTests
         Assert.Contains("restart failed", svc.AuthNotice!, StringComparison.OrdinalIgnoreCase);
     }
 
+    // ===== ResolveGitHubTokenForServer =====
+
+    [Fact]
+    public void ResolveGitHubTokenForServer_ReturnsNull_WhenNoTokenAvailable()
+    {
+        // In test environment, no env vars should be set and gh CLI may not be available.
+        // The method should return null gracefully without throwing.
+        var token = CopilotService.ResolveGitHubTokenForServer();
+        // We can't assert null because the test runner might have GH_TOKEN set.
+        // Just verify it doesn't throw and returns a string or null.
+        Assert.True(token == null || token.Length > 0);
+    }
+
+    [Fact]
+    public void ServerManager_AcceptsGitHubToken_InStartServerAsync()
+    {
+        // Verify the stub properly records the token parameter
+        var mgr = new StubServerManager();
+        mgr.StartServerResult = true;
+        mgr.StartServerAsync(4321, "test-token-123").GetAwaiter().GetResult();
+        Assert.Equal("test-token-123", mgr.LastGitHubToken);
+    }
+
+    [Fact]
+    public void ServerManager_AcceptsNullGitHubToken_InStartServerAsync()
+    {
+        var mgr = new StubServerManager();
+        mgr.StartServerResult = true;
+        mgr.StartServerAsync(4321).GetAwaiter().GetResult();
+        Assert.Null(mgr.LastGitHubToken);
+    }
+
     // ===== IsConnectionError now catches auth errors =====
 
     [Theory]

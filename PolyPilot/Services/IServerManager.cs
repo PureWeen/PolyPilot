@@ -13,7 +13,7 @@ public interface IServerManager
     event Action? OnStatusChanged;
 
     bool CheckServerRunning(string host = "127.0.0.1", int? port = null);
-    Task<bool> StartServerAsync(int port);
+    Task<bool> StartServerAsync(int port, string? githubToken = null);
     void StopServer();
     bool DetectExistingServer();
 }

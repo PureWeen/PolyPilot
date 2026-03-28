@@ -68,7 +68,7 @@ public static class ErrorMessageHelper
 
         // Authentication errors from the CLI SDK
         if (message.Contains("not created with authentication info", StringComparison.OrdinalIgnoreCase))
-            return "Not authenticated — run `copilot login` in your terminal, then reconnect in Settings.";
+            return "Not authenticated — run `copilot login` (or `gh auth login`) in your terminal, then click Re-authenticate.";
 
         // Catch-all for any other net_webstatus_ codes we haven't mapped
         if (message.Contains("net_webstatus_", StringComparison.OrdinalIgnoreCase))
