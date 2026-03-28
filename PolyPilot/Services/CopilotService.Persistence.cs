@@ -601,10 +601,16 @@ public partial class CopilotService
                             _sessions[entry.DisplayName] = lazyState;
                             _activeSessionName ??= entry.DisplayName;
                             RestoreUsageStats(entry);
-                            if (!string.IsNullOrWhiteSpace(entry.LastPrompt))
+                            // Eagerly resume sessions that are still actively processing on the
+                            // headless server. Check events.jsonl (authoritative) first, then fall
+                            // back to LastPrompt (saved when IsProcessing=true at debounce time).
+                            // Without this, actively-running sessions appear idle after app restart
+                            // because they're only loaded as lazy placeholders with no SDK connection.
+                            var isStillActive = IsSessionStillProcessing(entry.SessionId);
+                            if (isStillActive || !string.IsNullOrWhiteSpace(entry.LastPrompt))
                             {
                                 eagerResumeCandidates.Add((entry.DisplayName, lazyState));
-                                Debug($"Queued eager resume for interrupted session: {entry.DisplayName}");
+                                Debug($"Queued eager resume for interrupted session: {entry.DisplayName} (active={isStillActive}, hasLastPrompt={!string.IsNullOrWhiteSpace(entry.LastPrompt)})");
                             }
                             Debug($"Loaded session placeholder: {entry.DisplayName} ({lazyHistory.Count} messages)");
                         }

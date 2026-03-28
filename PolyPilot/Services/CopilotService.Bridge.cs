@@ -528,12 +528,22 @@ public partial class CopilotService
 
                     if (!turnEndGuardActive)
                     {
+                        if (state.Info.IsProcessing != rs.IsProcessing)
+                            Debug($"SyncRemoteSessions: '{rs.Name}' IsProcessing {state.Info.IsProcessing} -> {rs.IsProcessing}");
                         state.Info.IsProcessing = rs.IsProcessing;
                         state.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
                         state.Info.ToolCallCount = rs.ToolCallCount;
                         state.Info.ProcessingPhase = rs.ProcessingPhase;
                     }
+                    else
+                    {
+                        Debug($"SyncRemoteSessions: '{rs.Name}' TurnEnd guard blocked IsProcessing=true");
+                    }
                     state.Info.MessageCount = rs.MessageCount;
+                }
+                else
+                {
+                    Debug($"SyncRemoteSessions: '{rs.Name}' skipped — streaming guard active");
                 }
                 if (!string.IsNullOrEmpty(rs.Model))
                     state.Info.Model = rs.Model;
@@ -727,6 +737,27 @@ public partial class CopilotService
                         forceState.Info.MessageCount = forceState.Info.History.Count;
                         Debug($"[SYNC] Force-applied {serverMessages.Count} messages for '{activeSessionName}' (streaming={isActivelyStreaming}, local={localCount})");
                     }
+                }
+            }
+
+            // Force-sync processing state for ALL sessions from the server snapshot.
+            // SyncRemoteSessions skips sessions in _remoteStreamingSessions, but a user-initiated
+            // force sync should always apply the server's authoritative IsProcessing state.
+            // Also clear stuck streaming guards — if the server says a session is idle,
+            // any lingering guard from a dropped connection should be cleared.
+            foreach (var rs in _bridgeClient.Sessions)
+            {
+                if (_sessions.TryGetValue(rs.Name, out var syncState))
+                {
+                    if (syncState.Info.IsProcessing != rs.IsProcessing)
+                        Debug($"[SYNC] '{rs.Name}' IsProcessing {syncState.Info.IsProcessing} -> {rs.IsProcessing}");
+                    syncState.Info.IsProcessing = rs.IsProcessing;
+                    syncState.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
+                    syncState.Info.ToolCallCount = rs.ToolCallCount;
+                    syncState.Info.ProcessingPhase = rs.ProcessingPhase;
+                    // Clear stuck streaming guard if server says session is idle
+                    if (!rs.IsProcessing)
+                        _remoteStreamingSessions.TryRemove(rs.Name, out _);
                 }
             }
 
