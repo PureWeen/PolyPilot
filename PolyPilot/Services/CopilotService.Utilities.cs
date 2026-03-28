@@ -941,4 +941,59 @@ public partial class CopilotService
             }
         }
     }
+
+    /// <summary>
+    /// Attempts to resolve a GitHub token that can be forwarded to the headless server
+    /// via the GITHUB_TOKEN env var. This helps when the server can't access the macOS
+    /// Keychain (e.g., Keychain entry ACL blocks headless processes).
+    /// Checks, in order: COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN env vars,
+    /// then falls back to `gh auth token` if the gh CLI is available.
+    /// </summary>
+    internal static string? ResolveGitHubTokenForServer()
+    {
+        // Check environment variables (same precedence as copilot CLI)
+        foreach (var envVar in new[] { "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN" })
+        {
+            var val = Environment.GetEnvironmentVariable(envVar);
+            if (!string.IsNullOrEmpty(val))
+            {
+                Console.WriteLine($"[AUTH] Resolved token from ${envVar}");
+                return val;
+            }
+        }
+
+        // Try the gh CLI as a fallback
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "gh",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            psi.ArgumentList.Add("auth");
+            psi.ArgumentList.Add("token");
+
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc != null)
+            {
+                var token = proc.StandardOutput.ReadToEnd().Trim();
+                proc.WaitForExit(5000);
+                if (proc.ExitCode == 0 && !string.IsNullOrEmpty(token))
+                {
+                    Console.WriteLine("[AUTH] Resolved token from `gh auth token`");
+                    return token;
+                }
+            }
+        }
+        catch
+        {
+            // gh CLI not available — that's fine
+        }
+
+        Console.WriteLine("[AUTH] No GitHub token could be resolved for server forwarding");
+        return null;
+    }
 }
