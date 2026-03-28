@@ -2216,9 +2216,10 @@
             return;
         }
 
-        session.History.Add(ChatMessage.SystemMessage($"🚀 Starting fleet for: *{arg}*"));
         var started = await CopilotService.StartFleetAsync(sessionName, arg);
-        if (!started)
+        if (started)
+            session.History.Add(ChatMessage.SystemMessage($"🚀 Fleet started for: *{arg}*"));
+        else
             session.History.Add(ChatMessage.ErrorMessage("Failed to start fleet mode. Ensure the session is connected and idle."));
     }
 
