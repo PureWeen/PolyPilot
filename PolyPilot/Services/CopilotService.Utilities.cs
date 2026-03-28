@@ -946,12 +946,14 @@ public partial class CopilotService
     /// Attempts to resolve a GitHub token that can be forwarded to the headless server
     /// via the GITHUB_TOKEN env var. This helps when the server can't access the macOS
     /// Keychain (e.g., Keychain entry ACL blocks headless processes).
-    /// Checks, in order: COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN env vars,
-    /// then falls back to `gh auth token` if the gh CLI is available.
+    /// Checks, in order:
+    ///   1. COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN env vars
+    ///   2. macOS Keychain entry written by `copilot login` (service "copilot-cli" / "github-copilot")
+    ///   3. `gh auth token` if the gh CLI is installed and authenticated
     /// </summary>
     internal static string? ResolveGitHubTokenForServer()
     {
-        // Check environment variables (same precedence as copilot CLI)
+        // 1. Environment variables (same precedence as copilot CLI)
         foreach (var envVar in new[] { "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN" })
         {
             var val = Environment.GetEnvironmentVariable(envVar);
@@ -962,7 +964,20 @@ public partial class CopilotService
             }
         }
 
-        // Try the gh CLI as a fallback
+        // 2. macOS Keychain — `copilot login` stores the OAuth token here via keytar.node.
+        //    The headless server process may not inherit the ACL for this entry, so we read
+        //    it from the UI process (which has full login-keychain access) and forward it.
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+        {
+            var keychainToken = TryReadCopilotKeychainToken();
+            if (keychainToken != null)
+            {
+                Console.WriteLine("[AUTH] Resolved token from macOS Keychain (copilot login)");
+                return keychainToken;
+            }
+        }
+
+        // 3. gh CLI fallback — works when the user authenticated via `gh auth login`
         try
         {
             var psi = new System.Diagnostics.ProcessStartInfo
@@ -994,6 +1009,52 @@ public partial class CopilotService
         }
 
         Console.WriteLine("[AUTH] No GitHub token could be resolved for server forwarding");
+        return null;
+    }
+
+    /// <summary>
+    /// Reads the GitHub OAuth token stored by <c>copilot login</c> from the macOS login Keychain.
+    /// Uses the <c>security</c> CLI (built into macOS) so no extra entitlements are needed.
+    /// Returns null silently on any failure (missing entry, no access, etc.).
+    /// </summary>
+    internal static string? TryReadCopilotKeychainToken()
+    {
+        // `copilot login` stores the token via keytar.node under a service name that
+        // has changed across CLI versions. We try all known names (most common first).
+        foreach (var serviceName in new[] { "copilot-cli", "github-copilot", "GitHub Copilot" })
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "security",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                // find-generic-password -s <service> -w  → prints just the password
+                // Omitting -a (account) matches the first entry for this service,
+                // which is correct for the common single-account case.
+                psi.ArgumentList.Add("find-generic-password");
+                psi.ArgumentList.Add("-s");
+                psi.ArgumentList.Add(serviceName);
+                psi.ArgumentList.Add("-w");
+
+                using var proc = System.Diagnostics.Process.Start(psi);
+                if (proc == null) continue;
+
+                var token = proc.StandardOutput.ReadToEnd().Trim();
+                proc.WaitForExit(3000);
+
+                if (proc.ExitCode == 0 && !string.IsNullOrEmpty(token))
+                    return token;
+            }
+            catch
+            {
+                // security CLI error or timeout — try next service name
+            }
+        }
         return null;
     }
 }
