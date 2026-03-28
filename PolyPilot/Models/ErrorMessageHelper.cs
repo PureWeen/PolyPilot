@@ -66,6 +66,10 @@ public static class ErrorMessageHelper
         if (message.Contains("Host is down", StringComparison.OrdinalIgnoreCase))
             return "The server appears to be down. Try again later.";
 
+        // Authentication errors from the CLI SDK
+        if (message.Contains("not created with authentication info", StringComparison.OrdinalIgnoreCase))
+            return "Not authenticated — run `copilot login` (or `gh auth login`) in your terminal, then click Re-authenticate.";
+
         // Catch-all for any other net_webstatus_ codes we haven't mapped
         if (message.Contains("net_webstatus_", StringComparison.OrdinalIgnoreCase))
             return "A network error occurred. Check your connection and try again.";

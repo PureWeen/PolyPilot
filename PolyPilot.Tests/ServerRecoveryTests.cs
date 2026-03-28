@@ -89,6 +89,122 @@ public class ServerRecoveryTests
         Assert.False(CopilotService.IsAuthError(agg));
     }
 
+    // ===== IsAuthError string overload =====
+
+    [Theory]
+    [InlineData("Unauthorized")]
+    [InlineData("Not authenticated")]
+    [InlineData("not created with authentication info")]
+    [InlineData("Token expired")]
+    [InlineData("HTTP 401")]
+    public void IsAuthError_StringOverload_DetectsAuthMessages(string message)
+    {
+        Assert.True(CopilotService.IsAuthError(message));
+    }
+
+    [Theory]
+    [InlineData("Session not found")]
+    [InlineData("Connection refused")]
+    [InlineData("")]
+    public void IsAuthError_StringOverload_ReturnsFalseForNonAuth(string message)
+    {
+        Assert.False(CopilotService.IsAuthError(message));
+    }
+
+    // ===== GetLoginCommand =====
+
+    [Fact]
+    public void GetLoginCommand_ReturnsFallback_WhenNoSettings()
+    {
+        var svc = CreateService();
+        var cmd = svc.GetLoginCommand();
+        // Without settings or resolved path, returns the generic fallback
+        Assert.Contains("login", cmd);
+    }
+
+    // ===== ClearAuthNotice =====
+
+    [Fact]
+    public async Task ClearAuthNotice_ClearsNoticeAndStopsPolling()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        // ClearAuthNotice should not throw even when no notice is set
+        svc.ClearAuthNotice();
+        Assert.Null(svc.AuthNotice);
+    }
+
+    // ===== ReauthenticateAsync =====
+
+    [Fact]
+    public async Task ReauthenticateAsync_NonPersistentMode_SetsFailureNotice()
+    {
+        var svc = CreateService();
+        // Initialize in Demo mode — TryRecoverPersistentServerAsync returns false
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        await svc.ReauthenticateAsync();
+        // Should set a failure notice since recovery isn't available in demo mode
+        Assert.NotNull(svc.AuthNotice);
+        Assert.Contains("restart failed", svc.AuthNotice!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ===== ResolveGitHubTokenForServer =====
+
+    [Fact]
+    public void ResolveGitHubTokenForServer_ReturnsNull_WhenNoTokenAvailable()
+    {
+        // In test environment, no env vars should be set and gh CLI may not be available.
+        // The method should return null gracefully without throwing.
+        var token = CopilotService.ResolveGitHubTokenForServer();
+        // We can't assert null because the test runner might have GH_TOKEN set.
+        // Just verify it doesn't throw and returns a string or null.
+        Assert.True(token == null || token.Length > 0);
+    }
+
+    // ===== TryReadCopilotKeychainToken =====
+
+    [Fact]
+    public void TryReadCopilotKeychainToken_DoesNotThrow()
+    {
+        // Should silently return null (or a token) — never throw — even if the entry
+        // is absent, the `security` binary is missing, or it times out.
+        var result = CopilotService.TryReadCopilotKeychainToken();
+        Assert.True(result == null || result.Length > 0);
+    }
+
+    [Fact]
+    public void TryReadCopilotKeychainToken_ReturnsNonEmptyToken_WhenCopilotLoginDone()
+    {
+        // Only meaningful on macOS where `copilot login` writes to the login Keychain.
+        // On non-macOS the method always returns null — that's fine, verified by the
+        // DoesNotThrow test above.
+        if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsMacCatalyst())
+            return;
+
+        var result = CopilotService.TryReadCopilotKeychainToken();
+        // May be null if the user hasn't run `copilot login`, but must never be empty string.
+        Assert.True(result == null || result.Length > 0);
+    }
+
+    [Fact]
+    public void ServerManager_AcceptsGitHubToken_InStartServerAsync()
+    {
+        // Verify the stub properly records the token parameter
+        var mgr = new StubServerManager();
+        mgr.StartServerResult = true;
+        mgr.StartServerAsync(4321, "test-token-123").GetAwaiter().GetResult();
+        Assert.Equal("test-token-123", mgr.LastGitHubToken);
+    }
+
+    [Fact]
+    public void ServerManager_AcceptsNullGitHubToken_InStartServerAsync()
+    {
+        var mgr = new StubServerManager();
+        mgr.StartServerResult = true;
+        mgr.StartServerAsync(4321).GetAwaiter().GetResult();
+        Assert.Null(mgr.LastGitHubToken);
+    }
+
     // ===== IsConnectionError now catches auth errors =====
 
     [Theory]

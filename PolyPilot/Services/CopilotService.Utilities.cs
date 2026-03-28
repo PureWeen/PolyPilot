@@ -510,11 +510,20 @@ public partial class CopilotService
     /// </summary>
     internal static bool IsAuthError(Exception ex)
     {
-        var msg = ex.Message;
-        if (msg.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+        if (IsAuthError(ex.Message))
+            return true;
+        if (ex is AggregateException agg)
+            return agg.InnerExceptions.Any(IsAuthError);
+        return ex.InnerException != null && IsAuthError(ex.InnerException);
+    }
+
+    internal static bool IsAuthError(string msg)
+    {
+        return msg.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("not authenticated", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("authentication failed", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("authentication required", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("not created with authentication info", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("token expired", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("token is invalid", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("invalid token", StringComparison.OrdinalIgnoreCase)
@@ -523,11 +532,7 @@ public partial class CopilotService
             || msg.Contains("HTTP 401", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("not authorized", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("bad credentials", StringComparison.OrdinalIgnoreCase)
-            || msg.Contains("login required", StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (ex is AggregateException agg)
-            return agg.InnerExceptions.Any(IsAuthError);
-        return ex.InnerException != null && IsAuthError(ex.InnerException);
+            || msg.Contains("login required", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -833,5 +838,223 @@ public partial class CopilotService
         {
             Debug($"Failed to fetch GitHub user info: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Checks the CLI server's authentication status via the SDK and surfaces a
+    /// dismissible banner if the server is not authenticated.
+    /// </summary>
+    private async Task CheckAuthStatusAsync()
+    {
+        if (IsDemoMode || IsRemoteMode || _client == null) return;
+        try
+        {
+            var status = await _client.GetAuthStatusAsync();
+            if (status.IsAuthenticated)
+            {
+                StopAuthPolling();
+                InvokeOnUI(() =>
+                {
+                    AuthNotice = null;
+                    OnStateChanged?.Invoke();
+                });
+                Debug($"[AUTH] Authenticated as {status.Login} via {status.AuthType}");
+            }
+            else
+            {
+                InvokeOnUI(() =>
+                {
+                    AuthNotice = "Not authenticated — run the login command below, then click Re-authenticate.";
+                    OnStateChanged?.Invoke();
+                });
+                Debug($"[AUTH] Not authenticated: {status.StatusMessage}");
+                StartAuthPolling();
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"[AUTH] Failed to check auth status: {ex.Message} — scheduling retry");
+            // Treat a thrown exception (server not ready, transient error) as possibly unauthenticated
+            // and start polling so the banner can appear once the server is reachable.
+            StartAuthPolling();
+        }
+    }
+
+    /// <summary>
+    /// Starts background polling of auth status every 10s. When auth is detected
+    /// (user completed `copilot login`), automatically restarts the server and clears the banner.
+    /// </summary>
+    private void StartAuthPolling()
+    {
+        lock (_authPollLock)
+        {
+            if (_authPollCts != null) return; // already polling
+            var cts = new CancellationTokenSource();
+            _authPollCts = cts;
+            _ = Task.Run(async () =>
+            {
+                Debug("[AUTH-POLL] Started polling for re-authentication");
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await Task.Delay(10_000, cts.Token);
+                        if (_client == null) continue;
+                        var status = await _client.GetAuthStatusAsync(cts.Token);
+                        if (status.IsAuthenticated)
+                        {
+                            Debug($"[AUTH-POLL] Auth detected ({status.Login}) — triggering server restart");
+                            StopAuthPolling();
+                            var recovered = await TryRecoverPersistentServerAsync();
+                            if (recovered)
+                            {
+                                InvokeOnUI(() =>
+                                {
+                                    AuthNotice = null;
+                                    _ = FetchGitHubUserInfoAsync();
+                                    OnStateChanged?.Invoke();
+                                });
+                            }
+                            return;
+                        }
+                    }
+                    catch (OperationCanceledException) { break; }
+                    catch (Exception ex)
+                    {
+                        Debug($"[AUTH-POLL] Error: {ex.Message}");
+                    }
+                }
+                Debug("[AUTH-POLL] Stopped polling");
+            }, cts.Token);
+        }
+    }
+
+    private void StopAuthPolling()
+    {
+        lock (_authPollLock)
+        {
+            if (_authPollCts != null)
+            {
+                _authPollCts.Cancel();
+                _authPollCts.Dispose();
+                _authPollCts = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Attempts to resolve a GitHub token that can be forwarded to the headless server
+    /// via the GITHUB_TOKEN env var. This helps when the server can't access the macOS
+    /// Keychain (e.g., Keychain entry ACL blocks headless processes).
+    /// Checks, in order:
+    ///   1. COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN env vars
+    ///   2. macOS Keychain entry written by `copilot login` (service "copilot-cli" / "github-copilot")
+    ///   3. `gh auth token` if the gh CLI is installed and authenticated
+    /// </summary>
+    internal static string? ResolveGitHubTokenForServer()
+    {
+        // 1. Environment variables (same precedence as copilot CLI)
+        foreach (var envVar in new[] { "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN" })
+        {
+            var val = Environment.GetEnvironmentVariable(envVar);
+            if (!string.IsNullOrEmpty(val))
+            {
+                Console.WriteLine($"[AUTH] Resolved token from ${envVar}");
+                return val;
+            }
+        }
+
+        // 2. macOS Keychain — `copilot login` stores the OAuth token here via keytar.node.
+        //    The headless server process may not inherit the ACL for this entry, so we read
+        //    it from the UI process (which has full login-keychain access) and forward it.
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
+        {
+            var keychainToken = TryReadCopilotKeychainToken();
+            if (keychainToken != null)
+            {
+                Console.WriteLine("[AUTH] Resolved token from macOS Keychain (copilot login)");
+                return keychainToken;
+            }
+        }
+
+        // 3. gh CLI fallback — works when the user authenticated via `gh auth login`
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "gh",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            psi.ArgumentList.Add("auth");
+            psi.ArgumentList.Add("token");
+
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc != null)
+            {
+                var token = proc.StandardOutput.ReadToEnd().Trim();
+                proc.WaitForExit(5000);
+                if (proc.ExitCode == 0 && !string.IsNullOrEmpty(token))
+                {
+                    Console.WriteLine("[AUTH] Resolved token from `gh auth token`");
+                    return token;
+                }
+            }
+        }
+        catch
+        {
+            // gh CLI not available — that's fine
+        }
+
+        Console.WriteLine("[AUTH] No GitHub token could be resolved for server forwarding");
+        return null;
+    }
+
+    /// <summary>
+    /// Reads the GitHub OAuth token stored by <c>copilot login</c> from the macOS login Keychain.
+    /// Uses the <c>security</c> CLI (built into macOS) so no extra entitlements are needed.
+    /// Returns null silently on any failure (missing entry, no access, etc.).
+    /// </summary>
+    internal static string? TryReadCopilotKeychainToken()
+    {
+        // `copilot login` stores the token via keytar.node under a service name that
+        // has changed across CLI versions. We try all known names (most common first).
+        foreach (var serviceName in new[] { "copilot-cli", "github-copilot", "GitHub Copilot" })
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "security",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                // find-generic-password -s <service> -w  → prints just the password
+                // Omitting -a (account) matches the first entry for this service,
+                // which is correct for the common single-account case.
+                psi.ArgumentList.Add("find-generic-password");
+                psi.ArgumentList.Add("-s");
+                psi.ArgumentList.Add(serviceName);
+                psi.ArgumentList.Add("-w");
+
+                using var proc = System.Diagnostics.Process.Start(psi);
+                if (proc == null) continue;
+
+                var token = proc.StandardOutput.ReadToEnd().Trim();
+                proc.WaitForExit(3000);
+
+                if (proc.ExitCode == 0 && !string.IsNullOrEmpty(token))
+                    return token;
+            }
+            catch
+            {
+                // security CLI error or timeout — try next service name
+            }
+        }
+        return null;
     }
 }

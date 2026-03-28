@@ -50,7 +50,7 @@ public class ServerManager : IServerManager
     /// <summary>
     /// Start copilot in headless server mode, detached from app lifecycle
     /// </summary>
-    public async Task<bool> StartServerAsync(int port = 4321)
+    public async Task<bool> StartServerAsync(int port = 4321, string? githubToken = null)
     {
         ServerPort = port;
         LastError = null;
@@ -75,6 +75,16 @@ public class ServerManager : IServerManager
                 RedirectStandardError = true,
                 RedirectStandardInput = false
             };
+
+            // Forward the GitHub token via environment variable so the headless server
+            // can authenticate even when the macOS Keychain is inaccessible (e.g., the
+            // Keychain entry was created in a terminal session and the ACL dialog can't
+            // be shown for a background process).
+            if (!string.IsNullOrEmpty(githubToken))
+            {
+                psi.Environment["COPILOT_GITHUB_TOKEN"] = githubToken;
+                Console.WriteLine("[ServerManager] Passing COPILOT_GITHUB_TOKEN to headless server");
+            }
 
             // Use ArgumentList for proper escaping (especially MCP JSON)
             psi.ArgumentList.Add("--headless");
