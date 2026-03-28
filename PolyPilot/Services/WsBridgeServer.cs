@@ -55,33 +55,44 @@ public class WsBridgeServer : IDisposable
         _bridgePort = bridgePort;
         _cts = new CancellationTokenSource();
 
-        _listener = new HttpListener();
-        _listener.Prefixes.Add($"http://+:{bridgePort}/");
-
-        try
+        if (TryBindListener(bridgePort))
         {
-            _listener.Start();
-            Console.WriteLine($"[WsBridge] Listening on port {bridgePort} (state-sync mode)");
             _acceptTask = AcceptLoopAsync(_cts.Token);
             OnStateChanged?.Invoke();
         }
-        catch (Exception ex)
+        else
         {
-            Console.WriteLine($"[WsBridge] Failed to start on wildcard: {ex.Message}");
+            // Port likely in TIME_WAIT from a previous instance (relaunch).
+            // Start the accept loop anyway — it will retry via TryRestartListenerAsync
+            // with exponential backoff until the port is released (typically 5-15s).
+            Console.WriteLine($"[WsBridge] Port {bridgePort} busy — will retry in accept loop");
+            _acceptTask = AcceptLoopAsync(_cts.Token);
+        }
+    }
+
+    /// <summary>
+    /// Try to bind the HttpListener on the given port. Tries wildcard first (LAN access),
+    /// falls back to localhost. Returns true if the listener is now listening.
+    /// </summary>
+    private bool TryBindListener(int port)
+    {
+        foreach (var prefix in new[] { $"http://+:{port}/", $"http://localhost:{port}/" })
+        {
             try
             {
-                _listener = new HttpListener();
-                _listener.Prefixes.Add($"http://localhost:{bridgePort}/");
-                _listener.Start();
-                Console.WriteLine($"[WsBridge] Listening on localhost:{bridgePort} (state-sync mode)");
-                _acceptTask = AcceptLoopAsync(_cts.Token);
-                OnStateChanged?.Invoke();
+                var listener = new HttpListener();
+                listener.Prefixes.Add(prefix);
+                listener.Start();
+                _listener = listener;
+                Console.WriteLine($"[WsBridge] Listening on port {port} (state-sync mode)");
+                return true;
             }
-            catch (Exception ex2)
+            catch (Exception ex)
             {
-                Console.WriteLine($"[WsBridge] Failed to start on localhost: {ex2.Message}");
+                Console.WriteLine($"[WsBridge] Bind on {prefix} failed: {ex.Message}");
             }
         }
+        return false;
     }
 
     /// <summary>
@@ -293,8 +304,9 @@ public class WsBridgeServer : IDisposable
         try { _listener?.Stop(); } catch { }
         _listener = null;
 
-        // Brief pause so the OS has time to release the port after a crash.
-        try { await Task.Delay(500, ct); } catch (OperationCanceledException) { return false; }
+        // Wait for the OS to release the port after the old process died.
+        // macOS TIME_WAIT can hold the port for several seconds after kill.
+        try { await Task.Delay(2000, ct); } catch (OperationCanceledException) { return false; }
 
         // Try wildcard binding first (allows LAN / Tailscale access).
         foreach (var prefix in new[] { $"http://+:{_bridgePort}/", $"http://localhost:{_bridgePort}/" })
