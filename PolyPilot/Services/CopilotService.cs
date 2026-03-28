@@ -1956,19 +1956,22 @@ The user can also check configured servers with the /mcp command.
 
     /// <summary>
     /// Deselects the active CLI agent for the given session.
+    /// Returns true on success, false on error.
     /// </summary>
-    public async Task DeselectAgentAsync(string sessionName)
+    public async Task<bool> DeselectAgentAsync(string sessionName)
     {
         if (!_sessions.TryGetValue(sessionName, out var state) || state.Session == null)
-            return;
+            return false;
 
         try
         {
             await state.Session.Rpc.Agent.DeselectAsync(CancellationToken.None);
+            return true;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[Agents] DeselectAsync failed for '{sessionName}': {ex.Message}");
+            return false;
         }
     }
 
@@ -1979,6 +1982,9 @@ The user can also check configured servers with the /mcp command.
     public async Task<bool> StartFleetAsync(string sessionName, string prompt)
     {
         if (!_sessions.TryGetValue(sessionName, out var state) || state.Session == null)
+            return false;
+
+        if (state.Info.IsProcessing)
             return false;
 
         try

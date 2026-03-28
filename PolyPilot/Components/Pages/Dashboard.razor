@@ -2194,8 +2194,11 @@
         }
         else if (string.Equals(arg, "deselect", StringComparison.OrdinalIgnoreCase))
         {
-            await CopilotService.DeselectAgentAsync(sessionName);
-            session.History.Add(ChatMessage.SystemMessage("Agent deselected."));
+            var success = await CopilotService.DeselectAgentAsync(sessionName);
+            if (success)
+                session.History.Add(ChatMessage.SystemMessage("Agent deselected."));
+            else
+                session.History.Add(ChatMessage.ErrorMessage("Failed to deselect agent. Is the session connected?"));
         }
         else
         {

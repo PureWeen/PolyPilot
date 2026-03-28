@@ -881,20 +881,18 @@ public partial class CopilotService
             {
                 var d = subagentCompleted.Data;
                 var displayName = !string.IsNullOrEmpty(d?.AgentDisplayName) ? d.AgentDisplayName : d?.AgentName;
-                if (!string.IsNullOrEmpty(displayName))
+                Invoke(() =>
                 {
-                    Invoke(() =>
-                    {
+                    if (!string.IsNullOrEmpty(displayName))
                         state.Info.History.Add(ChatMessage.SystemMessage($"✅ Agent completed: **{displayName}**"));
-                        // Clear active agent after completion
-                        if (string.Equals(state.Info.ActiveAgentName, d?.AgentName, StringComparison.OrdinalIgnoreCase))
-                        {
-                            state.Info.ActiveAgentName = null;
-                            state.Info.ActiveAgentDisplayName = null;
-                        }
-                        NotifyStateChangedCoalesced();
-                    });
-                }
+                    // Always clear active agent state — even if displayName is empty
+                    if (d?.AgentName == null || string.Equals(state.Info.ActiveAgentName, d.AgentName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        state.Info.ActiveAgentName = null;
+                        state.Info.ActiveAgentDisplayName = null;
+                    }
+                    NotifyStateChangedCoalesced();
+                });
                 break;
             }
 
@@ -903,19 +901,18 @@ public partial class CopilotService
                 var d = subagentFailed.Data;
                 var displayName = !string.IsNullOrEmpty(d?.AgentDisplayName) ? d.AgentDisplayName : d?.AgentName;
                 var errDetail = !string.IsNullOrEmpty(d?.Error) ? $": {d.Error}" : "";
-                if (!string.IsNullOrEmpty(displayName))
+                Invoke(() =>
                 {
-                    Invoke(() =>
-                    {
+                    if (!string.IsNullOrEmpty(displayName))
                         state.Info.History.Add(ChatMessage.ErrorMessage($"Agent failed: **{displayName}**{errDetail}"));
-                        if (string.Equals(state.Info.ActiveAgentName, d?.AgentName, StringComparison.OrdinalIgnoreCase))
-                        {
-                            state.Info.ActiveAgentName = null;
-                            state.Info.ActiveAgentDisplayName = null;
-                        }
-                        NotifyStateChangedCoalesced();
-                    });
-                }
+                    // Always clear active agent state — even if displayName is empty
+                    if (d?.AgentName == null || string.Equals(state.Info.ActiveAgentName, d.AgentName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        state.Info.ActiveAgentName = null;
+                        state.Info.ActiveAgentDisplayName = null;
+                    }
+                    NotifyStateChangedCoalesced();
+                });
                 break;
             }
 
